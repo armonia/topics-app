@@ -1449,7 +1449,7 @@ const FPS_SELFTEST_JS: &str = r#"(async function(){
   if(!d.length){ report({error:'no frames sampled'}); return; }
   var max=0,sum=0,dropped=0,bad=0;
   for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x>20)dropped++; if(x>33)bad++; }
-  report({frames:d.length,avgFps:Math.round(1000/(sum/d.length)),maxFrameMs:Math.round(max),droppedGt20ms:dropped,droppedGt33ms:bad,toggles:6,xterms:document.querySelectorAll('.xterm').length,panes:document.querySelectorAll('[data-pane-id]').length});
+  report({frames:d.length,avgFps:Math.round(1000/(sum/d.length)),maxFrameMs:Math.round(max),droppedGt20ms:dropped,droppedGt33ms:bad,toggles:6,xterms:document.querySelectorAll('.xterm').length,visibleXterms:Array.prototype.filter.call(document.querySelectorAll('.xterm'),function(e){return e.offsetParent!==null}).length,panes:document.querySelectorAll('[data-pane-id]').length,canvasOk:(window.__canvasOk||0)});
 })();"#;
 
 /// Injected probe for the env-gated SPLIT-resize FPS self-test (`TOPICS_SPLIT_SELFTEST`).
@@ -2136,6 +2136,34 @@ pub fn run() {
                             }
                         } else {
                             eprintln!("[corner-demo] no window size");
+                        }
+                    });
+                });
+            }
+
+            // Env-gated sidebar-reclaim visual demo: park on the primary display, then
+            // toggle the sidebar so a screenshot pair (before/after) shows the content
+            // reclaiming the freed strip. OFF unless TOPICS_SIDEBAR_DEMO set.
+            #[cfg(target_os = "macos")]
+            if std::env::var("TOPICS_SIDEBAR_DEMO").is_ok() {
+                eprintln!("[sidebar-demo] armed");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(6));
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        if let Some(win) = h.get_window("main") {
+                            let _ = win.set_position(tauri::LogicalPosition::new(30.0, 80.0));
+                        }
+                    });
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    let h2 = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        if let Some(wv) = h2.get_webview("main") {
+                            let _ = wv.eval("window.__topicsToggleSidebar&&window.__topicsToggleSidebar()");
+                            eprintln!("[sidebar-demo] toggled");
                         }
                     });
                 });

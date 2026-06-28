@@ -1,34 +1,39 @@
-import { useEffect } from 'react';
-import { isTauri } from '../lib/shell';
+import { useEffect, useRef } from 'react';
 
 /**
- * Keeps the sidebar collapse/expand smooth. Two independent costs stack on a 200ms
- * sidebar `width` transition, both measured on a freed machine with 6 DOM terminals:
+ * Keeps the sidebar collapse/expand smooth AND lets the content reclaim the freed
+ * strip — the REAL push behaviour (content + terminals widen on collapse) — without the
+ * per-frame reflow that made it a 352ms freeze.
  *
- *  1. Per-frame xterm `fit()` (~+110ms): the content area resizes every frame, each
- *     terminal's ResizeObserver calls FitAddon.fit() per frame, and fit() forces a
- *     layout read + rebuilds the row DOM for the new column count. → coalesced here by
- *     dispatching `topics:sidebar-resize-start/-end` around the transition, which the
- *     terminal resize effect already brackets (same mechanism as a divider drag) to
- *     hold fits and run exactly one at the settled size. Platform-agnostic.
- *  2. Per-frame terminal LAYOUT (~340ms): even with fit held, the row DOM re-flows on
- *     every frame as the container width animates. → skipped via the CSS rule
- *     `html.sidebar-animating .xterm { content-visibility: hidden }` for the slide;
- *     the terminals lay out once when the class drops on transitionend. WebKit-only
- *     (Tauri) — it briefly blanks the terminal screen, and Chromium/Electron lays the
- *     rows out fast enough not to need it, so Electron is left untouched.
+ * The cost: animating the content width (paddingLeft) re-flows every mounted DOM xterm
+ * EVERY frame of the 200ms slide (~200× a full row-grid relayout = the 352ms). The fix
+ * is DEFER-RECLAIM: during the slide the sidebar moves via a composited translateX and
+ * the content's paddingLeft is left UNCHANGED (zero container resize, ResizeObserver
+ * never fires → zero reflow for the whole slide). On transitionend we commit the reclaim
+ * in ONE discrete step — flip paddingLeft to its target (a single layout pass, the same
+ * ~80ms one-shot the divider-drag RELEASE already costs) — then fire ONE coalesced
+ * `fit()` at the settled width. ~200 janky frames → one settle. No blanking, no
+ * content-visibility kludge, glass preserved.
  *
- * Together: ~300ms → ~82ms (one settle layout+fit at the end). A separate event from
- * `pane-resize-*` is used so this doesn't fight useFloatingVibrancy's frost tracking,
- * which on the sidebar is owned by its own (candidate-A) transition handler.
+ * `commitReclaim` (from App.tsx) flips the committed paddingLeft to the live collapsed
+ * state; we also write it directly to #main-content in the same frame so React batching
+ * can't leave a 1-frame gap before the fit measures the new width.
+ *
+ * In OVERLAY mode the sidebar animates `transform`, not `width`, so we bracket on either
+ * property. A separate event from `pane-resize-*` keeps this off useFloatingVibrancy's
+ * frost tracking.
  */
-export function useSidebarFitCoalesce(): void {
+export function useSidebarFitCoalesce(opts?: { commitReclaim?: () => void }): void {
+  const commitRef = useRef(opts?.commitReclaim);
+  commitRef.current = opts?.commitReclaim;
+
   useEffect(() => {
-    const root = document.documentElement;
     const sidebar = () =>
       document.querySelector<HTMLElement>('[role="navigation"][aria-label="Topics sidebar"]');
-    const isSidebarWidth = (e: TransitionEvent) =>
-      e.propertyName === 'width' && e.target instanceof Element && e.target === sidebar();
+    // Overlay mode slides via `transform`; push mode via `width`. Bracket on either.
+    const isSidebarSlide = (e: TransitionEvent) =>
+      (e.propertyName === 'transform' || e.propertyName === 'width') &&
+      e.target instanceof Element && e.target === sidebar();
 
     let active = false;
     let safety = 0;
@@ -37,32 +42,30 @@ export function useSidebarFitCoalesce(): void {
       if (active) return;
       active = true;
       cancelAnimationFrame(revealRaf); // drop a pending reveal-fit from a rapid prior toggle
-      window.dispatchEvent(new Event('topics:sidebar-resize-start')); // (1) coalesce fits — all platforms
-      if (isTauri) root.classList.add('sidebar-animating'); // (2) skip terminal layout — WebKit only
+      window.dispatchEvent(new Event('topics:sidebar-resize-start')); // hold fits during the slide
     };
     const end = () => {
       if (!active) return;
       active = false;
       clearTimeout(safety);
-      // Reveal the terminals FIRST (drop the content-visibility class), then fit on the
-      // NEXT frame. FitAddon measures the rendered glyph cell to compute columns, so a
-      // fit while `.xterm` is still content-visibility:hidden can read stale/zero cell
-      // dims and resize to the wrong size; the rAF lets the just-revealed terminal paint
-      // before we fit (mirrors SingleTerminalPane's own become-active re-fit).
-      root.classList.remove('sidebar-animating');
+      // Commit the reclaim NOW (discrete paddingLeft flip = one layout pass), authoritative
+      // direct-DOM write so React batching can't delay it past the fit. Then on the NEXT
+      // frame run exactly one fit() at the just-settled width (the rAF lets the new width
+      // paint first — FitAddon measures the rendered glyph cell to compute columns).
+      commitRef.current?.();
       cancelAnimationFrame(revealRaf);
       revealRaf = requestAnimationFrame(() => window.dispatchEvent(new Event('topics:sidebar-resize-end')));
     };
 
     const onRun = (e: TransitionEvent) => {
-      if (!isSidebarWidth(e)) return;
+      if (!isSidebarSlide(e)) return;
       start();
       // If transitionend never arrives (interrupted/cancelled with no event), release
-      // after the longest plausible slide so terminals can't stay un-fitted/hidden.
+      // after the longest plausible slide so terminals can't stay un-fitted.
       clearTimeout(safety);
       safety = window.setTimeout(end, 500);
     };
-    const onEnd = (e: TransitionEvent) => { if (isSidebarWidth(e)) end(); };
+    const onEnd = (e: TransitionEvent) => { if (isSidebarSlide(e)) end(); };
 
     document.addEventListener('transitionrun', onRun, true);
     document.addEventListener('transitionend', onEnd, true);
@@ -73,7 +76,6 @@ export function useSidebarFitCoalesce(): void {
       document.removeEventListener('transitioncancel', onEnd, true);
       clearTimeout(safety);
       cancelAnimationFrame(revealRaf);
-      root.classList.remove('sidebar-animating');
     };
   }, []);
 }
