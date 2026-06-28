@@ -27,6 +27,11 @@ static QUITTING: AtomicBool = AtomicBool::new(false);
 /// Reset; stepped ±10 and clamped to [50, 300].
 static ZOOM_PERCENT: AtomicI64 = AtomicI64::new(100);
 
+/// Always-on-top (floating) state of the main window. Toggled by the global
+/// hotkey Cmd/Ctrl+Alt+T and the View ▸ Always on Top menu item — Electron parity
+/// (electron-app/main.ts toggleAlwaysOnTop, same Cmd+Alt+T global shortcut).
+static ALWAYS_ON_TOP: AtomicBool = AtomicBool::new(false);
+
 /// Per-process footprint, mirroring (a subset of) the Electron `perf.getMetrics`
 /// shape so the status-bar dropdown can show the real desktop RAM/CPU. NOTE: on
 /// macOS the WKWebView content/GPU/network processes are XPC services reparented
@@ -240,6 +245,17 @@ fn set_theme(app: tauri::AppHandle, theme: String) {
 fn notify(app: tauri::AppHandle, title: String, body: String) {
     use tauri_plugin_notification::NotificationExt;
     let _ = app.notification().builder().title(title).body(body).show();
+}
+
+/// Toggle the main window's always-on-top (floating) state and remember it, so
+/// the global hotkey and the menu item stay in sync. Electron parity:
+/// electron-app/main.ts `toggleAlwaysOnTop` (same Cmd/Ctrl+Alt+T global shortcut).
+fn toggle_always_on_top(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let next = !ALWAYS_ON_TOP.fetch_xor(true, Ordering::Relaxed);
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.set_always_on_top(next);
+    }
 }
 
 // ─────────────────────── Per-region vibrancy (macOS) ───────────────────────
@@ -985,6 +1001,27 @@ pub fn run() {
                         .level(log::LevelFilter::Info)
                         .build(),
                 )?;
+            }
+
+            // Global hotkey (Electron parity): Cmd/Ctrl+Alt+T toggles always-on-top.
+            // Only this one shortcut is registered, so the handler needn't match it.
+            // The chord registration is NON-fatal: if it's already taken system-wide
+            // we log and carry on (Electron does the same) — never block startup on it.
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{Builder as GlobalShortcutBuilder, GlobalShortcutExt, ShortcutState};
+                app.handle().plugin(
+                    GlobalShortcutBuilder::new()
+                        .with_handler(|app, _shortcut, event| {
+                            if event.state == ShortcutState::Pressed {
+                                toggle_always_on_top(app);
+                            }
+                        })
+                        .build(),
+                )?;
+                if let Err(e) = app.handle().global_shortcut().register("CommandOrControl+Alt+T") {
+                    log::warn!("[topics] Cmd+Alt+T global shortcut not registered: {e}");
+                }
             }
 
             // Dev hot-reload (Electron-parity). In `tauri dev` the frontendDist is
