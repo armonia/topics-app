@@ -727,11 +727,20 @@ function App() {
         role="navigation"
         aria-label="Topics sidebar"
         className={`bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
-          isMobile ? 'fixed inset-y-0 left-0 z-50 w-full' : ''
+          isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
+            : (appSettings.overlaySidebar && isDesktop ? 'fixed inset-y-0 left-0 z-40 shadow-2xl' : '')
         }`}
         style={{
-          width: isMobile ? (sidebarCollapsed ? 0 : '100vw') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
-          transform: isMobile && sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
+          // Overlay mode (desktop, opt-in): keep the width CONSTANT and collapse via a
+          // composited translateX so the content area never resizes — no per-toggle
+          // terminal relayout. Push mode (default): animate width 0↔sidebarWidth.
+          width: isMobile
+            ? (sidebarCollapsed ? 0 : '100vw')
+            : (appSettings.overlaySidebar && isDesktop)
+              ? `${sidebarWidth}px`
+              : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
+          transform: ((isMobile && sidebarCollapsed) || (appSettings.overlaySidebar && isDesktop && sidebarCollapsed))
+            ? 'translateX(-100%)' : 'translateX(0)',
           // Safe-area top inset applied UNCONDITIONALLY: env() self-zeroes when
           // there's no inset (desktop, non-notched), so gating it on isPWA was
           // the bug that left content clipped under the notch when the app is

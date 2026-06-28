@@ -1225,6 +1225,14 @@ export interface AppSettings {
   // easier to read. Gated to Electron (relies on native vibrancy) and ignored
   // on web/PWA. Surfaced in Settings → Appearance. Defaults OFF.
   floatingSplits: boolean;
+  // Desktop-only. When on, the sidebar OVERLAYS the content (slides in/out via a
+  // GPU-composited transform) instead of PUSHING it (animating the flex width).
+  // Pushing resizes the content area every frame, forcing all mounted DOM
+  // terminals to re-fit/re-layout on the settle frame (~the only sidebar-toggle
+  // frame drop left); overlaying keeps the content width constant → zero terminal
+  // relayout → no frame drop. Trade-off: the open sidebar covers the left strip of
+  // content. Surfaced in Settings → Appearance. Defaults OFF (push stays default).
+  overlaySidebar: boolean;
   // EXPERIMENTAL. When on, the standalone grid renders through the unified
   // n-ary split-tree engine (layoutTree + <SplitTree>) instead of the legacy
   // PanelGrid row/column/cellStack renderer. Geometry is byte-identical (proven
