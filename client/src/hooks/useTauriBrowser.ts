@@ -14,9 +14,12 @@
  * always composite above the DOM, so z-index can't help) we park it OFF-SCREEN,
  * the Tauri analogue of Electron's `setBounds({0,0,0,0})`.
  *
- * Capabilities not yet wired (return inert stubs): DevTools, find-in-page, zoom,
- * device emulation, console capture, nav-history menu, agent CDP. Navigation +
- * geometry + show/hide (the "solido" core) are live.
+ * Live: navigation + geometry + show/hide (the "solido" core), DevTools, find-in-page,
+ * zoom, device emulation, console capture, downloads, select-element. Partial/stub:
+ * nav-history menu (getNavEntries returns empty — WKBackForwardList not bridged) and full
+ * agent control (5/13 ops via tauriBrowserOps; observe/act fall back to server streaming).
+ * url/title/loading are reflected by an 800ms eval poll (WKNavigationDelegate not bridged;
+ * see PORTING-PLAN §8.1), gated on visibility so only the active pane polls.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { tauriInvoke } from '../lib/shell/tauri';
