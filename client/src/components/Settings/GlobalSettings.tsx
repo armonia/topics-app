@@ -262,12 +262,17 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
             onChange={(v) => onChange('floatingSplits', v)}
           />
 
-          <ToggleRow
-            label="Overlay sidebar"
-            description="Slide the sidebar over the content instead of pushing it — no frame drop on open/close, but it covers the left edge of the content while open."
-            value={settings.overlaySidebar}
-            onChange={(v) => onChange('overlaySidebar', v)}
-          />
+          {/* Tauri (WebKit) re-flows DOM terminals every frame in push mode, so overlay
+              is FORCED there (App.tsx desktopOverlay) — no toggle to offer. Electron
+              lays out fast enough, so it keeps the choice. */}
+          {!isTauri && (
+            <ToggleRow
+              label="Overlay sidebar"
+              description="Slide the sidebar over the content instead of pushing it — no frame drop on open/close, but it covers the left edge of the content while open."
+              value={settings.overlaySidebar}
+              onChange={(v) => onChange('overlaySidebar', v)}
+            />
+          )}
 
           {isTauri && (
             <ToggleRow
