@@ -849,6 +849,78 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Run `js` in a webview and return its result stringified — the read-side agent
+/// primitive (extract / read DOM / get url+title) for the native browser pane,
+/// the part `webview.eval()` can't do (it's fire-and-forget; good for click/fill/
+/// scroll, but discards return values, and the external pane origin has no Tauri
+/// IPC to call back through). So we drop to the WKWebView and call
+/// `evaluateJavaScript:completionHandler:` directly, bridging the async handler
+/// back to this synchronous command over a one-shot channel. MUST be invoked off
+/// the main thread (Tauri commands are — the handler runs ON main, we block a
+/// worker on `rx`). macOS only; Win/Linux need WebView2/WebKitGTK equivalents.
+#[cfg(target_os = "macos")]
+fn eval_js_blocking(wv: &tauri::Webview, js: String) -> Result<String, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    wv.with_webview(move |platform| {
+        use cocoa::base::{id, nil};
+        use cocoa::foundation::NSString;
+        use objc::{msg_send, sel, sel_impl};
+        use std::ffi::CStr;
+        use std::os::raw::c_char;
+        unsafe fn id_to_string(obj: cocoa::base::id) -> String {
+            use cocoa::base::nil;
+            use objc::{msg_send, sel, sel_impl};
+            use std::ffi::CStr;
+            use std::os::raw::c_char;
+            if obj == nil {
+                return String::new();
+            }
+            // `description` is defined on every NSObject and returns an NSString; for an
+            // NSString it IS the string, so this stringifies ANY JS result type safely.
+            let desc: cocoa::base::id = msg_send![obj, description];
+            let c: *const c_char = msg_send![desc, UTF8String];
+            if c.is_null() { String::new() } else { CStr::from_ptr(c).to_string_lossy().into_owned() }
+        }
+        unsafe {
+            let wk = platform.inner() as id; // WKWebView
+            let nsjs: id = NSString::alloc(nil).init_str(&js);
+            let tx2 = tx.clone();
+            let handler = block::ConcreteBlock::new(move |result: id, error: id| {
+                let out = if error != nil { Err(id_to_string(error)) } else { Ok(id_to_string(result)) };
+                let _ = tx2.send(out);
+            });
+            let handler = handler.copy();
+            let _: () = msg_send![wk, evaluateJavaScript: nsjs completionHandler: &*handler];
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| "eval timeout".to_string())?
+}
+
+/// Evaluate JS in a browser pane and return the stringified result. Read-side
+/// agent primitive for the native pane (extract DOM text, current url/title, any
+/// `JSON.stringify(...)` payload). The action ops (click/fill/scroll) go through
+/// `webview.eval()` which doesn't need a return value.
+#[tauri::command]
+fn browser_eval_js(app: tauri::AppHandle, id: String, js: String) -> Result<String, String> {
+    use tauri::Manager;
+    let wv = app
+        .get_webview(&browser_label(&id))
+        .ok_or("no such browser pane")?;
+    #[cfg(target_os = "macos")]
+    {
+        return eval_js_blocking(&wv, js);
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = (wv, js);
+        Err("browser_eval_js: macOS only".into())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1171,7 +1243,8 @@ pub fn run() {
             browser_open,
             browser_navigate,
             browser_set_bounds,
-            browser_close
+            browser_close,
+            browser_eval_js
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
