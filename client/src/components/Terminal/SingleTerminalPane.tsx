@@ -532,16 +532,24 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    let resizing = false;
+    // REF-COUNT, not a bare boolean: pane-resize (divider drag) and sidebar-resize
+    // (collapse/expand) are INDEPENDENT brackets that can overlap. A bare flag let a
+    // sidebar-resize-end clear `resizing` mid divider-drag → per-frame fit thrash for
+    // the rest of the drag. Count concurrent brackets; only resume fits at depth 0.
+    // Mirrors NativeBrowserPlaceholder's drag ref-count.
+    let resizeDepth = 0;
     let missed = false;
     const fit = () => { if (termRef.current) { try { termRef.current.fit.fit(); } catch {} } };
     // Stagger fits ONE PER FRAME (staggeredFit): N terminals fitting in one tick thrash
     // layout (each fit reads layout after the previous wrote → full reflow per fit →
     // ~570ms for 8 on a sidebar reclaim). Spreading lets layout settle between fits so
     // each is cheap, and the app stays interactive. Dedupes per terminal.
-    const handleResize = () => { if (resizing) { missed = true; return; } enqueueFit(fit); };
-    const onResizeStart = () => { resizing = true; };
-    const onResizeEnd = () => { resizing = false; if (missed) { missed = false; enqueueFit(fit); } };
+    const handleResize = () => { if (resizeDepth > 0) { missed = true; return; } enqueueFit(fit); };
+    const onResizeStart = () => { resizeDepth += 1; };
+    const onResizeEnd = () => {
+      resizeDepth = Math.max(0, resizeDepth - 1);
+      if (resizeDepth === 0 && missed) { missed = false; enqueueFit(fit); }
+    };
     const observer = new ResizeObserver(handleResize);
     observer.observe(el);
     // Coalesce fits during BOTH a divider drag (pane-resize-*) and a sidebar

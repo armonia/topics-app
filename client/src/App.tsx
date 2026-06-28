@@ -148,9 +148,11 @@ function App() {
   // desktop while each panel frosts; host-resolved internally, no-op off-mac/web.
   useFloatingVibrancy(appSettings.floatingSplits);
   // Overlay sidebar: floats over the content via a composited translateX. The slide
-  // itself reflows NOTHING (pad is held); the content reclaims the freed strip in ONE
-  // discrete step at slide-end (see reclaimedCollapsed / commitReclaim below) — the real
-  // push behaviour, but without the per-frame freeze. FORCED on Tauri (WebKit's DOM
+  // itself composites cheaply; the content's paddingLeft ANIMATES in lockstep with the
+  // 200ms slide (see the content style below: paddingLeft bound to sidebarCollapsed,
+  // `transition: padding-left 200ms`, dropped to `none` and snapped in one step when
+  // `manyTerminals` so per-frame terminal re-fit jank is avoided) — a real synchronised
+  // push without the per-frame freeze. FORCED on Tauri (WebKit's DOM
   // renderer re-flows terminals expensively; paired with the canvas renderer +
   // staggered fit so the settle stays cheap). Electron keeps the user's setting.
   const desktopOverlay = isDesktop && (isTauri || appSettings.overlaySidebar);
