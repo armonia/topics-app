@@ -158,7 +158,7 @@ function useBackToSpawner(
  */
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl);
-  useReportBrowserActivity(contextId, browser.loading);
+  useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
   const focusUrlBarRef = useRef<(() => void) | null>(null);
@@ -256,6 +256,8 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         onToggleDevTools={browser.toggleDevTools}
         onBackToSpawner={backToSpawner?.onBackToSpawner}
         spawnerLabel={backToSpawner?.spawnerLabel}
+        agentActive={browser.agentActive}
+        agentAction={browser.agentAction}
         onZoom={browser.setZoom}
         deviceMode={browser.deviceMode}
         onSetDevice={browser.setDevice}
