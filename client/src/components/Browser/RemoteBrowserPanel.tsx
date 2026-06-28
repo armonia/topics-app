@@ -198,7 +198,8 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
       const isUrlBar = (target as HTMLInputElement | null)?.dataset?.testid === 'browser-url-input';
       if (isTextField && !isUrlBar) return;
       const k = e.key.toLowerCase();
-      if (!e.altKey && !e.shiftKey && k === 'l') { e.preventDefault(); focusUrlBarRef.current?.(); }
+      if (e.altKey && k === 'i') { e.preventDefault(); void browser.toggleDevTools(); }
+      else if (!e.altKey && !e.shiftKey && k === 'l') { e.preventDefault(); focusUrlBarRef.current?.(); }
       else if (!e.altKey && !e.shiftKey && k === 'r') { e.preventDefault(); void browser.reload(); }
       else if (!e.altKey && !e.shiftKey && e.key === '[') { e.preventDefault(); void browser.goBack(); }
       else if (!e.altKey && !e.shiftKey && e.key === ']') { e.preventDefault(); void browser.goForward(); }
@@ -248,6 +249,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         history={history}
         faviconUrl={browser.faviconUrl}
         onRegisterFocus={(fn) => { focusUrlBarRef.current = fn; }}
+        onToggleDevTools={browser.toggleDevTools}
         onBackToSpawner={backToSpawner?.onBackToSpawner}
         spawnerLabel={backToSpawner?.spawnerLabel}
         onZoom={browser.setZoom}
