@@ -1,32 +1,18 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 /**
- * Keeps the sidebar collapse/expand smooth AND lets the content reclaim the freed
- * strip — the REAL push behaviour (content + terminals widen on collapse) — without the
- * per-frame reflow that made it a 352ms freeze.
- *
- * The cost: animating the content width (paddingLeft) re-flows every mounted DOM xterm
- * EVERY frame of the 200ms slide (~200× a full row-grid relayout = the 352ms). The fix
- * is DEFER-RECLAIM: during the slide the sidebar moves via a composited translateX and
- * the content's paddingLeft is left UNCHANGED (zero container resize, ResizeObserver
- * never fires → zero reflow for the whole slide). On transitionend we commit the reclaim
- * in ONE discrete step — flip paddingLeft to its target (a single layout pass, the same
- * ~80ms one-shot the divider-drag RELEASE already costs) — then fire ONE coalesced
- * `fit()` at the settled width. ~200 janky frames → one settle. No blanking, no
- * content-visibility kludge, glass preserved.
- *
- * `commitReclaim` (from App.tsx) flips the committed paddingLeft to the live collapsed
- * state; we also write it directly to #main-content in the same frame so React batching
- * can't leave a 1-frame gap before the fit measures the new width.
+ * Keeps the sidebar collapse/expand smooth while the content does a REAL synchronised
+ * push (paddingLeft animates in lockstep with the sidebar's 200ms slide — the content
+ * widens as the sidebar leaves). Animating the content width re-flows every mounted xterm
+ * each frame; we HOLD the fits for the slide and run exactly ONE at the settled width
+ * (`topics:sidebar-resize-start/-end`, the same bracket a divider drag uses), and the
+ * canvas renderer (Tauri) keeps the per-frame box relayout cheap.
  *
  * In OVERLAY mode the sidebar animates `transform`, not `width`, so we bracket on either
  * property. A separate event from `pane-resize-*` keeps this off useFloatingVibrancy's
  * frost tracking.
  */
-export function useSidebarFitCoalesce(opts?: { commitReclaim?: () => void }): void {
-  const commitRef = useRef(opts?.commitReclaim);
-  commitRef.current = opts?.commitReclaim;
-
+export function useSidebarFitCoalesce(): void {
   useEffect(() => {
     const sidebar = () =>
       document.querySelector<HTMLElement>('[role="navigation"][aria-label="Topics sidebar"]');
@@ -48,11 +34,8 @@ export function useSidebarFitCoalesce(opts?: { commitReclaim?: () => void }): vo
       if (!active) return;
       active = false;
       clearTimeout(safety);
-      // Commit the reclaim NOW (discrete paddingLeft flip = one layout pass), authoritative
-      // direct-DOM write so React batching can't delay it past the fit. Then on the NEXT
-      // frame run exactly one fit() at the just-settled width (the rAF lets the new width
-      // paint first — FitAddon measures the rendered glyph cell to compute columns).
-      commitRef.current?.();
+      // Run exactly one fit() at the settled width on the next frame (the rAF lets the
+      // final width paint first — FitAddon measures the rendered glyph cell for columns).
       cancelAnimationFrame(revealRaf);
       revealRaf = requestAnimationFrame(() => window.dispatchEvent(new Event('topics:sidebar-resize-end')));
     };
