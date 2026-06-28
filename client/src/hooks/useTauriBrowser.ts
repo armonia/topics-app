@@ -23,6 +23,7 @@ import { tauriInvoke } from '../lib/shell/tauri';
 import { isOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
 import type { NativeBrowserHandle } from './useNativeBrowser';
 import type { DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
+import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
 
 /** Parking spot far outside any display — keeps the webview alive (no reload)
  *  while hidden, vs destroying it. Matches Electron's zero-bounds hide intent. */
@@ -47,33 +48,58 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
   const [faviconUrl, setFaviconUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
+  const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
+  const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
   const zoomRef = useRef(100); // page zoom percent (CSS-driven via exec_js)
   const consoleIdRef = useRef(0);
+  // Device emulation: when set, the pane is letterboxed to these dims inside its
+  // layout slot (centered) + a device UA is applied. null = desktop (full slot).
+  const deviceDimsRef = useRef<{ width: number; height: number } | null>(null);
 
   const openedRef = useRef(false);
-  // Buffer the last requested rect until the webview exists, then flush it — the
-  // placeholder measures and calls setBounds before `browser_open` resolves.
+  // Buffer the last requested SLOT rect (the layout cell), flushed once the
+  // webview exists and re-used to recompute bounds on device-mode changes.
   const pendingRectRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const initialUrlRef = useRef(initialUrl);
 
+  // Apply the effective bounds = the last slot rect, letterboxed to the device
+  // dims when emulating. Centralised so device-mode switches can re-letterbox
+  // without the placeholder re-measuring.
+  const applyBounds = useCallback(() => {
+    const slot = pendingRectRef.current;
+    if (!slot || !openedRef.current) return;
+    const hide = slot.width <= 0 || slot.height <= 0 || isOccluded();
+    let rect = slot;
+    const dims = deviceDimsRef.current;
+    if (!hide && dims) {
+      const w = Math.min(dims.width, slot.width);
+      const h = Math.min(dims.height, slot.height);
+      rect = { x: slot.x + (slot.width - w) / 2, y: slot.y + (slot.height - h) / 2, width: w, height: h };
+    } else if (hide) {
+      rect = OFFSCREEN;
+    }
+    void tauriInvoke('browser_set_bounds', {
+      id,
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    }).catch(() => {});
+  }, [id]);
+
   const setBounds = useCallback(
     (b: { x: number; y: number; width: number; height: number }) => {
-      // Park off-screen for an explicit zero-rect (drag/resize/hidden) OR while an
-      // HTML overlay is open over it (native views composite above the DOM, so a
-      // dropdown/modal would otherwise be hidden behind the page).
-      const hide = b.width <= 0 || b.height <= 0 || isOccluded();
-      const rect = hide ? OFFSCREEN : b;
-      if (b.width > 0 && b.height > 0) pendingRectRef.current = b; // remember the real rect
-      if (!openedRef.current) return; // flushed once open resolves
-      void tauriInvoke('browser_set_bounds', {
-        id,
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      }).catch(() => {});
+      if (b.width > 0 && b.height > 0) {
+        pendingRectRef.current = b; // remember the real SLOT rect
+        applyBounds(); // show (letterboxed if emulating; off-screen if occluded)
+      } else if (openedRef.current) {
+        // Explicit zero-rect = hide (drag/resize in flight, pane inactive, or an
+        // HTML overlay over it — native views composite above the DOM). Park it,
+        // keeping the stored slot so the next real rect restores it.
+        void tauriInvoke('browser_set_bounds', { id, ...OFFSCREEN }).catch(() => {});
+      }
     },
-    [id],
+    [applyBounds, id],
   );
 
   // Overlay occlusion: park the webview while a dropdown/menu/modal is open,
@@ -233,6 +259,43 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     warnings: consoleEntries.reduce((n, e) => (e.level === 'warn' ? n + 1 : n), 0),
   };
 
+  // Device emulation: pick the preset's dims + UA, letterbox the pane to them and
+  // reload so the custom UA takes effect (WKWebView applies it on next load). The
+  // UA override also flips navigator.userAgent, so emulation is real, not just a
+  // resize. desktop/auto reset both.
+  const setDevice = useCallback(
+    (mode: DeviceMode, custom?: { width: number; height: number; deviceScaleFactor?: number }) => {
+      setDeviceMode(mode);
+      let dims: { width: number; height: number } | null = null;
+      let ua = '';
+      if (mode === 'mobile' || mode === 'tablet') {
+        const p = DEVICE_PRESETS[mode];
+        if (p.width && p.height) dims = { width: p.width, height: p.height };
+        ua = p.userAgent ?? '';
+      } else if (mode === 'custom' && custom) {
+        dims = { width: Math.round(custom.width), height: Math.round(custom.height) };
+      }
+      deviceDimsRef.current = dims;
+      setResponsiveSizeState(mode === 'custom' ? dims : null);
+      void tauriInvoke('browser_set_user_agent', { id, ua })
+        .then(() => tauriInvoke('browser_reload', { id }))
+        .catch(() => {});
+      applyBounds();
+    },
+    [id, applyBounds],
+  );
+
+  const setResponsiveSize = useCallback(
+    (width: number, height: number) => {
+      const dims = { width: Math.round(width), height: Math.round(height) };
+      deviceDimsRef.current = dims;
+      setResponsiveSizeState(dims);
+      setDeviceMode('custom');
+      applyBounds();
+    },
+    [applyBounds],
+  );
+
   return {
     url,
     title,
@@ -253,10 +316,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string): NativeB
     stopFind,
     onFindResult: () => () => {},
     setZoom,
-    deviceMode: 'desktop' as DeviceMode,
-    setDevice: () => {},
-    responsiveSize: null,
-    setResponsiveSize: () => {},
+    deviceMode,
+    setDevice,
+    responsiveSize,
+    setResponsiveSize,
     consoleEntries,
     consoleSummary,
     clearConsole,
