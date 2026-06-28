@@ -402,7 +402,7 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
         // resize cover so the per-region cards + clear gaps come back. Own lock
         // scope, before `vibrancy_views`, matching the cover handler's lock order.
         {
-            let mut cover = vibrancy_cover_slot().lock().unwrap();
+            let mut cover = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
             if *cover != 0 {
                 let v = *cover as id;
                 let _: () = msg_send![v, removeFromSuperview];
@@ -412,7 +412,7 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
         let bounds: NSRect = msg_send![content_view, bounds];
         let content_h = bounds.size.height;
 
-        let mut map = vibrancy_views().lock().unwrap();
+        let mut map = vibrancy_views().lock().unwrap_or_else(|e| e.into_inner());
         let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         // CRITICAL for perf: a layer-backed NSView's setFrame/setCornerRadius triggers
@@ -535,7 +535,7 @@ fn apply_vibrancy_animation(window: &tauri::Window, regions: Vec<VibRegion>, dur
         // Tear down any window-resize cover so the per-region cards animate (parity
         // with apply_vibrancy_regions' lock order).
         {
-            let mut cover = vibrancy_cover_slot().lock().unwrap();
+            let mut cover = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
             if *cover != 0 {
                 let v = *cover as id;
                 let _: () = msg_send![v, removeFromSuperview];
@@ -544,7 +544,7 @@ fn apply_vibrancy_animation(window: &tauri::Window, regions: Vec<VibRegion>, dur
         }
         let bounds: NSRect = msg_send![content_view, bounds];
         let content_h = bounds.size.height;
-        let map = vibrancy_views().lock().unwrap();
+        let map = vibrancy_views().lock().unwrap_or_else(|e| e.into_inner());
 
         let tf = ca_timing_for(timing);
         let _: () = msg_send![class!(NSAnimationContext), beginGrouping];
@@ -656,7 +656,7 @@ fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
         if content_view == nil {
             return;
         }
-        let cover = vibrancy_cover_slot().lock().unwrap();
+        let cover = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
         // A programmatic / spurious *same-size* `Resized` (tray re-show, Space or
         // display switch, scale/focus change all emit one at the SAME size) must NOT
         // raise a cover here: there is no continuous drag to hide, and the cover's
@@ -693,12 +693,12 @@ unsafe fn vibrancy_begin_cover(ns_window: cocoa::base::id) {
     if content_view == nil {
         return;
     }
-    let mut cover = vibrancy_cover_slot().lock().unwrap();
+    let mut cover = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
     if *cover != 0 {
         return; // already covering
     }
     {
-        let mut map = vibrancy_views().lock().unwrap();
+        let mut map = vibrancy_views().lock().unwrap_or_else(|e| e.into_inner());
         if map.is_empty() {
             return; // nothing placed yet — don't frost a bare window
         }
@@ -769,7 +769,15 @@ fn live_resize_observer_instance() -> cocoa::base::id {
 }
 
 /// Wire the live-resize notifications for one window's NSWindow to the cover swap.
-/// Idempotent per process is NOT required (each window registers its own observer).
+///
+/// INVARIANT: this app has exactly ONE persistent top-level window ('main', created at
+/// startup, never torn down — browser panes are child webviews, not windows). The
+/// NSNotificationCenter observer registered here is therefore intentionally NEVER
+/// removed: it lives as long as the window, i.e. the whole process. If a SECOND
+/// top-level NSWindow is ever introduced AND can close, add a matching `removeObserver`
+/// on its close — otherwise its observer dangles at a freed NSWindow (use-after-free on
+/// the next live-resize notification). Each window registers its own observer, so this
+/// need not be idempotent per process.
 #[cfg(target_os = "macos")]
 fn wire_live_resize_cover(window: &tauri::WebviewWindow) {
     use cocoa::base::{id, nil};
@@ -923,6 +931,19 @@ fn browser_corner_cache() -> &'static std::sync::Mutex<std::collections::HashMap
     C.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// Per-pane cache of the LAST applied rect (x,y,w,h). `browser_set_bounds` is also
+/// driven by the placeholder's bounds-tracking poll / ResizeObserver, which re-push
+/// the SAME rect when nothing actually moved; setting identical bounds is a no-op, so
+/// we skip the move FFI + the window-size FFI + the corner mask on those frames.
+/// Every move goes through `browser_set_bounds`, so the cache stays in lockstep with
+/// the real webview position. Cross-platform (the move calls aren't macOS-specific).
+fn browser_bounds_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, (f64, f64, f64, f64)>> {
+    static B: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, (f64, f64, f64, f64)>>,
+    > = std::sync::OnceLock::new();
+    B.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 #[cfg(target_os = "macos")]
 fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f64, h: f64, win_w: f64, win_h: f64) {
     const RADIUS: f64 = 10.0; // standard macOS window corner radius
@@ -1065,6 +1086,14 @@ fn browser_open(
                             };
                             let id = DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst);
                             if let Ok(mut p) = DOWNLOAD_PENDING.lock() {
+                                // Bound the pending set: an orphaned Requested (cancelled /
+                                // redirected URL / no matching Finished) would otherwise leak
+                                // for the process lifetime. 64 is far more than ever in flight;
+                                // evict oldest-first.
+                                if p.len() >= 64 {
+                                    let overflow = p.len() - 63;
+                                    p.drain(0..overflow);
+                                }
                                 p.push((url_s.clone(), id, saved.clone()));
                             }
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
@@ -1150,6 +1179,20 @@ fn browser_set_bounds(
     let wv = app
         .get_webview(&browser_label(&id))
         .ok_or("no such browser pane")?;
+    // Skip redundant identical re-pushes (poll / ResizeObserver re-send the same rect
+    // when nothing moved): setting identical bounds is a no-op, so we avoid the move FFI
+    // + window-size FFI + corner mask on those frames.
+    let rect = (x, y, width, height);
+    {
+        let mut g = match browser_bounds_cache().lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        if g.get(&id) == Some(&rect) {
+            return Ok(());
+        }
+        g.insert(id.clone(), rect);
+    }
     wv.set_position(tauri::LogicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
     wv.set_size(tauri::LogicalSize::new(width.max(1.0), height.max(1.0)))
@@ -1171,7 +1214,10 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     if let Some(wv) = app.get_webview(&browser_label(&id)) {
         wv.close().map_err(|e| e.to_string())?;
     }
-    // Drop the corner-mask cache entry so a re-opened pane on the same id re-applies.
+    // Drop the cache entries so a re-opened pane on the same id re-applies move + mask.
+    if let Ok(mut g) = browser_bounds_cache().lock() {
+        g.remove(&id);
+    }
     #[cfg(target_os = "macos")]
     if let Ok(mut g) = browser_corner_cache().lock() {
         g.remove(&id);
