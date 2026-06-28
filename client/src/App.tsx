@@ -156,6 +156,13 @@ function App() {
   // Coalesce xterm fit() across the sidebar collapse/expand (one fit at the settled
   // size instead of per-frame) so the slide doesn't jank from terminal re-fits.
   useSidebarFitCoalesce();
+  // Diagnostic (Tauri): expose the sidebar toggle so the env-gated FPS self-test
+  // (TOPICS_FPS_SELFTEST, injected at boot by src-tauri) can drive a real
+  // collapse/expand and sample rAF frame timing. Inert when the test isn't running.
+  useEffect(() => {
+    if (!isTauri) return;
+    (window as unknown as { __topicsToggleSidebar?: () => void }).__topicsToggleSidebar = toggleSidebar;
+  }, [toggleSidebar]);
   // Stop the always-running loaders / awaiting-pulse breathers from burning the
   // compositor while the window is backgrounded (minimized / occluded / blurred).
   useAnimationPause();

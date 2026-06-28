@@ -1298,6 +1298,41 @@ fn browser_release_focus(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Injected probe for the env-gated sidebar FPS self-test: samples rAF frame deltas
+/// while driving 6 real sidebar collapse/expands (via the diagnostic global App.tsx
+/// exposes), then posts a frame-timing summary to `fps_report`. A composited
+/// translateX (overlay mode) should yield ~60fps with zero dropped frames.
+const FPS_SELFTEST_JS: &str = r#"(async function(){
+  function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+  function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
+  // The React app may mount after this injects — poll for the diagnostic toggle.
+  var toggle=null;
+  for(var k=0;k<40;k++){ toggle=window.__topicsToggleSidebar; if(typeof toggle==='function')break; await sleep(500); }
+  if(typeof toggle!=='function'){ report({error:'no __topicsToggleSidebar after 20s'}); return; }
+  var deltas=[],last=0,running=true;
+  function loop(t){ if(last)deltas.push(t-last); last=t; if(running)requestAnimationFrame(loop); }
+  requestAnimationFrame(loop);
+  await sleep(400);
+  for(var i=0;i<6;i++){ try{toggle()}catch(e){} await sleep(350); }
+  running=false;
+  var d=deltas.filter(function(x){return x>0&&x<2000});
+  if(!d.length){ report({error:'no frames sampled'}); return; }
+  var max=0,sum=0,dropped=0,bad=0;
+  for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x>20)dropped++; if(x>33)bad++; }
+  report({frames:d.length,avgFps:Math.round(1000/(sum/d.length)),maxFrameMs:Math.round(max),droppedGt20ms:dropped,droppedGt33ms:bad,toggles:6});
+})();"#;
+
+/// Diagnostic sink for the FPS self-test: the injected probe posts its frame-timing
+/// summary here and we persist it to a fixed path the driver reads. Inert unless the
+/// self-test runs.
+#[tauri::command]
+fn fps_report(result: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from("/tmp/topics-fps-selftest.json");
+    std::fs::write(&path, &result).map_err(|e| e.to_string())?;
+    eprintln!("[fps-selftest] {result}");
+    Ok(())
+}
+
 /// Override the pane's User-Agent (device emulation). WKWebView
 /// `setCustomUserAgent:` — empty string resets to the default. Takes effect on
 /// the next load, so the client reloads after setting it. macOS only.
@@ -1545,6 +1580,36 @@ pub fn run() {
                 });
             }
 
+            // Env-gated sidebar FPS self-test: drive real collapse/expands and sample
+            // rAF frame timing, writing the summary to /tmp/topics-fps-selftest.json.
+            // OFF unless TOPICS_FPS_SELFTEST is set; works in release (not cfg(debug)).
+            if std::env::var("TOPICS_FPS_SELFTEST").is_ok() {
+                eprintln!("[fps-selftest] armed");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(7));
+                    let h = handle.clone();
+                    // The window registry is only reliably reachable on the main thread,
+                    // and this multi-webview app exposes the UI as get_webview("main")
+                    // (not a unified WebviewWindow — see browser_release_focus).
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        if let Some(wv) = h.get_webview("main") {
+                            eprintln!("[fps-selftest] injecting via get_webview(main)");
+                            match wv.eval(FPS_SELFTEST_JS) {
+                                Ok(()) => eprintln!("[fps-selftest] eval ok"),
+                                Err(e) => eprintln!("[fps-selftest] eval err: {e}"),
+                            }
+                        } else if let Some(win) = h.get_webview_window("main") {
+                            eprintln!("[fps-selftest] injecting via get_webview_window(main)");
+                            let _ = win.eval(FPS_SELFTEST_JS);
+                        } else {
+                            eprintln!("[fps-selftest] no main webview/window");
+                        }
+                    });
+                });
+            }
+
             // Start the loopback TLS-origination proxy so the shell can reach the
             // data server (whose cert WKWebView rejects) over plain HTTP/WS.
             tauri::async_runtime::spawn(run_tls_proxy());
@@ -1657,6 +1722,7 @@ pub fn run() {
             browser_set_user_agent,
             browser_toggle_devtools,
             browser_release_focus,
+            fps_report,
             browser_take_download_events
         ])
         .run(tauri::generate_context!())
