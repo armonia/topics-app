@@ -97,6 +97,8 @@
       "dist/preload.js",
       "dist/preload.js.map",
       "dist/overlay.html",
+      "dist/overlay-host.js",
+      "dist/overlay-host.js.map",
       "dist/overlay-manager.js",
       "dist/overlay-manager.js.map",
       "dist/overlay-renderer.js",

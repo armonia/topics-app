@@ -12,6 +12,6 @@
     "declaration": false,
     "sourceMap": true
   },
-  "include": ["main.ts", "preload.ts", "openclaw-puppeteer-patch.ts", "overlay-manager.ts", "overlay-preload.ts", "overlay-renderer.ts"],
+  "include": ["main.ts", "preload.ts", "openclaw-puppeteer-patch.ts", "overlay-host.ts", "overlay-manager.ts", "overlay-preload.ts", "overlay-renderer.ts"],
   "exclude": ["node_modules", "dist", "test-*.mjs"]
 }
