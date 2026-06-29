@@ -18,6 +18,8 @@ import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
 import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
+import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
+import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
 import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
@@ -146,6 +148,39 @@ function App() {
   // panel rects to the transparent window so floating-splits gaps show the clear
   // desktop while each panel frosts; host-resolved internally, no-op off-mac/web.
   useFloatingVibrancy(appSettings.floatingSplits);
+  // Overlay sidebar: floats over the content via a composited translateX. The content
+  // reveal is a FLIP (useSidebarFlipPush): the final paddingLeft is committed in ONE reflow
+  // and the visible push is a compositor-only translateX on the flip layer — so the slide
+  // is 60fps regardless of how many terminals are live, with nothing hidden/held (replaced
+  // the old manyTerminals snap). FORCED on Tauri because WebKit's DOM renderer re-flows
+  // terminals expensively — which is exactly why the push is a compositor FLIP, not a width
+  // animation; only the single staggered settle-fit at the end touches layout. Electron
+  // keeps the user's setting.
+  const desktopOverlay = isDesktop && (isTauri || appSettings.overlaySidebar);
+  // SYNCHRONISED PUSH via FLIP (useSidebarFlipPush): the content reveal is a compositor-only
+  // transform:translateX, NOT an animated paddingLeft. Animating paddingLeft (a layout prop)
+  // relayouts every visible .xterm box each frame (~25fps with 8) — which the old code dodged
+  // by SNAPPING the pad under load (a feature-disable we removed). FLIP commits the final pad
+  // in ONE reflow (terminals settle once) then slides a transform at 60fps regardless of N,
+  // with nothing hidden/held. In FLOATING-SPLITS mode the expanded pad gets the same inter-card
+  // gap (2×--float-gap = 4px) the floating sidebar card uses, matching the split-card gaps.
+  const FLOAT_SIDEBAR_GAP = 4; // px — keep in sync with index.css --float-gap (2px) ×2
+  const expandedPad = sidebarWidth + (appSettings.floatingSplits ? FLOAT_SIDEBAR_GAP : 0);
+  // Refs for the FLIP: #main-content owns the committed paddingLeft (imperative, so the layout
+  // effect can read the pre-commit position); the inner flip layer carries the translateX.
+  const mainContentRef = useRef<HTMLDivElement | null>(null);
+  const contentFlipRef = useRef<HTMLDivElement | null>(null);
+  useSidebarFlipPush(mainContentRef, contentFlipRef, { collapsed: sidebarCollapsed, expandedPad, enabled: desktopOverlay });
+  // Coalesce xterm fit() across the sidebar collapse/expand (held during the slide, one fit at
+  // the settled size) — driven off the SIDEBAR's own transform transition, untouched by FLIP.
+  useSidebarFitCoalesce();
+  // Diagnostic (Tauri): expose the sidebar toggle so the env-gated FPS self-test
+  // (TOPICS_FPS_SELFTEST, injected at boot by src-tauri) can drive a real
+  // collapse/expand and sample rAF frame timing. Inert when the test isn't running.
+  useEffect(() => {
+    if (!isTauri) return;
+    (window as unknown as { __topicsToggleSidebar?: () => void }).__topicsToggleSidebar = toggleSidebar;
+  }, [toggleSidebar]);
   // Stop the always-running loaders / awaiting-pulse breathers from burning the
   // compositor while the window is backgrounded (minimized / occluded / blurred).
   useAnimationPause();
@@ -723,11 +758,20 @@ function App() {
         role="navigation"
         aria-label="Topics sidebar"
         className={`bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
-          isMobile ? 'fixed inset-y-0 left-0 z-50 w-full' : ''
+          isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
+            : (desktopOverlay ? 'fixed inset-y-0 left-0 z-40 shadow-2xl' : '')
         }`}
         style={{
-          width: isMobile ? (sidebarCollapsed ? 0 : '100vw') : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
-          transform: isMobile && sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
+          // Overlay mode (desktop, opt-in): keep the width CONSTANT and collapse via a
+          // composited translateX so the content area never resizes — no per-toggle
+          // terminal relayout. Push mode (default): animate width 0↔sidebarWidth.
+          width: isMobile
+            ? (sidebarCollapsed ? 0 : '100vw')
+            : (desktopOverlay)
+              ? `${sidebarWidth}px`
+              : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
+          transform: ((isMobile && sidebarCollapsed) || (desktopOverlay && sidebarCollapsed))
+            ? 'translateX(-100%)' : 'translateX(0)',
           // Safe-area top inset applied UNCONDITIONALLY: env() self-zeroes when
           // there's no inset (desktop, non-notched), so gating it on isPWA was
           // the bug that left content clipped under the notch when the app is
@@ -934,13 +978,25 @@ function App() {
       )}
 
       {/* Main Content */}
-      <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
-        style={{ contain: 'layout style', paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      <div id="main-content" ref={mainContentRef} role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
+        style={{
+          contain: 'layout style',
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          // paddingLeft (the overlay-sidebar reserved column) is owned imperatively by
+          // useSidebarFlipPush — NOT a React inline style — so the FLIP can read the
+          // pre-commit position and animate the reveal as a compositor transform on the
+          // inner flip layer below. overflow:hidden here clips the over-shifted layer at
+          // the sidebar edge during the slide.
+        }}
 >
 
         {/* Connection status is now shown inline in the sidebar top line */}
+        {/* FLIP layer: carries the translateX push reveal (useSidebarFlipPush). Must keep the
+            flex column so PanelGrid sizes exactly as before. */}
+        <div ref={contentFlipRef} className="content-flip-layer flex-1 flex flex-col min-h-0 min-w-0">
         <ErrorBoundary fallbackMessage="Panel error">
         <PanelGrid
+          splitTreeEngine={appSettings.splitTreeEngine}
           openPanels={openPanels}
           focusedPanelId={focusedPanelId}
           onFocusPanel={handleFocusPanel}
@@ -988,6 +1044,7 @@ function App() {
           draftMeta={draftMeta}
         />
         </ErrorBoundary>
+        </div>{/* /content-flip-layer */}
       </div>
 
       {/* Portal dropdowns (rendered outside sidebar to escape overflow-hidden) */}

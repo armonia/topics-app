@@ -192,7 +192,14 @@ export function startClaudeTasksSync(opts: SyncOptions): SyncHandle {
     console.warn(`[claude-tasks-sync] recursive watch unsupported, polling every ${pollMs}ms: ${(err as Error).message}`);
   }
 
-  // Polling fallback.
+  // Polling backstop — runs ALONGSIDE the watcher by design, do NOT gate it on
+  // "watch failed". The recursive fs.watch above is best-effort: on macOS it is
+  // backed by FSEvents, which coalesces and can delay/drop low-latency change
+  // notifications, so the watcher alone cannot guarantee a bounded sync delay.
+  // The poll (default 5s) is the correctness guarantee; the watcher just makes
+  // the common case faster. scanNow is cheap (readdir + mtime stat of a handful
+  // of task files), so the idle cost is small. The re-ingest test depends on this
+  // poll firing at its pollMs.
   timer = setInterval(() => { if (!stopped) scanNow(); }, pollMs);
 
   return {

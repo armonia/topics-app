@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Copy, Check, RotateCw } from 'lucide-react';
+import { Copy, Check, RotateCw, Clock } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
+import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished, useTerminalReloading } from '../../state/signals';
@@ -112,6 +113,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     () => terminalSessions.some((s) => s.id === sessionId),
     [terminalSessions, sessionId],
   );
+  // Last-known session metadata, captured while the session is still in the
+  // authoritative roster. A *stale* session is ABSENT from the roster, so at
+  // overlay-time its live entry is already gone — we surface this snapshot
+  // instead so the "expired" overlay can still report id / type / cwd / resume.
+  const sessionInfo = useMemo(
+    () => terminalSessions.find((s) => s.id === sessionId),
+    [terminalSessions, sessionId],
+  );
+  const lastInfoRef = useRef<(typeof terminalSessions)[number] | null>(null);
+  useEffect(() => { if (sessionInfo) lastInfoRef.current = sessionInfo; }, [sessionInfo]);
   const sessionListedRef = useRef(sessionListed);
   const staleRef = useRef(stale);
   const reconnectRef = useRef<(() => void) | null>(null);
@@ -189,15 +200,20 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     term.loadAddon(fitAddon);
     term.open(el);
 
-    // Landing demo only: swap in the Canvas renderer, which DRAWS box-drawing
-    // and block-element glyphs itself (customGlyphs) instead of using the font.
-    // The marketing demo shows the real Claude Code block-art logo, and the
-    // default DOM renderer paints those sub-cell quadrant blocks from the font
-    // → hairline seams between them. Canvas renders them seam-free. Gated on a
-    // flag the demo boot shim sets (the real app keeps the DOM renderer for
-    // native mobile text selection), dynamically imported so the addon is a
-    // lazy chunk never fetched outside the demo, and wrapped so any
-    // incompatibility silently falls back to the DOM renderer.
+    // Renderer: DOM on EVERY host, including Tauri/WebKit. The Canvas addon
+    // (@xterm/addon-canvas) is pinned to xterm core v5 — `peerDependencies:
+    // "@xterm/xterm": "^5.0.0"`, still true even of 0.8.0-beta — and CRASHES on
+    // our xterm v6 core at RENDER time: `this._linkifier2.onShowLinkUnderline`
+    // is undefined because the core's internal link service moved in v6. The
+    // try/catch around loadAddon only catches a synchronous LOAD throw, not the
+    // later render-time access, so it reported a false "canvasOk" while the
+    // terminal blew up on first paint. (Was gated on `isTauri` for an 8-way
+    // sidebar-reclaim win — now moot: the sidebar push is a compositor FLIP
+    // (useSidebarFlipPush), not a per-frame row relayout, so DOM no longer
+    // reflows terminals during the slide.) DOM is transparent (keeps the frosted
+    // glass — unlike WebGL bug #4212), crisp at any DPR, and gives native text
+    // selection. The demo flag below remains ONLY for the landing page's block-
+    // art logo and is itself v6-incompatible — never set it in the app.
     if ((window as unknown as { __TOPICS_DEMO_CANVAS__?: boolean }).__TOPICS_DEMO_CANVAS__) {
       import('@xterm/addon-canvas')
         .then(({ CanvasAddon }) => { try { term.loadAddon(new CanvasAddon()); } catch { /* DOM fallback */ } })
@@ -499,20 +515,42 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    let resizing = false;
+    // REF-COUNT, not a bare boolean: pane-resize (divider drag) and sidebar-resize
+    // (collapse/expand) are INDEPENDENT brackets that can overlap. A bare flag let a
+    // sidebar-resize-end clear `resizing` mid divider-drag → per-frame fit thrash for
+    // the rest of the drag. Count concurrent brackets; only resume fits at depth 0.
+    // Mirrors NativeBrowserPlaceholder's drag ref-count.
+    let resizeDepth = 0;
     let missed = false;
     const fit = () => { if (termRef.current) { try { termRef.current.fit.fit(); } catch {} } };
-    const handleResize = () => { if (resizing) { missed = true; return; } fit(); };
-    const onResizeStart = () => { resizing = true; };
-    const onResizeEnd = () => { resizing = false; if (missed) { missed = false; fit(); } };
+    // Stagger fits ONE PER FRAME (staggeredFit): N terminals fitting in one tick thrash
+    // layout (each fit reads layout after the previous wrote → full reflow per fit →
+    // ~570ms for 8 on a sidebar reclaim). Spreading lets layout settle between fits so
+    // each is cheap, and the app stays interactive. Dedupes per terminal.
+    const handleResize = () => { if (resizeDepth > 0) { missed = true; return; } enqueueFit(fit); };
+    const onResizeStart = () => { resizeDepth += 1; };
+    const onResizeEnd = () => {
+      resizeDepth = Math.max(0, resizeDepth - 1);
+      if (resizeDepth === 0 && missed) { missed = false; enqueueFit(fit); }
+    };
     const observer = new ResizeObserver(handleResize);
     observer.observe(el);
+    // Coalesce fits during BOTH a divider drag (pane-resize-*) and a sidebar
+    // collapse/expand (sidebar-resize-*): per-frame fit() over a 200ms slide forces a
+    // layout + row-DOM rebuild each frame (~190-300ms jank for ~6 terminals → measured).
+    // Holding the fits and running one at the settled size drops that to a single ~84ms
+    // re-fit. See useSidebarFitCoalesce for the sidebar dispatcher.
     window.addEventListener('topics:pane-resize-start', onResizeStart);
     window.addEventListener('topics:pane-resize-end', onResizeEnd);
+    window.addEventListener('topics:sidebar-resize-start', onResizeStart);
+    window.addEventListener('topics:sidebar-resize-end', onResizeEnd);
     return () => {
       observer.disconnect();
+      cancelFit(fit); // drop any queued fit so we never call into a disposed terminal
       window.removeEventListener('topics:pane-resize-start', onResizeStart);
       window.removeEventListener('topics:pane-resize-end', onResizeEnd);
+      window.removeEventListener('topics:sidebar-resize-start', onResizeStart);
+      window.removeEventListener('topics:sidebar-resize-end', onResizeEnd);
     };
   }, []);
 
@@ -665,10 +703,52 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           </button>
         )}
         {stale && (
-          <div data-testid="terminal-stale-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-10">
-            <div className="text-center">
-              <p className="text-app-text-muted text-[12px] mb-3">This terminal session has expired</p>
-              <p className="text-app-text-muted text-[11px]">Close this tab and open a new terminal</p>
+          <div data-testid="terminal-stale-overlay" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/80 z-10 px-4">
+            <div className="flex items-center gap-1.5 text-app-text-muted text-[12px]">
+              <Clock size={13} />
+              <span>Sessione scaduta</span>
+            </div>
+            {(() => {
+              const info = lastInfoRef.current;
+              return (
+                <div
+                  data-testid="terminal-stale-info"
+                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-[10px] leading-relaxed text-app-text-muted/70"
+                >
+                  {info?.type && (
+                    <span>{info.type}{info.cwd ? ` · ${info.cwd}` : ''}</span>
+                  )}
+                  <span>id {sessionId.slice(0, 8)}{info?.claudeSessionId ? ` · resume ${info.claudeSessionId.slice(0, 8)}` : ''}</span>
+                </div>
+              );
+            })()}
+            {/* Self-service recovery: the same in-place reload as the tab's
+                "Ricarica" menu item — for claude/codex this resumes the
+                conversation (--resume), so the session isn't a dead-end. */}
+            <button
+              type="button"
+              disabled={reloading}
+              onClick={() => {
+                signalsActions.markTerminalReloading(sessionId);
+                window.setTimeout(() => signalsActions.clearTerminalReloading(sessionId), 15000);
+                void fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/reload`, { method: 'POST' }).catch(() => {});
+              }}
+              title="Riavvia la sessione in-place (riprende la conversazione per claude/codex)"
+              className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-black/55 disabled:opacity-50"
+            >
+              <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
+              <span>{reloading ? 'Riavvio…' : 'Ricarica'}</span>
+            </button>
+          </div>
+        )}
+        {/* "Ricarica" restart in progress — a clear overlay instead of the bare
+            grey gap while the PTY is killed and re-spawned (claude/codex --resume
+            boot). Cleared on WS reconnect (ws.onopen) or a safety timeout. */}
+        {reloading && !stale && (
+          <div data-testid="terminal-reloading-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-20">
+            <div className="flex items-center gap-2 text-app-text-muted text-[12px]">
+              <RotateCw size={14} className="animate-spin" />
+              <span>Riavvio sessione…</span>
             </div>
           </div>
         )}

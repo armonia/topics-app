@@ -76,7 +76,24 @@ export interface ElectronCdpDispatcher {
   isNativeBound(contextId: string): boolean;
   /** Forget a mapping (called on view destroy). */
   unregisterTarget(contextId: string): void;
-  /** Resolve a Page for a contextId, lazily connecting + finding by targetId. */
+  /**
+   * Resolve a Page for a contextId, lazily connecting + finding by targetId.
+   *
+   * Returns a Playwright `Page` by TYPE but, under Bun, the runtime value is a
+   * `RawCdpPage` duck-type (see getPage). The `as unknown as Page` cast there is
+   * load-bearing and intentionally NOT replaceable with a structural `PageLike`
+   * interface: RawCdpPage deliberately uses looser return types than Playwright
+   * (goto/reload return `void`, not `Promise<Response|null>`) and its
+   * `evaluate(unknown, unknown?): Promise<unknown>` is irreconcilable with
+   * Playwright's generic `evaluate<R,Arg>` under TS variance — no single interface
+   * is satisfied by both drivers without degrading the real-Page path to `unknown`.
+   * Parity is maintained by CONVENTION: every consumer of this Page only calls the
+   * subset RawCdpPage implements (evaluate/url/title/screenshot/locator/goto/reload/
+   * content/waitForLoadState/isClosed/close). A cross-driver call to a Page method
+   * RawCdpPage lacks fails at runtime, not compile time — keep new shared calls in
+   * that subset. (Full compiler enforcement is deferred to PORTING-D1, where
+   * browser-cdp-raw.ts is the CEF-transplant boundary.)
+   */
   getPage(contextId: string): Promise<Page>;
   /** Recent captured page console entries for a contextId (browser_console tool). */
   getConsole(contextId: string, opts?: { level?: "all" | "errors" | "warnings"; limit?: number }): Promise<ConsoleEntry[]>;

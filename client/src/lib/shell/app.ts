@@ -50,6 +50,31 @@ export async function selectDirectory(): Promise<string | null> {
   }
 }
 
+/**
+ * Fire a native OS notification (completion / idle banners), unified across hosts.
+ *
+ * Returns true iff a banner was posted SYNCHRONOUSLY (Electron renderer / web, via
+ * the permission-gated web Notification API) so the caller can drop a redundant
+ * in-app toast. Tauri routes through the native `notify` command — WKWebView's web
+ * Notification API is unreliable — fire-and-forget, and returns FALSE: delivery
+ * can't be confirmed synchronously, so the caller keeps its in-app fallback as a
+ * guarantee (you still get the native banner too when permission is granted).
+ * Never throws — a denied permission or locked-down env just means no banner.
+ */
+export function notifyNative(title: string, body: string, opts?: { silent?: boolean; tag?: string }): boolean {
+  if (shellKind === 'tauri') {
+    void tauriInvoke('notify', { title, body });
+    return false;
+  }
+  try {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+    new Notification(title, { body, silent: opts?.silent, tag: opts?.tag });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Hard-restart the desktop app (bypasses the service worker). No-op on web. */
 export async function relaunch(): Promise<void> {
   switch (shellKind) {

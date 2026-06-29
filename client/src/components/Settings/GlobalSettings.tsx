@@ -5,7 +5,7 @@ import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi } from '../../lib/api';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
-import { isDesktop } from '../../lib/shell';
+import { isDesktop, isTauri } from '../../lib/shell';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -261,8 +261,55 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
             value={settings.floatingSplits}
             onChange={(v) => onChange('floatingSplits', v)}
           />
+
+          {/* Tauri (WebKit) re-flows DOM terminals every frame in push mode, so overlay
+              is FORCED there (App.tsx desktopOverlay) — no toggle to offer. Electron
+              lays out fast enough, so it keeps the choice. */}
+          {!isTauri && (
+            <ToggleRow
+              label="Overlay sidebar"
+              description="Slide the sidebar over the content instead of pushing it — no frame drop on open/close, but it covers the left edge of the content while open."
+              value={settings.overlaySidebar}
+              onChange={(v) => onChange('overlaySidebar', v)}
+            />
+          )}
+
+          {isTauri && (
+            <ToggleRow
+              label="Browser pilotabile dall'agente"
+              description="Usa il browser in streaming (headless lato server) invece del pannello nativo, così l'agente può pilotarlo end-to-end. Più pesante del pannello nativo."
+              value={settings.tauriBrowserStreaming}
+              onChange={(v) => onChange('tauriBrowserStreaming', v)}
+            />
+          )}
         </div>
       )}
+
+      {/* Split-tree engine — shell-neutral (no native dependency), so it's not
+          desktop-gated. Experimental: renders the standalone grid through the
+          unified layoutTree/<SplitTree> renderer. Geometry is identical and all
+          gestures route through the existing handlers; flip to dogfood. */}
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+          <LayoutGrid size={14} />
+          Split-tree engine
+          <span className="ml-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+            Experimental
+          </span>
+        </label>
+        <p className="text-[12px] text-app-text-muted mb-3">
+          Render the split grid through the new unified split-tree engine.
+          Same layout and gestures — arbitrary-depth splits, snappier dividers.
+          Flip it off if anything looks off.
+        </p>
+
+        <ToggleRow
+          label="Split-tree engine"
+          description="Drive the standalone grid with the new layout engine."
+          value={settings.splitTreeEngine}
+          onChange={(v) => onChange('splitTreeEngine', v)}
+        />
+      </div>
 
     </div>
   );

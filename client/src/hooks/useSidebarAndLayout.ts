@@ -19,7 +19,7 @@
  * react to it without exporting an electron-API call into App's render.
  */
 
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition, type Dispatch, type SetStateAction } from 'react';
 import type { AppSettings } from '../types';
 import { useMobile } from './useMobile';
 import { useStorageSync } from './useStorageSync';
@@ -296,14 +296,22 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   }, [isDetached]);
 
   const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed(prev => {
-      const newVal = !prev;
-      if (!isDetached) {
-        const newSettings = { ...appSettings, sidebarCollapsed: newVal };
-        saveSettings(newSettings);
-        setAppSettings(newSettings);
-      }
-      return newVal;
+    // Mark the toggle as a transition. In overlay mode the sidebar slide is a pure
+    // composited translateX, but flipping `sidebarCollapsed` (and persisting it via
+    // setAppSettings) re-renders the whole un-memoized pane tree — wasted work whose
+    // output is identical, yet a ~20-38ms blocking frame at the click with 30+ panes.
+    // startTransition lets React time-slice that re-render across frames so the click
+    // frame stays under budget; the CSS slide still begins immediately.
+    startTransition(() => {
+      setSidebarCollapsed(prev => {
+        const newVal = !prev;
+        if (!isDetached) {
+          const newSettings = { ...appSettings, sidebarCollapsed: newVal };
+          saveSettings(newSettings);
+          setAppSettings(newSettings);
+        }
+        return newVal;
+      });
     });
   }, [appSettings, isDetached]);
 
