@@ -1608,6 +1608,40 @@ const SPLIT_SELFTEST_JS: &str = r#"(async function(){
   }catch(e){ report({mode:'split-drag',error:String(e&&e.stack||e)}); }
 })();"#;
 
+/// Injected probe for the env-gated BROWSER self-test (`TOPICS_BROWSER_SELFTEST`).
+/// Drives the native-pane lifecycle END-TO-END through the real Tauri IPC, bypassing
+/// the React UI: invoke `browser_open` (an `about:blank` child webview), then prove
+/// the view is LIVE and scriptable by `browser_eval_js`-ing a computed expression
+/// (`6*7` ⇒ "42") into it, then `browser_close`. A pass means the open→load→eval
+/// path the "browser won't open" report was about actually works (the occlusion
+/// freeze is covered separately by browserOcclusion unit tests). Headless-safe:
+/// IPC invokes don't need the window visible, and about:blank needs no network/cert.
+const BROWSER_SELFTEST_JS: &str = r#"(async function(){
+  function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+  function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
+  var INT=window.__TAURI_INTERNALS__;
+  if(!INT||!INT.invoke){ report({mode:'browser',error:'no __TAURI_INTERNALS__.invoke'}); return; }
+  var inv=function(c,a){ return INT.invoke(c,a); };
+  // Wait for app-ready so the data layer/proxy are up (same gate as the other probes).
+  for(var rk=0;rk<40;rk++){ if(typeof window.__topicsToggleSidebar==='function')break; await sleep(500); }
+  var id='__selftest_browser';
+  var openErr=null;
+  try{ await inv('browser_open',{id:id,url:'about:blank',x:160,y:160,width:520,height:380}); }
+  catch(e){ openErr=String(e&&e.message||e); }
+  if(openErr){ report({mode:'browser',opened:false,openError:openErr}); return; }
+  var ready=null, math=null, evalErr=null;
+  for(var k=0;k<25;k++){
+    await sleep(400);
+    try{
+      var raw=await inv('browser_eval_js',{id:id,js:'(document.readyState||"")+"|"+(6*7)'});
+      var parts=String(raw||'').split('|'); ready=parts[0]; math=parts[1];
+      if(math==='42'){ break; }
+    }catch(e){ evalErr=String(e&&e.message||e); }
+  }
+  try{ await inv('browser_close',{id:id}); }catch(e){}
+  report({mode:'browser',opened:true,readyState:ready,evalRoundtrip:(math==='42'),evalError:evalErr});
+})();"#;
+
 /// Env-gated polish-bug verifier (`TOPICS_BUGFIX_VERIFY`). DOM-observable checks for
 /// two of the three reported Tauri bugs (the native-pane lag is OS-side, verified by
 /// screen capture, not here): (1) the status/FPS dropdown must dismiss when the
@@ -2311,14 +2345,26 @@ pub fn run() {
                     // (not a unified WebviewWindow — see browser_release_focus).
                     let _ = handle.run_on_main_thread(move || {
                         use tauri::Manager;
-                        // Bring the window FRONTMOST first: a backgrounded/occluded WKWebView
-                        // throttles requestAnimationFrame, so the probe would sample zero
-                        // frames (the headless "no frames sampled" failure). Focused, rAF
-                        // runs at the display rate and the timing is real.
-                        if let Some(win) = h.get_webview_window("main") {
+                        // Un-occlude the window first: WKWebView throttles requestAnimationFrame
+                        // when the window's pixels aren't on screen (occluded behind others) —
+                        // the headless "no frames sampled" failure. rAF pauses on OCCLUSION, not
+                        // on key-status, so `always_on_top` (float above everything → visible)
+                        // resumes it even when macOS denies foreground focus to a shell-launched
+                        // app. This is a disposable debug instance (env-gated, never on in
+                        // normal use), so always-on-top is left on — toggle it off from the
+                        // tray, or just quit, when done.
+                        // Use get_window (the "main" WINDOW exists even in this multi-webview
+                        // app — browser_open relies on it; get_webview_window may be None).
+                        if let Some(win) = h.get_window("main") {
                             let _ = win.unminimize();
                             let _ = win.show();
+                            let _ = win.set_always_on_top(true);
                             let _ = win.set_focus();
+                            let vis = win.is_visible().unwrap_or(false);
+                            let minz = win.is_minimized().unwrap_or(false);
+                            eprintln!("[fps-selftest] window main: visible={vis} minimized={minz} (always_on_top+focus applied)");
+                        } else {
+                            eprintln!("[fps-selftest] get_window(main) = None");
                         }
                         if let Some(wv) = h.get_webview("main") {
                             eprintln!("[fps-selftest] injecting via get_webview(main)");
@@ -2388,10 +2434,11 @@ pub fn run() {
                     let h = handle.clone();
                     let _ = handle.run_on_main_thread(move || {
                         use tauri::Manager;
-                        // Frontmost first so rAF runs (see the FPS probe note above).
+                        // Un-occlude (always_on_top) so rAF runs — see the FPS probe note above.
                         if let Some(win) = h.get_webview_window("main") {
                             let _ = win.unminimize();
                             let _ = win.show();
+                            let _ = win.set_always_on_top(true);
                             let _ = win.set_focus();
                         }
                         if let Some(wv) = h.get_webview("main") {
@@ -2402,6 +2449,29 @@ pub fn run() {
                             }
                         } else {
                             eprintln!("[split-selftest] no main webview");
+                        }
+                    });
+                });
+            }
+
+            // Env-gated BROWSER self-test: open a native pane, eval into it, close it —
+            // confirms the browser open→eval path end-to-end (no window visibility needed).
+            if std::env::var("TOPICS_BROWSER_SELFTEST").is_ok() {
+                eprintln!("[browser-selftest] armed");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(8));
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        if let Some(wv) = h.get_webview("main") {
+                            eprintln!("[browser-selftest] injecting via get_webview(main)");
+                            match wv.eval(BROWSER_SELFTEST_JS) {
+                                Ok(()) => eprintln!("[browser-selftest] eval ok"),
+                                Err(e) => eprintln!("[browser-selftest] eval err: {e}"),
+                            }
+                        } else {
+                            eprintln!("[browser-selftest] no main webview");
                         }
                     });
                 });
