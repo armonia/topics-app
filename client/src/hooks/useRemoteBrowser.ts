@@ -115,7 +115,7 @@ function mapCoordinates(
   };
 }
 
-export function useRemoteBrowser(contextId: string): RemoteBrowser {
+export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBrowser {
   const encodedId = useMemo(() => encodeURIComponent(contextId), [contextId]);
   const [state, setState] = useState<RemoteBrowserState>({
     url: '',
@@ -255,6 +255,17 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
   // WebSocket lifecycle. Opens once per contextId, retries to fallback-http
   // on close/error after FALLBACK_DELAY_MS.
   useEffect(() => {
+    // Visibility gate: a hidden pane (inactive split tab / keep-alive ladder)
+    // must NOT hold a /ws/browser screencast open. In the single-WKWebView Tauri
+    // shell every streamed pane decodes its frames in the one renderer and
+    // balloons its memory — the reason streaming was once swapped for a static
+    // placeholder there (commit 4c45719). Streaming only the VISIBLE pane keeps
+    // the embedded browser fully functional while holding memory down. The
+    // server keeps the page alive, so becoming visible again reconnects and
+    // resumes frames. (Pure early-return — no setState here; the prior run's
+    // cleanup already closed the socket and the poller below is also gated on
+    // isVisible, so a hidden pane neither streams nor polls.)
+    if (!isVisible) return;
     mountedRef.current = true;
     const wsUrl = `${serverWsBase()}/ws/browser/${encodedId}`;
     let ws: WebSocket;
@@ -366,12 +377,13 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
       if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
       clearLoadingWatchdog();
     };
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, isVisible]);
 
-  // HTTP polling effect — runs ONLY when the WS dropped to fallback-http.
-  // Mirrors the legacy polling loop but gated on connectionState.
+  // HTTP polling effect — runs ONLY when the WS dropped to fallback-http AND the
+  // pane is visible. The isVisible guard mirrors the WS effect's: a hidden pane
+  // must not poll REST screenshots either (same memory/CPU reason).
   useEffect(() => {
-    if (state.connectionState !== 'fallback-http') {
+    if (!isVisible || state.connectionState !== 'fallback-http') {
       if (pollingRef.current) {
         clearTimeout(pollingRef.current);
         pollingRef.current = null;
@@ -396,7 +408,7 @@ export function useRemoteBrowser(contextId: string): RemoteBrowser {
         pollingRef.current = null;
       }
     };
-  }, [state.connectionState, fetchInfo, fetchScreenshot]);
+  }, [state.connectionState, fetchInfo, fetchScreenshot, isVisible]);
 
   // --- Interaction handlers ---
 
