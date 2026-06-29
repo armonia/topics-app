@@ -44,15 +44,28 @@ describe("dropRegionStyle — footprint math", () => {
   });
 });
 
-describe("dropRegionStyle — the UX law (fill is the ONLY indicator)", () => {
-  test("a translucent fill, with NO border and NO seam line", () => {
+describe("dropRegionStyle — the UX law (fill + one inner-edge seam, never a perimeter)", () => {
+  test("a translucent fill plus a single inset seam — never a dashed/solid perimeter", () => {
     for (const z of ["left", "right", "top", "bottom"] as const) {
       const s = dropRegionStyle(z);
-      expect(s.border).toBeUndefined();      // no dashed/solid perimeter
-      expect(s.boxShadow).toBeUndefined();   // no seam line (would read as a 2nd preview)
+      expect(s.border).toBeUndefined();                    // never a 4-side perimeter border
       expect(String(s.background)).toContain("color-mix"); // translucent fill
-      expect(s.pointerEvents).toBe("none");  // never eats the drop
+      expect(s.pointerEvents).toBe("none");                // never eats the drop
+      // The seam (intentional, per dropRegionStyle's contract) is the single
+      // "where the split lands" indicator: ONE inset box-shadow on the inner
+      // edge — not a full perimeter (which would read as a bordered box).
+      const seam = String(s.boxShadow);
+      expect(seam).toContain("inset");
+      expect(seam).toContain("var(--primary)");
+      expect(seam.split(",").length).toBe(1); // a single edge, not 2+ sides
     }
+  });
+
+  test("the seam sits on the edge that becomes the divider (opposite the region's side)", () => {
+    expect(dropRegionStyle("right").boxShadow).toBe(`inset ${DROP_SEAM_PX}px 0 0 0 var(--primary)`);
+    expect(dropRegionStyle("left").boxShadow).toBe(`inset -${DROP_SEAM_PX}px 0 0 0 var(--primary)`);
+    expect(dropRegionStyle("bottom").boxShadow).toBe(`inset 0 ${DROP_SEAM_PX}px 0 0 var(--primary)`);
+    expect(dropRegionStyle("top").boxShadow).toBe(`inset 0 -${DROP_SEAM_PX}px 0 0 var(--primary)`);
   });
 });
 
