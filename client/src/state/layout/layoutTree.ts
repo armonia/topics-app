@@ -63,14 +63,12 @@ export type DropEdge = 'left' | 'right' | 'top' | 'bottom';
  *  Equalize/normalize deliberately ignore this — a heavily-split neighbour can
  *  legitimately push a sibling below it (mirrors gridWidths.ts).
  *
- *  NB — WIRING RECONCILIATION: the live PanelGrid floors divider drags at
- *  MIN_PANE_FRACTION = 0.1 (components/Layout/constants.ts) while this engine
- *  floors at 0.05. When splitTreeEngine is flipped on, pick ONE canonical floor
- *  (almost certainly 0.1, the value users already feel) and update the
- *  golden-geometry tests accordingly — otherwise the engine lets panes shrink to
- *  half the size the legacy path allows. Kept at 0.05 for now so the 84 existing
- *  tests stay green while the engine is unwired. */
-export const MIN_CHILD_WEIGHT = 0.05;
+ *  Canonical floor = MIN_PANE_FRACTION (components/Layout/constants.ts), the 0.1
+ *  the live PanelGrid already floors divider drags at — so the tree path lets a
+ *  pane shrink no further than the legacy path users already feel. (The project
+ *  group `splitRatio` keeps its own 0.05 RATIO_MIN until that surface moves onto
+ *  the tree; it's a different, still-legacy mechanism.) */
+export const MIN_CHILD_WEIGHT = 0.1;
 
 const EPSILON = 1e-9;
 
