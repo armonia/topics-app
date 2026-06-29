@@ -34,7 +34,20 @@ function recompute(): void {
   scheduled = false;
   const next: OverlayRect[] = [];
   document.querySelectorAll(OVERLAY_SELECTOR).forEach((el) => {
-    const r = (el as HTMLElement).getBoundingClientRect();
+    const node = el as HTMLElement;
+    // Never let a browser pane occlude ITSELF: skip overlays that live inside a
+    // native browser slot (e.g. the pane's own responsive size-readout, which is
+    // a `.glass-surface` positioned over the slot). Without this, that in-pane
+    // chrome rect-overlaps the slot and freezes the live view to a static still
+    // that never thaws — a dead/frozen-looking browser. Structural, so any future
+    // in-pane glass chrome is covered too.
+    if (node.closest('[data-native-browser-slot]')) return;
+    // Ignore hidden overlays (display:none yields no client rects; a
+    // visibility:hidden / opacity:0 card paints nothing yet still has a rect).
+    if (node.getClientRects().length === 0) return;
+    const cs = getComputedStyle(node);
+    if (cs.visibility === 'hidden' || cs.opacity === '0') return;
+    const r = node.getBoundingClientRect();
     if (r.width > 1 && r.height > 1) next.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
   });
   const key = next
