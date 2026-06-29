@@ -8,14 +8,24 @@
  * band of columns sized by `widths`, each column optionally a vertical sub-stack
  * — but with duplicated, subtly-different resize / equalize / split / close math.
  *
- * This module replaces both with ONE canonical model: an n-ary *weighted* split
- * tree. A node is either a `leaf` (one pane, identified by an opaque id) or a
- * `split` that lays its `children` out along an axis (`row` = side-by-side,
- * `col` = stacked), each child carrying a relative `weight`. Weights are the
- * exact same quantity the renderer already consumes (`flex: <weight> 1 0%`),
- * normalised to sum 1 per split — so the geometry is identical to today's, but
- * expressible at ARBITRARY depth (no MAX_COLS / MAX_ROWS / single-level-substack
- * caps) and with every operation a pure tree walk.
+ * The model is an n-ary *weighted* split tree. A node is either a `leaf` (one
+ * pane, identified by an opaque id) or a `split` that lays its `children` out
+ * along an axis (`row` = side-by-side, `col` = stacked), each child carrying a
+ * relative `weight`. Weights are the exact same quantity the renderer already
+ * consumes (`flex: <weight> 1 0%`), normalised to sum 1 per split — so the
+ * geometry is identical to today's, but expressible at ARBITRARY depth (no
+ * MAX_COLS / MAX_ROWS / single-level-substack caps).
+ *
+ * STATUS — what actually shipped vs. what is staged. The RENDER half is live:
+ * the legacy `PanelGridRow[]` / `GroupLayoutRow[]` are adapted into this tree
+ * (`legacyAdapters`) and `<SplitTree>` is now the sole desktop renderer, with
+ * `computeRects` + golden-geometry tests pinning byte-identical geometry. The
+ * EDIT half — the pure mutation ops below (`splitLeaf` / `moveLeaf` / `closeLeaf`
+ * / `resizeAt` / `equalizeAt` / `setWeightAt` / …) — is a COMPLETE, unit-tested,
+ * but NOT-YET-WIRED canonical edit-engine: today's resize/split/close gestures
+ * still mutate the legacy row models in place. The ops are kept (not deleted) as
+ * the migration target for that second half; until then they have no production
+ * caller. Do not mistake their presence for "edits run on the tree" — they don't.
  *
  * Why n-ary (children[]) and not the binary {a,b} the roadmap sketched: a row of
  * N columns IS one split node with N weighted children — a 1:1 image of the
@@ -26,9 +36,10 @@
  *
  * Everything here is PURE and side-effect-free: each operation returns a NEW tree
  * (structural sharing where possible) and never mutates its input. Adapters from
- * the legacy `PanelGridRow[]` / `GroupLayoutRow[]` shapes live alongside (built
- * next, behind a flag, with golden geometry tests); the React renderer
- * (`<SplitTree>`) and gesture controller consume the model but hold none of it.
+ * the legacy `PanelGridRow[]` / `GroupLayoutRow[]` shapes live in `legacyAdapters`;
+ * the React renderer (`<SplitTree>`) consumes the geometry but holds none of it.
+ * (The premature `useSplitController` gesture hook that consumed the edit-engine
+ * was removed — see the STATUS note above; reintroduce it when the ops are wired.)
  */
 
 export type LeafId = string;
