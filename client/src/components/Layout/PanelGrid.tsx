@@ -1031,6 +1031,12 @@ export function PanelGrid({
 
   /* ---- drag state (for cross-window panel drag) ---- */
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Set the instant an in-app drop target consumes the current drag (the grid
+  // drop-capture). The drag-out pop-out in handleDragEnd reads this so a drop
+  // that landed on a split/cell is NEVER mistaken for a drag outside the window
+  // — defense-in-depth on top of the dropEffect='move' signal, since WKWebView
+  // (Tauri) can still report a stale dragend dropEffect/coords. Reset on dragstart.
+  const dropConsumedRef = useRef(false);
   const [emptyDragOver, setEmptyDragOver] = useState(false);
   /**
    * True while a tab or grid-item drag is in progress anywhere within the
@@ -1046,6 +1052,7 @@ export function PanelGrid({
 
   const handleDragStart = useCallback((topicId: string) => (e: React.DragEvent) => {
     setDraggingId(topicId);
+    dropConsumedRef.current = false;
     e.dataTransfer.setData(DND_TYPES.PANEL_ID, topicId);
     e.dataTransfer.effectAllowed = 'move';
 
@@ -1083,8 +1090,12 @@ export function PanelGrid({
       sendWS({ type: 'drag:end', topicId: draggedId, windowId });
     }
 
-    // Pop-out to new window if dragged outside (native app only)
-    if (isNativeApp && draggedId && e.dataTransfer.dropEffect === 'none') {
+    // Pop-out to new window if dragged outside (native app only). Skip entirely
+    // when an in-app drop target already consumed this drag — on WKWebView (Tauri)
+    // the dragend dropEffect can read 'none' even after a successful in-window
+    // split (the bug that closed panes dropped onto a split). dropConsumedRef is
+    // the reliable signal; dropEffect alone is not, on WebKit.
+    if (isNativeApp && draggedId && !dropConsumedRef.current && e.dataTransfer.dropEffect === 'none') {
       const { clientX, clientY } = e;
       const windowWidth = window.innerWidth;
       const windowHeight = window.innerHeight;
@@ -1193,6 +1204,12 @@ export function PanelGrid({
 
     // Edge zone (or any GRID_ITEM drag): handle at grid level
     e.stopPropagation(); // Prevent children from also handling this edge drag
+    // WKWebView (Tauri) does NOT infer dropEffect from preventDefault the way
+    // Chromium does — if the accepting target never sets it, the SOURCE's
+    // `dragend` reports dropEffect:'none', which the pop-out path (handleDragEnd)
+    // reads as "dropped outside the app" and CLOSES the pane. Signal acceptance
+    // explicitly so an in-window split drop is never mistaken for a drag-out.
+    e.dataTransfer.dropEffect = 'move';
     const target = { rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag };
     setGridDropTarget(target);
     gridDropTargetRef.current = target; // sync update for immediate drop access
@@ -1300,6 +1317,9 @@ export function PanelGrid({
     // 'dragend'). Clear the global drag flag here or the InsertDividers keep
     // their widened hit-zones and drop indicators painted after the drop.
     setIsAnyDragActive(false);
+    // The drag landed on an in-app target — the dragend pop-out must NOT treat
+    // it as a drag-out-of-window (which would close the pane after the split).
+    dropConsumedRef.current = true;
 
     // Tab drag → create a solo standalone item at the target position
     if (!effectiveKey && sourcePaneTab && sourceTopicId) {
@@ -1789,6 +1809,7 @@ export function PanelGrid({
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
           e.preventDefault();
+          e.dataTransfer.dropEffect = 'move'; // WKWebView: signal accept so dragend doesn't pop-out-close
           setEmptyDragOver(true);
         }}
         onDragLeave={() => setEmptyDragOver(false)}
