@@ -13,8 +13,8 @@
 - [x] 2.6 Aggiornato `NATIVE_SUPPORTED_OPS` con observe/act/extract; rimosso l'hint streaming per queste; aggiornato il commento header del file.
 
 ## 3. Phase 2 — vision read_screen/point sul pane nativo (server)
-- [ ] 3.1 In `server/browser-tool-dispatcher.ts`: per contesto delegato + tool ∈ {browser_read_screen, browser_point}, delegare la sola op `browser_screenshot`, ottenere il base64, poi far girare `handleBrowserReadScreen`/`handleBrowserPoint` (Moondream `describeImage`/`pointObject`) su quell'immagine invece di inoltrare l'intera call.
-- [ ] 3.2 `browser_point`: tradurre la coordinata in click — `browser_act` per-ref se cade su elemento snapshot, altrimenti eval `document.elementFromPoint(x,y).click()` (best-effort).
+- [x] 3.1 In `server/browser-tool-dispatcher.ts`: `nativeVisionOp` — per contesto delegato + tool ∈ {browser_read_screen, browser_point}, delega la sola op `browser_screenshot`, poi `describeImage`/`pointObject` (Moondream) su quell'immagine. Aggiunto param `mime` al moondream-client (lo screenshot nativo è PNG, non jpeg). Verificato live: API Moondream caption+point HTTP 200, key valida.
+- [x] 3.2 `browser_point`: viewport via eval `innerWidth/innerHeight` (coord normalizzate → DPR irrilevante); click via `document.elementFromPoint(x,y).click()` (best-effort, WKWebView non ha input trusted).
 
 ## 4. Phase 3 — save/load/import state nativo (Rust cookie bridge)
 - [ ] 4.1 lib.rs: `browser_get_cookies(id)`/`browser_set_cookies(id,json)` su `WKHTTPCookieStore` (async objc, completati su main thread); registrare nell'invoke_handler.
