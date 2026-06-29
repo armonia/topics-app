@@ -418,6 +418,10 @@ export function StandaloneChatGroup({
     // Don't accept grid item drags
     if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
     e.preventDefault();
+    // WKWebView (Tauri) needs an explicit dropEffect or the source dragend reads
+    // 'none' and the pop-out path closes the dragged pane (this merge drop has
+    // its own handler, so PanelGrid's dropConsumedRef guard doesn't cover it).
+    e.dataTransfer.dropEffect = 'move';
     setPanelDragOver(true);
   }, [onAcceptSoloDrop, onMergeIntoCell]);
 
