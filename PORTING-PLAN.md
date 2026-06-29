@@ -351,3 +351,23 @@ Item che richiedono un **run Tauri live** (impossibile verificarli staticamente)
    con glifi nitidi a 2× DPR? Untestabile dai doc → spike di 1-2 giorni dietro feature-flag su UN
    pane. Se la trasparenza fallisce, rigetta come xterm-WebGL. Pretendere l'API RenderState (non il
    viewport-grab per-riga). Priorità bassa: il terminale attuale è solido.
+
+### 8b. FLIP push (60fps sidebar) — checklist di verifica LIVE (impl. `d5a25ed2`/`98823cc5`)
+
+Spedito: `useSidebarFlipPush` sostituisce lo snap `manyTerminals` con un reveal FLIP
+(commit del pad finale in 1 reflow + `transform:translateX` compositor-only sul flip layer).
+Statico verde (tsc -b, 98 test). Da confermare su **build Tauri viva** (schermo sbloccato per rAF):
+- **HEADLINE**: `TOPICS_FPS_SELFTEST` / `__topicsToggleSidebar` con 6 e 8 terminali visibili →
+  **0 frame >33ms durante i 200ms** della slide (oggi ~25fps/snap). È l'acceptance principale.
+- **Browser pane nativo (rischio portante)**: split con 1 terminale + 1 BROWSER pane, toggle
+  sidebar → il bordo sinistro del pane deve tracciare il bordo contenuto in lockstep coi terminali,
+  niente trail né salto-a-fine. Si regge su `getBoundingClientRect` post-transform (WebKit conforme)
+  + lo slidePoll per-frame (NativeBrowserPlaceholder.tsx:285). FALLBACK se desincronizza: freeze-frame
+  PNG (`browser.frozenImage`) per i 200ms — tiene il contenuto VISIBILE (bitmap fedele, non blank).
+- **Toggle rapido** (collapse→expand a metà slide): nessun salto (First = rect live, re-basa).
+- **Blur glifi**: con `will-change:transform` il sottoalbero (canvas terminali) è promosso a layer
+  per 200ms → verificare che WebKit non rasterizzi a 1× (glifi sfocati durante la slide).
+- **8-way split**: la slide è 60fps ma il settle-fit post-slide resta ~110-160ms (floor noto, NON
+  un drop durante la slide) — è un piccolo snap di colonne a fine slide, atteso.
+- **Electron/web**: spot-check che il push sia liscio e nulla "snappi"; il tracking del browser-pane
+  Electron durante il FLIP non è coperto dal fallback freeze-frame (solo Tauri) → verificare a parte.
