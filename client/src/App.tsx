@@ -148,15 +148,13 @@ function App() {
   // panel rects to the transparent window so floating-splits gaps show the clear
   // desktop while each panel frosts; host-resolved internally, no-op off-mac/web.
   useFloatingVibrancy(appSettings.floatingSplits);
-  // Overlay sidebar: floats over the content via a composited translateX. The content
-  // reveal is a FLIP (useSidebarFlipPush): the final paddingLeft is committed in ONE reflow
-  // and the visible push is a compositor-only translateX on the flip layer — so the slide
-  // is 60fps regardless of how many terminals are live, with nothing hidden/held (replaced
-  // the old manyTerminals snap). FORCED on Tauri because WebKit's DOM renderer re-flows
-  // terminals expensively — which is exactly why the push is a compositor FLIP, not a width
-  // animation; only the single staggered settle-fit at the end touches layout. Electron
-  // keeps the user's setting.
-  const desktopOverlay = isDesktop && (isTauri || appSettings.overlaySidebar);
+  // Sidebar reveal is ONE model on every non-mobile shell (Electron, Tauri, desktop web):
+  // the sidebar is position:fixed and the content is FLIP-pushed (paddingLeft committed in
+  // one reflow, then a compositor-only translateX slide) — see useSidebarFlipPush. No
+  // per-shell branch and no "overlay vs push" toggle: the FLIP is 60fps regardless of how
+  // many terminals are live (it replaced the old in-flow width animation that relayed out
+  // every .xterm each frame, ~25fps with 8). Mobile keeps its own full-width drawer below.
+  const sidebarFixed = !isMobile;
   // SYNCHRONISED PUSH via FLIP (useSidebarFlipPush): the content reveal is a compositor-only
   // transform:translateX, NOT an animated paddingLeft. Animating paddingLeft (a layout prop)
   // relayouts every visible .xterm box each frame (~25fps with 8) — which the old code dodged
@@ -170,7 +168,7 @@ function App() {
   // effect can read the pre-commit position); the inner flip layer carries the translateX.
   const mainContentRef = useRef<HTMLDivElement | null>(null);
   const contentFlipRef = useRef<HTMLDivElement | null>(null);
-  useSidebarFlipPush(mainContentRef, contentFlipRef, { collapsed: sidebarCollapsed, expandedPad, enabled: desktopOverlay });
+  useSidebarFlipPush(mainContentRef, contentFlipRef, { collapsed: sidebarCollapsed, expandedPad, enabled: sidebarFixed });
   // Coalesce xterm fit() across the sidebar collapse/expand (held during the slide, one fit at
   // the settled size) — driven off the SIDEBAR's own transform transition, untouched by FLIP.
   useSidebarFitCoalesce();
@@ -759,19 +757,17 @@ function App() {
         aria-label="Topics sidebar"
         className={`bg-surface flex flex-col flex-shrink-0 sidebar-transition overflow-hidden ${
           isMobile ? 'fixed inset-y-0 left-0 z-50 w-full'
-            : (desktopOverlay ? 'fixed inset-y-0 left-0 z-40 shadow-2xl' : '')
+            : 'fixed inset-y-0 left-0 z-40 shadow-2xl'
         }`}
         style={{
-          // Overlay mode (desktop, opt-in): keep the width CONSTANT and collapse via a
-          // composited translateX so the content area never resizes — no per-toggle
-          // terminal relayout. Push mode (default): animate width 0↔sidebarWidth.
+          // Non-mobile: the sidebar is position:fixed with a CONSTANT width and collapses
+          // via a composited translateX, so the content area never resizes on toggle — the
+          // reveal is the FLIP push on #main-content (useSidebarFlipPush). Mobile is a
+          // full-width drawer that slides the same way.
           width: isMobile
             ? (sidebarCollapsed ? 0 : '100vw')
-            : (desktopOverlay)
-              ? `${sidebarWidth}px`
-              : (sidebarCollapsed ? 0 : `${sidebarWidth}px`),
-          transform: ((isMobile && sidebarCollapsed) || (desktopOverlay && sidebarCollapsed))
-            ? 'translateX(-100%)' : 'translateX(0)',
+            : `${sidebarWidth}px`,
+          transform: sidebarCollapsed ? 'translateX(-100%)' : 'translateX(0)',
           // Safe-area top inset applied UNCONDITIONALLY: env() self-zeroes when
           // there's no inset (desktop, non-notched), so gating it on isPWA was
           // the bug that left content clipped under the notch when the app is
