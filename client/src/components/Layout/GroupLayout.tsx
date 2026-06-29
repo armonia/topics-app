@@ -286,6 +286,10 @@ export function GroupLayout({
 
     e.preventDefault();
     e.stopPropagation();
+    // Explicit dropEffect: WKWebView (Tauri) won't infer it from preventDefault,
+    // so the source's dragend would otherwise see dropEffect:'none' and the
+    // standalone pop-out path would close the just-split pane. Signal acceptance.
+    e.dataTransfer.dropEffect = 'move';
 
     if (!onSplitGroup) return;
 
@@ -417,6 +421,7 @@ export function GroupLayout({
     if (!onSplitGroup || !isPaneTabDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance (see handleGroupContentDragOver)
     // The strip sits over a cell's edge band — clear that per-cell preview so
     // only ONE intent (full-width) shows while the pointer is on the strip.
     if (edgeDropTargetRef.current) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); }

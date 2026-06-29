@@ -339,6 +339,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     if (!dragMatchesScope(e.dataTransfer.types, dndScope)) return;
     e.preventDefault();
     e.stopPropagation();
+    // WKWebView (Tauri) won't infer dropEffect from preventDefault — without
+    // this the source dragend sees 'none' and the standalone pop-out path
+    // closes the dragged tab. Signal acceptance for the tab-bar reorder/insert.
+    e.dataTransfer.dropEffect = 'move';
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const xRatio = (e.clientX - rect.left) / rect.width;
     const idx = xRatio < 0.5 ? paneIdx : paneIdx + 1;
