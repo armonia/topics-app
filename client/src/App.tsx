@@ -19,6 +19,7 @@ import { useSidebarState } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
+import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
 import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
@@ -147,45 +148,30 @@ function App() {
   // panel rects to the transparent window so floating-splits gaps show the clear
   // desktop while each panel frosts; host-resolved internally, no-op off-mac/web.
   useFloatingVibrancy(appSettings.floatingSplits);
-  // Overlay sidebar: floats over the content via a composited translateX. The slide
-  // itself composites cheaply; the content's paddingLeft ANIMATES in lockstep with the
-  // 200ms slide (see the content style below: paddingLeft bound to sidebarCollapsed,
-  // `transition: padding-left 200ms`, dropped to `none` and snapped in one step when
-  // `manyTerminals` so per-frame terminal re-fit jank is avoided) — a real synchronised
-  // push without the per-frame freeze. FORCED on Tauri (WebKit's DOM
-  // renderer re-flows terminals expensively; paired with the canvas renderer +
-  // staggered fit so the settle stays cheap). Electron keeps the user's setting.
+  // Overlay sidebar: floats over the content via a composited translateX. The content
+  // reveal is a FLIP (useSidebarFlipPush): the final paddingLeft is committed in ONE reflow
+  // and the visible push is a compositor-only translateX on the flip layer — so the slide
+  // is 60fps regardless of how many terminals are live, with nothing hidden/held (replaced
+  // the old manyTerminals snap). FORCED on Tauri (WebKit's DOM renderer re-flows terminals
+  // expensively; paired with the canvas renderer + staggered fit so the one settle stays
+  // cheap). Electron keeps the user's setting.
   const desktopOverlay = isDesktop && (isTauri || appSettings.overlaySidebar);
-  // SYNCHRONISED PUSH: the content's overlay-mode paddingLeft ANIMATES in lockstep with
-  // the sidebar's 200ms translateX slide, so the content edge tracks the sidebar's edge
-  // (real push — the content widens AS the sidebar leaves, not a jump at the end). The
-  // per-frame terminal re-fit this would normally cost is held by useSidebarFitCoalesce
-  // (one fit at the settled size) and the canvas renderer keeps the per-frame box relayout
-  // cheap (see SingleTerminalPane). In FLOATING-SPLITS mode the expanded pad gets the same
-  // inter-card gap (2×--float-gap = 4px) the floating sidebar card uses, so the gap between
-  // the sidebar and the content matches the gaps between the floating split cards.
+  // SYNCHRONISED PUSH via FLIP (useSidebarFlipPush): the content reveal is a compositor-only
+  // transform:translateX, NOT an animated paddingLeft. Animating paddingLeft (a layout prop)
+  // relayouts every visible .xterm box each frame (~25fps with 8) — which the old code dodged
+  // by SNAPPING the pad under load (a feature-disable we removed). FLIP commits the final pad
+  // in ONE reflow (terminals settle once) then slides a transform at 60fps regardless of N,
+  // with nothing hidden/held. In FLOATING-SPLITS mode the expanded pad gets the same inter-card
+  // gap (2×--float-gap = 4px) the floating sidebar card uses, matching the split-card gaps.
   const FLOAT_SIDEBAR_GAP = 4; // px — keep in sync with index.css --float-gap (2px) ×2
   const expandedPad = sidebarWidth + (appSettings.floatingSplits ? FLOAT_SIDEBAR_GAP : 0);
-  // ADAPTIVE sync: continuously animating the content pad re-rasters every VISIBLE
-  // terminal each frame (measured ~25fps with 8). So we animate (true synchronised push)
-  // only when few terminals are visible — the common case, where it's smooth — and snap
-  // the pad instantly (one ~110ms reclaim, no sustained jank) when many are visible. The
-  // user thus never sees the per-frame jank: synchronised when it's cheap, clean when not.
-  const [manyTerminals, setManyTerminals] = useState(false);
-  useEffect(() => {
-    if (!desktopOverlay) return;
-    const count = () =>
-      setManyTerminals(
-        Array.from(document.querySelectorAll('.xterm')).filter(
-          (e) => (e as HTMLElement).offsetParent !== null,
-        ).length > 5,
-      );
-    count();
-    const iv = window.setInterval(count, 1500); // re-check as splits/tabs change
-    return () => clearInterval(iv);
-  }, [desktopOverlay]);
-  // Coalesce xterm fit() across the sidebar collapse/expand (held during the slide, one
-  // fit at the settled size) so the synchronised push doesn't jank from per-frame re-fits.
+  // Refs for the FLIP: #main-content owns the committed paddingLeft (imperative, so the layout
+  // effect can read the pre-commit position); the inner flip layer carries the translateX.
+  const mainContentRef = useRef<HTMLDivElement | null>(null);
+  const contentFlipRef = useRef<HTMLDivElement | null>(null);
+  useSidebarFlipPush(mainContentRef, contentFlipRef, { collapsed: sidebarCollapsed, expandedPad, enabled: desktopOverlay });
+  // Coalesce xterm fit() across the sidebar collapse/expand (held during the slide, one fit at
+  // the settled size) — driven off the SIDEBAR's own transform transition, untouched by FLIP.
   useSidebarFitCoalesce();
   // Diagnostic (Tauri): expose the sidebar toggle so the env-gated FPS self-test
   // (TOPICS_FPS_SELFTEST, injected at boot by src-tauri) can drive a real
@@ -991,28 +977,22 @@ function App() {
       )}
 
       {/* Main Content */}
-      <div id="main-content" role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
+      <div id="main-content" ref={mainContentRef} role="main" className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden bg-app-bg"
         style={{
           contain: 'layout style',
           paddingTop: 'env(safe-area-inset-top, 0px)',
-          // Overlay-sidebar mode (desktop): the sidebar is `position: fixed` and out of
-          // flow, so its column is reserved with a left pad that ANIMATES in lockstep with
-          // the sidebar's 200ms slide — the content edge tracks the sidebar edge (real
-          // synchronised push, content widens as the sidebar leaves). Fits are coalesced +
-          // the canvas renderer keeps the per-frame relayout cheap. Expanded pad includes
-          // the floating-splits inter-card gap when that mode is on (see expandedPad).
-          ...(desktopOverlay
-            ? {
-                paddingLeft: `${sidebarCollapsed ? 0 : expandedPad}px`,
-                // Animate (synchronised push) only when few terminals are visible — else
-                // snap instantly (one reclaim, no per-frame jank). See manyTerminals.
-                transition: manyTerminals ? 'none' : 'padding-left 200ms ease',
-              }
-            : {}),
+          // paddingLeft (the overlay-sidebar reserved column) is owned imperatively by
+          // useSidebarFlipPush — NOT a React inline style — so the FLIP can read the
+          // pre-commit position and animate the reveal as a compositor transform on the
+          // inner flip layer below. overflow:hidden here clips the over-shifted layer at
+          // the sidebar edge during the slide.
         }}
 >
 
         {/* Connection status is now shown inline in the sidebar top line */}
+        {/* FLIP layer: carries the translateX push reveal (useSidebarFlipPush). Must keep the
+            flex column so PanelGrid sizes exactly as before. */}
+        <div ref={contentFlipRef} className="content-flip-layer flex-1 flex flex-col min-h-0 min-w-0">
         <ErrorBoundary fallbackMessage="Panel error">
         <PanelGrid
           splitTreeEngine={appSettings.splitTreeEngine}
@@ -1063,6 +1043,7 @@ function App() {
           draftMeta={draftMeta}
         />
         </ErrorBoundary>
+        </div>{/* /content-flip-layer */}
       </div>
 
       {/* Portal dropdowns (rendered outside sidebar to escape overflow-hidden) */}
