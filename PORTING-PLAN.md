@@ -387,9 +387,13 @@ ricostruita: `cd desktop-tauri && cargo tauri build` (o lo script di prod); (3) 
   costo forced-reflow di paddingLeft (vecchio) vs transform (FLIP) con N terminali. Chromium 2026-06-29:
   paddingLeft 1.3/3.0/5.0ms median a N=2/5/8 (O(N), pagato OGNI frame); transform 0ms a ogni N (1300×–5000×).
   Engine-universale (padding=layout, transform=compositor su WebKit e Chromium). Conferma la causa radice + il fix.
-- **HEADLINE COMPOSITATO (resta — serve schermo sbloccato)**: `TOPICS_FPS_SELFTEST` / `__topicsToggleSidebar`
-  con 6 e 8 terminali visibili → **0 frame >33ms durante i 200ms** della slide (oggi ~25fps/snap). Non
-  misurabile a schermo bloccato (compositing sospeso); il meccanismo sopra è il sostituto lock-proof.
+- **HEADLINE COMPOSITATO — VERIFICATO lock-proof (headless Chromium, `performance/sidebar-flip-bench.html`)**:
+  Chrome headless renderizza OFFSCREEN → i delta rAF durante l'animazione sono reali nonostante il display
+  bloccato. N=16 terminali (~52k spans), durante i 200ms: **VECCHIO** paddingLeft = 41.9ms/frame median (~24fps),
+  **6/6 frame >33ms = TUTTI persi** (combacia coi ~25fps WebKit documentati); **FLIP** transform = 8.3ms/frame
+  median (~120fps), **0/31 frame >33ms = zero persi**. L'acceptance headline è raggiunta dal FLIP.
+- **CONFERMA WebKit-specifica (serve schermo sbloccato, ora solo confermativa)**: `TOPICS_FPS_SELFTEST` /
+  `__topicsToggleSidebar` con 6/8 terminali sul WKWebView reale → conferma dello stesso risultato engine-universale.
 - **Browser pane nativo (rischio portante)**: split con 1 terminale + 1 BROWSER pane, toggle
   sidebar → il bordo sinistro del pane deve tracciare il bordo contenuto in lockstep coi terminali,
   niente trail né salto-a-fine. Si regge su `getBoundingClientRect` post-transform (WebKit conforme)

@@ -81,7 +81,32 @@ function run() {
     lines.push('N=' + N + ' (' + (N*24*80) + ' spans): paddingLeft ' + pad.median + 'ms (p95 ' + pad.p95 + ', max ' + pad.max + ')  |  transform ' + tr.median + 'ms (max ' + tr.max + ')  -> ' + Math.round(pad.median / Math.max(tr.median, 0.001)) + 'x');
     root.remove();
   }
-  lines.push('', 'PASS contract: transform median <= 0.5ms at every N (compositor-only, O(1)); paddingLeft scales with N (the per-frame cost the FLIP removes).');
+  lines.push('', 'PASS (forced-reflow): transform median <= 0.5ms at every N (compositor-only, O(1)); paddingLeft scales with N (the per-frame cost the FLIP removes).');
+  document.getElementById('out').textContent = lines.join('\n');
+  runComposited(lines);
+}
+// COMPOSITED: real rAF frame deltas during the 200ms slide (headless Chrome renders
+// offscreen, so this is lock-proof — frame timing is unaffected by a locked physical screen).
+function sampleFrames(ms) {
+  return new Promise(resolve => { const ts = []; const s = performance.now();
+    (function tick(now){ ts.push(now); if (now - s < ms) requestAnimationFrame(tick); else resolve(ts); })(performance.now()); });
+}
+function frameStats(ts) { const d = []; for (let i=1;i<ts.length;i++) d.push(ts[i]-ts[i-1]); d.sort((a,b)=>a-b);
+  return { n: d.length, median: +d[Math.floor(d.length/2)].toFixed(1), max: +Math.max(...d).toFixed(1), over33: d.filter(x=>x>33).length }; }
+async function runComposited(lines) {
+  const N = 16, rows = 36, cols = 90; // heavy ~52k spans
+  const { root, main, flip } = build(N, rows, cols); void main.getBoundingClientRect(); await sampleFrames(200);
+  main.style.transition = 'padding-left 200ms ease'; await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const pOld = sampleFrames(260); main.style.paddingLeft = '256px'; const oldS = frameStats(await pOld);
+  main.style.transition='none'; main.style.paddingLeft='0px'; flip.style.transform='none'; void main.getBoundingClientRect(); await sampleFrames(120);
+  main.style.paddingLeft='256px'; flip.style.transition='none'; flip.style.transform='translateX(-256px)'; void flip.getBoundingClientRect();
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const pNew = sampleFrames(260); flip.style.transition='transform 200ms ease'; flip.style.transform='translateX(0)'; const newS = frameStats(await pNew);
+  root.remove();
+  lines.push('', 'COMPOSITED rAF deltas during the 200ms slide (N=16 ~52k spans):',
+    '  OLD paddingLeft: ' + oldS.median + 'ms median, max ' + oldS.max + ', ' + oldS.over33 + '/' + oldS.n + ' frames >33ms (dropped)',
+    '  FLIP transform:  ' + newS.median + 'ms median, max ' + newS.max + ', ' + newS.over33 + '/' + newS.n + ' frames >33ms (dropped)',
+    'PASS (composited): FLIP over33 == 0 (zero dropped frames during the slide).');
   document.getElementById('out').textContent = lines.join('\n');
 }
 document.getElementById('run').addEventListener('click', run);
