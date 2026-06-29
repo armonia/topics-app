@@ -49,11 +49,20 @@ disabling/snapping/hiding anything under load.
   transform = 8.3ms/frame median (~120fps), **0 frames > 33ms**. The headline
   "0 dropped frames during the slide" is met by the FLIP and catastrophically
   missed by the old paddingLeft path.
-- **Acceptance (WebKit-specific, confirmatory, needs live build)**:
-  `TOPICS_FPS_SELFTEST` / `__topicsToggleSidebar` on a live Tauri build with
-  screen UNLOCKED → 0 frames > 33ms during the slide with 6 and 8 terminals, and
-  native-pane lockstep. (WebKit confirmation of the engine-universal result above;
-  see PORTING-PLAN §8b.)
+- **Acceptance (REAL WebKit engine, VERIFIED lock-proof)**: forced-reflow layout
+  cost in headless WebKit (Playwright, AppleWebKit/605.1.15 Version/26.0 — the same
+  engine as Tauri's WKWebView; synchronous layout timing, not rAF, so it is reliable
+  even though headless WebKit throttles rAF). `performance/sidebar-flip-webkit-bench.cjs`.
+  Measured 2026-06-29: animating paddingLeft forces **8ms (N=2) / 20 (N=5) / 33 (N=8)
+  / 66 (N=16)** of layout PER FRAME — at N>=5 it exceeds the 16.7ms/frame budget and
+  at N=8 it is **2x the budget (33ms)**, which is exactly why the slide dropped to
+  ~25fps and why the snap existed. The FLIP transform = **0ms at every N** (compositor,
+  O(1)). WebKit layout is ~6x slower than Chromium here, so the FLIP matters MORE on
+  the real engine.
+- **Acceptance (live Tauri WKWebView, confirmatory, needs unlocked screen)**:
+  `TOPICS_FPS_SELFTEST` on a live Tauri build → composited 0 frames > 33ms + native-pane
+  lockstep. Confirms the system-WebKit + native-pane case; the engine cost is already
+  proven on real WebKit above. See PORTING-PLAN §8b.
 - **Divider/split**: already DOM-direct flex + coalesced fits (no per-frame
   feature-disable); measured 0 dropped frames steady-state.
 
