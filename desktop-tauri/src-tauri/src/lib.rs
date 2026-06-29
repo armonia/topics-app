@@ -1642,6 +1642,55 @@ const BROWSER_SELFTEST_JS: &str = r#"(async function(){
   report({mode:'browser',opened:true,readyState:ready,evalRoundtrip:(math==='42'),evalError:evalErr});
 })();"#;
 
+/// Injected probe for the env-gated COST self-test (`TOPICS_COST_SELFTEST`) — the
+/// EMPIRICAL frame-budget measurement that works HEADLESS. Frame drops are caused by
+/// per-frame WORK exceeding the budget, not by rAF cadence; and `performance.now()`
+/// around a flex mutation + a forced synchronous reflow (`getBoundingClientRect`)
+/// measures the real style+layout cost of one split-drag frame — that runs whether
+/// or not the window is on-screen (only paint/composite are skipped when occluded,
+/// and those are cheap+GPU-parallel for flex panes). So this samples the actual
+/// per-frame budget consumer: if it's well under 8.3ms (120Hz) the split can't drop
+/// frames. Also times the sidebar toggle's synchronous reflow (its animation is
+/// compositor-only). Posts to `fps_report`.
+const COST_SELFTEST_JS: &str = r#"(async function(){
+  function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+  function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
+  function rnd(x){ return Math.round(x*100)/100; }
+  function stats(a){ if(!a.length)return null; var s=a.slice().sort(function(x,y){return x-y}); var sum=0; for(var i=0;i<s.length;i++)sum+=s[i]; return {n:s.length,min:rnd(s[0]),median:rnd(s[s.length>>1]),p95:rnd(s[Math.floor(s.length*0.95)]),max:rnd(s[s.length-1]),avg:rnd(sum/s.length)}; }
+  var SEL='[data-split-divider],[data-panel-divider-row],[data-panel-divider-col]';
+  try{
+    for(var rk=0;rk<40;rk++){ if(typeof window.__topicsToggleSidebar==='function')break; await sleep(500); }
+    // baseline: timer + trivial reflow overhead, to know the noise floor.
+    var base=[]; for(var b=0;b<60;b++){ var tb=performance.now(); void document.body.getBoundingClientRect(); base.push(performance.now()-tb); }
+    var div=null,prevEl=null,nextEl=null;
+    for(var k=0;k<20;k++){
+      var cands=document.querySelectorAll(SEL);
+      for(var c=0;c<cands.length;c++){ var dd=cands[c],p=dd.previousElementSibling,n=dd.nextElementSibling; if(p&&n){ var gp=parseFloat(getComputedStyle(p).flexGrow)||0,gn=parseFloat(getComputedStyle(n).flexGrow)||0; if(gp>0&&gn>0){div=dd;prevEl=p;nextEl=n;break;} } }
+      if(div)break; await sleep(300);
+    }
+    if(!div){ report({mode:'cost',error:'no divider',harnessBaselineMs:stats(base),dividers:document.querySelectorAll(SEL).length}); return; }
+    var g0p=parseFloat(getComputedStyle(prevEl).flexGrow)||1,g0n=parseFloat(getComputedStyle(nextEl).flexGrow)||1,comb=g0p+g0n;
+    prevEl.style.transition='none'; nextEl.style.transition='none';
+    window.dispatchEvent(new Event('topics:pane-resize-start'));
+    // SPLIT: per-frame cost = mutate flanking flex + FORCE a synchronous layout, timed.
+    var split=[],WARM=20,N=140;
+    for(var i=0;i<WARM+N;i++){
+      var frac=0.5+0.40*Math.sin(i/N*Math.PI*6);
+      var t1=performance.now();
+      prevEl.style.flex=(comb*frac)+' 1 0%'; nextEl.style.flex=(comb*(1-frac))+' 1 0%';
+      void prevEl.getBoundingClientRect(); void nextEl.getBoundingClientRect();
+      var dt=performance.now()-t1;
+      if(i>=WARM) split.push(dt);
+    }
+    prevEl.style.flex=g0p+' 1 0%'; nextEl.style.flex=g0n+' 1 0%';
+    window.dispatchEvent(new Event('topics:pane-resize-end'));
+    // SIDEBAR: synchronous reflow cost of a toggle (FLIP push; the slide itself is compositor).
+    var side=[]; for(var s2=0;s2<8;s2++){ var t2=performance.now(); try{window.__topicsToggleSidebar();}catch(e){} void document.body.getBoundingClientRect(); side.push(performance.now()-t2); await sleep(260); }
+    var sp=split.filter(function(x){return x>=0});
+    report({mode:'cost',splitPerFrameMs:stats(sp),sidebarToggleSyncMs:stats(side),harnessBaselineMs:stats(base),budget120HzMs:8.3,budget60HzMs:16.7,splitFramesOver120:sp.filter(function(x){return x>8.3}).length,splitFramesOver60:sp.filter(function(x){return x>16.7}).length,dividers:document.querySelectorAll(SEL).length,panes:document.querySelectorAll('[data-pane-id]').length,xterms:document.querySelectorAll('.xterm').length,note:'style+layout cost per frame (paint/composite excluded as occluded) — the budget consumer'});
+  }catch(e){ report({mode:'cost',error:String(e&&e.stack||e)}); }
+})();"#;
+
 /// Env-gated polish-bug verifier (`TOPICS_BUGFIX_VERIFY`). DOM-observable checks for
 /// two of the three reported Tauri bugs (the native-pane lag is OS-side, verified by
 /// screen capture, not here): (1) the status/FPS dropdown must dismiss when the
@@ -2449,6 +2498,29 @@ pub fn run() {
                             }
                         } else {
                             eprintln!("[split-selftest] no main webview");
+                        }
+                    });
+                });
+            }
+
+            // Env-gated COST self-test: measure per-frame style+layout cost of a split-drag
+            // (+ sidebar toggle reflow) — empirical, works headless (no rAF/visibility needed).
+            if std::env::var("TOPICS_COST_SELFTEST").is_ok() {
+                eprintln!("[cost-selftest] armed");
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(8));
+                    let h = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        use tauri::Manager;
+                        if let Some(wv) = h.get_webview("main") {
+                            eprintln!("[cost-selftest] injecting via get_webview(main)");
+                            match wv.eval(COST_SELFTEST_JS) {
+                                Ok(()) => eprintln!("[cost-selftest] eval ok"),
+                                Err(e) => eprintln!("[cost-selftest] eval err: {e}"),
+                            }
+                        } else {
+                            eprintln!("[cost-selftest] no main webview");
                         }
                     });
                 });
