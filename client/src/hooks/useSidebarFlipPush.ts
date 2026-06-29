@@ -41,6 +41,7 @@ export function useSidebarFlipPush(
 ): void {
   const { collapsed, expandedPad, enabled } = opts;
   const firstRun = useRef(true);
+  const prevCollapsed = useRef(collapsed);
   const cleanupTimer = useRef(0);
 
   useLayoutEffect(() => {
@@ -48,6 +49,12 @@ export function useSidebarFlipPush(
     const layer = flipLayer.current;
     if (!content || !layer) return;
     window.clearTimeout(cleanupTimer.current);
+
+    // Animate ONLY a collapse/expand toggle. A sidebar WIDTH resize changes expandedPad with
+    // collapsed unchanged (and lands as one React commit at drag-end, useSidebarAndLayout
+    // onUp); that should snap to the new width, not slide 200ms after the handle is released.
+    const collapsedToggled = prevCollapsed.current !== collapsed;
+    prevCollapsed.current = collapsed;
 
     // Whole px: the native browser pane is positioned from Math.round(getBoundingClientRect),
     // so a fractional reveal delta would jitter its edge ±1px against the DOM terminals.
@@ -61,9 +68,9 @@ export function useSidebarFlipPush(
     layer.style.transition = 'none';
     layer.style.transform = 'none';
 
-    // No animation on first mount or when the push is disabled (web / non-overlay desktop):
-    // just settle at the target pad.
-    if (firstRun.current || !enabled) {
+    // No animation on first mount, when disabled (web / non-overlay desktop), or for a pure
+    // width resize (collapsed unchanged): just settle at the target pad instantly.
+    if (firstRun.current || !enabled || !collapsedToggled) {
       firstRun.current = false;
       layer.style.willChange = '';
       return;
