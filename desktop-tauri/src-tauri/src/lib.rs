@@ -1539,9 +1539,13 @@ const FPS_SELFTEST_JS: &str = r#"(async function(){
   running=false;
   var d=deltas.filter(function(x){return x>0&&x<2000});
   if(!d.length){ report({error:'no frames sampled'}); return; }
-  var max=0,sum=0,dropped=0,bad=0;
-  for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x>20)dropped++; if(x>33)bad++; }
-  report({frames:d.length,avgFps:Math.round(1000/(sum/d.length)),maxFrameMs:Math.round(max),droppedGt20ms:dropped,droppedGt33ms:bad,toggles:6,xterms:document.querySelectorAll('.xterm').length,visibleXterms:Array.prototype.filter.call(document.querySelectorAll('.xterm'),function(e){return e.offsetParent!==null}).length,panes:document.querySelectorAll('[data-pane-id]').length,canvasOk:(window.__canvasOk||0)});
+  var max=0,min=1e9,sum=0,dropped=0,bad=0;
+  for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x<min)min=x; if(x>20)dropped++; if(x>33)bad++; }
+  // minFrameMs ≈ the display's refresh PERIOD (fastest inter-frame gap when the
+  // compositor isn't waiting): ~8.3 ⇒ 120Hz/ProMotion, ~16.7 ⇒ 60Hz. So this run
+  // also answers the "60 vs 120" question — provided the window is FRONTMOST, else
+  // WKWebView throttles rAF and no frames are sampled at all.
+  report({frames:d.length,avgFps:Math.round(1000/(sum/d.length)),minFrameMs:Math.round(min*10)/10,maxFrameMs:Math.round(max),droppedGt20ms:dropped,droppedGt33ms:bad,toggles:6,xterms:document.querySelectorAll('.xterm').length,visibleXterms:Array.prototype.filter.call(document.querySelectorAll('.xterm'),function(e){return e.offsetParent!==null}).length,panes:document.querySelectorAll('[data-pane-id]').length,canvasOk:(window.__canvasOk||0)});
 })();"#;
 
 /// Injected probe for the env-gated SPLIT-resize FPS self-test (`TOPICS_SPLIT_SELFTEST`).
@@ -1588,9 +1592,9 @@ const SPLIT_SELFTEST_JS: &str = r#"(async function(){
       prevEl.style.flex=g0p+' 1 0%'; nextEl.style.flex=g0n+' 1 0%';
       window.dispatchEvent(new Event('topics:pane-resize-end'));
       var d=deltas.filter(function(x){return x>0&&x<2000});
-      var max=0,sum=0,b20=0,b33=0;
-      for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x>20)b20++; if(x>33)b33++; }
-      report({mode:'split-drag',dividerCount:count,frames:d.length,avgFps:d.length?Math.round(1000/(sum/d.length)):0,maxFrameMs:Math.round(max),droppedGt20ms:b20,droppedGt33ms:b33,warmupMaxMs:Math.round(warmMax),xterms:document.querySelectorAll('.xterm').length,panes:document.querySelectorAll('[data-pane-id]').length});
+      var max=0,min=1e9,sum=0,b20=0,b33=0;
+      for(var j=0;j<d.length;j++){ var x=d[j]; sum+=x; if(x>max)max=x; if(x<min)min=x; if(x>20)b20++; if(x>33)b33++; }
+      report({mode:'split-drag',dividerCount:count,frames:d.length,avgFps:d.length?Math.round(1000/(sum/d.length)):0,minFrameMs:d.length?Math.round(min*10)/10:0,maxFrameMs:Math.round(max),droppedGt20ms:b20,droppedGt33ms:b33,warmupMaxMs:Math.round(warmMax),xterms:document.querySelectorAll('.xterm').length,panes:document.querySelectorAll('[data-pane-id]').length});
     }
     function step(t){
       frame++;
@@ -2307,6 +2311,15 @@ pub fn run() {
                     // (not a unified WebviewWindow — see browser_release_focus).
                     let _ = handle.run_on_main_thread(move || {
                         use tauri::Manager;
+                        // Bring the window FRONTMOST first: a backgrounded/occluded WKWebView
+                        // throttles requestAnimationFrame, so the probe would sample zero
+                        // frames (the headless "no frames sampled" failure). Focused, rAF
+                        // runs at the display rate and the timing is real.
+                        if let Some(win) = h.get_webview_window("main") {
+                            let _ = win.unminimize();
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
                         if let Some(wv) = h.get_webview("main") {
                             eprintln!("[fps-selftest] injecting via get_webview(main)");
                             match wv.eval(FPS_SELFTEST_JS) {
@@ -2375,6 +2388,12 @@ pub fn run() {
                     let h = handle.clone();
                     let _ = handle.run_on_main_thread(move || {
                         use tauri::Manager;
+                        // Frontmost first so rAF runs (see the FPS probe note above).
+                        if let Some(win) = h.get_webview_window("main") {
+                            let _ = win.unminimize();
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
                         if let Some(wv) = h.get_webview("main") {
                             eprintln!("[split-selftest] injecting via get_webview(main)");
                             match wv.eval(SPLIT_SELFTEST_JS) {
