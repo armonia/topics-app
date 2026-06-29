@@ -10,16 +10,27 @@ import { setupTestDataDir, createTestAppContext } from "./helpers";
 import type { RouteHandler } from "../../server/types";
 
 const TEST_DATA = "/tmp/topics-master-sessions-test";
-beforeAll(() => setupTestDataDir(TEST_DATA));
+// /send + /buffer are token-gated (agentAuthOk checks process.env.GATEWAY_TOKEN);
+// set a known token for this in-process router and present it on every call().
+const TEST_TOKEN = "test-token";
+const PRIOR_GATEWAY_TOKEN = process.env.GATEWAY_TOKEN;
+beforeAll(() => { process.env.GATEWAY_TOKEN = TEST_TOKEN; setupTestDataDir(TEST_DATA); });
 
 let disconnect: (() => void) | null = null;
-afterAll(() => { try { disconnect?.(); } catch {} });
+afterAll(() => {
+  if (PRIOR_GATEWAY_TOKEN === undefined) delete process.env.GATEWAY_TOKEN;
+  else process.env.GATEWAY_TOKEN = PRIOR_GATEWAY_TOKEN;
+  try { disconnect?.(); } catch {}
+});
 
 function call(router: RouteHandler, method: string, path: string, body?: unknown) {
   const url = new URL("http://h" + path);
   const req = new Request(url, {
     method,
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: {
+      ...(body ? { "content-type": "application/json" } : {}),
+      "x-gateway-token": process.env.GATEWAY_TOKEN ?? TEST_TOKEN,
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   return router(req, url, url.pathname, method);

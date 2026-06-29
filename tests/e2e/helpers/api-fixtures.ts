@@ -323,6 +323,10 @@ export async function getTerminalSessionBuffer(
 ): Promise<string> {
   const res = await request.get(`${BASE}/api/terminal/sessions/${sessionId}/buffer`, {
     ignoreHTTPSErrors: true,
+    // /buffer is now token-gated (it leaks scrollback); the e2e server runs with
+    // GATEWAY_TOKEN=test-token (global-setup). NB on a 401 this returns '' — a
+    // missing header would surface as a silently-empty buffer, not a hard failure.
+    headers: { "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token" },
   });
   if (!res.ok()) return "";
   return (await res.json()).buffer ?? "";
