@@ -1,284 +1,46 @@
 /**
- * Token-careful, ref-based accessibility snapshot — vendored from Jarvis
- * `jarvis-browser/lib/snapshot.mjs` so the Topics native pane drives the
- * browser with the SAME compact, incremental snapshot model Jarvis uses.
+ * Token-careful, ref-based accessibility snapshot — Playwright `Page`-operating
+ * half. The snapshot MODEL (the in-page `SNAPSHOT_FN`, the `serialize`/`diff`
+ * text format and the shared types) lives in `shared/browser-snapshot-core.ts`
+ * so BOTH the server (CDP/web Playwright paths) and the client (Tauri native
+ * WKWebView executor) drive the browser with the IDENTICAL snapshot model.
  *
- * `SNAPSHOT_FN` runs IN the page: it tags every visible interactive element
- * with a stable `data-topics-ref="N"` attribute and returns a compact
- * descriptor list — never the raw DOM/HTML. Actions then target
- * `[data-topics-ref="N"]`, so the agent drives deterministically from
- * `[N] role "name"` lines with no second LLM and no coordinate math.
- *
- * `serialize()` turns a snapshot into the minimal text the agent reads.
- * `diff()` returns only what changed since the previous snapshot (incremental
- * mode) so repeat steps cost ~0 perception tokens.
- *
- * The page-operating helpers (`snapshotPage`, `actByRefOnPage`,
- * `getTextOnPage`, `extractFieldsOnPage`, `evalOnPage`) are plain
- * `page.evaluate`/`page.locator` calls and work on ANY Playwright `Page` —
- * the server-launched one (web fallback) OR the CDP-resolved WebContentsView
- * (Electron native). One implementation, both render paths.
+ * This file re-exports that core unchanged (so existing importers of
+ * `./browser-snapshot` keep working) and adds the page-operating helpers
+ * (`snapshotPage`, `actByRefOnPage`, `getTextOnPage`, `extractFieldsOnPage`,
+ * `evalOnPage`) — plain `page.evaluate`/`page.locator` calls that work on ANY
+ * Playwright `Page`: the server-launched one (web fallback) OR the
+ * CDP-resolved WebContentsView (Electron native). One implementation, both
+ * render paths.
  *
  * The marker attribute is `data-topics-ref` (distinct from the legacy
  * `data-topics-idx` used by browser-dom-walker.ts) so the two engines clean up
  * independently.
  */
 import type { Page } from "playwright-core";
+import {
+  SNAPSHOT_FN,
+  serialize,
+  diff,
+  type SnapElement,
+  type Snapshot,
+  type SnapshotDiff,
+  type RefAction,
+  type ExtractField,
+  type ExtractFields,
+} from "../shared/browser-snapshot-core";
 
-export interface SnapElement {
-  ref: number;
-  role: string;
-  name: string;
-  value?: string;
-  type?: string;
-  checked?: boolean;
-  disabled?: boolean;
-}
-
-export interface Snapshot {
-  url: string;
-  title: string;
-  scrollY: number;
-  scrollMaxY: number;
-  elements: SnapElement[];
-  truncated: boolean;
-}
-
-export interface SnapshotDiff {
-  /** Minimal text the agent reads. */
-  text: string;
-  /** Count of added+removed elements (0 = stable structure). */
-  changed: number;
-  /** True when this is a full serialization (no previous snapshot). */
-  full: boolean;
-  /** True when the page URL changed since the previous snapshot. */
-  navigated?: boolean;
-}
-
-export type RefAction =
-  | "click"
-  | "dblclick"
-  | "hover"
-  | "fill"
-  | "type"
-  | "select"
-  | "check"
-  | "uncheck"
-  | "press";
-
-export type ExtractField =
-  | string
-  | { selector: string; attr?: string; all?: boolean };
-export type ExtractFields = Record<string, ExtractField>;
-
-/**
- * In-page snapshot builder. MUST be fully self-contained — it is serialized and
- * executed in the browser page (DOM globals only, no outer-scope references).
- * Typed loosely (`any`) on DOM nodes because the server tsconfig has strict off
- * for these untyped DOM spots and the function never runs in Node.
- */
-export const SNAPSHOT_FN = (opts?: { max?: number }): Snapshot => {
-  const max = (opts && opts.max) || 200;
-  const nameCap = 120;
-
-  const visible = (el: any): boolean => {
-    const rects = el.getClientRects();
-    if (!rects || rects.length === 0) return false;
-    const s = window.getComputedStyle(el);
-    if (s.visibility === "hidden" || s.display === "none" || s.opacity === "0")
-      return false;
-    const r = el.getBoundingClientRect();
-    return r.width >= 1 || r.height >= 1;
-  };
-
-  const txt = (s: any): string => (s || "").replace(/\s+/g, " ").trim();
-
-  const accName = (el: any): string => {
-    let n = el.getAttribute("aria-label");
-    if (!n) {
-      const lb = el.getAttribute("aria-labelledby");
-      if (lb)
-        n = lb
-          .split(/\s+/)
-          .map((id: string) => {
-            const e = document.getElementById(id);
-            return e ? (e as any).innerText : "";
-          })
-          .join(" ");
-    }
-    if (!n) n = el.getAttribute("alt");
-    if (!n) n = el.getAttribute("placeholder");
-    if (!n && (el.tagName === "INPUT" || el.tagName === "TEXTAREA"))
-      n = el.getAttribute("name");
-    if (!n) n = el.innerText;
-    if (!n) n = el.getAttribute("title");
-    if (!n) n = el.getAttribute("value");
-    n = txt(n);
-    if (n.length > nameCap) n = n.slice(0, nameCap - 1) + "…";
-    return n;
-  };
-
-  const roleOf = (el: any): string => {
-    const explicit = el.getAttribute("role");
-    if (explicit) return explicit;
-    const tag = el.tagName.toLowerCase();
-    if (tag === "a") return el.hasAttribute("href") ? "link" : "generic";
-    if (tag === "button") return "button";
-    if (tag === "input") {
-      const t = (el.getAttribute("type") || "text").toLowerCase();
-      if (t === "checkbox") return "checkbox";
-      if (t === "radio") return "radio";
-      if (t === "submit" || t === "button" || t === "reset") return "button";
-      if (t === "search") return "searchbox";
-      if (t === "hidden") return "hidden";
-      return "textbox";
-    }
-    if (tag === "select") return "combobox";
-    if (tag === "textarea") return "textbox";
-    if (tag === "summary") return "disclosure";
-    return tag;
-  };
-
-  const selector = [
-    "a[href]",
-    "button",
-    "input:not([type=hidden])",
-    "select",
-    "textarea",
-    "summary",
-    "[role]",
-    '[contenteditable=""]',
-    '[contenteditable="true"]',
-    "[onclick]",
-    "[tabindex]:not([tabindex='-1'])",
-  ].join(",");
-
-  document
-    .querySelectorAll("[data-topics-ref]")
-    .forEach((e) => e.removeAttribute("data-topics-ref"));
-
-  const editable = new Set([
-    "textbox",
-    "combobox",
-    "checkbox",
-    "radio",
-    "searchbox",
-  ]);
-  const out: SnapElement[] = [];
-  const seen = new Set<any>();
-  let truncated = false;
-
-  for (const el of Array.from(document.querySelectorAll(selector)) as any[]) {
-    if (out.length >= max) {
-      truncated = true;
-      break;
-    }
-    if (seen.has(el)) continue;
-    seen.add(el);
-    const role = roleOf(el);
-    if (role === "hidden" || role === "generic") continue;
-    if (!visible(el)) continue;
-    const name = accName(el);
-    if (!name && !editable.has(role)) continue;
-
-    const ref = out.length + 1;
-    el.setAttribute("data-topics-ref", String(ref));
-    const item: SnapElement = { ref, role, name };
-    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
-      const t = (el.getAttribute("type") || "text").toLowerCase();
-      if (t !== "text") item.type = t;
-      if (el.value) item.value = String(el.value).slice(0, 60);
-      if (el.checked) item.checked = true;
-    }
-    if (el.disabled) item.disabled = true;
-    out.push(item);
-  }
-
-  return {
-    url: location.href,
-    title: document.title,
-    scrollY: Math.round(window.scrollY),
-    scrollMaxY: Math.max(
-      0,
-      document.documentElement.scrollHeight - window.innerHeight,
-    ),
-    elements: out,
-    truncated,
-  };
+// Single source of truth for the snapshot/serialize/diff format, shared with the
+// Tauri native pane executor (client/src/lib/shell/tauriBrowserOps.ts).
+export { SNAPSHOT_FN, serialize, diff };
+export type {
+  SnapElement,
+  Snapshot,
+  SnapshotDiff,
+  RefAction,
+  ExtractField,
+  ExtractFields,
 };
-
-const sig = (e: SnapElement): string =>
-  `${e.role}|${e.name}|${e.value || ""}|${e.checked ? 1 : 0}|${e.disabled ? 1 : 0}`;
-
-const line = (e: SnapElement): string => {
-  let s = `[${e.ref}] ${e.role}`;
-  if (e.name) s += ` "${e.name}"`;
-  if (e.type) s += ` <${e.type}>`;
-  if (e.value) s += ` =${JSON.stringify(e.value)}`;
-  if (e.checked) s += " [checked]";
-  if (e.disabled) s += " [disabled]";
-  return s;
-};
-
-export function serialize(
-  snap: Snapshot,
-  { header = true }: { header?: boolean } = {},
-): string {
-  const lines: string[] = [];
-  if (header) {
-    lines.push(`url: ${snap.url}`);
-    lines.push(`title: ${snap.title}`);
-    if (snap.scrollMaxY > 0)
-      lines.push(`scroll: ${snap.scrollY}/${snap.scrollMaxY}`);
-    lines.push(
-      `${snap.elements.length} interactive element(s)${snap.truncated ? " (truncated)" : ""}:`,
-    );
-  }
-  for (const e of snap.elements) lines.push(line(e));
-  return lines.join("\n");
-}
-
-/**
- * Incremental: describe what changed vs the previous snapshot, by accessible
- * signature (role+name+value+state), so unchanged structure costs ~0 tokens.
- */
-export function diff(prev: Snapshot | undefined, next: Snapshot): SnapshotDiff {
-  if (!prev)
-    return { text: serialize(next), changed: next.elements.length, full: true };
-  const navigated = prev.url !== next.url;
-  const prevBySig = new Map(prev.elements.map((e) => [sig(e), e]));
-  const nextBySig = new Map(next.elements.map((e) => [sig(e), e]));
-
-  const added = next.elements.filter((e) => !prevBySig.has(sig(e)));
-  const removed = prev.elements.filter((e) => !nextBySig.has(sig(e)));
-
-  const lines: string[] = [];
-  if (navigated) lines.push(`navigated -> ${next.url}`);
-  else if (prev.title !== next.title) lines.push(`title -> ${next.title}`);
-  if (next.scrollMaxY > 0 && next.scrollY !== prev.scrollY)
-    lines.push(`scroll: ${next.scrollY}/${next.scrollMaxY}`);
-
-  if (!added.length && !removed.length) {
-    lines.push(
-      navigated
-        ? `${next.elements.length} element(s) (same structure)`
-        : "no element changes",
-    );
-  } else {
-    if (added.length) {
-      lines.push(`+ ${added.length} new:`);
-      added.forEach((e) => lines.push("  " + line(e)));
-    }
-    if (removed.length)
-      lines.push(`- ${removed.length} removed (refs reassigned)`);
-  }
-  return {
-    text: lines.join("\n"),
-    changed: added.length + removed.length,
-    full: false,
-    navigated,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Page-operating helpers — run on any Playwright Page (web or CDP-resolved).
