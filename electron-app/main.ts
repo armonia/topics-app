@@ -1204,7 +1204,10 @@ function loadTrayIcons(): void {
   for (const candidate of candidates) {
     const img = nativeImage.createFromPath(candidate);
     if (!img.isEmpty()) {
-      baseIcon = img.resize({ width: 18, height: 18 });
+      // 20pt — a touch above the 18pt macOS default so the glyph reads at the
+      // same visual size as the neighbouring menu-bar items (@2x asset keeps it
+      // crisp on Retina).
+      baseIcon = img.resize({ width: 20, height: 20 });
       break;
     }
   }
