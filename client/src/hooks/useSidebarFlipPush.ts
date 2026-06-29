@@ -43,12 +43,14 @@ export function useSidebarFlipPush(
   const firstRun = useRef(true);
   const prevCollapsed = useRef(collapsed);
   const cleanupTimer = useRef(0);
+  const playRaf = useRef(0);
 
   useLayoutEffect(() => {
     const content = mainContent.current;
     const layer = flipLayer.current;
     if (!content || !layer) return;
     window.clearTimeout(cleanupTimer.current);
+    cancelAnimationFrame(playRaf.current); // drop a prior toggle's pending Play before re-basing
 
     // Animate ONLY a collapse/expand toggle. A sidebar WIDTH resize changes expandedPad with
     // collapsed unchanged (and lands as one React commit at drag-end, useSidebarAndLayout
@@ -91,7 +93,7 @@ export function useSidebarFlipPush(
 
     // (5) Play — next frame, slide translateX → 0 on the compositor, matching the sidebar's
     // 200ms ease so the content edge stays locked to the sidebar edge.
-    requestAnimationFrame(() => {
+    playRaf.current = requestAnimationFrame(() => {
       const l = flipLayer.current;
       if (!l) return;
       l.style.transition = `transform ${SLIDE_MS}ms ease`;
@@ -105,6 +107,6 @@ export function useSidebarFlipPush(
       if (l) { l.style.willChange = ''; l.style.transition = ''; }
     }, SLIDE_MS + 60);
 
-    return () => { window.clearTimeout(cleanupTimer.current); };
+    return () => { window.clearTimeout(cleanupTimer.current); cancelAnimationFrame(playRaf.current); };
   }, [collapsed, expandedPad, enabled, mainContent, flipLayer]);
 }
