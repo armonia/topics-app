@@ -40,10 +40,20 @@ disabling/snapping/hiding anything under load.
   (Chromium): paddingLeft 1.3ms (N=2) / 3.0 (N=5) / 5.0 (N=8) median; transform
   0ms at every N (1300x–5000x). WebKit layout is slower, so the real Tauri gap is
   larger — the FLIP removes it entirely.
-- **Acceptance (composited, needs live build)**: `TOPICS_FPS_SELFTEST` /
-  `__topicsToggleSidebar` on a live Tauri build with screen UNLOCKED → 0 frames
-  > 33ms during the 200ms slide with 6 and 8 visible terminals. (Locked screen
-  suspends compositing → cannot be measured; see PORTING-PLAN §8b.)
+- **Acceptance (composited, VERIFIED lock-proof in headless Chromium)**: rAF
+  frame deltas during the actual 200ms slide, measured in headless Chromium
+  (renders offscreen → unaffected by the locked physical screen),
+  `performance/sidebar-flip-bench.html`. Measured 2026-06-29, N=16 terminals
+  (~52k spans): OLD animated paddingLeft = 41.9ms/frame median (~24fps), **6/6
+  frames > 33ms (all dropped)** — matches the documented WebKit "~25fps"; FLIP
+  transform = 8.3ms/frame median (~120fps), **0 frames > 33ms**. The headline
+  "0 dropped frames during the slide" is met by the FLIP and catastrophically
+  missed by the old paddingLeft path.
+- **Acceptance (WebKit-specific, confirmatory, needs live build)**:
+  `TOPICS_FPS_SELFTEST` / `__topicsToggleSidebar` on a live Tauri build with
+  screen UNLOCKED → 0 frames > 33ms during the slide with 6 and 8 terminals, and
+  native-pane lockstep. (WebKit confirmation of the engine-universal result above;
+  see PORTING-PLAN §8b.)
 - **Divider/split**: already DOM-direct flex + coalesced fits (no per-frame
   feature-disable); measured 0 dropped frames steady-state.
 
