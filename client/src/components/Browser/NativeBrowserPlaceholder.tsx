@@ -54,6 +54,13 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
   modeRef.current = browser.deviceMode;
   const respRef = useRef(browser.responsiveSize);
   respRef.current = browser.responsiveSize;
+  // Latest setBounds + viewId, read inside the count effect (deps []) without
+  // re-subscribing it — so the immediate drag-hide below never calls a stale
+  // setBounds bound to a destroyed view.
+  const setBoundsRef = useRef(browser.setBounds);
+  setBoundsRef.current = browser.setBounds;
+  const viewIdRef = useRef(browser.viewId);
+  viewIdRef.current = browser.viewId;
 
   // Responsive-resize: drag a handle to resize the emulated viewport. We HIDE
   // the native view for the drag (via the same pane-resize events the divider
@@ -102,7 +109,21 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     let count = 0;
     const onStart = () => {
       count += 1;
-      if (count === 1) setDragging(true);
+      if (count === 1) {
+        setDragging(true);
+        // Hide the OS-level view IMMEDIATELY, synchronously in the dragstart
+        // handler — do NOT wait for the setDragging re-render + bounds effect +
+        // IPC round-trip. The WebContentsView composites ABOVE the DOM, so until
+        // it's gone a tab-drag's dragover/drop that crosses this pane is eaten by
+        // the view (the OS routes the pointer to the view, not the React drop
+        // target). That latency is why a browser tab "won't drag" to split: the
+        // very first drag motion lands on the still-visible view. setBoundsRef
+        // dodges the stale-closure trap (this effect has [] deps).
+        if (viewIdRef.current) {
+          try { setBoundsRef.current({ x: 0, y: 0, width: 0, height: 0 }); } catch { /* view gone */ }
+        }
+        console.debug('[dnd-debug] view hide on dragstart, viewId=', viewIdRef.current);
+      }
     };
     const onEnd = () => {
       count = Math.max(0, count - 1);
@@ -110,6 +131,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
         // Tiny defer so the drop animation completes before the view
         // re-mounts at full bounds (avoids a 1-frame flicker).
         setTimeout(() => setDragging(false), 60);
+        console.debug('[dnd-debug] view restore on dragend');
       }
     };
     window.addEventListener('dragstart', onStart, true);
