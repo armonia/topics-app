@@ -356,7 +356,12 @@ Item che richiedono un **run Tauri live** (impossibile verificarli staticamente)
 
 Spedito: `useSidebarFlipPush` sostituisce lo snap `manyTerminals` con un reveal FLIP
 (commit del pad finale in 1 reflow + `transform:translateX` compositor-only sul flip layer).
-Statico verde (tsc -b, 98 test). Da confermare su **build Tauri viva** (schermo sbloccato per rAF):
+Statico verde (tsc -b, vite prod build, 98 test). L'harness è cablato: `App.tsx` espone
+`window.__topicsToggleSidebar` e `lib.rs FPS_SELFTEST_JS` lo pilota → riporta via `fps_report`.
+**Sequenza di verifica (a schermo SBLOCCATO)**: (1) `/public` già rebuildato col FLIP; (2) rebuild
+dell'app Tauri — l'`.app` embedda `/public` al build, quindi la `.app` in esecuzione (pid pre-FLIP) va
+ricostruita: `cd desktop-tauri && cargo tauri build` (o lo script di prod); (3) relaunch con
+`TOPICS_FPS_SELFTEST=1` (kill pid + open `.app`); (4) leggere il `fps_report`. Da confermare su build viva:
 - **MECCANISMO — GIÀ PROVATO (lock-proof, `c977168c`)**: `performance/sidebar-flip-bench.html` misura il
   costo forced-reflow di paddingLeft (vecchio) vs transform (FLIP) con N terminali. Chromium 2026-06-29:
   paddingLeft 1.3/3.0/5.0ms median a N=2/5/8 (O(N), pagato OGNI frame); transform 0ms a ogni N (1300×–5000×).
