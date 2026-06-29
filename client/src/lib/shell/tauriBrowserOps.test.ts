@@ -104,7 +104,8 @@ test('browser_act clicks by ref and returns the post-action diff', async () => {
   // Injected ACT_FN call carries the ref + action.
   const actCall = calls.find(([cmd, args]) => cmd === 'browser_eval_js' && (args as { js: string }).js.includes('scrollIntoView'));
   expect(actCall).toBeTruthy();
-  expect(out.result).toEqual({ ok: true, action: 'click', ref: 2, snapshot: diff(undefined, SNAP).text });
+  // `untrusted: true` — the native pane drives synthetic (isTrusted=false) events.
+  expect(out.result).toEqual({ ok: true, action: 'click', ref: 2, snapshot: diff(undefined, SNAP).text, untrusted: true });
 });
 
 test('browser_act rejects a ref-action without a ref (no invoke)', async () => {
