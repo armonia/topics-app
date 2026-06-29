@@ -146,7 +146,6 @@ const MIN_CHILD_FRACTION = 0.1;
  */
 function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.ReactElement {
   const horizontal = dir === 'row';
-  const [hover, setHover] = useState(false);
   const [active, setActive] = useState(false);
   // Teardown for the in-flight drag so an unmount-mid-drag finishes it cleanly.
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -235,49 +234,29 @@ function Divider({ dir, gutter, onResize, onEqualize }: DividerProps): React.Rea
   // listeners, overlay and the resize start/end count stay balanced.
   useEffect(() => () => { cleanupRef.current?.(); }, []);
 
-  const lit = hover || active;
-  // The visible strip is `gutter` wide; an absolutely-positioned wider band
-  // (±5px past the gutter on the drag axis) makes a thin gutter easy to grab,
-  // without consuming layout space. z-50 keeps it above adjacent pane content.
-  // A 1px hairline (brighter on hover/drag) gives the grab strip a visible seam.
+  // The divider reuses the shared `.cursor-col-resize` / `.cursor-row-resize`
+  // component class (index.css): it owns the z-50 lift, the ±10px ::before grab
+  // band, and the ::after primary bar that fades in on hover. The element's own
+  // `bg-app-border` paints the 1px resting line — which the floating-splits rules
+  // null at rest over a vibrancy gap (and restore for dividers nested in a card),
+  // because those rules key on that background. `is-resizing` keeps the bar lit
+  // while a drag continues even if the pointer leaves the gutter. This matches the
+  // legacy GroupLayout/PanelGrid dividers exactly, so floating-splits composes
+  // again (the inline reimplementation had dropped the class and painted a resting
+  // seam the floating rules couldn't reach).
   return (
     <div
       role="separator"
       aria-orientation={horizontal ? 'vertical' : 'horizontal'}
       data-split-divider={dir}
+      className={`bg-app-border ${horizontal ? 'cursor-col-resize' : 'cursor-row-resize'}${active ? ' is-resizing' : ''}`}
       onMouseDown={onMouseDown}
       onDoubleClick={onEqualize ? (e) => { e.preventDefault(); e.stopPropagation(); onEqualize(); } : undefined}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
       style={{
         flex: `0 0 ${gutter}px`,
         position: 'relative',
-        zIndex: 50,
-        cursor: horizontal ? 'col-resize' : 'row-resize',
         touchAction: 'none',
       }}
-    >
-      {/* widened invisible grab band (no layout cost) */}
-      <div
-        style={{
-          position: 'absolute',
-          ...(horizontal
-            ? { top: 0, bottom: 0, left: -5, right: -5 }
-            : { left: 0, right: 0, top: -5, bottom: -5 }),
-        }}
-      />
-      {/* visible 1px hairline, centered on the gutter */}
-      <div
-        style={{
-          position: 'absolute',
-          background: 'var(--border, rgba(128,128,128,0.25))',
-          transition: 'background 120ms, box-shadow 120ms',
-          ...(horizontal
-            ? { top: 0, bottom: 0, left: '50%', width: 1, transform: 'translateX(-0.5px)' }
-            : { left: 0, right: 0, top: '50%', height: 1, transform: 'translateY(-0.5px)' }),
-          ...(lit ? { background: 'var(--primary)', boxShadow: '0 0 0 0.5px var(--primary)' } : {}),
-        }}
-      />
-    </div>
+    />
   );
 }

@@ -2278,42 +2278,20 @@ pub fn run() {
                 }
             }
 
-            // Dev hot-reload (Electron-parity). In `tauri dev` the frontendDist is
-            // served from DISK, so watch /public and reload the webview when a
-            // `vite build` lands new assets — the same loop Electron's prod
-            // asset-watcher gives. Compiled out of release (assets are embedded).
-            // NB: Vite HMR via a remote devUrl is NOT an option here — Tauri injects
-            // native IPC ONLY on the tauri:// origin, so an http dev origin would
-            // kill vibrancy/perf/data; a full reload on tauri:// keeps them working.
-            #[cfg(debug_assertions)]
-            {
-                use tauri::Manager;
-                let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    use notify::{RecursiveMode, Watcher};
-                    let public = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../public"));
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    let mut watcher = match notify::recommended_watcher(move |res| { let _ = tx.send(res); }) {
-                        Ok(w) => w,
-                        Err(e) => { eprintln!("[hot-reload] init failed: {e}"); return; }
-                    };
-                    if let Err(e) = watcher.watch(&public, RecursiveMode::Recursive) {
-                        eprintln!("[hot-reload] watch {public:?} failed: {e}");
-                        return;
-                    }
-                    eprintln!("[hot-reload] watching {public:?}");
-                    loop {
-                        // Block for the first event of a burst, then drain follow-ups
-                        // until the writes go quiet (a vite build touches many files)
-                        // — reload exactly once per build.
-                        if rx.recv().is_err() { break; }
-                        while rx.recv_timeout(std::time::Duration::from_millis(250)).is_ok() {}
-                        if let Some(win) = handle.get_webview_window("main") {
-                            let _ = win.eval("window.location.reload()");
-                        }
-                    }
-                });
-            }
+            // NO dev hot-reload for /public. This config has no `devUrl`, so the
+            // frontend is EMBEDDED into the binary at compile time (tauri-codegen
+            // `include_bytes!` over frontendDist), served from the `tauri://localhost`
+            // origin — NOT read from disk, in `cargo run`/`tauri dev` OR release.
+            // Consequence: a `vite build` that rewrites /public does NOTHING for an
+            // already-running binary — `window.location.reload()` just re-serves the
+            // frozen embedded bytes, and restarting the same binary re-serves them
+            // too. The ONLY way to pick up new /public is a fresh `cargo run` (the
+            // include_bytes! compile-dependency makes cargo re-embed on rebuild).
+            // (We can't use a remote http devUrl for HMR either: Tauri injects native
+            // IPC ONLY on the tauri:// origin, so an http origin kills vibrancy/IPC.)
+            // A previous notify-watcher here reloaded the webview on /public changes;
+            // it was a no-op for the embed model and only masked stale-frontend bugs,
+            // so it was removed. To dogfood client changes: rebuild then `cargo run`.
 
             // Env-gated sidebar FPS self-test: drive real collapse/expands and sample
             // rAF frame timing, writing the summary to /tmp/topics-fps-selftest.json.
