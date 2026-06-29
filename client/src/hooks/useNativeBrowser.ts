@@ -31,6 +31,15 @@ export interface NativeBrowserHandle {
   agentAction: string | null;
   ready: boolean;             // viewId resolved + cdpTargetId registered
   viewId: string | null;
+  /** Optional — Tauri only. A base64 PNG data-URL still of the page, shown in the
+   *  placeholder while the native WKWebView is parked off-screen (a dropdown/menu
+   *  overlaps it, or a sidebar/divider animation is in flight). A native child
+   *  webview always composites ABOVE the DOM, so it can't be z-ordered under an
+   *  HTML overlay nor cheaply moved per-frame; freezing to a DOM <img> lets
+   *  overlays render over a pixel-perfect still and lets animations move the image,
+   *  not the native view. Electron uses overlay windows instead and leaves this
+   *  undefined. */
+  frozenImage?: string | null;
   /** Favicon URL emitted by Chromium page-favicon-updated. Empty during navigation. */
   faviconUrl: string;
   navigate(url: string): Promise<void>;
@@ -44,6 +53,24 @@ export interface NativeBrowserHandle {
   findInPage(text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }): Promise<void>;
   stopFind(): Promise<void>;
   onFindResult(cb: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
+  /** Optional — count case-insensitive matches of `text` in the page (Tauri pane,
+   *  where window.find gives no count). Undefined on backends that report counts
+   *  via onFindResult (Electron CDP). */
+  countMatches?(text: string): Promise<number>;
+  /** Optional — inspect the element at page CSS coords (Tauri select-element;
+   *  Electron uses electronAPI.browserNative.inspectAtPoint instead). */
+  inspectAt?(x: number, y: number): Promise<{
+    cssPath: string;
+    domPath: string;
+    bbox: { x: number; y: number; w: number; h: number };
+    text: string;
+  } | null>;
+  /** Optional — Cmd+Shift+E select-element. On the Tauri pane the picking runs
+   *  IN-PAGE (the native view sits above the DOM, so a React overlay can't catch
+   *  the click); the hook dispatches `chat:insert-text` with the picked node. */
+  selectMode?: boolean;
+  enterSelectMode?(): void;
+  exitSelectMode?(): void;
   /** Phase 30.1 — Zoom (Cmd+/-/0). delta=+1 zooms in, -1 out, 'reset' to 100%. Returns new zoom level. */
   setZoom(delta: number | 'reset'): Promise<number>;
   /** Current device-emulation mode (default 'desktop'). */

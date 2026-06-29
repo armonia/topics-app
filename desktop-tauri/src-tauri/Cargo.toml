@@ -24,17 +24,31 @@ log = "0.4"
 # `unstable` unlocks multi-webview (Window::add_child) — the native browser pane:
 # a real child WKWebView positioned over the React layout slot, like Electron's
 # WebContentsView (vs the laggy WS screencast). See src/lib.rs browser_* commands.
-tauri = { version = "2.11.3", features = ["macos-private-api", "unstable"] }
+tauri = { version = "2.11.3", features = ["macos-private-api", "unstable", "tray-icon", "image-png", "devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 tauri-plugin-os = "2"
 # Native file dialogs (the project folder picker — `selectDirectory` was Electron-only).
 tauri-plugin-dialog = "2"
+# Native OS notifications: the completion/idle toasts use the web Notification API,
+# which is unreliable in a WKWebView shell — route them through the plugin on Tauri.
+tauri-plugin-notification = "2"
+# Remember window size/position/maximized across launches (Electron persisted its
+# bounds; a bare Tauri window always reopens at the default size + centre).
+tauri-plugin-window-state = "2"
+# Auto-update (parity with the Electron updater). Activates once a signed tauri-v*
+# release is published + the endpoint serves its latest.json; inert otherwise.
+tauri-plugin-updater = "2"
+# Dev-only filesystem watch for the /public hot-reload (the usage is gated on
+# cfg(debug_assertions); release embeds the assets so it never runs there).
+notify = "6"
 # Single-instance lock: a second launch (launchd KeepAlive, double-click) must not
 # spawn a duplicate that fails to bind the proxy port — instead it focuses the
 # running window. Registered FIRST in the builder (plugin requirement).
 tauri-plugin-single-instance = "2"
+# Global hotkey (Electron-parity): Cmd/Ctrl+Alt+T toggles always-on-top.
+tauri-plugin-global-shortcut = "2"
 sysinfo = "0.33"
 # Loopback TLS-origination proxy: the WKWebView talks plain HTTP/WS to a local
 # port; this re-originates TLS to the data server (whose local-CA cert WKWebView
@@ -50,3 +64,7 @@ native-tls = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
 objc = "0.2"
+# ObjC blocks: WKWebView's evaluateJavaScript:/takeSnapshot: take a completion
+# handler block; we bridge its async result back to the synchronous command via
+# a channel. Pins the same 0.1.x already in the tree (transitive from cocoa/objc).
+block = "0.1"

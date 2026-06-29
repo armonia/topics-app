@@ -12,6 +12,7 @@ import { augmentPath, realHome } from "../utils/path-env";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { discoverCodexSessionId, codexRolloutExists } from "../lib/codex-session";
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
+import { createIdempotencyCache } from "../lib/idempotency-cache";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
@@ -174,29 +175,8 @@ export function getClaudeSessionPtyIdleMs(claudeSessionId: string): number | nul
 // Client sends X-Idempotency-Key on reopen (paneId:closedAt) so a transient
 // 5xx on the HEAD probe doesn't spawn duplicate pty sessions when the client
 // retries the POST. 60 s TTL — long enough to cover any realistic retry.
-const IDEMPOTENCY_TTL_MS = 60_000;
-const idempotencyCache = new Map<string, { sessionId: string; expiresAt: number }>();
-
-function idempotencyLookup(key: string): string | null {
-  const entry = idempotencyCache.get(key);
-  if (!entry) return null;
-  if (entry.expiresAt < Date.now()) {
-    idempotencyCache.delete(key);
-    return null;
-  }
-  return entry.sessionId;
-}
-
-function idempotencyRemember(key: string, sessionId: string): void {
-  idempotencyCache.set(key, { sessionId, expiresAt: Date.now() + IDEMPOTENCY_TTL_MS });
-  // Opportunistic sweep — keeps the map bounded without a dedicated timer.
-  if (idempotencyCache.size > 128) {
-    const now = Date.now();
-    for (const [k, v] of idempotencyCache) {
-      if (v.expiresAt < now) idempotencyCache.delete(k);
-    }
-  }
-}
+// Logic + tests live in ../lib/idempotency-cache; this is the route's singleton.
+const idempotencyCache = createIdempotencyCache();
 
 // --- Bridge connection (Unix domain socket) ---
 let bridgeSocket: net.Socket | null = null;
@@ -1285,7 +1265,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       // logic in client/src/state/pane/adapters/closedTabRecord.ts.
       const idemKey = req.headers.get("x-idempotency-key");
       if (idemKey) {
-        const existingId = idempotencyLookup(idemKey);
+        const existingId = idempotencyCache.lookup(idemKey);
         if (existingId) {
           const existing = sessions.get(existingId);
           if (existing) {
@@ -1323,7 +1303,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       try {
         await ensureBridge();
         const session = await createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions, undefined);
-        if (idemKey) idempotencyRemember(idemKey, id);
+        if (idemKey) idempotencyCache.remember(idemKey, id);
         broadcastTerminalSessions();
         return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type, claudeSessionId: session.claudeSessionId || null });
       } catch (err: any) {

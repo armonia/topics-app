@@ -64,6 +64,7 @@ import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../st
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { overlayThemeColors } from '../../lib/popoverStyles';
 import { RESTING_SURFACE } from '../../lib/selectionStyles';
+import { isDesktop } from '../../lib/shell';
 import type { PaneType } from '../../types';
 
 /** Window event that opens the centered add palette (⌘N — dispatched by
@@ -189,7 +190,10 @@ export function PaneAddMenuItems({
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const { isMobile } = useMobile();
   const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
-  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
+  // Desktop = Electron OR Tauri (shell-resolved). Gates the project actions
+  // (Apri/Crea Progetto — now reachable under Tauri via the dialog-plugin
+  // selectDirectory) and the ⌘N hint. Was electronAPI-only → dead under Tauri.
+  const isElectron = isDesktop;
 
   // Touch targets are bigger on mobile, so the icons need to scale up to
   // stay legible inside the larger row. Matches the pre-unification

@@ -8,38 +8,43 @@
  * KEEP IN SYNC with:
  *   - `client/src/types/index.ts:ToolCallDetail` (the canonical client type)
  *   - `server/schemas/tool-call-detail.ts` (the server source of truth)
+ *
+ * Uses `zod/mini` (functional, tree-shakable API) so this client-bundled
+ * schema doesn't drag the method-heavy core into the critical entry chunk.
+ * `z.optional(...)` / `z.nullable(...)` replace the `.optional()` / `.nullable()`
+ * methods; `.safeParse` is identical across full zod and zod/mini.
  */
-import { z } from 'zod';
+import { z } from 'zod/mini';
 import type { ToolCallDetail } from '../types';
 
 const shellSchema = z.object({
   type: z.literal('shell'),
   command: z.string(),
-  cwd: z.string().optional(),
-  output: z.string().optional(),
-  exitCode: z.number().nullable().optional(),
+  cwd: z.optional(z.string()),
+  output: z.optional(z.string()),
+  exitCode: z.optional(z.nullable(z.number())),
 });
 
 const readSchema = z.object({
   type: z.literal('read'),
   filePath: z.string(),
-  content: z.string().optional(),
-  offset: z.number().optional(),
-  limit: z.number().optional(),
+  content: z.optional(z.string()),
+  offset: z.optional(z.number()),
+  limit: z.optional(z.number()),
 });
 
 const editSchema = z.object({
   type: z.literal('edit'),
   filePath: z.string(),
-  oldString: z.string().optional(),
-  newString: z.string().optional(),
-  unifiedDiff: z.string().optional(),
+  oldString: z.optional(z.string()),
+  newString: z.optional(z.string()),
+  unifiedDiff: z.optional(z.string()),
 });
 
 const writeSchema = z.object({
   type: z.literal('write'),
   filePath: z.string(),
-  content: z.string().optional(),
+  content: z.optional(z.string()),
 });
 
 const searchToolNameSchema = z.enum(['search', 'grep', 'glob', 'web_search']);
@@ -48,28 +53,28 @@ const searchModeSchema = z.enum(['content', 'files_with_matches', 'count']);
 const searchSchema = z.object({
   type: z.literal('search'),
   query: z.string(),
-  toolName: searchToolNameSchema.optional(),
-  content: z.string().optional(),
-  filePaths: z.array(z.string()).optional(),
-  numFiles: z.number().optional(),
-  numMatches: z.number().optional(),
-  mode: searchModeSchema.optional(),
+  toolName: z.optional(searchToolNameSchema),
+  content: z.optional(z.string()),
+  filePaths: z.optional(z.array(z.string())),
+  numFiles: z.optional(z.number()),
+  numMatches: z.optional(z.number()),
+  mode: z.optional(searchModeSchema),
 });
 
 const fetchSchema = z.object({
   type: z.literal('fetch'),
   url: z.string(),
-  prompt: z.string().optional(),
-  result: z.string().optional(),
-  statusCode: z.number().optional(),
-  bytes: z.number().optional(),
+  prompt: z.optional(z.string()),
+  result: z.optional(z.string()),
+  statusCode: z.optional(z.number()),
+  bytes: z.optional(z.number()),
 });
 
 const todoItemStatusSchema = z.enum(['pending', 'in_progress', 'completed']);
 const todoItemSchema = z.object({
   content: z.string(),
   status: todoItemStatusSchema,
-  activeForm: z.string().optional(),
+  activeForm: z.optional(z.string()),
 });
 const todoSchema = z.object({
   type: z.literal('todo'),
@@ -80,15 +85,15 @@ const subAgentActionStatusSchema = z.enum(['running', 'success', 'error']);
 const subAgentActionSchema = z.object({
   index: z.number(),
   toolName: z.string(),
-  summary: z.string().optional(),
-  status: subAgentActionStatusSchema.optional(),
+  summary: z.optional(z.string()),
+  status: z.optional(subAgentActionStatusSchema),
 });
 const subAgentSchema = z.object({
   type: z.literal('sub_agent'),
-  subAgentType: z.string().optional(),
-  description: z.string().optional(),
+  subAgentType: z.optional(z.string()),
+  description: z.optional(z.string()),
   actions: z.array(subAgentActionSchema),
-  result: z.string().optional(),
+  result: z.optional(z.string()),
 });
 
 const planSchema = z.object({
@@ -100,15 +105,15 @@ const mcpSchema = z.object({
   type: z.literal('mcp'),
   server: z.string(),
   tool: z.string(),
-  args: z.record(z.string(), z.unknown()).optional(),
-  result: z.string().optional(),
+  args: z.optional(z.record(z.string(), z.unknown())),
+  result: z.optional(z.string()),
 });
 
 const unknownSchema = z.object({
   type: z.literal('unknown'),
   raw: z.object({
-    args: z.record(z.string(), z.unknown()).optional(),
-    result: z.string().optional(),
+    args: z.optional(z.record(z.string(), z.unknown())),
+    result: z.optional(z.string()),
   }),
 });
 

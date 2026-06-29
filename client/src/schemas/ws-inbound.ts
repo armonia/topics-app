@@ -22,134 +22,138 @@
  * silently.
  *
  * v3 foundations WS-01 client-side wrap-up.
+ *
+ * Uses `zod/mini` (functional, tree-shakable API) so these client-bundled
+ * schemas don't drag the method-heavy core into the critical entry chunk.
+ * `z.looseObject({...})` replaces `.passthrough()`; `.safeParse` is identical.
  */
-import { z } from 'zod';
+import { z } from 'zod/mini';
 
 // ---- High-frequency types the client reads by hand ------------------------
 
-const connectedSchema = z.object({
+const connectedSchema = z.looseObject({
   type: z.literal('connected'),
   clientId: z.string(),
-}).passthrough();
+});
 
-const pongSchema = z.object({ type: z.literal('pong') }).passthrough();
+const pongSchema = z.looseObject({ type: z.literal('pong') });
 
-const errorMessageSchema = z.object({
+const errorMessageSchema = z.looseObject({
   type: z.literal('error'),
   message: z.string(),
-}).passthrough();
+});
 
-const welcomeSchema = z.object({
+const welcomeSchema = z.looseObject({
   type: z.literal('welcome'),
   serverVersion: z.string(),
-  protocolVersion: z.number().int(),
+  protocolVersion: z.int(),
   capabilities: z.array(z.string()),
   serverTime: z.number(),
   clientId: z.string(),
-}).passthrough();
+});
 
-const dashboardUpdatedSchema = z.object({
+const dashboardUpdatedSchema = z.looseObject({
   type: z.literal('dashboard:updated'),
-}).passthrough();
+});
 
-const unreadInitSchema = z.object({
+const unreadInitSchema = z.looseObject({
   type: z.literal('unread:init'),
   data: z.record(
     z.string(),
-    z.object({
+    z.looseObject({
       lastReadAt: z.string(),
       unreadCount: z.number(),
-    }).passthrough(),
+    }),
   ),
-}).passthrough();
+});
 
-const unreadUpdatedSchema = z.object({
+const unreadUpdatedSchema = z.looseObject({
   type: z.literal('unread:updated'),
   topicId: z.string(),
   unreadCount: z.number(),
-}).passthrough();
+});
 
-const streamEndSchema = z.object({
+const streamEndSchema = z.looseObject({
   type: z.literal('stream:end'),
   sessionKey: z.string(),
   messageId: z.string(),
-}).passthrough();
+});
 
-const streamCatchupSchema = z.object({
+const streamCatchupSchema = z.looseObject({
   type: z.literal('stream:catchup'),
   sessionKey: z.string(),
   messageId: z.string(),
-}).passthrough();
+});
 
-const typingBroadcastSchema = z.object({
+const typingBroadcastSchema = z.looseObject({
   type: z.literal('typing'),
   topicId: z.string(),
   clientId: z.string(),
   text: z.string(),
-}).passthrough();
+});
 
-const topicCreatedSchema = z.object({
+const topicCreatedSchema = z.looseObject({
   type: z.literal('topic:created'),
-  topic: z.object({ id: z.string() }).passthrough(),
-}).passthrough();
+  topic: z.looseObject({ id: z.string() }),
+});
 
-const topicUpdatedSchema = z.object({
+const topicUpdatedSchema = z.looseObject({
   type: z.literal('topic:updated'),
-  topic: z.object({ id: z.string() }).passthrough(),
-}).passthrough();
+  topic: z.looseObject({ id: z.string() }),
+});
 
-const topicArchivedSchema = z.object({
+const topicArchivedSchema = z.looseObject({
   type: z.literal('topic:archived'),
-  topic: z.object({ id: z.string() }).passthrough(),
-}).passthrough();
+  topic: z.looseObject({ id: z.string() }),
+});
 
-const topicSwitchSchema = z.object({
+const topicSwitchSchema = z.looseObject({
   type: z.literal('topic:switch'),
   fromTopicId: z.string(),
   // Optional inbound for forward/backward compat with a server that predates
   // the field; the open+focus guard degrades to "no origin scoping" if absent.
-  fromSessionKey: z.string().optional(),
+  fromSessionKey: z.optional(z.string()),
   toTopicId: z.string(),
   toSessionKey: z.string(),
-}).passthrough();
+});
 
-const uiStateInitSchema = z.object({
+const uiStateInitSchema = z.looseObject({
   type: z.literal('ui-state:init'),
   data: z.unknown(),
-  meta: z.unknown().optional(),
-}).passthrough();
+  meta: z.optional(z.unknown()),
+});
 
-const uiStateUpdatedSchema = z.object({
+const uiStateUpdatedSchema = z.looseObject({
   type: z.literal('ui-state:updated'),
   key: z.string(),
   value: z.unknown(),
-}).passthrough();
+});
 
-const messageNewSchema = z.object({
+const messageNewSchema = z.looseObject({
   type: z.literal('message:new'),
   sessionKey: z.string(),
   role: z.string(),
   messageId: z.string(),
   content: z.string(),
-}).passthrough();
+});
 
-const streamStartSchema = z.object({
+const streamStartSchema = z.looseObject({
   type: z.literal('stream:start'),
   sessionKey: z.string(),
   messageId: z.string(),
-}).passthrough();
+});
 
-const streamContentChunkSchema = z.object({
+const streamContentChunkSchema = z.looseObject({
   type: z.literal('stream:content_chunk'),
   sessionKey: z.string(),
   content: z.string(),
-}).passthrough();
+});
 
-const streamErrorSchema = z.object({
+const streamErrorSchema = z.looseObject({
   type: z.literal('stream:error'),
   sessionKey: z.string(),
   error: z.string(),
-}).passthrough();
+});
 
 // ---- Registry --------------------------------------------------------------
 
@@ -199,7 +203,7 @@ export function validateInbound(msg: unknown): InboundValidationResult {
   if (typeof type !== 'string') {
     return { ok: false, error: 'type: missing or not a string' };
   }
-  const schema = (INBOUND_SCHEMAS as Record<string, z.ZodTypeAny>)[type];
+  const schema = (INBOUND_SCHEMAS as Record<string, z.ZodMiniType>)[type];
   if (!schema) return { ok: true };
   const result = schema.safeParse(msg);
   if (result.success) return { ok: true };

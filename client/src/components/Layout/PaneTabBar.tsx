@@ -24,6 +24,7 @@ import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { releaseNativeFocus } from '../../lib/shell/tauri';
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -289,16 +290,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     }
     e.dataTransfer.effectAllowed = 'move';
     // Custom drag image: a compact tab-like chip instead of the browser's
-    // default file icon. The element must be in the DOM and rendered at
-    // setDragImage time; we remove it after one frame (the browser captures the
-    // image synchronously). Styled to match app chrome (elevated surface +
-    // border + a small accent dot) and the title is truncated so a long label
-    // (e.g. a browser pane's URL) can't blow the chip up into an ugly wall of
-    // text — the old version was a bare full-width primary block.
+    // default file icon. The element must be in the DOM AND on-screen at
+    // setDragImage time: Chromium snapshots an off-screen element fine, but
+    // WKWebView (Tauri) returns an EMPTY image for anything outside the visual
+    // viewport and falls back to the generic macOS document icon — the "tab
+    // looks like a file while dragging" report. So we render it AT THE CURSOR
+    // for the single capture frame (setDragImage's offset governs the final
+    // image placement, so this on-screen position causes no perceptible flash)
+    // and remove it next frame. Styled to match app chrome (elevated surface +
+    // border + a small accent dot); the title is truncated so a long label
+    // (e.g. a browser pane's URL) can't blow the chip up into a wall of text.
     const ghost = document.createElement('div');
     const pane = panes.find(p => p.id === paneId);
     ghost.style.cssText = `
-      position:fixed;left:-300px;top:-300px;
+      position:fixed;left:${e.clientX}px;top:${e.clientY}px;
       display:inline-flex;align-items:center;gap:7px;
       max-width:240px;padding:5px 11px;border-radius:9px;
       font:500 12px/1.2 Inter,system-ui,sans-serif;
@@ -644,6 +649,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                     ? SELECTED_SURFACE_SOFT
                     : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
             } ${isDragged ? 'opacity-40' : ''}`}
+            // Tauri: a native browser pane (sibling WKWebView) can hold AppKit
+            // first-responder; yank it back to the chrome on pointer-down so the
+            // tab switch isn't swallowed by the pane. No-op off Tauri / fire-and-forget.
+            onPointerDown={() => releaseNativeFocus()}
             onClick={() => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } if (pane.type === 'terminal') { const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id); if (sid) signalsActions.clearTerminalFinished(sid); } onActivate(pane.id); }}
             onDoubleClick={() => { if (pane.preview && onPinPane) onPinPane(pane.id); }}
             onContextMenu={handleContextMenu(pane.id)}

@@ -1,0 +1,92 @@
+name: Release (Tauri)
+
+# Opt-in Tauri desktop release. Tag `tauri-vX.Y.Z` (matching the "version" in
+# desktop-tauri/src-tauri/tauri.conf.json) to build + publish the Tauri installers
+# and the auto-update manifest:
+#   git tag tauri-v0.1.0 && git push origin tauri-v0.1.0
+#
+# Kept on a SEPARATE tag namespace from the Electron release (`v*`) during the
+# migration, so shipping Tauri is deliberate while it's not yet the production
+# shell. Once Tauri takes over, switch the trigger to `v*` so both shells (or just
+# Tauri) release in lockstep on one tag.
+on:
+  push:
+    tags: ['tauri-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # GITHUB_TOKEN creates the GitHub Release
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ONE Universal macOS build (arm64 + x86_64) on Apple Silicon, mirroring
+          # the Electron job — a single universal .app/.dmg → one correct
+          # latest.json updater manifest (two arch jobs would race to clobber it).
+          - { os: macos-14, args: '--target universal-apple-darwin' }
+          - { os: windows-latest, args: '' }
+          - { os: ubuntu-latest, args: '' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Universal macOS needs both arch std libs; empty elsewhere.
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust build cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri/src-tauri
+
+      - name: Linux WebKitGTK + tray build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Build client (Vite → public/, the Tauri frontendDist)
+        working-directory: client
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Build & publish Tauri (signed + notarized when secrets present)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing (minisign) — REQUIRED for auto-update to verify the
+          # downloaded bundle before self-replacing. Generate once with
+          # `cargo tauri signer generate` and add these secrets. Absent → an
+          # unsigned, non-auto-updating (but runnable) build.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing + notarization. REUSES the Electron Apple secrets:
+          # APPLE_CERTIFICATE/_PASSWORD are the same exported .p12 as the Electron
+          # MAC_CSC_LINK/_PASSWORD. APPLE_SIGNING_IDENTITY (e.g.
+          # "Developer ID Application: <name> (<TEAMID>)") is the one new secret to
+          # add. tauri-action skips signing when these are empty (Gatekeeper-warned
+          # but runnable artifacts).
+          APPLE_CERTIFICATE: ${{ secrets.MAC_CSC_LINK }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: desktop-tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Topics (Tauri) ${{ github.ref_name }}'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

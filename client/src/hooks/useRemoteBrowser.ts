@@ -115,8 +115,22 @@ function mapCoordinates(
   };
 }
 
+/**
+ * @param isVisible When false (pane is hidden behind another tab/split), inbound
+ *   screencast frames are dropped instead of applied — the last frame is retained
+ *   so there's no blank on reveal, but the per-frame base64 decode + `<img>` repaint
+ *   is skipped. This keeps the single-WKWebView Tauri renderer's memory/CPU in check
+ *   when many browser panes exist but only one is on screen. The WS stays open
+ *   (so agent-active / nav state still update); only the costly frame paint pauses.
+ */
 export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBrowser {
   const encodedId = useMemo(() => encodeURIComponent(contextId), [contextId]);
+
+  // Read inside the long-lived WS `onmessage` closure without re-subscribing the
+  // socket on every visibility toggle (re-running the WS effect would close+reopen
+  // the connection — churn + lost in-flight state).
+  const isVisibleRef = useRef(isVisible);
+  useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
   const [state, setState] = useState<RemoteBrowserState>({
     url: '',
     title: '',
@@ -255,17 +269,6 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // WebSocket lifecycle. Opens once per contextId, retries to fallback-http
   // on close/error after FALLBACK_DELAY_MS.
   useEffect(() => {
-    // Visibility gate: a hidden pane (inactive split tab / keep-alive ladder)
-    // must NOT hold a /ws/browser screencast open. In the single-WKWebView Tauri
-    // shell every streamed pane decodes its frames in the one renderer and
-    // balloons its memory — the reason streaming was once swapped for a static
-    // placeholder there (commit 4c45719). Streaming only the VISIBLE pane keeps
-    // the embedded browser fully functional while holding memory down. The
-    // server keeps the page alive, so becoming visible again reconnects and
-    // resumes frames. (Pure early-return — no setState here; the prior run's
-    // cleanup already closed the socket and the poller below is also gated on
-    // isVisible, so a hidden pane neither streams nor polls.)
-    if (!isVisible) return;
     mountedRef.current = true;
     const wsUrl = `${serverWsBase()}/ws/browser/${encodedId}`;
     let ws: WebSocket;
@@ -308,6 +311,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         const msg = result.data;
         switch (msg.type) {
           case 'frame': {
+            // Hidden pane: drop the frame (keep the last one painted) to skip the
+            // base64 decode + img repaint. See the isVisible param docs above.
+            if (!isVisibleRef.current) break;
             const psf = msg.metadata?.pageScaleFactor;
             if (psf) {
               pageScaleFactorRef.current = psf;
@@ -377,13 +383,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
       clearLoadingWatchdog();
     };
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, isVisible]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog]);
 
-  // HTTP polling effect — runs ONLY when the WS dropped to fallback-http AND the
-  // pane is visible. The isVisible guard mirrors the WS effect's: a hidden pane
-  // must not poll REST screenshots either (same memory/CPU reason).
+  // HTTP polling effect — runs ONLY when the WS dropped to fallback-http.
+  // Mirrors the legacy polling loop but gated on connectionState.
   useEffect(() => {
-    if (!isVisible || state.connectionState !== 'fallback-http') {
+    if (state.connectionState !== 'fallback-http') {
       if (pollingRef.current) {
         clearTimeout(pollingRef.current);
         pollingRef.current = null;
@@ -408,7 +413,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         pollingRef.current = null;
       }
     };
-  }, [state.connectionState, fetchInfo, fetchScreenshot, isVisible]);
+  }, [state.connectionState, fetchInfo, fetchScreenshot]);
 
   // --- Interaction handlers ---
 

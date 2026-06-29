@@ -4,6 +4,7 @@ import type { AppSettings, ClaudeSessionPhase, TerminalSessionInfo, Topic, WSMes
 import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
 import { useSignalsStore } from '../state/signals';
+import { notifyNative } from '../lib/shell/app';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -86,20 +87,15 @@ function playCompletionTone(): void {
  * redundant in-app toast (the OS notification already covers the "done" cue).
  */
 function emitSystemNotification(message: string): boolean {
-  try {
-    if (typeof Notification === 'undefined') return false;
-    if (Notification.permission !== 'granted') return false;
-    const sep = message.indexOf(': ');
-    const title = sep > 0 ? message.slice(0, sep) : 'Topics';
-    const body = sep > 0 ? message.slice(sep + 2) : message;
-    // silent: we play our own WebAudio tone when the sound toggle is on, so the
-    // OS banner stays quiet to avoid a double chime.
-    new Notification(title, { body, silent: true });
-    return true;
-  } catch {
-    /* never propagate notification errors — they're cosmetic */
-    return false;
-  }
+  const sep = message.indexOf(': ');
+  const title = sep > 0 ? message.slice(0, sep) : 'Topics';
+  const body = sep > 0 ? message.slice(sep + 2) : message;
+  // silent: we play our own WebAudio tone when the sound toggle is on, so the OS
+  // banner stays quiet to avoid a double chime. Routes through the shell bridge:
+  // Electron/web use the web Notification API, Tauri the native `notify` command
+  // (WKWebView's web Notification API is unreliable). Returns true only when a
+  // banner posted synchronously (Electron/web) so the caller drops the in-app toast.
+  return notifyNative(title, body, { silent: true });
 }
 
 /** Pull the topic id out of a panel id like `chat:abc-123`. Returns null

@@ -15,27 +15,31 @@
  * Migrated from a manual type union to Zod (v3 foundations WS-01) on
  * 2026-05-12 — the client now validates every inbound WS message instead of
  * casting it unsafely.
+ *
+ * Uses `zod/mini` (functional, tree-shakable API) so this client-bundled
+ * schema doesn't drag the method-heavy core into the critical entry chunk.
+ * `z.optional(...)` replaces the `.optional()` method; `.safeParse` is identical.
  */
-import { z } from 'zod';
+import { z } from 'zod/mini';
 
 const inputActionSchema = z.enum(['click', 'type', 'scroll', 'mousemove', 'keypress']);
 const inputButtonSchema = z.enum(['left', 'right', 'middle']);
 
 const inputPayloadSchema = z.object({
-  x: z.number().optional(),
-  y: z.number().optional(),
-  text: z.string().optional(),
-  key: z.string().optional(),
-  deltaX: z.number().optional(),
-  deltaY: z.number().optional(),
-  button: inputButtonSchema.optional(),
+  x: z.optional(z.number()),
+  y: z.optional(z.number()),
+  text: z.optional(z.string()),
+  key: z.optional(z.string()),
+  deltaX: z.optional(z.number()),
+  deltaY: z.optional(z.number()),
+  button: z.optional(inputButtonSchema),
 });
 
 const frameMetadataSchema = z.object({
   timestamp: z.number(),
-  pageScaleFactor: z.number().optional(),
-  deviceWidth: z.number().optional(),
-  deviceHeight: z.number().optional(),
+  pageScaleFactor: z.optional(z.number()),
+  deviceWidth: z.optional(z.number()),
+  deviceHeight: z.optional(z.number()),
 });
 
 const frameMessageSchema = z.object({
@@ -60,7 +64,7 @@ const agentActiveMessageSchema = z.object({
   type: z.literal('agent_active'),
   active: z.boolean(),
   /** What the agent is doing (e.g. "Clicca", "Naviga su example.com"). active=true only. */
-  action: z.string().optional(),
+  action: z.optional(z.string()),
 });
 
 const consoleMessageSchema = z.object({

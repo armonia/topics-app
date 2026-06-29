@@ -16,6 +16,14 @@ function platformLabel(): string {
   if (p === 'darwin') return 'macOS';
   if (p === 'win32') return 'Windows';
   if (p === 'linux') return 'Linux';
+  // Tauri (and web) expose no electronAPI.platform — on a desktop shell derive it
+  // from the UA so a Tauri mac/win/linux build isn't mislabelled as "Web".
+  if (isDesktop) {
+    const ua = navigator.userAgent;
+    if (/Mac/i.test(ua)) return 'macOS';
+    if (/Win/i.test(ua)) return 'Windows';
+    if (/Linux/i.test(ua)) return 'Linux';
+  }
   return 'Web';
 }
 
