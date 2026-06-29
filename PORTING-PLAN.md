@@ -357,8 +357,13 @@ Item che richiedono un **run Tauri live** (impossibile verificarli staticamente)
 Spedito: `useSidebarFlipPush` sostituisce lo snap `manyTerminals` con un reveal FLIP
 (commit del pad finale in 1 reflow + `transform:translateX` compositor-only sul flip layer).
 Statico verde (tsc -b, 98 test). Da confermare su **build Tauri viva** (schermo sbloccato per rAF):
-- **HEADLINE**: `TOPICS_FPS_SELFTEST` / `__topicsToggleSidebar` con 6 e 8 terminali visibili →
-  **0 frame >33ms durante i 200ms** della slide (oggi ~25fps/snap). È l'acceptance principale.
+- **MECCANISMO — GIÀ PROVATO (lock-proof, `c977168c`)**: `performance/sidebar-flip-bench.html` misura il
+  costo forced-reflow di paddingLeft (vecchio) vs transform (FLIP) con N terminali. Chromium 2026-06-29:
+  paddingLeft 1.3/3.0/5.0ms median a N=2/5/8 (O(N), pagato OGNI frame); transform 0ms a ogni N (1300×–5000×).
+  Engine-universale (padding=layout, transform=compositor su WebKit e Chromium). Conferma la causa radice + il fix.
+- **HEADLINE COMPOSITATO (resta — serve schermo sbloccato)**: `TOPICS_FPS_SELFTEST` / `__topicsToggleSidebar`
+  con 6 e 8 terminali visibili → **0 frame >33ms durante i 200ms** della slide (oggi ~25fps/snap). Non
+  misurabile a schermo bloccato (compositing sospeso); il meccanismo sopra è il sostituto lock-proof.
 - **Browser pane nativo (rischio portante)**: split con 1 terminale + 1 BROWSER pane, toggle
   sidebar → il bordo sinistro del pane deve tracciare il bordo contenuto in lockstep coi terminali,
   niente trail né salto-a-fine. Si regge su `getBoundingClientRect` post-transform (WebKit conforme)
