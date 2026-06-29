@@ -12,12 +12,19 @@ import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
-import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
+import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths } from './gridWidths';
 import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
+import { SplitTree } from './SplitTree';
+import { leaf, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
+import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
+
+/** Stable empty identity so the keyPos memo can short-circuit with the flag off
+ *  without churning a fresh Map every render. */
+const EMPTY_KEY_POS: ReadonlyMap<string, [number, number]> = new Map();
 
 /**
  * Deep-clone a row preserving its optional `cellStacks` map. Drop handlers
@@ -225,6 +232,11 @@ interface PanelGridProps {
   // Draft chat support
   promoteDraft?: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
   draftMeta?: Record<string, { projectPath?: string }>;
+  // EXPERIMENTAL: render the grid through the unified layoutTree/<SplitTree>
+  // engine instead of the legacy row/column JSX. Geometry-identical; all
+  // drag/drop/split/close gestures still route through the existing handlers.
+  // Defaults off (AppSettings.splitTreeEngine).
+  splitTreeEngine?: boolean;
 }
 
 /* ================================================================== */
@@ -275,6 +287,7 @@ export function PanelGrid({
   onOpenBrowserContextIds,
   promoteDraft,
   draftMeta,
+  splitTreeEngine = false,
 }: PanelGridProps) {
   // Topics + terminal sessions come from TopicsContext — both used to be
   // drilled here as props. Single read at the top so the rest of the
@@ -1035,7 +1048,7 @@ export function PanelGrid({
   // drop-capture). The drag-out pop-out in handleDragEnd reads this so a drop
   // that landed on a split/cell is NEVER mistaken for a drag outside the window
   // — defense-in-depth on top of the dropEffect='move' signal, since WKWebView
-  // (Tauri) can still report a stale dragend dropEffect/coords. Reset on dragstart.
+  // can still report a stale dragend dropEffect/coords. Reset on every dragstart.
   const dropConsumedRef = useRef(false);
   const [emptyDragOver, setEmptyDragOver] = useState(false);
   /**
@@ -1091,10 +1104,10 @@ export function PanelGrid({
     }
 
     // Pop-out to new window if dragged outside (native app only). Skip entirely
-    // when an in-app drop target already consumed this drag — on WKWebView (Tauri)
-    // the dragend dropEffect can read 'none' even after a successful in-window
-    // split (the bug that closed panes dropped onto a split). dropConsumedRef is
-    // the reliable signal; dropEffect alone is not, on WebKit.
+    // when an in-app drop target already consumed this drag — on WKWebView the
+    // dragend dropEffect can read 'none' even after a successful in-window split
+    // (the bug that closed panes dropped onto a split). dropConsumedRef is the
+    // reliable signal; dropEffect alone is not, on WebKit.
     if (isNativeApp && draggedId && !dropConsumedRef.current && e.dataTransfer.dropEffect === 'none') {
       const { clientX, clientY } = e;
       const windowWidth = window.innerWidth;
@@ -1166,6 +1179,17 @@ export function PanelGrid({
       return;
     }
 
+    // Commit the hover target, but DEDUP: dragover fires ~60fps+ and re-creating the
+    // same target object every event re-rendered the whole grid each frame — the
+    // "preview delle aree di drop laggano". Only setState when the zone/cell actually
+    // changes, so a steady cursor produces zero re-renders.
+    const commitTarget = (target: { rowIdx: number; colIdx: number; zone: DropZone; centerSide?: 'left' | 'right'; isTab: boolean }) => {
+      const p = gridDropTargetRef.current;
+      if (p && p.rowIdx === target.rowIdx && p.colIdx === target.colIdx && p.zone === target.zone && p.centerSide === target.centerSide && p.isTab === target.isTab) return;
+      setGridDropTarget(target);
+      gridDropTargetRef.current = target;
+    };
+
     // The tab bar owns its own band: a PANE_TAB dragged ANYWHERE over a tab bar
     // (including its left/right corners, where detectDropZone returns 'left'/
     // 'right' rather than the suppressed 'top') must show ONLY the bar's insert
@@ -1196,9 +1220,7 @@ export function PanelGrid({
     // release time and let children handle the reorder/drop. We don't
     // stopPropagation here so the child's dragover can also run.
     if (isTabDrag && !isGridDrag && (zone === 'center' || zone === 'top')) {
-      const target = { rowIdx, colIdx, zone, centerSide, isTab: true };
-      setGridDropTarget(target);
-      gridDropTargetRef.current = target;
+      commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: true });
       return;
     }
 
@@ -1206,13 +1228,12 @@ export function PanelGrid({
     e.stopPropagation(); // Prevent children from also handling this edge drag
     // WKWebView (Tauri) does NOT infer dropEffect from preventDefault the way
     // Chromium does — if the accepting target never sets it, the SOURCE's
-    // `dragend` reports dropEffect:'none', which the pop-out path (handleDragEnd)
-    // reads as "dropped outside the app" and CLOSES the pane. Signal acceptance
-    // explicitly so an in-window split drop is never mistaken for a drag-out.
+    // `dragend` reports dropEffect:'none', which the pop-out path
+    // (handleDragEnd) reads as "dropped outside the app" and CLOSES the pane.
+    // Signal acceptance explicitly so an in-window split drop is never mistaken
+    // for a drag-out. (effectAllowed is 'move' for all our drags.)
     e.dataTransfer.dropEffect = 'move';
-    const target = { rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag };
-    setGridDropTarget(target);
-    gridDropTargetRef.current = target; // sync update for immediate drop access
+    commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag });
   }, [gridDropTargetRef]);
 
   const handleGridItemDragEnd = useCallback(() => {
@@ -1798,6 +1819,131 @@ export function PanelGrid({
     ],
   );
 
+  /* ================================================================== */
+  /*  splitTreeEngine render path (EXPERIMENTAL, behind the flag)         */
+  /* ================================================================== */
+  //
+  // Renders the SAME grid through the unified <SplitTree> engine instead of the
+  // manual row/column JSX below. The tree mirrors gridRows 1:1 (a col-split of
+  // rows, each a row-split of columns) so a divider's (path, idx) maps straight
+  // back to (rowIdx, colIdx). Every gesture reuses the existing handlers:
+  //   - drop / split / move / reorder  → handleGridItemDragOverCapture/DropCapture
+  //   - vertical sub-stacks            → <CellSubStack> inside the column leaf
+  //   - divider resize / equalize      → mapped onto gridRows widths / heights
+  // Geometry is byte-identical to the legacy path (golden-geometry gate). The
+  // sub-stacks stay un-exploded for now (arbitrary-depth is the next increment);
+  // insert-between-divider drops aren't wired in tree mode (cell-edge drop covers
+  // the same intent). All of this is inert unless the flag is on.
+
+  // key → [rowIdx, colIdx] for the top-level cells (sub-stack members aren't tree
+  // leaves here — they live inside their host cell's <CellSubStack>). Gated on the
+  // flag (like treeRoot below) so the legacy path does zero extra work.
+  const keyPos = useMemo<ReadonlyMap<string, [number, number]>>(() => {
+    if (!splitTreeEngine) return EMPTY_KEY_POS;
+    const m = new Map<string, [number, number]>();
+    gridRows.forEach((row, r) => row.itemKeys.forEach((k, c) => { if (!m.has(k)) m.set(k, [r, c]); }));
+    return m;
+  }, [splitTreeEngine, gridRows]);
+
+  // Shallow tree, 1:1 with gridRows (never drops/reorders rows or columns, so the
+  // tree path === gridRows index). Missing / duplicate slots become inert
+  // `__skip:*` placeholder leaves (rendered null) with weight 0 — they keep the
+  // index stable AND reserve no space, so a transient stale key leaves no blank
+  // gap (it self-heals on the next prune). Only built when the flag is on.
+  const treeRoot = useMemo<LayoutNode | null>(() => {
+    if (!splitTreeEngine) return null;
+    const seen = new Set<string>();
+    const rowChildren: SplitChild[] = gridRows.map((row, ri): SplitChild => {
+      const cols: SplitChild[] = row.itemKeys.length === 0
+        ? [{ weight: 1, node: leaf(`__skip:${ri}:empty`) }]
+        : row.itemKeys.map((key, ci): SplitChild => {
+            const live = itemMap.has(key) && !seen.has(key);
+            if (live) seen.add(key);
+            return {
+              weight: live ? (row.widths[ci] ?? 1 / row.itemKeys.length) : 0,
+              node: leaf(live ? key : `__skip:${ri}:${ci}`),
+            };
+          });
+      const rowNode: SplitNode = { kind: 'split', dir: 'row', children: cols };
+      return { weight: gridRowHeights[ri] ?? 1 / gridRows.length, node: rowNode };
+    });
+    if (rowChildren.length === 0) return null;
+    const root: SplitNode = { kind: 'split', dir: 'col', children: rowChildren };
+    return root;
+  }, [splitTreeEngine, gridRows, gridRowHeights, itemMap]);
+
+  // Divider drag → shift weight on the matching gridRows band, preserving
+  // cellStacks (so persistence + sub-stacks survive). path [] = row heights;
+  // path [rowIdx] = that row's column widths.
+  const handleTreeResize = useCallback((path: number[], dividerIdx: number, deltaPx: number, bandPx: number) => {
+    const wd = pxToWeightDelta(bandPx, deltaPx);
+    if (wd === 0) return;
+    if (path.length === 0) {
+      setGridRowHeights(prev => resizeWeights(prev, dividerIdx, wd, MIN_PANE_FRACTION));
+    } else if (path.length === 1) {
+      const rowIdx = path[0];
+      setGridRows(prev => prev.map((r, i) => (i === rowIdx ? { ...r, widths: resizeWeights(r.widths, dividerIdx, wd, MIN_PANE_FRACTION) } : r)));
+    }
+  }, [setGridRowHeights, setGridRows]);
+
+  // Double-click a divider → weighted equalize (same semantics as the legacy
+  // equalizeHorizontal/Vertical: balances LEAF panes, not just cells).
+  const handleTreeEqualize = useCallback((path: number[]) => {
+    if (path.length === 0) {
+      setGridRowHeights(weightedWidths(rowHeightWeights(gridRowsRef.current)));
+    } else if (path.length === 1) {
+      const rowIdx = path[0];
+      setGridRows(prev => prev.map((r, i) => (i === rowIdx ? { ...r, widths: weightedWidths(rowColumnWeights(r)) } : r)));
+    }
+  }, [setGridRowHeights, setGridRows, rowHeightWeights, rowColumnWeights, gridRowsRef]);
+
+  // One leaf = one top-level cell. Reuses renderGroupForKey + the exact legacy
+  // drop-capture wrapper + <CellSubStack>, so DnD and sub-stacks behave as today.
+  const renderTreeLeaf = useCallback((key: string): React.ReactNode => {
+    if (key.startsWith('__skip:')) return null;
+    const item = itemMap.get(key);
+    if (!item) return null;
+    const pos = keyPos.get(key);
+    const rowIdx = pos ? pos[0] : 0;
+    const colIdx = pos ? pos[1] : 0;
+    const isTarget = gridDropTarget?.rowIdx === rowIdx && gridDropTarget?.colIdx === colIdx;
+    const zone = isTarget ? gridDropTarget!.zone : null;
+    const cSide = isTarget ? gridDropTarget!.centerSide : undefined;
+    const isTabTarget = isTarget && !!gridDropTarget!.isTab;
+    const suppressSplitOverlay = isTabTarget && zone === 'top';
+    const showSplitRegion = !suppressSplitOverlay && (zone === 'left' || zone === 'right' || zone === 'top' || zone === 'bottom');
+    const stack = gridRows[rowIdx]?.cellStacks?.[key];
+    const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx);
+    return (
+      <div
+        className={`flex w-full h-full min-h-0 min-w-0 overflow-hidden relative ${draggingGridKey === key ? 'opacity-40' : ''}`}
+        style={{
+          boxShadow: zone === 'center' && !isTabTarget
+            ? (cSide === 'left' ? 'inset 4px 0 0 0 var(--primary)' : 'inset -4px 0 0 0 var(--primary)')
+            : undefined,
+        }}
+        data-panel-cell={`${rowIdx}-${colIdx}`}
+        onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
+        onDropCapture={handleGridItemDropCapture}
+      >
+        {showSplitRegion && <SplitRegion zone={zone as 'left' | 'right' | 'top' | 'bottom'} />}
+        {stack ? (
+          <CellSubStack
+            stack={stack}
+            primary={primaryGroup}
+            renderStackItem={(stackKey) => {
+              const stackItem = itemMap.get(stackKey);
+              if (!stackItem) return null;
+              return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx);
+            }}
+            onResize={(nextHeights) => handleCellStackResize(rowIdx, key, nextHeights)}
+            isDragActive={isAnyDragActive}
+          />
+        ) : primaryGroup}
+      </div>
+    );
+  }, [itemMap, keyPos, gridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive]);
+
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
     return (
@@ -1884,7 +2030,18 @@ export function PanelGrid({
         </div>
       )}
 
-      {gridRows.map((row, rowIdx) => (
+      {splitTreeEngine && treeRoot && !isMobile ? (
+        // On a narrow/mobile viewport the legacy path stacks columns vertically
+        // and equalizes them; the tree path has no mobile mode, so fall back to
+        // legacy under 768px (matches isMobile in the legacy branch below).
+        <SplitTree
+          node={treeRoot}
+          renderLeaf={renderTreeLeaf}
+          onResize={handleTreeResize}
+          onEqualize={handleTreeEqualize}
+          gutter={1}
+        />
+      ) : gridRows.map((row, rowIdx) => (
         <Fragment key={rowIdx}>
           <div
             className={`flex ${isMobile ? 'flex-col' : 'flex-row'} min-h-0 min-w-0 overflow-hidden`}

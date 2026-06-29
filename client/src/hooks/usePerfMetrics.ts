@@ -23,6 +23,19 @@ export interface PerfMetrics {
  * call walks every Chromium process via `app.getAppMetrics()` — and fires once
  * immediately when the window becomes visible again.
  */
+/**
+ * GPU hardware-acceleration status for the Tauri shell. WKWebView on macOS ALWAYS
+ * composites through Core Animation / Metal — there is no software-rasteriser
+ * fallback like Chromium's SwiftShader — so acceleration is on by definition.
+ *
+ * We deliberately do NOT probe this with a WebGL context: creating one in a
+ * transparent WKWebView can promote the page to an opaque compositing layer and
+ * silently kill the window vibrancy. A static value is both correct (for the macOS
+ * target) and side-effect-free. Replaces the old hard-coded `false` that showed a
+ * bogus "Accelerazione hardware OFF" alarm.
+ */
+const TAURI_GPU: PerfMetrics['gpu'] = { accelerated: true, compositing: 'core-animation', webgl: 'webkit' };
+
 export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics | null {
   const [metrics, setMetrics] = useState<PerfMetrics | null>(null);
 
@@ -42,7 +55,7 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
                 version: m.version,
                 cpu: { renderer: 0, gpu: 0, total: m.cpu_percent },
                 memory: { totalMB: Math.round(m.total_mb), rendererMB: 0, gpuMB: 0, otherMB: 0, processCount: 1, metric: 'rss' },
-                gpu: { accelerated: false, compositing: '', webgl: '' },
+                gpu: TAURI_GPU,
               };
             }
           : null;

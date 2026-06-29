@@ -27,6 +27,21 @@ export function detectShell(): ShellKind {
   if (typeof window === 'undefined') return 'web';
   if (window.electronAPI) return 'electron';
   if (window.__TAURI_INTERNALS__ || window.__TAURI__) return 'tauri';
+  // Origin fallback (CRITICAL): Tauri injects its IPC globals at document-start,
+  // but on the custom protocol that injection can land AFTER this module graph
+  // evaluates — and because `shellKind` is a module-load constant, a single late
+  // injection pins it to 'web' for the whole session, silently killing every
+  // `isTauri`-gated feature (per-region vibrancy, platform label, native overlay)
+  // while call-time `tauriInvoke` still works (perf/notifications). The webview's
+  // ORIGIN is authoritative and available synchronously: tauri://localhost on
+  // macOS, http://tauri.localhost on Windows/Linux.
+  try {
+    if (typeof location !== 'undefined') {
+      if (location.protocol === 'tauri:') return 'tauri';
+      const host = location.hostname || '';
+      if (host === 'tauri.localhost' || host.endsWith('.tauri.localhost')) return 'tauri';
+    }
+  } catch { /* location unavailable — fall through */ }
   return 'web';
 }
 

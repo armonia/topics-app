@@ -11,6 +11,7 @@
     "process:default",
     "process:allow-restart",
     "os:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "updater:default"
   ]
 }

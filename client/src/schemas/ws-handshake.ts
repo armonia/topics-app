@@ -7,14 +7,17 @@
  * canonical type is derived via `z.infer` on both sides — drift is caught
  * by structural-equality assignability tests in the test files.
  */
-import { z } from 'zod';
+// Uses `zod/mini` (functional, tree-shakable API) so these client-bundled
+// schemas don't drag the method-heavy core into the critical entry chunk.
+// Parse methods (`.safeParse`) are identical across full zod and zod/mini.
+import { z } from 'zod/mini';
 
 // ----- Server -> Client: welcome --------------------------------------------
 
 export const welcomeMessageSchema = z.object({
   type: z.literal('welcome'),
   serverVersion: z.string(),
-  protocolVersion: z.number().int(),
+  protocolVersion: z.int(),
   capabilities: z.array(z.string()),
   serverTime: z.number(),
   clientId: z.string(),
@@ -27,7 +30,7 @@ export type WelcomeMessage = z.infer<typeof welcomeMessageSchema>;
 export const helloMessageSchema = z.object({
   type: z.literal('hello'),
   clientVersion: z.string(),
-  protocolVersion: z.number().int(),
+  protocolVersion: z.int(),
   capabilities: z.array(z.string()),
 });
 
@@ -37,8 +40,8 @@ export type HelloMessage = z.infer<typeof helloMessageSchema>;
 
 export const upgradeRequiredSchema = z.object({
   type: z.literal('upgrade-required'),
-  minClientProtocolVersion: z.number().int(),
-  currentClientProtocolVersion: z.number().int(),
+  minClientProtocolVersion: z.int(),
+  currentClientProtocolVersion: z.int(),
   message: z.string(),
 });
 

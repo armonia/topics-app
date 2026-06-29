@@ -294,10 +294,33 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     };
     window.addEventListener('browser:reflow-request', onReflowRequest as EventListener);
 
+    // Sidebar collapse/expand. The content's paddingLeft animates over the 200ms
+    // slide, moving this pane's slot every frame, but the sidebar itself rides a
+    // GPU-composited translateX — the RO/MO/transitionend path coalesces and only
+    // catches up a few frames late, so the native view (which composites above the
+    // DOM) visibly TRAILS the sidebar edge ("il bg segue in ritardo la sidebar").
+    // Drive a per-frame rAF poll for the lifetime of the slide so setBounds tracks
+    // the moving slot in lockstep (updateBounds self-coalesces, so unchanged frames
+    // cost nothing). The slide brackets are the same ones the terminal fit-coalesce
+    // listens to (useSidebarFitCoalesce dispatches them).
+    let slideRaf = 0;
+    const slidePoll = () => { updateBounds(); slideRaf = requestAnimationFrame(slidePoll); };
+    const onSidebarSlideStart = () => { if (!slideRaf) slideRaf = requestAnimationFrame(slidePoll); };
+    const onSidebarSlideEnd = () => {
+      if (slideRaf) { cancelAnimationFrame(slideRaf); slideRaf = 0; }
+      // One more measure after the settle frame paints (cols/rows have stopped moving).
+      requestAnimationFrame(() => requestAnimationFrame(updateBounds));
+    };
+    window.addEventListener('topics:sidebar-resize-start', onSidebarSlideStart);
+    window.addEventListener('topics:sidebar-resize-end', onSidebarSlideEnd);
+
     return () => {
       ro.disconnect();
       mo.disconnect();
       cancelAnimationFrame(rafId);
+      if (slideRaf) cancelAnimationFrame(slideRaf);
+      window.removeEventListener('topics:sidebar-resize-start', onSidebarSlideStart);
+      window.removeEventListener('topics:sidebar-resize-end', onSidebarSlideEnd);
       window.removeEventListener('resize', updateBounds);
       window.removeEventListener('scroll', updateBounds, { capture: true });
       window.removeEventListener('transitionend', onTransitionEnd, true);
@@ -360,6 +383,24 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
           <Loader2 className="w-5 h-5 animate-spin mr-2" />
           Initializing native browser...
         </div>
+      )}
+
+      {/* Freeze-frame (Tauri only — `frozenImage` is undefined on Electron). A
+          native child webview composites ABOVE the DOM, so while a dropdown
+          overlaps it or a sidebar/divider animation is in flight the live view is
+          parked off-screen and this PNG still stands in. Overlays render over it
+          by normal z-index; animations stretch a cheap bitmap instead of moving
+          the native view per-frame. pointer-events-none — it's a non-interactive
+          stand-in, and the live view is parked while it shows. */}
+      {browser.frozenImage && (
+        <img
+          src={browser.frozenImage}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-cover object-left-top pointer-events-none select-none"
+          data-testid="browser-frozen-frame"
+        />
       )}
       {/* The "agent is controlling" indicator lives in the toolbar
           (AgentActivityPill) — it no longer insets this view, so the page

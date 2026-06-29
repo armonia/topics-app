@@ -4,14 +4,19 @@
  * everywhere instead of drifting.
  */
 
-/** Max columns within a single grid row. Beyond this, splits/drops are rejected. */
-export const MAX_COLS_PER_ROW = 4;
+// These are NOT a product limit on how many panes you can tile — they're a
+// runaway backstop only (a buggy loop / agent shouldn't be able to spawn
+// thousands of slivers). Set generously high so real use never hits them; the
+// MIN_PANE_FRACTION floor is what actually keeps panes usable, not a cell count.
 
-/** Max top-level rows. Beyond this, top/bottom edge drops are rejected. */
-export const MAX_ROWS = 4;
+/** Max columns within a single grid row (runaway backstop, not a real limit). */
+export const MAX_COLS_PER_ROW = 32;
 
-/** Max depth of a per-cell vertical sub-stack (split-down within a column). */
-export const MAX_STACK_DEPTH = 4;
+/** Max top-level rows (runaway backstop, not a real limit). */
+export const MAX_ROWS = 32;
+
+/** Max depth of a per-cell vertical sub-stack (runaway backstop, not a real limit). */
+export const MAX_STACK_DEPTH = 32;
 
 /**
  * Pixel distance from a cell's edge that counts as the edge drop zone.
