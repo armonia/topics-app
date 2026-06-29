@@ -15,12 +15,17 @@ import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
+import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 
 interface TerminalSession {
   id: string;
   name: string;
+  /** How `name` was set: 'default' (the generated "Terminal N"), 'auto'
+   *  (derived from the Claude session's evolving topic — still refreshable), or
+   *  'user' (a manual rename, frozen so auto-naming won't overwrite it). */
+  nameSource: 'default' | 'auto' | 'user';
   createdAt: string;
   cwd: string;
   command: string;
@@ -600,6 +605,7 @@ function restoreDbSessionsOptimistically(): void {
     sessions.set(row.id, {
       id: row.id,
       name: row.name,
+      nameSource: (row.name_source as 'default' | 'auto' | 'user') || 'default',
       createdAt: row.created_at || new Date().toISOString(),
       cwd: row.cwd,
       command: row.command,
@@ -673,6 +679,7 @@ async function reconcileSessions(attempt = 0): Promise<void> {
         sessions.set(row.id, {
           id: row.id,
           name: row.name,
+          nameSource: (row.name_source as 'default' | 'auto' | 'user') || 'default',
           createdAt: row.created_at || new Date().toISOString(),
           cwd: row.cwd,
           command: row.command,
@@ -718,6 +725,7 @@ async function reconcileSessions(attempt = 0): Promise<void> {
             row.topic_id || undefined, row.type as 'claude-code' | 'claude-code-team',
             row.skip_permissions !== 0, row.claude_session_id,
             row.parent_session_key || undefined,
+            (row.name_source as 'default' | 'auto' | 'user') || 'default',
           );
         } catch (err: any) {
           console.warn(`[Terminal] Failed to recreate session ${row.id}: ${err.message}`);
@@ -756,6 +764,7 @@ async function reconcileSessions(attempt = 0): Promise<void> {
             row.topic_id || undefined, 'codex',
             row.skip_permissions !== 0, row.claude_session_id || undefined,
             row.parent_session_key || undefined,
+            (row.name_source as 'default' | 'auto' | 'user') || 'default',
           );
         } catch (err: any) {
           // Transient boot failure (bridge not ready, spawn error): park dormant
@@ -806,7 +815,7 @@ export async function getTerminalBuffer(sessionId: string): Promise<string> {
 }
 
 // --- Session management ---
-async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string): Promise<TerminalSession> {
+async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string, nameSource: 'default' | 'auto' | 'user' = 'default'): Promise<TerminalSession> {
   let file: string;
   let args: string[];
   const isClaudeKind = sessionType === 'claude-code' || sessionType === 'claude-code-team';
@@ -935,6 +944,7 @@ async function createSession(id: string, name: string, cwd: string, command?: st
   const session: TerminalSession = {
     id,
     name,
+    nameSource,
     createdAt: new Date().toISOString(),
     cwd,
     command: sessionType === 'claude-code' ? 'claude' : (command || file),
@@ -953,9 +963,9 @@ async function createSession(id: string, name: string, cwd: string, command?: st
 
   try {
     getDatabase().run(
-      `INSERT OR REPLACE INTO terminal_sessions (id, name, cwd, command, type, topic_id, cols, rows, skip_permissions, created_at, claude_session_id, parent_session_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, name, cwd, session.command, sessionType, topicId || null, cols, rows, skipPermissions ? 1 : 0, session.createdAt, resolvedClaudeSessionId || null, parentSessionKey || null]
+      `INSERT OR REPLACE INTO terminal_sessions (id, name, name_source, cwd, command, type, topic_id, cols, rows, skip_permissions, created_at, claude_session_id, parent_session_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, nameSource, cwd, session.command, sessionType, topicId || null, cols, rows, skipPermissions ? 1 : 0, session.createdAt, resolvedClaudeSessionId || null, parentSessionKey || null]
     );
   } catch (err) {
     // NEVER swallow silently: a failed persist means the session won't survive a
@@ -1019,6 +1029,42 @@ function scheduleCodexIdCapture(sessionId: string, cwd: string, sinceMs: number)
   };
   const t = setTimeout(poll, 800);
   t.unref?.();
+}
+
+/**
+ * Auto-label a Claude Code terminal tab from its session topic, unless the user
+ * has manually renamed it. Called on each Stop / UserPromptSubmit hook so the
+ * tab tracks the topic as it evolves; no-ops when the derived title is unchanged
+ * or the name is user-owned. Best-effort — never throws into the hook path.
+ * Updates the in-memory session + the persisted row, then re-broadcasts the
+ * roster so every client relabels live.
+ */
+export function autoNameClaudeSession(claudeSessionId: string, transcriptPath?: string): void {
+  if (!claudeSessionId) return;
+  let target: TerminalSession | undefined;
+  for (const s of sessions.values()) {
+    if (s.claudeSessionId === claudeSessionId &&
+        (s.type === "claude-code" || s.type === "claude-code-team")) { target = s; break; }
+  }
+  if (!target || target.nameSource === "user") return; // a manual rename wins
+
+  const file = (transcriptPath && transcriptPath.trim())
+    ? transcriptPath
+    : claudeTranscriptPath(target.cwd, claudeSessionId);
+  const title = deriveClaudeSessionTitle(file);
+  if (!title || title === target.name) return;
+
+  target.name = title;
+  target.nameSource = "auto";
+  try {
+    getDatabase().run(
+      "UPDATE terminal_sessions SET name = ?, name_source = 'auto' WHERE id = ?",
+      [title, target.id],
+    );
+  } catch (e) {
+    console.warn(`[Terminal] auto-name persist failed for ${target.id}:`, e);
+  }
+  broadcastTerminalSessions();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1303,6 +1349,9 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       const cwd = body.cwd || process.env.HOME || "/";
       const id = crypto.randomUUID();
       const name = body.name || `Terminal ${sessions.size + 1}`;
+      // A name the user typed at creation is theirs; an absent name means the
+      // generated default, which auto-naming may relabel from the session topic.
+      const nameSource: 'default' | 'auto' | 'user' = body.name ? 'user' : 'default';
       const command = body.command || undefined;
       const cols = body.cols || 120;
       const rows = body.rows || 30;
@@ -1318,7 +1367,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 
       try {
         await ensureBridge();
-        const session = await createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions, undefined);
+        const session = await createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions, undefined, undefined, nameSource);
         if (idemKey) idempotencyRemember(idemKey, id);
         broadcastTerminalSessions();
         return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type, claudeSessionId: session.claudeSessionId || null });
@@ -1430,8 +1479,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       const dbRow = db.query("SELECT id FROM terminal_sessions WHERE id = ?").get(renameMatch.id) as any;
       if (!session && !dbRow) return errorResponse(404, "Terminal session not found");
 
-      if (session) session.name = name;
-      try { db.run("UPDATE terminal_sessions SET name = ? WHERE id = ?", [name, renameMatch.id]); } catch {}
+      if (session) { session.name = name; session.nameSource = 'user'; }
+      try { db.run("UPDATE terminal_sessions SET name = ?, name_source = 'user' WHERE id = ?", [name, renameMatch.id]); } catch {}
 
       broadcastTerminalSessions();
       return json({ ok: true, id: renameMatch.id, name });
@@ -1469,6 +1518,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           row.skip_permissions !== 0,
           row.claude_session_id || undefined,
           row.parent_session_key || undefined,
+          (row.name_source as 'default' | 'auto' | 'user') || 'default',
         );
         // Mark as active
         try { db.run("UPDATE terminal_sessions SET status = 'active' WHERE id = ?", [row.id]); } catch {}
