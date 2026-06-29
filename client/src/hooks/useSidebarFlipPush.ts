@@ -71,8 +71,11 @@ export function useSidebarFlipPush(
 
     // (3) Last — position at the committed pad (forces the single reflow).
     const lastLeft = layer.getBoundingClientRect().left;
-    const delta = firstLeft - lastLeft;
-    if (Math.abs(delta) < 0.5) { layer.style.willChange = ''; return; } // nothing to animate
+    // Whole px: the native browser pane edge is positioned from Math.round(rect); a fractional
+    // invert would shimmer ±1px against the DOM terminals during the slide. Settle is exact
+    // (translateX → 0), only the start offset rounds.
+    const delta = Math.round(firstLeft - lastLeft);
+    if (delta === 0) { layer.style.willChange = ''; return; } // nothing to animate
 
     // (4) Invert — appear where it visually was (pre-paint; transition is already 'none').
     layer.style.willChange = 'transform';
