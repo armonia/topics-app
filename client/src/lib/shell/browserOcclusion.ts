@@ -47,16 +47,6 @@ function recompute(): void {
   for (const fn of listeners) fn(overlays);
 }
 
-/** True while ANY dropdown/menu/modal is open (geometry-agnostic). */
-export function isOccluded(): boolean {
-  return overlays.length > 0;
-}
-
-/** The rects of all currently-open overlays (viewport coords). */
-export function getOverlayRects(): OverlayRect[] {
-  return overlays;
-}
-
 /** Pure: does `slot` (viewport-rel x/y/width/height) intersect any of `rects`?
  *  Exported for unit tests; `slotIsOccluded` applies it to the live overlay set. */
 export function slotIntersectsRects(
