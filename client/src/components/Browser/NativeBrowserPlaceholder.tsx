@@ -376,6 +376,11 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       ref={placeholderRef}
       className="flex-1 min-h-0 overflow-hidden bg-surface relative"
       data-testid="browser-native-placeholder"
+      // Marks this subtree as a native browser slot. The occlusion tracker skips
+      // any `.glass-surface`/overlay INSIDE a slot so a pane's own in-pane chrome
+      // (e.g. the responsive size readout below, itself .glass-surface) can never
+      // freeze the live view to a still by "occluding itself".
+      data-native-browser-slot=""
     >
       {/* Loading shimmer while WebContentsView spins up. */}
       {!browser.ready && (

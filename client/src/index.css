@@ -1298,7 +1298,11 @@ html.electron-mac :has(> [data-testid="browser-native-panel"]) {
 .cursor-col-resize::after { top: 0; bottom: 0; left: 50%; width: 3px; transform: translateX(-50%); }
 .cursor-row-resize::after { left: 0; right: 0; top: 50%; height: 3px; transform: translateY(-50%); }
 .cursor-col-resize:hover::after,
-.cursor-row-resize:hover::after {
+.cursor-row-resize:hover::after,
+/* Keep the bar lit for the whole drag — the pointer often leaves the 1px gutter
+ * mid-drag (SplitTree sets `.is-resizing` on the active divider). */
+.cursor-col-resize.is-resizing::after,
+.cursor-row-resize.is-resizing::after {
   opacity: 1;
 }
 
