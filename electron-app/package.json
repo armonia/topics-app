@@ -35,6 +35,7 @@
   "build": {
     "appId": "com.topics.app",
     "productName": "Topics",
+    "afterPack": "sign-adhoc.cjs",
     "asar": true,
     "asarUnpack": [
       "**/*.node"
