@@ -319,6 +319,27 @@ La config Tauri di produzione DEVE:
 - **Non esporre l'IPC Tauri** a origin remoti: `app.security.capabilities`/
   `dangerousRemoteDomainIpcAccess` lockati al solo origin dell'app.
 
+### 7b. Audit config attuale (2026-06-29) — 1 solo gap residuo: `csp: null`
+
+Verificata `tauri.conf.json` + `capabilities/default.json` del worktree: **conformi a §7 tranne la CSP**.
+- ✅ `frontendDist: ../../public` → asset **bundled** (`tauri://localhost`), nessun origin http remoto. `devUrl` assente.
+- ✅ IPC scoped: `windows: ['main']`, `remote` assente, **nessun** `dangerousRemoteDomainIpcAccess`. 9 permessi
+  minimi (`core`/`opener`/`process`/`os`/`dialog:allow-open`/`updater:default`), nessun grant troppo largo.
+- ⚠️ **`app.security.csp: null`** — unico gap. NON corretto alla cieca: una CSP errata rompe l'app (blocca
+  inline-style/WS/data:) e non è verificabile a schermo bloccato → peggio di null. **CSP candidata** da testare
+  (su Tauri il webview parla col proxy loopback `127.0.0.1:13333`, non :3333 diretto — vedi `lib/shell/net.ts`):
+  ```
+  default-src 'self';
+  script-src 'self' 'wasm-unsafe-eval';
+  style-src 'self' 'unsafe-inline';            // React/Tailwind + stili inline (incl. il FLIP imperativo)
+  img-src 'self' data: blob: http://127.0.0.1:13333;
+  font-src 'self' data:;
+  connect-src 'self' http://127.0.0.1:13333 ws://127.0.0.1:13333;
+  worker-src 'self' blob:;
+  ```
+  VERIFICA su sblocco: applicare, lanciare, controllare la console per violazioni CSP e allargare il minimo
+  indispensabile (es. togliere `wasm-unsafe-eval` se nessun WASM lo richiede). Non spedire senza questo giro.
+
 ## 8. Follow-up audit deferiti (2026-06-29) — entry-point + verifica richiesta
 
 Item che richiedono un **run Tauri live** (impossibile verificarli staticamente) o sono
