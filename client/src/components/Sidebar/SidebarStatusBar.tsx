@@ -123,6 +123,10 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   // counter (the earlier "30s fa che non è vero" complaint).
   let buildIsRecent = false;
   try {
+    // Date.now() is read at render on purpose: this is a one-shot "is the build
+    // < 24h old" freshness check, not reactive state. Recomputing it per render
+    // is harmless and keeps the chip honest, so the purity rule doesn't apply.
+    // eslint-disable-next-line react-hooks/purity
     buildIsRecent = !!BUILD_TIME && (Date.now() - new Date(BUILD_TIME).getTime()) < 24 * 60 * 60 * 1000;
   } catch { buildIsRecent = false; }
 
