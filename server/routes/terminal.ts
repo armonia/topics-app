@@ -1349,9 +1349,6 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       const cwd = body.cwd || process.env.HOME || "/";
       const id = crypto.randomUUID();
       const name = body.name || `Terminal ${sessions.size + 1}`;
-      // A name the user typed at creation is theirs; an absent name means the
-      // generated default, which auto-naming may relabel from the session topic.
-      const nameSource: 'default' | 'auto' | 'user' = body.name ? 'user' : 'default';
       const command = body.command || undefined;
       const cols = body.cols || 120;
       const rows = body.rows || 30;
@@ -1367,7 +1364,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
 
       try {
         await ensureBridge();
-        const session = await createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions, undefined, undefined, nameSource);
+        // The add-menu always assigns a generic label (Shell / Claude Code /
+        // Codex, see client terminalAgents.ts) or "Terminal N" — never a
+        // user-typed name — so a fresh session is born 'default' (createSession's
+        // default) and auto-naming may relabel it. Only a PATCH rename → 'user'.
+        const session = await createSession(id, name, cwd, command, cols, rows, topicId, sessionType, skipPermissions, undefined);
         if (idemKey) idempotencyRemember(idemKey, id);
         broadcastTerminalSessions();
         return json({ id, name, cwd, command: session.command, createdAt: session.createdAt, topicId: session.topicId, type: session.type, claudeSessionId: session.claudeSessionId || null });
