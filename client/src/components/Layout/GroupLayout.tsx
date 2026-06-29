@@ -11,7 +11,8 @@ import { detectDropZone, type EdgeZone } from '../../lib/dropZone';
 import { SplitRegion, FullWidthRowZone } from './DropOverlay';
 import { FULL_ROW_GUTTER_PX } from '../../lib/dropFeedback';
 import { SplitTree } from './SplitTree';
-import { leaf, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
+import { type LayoutNode } from '../../state/layout/layoutTree';
+import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
 import { MIN_PANE_FRACTION } from './constants';
 
@@ -528,25 +529,15 @@ export function GroupLayout({
 
   // Shallow tree, 1:1 with rows. Missing / duplicate groups become inert
   // `__skip:*` weight-0 leaves so the index stays stable and no blank gap shows.
-  const treeRoot = useMemo<LayoutNode | null>(() => {
-    const seen = new Set<string>();
-    const rowChildren: SplitChild[] = rows.map((row, ri): SplitChild => {
-      const cols: SplitChild[] = row.groupIds.length === 0
-        ? [{ weight: 1, node: leaf(`__skip:${ri}:empty`) }]
-        : row.groupIds.map((gid, ci): SplitChild => {
-            const live = groupMap.has(gid) && !seen.has(gid);
-            if (live) seen.add(gid);
-            return {
-              weight: live ? (row.widths[ci] ?? 1 / row.groupIds.length) : 0,
-              node: leaf(live ? gid : `__skip:${ri}:${ci}`),
-            };
-          });
-      const rowNode: SplitNode = { kind: 'split', dir: 'row', children: cols };
-      return { weight: rowHeights[ri] ?? 1 / rows.length, node: rowNode };
-    });
-    if (rowChildren.length === 0) return null;
-    return { kind: 'split', dir: 'col', children: rowChildren };
-  }, [rows, rowHeights, groupMap]);
+  const treeRoot = useMemo<LayoutNode | null>(
+    () =>
+      buildShallowGridTree(
+        rows.map((r) => ({ keys: r.groupIds, widths: r.widths })),
+        rowHeights,
+        (gid) => groupMap.has(gid),
+      ),
+    [rows, rowHeights, groupMap],
+  );
 
   // Divider drag → shift weight on the matching band (path [] = row heights,
   // path [rowIdx] = that row's column widths). Floor = the live MIN_PANE_FRACTION,

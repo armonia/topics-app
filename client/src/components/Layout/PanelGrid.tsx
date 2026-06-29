@@ -19,7 +19,8 @@ import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weighted
 import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { SplitTree } from './SplitTree';
-import { leaf, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
+import { type LayoutNode } from '../../state/layout/layoutTree';
+import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
 
 /**
@@ -1839,26 +1840,15 @@ export function PanelGrid({
   // `__skip:*` placeholder leaves (rendered null) with weight 0 — they keep the
   // index stable AND reserve no space, so a transient stale key leaves no blank
   // gap (it self-heals on the next prune).
-  const treeRoot = useMemo<LayoutNode | null>(() => {
-    const seen = new Set<string>();
-    const rowChildren: SplitChild[] = gridRows.map((row, ri): SplitChild => {
-      const cols: SplitChild[] = row.itemKeys.length === 0
-        ? [{ weight: 1, node: leaf(`__skip:${ri}:empty`) }]
-        : row.itemKeys.map((key, ci): SplitChild => {
-            const live = itemMap.has(key) && !seen.has(key);
-            if (live) seen.add(key);
-            return {
-              weight: live ? (row.widths[ci] ?? 1 / row.itemKeys.length) : 0,
-              node: leaf(live ? key : `__skip:${ri}:${ci}`),
-            };
-          });
-      const rowNode: SplitNode = { kind: 'split', dir: 'row', children: cols };
-      return { weight: gridRowHeights[ri] ?? 1 / gridRows.length, node: rowNode };
-    });
-    if (rowChildren.length === 0) return null;
-    const root: SplitNode = { kind: 'split', dir: 'col', children: rowChildren };
-    return root;
-  }, [gridRows, gridRowHeights, itemMap]);
+  const treeRoot = useMemo<LayoutNode | null>(
+    () =>
+      buildShallowGridTree(
+        gridRows.map((r) => ({ keys: r.itemKeys, widths: r.widths })),
+        gridRowHeights,
+        (key) => itemMap.has(key),
+      ),
+    [gridRows, gridRowHeights, itemMap],
+  );
 
   // Divider drag → shift weight on the matching gridRows band, preserving
   // cellStacks (so persistence + sub-stacks survive). path [] = row heights;
