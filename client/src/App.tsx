@@ -152,9 +152,10 @@ function App() {
   // reveal is a FLIP (useSidebarFlipPush): the final paddingLeft is committed in ONE reflow
   // and the visible push is a compositor-only translateX on the flip layer — so the slide
   // is 60fps regardless of how many terminals are live, with nothing hidden/held (replaced
-  // the old manyTerminals snap). FORCED on Tauri (WebKit's DOM renderer re-flows terminals
-  // expensively; paired with the canvas renderer + staggered fit so the one settle stays
-  // cheap). Electron keeps the user's setting.
+  // the old manyTerminals snap). FORCED on Tauri because WebKit's DOM renderer re-flows
+  // terminals expensively — which is exactly why the push is a compositor FLIP, not a width
+  // animation; only the single staggered settle-fit at the end touches layout. Electron
+  // keeps the user's setting.
   const desktopOverlay = isDesktop && (isTauri || appSettings.overlaySidebar);
   // SYNCHRONISED PUSH via FLIP (useSidebarFlipPush): the content reveal is a compositor-only
   // transform:translateX, NOT an animated paddingLeft. Animating paddingLeft (a layout prop)
