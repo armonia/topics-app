@@ -1936,6 +1936,151 @@ fn browser_set_user_agent(app: tauri::AppHandle, id: String, ua: String) -> Resu
     Ok(())
 }
 
+/// Stringify an NSString* (nil → ""). macOS objc helper.
+#[cfg(target_os = "macos")]
+unsafe fn ns_string_to_rust(obj: cocoa::base::id) -> String {
+    use cocoa::base::nil;
+    use objc::{msg_send, sel, sel_impl};
+    use std::ffi::CStr;
+    use std::os::raw::c_char;
+    if obj == nil {
+        return String::new();
+    }
+    let c: *const c_char = msg_send![obj, UTF8String];
+    if c.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(c).to_string_lossy().into_owned()
+    }
+}
+
+/// (absoluteURL, title) for a WKBackForwardListItem* (nil-safe).
+#[cfg(target_os = "macos")]
+unsafe fn wk_bf_item_pair(item: cocoa::base::id) -> (String, String) {
+    use cocoa::base::nil;
+    use objc::{msg_send, sel, sel_impl};
+    if item == nil {
+        return (String::new(), String::new());
+    }
+    let url: cocoa::base::id = msg_send![item, URL];
+    let abs: cocoa::base::id = msg_send![url, absoluteString];
+    let title: cocoa::base::id = msg_send![item, title];
+    (ns_string_to_rust(abs), ns_string_to_rust(title))
+}
+
+/// Read the pane's WKBackForwardList → JSON {"entries":[{"url","title"}],"activeIndex":N}.
+/// Powers the toolbar back/forward history dropdown (the client adds the 0-based
+/// `index`). Channel + main-thread read (backForwardList is synchronous — no
+/// completion handler). macOS only.
+#[cfg(target_os = "macos")]
+fn nav_entries_blocking(wv: &tauri::Webview) -> Result<String, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<String>();
+    wv.with_webview(move |platform| {
+        use cocoa::base::{id, nil};
+        use objc::{msg_send, sel, sel_impl};
+        unsafe {
+            let wk = platform.inner() as id;
+            let bfl: id = msg_send![wk, backForwardList];
+            let mut entries: Vec<serde_json::Value> = Vec::new();
+            let back: id = if bfl != nil { msg_send![bfl, backList] } else { nil };
+            let back_count: usize = if back != nil { msg_send![back, count] } else { 0 };
+            for i in 0..back_count {
+                let item: id = msg_send![back, objectAtIndex: i];
+                let (u, t) = wk_bf_item_pair(item);
+                entries.push(serde_json::json!({ "url": u, "title": t }));
+            }
+            let active_index = entries.len();
+            let cur: id = if bfl != nil { msg_send![bfl, currentItem] } else { nil };
+            if cur != nil {
+                let (u, t) = wk_bf_item_pair(cur);
+                entries.push(serde_json::json!({ "url": u, "title": t }));
+            }
+            let fwd: id = if bfl != nil { msg_send![bfl, forwardList] } else { nil };
+            let fwd_count: usize = if fwd != nil { msg_send![fwd, count] } else { 0 };
+            for i in 0..fwd_count {
+                let item: id = msg_send![fwd, objectAtIndex: i];
+                let (u, t) = wk_bf_item_pair(item);
+                entries.push(serde_json::json!({ "url": u, "title": t }));
+            }
+            let out = serde_json::json!({ "entries": entries, "activeIndex": active_index });
+            let _ = tx.send(out.to_string());
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(3))
+        .map_err(|_| "nav_entries timeout".to_string())
+}
+
+/// Navigate to an ABSOLUTE history index (as returned by nav_entries) via
+/// `goToBackForwardListItem:`. Relative offset = index − backList.count (0 = current).
+#[cfg(target_os = "macos")]
+fn go_to_index_blocking(wv: &tauri::Webview, index: i64) {
+    let _ = wv.with_webview(move |platform| unsafe {
+        use cocoa::base::{id, nil};
+        use objc::{msg_send, sel, sel_impl};
+        let wk = platform.inner() as id;
+        let bfl: id = msg_send![wk, backForwardList];
+        if bfl == nil {
+            return;
+        }
+        let back: id = msg_send![bfl, backList];
+        let back_count: i64 = if back != nil {
+            let c: usize = msg_send![back, count];
+            c as i64
+        } else {
+            0
+        };
+        let rel: i64 = index - back_count;
+        if rel == 0 {
+            return;
+        }
+        let item: id = msg_send![bfl, itemAtIndex: rel];
+        if item != nil {
+            let _: id = msg_send![wk, goToBackForwardListItem: item];
+        }
+    });
+}
+
+/// Browser pane back/forward history entries (JSON). Async (off-main) like
+/// browser_eval_js — `with_webview` hops to the main thread.
+#[tauri::command]
+async fn browser_nav_entries(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            return nav_entries_blocking(&wv);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = wv;
+            Err("browser_nav_entries: macOS only".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Jump to an absolute back/forward history index.
+#[tauri::command]
+fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<(), String> {
+    use tauri::Manager;
+    let wv = app
+        .get_webview(&browser_label(&id))
+        .ok_or("no such browser pane")?;
+    #[cfg(target_os = "macos")]
+    go_to_index_blocking(&wv, index);
+    #[cfg(not(target_os = "macos"))]
+    let _ = (wv, index);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1957,7 +2102,19 @@ pub fn run() {
         .plugin(
             tauri::plugin::Builder::<tauri::Wry, ()>::new("nav-guard")
                 .on_navigation(|webview, url| {
-                    if webview.label() != "main" {
+                    let label = webview.label();
+                    if label != "main" {
+                        // Browser PANES navigate the open web freely, BUT block
+                        // non-web schemes (file://, chrome://, view-source:) for
+                        // page- or agent-driven navigation (e.g. browser_eval
+                        // setting window.location='file:///etc/passwd'). Mirrors
+                        // Electron's guardNav / AGENT_NAV_SCHEMES — closes the LFI.
+                        if label.starts_with("browserpane-") {
+                            return matches!(
+                                url.scheme(),
+                                "http" | "https" | "about" | "blob" | "data"
+                            );
+                        }
                         return true;
                     }
                     let allowed = matches!(url.scheme(), "tauri" | "ipc" | "about" | "blob" | "data")
@@ -2544,6 +2701,8 @@ pub fn run() {
             browser_set_user_agent,
             browser_toggle_devtools,
             browser_release_focus,
+            browser_nav_entries,
+            browser_go_to_index,
             fps_report,
             focus_read,
             focus_grab_browser,
