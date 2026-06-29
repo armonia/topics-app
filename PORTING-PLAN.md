@@ -371,3 +371,11 @@ Statico verde (tsc -b, 98 test). Da confermare su **build Tauri viva** (schermo 
   un drop durante la slide) — è un piccolo snap di colonne a fine slide, atteso.
 - **Electron/web**: spot-check che il push sia liscio e nulla "snappi"; il tracking del browser-pane
   Electron durante il FLIP non è coperto dal fallback freeze-frame (solo Tauri) → verificare a parte.
+- **Floating-splits frost** (analizzato: dovrebbe comporsi BENE, no regressione attesa): `useFloatingVibrancy`
+  triggera l'handoff nativo (`vibrancy_animate_regions`) sul `transitionrun` di **`width` della SIDEBAR**
+  (`isSidebarWidth`, useFloatingVibrancy.ts:290) — NON sulla paddingLeft del contenuto, quindi il FLIP non
+  rimuove il trigger. Al transitionrun il mio invert è già applicato (useLayoutEffect pre-paint), così
+  `collect()` legge i rect VISIVI vecchi (post-transform), `predictSidebarEnd` calcola i finali e l'animazione
+  nativa va old→finale in lockstep col reveal del transform (entrambi 200ms, curva matchata); il flush a
+  `transitionend` corregge il drift sub-px. VERIFICA solo per conferma: in floating-splits il frost dei gap
+  traccia i card durante i 200ms senza trail/salto.
