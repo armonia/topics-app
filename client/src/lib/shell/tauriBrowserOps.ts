@@ -153,7 +153,14 @@ export async function executeNativeBrowserOp(
         } catch {
           /* diff is best-effort */
         }
-        return { result: { ok: true, action, ref, snapshot } };
+        // `untrusted`: the native pane drives ACT_FN's synthetic DOM events
+        // (isTrusted=false), unlike the Electron CDP path's trusted Input.dispatch.
+        // Surfaced so a caller whose action seemingly "did nothing" knows a site
+        // that gates on trusted events (native pickers, some frameworks) is the
+        // cause — fall back to streaming mode there. (Mutation/read ops only;
+        // navigations and scrolls don't depend on trust.)
+        const untrusted = action === 'scroll' ? undefined : true;
+        return { result: { ok: true, action, ref, snapshot, untrusted } };
       }
       case 'browser_extract': {
         const fields = coerceExtractFields(a);
