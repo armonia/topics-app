@@ -15,11 +15,13 @@
  * the Tauri analogue of Electron's `setBounds({0,0,0,0})`.
  *
  * Live: navigation + geometry + show/hide (the "solido" core), DevTools, find-in-page,
- * zoom, device emulation, console capture, downloads, select-element. Partial/stub:
- * nav-history menu (getNavEntries returns empty — WKBackForwardList not bridged) and full
- * agent control (5/13 ops via tauriBrowserOps; observe/act fall back to server streaming).
- * url/title/loading are reflected by an 800ms eval poll (WKNavigationDelegate not bridged;
- * see PORTING-PLAN §8.1), gated on visibility so only the active pane polls.
+ * zoom, device emulation, console capture, downloads, select-element, back/forward
+ * history dropdown (getNavEntries → Rust browser_nav_entries over WKBackForwardList).
+ * Agent control: observe/act/extract/get_text(ref) run natively via tauriBrowserOps
+ * (injected snapshot/act), read_screen/point via the server's Moondream on a native
+ * screenshot. Still on streaming: save/load/import login state (no WKHTTPCookieStore
+ * bridge yet). url/title/loading are reflected by an 800ms eval poll (WKNavigationDelegate
+ * not bridged; see PORTING-PLAN §8.1), gated on visibility so only the active pane polls.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { tauriInvoke } from '../lib/shell/tauri';
@@ -294,8 +296,6 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     };
   }, [id, ready, isVisible]);
 
-  const noop = useCallback(async () => {}, []);
-
   const toggleDevTools = useCallback(async () => {
     await tauriInvoke('browser_toggle_devtools', { id }).catch(() => {});
   }, [id]);
@@ -547,7 +547,27 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     consoleEntries,
     consoleSummary,
     clearConsole,
-    getNavEntries: async () => ({ entries: [], activeIndex: 0 }),
-    goToNavIndex: noop,
+    getNavEntries: async () => {
+      // Real WKBackForwardList (Rust browser_nav_entries) → the toolbar's
+      // back/forward history dropdown. The client adds the 0-based `index`.
+      try {
+        const raw = await tauriInvoke<string>('browser_nav_entries', { id });
+        const parsed = JSON.parse(raw || '{}') as {
+          entries?: { url: string; title: string }[];
+          activeIndex?: number;
+        };
+        const entries = (Array.isArray(parsed.entries) ? parsed.entries : []).map((e, index) => ({
+          url: e.url,
+          title: e.title,
+          index,
+        }));
+        return { entries, activeIndex: typeof parsed.activeIndex === 'number' ? parsed.activeIndex : 0 };
+      } catch {
+        return { entries: [], activeIndex: 0 };
+      }
+    },
+    goToNavIndex: async (index: number) => {
+      await tauriInvoke('browser_go_to_index', { id, index }).catch(() => {});
+    },
   };
 }

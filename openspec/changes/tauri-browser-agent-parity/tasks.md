@@ -16,16 +16,17 @@
 - [x] 3.1 In `server/browser-tool-dispatcher.ts`: `nativeVisionOp` — per contesto delegato + tool ∈ {browser_read_screen, browser_point}, delega la sola op `browser_screenshot`, poi `describeImage`/`pointObject` (Moondream) su quell'immagine. Aggiunto param `mime` al moondream-client (lo screenshot nativo è PNG, non jpeg). Verificato live: API Moondream caption+point HTTP 200, key valida.
 - [x] 3.2 `browser_point`: viewport via eval `innerWidth/innerHeight` (coord normalizzate → DPR irrilevante); click via `document.elementFromPoint(x,y).click()` (best-effort, WKWebView non ha input trusted).
 
-## 4. Phase 3 — save/load/import state nativo (Rust cookie bridge)
-- [ ] 4.1 lib.rs: `browser_get_cookies(id)`/`browser_set_cookies(id,json)` su `WKHTTPCookieStore` (async objc, completati su main thread); registrare nell'invoke_handler.
-- [ ] 4.2 Executor: `browser_save_state` = cookies(Rust) + localStorage(eval) → handle JSON; `browser_load_state` = setCookies + seed localStorage + reload.
-- [ ] 4.3 `browser_import_chrome`: riusare l'estrazione cookie Chrome server-side per produrre la lista, poi applicarla via `browser_set_cookies` (no Keychain in Rust).
+## 4. Phase 3 — save/load/import state nativo (Rust cookie bridge) — DIFFERITA
+- [ ] 4.1 lib.rs: `browser_get_cookies(id)`/`browser_set_cookies(id,json)` su `WKHTTPCookieStore`.
+- [ ] 4.2 Executor: `browser_save_state` = cookies + localStorage(eval); `browser_load_state` = setCookies + seed + reload.
+- [ ] 4.3 `browser_import_chrome`: riusa l'estrazione cookie Chrome server-side → `browser_set_cookies`.
+- **NOTA**: differita di proposito. Il SET cookie è objc write-side con dict di proprietà NSHTTPCookie (costanti globali `NSHTTPCookie*`) + completion handler async: `cargo check` verifica la compilazione ma NON il runtime (un selettore sbagliato compila e crasha a runtime), e qui non si può testare sul device. Per restare "solido e stabile" va implementata con smoke-test sul binario.
 
 ## 5. Phase 4 — hardening navigazione/permessi (Rust)
-- [ ] 5.1 Scheme-guard per-pane nel `nav-guard` (lib.rs ~1959): allow http/https/about/data, nega file://, chrome://, view-source: per i webview `browserpane-*`. Verifica: `browser_eval` `window.location='file:///etc/passwd'` bloccato.
-- [ ] 5.2 Permission delegate WKWebView (camera/mic/geo) → evento al client; `PermissionBar` cablata anche al path Tauri (`browser_respond_permission`).
-- [ ] 5.3 window.open/close: override `window.close` nello script iniettato (sentinel → chiusura pane, come `onPageCloseRequest`); UI delegate `createWebViewWith` per `window.open`/`target=_blank` → navigazione in-place + evento.
-- [ ] 5.4 `browser_nav_entries(id)`/`browser_go_to_index(id,i)` da `WKBackForwardList`; `getNavEntries` (useTauriBrowser, oggi stub) li invoca → dropdown cronologia popolato.
+- [x] 5.1 Scheme-guard per-pane nel `nav-guard` (lib.rs): per i webview `browserpane-*` allow solo http/https/about/blob/data, nega file://, chrome://, view-source:. Chiude l'LFI via `browser_eval window.location='file://'`. `cargo check` verde.
+- [ ] 5.2 Permission delegate WKWebView (camera/mic/geo) → `PermissionBar`. **DIFFERITA**: richiede una subclass `WKUIDelegate` registrata via objc `ClassDecl` (runtime non testabile qui).
+- [ ] 5.3 window.open/close (popup OAuth). **DIFFERITA**: la semantica corretta dei popup richiede il UI-delegate `createWebViewWith`; un override JS di `window.open`/`close` è un footgun (chiuderebbe l'intero pane su un OAuth in-place).
+- [x] 5.4 `browser_nav_entries(id)`/`browser_go_to_index(id,i)` da `WKBackForwardList` (lib.rs, objc read-only, selettori WebKit documentati); `getNavEntries`/`goToNavIndex` (useTauriBrowser) li invocano → dropdown cronologia popolato. `cargo check` + tsc + build verdi.
 
 ## 6. Tests
 - [x] 6.1 `bun:test` co-locato `tauriBrowserOps.test.ts`: observe serializza come `serialize`/`diff` su snapshot fixture; act valida ref/azioni; extract mappa campi; parità output via core condiviso. 17/17 verdi.
