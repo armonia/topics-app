@@ -1315,16 +1315,26 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
     }
 
     // READ a session's scrollback as text (interactive-claude-primitive AD-2).
-    // Backs the Master's `read_session` MCP tool + proposal scraping. Reading
-    // on-screen output is not a model call → stays on the subscription.
+    // Token-gated like every /agents/* route: the buffer leaks the full terminal
+    // scrollback (secrets, command output, model reasoning) and the server binds
+    // 0.0.0.0, so an ungated read is a LAN data-exfil hole. agentAuthOk checks the
+    // shared GATEWAY_TOKEN — the in-app/MCP callers already present it; the human
+    // UI never hits this route (terminal I/O is over the WebSocket bridge).
     const bufferMatch = matchRoute(pathname, "/api/terminal/sessions/:id/buffer");
     if (method === "GET" && bufferMatch) {
+      if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
       const buffer = await getTerminalBuffer(bufferMatch.id);
       return json({ id: bufferMatch.id, buffer });
     }
 
+    // WRITE raw input straight into the PTY. On these
+    // `claude --dangerously-skip-permissions` sessions that is arbitrary code
+    // execution, and the server binds 0.0.0.0 — so an ungated /send is
+    // unauthenticated LAN RCE. Gate on the shared GATEWAY_TOKEN exactly like the
+    // /agents/* write routes (the human UI types over the WebSocket bridge, not here).
     const sendMatch = matchRoute(pathname, "/api/terminal/sessions/:id/send");
     if (method === "POST" && sendMatch) {
+      if (!agentAuthOk(req)) return errorResponse(401, "unauthorized");
       const session = sessions.get(sendMatch.id);
       if (!session) return errorResponse(404, "Terminal session not found");
       const body = await readJSON(req).catch(() => ({}));
