@@ -21,6 +21,32 @@ assertions — instrumentation and automated enforcement are future work.
 - "First interactive" = ChatInput accepts keystrokes and tab bar responds to
   click.
 
+## Sidebar Push / Split Resize Frame Cost (no feature-disable)
+
+The sidebar collapse/expand PUSH and tab-split divider drag MUST stay at the
+display's max refresh with N live terminals — and MUST NOT achieve it by
+disabling/snapping/hiding anything under load.
+
+- **Forbidden**: animating a LAYOUT property (e.g. `paddingLeft`/`width`) on a
+  container of N terminal panes — it relayouts every `.xterm` box each frame,
+  O(N). Equally forbidden: dodging that by snapping the animation off, hiding
+  terminals (`content-visibility:hidden`), or freezing content under load.
+- **Required**: the visible push is a COMPOSITOR-only transform (FLIP — commit
+  the final pad in one reflow, animate `transform:translateX` to 0). See
+  `client/src/hooks/useSidebarFlipPush.ts`.
+- **Acceptance (mechanism, lock-proof)**: `performance/sidebar-flip-bench.html`
+  — per-op forced-reflow cost of `transform` MUST be <= 0.5ms median at every N
+  (compositor-only, O(1)); `paddingLeft` scales with N. Measured 2026-06-29
+  (Chromium): paddingLeft 1.3ms (N=2) / 3.0 (N=5) / 5.0 (N=8) median; transform
+  0ms at every N (1300x–5000x). WebKit layout is slower, so the real Tauri gap is
+  larger — the FLIP removes it entirely.
+- **Acceptance (composited, needs live build)**: `TOPICS_FPS_SELFTEST` /
+  `__topicsToggleSidebar` on a live Tauri build with screen UNLOCKED → 0 frames
+  > 33ms during the 200ms slide with 6 and 8 visible terminals. (Locked screen
+  suspends compositing → cannot be measured; see PORTING-PLAN §8b.)
+- **Divider/split**: already DOM-direct flex + coalesced fits (no per-frame
+  feature-disable); measured 0 dropped frames steady-state.
+
 ## Layout Shift During Streaming
 
 - Message arrival (any chunk of a streamed assistant reply) MUST NOT reflow:
