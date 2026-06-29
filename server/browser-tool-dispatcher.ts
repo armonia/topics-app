@@ -27,8 +27,73 @@ import {
   handleBrowserImportChrome,
 } from "./browser-tools-handler";
 import type { BrowserActAction } from "./browser-tools";
+import { describeImage, pointObject } from "./integrations/moondream-client";
 
 export type ToolCallArgs = Record<string, unknown>;
+
+/**
+ * Tauri native pane vision: `browser_read_screen` / `browser_point` have no
+ * Playwright `ops` on the WKWebView pane (no CDP), so `handleBrowserReadScreen`
+ * / `handleBrowserPoint` can't run. Instead the server orchestrates them: delegate
+ * a native screenshot to the pane, run Moondream on it, and (for point) click via
+ * `document.elementFromPoint` on the pane. Same Moondream + failsoft model as the
+ * CDP/Playwright path — the agent gets the IDENTICAL `{vision}` / `{clicked,point}`
+ * result whether the pane is native or streaming.
+ */
+async function nativeVisionOp(
+  toolName: string,
+  args: ToolCallArgs,
+  contextId: string,
+): Promise<unknown> {
+  const shot = await nativeDelegateRegistry.delegateOp(contextId, "browser_screenshot", {});
+  if (shot && typeof shot === "object" && "error" in shot) return shot; // failsoft
+  const data = (shot as { data?: unknown })?.data;
+  const mime = (shot as { mime?: unknown })?.mime;
+  if (typeof data !== "string" || !data) {
+    return { error: "browser vision: native screenshot failed (no image data)" };
+  }
+  const imageMime = typeof mime === "string" ? mime : "image/png";
+
+  if (toolName === "browser_read_screen") {
+    const question = typeof args?.question === "string" ? args.question : undefined;
+    const result = await describeImage({ contextId, imageBase64: data, mime: imageMime, question });
+    if ("error" in result) return result;
+    return { vision: result.text, question };
+  }
+
+  // browser_point
+  const description = typeof args?.description === "string" ? args.description : "";
+  if (!description.trim()) {
+    return { error: "browser_point: 'description' (non-empty string) is required" };
+  }
+  // CSS viewport of the native pane — Moondream returns normalized coords scaled
+  // to this; DPR is irrelevant since the coords are normalized to the image.
+  let viewport = { width: 0, height: 0 };
+  try {
+    const vpRaw = await nativeDelegateRegistry.delegateOp(contextId, "browser_eval", {
+      expression: "JSON.stringify({width:innerWidth,height:innerHeight})",
+    });
+    if (typeof vpRaw === "string") viewport = JSON.parse(vpRaw);
+  } catch {
+    /* fall through to the fallback viewport */
+  }
+  if (!(viewport.width > 0 && viewport.height > 0)) viewport = { width: 1280, height: 800 };
+
+  const result = await pointObject({ contextId, imageBase64: data, mime: imageMime, description, viewport });
+  if ("error" in result) return result;
+  if (!result.points.length) {
+    return {
+      error: `browser_point: Moondream returned no candidates for "${description}". Try a more specific description, or use browser_observe.`,
+    };
+  }
+  const target = result.points[0];
+  // WKWebView has no trusted-input API: resolve the element at the point and
+  // click it in-page (best-effort, mirrors the native act path).
+  await nativeDelegateRegistry.delegateOp(contextId, "browser_eval", {
+    expression: `(function(){var el=document.elementFromPoint(${target.x},${target.y});if(el){el.click();return true}return false})()`,
+  });
+  return { clicked: true, point: target };
+}
 
 /**
  * Human-readable, present-tense label for what a browser_* tool call is doing,
@@ -133,6 +198,11 @@ export async function dispatchBrowserToolCallByContext(
   // /ws/browser, so forward the WHOLE tool-call there and return the client's reply.
   // (Electron/web contexts are never registered, so this is a no-op for them.)
   if (nativeDelegateRegistry.isDelegated(contextId)) {
+    // Vision ops have no native executor op — the server runs Moondream on a
+    // delegated native screenshot instead of forwarding the whole call.
+    if (toolName === "browser_read_screen" || toolName === "browser_point") {
+      return nativeVisionOp(toolName, args, contextId);
+    }
     return nativeDelegateRegistry.delegateOp(contextId, toolName, args);
   }
   switch (toolName) {
