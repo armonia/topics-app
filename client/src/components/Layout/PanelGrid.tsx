@@ -22,10 +22,6 @@ import { SplitTree } from './SplitTree';
 import { leaf, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
 
-/** Stable empty identity so the keyPos memo can short-circuit with the flag off
- *  without churning a fresh Map every render. */
-const EMPTY_KEY_POS: ReadonlyMap<string, [number, number]> = new Map();
-
 /**
  * Deep-clone a row preserving its optional `cellStacks` map. Drop handlers
  * historically did `{ itemKeys: [...r.itemKeys], widths: [...r.widths] }`
@@ -232,11 +228,6 @@ interface PanelGridProps {
   // Draft chat support
   promoteDraft?: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
   draftMeta?: Record<string, { projectPath?: string }>;
-  // EXPERIMENTAL: render the grid through the unified layoutTree/<SplitTree>
-  // engine instead of the legacy row/column JSX. Geometry-identical; all
-  // drag/drop/split/close gestures still route through the existing handlers.
-  // Defaults off (AppSettings.splitTreeEngine).
-  splitTreeEngine?: boolean;
 }
 
 /* ================================================================== */
@@ -287,7 +278,6 @@ export function PanelGrid({
   onOpenBrowserContextIds,
   promoteDraft,
   draftMeta,
-  splitTreeEngine = false,
 }: PanelGridProps) {
   // Topics + terminal sessions come from TopicsContext — both used to be
   // drilled here as props. Single read at the top so the rest of the
@@ -1820,38 +1810,36 @@ export function PanelGrid({
   );
 
   /* ================================================================== */
-  /*  splitTreeEngine render path (EXPERIMENTAL, behind the flag)         */
+  /*  Split-tree render path (desktop)                                    */
   /* ================================================================== */
   //
-  // Renders the SAME grid through the unified <SplitTree> engine instead of the
-  // manual row/column JSX below. The tree mirrors gridRows 1:1 (a col-split of
-  // rows, each a row-split of columns) so a divider's (path, idx) maps straight
-  // back to (rowIdx, colIdx). Every gesture reuses the existing handlers:
+  // Renders the grid through the unified <SplitTree> engine — the desktop
+  // renderer (the legacy row/column JSX below is kept ONLY for the mobile <768px
+  // layout, which the tree doesn't model). The tree mirrors gridRows 1:1 (a
+  // col-split of rows, each a row-split of columns) so a divider's (path, idx)
+  // maps straight back to (rowIdx, colIdx). Every gesture reuses the existing
+  // handlers:
   //   - drop / split / move / reorder  → handleGridItemDragOverCapture/DropCapture
   //   - vertical sub-stacks            → <CellSubStack> inside the column leaf
   //   - divider resize / equalize      → mapped onto gridRows widths / heights
-  // Geometry is byte-identical to the legacy path (golden-geometry gate). The
-  // sub-stacks stay un-exploded for now (arbitrary-depth is the next increment);
-  // insert-between-divider drops aren't wired in tree mode (cell-edge drop covers
-  // the same intent). All of this is inert unless the flag is on.
+  // Geometry is byte-identical to the old desktop path (golden-geometry gate).
+  // Insert-between-divider drops are reached via the cell edge instead (same
+  // target cell + zone — no insert position is lost, just a redundant drop strip).
 
   // key → [rowIdx, colIdx] for the top-level cells (sub-stack members aren't tree
-  // leaves here — they live inside their host cell's <CellSubStack>). Gated on the
-  // flag (like treeRoot below) so the legacy path does zero extra work.
+  // leaves here — they live inside their host cell's <CellSubStack>).
   const keyPos = useMemo<ReadonlyMap<string, [number, number]>>(() => {
-    if (!splitTreeEngine) return EMPTY_KEY_POS;
     const m = new Map<string, [number, number]>();
     gridRows.forEach((row, r) => row.itemKeys.forEach((k, c) => { if (!m.has(k)) m.set(k, [r, c]); }));
     return m;
-  }, [splitTreeEngine, gridRows]);
+  }, [gridRows]);
 
   // Shallow tree, 1:1 with gridRows (never drops/reorders rows or columns, so the
   // tree path === gridRows index). Missing / duplicate slots become inert
   // `__skip:*` placeholder leaves (rendered null) with weight 0 — they keep the
   // index stable AND reserve no space, so a transient stale key leaves no blank
-  // gap (it self-heals on the next prune). Only built when the flag is on.
+  // gap (it self-heals on the next prune).
   const treeRoot = useMemo<LayoutNode | null>(() => {
-    if (!splitTreeEngine) return null;
     const seen = new Set<string>();
     const rowChildren: SplitChild[] = gridRows.map((row, ri): SplitChild => {
       const cols: SplitChild[] = row.itemKeys.length === 0
@@ -1870,7 +1858,7 @@ export function PanelGrid({
     if (rowChildren.length === 0) return null;
     const root: SplitNode = { kind: 'split', dir: 'col', children: rowChildren };
     return root;
-  }, [splitTreeEngine, gridRows, gridRowHeights, itemMap]);
+  }, [gridRows, gridRowHeights, itemMap]);
 
   // Divider drag → shift weight on the matching gridRows band, preserving
   // cellStacks (so persistence + sub-stacks survive). path [] = row heights;
@@ -2030,10 +2018,11 @@ export function PanelGrid({
         </div>
       )}
 
-      {splitTreeEngine && treeRoot && !isMobile ? (
-        // On a narrow/mobile viewport the legacy path stacks columns vertically
-        // and equalizes them; the tree path has no mobile mode, so fall back to
-        // legacy under 768px (matches isMobile in the legacy branch below).
+      {treeRoot && !isMobile ? (
+        // The split-tree engine is the desktop renderer. On a narrow/mobile
+        // viewport the legacy path stacks columns vertically and equalizes them;
+        // the tree has no mobile mode, so we keep the legacy branch below ONLY as
+        // the mobile (<768px) renderer (matches isMobile in that branch).
         <SplitTree
           node={treeRoot}
           renderLeaf={renderTreeLeaf}

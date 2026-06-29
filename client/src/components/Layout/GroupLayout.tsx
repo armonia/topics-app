@@ -4,7 +4,6 @@ import { PaneTabBar } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
 import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
 import { equalizeWidths, weightedWidths } from './gridWidths';
-import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useRefMirror } from '../../hooks/useRefMirror';
@@ -15,10 +14,6 @@ import { SplitTree } from './SplitTree';
 import { leaf, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
 import { MIN_PANE_FRACTION } from './constants';
-import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
-
-/** Stable empty map so the keyPos memo returns a constant when the flag is off. */
-const EMPTY_KEY_POS: ReadonlyMap<string, [number, number]> = new Map();
 
 interface GroupLayoutProps {
   panes: Pane[];
@@ -169,52 +164,6 @@ export function GroupLayout({
       return changed ? next : prev;
     });
   }, [groups, panes, paneMap, stableKeyOf]);
-
-  const callbacks = useMemo(() => ({
-    onHorizontalResize: (rowIdx: number, _divIdx: number, newWidths: number[]) => {
-      const newRows = rows.map((r, i) => i === rowIdx ? { ...r, widths: newWidths } : r);
-      onUpdateRows(newRows);
-    },
-    onVerticalResize: (_divIdx: number, newHeights: number[]) => {
-      onUpdateRowHeights(newHeights);
-    },
-  }), [rows, onUpdateRows, onUpdateRowHeights]);
-
-  // ISSUE 24 FIX: Use data attributes instead of unsafe DOM tree navigation.
-  // Dividers carry data-divider-row and data-divider-col; group wrappers carry data-group-cell.
-  // This avoids breakage if React reconciliation reorders elements.
-  const resizeOptions = useMemo(() => ({
-    resolveHorizontal: (divider: HTMLElement) => {
-      const rowIdx = divider.getAttribute('data-divider-row');
-      const colIdx = divider.getAttribute('data-divider-col');
-      if (rowIdx == null || colIdx == null) return null;
-      const container = containerRef.current;
-      if (!container) return null;
-      const leftCol = parseInt(colIdx, 10);
-      const rightCol = leftCol + 1;
-      const left = container.querySelector(`[data-group-cell="${rowIdx}-${leftCol}"]`) as HTMLElement;
-      const right = container.querySelector(`[data-group-cell="${rowIdx}-${rightCol}"]`) as HTMLElement;
-      if (!left || !right) return null;
-      // Live-drag feedback writes `flex` (not `width`): the cells size via
-      // `flex: <w> 1 0%` (flex-basis 0%), where an explicit width is ignored —
-      // same as the vertical axis below and PanelGrid's resolver.
-      return { apply: (l: number, r: number) => { left.style.flex = `${l} 1 0%`; right.style.flex = `${r} 1 0%`; } };
-    },
-    resolveVertical: (divider: HTMLElement) => {
-      const rowIdx = divider.getAttribute('data-divider-row');
-      if (rowIdx == null) return null;
-      const container = containerRef.current;
-      if (!container) return null;
-      const topIdx = parseInt(rowIdx, 10);
-      const bottomIdx = topIdx + 1;
-      const top = container.querySelector(`[data-group-row="${topIdx}"]`) as HTMLElement;
-      const bottom = container.querySelector(`[data-group-row="${bottomIdx}"]`) as HTMLElement;
-      if (!top || !bottom) return null;
-      return { apply: (t: number, b: number) => { top.style.flex = `${t} 1 0%`; bottom.style.flex = `${b} 1 0%`; } };
-    },
-  }), []);
-
-  const { startHorizontalResize, startVerticalResize, equalizeHorizontal, equalizeVertical } = useGridResize(containerRef, callbacks, resizeOptions);
 
   // Vertical leaf depth of a row = its deepest column's sub-stack (primary + any
   // groups stacked under it). A 2-deep column needs twice the row height so each
@@ -556,48 +505,30 @@ export function GroupLayout({
   }, [resetDndOverlays]);
 
   /* ================================================================== */
-  /*  splitTreeEngine render path (EXPERIMENTAL, behind the flag)         */
+  /*  Split-tree render path                                              */
   /* ================================================================== */
   //
-  // Renders the SAME project grid through the unified <SplitTree> engine instead
-  // of the manual row/column JSX below, mirroring PanelGrid's tree path. The tree
-  // is 1:1 with `rows` (a col-split of rows, each a row-split of columns), so a
+  // Renders the project grid through the unified <SplitTree> engine. The tree is
+  // 1:1 with `rows` (a col-split of rows, each a row-split of columns), so a
   // divider's (path, idx) maps straight back to (rowIdx, colIdx). Every gesture
   // reuses the existing handlers: edge-split / cross-group / full-row drops ride
   // inside renderGroupBlock + the container; divider resize/equalize map onto the
-  // rows/rowHeights state (same setters the legacy dividers use → persistence and
-  // sub-stacks survive). The flag is read LIVE from settings (the MessageList
-  // pattern) so the toggle flips without a remount; the standalone PanelGrid
-  // consumes the same AppSettings.splitTreeEngine via prop. All inert when off.
-  //
-  // Known gap this increment (like PanelGrid's tree path note): row drag-reorder
-  // has no leaf to attach to in tree mode, so it's unavailable while the flag is
-  // on — column/row RESIZE, every SPLIT path, cross-group MOVE and full-row split
-  // all still work. The legacy path keeps row drag-reorder.
-  const [splitTreeEngine, setSplitTreeEngine] = useState<boolean>(() => loadSettings().splitTreeEngine);
-  useEffect(() => {
-    const reread = () => setSplitTreeEngine(loadSettings().splitTreeEngine);
-    window.addEventListener(SETTINGS_CHANGED_EVENT, reread);
-    window.addEventListener('storage', reread);
-    return () => {
-      window.removeEventListener(SETTINGS_CHANGED_EVENT, reread);
-      window.removeEventListener('storage', reread);
-    };
-  }, []);
+  // rows/rowHeights state; row drag-reorder is wired into renderTreeLeaf (every
+  // leaf of a row is that row's drop zone, the grab handle rides the first column).
+  // Column/row RESIZE, every SPLIT path, cross-group MOVE, full-row split and
+  // row-reorder all work — full parity with the legacy renderer this replaced.
 
   // key (column primary group id) → [rowIdx, colIdx]. Sub-stack members aren't
-  // tree leaves (they live inside their column's CellSubStack). Gated on the flag.
+  // tree leaves (they live inside their column's CellSubStack).
   const keyPos = useMemo<ReadonlyMap<string, [number, number]>>(() => {
-    if (!splitTreeEngine) return EMPTY_KEY_POS;
     const m = new Map<string, [number, number]>();
     rows.forEach((row, r) => row.groupIds.forEach((gid, c) => { if (!m.has(gid)) m.set(gid, [r, c]); }));
     return m;
-  }, [splitTreeEngine, rows]);
+  }, [rows]);
 
   // Shallow tree, 1:1 with rows. Missing / duplicate groups become inert
   // `__skip:*` weight-0 leaves so the index stays stable and no blank gap shows.
   const treeRoot = useMemo<LayoutNode | null>(() => {
-    if (!splitTreeEngine) return null;
     const seen = new Set<string>();
     const rowChildren: SplitChild[] = rows.map((row, ri): SplitChild => {
       const cols: SplitChild[] = row.groupIds.length === 0
@@ -615,7 +546,7 @@ export function GroupLayout({
     });
     if (rowChildren.length === 0) return null;
     return { kind: 'split', dir: 'col', children: rowChildren };
-  }, [splitTreeEngine, rows, rowHeights, groupMap]);
+  }, [rows, rowHeights, groupMap]);
 
   // Divider drag → shift weight on the matching band (path [] = row heights,
   // path [rowIdx] = that row's column widths). Floor = the live MIN_PANE_FRACTION,
@@ -864,8 +795,35 @@ export function GroupLayout({
     // occurrence wins), so a fresh per-leaf Set only has to stop a pane duplicated
     // within this column's own stack from painting twice.
     const seen = new Set<string>();
+    // Row drag-reorder, migrated 1:1 from the legacy row container: every leaf in
+    // a row is a drop zone for THAT row (drop on any column targets the row), and
+    // the inset band shows on EVERY leaf of the target row, so the indicator spans
+    // the full row exactly like legacy's single row-wide container. The grab handle
+    // lives only on the first column (groupIdx 0) so it sits at the row's left edge.
+    // All of this reuses the SAME handlers/state as the legacy path — it only
+    // mutates `rows` via onReorderRows, and the tree re-derives from `rows`, so the
+    // reorder is structural, not a tree concern. Type-guarded (LAYOUT_ROW) inside
+    // the handlers, so pane DnD passes straight through.
+    const isDraggingRow = draggingRowIdx === rowIdx;
+    const rowDropSide = rowDropTarget?.idx === rowIdx ? rowDropTarget.side : null;
     return (
-      <div data-group-cell={`${rowIdx}-${groupIdx}`} className="flex w-full h-full min-h-0 min-w-0 overflow-hidden">
+      <div
+        data-group-cell={`${rowIdx}-${groupIdx}`}
+        className={`relative flex w-full h-full min-h-0 min-w-0 overflow-hidden ${isDraggingRow ? 'opacity-40' : ''}`}
+        style={{ boxShadow: rowDropSide === 'top' ? 'inset 0 4px 0 0 var(--primary)' : rowDropSide === 'bottom' ? 'inset 0 -4px 0 0 var(--primary)' : undefined }}
+        onDragOver={handleRowDragOver(rowIdx)}
+        onDrop={handleRowDrop}
+      >
+        {onReorderRows && rows.length > 1 && groupIdx === 0 && (
+          <div
+            className="absolute left-0 top-0 w-3 h-full z-20 cursor-grab active:cursor-grabbing flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+            draggable
+            onDragStart={handleRowDragStart(rowIdx)}
+            title={`Drag to reorder row ${rowIdx + 1}`}
+          >
+            <div className="w-1 h-6 bg-app-text-tertiary/40 rounded-full" />
+          </div>
+        )}
         <CellSubStack
           stack={subStack}
           primary={renderGroupBlock(gid, rowIdx, groupIdx, seen)}
@@ -876,15 +834,6 @@ export function GroupLayout({
     );
   };
 
-  // Defensive render-time dedup: never paint the same group or pane twice, even
-  // if a duplicated id slips into state from a hydrate or split race. The
-  // reducers PREVENT new duplicates but don't scrub a list that arrives already
-  // duplicated, so a group listed in two rows (or a pane in two groups) would
-  // render its whole window/content twice — the "two windows in one window"
-  // symptom. These Sets guarantee one logical window per id at the last mile.
-  // Purely subtractive (by exact id), so it can only ever show fewer, never more.
-  const seenGroupIds = new Set<string>();
-  const seenPaneIds = new Set<string>();
   // The full-width drop strips (split "in basso/in alto a TUTTE le tab") only
   // make sense when there's more than one column somewhere — with a single
   // column a per-cell vertical split already spans the full width, so the
@@ -913,7 +862,7 @@ export function GroupLayout({
           onDrop={handleFullRowDrop(side)}
         />
       ))}
-      {splitTreeEngine && treeRoot ? (
+      {treeRoot && (
         <SplitTree
           node={treeRoot}
           renderLeaf={renderTreeLeaf}
@@ -921,118 +870,7 @@ export function GroupLayout({
           onEqualize={handleTreeEqualize}
           gutter={1}
         />
-      ) : rows.map((row, rowIdx) => {
-        const isDraggingRow = draggingRowIdx === rowIdx;
-        const isRowDropTop = rowDropTarget?.idx === rowIdx && rowDropTarget?.side === 'top';
-        const isRowDropBottom = rowDropTarget?.idx === rowIdx && rowDropTarget?.side === 'bottom';
-
-        return (
-          <div
-            key={rowIdx}
-            data-group-row={rowIdx}
-            className={`flex flex-col min-h-0 ${isDraggingRow ? 'opacity-40' : ''}`}
-            style={{ flex: `${rowHeights[rowIdx] ?? 1 / rows.length} 1 0%` }}
-          >
-            <div
-              className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative"
-              style={{
-                boxShadow: isRowDropTop ? `inset 0 4px 0 0 var(--primary)` : isRowDropBottom ? `inset 0 -4px 0 0 var(--primary)` : undefined,
-              }}
-              onDragOver={handleRowDragOver(rowIdx)}
-              onDrop={handleRowDrop}
-            >
-              {/* Row drag handle (Phase 5) */}
-              {onReorderRows && rows.length > 1 && (
-                <div
-                  className="absolute left-0 top-0 w-3 h-full z-20 cursor-grab active:cursor-grabbing flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-                  draggable
-                  onDragStart={handleRowDragStart(rowIdx)}
-                  title={`Drag to reorder row ${rowIdx + 1}`}
-                >
-                  <div className="w-1 h-6 bg-app-text-tertiary/40 rounded-full" />
-                </div>
-              )}
-              {row.groupIds.map((groupId, groupIdx) => {
-                const group = groupMap.get(groupId);
-                if (!group || seenGroupIds.has(groupId)) return null;
-                seenGroupIds.add(groupId);
-
-                // This column's vertical sub-stack: the groups stacked UNDER the
-                // primary (split "in basso a una singola split tab"). Skip any
-                // missing / already-painted group and mark survivors seen so a
-                // stacked group never also renders as its own top-level column.
-                const rawStack = row.cellStacks?.[groupId];
-                const stackedIds = (rawStack?.groupIds ?? []).filter(
-                  (id) => groupMap.has(id) && !seenGroupIds.has(id),
-                );
-                for (const id of stackedIds) seenGroupIds.add(id);
-                const subStack = stackedIds.length > 0
-                  ? { items: stackedIds, heights: rawStack?.heights ?? [] }
-                  : undefined;
-
-                return (
-                  <div
-                    key={groupId}
-                    data-group-cell={`${rowIdx}-${groupIdx}`}
-                    className="flex min-h-0 min-w-0 overflow-hidden"
-                    // flex-grow (NOT a fixed `width: X%`) so the columns ALWAYS
-                    // fill the row, exactly like PanelGrid's cells. A fixed
-                    // percent leaves a literal gap whenever `row.widths` doesn't
-                    // sum to 1 — which it transiently doesn't every time a pane
-                    // is closed: the emptied group is dropped from `groups` and
-                    // this row re-renders BEFORE the [groups] sync effect
-                    // renormalizes the surviving widths, so a 2-col [.6,.4] row
-                    // briefly renders one .6-wide column over a .4 void (and the
-                    // void persists if that effect ever fails to fire). With
-                    // flex-grow the lone survivor grabs all free space regardless
-                    // of the stale ratio — no gap, ever. The `?? 1/len` fallback
-                    // still guards a widths array shorter than groupIds.
-                    style={{ flex: `${row.widths[groupIdx] ?? 1 / row.groupIds.length} 1 0%` }}
-                  >
-                    {/* Column body: the primary group, plus any groups stacked
-                        vertically under it (cellStacks) composed via CellSubStack
-                        with their own in-cell resize dividers. Sibling columns
-                        stay full-height. */}
-                    <CellSubStack
-                      stack={subStack}
-                      primary={renderGroupBlock(groupId, rowIdx, groupIdx, seenPaneIds)}
-                      renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, groupIdx, seenPaneIds)}
-                      onResize={(nextHeights) => onUpdateRows(setColumnStackHeights(rows, groupId, nextHeights))}
-                    />
-
-                    {/* Horizontal divider between groups in a row */}
-                    {groupIdx < row.groupIds.length - 1 && (
-                      <div
-                        data-divider-row={rowIdx}
-                        data-divider-col={groupIdx}
-                        className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-10"
-                        title="Double-click to equalize widths"
-                        onMouseDown={startHorizontalResize(rowIdx, groupIdx, row.widths)}
-                        onDoubleClick={equalizeHorizontal(rowIdx, row.groupIds.length)}
-                      >
-                        <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Vertical divider between rows */}
-            {rowIdx < rows.length - 1 && (
-              <div
-                data-divider-row={rowIdx}
-                className="h-[1px] flex-shrink-0 cursor-row-resize relative bg-app-border hover:bg-primary transition-colors z-10"
-                title="Double-click to equalize heights"
-                onMouseDown={startVerticalResize(rowIdx, rowHeights)}
-                onDoubleClick={equalizeVertical(rows.length, () => rows.map(rowVerticalDepth))}
-              >
-                <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />
-              </div>
-            )}
-          </div>
-        );
-      })}
+      )}
     </div>
   );
 }
