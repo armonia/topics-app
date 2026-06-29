@@ -1955,6 +1955,7 @@ export function PanelGrid({
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
           e.preventDefault();
+          e.dataTransfer.dropEffect = 'move'; // WKWebView: signal accept so dragend doesn't pop-out-close
           setEmptyDragOver(true);
         }}
         onDragLeave={() => setEmptyDragOver(false)}

@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 
 /**
- * Keeps the sidebar collapse/expand smooth while the content does a REAL synchronised
- * push (paddingLeft animates in lockstep with the sidebar's 200ms slide — the content
- * widens as the sidebar leaves). Animating the content width re-flows every mounted xterm
- * each frame; we HOLD the fits for the slide and run exactly ONE at the settled width
- * (`topics:sidebar-resize-start/-end`, the same bracket a divider drag uses), and the
- * canvas renderer (Tauri) keeps the per-frame box relayout cheap.
+ * Coalesces terminal fits across the sidebar collapse/expand so the layout settles with
+ * exactly ONE fit, not one per animation frame. The visible push is a compositor FLIP
+ * (useSidebarFlipPush) that commits the final paddingLeft in a single reflow — so the slide
+ * itself no longer re-flows terminals; this hook brackets `topics:sidebar-resize-start/-end`
+ * (the same bracket a divider drag uses) and runs the single settle-fit at the final width.
+ * DOM renderer on every host.
  *
  * In OVERLAY mode the sidebar animates `transform`, not `width`, so we bracket on either
  * property. A separate event from `pane-resize-*` keeps this off useFloatingVibrancy's
