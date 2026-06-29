@@ -1225,22 +1225,6 @@ export interface AppSettings {
   // easier to read. Gated to Electron (relies on native vibrancy) and ignored
   // on web/PWA. Surfaced in Settings → Appearance. Defaults OFF.
   floatingSplits: boolean;
-  // Desktop-only. When on, the sidebar OVERLAYS the content (slides in/out via a
-  // GPU-composited transform) instead of PUSHING it (animating the flex width).
-  // Pushing resizes the content area every frame, forcing all mounted DOM
-  // terminals to re-fit/re-layout on the settle frame (~the only sidebar-toggle
-  // frame drop left); overlaying keeps the content width constant → zero terminal
-  // relayout → no frame drop. Trade-off: the open sidebar covers the left strip of
-  // content. Surfaced in Settings → Appearance. Defaults OFF (push stays default).
-  overlaySidebar: boolean;
-  // Tauri-only. The Tauri browser pane defaults to a NATIVE WKWebView (fast, real
-  // browser, all the chrome) but the server-side agent can't drive that native
-  // view (no CDP endpoint, and wiring a client-delegation transport needs a
-  // shared-server change). When this is ON, the Tauri browser instead uses the
-  // STREAMING path (the server's headless Playwright + a screencast <img>) — the
-  // SAME path the web client uses, which the agent CAN drive end-to-end. Trade:
-  // heavier than the native pane. Default OFF (native pane). Settings → Appearance.
-  tauriBrowserStreaming: boolean;
   // EXPERIMENTAL. When on, the standalone grid renders through the unified
   // n-ary split-tree engine (layoutTree + <SplitTree>) instead of the legacy
   // PanelGrid row/column/cellStack renderer. Geometry is byte-identical (proven

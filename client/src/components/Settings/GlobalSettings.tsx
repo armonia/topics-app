@@ -5,7 +5,7 @@ import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi } from '../../lib/api';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
-import { isDesktop, isTauri } from '../../lib/shell';
+import { isDesktop } from '../../lib/shell';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -261,27 +261,6 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
             value={settings.floatingSplits}
             onChange={(v) => onChange('floatingSplits', v)}
           />
-
-          {/* Tauri (WebKit) re-flows DOM terminals every frame in push mode, so overlay
-              is FORCED there (App.tsx desktopOverlay) — no toggle to offer. Electron
-              lays out fast enough, so it keeps the choice. */}
-          {!isTauri && (
-            <ToggleRow
-              label="Overlay sidebar"
-              description="Slide the sidebar over the content instead of pushing it — no frame drop on open/close, but it covers the left edge of the content while open."
-              value={settings.overlaySidebar}
-              onChange={(v) => onChange('overlaySidebar', v)}
-            />
-          )}
-
-          {isTauri && (
-            <ToggleRow
-              label="Browser pilotabile dall'agente"
-              description="Usa il browser in streaming (headless lato server) invece del pannello nativo, così l'agente può pilotarlo end-to-end. Più pesante del pannello nativo."
-              value={settings.tauriBrowserStreaming}
-              onChange={(v) => onChange('tauriBrowserStreaming', v)}
-            />
-          )}
         </div>
       )}
 
