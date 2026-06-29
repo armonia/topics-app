@@ -7,11 +7,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   sidebarWidth: 256,
   sidebarCollapsed: false,
   // Notifications default to on with sound; users disable from Settings.
-  // `notifyEvenWhenFocused` defaults to false so we don't spam users who
-  // already have the topic in front of them — they get the toast either way.
+  // `notifyEvenWhenFocused` defaults to ON: with several topics open in
+  // parallel the user wants the completion cue even on the visible one. The
+  // toggle stays in Settings → Notifications for anyone who prefers it quiet.
   notificationsEnabled: true,
   notificationsSound: true,
-  notifyEvenWhenFocused: false,
+  notifyEvenWhenFocused: true,
   // Paid feature — OFF by default. New chats hit a paid provider turn, so the
   // "New Chat" affordances stay hidden until the user opts in from Settings.
   enableNewChat: false,
