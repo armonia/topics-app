@@ -992,7 +992,6 @@ function App() {
         <div ref={contentFlipRef} className="content-flip-layer flex-1 flex flex-col min-h-0 min-w-0">
         <ErrorBoundary fallbackMessage="Panel error">
         <PanelGrid
-          splitTreeEngine={appSettings.splitTreeEngine}
           openPanels={openPanels}
           focusedPanelId={focusedPanelId}
           onFocusPanel={handleFocusPanel}
