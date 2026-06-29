@@ -18,8 +18,8 @@
  * Only flip the P2 flag's render path on for real once this is green.
  */
 import { test, expect, describe } from 'bun:test';
-import { gridRowsToTree, groupRowsToTree } from './legacyAdapters';
-import { computeRects, type LeafRect, type Rect } from './layoutTree';
+import { gridRowsToTree, groupRowsToTree, buildShallowGridTree } from './legacyAdapters';
+import { computeRects, type LayoutNode, type LeafRect, type Rect } from './layoutTree';
 import type { PanelGridRow, GroupLayoutRow } from '../../types';
 
 const CONTAINER: Rect = { x: 0, y: 0, width: 1200, height: 800 };
@@ -273,4 +273,60 @@ describe('golden geometry — project GroupLayout (groupRowsToTree + computeRect
       expectSameGeometry(actual, expected);
     });
   }
+});
+
+/* ── the SHIPPED renderer builder (buildShallowGridTree) ──────────────────────
+ * The deep adapters above are the persistence/round-trip oracle, but the two
+ * desktop renderers do NOT consume them — they drive a SHALLOW tree (sub-stacks
+ * render in <CellSubStack>, not as tree leaves) built by buildShallowGridTree.
+ * This pins that exact production code against the legacy geometry, closing the
+ * gap where the gate only ever exercised the never-rendered adapter path.
+ *
+ * The shallow builder diverges from the deep adapter ONLY on degenerate input
+ * (per-index `rowHeights[ri] ?? …` vs the adapter's all-or-nothing length match;
+ * empty rows kept as inert placeholders vs dropped) — never hit by real state.
+ * So we assert equality on the CLEAN subset (every row populated, weight arrays
+ * length-matched) where shallow and legacy MUST agree, plus a dedicated case for
+ * the shallow builder's unique weight-0 self-heal. */
+function nonNull(tree: LayoutNode | null): LayoutNode {
+  if (!tree) throw new Error('buildShallowGridTree returned null for a populated layout');
+  return tree;
+}
+const isCleanGrid = (c: GridCase) =>
+  c.rowHeights.length === c.rows.length &&
+  c.rows.every((r) => r.itemKeys.length > 0 && r.widths.length === r.itemKeys.length && !r.cellStacks);
+const isCleanGroup = (c: GroupCase) =>
+  c.rowHeights.length === c.rows.length &&
+  c.rows.every((r) => r.groupIds.length > 0 && r.widths.length === r.groupIds.length && !r.cellStacks);
+
+describe('golden geometry — shipped shallow builder (buildShallowGridTree + computeRects)', () => {
+  for (const c of GRID_CASES.filter(isCleanGrid)) {
+    test(`grid: ${c.name}`, () => {
+      const gutter = c.gutter ?? 0;
+      const shallow = c.rows.map((r) => ({ keys: r.itemKeys, widths: r.widths }));
+      const actual = computeRects(nonNull(buildShallowGridTree(shallow, c.rowHeights, () => true)), CONTAINER, gutter);
+      const expected = legacyGridGeometry(c.rows, c.rowHeights, CONTAINER, gutter);
+      expectSameGeometry(actual, expected);
+    });
+  }
+
+  for (const c of GROUP_CASES.filter(isCleanGroup)) {
+    test(`group: ${c.name}`, () => {
+      const gutter = c.gutter ?? 0;
+      const shallow = c.rows.map((r) => ({ keys: r.groupIds, widths: r.widths }));
+      const actual = computeRects(nonNull(buildShallowGridTree(shallow, c.rowHeights, () => true)), CONTAINER, gutter);
+      const expected = legacyGroupGeometry(c.rows, c.rowHeights, CONTAINER, gutter);
+      expectSameGeometry(actual, expected);
+    });
+  }
+
+  test('a non-live key collapses to weight-0 and reserves no space (self-heal)', () => {
+    // The renderer feeds isLive=itemMap.has; a transient stale key must take zero
+    // width so the live sibling fills the band and no blank gap shows.
+    const tree = nonNull(buildShallowGridTree([{ keys: ['a', 'ghost'], widths: [0.5, 0.5] }], [1], (k) => k === 'a'));
+    const rects = computeRects(tree, CONTAINER, 0);
+    const a = rects.find((r) => r.id === 'a');
+    expect(a).toBeDefined();
+    expect(Math.abs(a!.width - CONTAINER.width)).toBeLessThan(EPS);
+  });
 });
