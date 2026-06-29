@@ -5,7 +5,6 @@ import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
-import { isTauri } from '../../lib/shell';
 import { serverWsBase } from '../../lib/shell/net';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished, useTerminalReloading } from '../../state/signals';
@@ -201,39 +200,23 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     term.loadAddon(fitAddon);
     term.open(el);
 
-    // Landing demo only: swap in the Canvas renderer, which DRAWS box-drawing
-    // and block-element glyphs itself (customGlyphs) instead of using the font.
-    // The marketing demo shows the real Claude Code block-art logo, and the
-    // default DOM renderer paints those sub-cell quadrant blocks from the font
-    // → hairline seams between them. Canvas renders them seam-free. Gated on a
-    // flag the demo boot shim sets (the real app keeps the DOM renderer for
-    // native mobile text selection), dynamically imported so the addon is a
-    // lazy chunk never fetched outside the demo, and wrapped so any
-    // incompatibility silently falls back to the DOM renderer.
-    // Landing demo only: swap in the Canvas renderer, which DRAWS box-drawing
-    // and block-element glyphs itself (customGlyphs) instead of using the font.
-    // The marketing demo shows the real Claude Code block-art logo, and the
-    // default DOM renderer paints those sub-cell quadrant blocks from the font
-    // → hairline seams between them. Canvas renders them seam-free. Gated on a
-    // flag the demo boot shim sets (the real app keeps the DOM renderer for
-    // native mobile text selection), dynamically imported so the addon is a
-    // lazy chunk never fetched outside the demo, and wrapped so any
-    // incompatibility silently falls back to the DOM renderer.
-    //
-    // CANVAS RENDERER ON TAURI (WebKit desktop). The single-terminal toggle barely
-    // benefits (~7ms), but the per-row DOM the canvas deletes is EXACTLY what dominates
-    // when MANY split terminals re-fit at once: reclaiming the sidebar strip with 8
-    // visible terminals measured ~570ms of frozen row-relayout on the DOM renderer →
-    // ~110ms with canvas (5×), and it scales down to 0 dropped frames for the common
-    // 1-2 terminal case. Crucially the canvas addon HONOURS `allowTransparency:true`
-    // (unlike WebGL, which triggers the unfixed thin/black-text bug #4212 and forfeits
-    // the frosted-glass look) — verified: crisp text at 2× DPR, transparency preserved,
-    // canvasOk=8/8 loads cleanly on xterm v6. DOM is kept on web/mobile (native text
-    // selection) and Electron (Chromium re-flows rows fast enough in push mode). The
-    // try/catch silently falls back to DOM if the v5-pinned addon ever rejects.
-    if (isTauri || (window as unknown as { __TOPICS_DEMO_CANVAS__?: boolean }).__TOPICS_DEMO_CANVAS__) {
+    // Renderer: DOM on EVERY host, including Tauri/WebKit. The Canvas addon
+    // (@xterm/addon-canvas) is pinned to xterm core v5 — `peerDependencies:
+    // "@xterm/xterm": "^5.0.0"`, still true even of 0.8.0-beta — and CRASHES on
+    // our xterm v6 core at RENDER time: `this._linkifier2.onShowLinkUnderline`
+    // is undefined because the core's internal link service moved in v6. The
+    // try/catch around loadAddon only catches a synchronous LOAD throw, not the
+    // later render-time access, so it reported a false "canvasOk" while the
+    // terminal blew up on first paint. (Was gated on `isTauri` for an 8-way
+    // sidebar-reclaim win — now moot: the sidebar push is a compositor FLIP
+    // (useSidebarFlipPush), not a per-frame row relayout, so DOM no longer
+    // reflows terminals during the slide.) DOM is transparent (keeps the frosted
+    // glass — unlike WebGL bug #4212), crisp at any DPR, and gives native text
+    // selection. The demo flag below remains ONLY for the landing page's block-
+    // art logo and is itself v6-incompatible — never set it in the app.
+    if ((window as unknown as { __TOPICS_DEMO_CANVAS__?: boolean }).__TOPICS_DEMO_CANVAS__) {
       import('@xterm/addon-canvas')
-        .then(({ CanvasAddon }) => { try { term.loadAddon(new CanvasAddon()); (window as unknown as {__canvasOk?:number}).__canvasOk = ((window as unknown as {__canvasOk?:number}).__canvasOk||0)+1; } catch { /* DOM fallback */ } })
+        .then(({ CanvasAddon }) => { try { term.loadAddon(new CanvasAddon()); } catch { /* DOM fallback */ } })
         .catch(() => { /* DOM fallback */ });
     }
 
