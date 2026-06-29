@@ -11,6 +11,14 @@ import { useRefMirror } from '../../hooks/useRefMirror';
 import { detectDropZone, type EdgeZone } from '../../lib/dropZone';
 import { SplitRegion, FullWidthRowZone } from './DropOverlay';
 import { FULL_ROW_GUTTER_PX } from '../../lib/dropFeedback';
+import { SplitTree } from './SplitTree';
+import { leaf, type LayoutNode, type SplitNode, type SplitChild } from '../../state/layout/layoutTree';
+import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
+import { MIN_PANE_FRACTION } from './constants';
+import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
+
+/** Stable empty map so the keyPos memo returns a constant when the flag is off. */
+const EMPTY_KEY_POS: ReadonlyMap<string, [number, number]> = new Map();
 
 interface GroupLayoutProps {
   panes: Pane[];
@@ -547,6 +555,94 @@ export function GroupLayout({
     };
   }, [resetDndOverlays]);
 
+  /* ================================================================== */
+  /*  splitTreeEngine render path (EXPERIMENTAL, behind the flag)         */
+  /* ================================================================== */
+  //
+  // Renders the SAME project grid through the unified <SplitTree> engine instead
+  // of the manual row/column JSX below, mirroring PanelGrid's tree path. The tree
+  // is 1:1 with `rows` (a col-split of rows, each a row-split of columns), so a
+  // divider's (path, idx) maps straight back to (rowIdx, colIdx). Every gesture
+  // reuses the existing handlers: edge-split / cross-group / full-row drops ride
+  // inside renderGroupBlock + the container; divider resize/equalize map onto the
+  // rows/rowHeights state (same setters the legacy dividers use → persistence and
+  // sub-stacks survive). The flag is read LIVE from settings (the MessageList
+  // pattern) so the toggle flips without a remount; the standalone PanelGrid
+  // consumes the same AppSettings.splitTreeEngine via prop. All inert when off.
+  //
+  // Known gap this increment (like PanelGrid's tree path note): row drag-reorder
+  // has no leaf to attach to in tree mode, so it's unavailable while the flag is
+  // on — column/row RESIZE, every SPLIT path, cross-group MOVE and full-row split
+  // all still work. The legacy path keeps row drag-reorder.
+  const [splitTreeEngine, setSplitTreeEngine] = useState<boolean>(() => loadSettings().splitTreeEngine);
+  useEffect(() => {
+    const reread = () => setSplitTreeEngine(loadSettings().splitTreeEngine);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reread);
+    window.addEventListener('storage', reread);
+    return () => {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, reread);
+      window.removeEventListener('storage', reread);
+    };
+  }, []);
+
+  // key (column primary group id) → [rowIdx, colIdx]. Sub-stack members aren't
+  // tree leaves (they live inside their column's CellSubStack). Gated on the flag.
+  const keyPos = useMemo<ReadonlyMap<string, [number, number]>>(() => {
+    if (!splitTreeEngine) return EMPTY_KEY_POS;
+    const m = new Map<string, [number, number]>();
+    rows.forEach((row, r) => row.groupIds.forEach((gid, c) => { if (!m.has(gid)) m.set(gid, [r, c]); }));
+    return m;
+  }, [splitTreeEngine, rows]);
+
+  // Shallow tree, 1:1 with rows. Missing / duplicate groups become inert
+  // `__skip:*` weight-0 leaves so the index stays stable and no blank gap shows.
+  const treeRoot = useMemo<LayoutNode | null>(() => {
+    if (!splitTreeEngine) return null;
+    const seen = new Set<string>();
+    const rowChildren: SplitChild[] = rows.map((row, ri): SplitChild => {
+      const cols: SplitChild[] = row.groupIds.length === 0
+        ? [{ weight: 1, node: leaf(`__skip:${ri}:empty`) }]
+        : row.groupIds.map((gid, ci): SplitChild => {
+            const live = groupMap.has(gid) && !seen.has(gid);
+            if (live) seen.add(gid);
+            return {
+              weight: live ? (row.widths[ci] ?? 1 / row.groupIds.length) : 0,
+              node: leaf(live ? gid : `__skip:${ri}:${ci}`),
+            };
+          });
+      const rowNode: SplitNode = { kind: 'split', dir: 'row', children: cols };
+      return { weight: rowHeights[ri] ?? 1 / rows.length, node: rowNode };
+    });
+    if (rowChildren.length === 0) return null;
+    return { kind: 'split', dir: 'col', children: rowChildren };
+  }, [splitTreeEngine, rows, rowHeights, groupMap]);
+
+  // Divider drag → shift weight on the matching band (path [] = row heights,
+  // path [rowIdx] = that row's column widths). Floor = the live MIN_PANE_FRACTION,
+  // matching SplitTree's internal floor so live drag and committed weight agree.
+  const handleTreeResize = useCallback((path: number[], dividerIdx: number, deltaPx: number, bandPx: number) => {
+    const wd = pxToWeightDelta(bandPx, deltaPx);
+    if (wd === 0) return;
+    if (path.length === 0) {
+      onUpdateRowHeights(resizeWeights(rowHeights, dividerIdx, wd, MIN_PANE_FRACTION));
+    } else if (path.length === 1) {
+      const rowIdx = path[0];
+      onUpdateRows(rows.map((r, i) => (i === rowIdx ? { ...r, widths: resizeWeights(r.widths, dividerIdx, wd, MIN_PANE_FRACTION) } : r)));
+    }
+  }, [rows, rowHeights, onUpdateRows, onUpdateRowHeights]);
+
+  // Double-click a divider → equalize. Row heights are weighted by each row's
+  // sub-stack depth (matches legacy equalizeVertical); columns are plain 1/n
+  // (legacy equalizeHorizontal — columns span the full row height).
+  const handleTreeEqualize = useCallback((path: number[]) => {
+    if (path.length === 0) {
+      onUpdateRowHeights(weightedWidths(rows.map(rowVerticalDepth)));
+    } else if (path.length === 1) {
+      const rowIdx = path[0];
+      onUpdateRows(rows.map((r, i) => (i === rowIdx ? { ...r, widths: equalizeWidths(r.groupIds.length) } : r)));
+    }
+  }, [rows, rowVerticalDepth, onUpdateRows, onUpdateRowHeights]);
+
   if (rows.length === 0) {
     const emptyAvailableTypes = availableTypesForGroup('chat', '');
     return (
@@ -748,6 +844,38 @@ export function GroupLayout({
     );
   };
 
+  // One tree leaf = one top-level column cell. Reuses renderGroupBlock + the same
+  // CellSubStack composition as the legacy cell, so tab bars, keep-alive, DnD and
+  // sub-stacks behave identically; SplitTree owns only the structural flex +
+  // dividers, so the leaf wrapper carries NO `flex` style (it's already 100%×100%).
+  const renderTreeLeaf = (gid: string): React.ReactNode => {
+    if (gid.startsWith('__skip:')) return null;
+    const group = groupMap.get(gid);
+    if (!group) return null;
+    const pos = keyPos.get(gid);
+    const rowIdx = pos ? pos[0] : 0;
+    const groupIdx = pos ? pos[1] : 0;
+    const rawStack = rows[rowIdx]?.cellStacks?.[gid];
+    const stackedIds = (rawStack?.groupIds ?? []).filter((id) => groupMap.has(id));
+    const subStack = stackedIds.length > 0
+      ? { items: stackedIds, heights: rawStack?.heights ?? [] }
+      : undefined;
+    // Each leaf renders independently; treeRoot already deduped GROUPS (first
+    // occurrence wins), so a fresh per-leaf Set only has to stop a pane duplicated
+    // within this column's own stack from painting twice.
+    const seen = new Set<string>();
+    return (
+      <div data-group-cell={`${rowIdx}-${groupIdx}`} className="flex w-full h-full min-h-0 min-w-0 overflow-hidden">
+        <CellSubStack
+          stack={subStack}
+          primary={renderGroupBlock(gid, rowIdx, groupIdx, seen)}
+          renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, groupIdx, seen)}
+          onResize={(nextHeights) => onUpdateRows(setColumnStackHeights(rows, gid, nextHeights))}
+        />
+      </div>
+    );
+  };
+
   // Defensive render-time dedup: never paint the same group or pane twice, even
   // if a duplicated id slips into state from a hydrate or split race. The
   // reducers PREVENT new duplicates but don't scrub a list that arrives already
@@ -785,7 +913,15 @@ export function GroupLayout({
           onDrop={handleFullRowDrop(side)}
         />
       ))}
-      {rows.map((row, rowIdx) => {
+      {splitTreeEngine && treeRoot ? (
+        <SplitTree
+          node={treeRoot}
+          renderLeaf={renderTreeLeaf}
+          onResize={handleTreeResize}
+          onEqualize={handleTreeEqualize}
+          gutter={1}
+        />
+      ) : rows.map((row, rowIdx) => {
         const isDraggingRow = draggingRowIdx === rowIdx;
         const isRowDropTop = rowDropTarget?.idx === rowIdx && rowDropTarget?.side === 'top';
         const isRowDropBottom = rowDropTarget?.idx === rowIdx && rowDropTarget?.side === 'bottom';
