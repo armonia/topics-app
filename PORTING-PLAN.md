@@ -392,8 +392,13 @@ ricostruita: `cd desktop-tauri && cargo tauri build` (o lo script di prod); (3) 
   bloccato. N=16 terminali (~52k spans), durante i 200ms: **VECCHIO** paddingLeft = 41.9ms/frame median (~24fps),
   **6/6 frame >33ms = TUTTI persi** (combacia coi ~25fps WebKit documentati); **FLIP** transform = 8.3ms/frame
   median (~120fps), **0/31 frame >33ms = zero persi**. L'acceptance headline è raggiunta dal FLIP.
-- **CONFERMA WebKit-specifica (serve schermo sbloccato, ora solo confermativa)**: `TOPICS_FPS_SELFTEST` /
-  `__topicsToggleSidebar` con 6/8 terminali sul WKWebView reale → conferma dello stesso risultato engine-universale.
+- **CONFERMA WebKit REALE — VERIFICATA lock-proof (`performance/sidebar-flip-webkit-bench.cjs`)**: forced-reflow
+  in WebKit headless (Playwright, `AppleWebKit/605.1.15 Version/26.0` = stesso motore del WKWebView Tauri;
+  timing layout sincrono, affidabile anche se headless WebKit throttla il rAF). paddingLeft = 8/20/**33**/66ms
+  di layout PER FRAME a N=2/5/8/16 → a N=8 è **2× il budget di 16.7ms** (spiega i ~25fps); transform = **0ms a
+  ogni N**. WebKit è ~6× più lento di Chromium nel layout → il FLIP conta di PIÙ sul motore reale.
+- **CONFERMA finale su WKWebview di sistema (serve sblocco, confermativa)**: `TOPICS_FPS_SELFTEST` sull'app Tauri
+  reale → 0 frame >33ms compositati + tracking pane nativo. Il costo engine è già provato su WebKit reale sopra.
 - **Browser pane nativo (rischio portante)**: split con 1 terminale + 1 BROWSER pane, toggle
   sidebar → il bordo sinistro del pane deve tracciare il bordo contenuto in lockstep coi terminali,
   niente trail né salto-a-fine. Si regge su `getBoundingClientRect` post-transform (WebKit conforme)
