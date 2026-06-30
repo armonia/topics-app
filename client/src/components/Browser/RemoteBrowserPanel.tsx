@@ -247,7 +247,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   const findBtn = 'w-6 h-6 flex items-center justify-center rounded text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0';
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-surface" data-testid="browser-native-panel">
+    <div className="flex flex-col h-full min-h-0" data-testid="browser-native-panel">
       <BrowserToolbar
         url={browser.url}
         onUrlChange={browser.navigate}
