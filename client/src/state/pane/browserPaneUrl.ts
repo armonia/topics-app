@@ -17,14 +17,36 @@ export function isRealUrl(url: string | undefined | null): url is string {
   return !!url && url !== 'about:blank' && !url.startsWith('chrome-error:');
 }
 
-/** Read a browser pane's persisted URL from the store (undefined if none). */
+// Initial-URL seed for force-opened browser panes. A session-initiated open
+// (`browser:force-open`) arrives BEFORE the pane exists in the store, and the
+// native browser hook captures `initialUrl` exactly ONCE at mount (useTauri-
+// Browser / useNativeBrowser ref-capture it) — so the URL must be readable the
+// instant the pane first renders. persistBrowserPaneUrl can't bridge this: it
+// no-ops until the pane is store-resident, and on Tauri the server never drives
+// the navigation over CDP (no Electron CDP). Seed the URL here, at the earliest
+// point (the force-open handler, before any render), so getBrowserPaneUrl —
+// which the pane list reads to populate initialUrl — returns it at mount. Once
+// the page actually navigates, onUrlChange writes the real store url, which then
+// supersedes (and clears) the seed.
+const initialUrlSeeds = new Map<string, string>();
+
+/** Seed the URL a not-yet-mounted browser pane must open at (force-open). */
+export function seedBrowserPaneInitialUrl(paneId: string, url: string): void {
+  if (isRealUrl(url)) initialUrlSeeds.set(paneId, url);
+}
+
+/** Read a browser pane's URL: the persisted store url, else a force-open seed. */
 export function getBrowserPaneUrl(paneId: string): string | undefined {
   try {
     const pane = usePaneStore.getState().panes[paneId];
-    return isRealUrl(pane?.url) ? pane!.url : undefined;
+    if (isRealUrl(pane?.url)) {
+      initialUrlSeeds.delete(paneId); // real navigation supersedes the seed
+      return pane!.url;
+    }
   } catch {
-    return undefined;
+    /* fall through to the seed */
   }
+  return initialUrlSeeds.get(paneId);
 }
 
 /**
