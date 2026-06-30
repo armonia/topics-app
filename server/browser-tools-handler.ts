@@ -38,6 +38,9 @@ import {
   loadStateFromStores,
   safeHandle,
 } from "./browser-login-state";
+// SHARED action set — the SAME source the native validator (tauriBrowserOps) uses,
+// so the two paths can never disagree on what browser_act accepts.
+import { REF_ACTIONS, ACT_ACTIONS } from "../shared/browser-snapshot-core";
 
 const observeCache = new Map<string, IndexedElement[]>();
 /** Last ref-based snapshot per context — powers incremental diffs in observe/act. */
@@ -256,17 +259,9 @@ export async function handleBrowserObserve(
   });
 }
 
-/** Actions that target a specific element ref via a Playwright locator. */
-const REF_ACTIONS = new Set<BrowserActAction>([
-  "click",
-  "dblclick",
-  "hover",
-  "fill",
-  "type",
-  "select",
-  "check",
-  "uncheck",
-]);
+/** Actions that target a specific element ref via a Playwright locator — built
+ *  from the SHARED REF_ACTIONS list (single source with the native validator). */
+const REF_ACTION_SET = new Set<string>(REF_ACTIONS);
 
 export interface BrowserActResult {
   ok: true;
@@ -299,14 +294,10 @@ export async function handleBrowserAct(
         ? args.element_id
         : undefined;
   const action = args.action;
-  const validActions: BrowserActAction[] = [
-    "click", "dblclick", "hover", "fill", "type", "select",
-    "check", "uncheck", "press", "scroll", "get_text",
-  ];
-  if (!validActions.includes(action)) {
-    throw new Error(`browser_act: 'action' must be one of ${validActions.join(", ")}`);
+  if (!(ACT_ACTIONS as readonly string[]).includes(action)) {
+    throw new Error(`browser_act: 'action' must be one of ${ACT_ACTIONS.join(", ")}`);
   }
-  if (REF_ACTIONS.has(action) && ref == null) {
+  if (REF_ACTION_SET.has(action) && ref == null) {
     throw new Error(`browser_act: '${action}' requires 'ref' (number) from the latest browser_observe`);
   }
   if ((action === "fill" || action === "type") && typeof args.text !== "string") {

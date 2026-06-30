@@ -83,11 +83,17 @@ export async function actByRefOnPage(
     case "dblclick":
       await loc.dblclick({ timeout });
       break;
+    case "triple_click":
+      await loc.click({ clickCount: 3, timeout });
+      break;
     case "hover":
       await loc.hover({ timeout });
       break;
     case "fill":
       await loc.fill(payload.text ?? "", { timeout });
+      break;
+    case "clear":
+      await loc.clear({ timeout });
       break;
     case "type":
       await loc.pressSequentially(payload.text ?? "", { delay: 10, timeout });
