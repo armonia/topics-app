@@ -50,13 +50,36 @@ export interface SnapshotDiff {
 export type RefAction =
   | "click"
   | "dblclick"
+  | "triple_click"
   | "hover"
   | "fill"
+  | "clear"
   | "type"
   | "select"
   | "check"
   | "uncheck"
   | "press";
+
+/**
+ * SINGLE source of truth for browser_act's action set — imported by BOTH the
+ * native validator (client `tauriBrowserOps`) and the server validator
+ * (`browser-tools-handler`) so the two can never drift. `REF_ACTIONS` need a ref
+ * from the latest observe; `press`/`scroll`/`get_text` are ref-optional.
+ */
+export const REF_ACTIONS = [
+  "click",
+  "dblclick",
+  "triple_click",
+  "hover",
+  "fill",
+  "clear",
+  "type",
+  "select",
+  "check",
+  "uncheck",
+] as const satisfies readonly RefAction[];
+
+export const ACT_ACTIONS = [...REF_ACTIONS, "press", "scroll", "get_text"] as const;
 
 export type ExtractField =
   | string
@@ -294,6 +317,29 @@ export const ACT_FN = (p: {
   const keyEvent = (el: any, type: string, key: string): void => {
     el.dispatchEvent(new KeyboardEvent(type, { key, bubbles: true, cancelable: true }));
   };
+  // React (and other controlled-input libs) install a value tracker on the
+  // element; a plain `el.value = x` is reverted on the next render and the
+  // framework's onChange never fires (→ submit buttons stay disabled). Writing
+  // through the element's OWN prototype native setter bypasses the tracker so
+  // onChange actually fires. MUST pick textarea-vs-input prototype or it no-ops.
+  const nativeSet = (el: any, value: string): void => {
+    try {
+      const proto =
+        typeof HTMLTextAreaElement !== "undefined" && el instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : typeof HTMLInputElement !== "undefined" && el instanceof HTMLInputElement
+            ? HTMLInputElement.prototype
+            : null;
+      const desc = proto && Object.getOwnPropertyDescriptor(proto, "value");
+      if (desc && desc.set) {
+        desc.set.call(el, value);
+        return;
+      }
+    } catch {
+      /* fall through to the plain assignment */
+    }
+    el.value = value;
+  };
 
   // Ref-less actions.
   if (action === "scroll") {
@@ -336,20 +382,44 @@ export const ACT_FN = (p: {
       const v = p.text || "";
       el.focus();
       if (el.isContentEditable) el.textContent = v;
-      else el.value = v;
+      else nativeSet(el, v);
       fireEvent(el, "input");
       fireEvent(el, "change");
+      break;
+    }
+    case "clear": {
+      el.focus();
+      if (el.isContentEditable) el.textContent = "";
+      else nativeSet(el, "");
+      fireEvent(el, "input");
+      fireEvent(el, "change");
+      break;
+    }
+    case "triple_click": {
+      // Select-all-in-field (the trusted-events-free way to clear/replace a value
+      // without Meta+A): focus, native select(), and emit three click events with
+      // a rising detail so listeners that gate on detail===3 also fire.
+      el.focus();
+      try {
+        if (typeof el.select === "function") el.select();
+      } catch {
+        /* select is best-effort */
+      }
+      for (let i = 1; i <= 3; i++)
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: i }));
       break;
     }
     case "type": {
       const v = p.text || "";
       el.focus();
+      let acc = "";
       if (el.isContentEditable) el.textContent = "";
-      else el.value = "";
+      else nativeSet(el, "");
       for (const ch of v) {
         keyEvent(el, "keydown", ch);
-        if (el.isContentEditable) el.textContent += ch;
-        else el.value += ch;
+        acc += ch;
+        if (el.isContentEditable) el.textContent = acc;
+        else nativeSet(el, acc);
         fireEvent(el, "input");
         keyEvent(el, "keyup", ch);
       }
