@@ -485,6 +485,24 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const handlePendingBrowserPaneConsumed = useCallback(() => setPendingBrowserPane(null), []);
   const [pendingSoloPanelId, setPendingSoloPanelId] = useState<string | null>(null);
   const handlePendingSoloConsumed = useCallback(() => setPendingSoloPanelId(null), []);
+  // A browser pane is GENUINELY owned by a project window only when that
+  // project's tab is actually open at the app level (its project pane is in
+  // `openPanels`, i.e. the ProjectWindow is mounted and reacting to the
+  // open-near-pane broadcast). `projectOpenPanes` is an upsert-only map — it is
+  // NEVER pruned when a project tab closes (handleProjectOpenPanesChange only
+  // adds/replaces per path), so a `browser:term-<id>` left over from a CLOSED
+  // project lingers forever. Such a STALE entry would otherwise (a) make the
+  // force-open fallback below skip — nothing visible mounts despite the 200 —
+  // and (b) make the PURGE reconcile delete a legitimate standalone fallback
+  // that happens to share the id. Gate every ownership check through here so a
+  // closed project can't swallow a session-initiated open. Returns the owning
+  // project PATH when a live window renders it, else null.
+  const owningRenderedProject = useCallback((browserPaneId: string): string | null => {
+    const owner = Object.entries(projectOpenPanesRef.current)
+      .find(([, ids]) => ids.includes(browserPaneId))?.[0];
+    if (!owner) return null;
+    return openPanelsRef.current.includes(createPaneId('project', owner)) ? owner : null;
+  }, [projectOpenPanesRef, openPanelsRef]);
   const openBrowserPane = useCallback((contextId: string) => {
     const paneId = `browser:${contextId}`;
     // If this browser pane is already open somewhere (standalone group or
@@ -513,8 +531,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // cell and an EMPTY browser in the new split (the bug the force-open guard
     // and the PURGE_ORPHAN reconcile below already defend against on other
     // paths). Focus the owning project instead of duplicating.
-    const owningProject = Object.entries(projectOpenPanesRef.current)
-      .find(([, ids]) => ids.includes(paneId))?.[0];
+    const owningProject = owningRenderedProject(paneId);
     if (owningProject) {
       setFocusedPanelId(createPaneId('project', owningProject));
       if (isMobile) setSidebarCollapsed(true);
@@ -525,7 +542,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (isMobile) {
       setSidebarCollapsed(true);
     }
-  }, [isMobile, setSidebarCollapsed, openPanelsRef, projectOpenPanesRef]);
+  }, [isMobile, setSidebarCollapsed, openPanelsRef, owningRenderedProject]);
 
   // Server fallback for open_browser_pane: when the normal broadcast
   // (browser:navigate / browser:open-near-pane) mounted NO visible pane in any
@@ -549,14 +566,26 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // EMPTY browser in the standalone cell (or vice-versa). Skip when any
         // project window already lists this browser pane.
         const browserPaneId = `browser:${msg.contextId}`;
-        const ownedByProject = Object.values(projectOpenPanesRef.current).some(
-          ids => ids.includes(browserPaneId),
-        );
-        if (ownedByProject) return;
+        const owner = owningRenderedProject(browserPaneId);
+        if (owner) {
+          // A LIVE project window owns and renders this pane — its
+          // open-near-pane handler already mounted the browser beside the
+          // spawner and activated the browser's in-cell tab. The one thing it
+          // could NOT do is surface a project tab that's a background app-level
+          // tab (display:none). Bring that project tab to the front so the pane
+          // is actually visible (idempotent when the project is already active).
+          setFocusedPanelId(createPaneId('project', owner));
+          return;
+        }
+        // No live owner — either no project ever owned it, OR the only entry is
+        // STALE from a project tab that was since closed (owningRenderedProject
+        // returns null for those). Mount a visible standalone pane so a
+        // session-initiated open ALWAYS surfaces something, instead of being
+        // silently swallowed by a dead ownership record.
         openBrowserPane(msg.contextId);
       }
     });
-  }, [onWSMessage, openBrowserPane, projectOpenPanesRef]);
+  }, [onWSMessage, openBrowserPane, owningRenderedProject]);
 
   // Reconcile: a browser pane OWNED by a project window must never ALSO live at
   // the app level (group:default). The force-open fallback racing a project's
@@ -570,8 +599,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // won't ping-pong; idempotent because we only dispatch when the id is actually
   // present at app level.
   useEffect(() => {
+    // Only a project whose window is actually mounted (its tab is open at app
+    // level) owns its browser panes. A STALE entry from a closed project must
+    // NOT purge a legitimately-mounted app-level browser pane that shares the id
+    // (e.g. the force-open standalone fallback above) — that would re-introduce
+    // the "nothing visible" bug from the other direction.
     const ownedByProject = new Set<string>();
-    for (const ids of Object.values(projectOpenPanes)) {
+    for (const [path, ids] of Object.entries(projectOpenPanes)) {
+      if (!openPanelsRef.current.includes(createPaneId('project', path))) continue;
       for (const id of ids) if (id.startsWith('browser:')) ownedByProject.add(id);
     }
     if (ownedByProject.size === 0) return;
@@ -580,7 +615,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       const atAppLevel = Object.values(state.groups).some(g => g.paneIds.includes(id));
       if (atAppLevel) state.dispatch({ type: 'PURGE_ORPHAN_PANE', payload: { id } });
     }
-  }, [projectOpenPanes]);
+  }, [projectOpenPanes, openPanelsRef]);
 
   // A browser opened by a session (chat/terminal via the WS/DOM handlers in
   // usePaneOrdering) should split out into its own cell BESIDE the chat, just

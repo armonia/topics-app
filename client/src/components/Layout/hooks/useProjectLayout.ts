@@ -485,37 +485,19 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         if (url && url !== 'about:blank') updatePaneRef.current?.(paneId, { url });
       };
 
-      const existing = panesRef.current.find(p => p.type === 'browser');
+      // Per-session isolation: each contextId gets its OWN browser pane. Match
+      // THIS contextId's pane (NOT "any browser in the project") so a second
+      // session opening a browser in the same project gets its OWN pane instead of
+      // STEALING the first's. The old code did find(type==='browser') + REBIND
+      // (rename the existing pane to the incoming contextId), which collapsed EVERY
+      // session in a project onto one shared browser — the "unica per tutti" bug.
+      // Different contextIds are different native views (own WKWebView/WebContents-
+      // View + own server Playwright context), so per-session panes coexist cleanly
+      // in their own DOM slots; the new-pane path below creates one when absent.
+      const existing = contextId
+        ? panesRef.current.find(p => p.id === createPaneId('browser', contextId))
+        : panesRef.current.find(p => p.type === 'browser');
       if (existing) {
-        const existingCtx = getBrowserContextFromPaneId(existing.id);
-        // REBIND the project's shared browser pane to the incoming contextId when
-        // they differ. The project shares ONE browser pane across its tabs, but a
-        // caller (a terminal agent, a chat) drives it through its OWN contextId —
-        // the agent's browser_* tools resolve the native CDP target by that id. If
-        // we reused the pane as-is (registered under whoever opened it first), the
-        // new caller's contextId had no target → "No visible browser pane is open"
-        // even though a pane is right there. Renaming the pane id to
-        // browser:<contextId> remounts useNativeBrowser under the new id, which
-        // re-registers the CDP target so the caller drives THIS visible pane.
-        if (contextId && existingCtx && existingCtx !== contextId) {
-          const newId = createPaneId('browser', contextId);
-          if (!panesRef.current.some(p => p.id === newId)) {
-            // preview:false on rebind heals any legacy pane created before
-            // browser panes were made durable — so the persist effect keeps it.
-            setPanes(prev => prev.map(p => (p.id === existing.id ? { ...p, id: newId, preview: false } : p)));
-            setGroups(prev => prev.map(g => ({
-              ...g,
-              paneIds: g.paneIds.map(id => (id === existing.id ? newId : id)),
-              activePaneId: g.activePaneId === existing.id ? newId : g.activePaneId,
-            })));
-            const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
-            if (grp) setFocusedGroupId(grp.id);
-            if (spawnerKey) setBrowserSpawner(contextId, spawnerKey);
-            seedPaneUrl(newId);
-            onBrowserNavigateUrl?.(url);
-            return;
-          }
-        }
         const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
         if (grp) {
           setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
