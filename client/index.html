@@ -22,62 +22,11 @@
     <meta name="apple-mobile-web-app-title" content="Topics" />
     <link rel="manifest" href="/manifest.json" />
     <title>Topics</title>
-    <script>
-      // Apply theme + sidebar state BEFORE first paint to prevent FOUC/flicker
-      (function() {
-        var theme = 'system';
-        try {
-          var raw = localStorage.getItem('theme');
-          if (raw) { try { theme = JSON.parse(raw); } catch(e2) { theme = raw; } }
-        } catch(e) {}
-        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (dark) document.documentElement.classList.add('dark');
-
-        // Keep the iOS/Android status-bar tint in lock-step with the resolved
-        // theme so the safe-area zone reads as one continuous surface (no light
-        // status bar over a dark app, or vice-versa). These hexes MUST match the
-        // `--bg` tokens in index.css (light #f8f9fa / dark hsl(222 16% 8.5%) = #121419).
-        try {
-          var tc = document.querySelector('meta[name="theme-color"]');
-          if (tc) tc.setAttribute('content', dark ? '#121419' : '#f8f9fa');
-        } catch(e) {}
-
-        // Desktop on macOS: tag <html> so the app can let native window vibrancy
-        // show through the chrome. Set before first paint so the opaque base never
-        // masks the blur. Covers BOTH shells via per-region NSVisualEffectViews:
-        // Electron (native/vibrancy addon, main.ts) and Tauri (the vibrancy_set_
-        // regions command, driven by useFloatingVibrancy). The CSS class is named
-        // `.electron-mac` for historical reasons but is shell-neutral (it makes the
-        // base transparent so the frost shows). `.tauri-mac` is the Tauri-mac gate
-        // useFloatingVibrancy keys on to drive the Tauri vibrancy command; it has
-        // no CSS rules of its own today.
-        try {
-          // macOS, robustly: navigator.platform is deprecated and can be empty in
-          // a WKWebView — OR it with the userAgent (always contains "Mac OS X").
-          var __isMac = /Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || '');
-          // Tauri pre-paint, robustly: __TAURI_INTERNALS__ is injected at document-
-          // start but NOT guaranteed before this synchronous <head> script, so we
-          // ALSO key on the custom origin (tauri://localhost — the WKWebview's
-          // protocol/host), which IS available synchronously. Either signal is
-          // enough; this is the gate the whole vibrancy path hangs on.
-          var __isTauri = !!(window.__TAURI_INTERNALS__ || window.__TAURI__)
-            || location.protocol === 'tauri:'
-            || /(^|\.)tauri\.localhost$/i.test(location.hostname || '');
-          var __isElectronMac = !!(window.electronAPI && window.electronAPI.platform === 'darwin');
-          var __isTauriMac = __isTauri && __isMac;
-          if (__isElectronMac || __isTauriMac) {
-            document.documentElement.classList.add('electron-mac');
-            if (__isTauriMac) document.documentElement.classList.add('tauri-mac');
-          }
-        } catch(e) {}
-
-        // Pre-apply sidebar collapsed state
-        try {
-          var settings = JSON.parse(localStorage.getItem('app-settings') || '{}');
-          if (settings.sidebarCollapsed) document.documentElement.classList.add('sidebar-pre-collapsed');
-        } catch(e) {}
-      })();
-    </script>
+    <!-- Pre-paint boot (theme/FOUC, SW register, CSP telemetry). Externalized to
+         /boot.js so a strict `script-src 'self'` CSP doesn't refuse it (inline
+         <script> would be blocked under that policy). Blocking + in <head> so it
+         still runs before first paint. See client/public/boot.js. -->
+    <script src="/boot.js"></script>
     <style>
       /* Critical CSS — must match React theme colors exactly */
       html, body, #root { background-color: #f8f9fa; color: #1a1a1a; }
@@ -91,25 +40,5 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      // Register Service Worker for PWA (only on localhost or cloudflare tunnels)
-      if ('serviceWorker' in navigator) {
-        const host = window.location.hostname;
-        const shouldRegisterSW = host === 'localhost' || host.endsWith('.trycloudflare.com');
-        
-        window.addEventListener('load', () => {
-          if (shouldRegisterSW) {
-            navigator.serviceWorker.register('/sw.js')
-              .then(reg => console.log('SW registered:', reg.scope))
-              .catch(err => console.warn('SW registration failed:', err));
-          } else {
-            // Unregister any existing SW for LAN access
-            navigator.serviceWorker.getRegistrations().then(regs => {
-              regs.forEach(reg => reg.unregister());
-            });
-          }
-        });
-      }
-    </script>
   </body>
 </html>
