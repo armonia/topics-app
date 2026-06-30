@@ -56,6 +56,7 @@ import {
   projectLayoutLocalKey,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
+import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
 import {
   buildTerminalSessionBody,
   normalizeTerminalAgent,
@@ -581,7 +582,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // STALE from a project tab that was since closed (owningRenderedProject
         // returns null for those). Mount a visible standalone pane so a
         // session-initiated open ALWAYS surfaces something, instead of being
-        // silently swallowed by a dead ownership record.
+        // silently swallowed by a dead ownership record. Seed the URL BEFORE the
+        // pane mounts (the native hook ref-captures initialUrl once at mount) so
+        // it NAVIGATES — on Tauri the server can't drive it over CDP, so the
+        // client is the only thing that loads the page (else: blank pane).
+        seedBrowserPaneInitialUrl(browserPaneId, msg.url);
         openBrowserPane(msg.contextId);
       }
     });
