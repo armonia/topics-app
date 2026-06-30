@@ -48,7 +48,7 @@ function normalizeUrl(input: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(s)}`;
 }
 
-export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true): NativeBrowserHandle {
+export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true, onFocused?: () => void): NativeBrowserHandle {
   const id = contextId;
   const [ready, setReady] = useState(false);
   const [url, setUrl] = useState(initialUrl ?? '');
@@ -64,6 +64,14 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const zoomRef = useRef(100); // page zoom percent (CSS-driven via exec_js)
   const consoleIdRef = useRef(0);
   const selectPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Direction-B focus bridge: a click inside a native WKWebView pane never
+  // reaches the React DOM, so the pane can't activate its own tab. The poll
+  // reads an injected pointerdown counter; `-1` baselines the first read so
+  // mounting doesn't self-activate. onFocused is kept in a ref so the poll
+  // effect doesn't re-subscribe when the parent passes a fresh closure.
+  const lastFocusBumpRef = useRef(-1);
+  const onFocusedRef = useRef(onFocused);
+  onFocusedRef.current = onFocused;
   // Device emulation: when set, the pane is letterboxed to these dims inside its
   // layout slot (centered) + a device UA is applied. null = desktop (full slot).
   const deviceDimsRef = useRef<{ width: number; height: number } | null>(null);
@@ -260,22 +268,33 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     if (!ready || !isVisible) return;
     let stop = false;
     const READ =
-      "JSON.stringify({u:location.href,t:document.title,r:document.readyState," +
+      "(function(){if(!window.__tFocusHook){window.__tFocusHook=1;window.__topicsFocusBump=0;" +
+      "addEventListener('pointerdown',function(){window.__topicsFocusBump++},true);}" +
+      "return JSON.stringify({u:location.href,t:document.title,r:document.readyState," +
       "f:(document.querySelector(\"link[rel~='icon']\")||{}).href||location.origin+'/favicon.ico'," +
-      "c:(window.__topicsConsole?window.__topicsConsole.splice(0,window.__topicsConsole.length):[])})";
+      "k:window.__topicsFocusBump||0," +
+      "c:(window.__topicsConsole?window.__topicsConsole.splice(0,window.__topicsConsole.length):[])})})()";
     const tick = async () => {
       if (stop) return;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: READ });
         if (stop || !raw) return;
         const s = JSON.parse(raw) as {
-          u: string; t: string; r: string; f: string;
+          u: string; t: string; r: string; f: string; k?: number;
           c?: { level: BrowserConsoleEntry['level']; text: string }[];
         };
         if (s.u && s.u !== 'about:blank') setUrl(s.u);
         setTitle(s.t || '');
         if (s.f) setFaviconUrl(s.f);
         setLoading(s.r !== 'complete');
+        // A growing pointerdown counter means the user clicked inside this native
+        // pane — activate its tab (the click never reached React otherwise). First
+        // read just baselines; pointerdown-only avoids load-time autofocus firing.
+        const bump = typeof s.k === 'number' ? s.k : 0;
+        if (lastFocusBumpRef.current >= 0 && bump > lastFocusBumpRef.current) {
+          onFocusedRef.current?.();
+        }
+        lastFocusBumpRef.current = bump;
         // Drain any console entries buffered by the injected proxy (CONSOLE_PROXY_JS).
         if (s.c && s.c.length) {
           setConsoleEntries((prev) => {
