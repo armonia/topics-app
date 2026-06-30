@@ -227,6 +227,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('browser-native:page-close-request', listener);
       return () => ipcRenderer.removeListener('browser-native:page-close-request', listener);
     },
+    // A click landed inside a native browser view — the renderer activates that
+    // pane's tab (the click never reaches the React DOM otherwise).
+    onFocus: (callback: (contextId: string) => void) => {
+      const listener = (_e: unknown, payload: { contextId?: string }) => {
+        if (payload && typeof payload.contextId === 'string') callback(payload.contextId);
+      };
+      ipcRenderer.on('browser-native:focus', listener);
+      return () => ipcRenderer.removeListener('browser-native:focus', listener);
+    },
   },
 
   // Phase 30.1 polish — Overlay menu (transparent BrowserWindow above WebContentsView).

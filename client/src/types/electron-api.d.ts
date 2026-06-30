@@ -64,6 +64,9 @@ export interface BrowserNativeAPI {
   /** A page (or the agent) called window.close() — fires with the browser pane's
    *  contextId so the renderer can close the owning pane. Returns an unsubscribe. */
   onPageCloseRequest(callback: (contextId: string) => void): () => void;
+  /** The user clicked INSIDE a native browser view — fires with its contextId so
+   *  the renderer can activate the owning pane's tab. Returns an unsubscribe. */
+  onFocus(callback: (contextId: string) => void): () => void;
 }
 
 // Phase 30.1 polish — Overlay menu API (transparent BrowserWindow above WebContentsView).

@@ -93,7 +93,7 @@ export interface NativeBrowserHandle {
   goToNavIndex(index: number): Promise<void>;
 }
 
-export function useNativeBrowser(contextId: string, initialUrl?: string): NativeBrowserHandle {
+export function useNativeBrowser(contextId: string, initialUrl?: string, onFocused?: () => void): NativeBrowserHandle {
   const [viewId, setViewId] = useState<string | null>(null);
   const [url, setUrl] = useState<string>(initialUrl ?? 'about:blank');
   const [title, setTitle] = useState<string>('');
@@ -241,6 +241,21 @@ export function useNativeBrowser(contextId: string, initialUrl?: string): Native
     // recreateNonce IS a dep: bumping it (keepalive saw the view reaped) re-runs
     // this effect to spin up a fresh WebContentsView for the same contextId.
   }, [contextId, recreateNonce]);
+
+  // Direction-B focus: the main process emits 'browser-native:focus' with the
+  // view's contextId when the user clicks INSIDE the native WebContentsView (the
+  // click never reaches the React DOM). Activate this pane's tab when OUR
+  // contextId fires. onFocused is read through a ref so re-subscribing isn't
+  // needed when the parent passes a fresh closure.
+  const onFocusedRef = useRef(onFocused);
+  onFocusedRef.current = onFocused;
+  useEffect(() => {
+    const api = window.electronAPI?.browserNative;
+    if (!api?.onFocus) return;
+    return api.onFocus((cid) => {
+      if (cid === contextId) onFocusedRef.current?.();
+    });
+  }, [contextId]);
 
   // Keepalive heartbeat — while this pane is mounted, ping the main process so
   // it keeps the WebContentsView alive (the reaper only collects a view whose
