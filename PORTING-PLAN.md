@@ -64,7 +64,7 @@ Accoppiamento client→shell: **un solo bridge** (`window.electronAPI`, 17 file,
 | File explorer / git | ✅ | ✅ | ✅ | bassa (API già REST) |
 | Split / layout | ✅ | ✅ | ⚠️ stack singolo | media (mobile) |
 | **Terminale (pty)** | ❌→fallback | ✅ | ❌→fallback | **alta** (vedi T1) |
-| **Browser pane** | ❌→fallback | ⚠️ degradato — WKWebView+JS, agent **5/13 op** (vedi D1) | ❌→fallback | **altissima** (il blocco) |
+| **Browser pane** | ❌→fallback | ✅ WKWebView+JS, agent **10/13 op** (vedi D1) | ❌→fallback | **altissima** (il blocco) |
 | Vibrancy macOS | n/a | ✅ | n/a | media (cosmetica) |
 | Tray / shortcut / power | n/a | ✅ | n/a | bassa |
 | Push notifications | ✅ (web-push) | ✅ | ✅ | nessuna (già c'è) |
@@ -233,9 +233,14 @@ Refactor **additivo e reversibile**: si fa solo dopo il gate T1.0 verde.
   Il pane Tauri spedito è una **child view WKWebView nativa** (`lib.rs` `browser_open`/`browser_navigate`/
   `browser_eval_js`/`browser_screenshot` via `takeSnapshot`), pilotata per **iniezione JS**, non CEF/CDP.
   CEF è stato **abbandonato** (nessuna dep `cef` in `Cargo.toml`). Differenze vs il piano CEF qui sotto:
-  - **Parità agent ridotta: 5/13 op** (`NATIVE_SUPPORTED_OPS` in `client/src/lib/shell/tauriBrowserOps.ts` =
-    open / eval / get_text / console / screenshot). Mancano **observe/act** (il loop DOM ref-based su cui è
-    costruita l'intera tool-spec) + **point** (vision) → fallback al path streaming/Playwright del server.
+  - **Parità agent 10/13 op** (aggiornato 2026-06-29): `NATIVE_SUPPORTED_OPS` in
+    `client/src/lib/shell/tauriBrowserOps.ts` = **8 op native** (open / **observe** / **act** / **extract** /
+    eval / get_text / console / screenshot — il loop DOM ref-based su cui è costruita l'intera tool-spec ora
+    gira sul pane nativo, via injection delle STESSE `SNAPSHOT_FN`/`ACT_FN`/`EXTRACT_FN` del server) +
+    **read_screen/point** via Moondream server-side sullo screenshot nativo (vedi
+    [[project_tauri-browser-agent-parity]]). Restano **3 op deferred** — `save_state`/`load_state`/
+    `import_chrome` (cookie httpOnly: serve objc write/delegate, non testabile a runtime) → fallback al path
+    streaming/Playwright del server.
   - **Persi vs WebContentsView+CDP**: console-history early, input *trusted* (`isTrusted`), cookie httpOnly,
     nav-entries reali (back/forward menu è uno stub), eventi load nativi (url/title oggi via poll `eval` 800ms).
   - **Guadagnato**: leggerezza (niente bundle Chromium +170MB), nessun bundling `.app`/helper, vibrancy/glass
