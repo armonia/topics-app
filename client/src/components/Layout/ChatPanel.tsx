@@ -147,7 +147,7 @@ export function ChatPanel({
 
   return (
     <>
-      <div role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-all duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+      <div role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
             with tabs: floating overlay with blur for scroll-through effect. */}
         {!bodyOnly && <div className={`flex items-center ${headerLeft

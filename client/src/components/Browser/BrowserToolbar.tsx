@@ -215,7 +215,7 @@ export function BrowserToolbar({
   }, [url]);
 
   return (
-    <div ref={toolbarRef} className="relative flex items-center gap-1 px-2 py-1.5 bg-transparent border-b border-app-border">
+    <div ref={toolbarRef} className="relative flex items-center gap-1 px-2 py-1.5 chrome-glass border-b border-app-border">
       {/* Phase 30.1 polish — Chrome-style indeterminate progress bar at the
           bottom of the toolbar while loading. Inline keyframes + minimal
           DOM (single absolutely-positioned bar, ~3 LOC). */}

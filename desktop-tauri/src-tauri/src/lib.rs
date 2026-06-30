@@ -442,7 +442,14 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
                 // steals pointer events from panes above/around it.
                 let v: id = msg_send![region_vibrancy_class(), alloc];
                 let v: id = msg_send![v, initWithFrame: frame];
-                // material: sidebar=7, blendingMode: behindWindow=0, state: active=1
+                // macOS native frosted-glass = NSVisualEffectView: material sidebar=7
+                // (same as Electron), blendingMode behindWindow=0, state active=1.
+                // NOTE: do NOT set a negative layer.zPosition on Tauri — verified to
+                // render the material CLEAR here (the WindowServer drops the behind-
+                // window blur pass for a sub-zero layer in this single-WKWebView model;
+                // Electron can set it because its content is a separate Chromium view).
+                // `addSubview:positioned:NSWindowBelow` already orders it behind the
+                // transparent webview, which is all the blur needs.
                 let _: () = msg_send![v, setMaterial: 7i64];
                 let _: () = msg_send![v, setBlendingMode: 0i64];
                 let _: () = msg_send![v, setState: 1i64];
@@ -451,13 +458,6 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
                 if layer != nil {
                     let _: () = msg_send![layer, setCornerRadius: r.radius];
                     let _: () = msg_send![layer, setMasksToBounds: YES];
-                    // NOTE: do NOT set a negative layer.zPosition. The behind-window
-                    // blur is registered by the WindowServer from the view's NORMAL
-                    // position in the hierarchy; a negative zPosition excludes it
-                    // from that compositing pass → the material renders as nothing
-                    // (clear), which is exactly the "transparent, not blurred" bug.
-                    // `addSubview:positioned:NSWindowBelow` already orders it behind
-                    // the webview, which is all we need.
                 }
                 // Insert at the very bottom so it sits BEHIND the (transparent) webview.
                 let _: () = msg_send![content_view, addSubview: v positioned: -1i64 relativeTo: nil];
@@ -630,6 +630,8 @@ unsafe fn vibrancy_insert_cover(content_view: cocoa::base::id, bounds: cocoa::fo
     let _: () = msg_send![content_view, setAutoresizesSubviews: YES];
     let v: id = msg_send![region_vibrancy_class(), alloc];
     let v: id = msg_send![v, initWithFrame: bounds];
+    // Match the per-region cards: material sidebar=7, behindWindow, active (no
+    // zPosition — see apply_vibrancy_regions; it renders clear on Tauri).
     let _: () = msg_send![v, setMaterial: 7i64];
     let _: () = msg_send![v, setBlendingMode: 0i64];
     let _: () = msg_send![v, setState: 1i64];
