@@ -358,6 +358,10 @@ export function ProjectWindowPane({
               onUrlChange={(u) => { if (isRealUrl(u) && u !== pane.url) updatePane(pane.id, { url: u }); }}
               onFocusPanel={onFocusPanel}
               topics={topics}
+              // A click inside the native pane never reaches React, so activate
+              // this pane's tab via the same fresh-`groups` handler the global
+              // inner-tab focus uses (avoids a stale-closure group lookup here).
+              onSelfFocus={() => window.dispatchEvent(new CustomEvent('global-tab:focus-inner', { detail: { projectPath, paneId: pane.id } }))}
             />
           </LazyPane>
         );

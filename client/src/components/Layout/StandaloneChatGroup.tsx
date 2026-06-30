@@ -613,6 +613,9 @@ export function StandaloneChatGroup({
             // button when this browser was opened from a known chat.
             onFocusPanel={onFocusPanel}
             topics={topics}
+            // A click inside the native pane never reaches React; activate this
+            // pane's tab the same way the tab bar's onActivate does (line ~512).
+            onSelfFocus={() => onFocusPanel(paneId)}
           />
         </LazyPane>
       );
