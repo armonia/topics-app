@@ -77,6 +77,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
         isVisible={isVisible}
         onFocusPanel={onFocusPanel}
         topics={topics}
+        onSelfFocus={onSelfFocus}
       />
     );
   }
@@ -590,8 +591,8 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
  * NativeBrowserPlaceholder. Cmd+Shift+E select-element overlay is NOT
  * mounted in this mode (deferred — see SUMMARY for rationale).
  */
-function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics }: RemoteBrowserPanelProps) {
-  const browser = useNativeBrowser(contextId, initialUrl);
+function NativeBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
+  const browser = useNativeBrowser(contextId, initialUrl, onSelfFocus);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);

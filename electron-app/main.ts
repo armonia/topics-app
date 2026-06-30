@@ -516,6 +516,16 @@ function createNativeBrowser(
   mainWindow.contentView.addChildView(view);
   view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
 
+  // Direction-B focus: a click inside this native WebContentsView never reaches
+  // the renderer DOM (it's a sibling view composited over the React layout), so
+  // clicking into a browser pane couldn't activate its own tab. Forward the
+  // webContents focus to the renderer, which maps contextId → pane and selects it.
+  view.webContents.on('focus', () => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('browser-native:focus', { contextId: topicId });
+    }
+  });
+
   const entry: NativeBrowserEntry = {
     view,
     topicId,
