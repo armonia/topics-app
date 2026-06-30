@@ -46,6 +46,10 @@ interface RemoteBrowserPanelProps {
   /** Topics map used to look up the spawner's display name for the back
    *  button tooltip. Indexed by topic id. */
   topics?: Record<string, Topic>;
+  /** Tauri only — called when the user clicks INSIDE the native WKWebView pane.
+   *  A native-pane click never reaches React, so without this the pane can't
+   *  activate its own tab. The render site wires it to activate this pane. */
+  onSelfFocus?: () => void;
 }
 
 // Phase 30 BROWSER-CHAT-04 — local-network URLs (localhost, 127.0.0.1, *.local)
@@ -54,7 +58,7 @@ interface RemoteBrowserPanelProps {
 // error in this mode (acknowledged constraint).
 const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 
-export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics }: RemoteBrowserPanelProps) {
+export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
   // Phase 30.1 BROWSER-CHAT-06 — Electron native render path.
   // Detect via window.electronAPI?.browserNative?.isAvailable. In Electron,
   // skip mounting useRemoteBrowser entirely (no WS streaming, no CDP screencast,
@@ -93,6 +97,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
         isVisible={isVisible}
         onFocusPanel={onFocusPanel}
         topics={topics}
+        onSelfFocus={onSelfFocus}
       />
     );
   }
@@ -157,8 +162,8 @@ function useBackToSpawner(
  * aren't wired yet and BrowserToolbar self-hides a control whose handler is
  * absent, so there are no dead buttons.
  */
-function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics }: RemoteBrowserPanelProps) {
-  const browser = useTauriBrowser(contextId, initialUrl, isVisible);
+function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
+  const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
