@@ -27,6 +27,8 @@ import {
   EXTRACT_FN,
   serialize,
   diff,
+  REF_ACTIONS,
+  ACT_ACTIONS,
   type Snapshot,
 } from '../../../../shared/browser-snapshot-core';
 
@@ -60,9 +62,9 @@ async function takeSnapshot(id: string, invoke: Invoke, max: number): Promise<Sn
   return JSON.parse(raw) as Snapshot;
 }
 
-/** Ref-targeting act actions (require a ref from the latest observe). */
-const REF_ACTIONS = new Set(['click', 'dblclick', 'hover', 'fill', 'type', 'select', 'check', 'uncheck']);
-const VALID_ACTIONS = ['click', 'dblclick', 'hover', 'fill', 'type', 'select', 'check', 'uncheck', 'press', 'scroll', 'get_text'];
+/** Ref-targeting act actions (require a ref) — the SHARED set, so this native
+ *  validator can never drift from the server one. */
+const REF_ACTION_SET = new Set<string>(REF_ACTIONS);
 
 export async function executeNativeBrowserOp(
   id: string,
@@ -106,10 +108,10 @@ export async function executeNativeBrowserOp(
               ? (a.element_id as number)
               : undefined;
         const action = typeof a.action === 'string' ? a.action : '';
-        if (!VALID_ACTIONS.includes(action)) {
-          return { error: `browser_act: 'action' must be one of ${VALID_ACTIONS.join(', ')}` };
+        if (!(ACT_ACTIONS as readonly string[]).includes(action)) {
+          return { error: `browser_act: 'action' must be one of ${ACT_ACTIONS.join(', ')}` };
         }
-        if (REF_ACTIONS.has(action) && ref == null) {
+        if (REF_ACTION_SET.has(action) && ref == null) {
           return { error: `browser_act: '${action}' requires 'ref' (number) from the latest browser_observe` };
         }
         if ((action === 'fill' || action === 'type') && typeof a.text !== 'string') {

@@ -73,7 +73,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
     name: "browser_act",
     description:
-      "Act on the element with the given [ref] from the latest browser_observe. action: click | dblclick | hover | fill (clear+set text) | type (key-by-key) | select (option by value/label) | check | uncheck | press (a key, ref optional) | scroll (page, dy px) | get_text (read element/page). Returns an incremental snapshot diff so you see what changed. Refs reassign on every observe — observe, then act.",
+      "Act on the element with the given [ref] from the latest browser_observe. action: click | dblclick | triple_click (select all text in a field) | hover | fill (clear+set text, works on React-controlled inputs) | clear (empty a field) | type (key-by-key) | select (option by value/label) | check | uncheck | press (a key, ref optional) | scroll (page, dy px) | get_text (read element/page). Returns an incremental snapshot diff so you see what changed. Refs reassign on every observe — observe, then act.",
     schema: {
       type: "object",
       properties: {
