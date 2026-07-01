@@ -1032,6 +1032,14 @@ fn disable_layer_implicit_animations(wv: &tauri::Webview) {
     });
 }
 
+// NOTE — item 3 (mixed-content localhost) deferred: the WKPreferences KVC key
+// `allowRunningOfInsecureContent` is NOT key-value-coding-compliant on current
+// WebKit — `setValue:forKey:` throws NSUnknownKeyException and crashes the app the
+// instant a browser pane opens. Enabling http-subresource loading from an https
+// page needs a genuinely-supported private API (a `_set…` selector guarded by
+// `respondsToSelector:`, or a WKNavigationDelegate policy), verified against the
+// shipping WebKit — not the KVC guess. Left unimplemented rather than crash-prone.
+
 /// Round the browser pane's WKWebView layer at the corners that are FLUSH with the
 /// window's own rounded corners — otherwise the opaque native child webview paints a
 /// square corner over the window's ~10pt radius (the "border radius non corretto"
@@ -1361,7 +1369,7 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String) -> Result<String, String> {
     wv.with_webview(move |platform| {
         use cocoa::base::{id, nil};
         use cocoa::foundation::NSString;
-        use objc::{msg_send, sel, sel_impl};
+        use objc::{class, msg_send, sel, sel_impl};
         use std::ffi::CStr;
         use std::os::raw::c_char;
         unsafe fn id_to_string(obj: cocoa::base::id) -> String {
@@ -1380,14 +1388,34 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String) -> Result<String, String> {
         }
         unsafe {
             let wk = platform.inner() as id; // WKWebView
-            let nsjs: id = NSString::alloc(nil).init_str(&js);
+            // callAsyncJavaScript: (macOS 11+) treats the string as an async function
+            // BODY and AWAITS a returned Promise — the fix for async IIFEs / top-level
+            // await that the old evaluateJavaScript: returned as an "unsupported type"
+            // Promise. We wrap the caller's expression as `return await (...)`: `await`
+            // on a plain value is a no-op, so every existing synchronous caller (all the
+            // JSON.stringify(...) shared fns) round-trips the identical string, while an
+            // async expression now resolves before marshalling. pageWorld matches the
+            // old default so CONSOLE_PROXY_JS's window.__topicsConsole stays readable
+            // (defaultClientWorld would hide it). NOTE: a multi-STATEMENT free-form
+            // browser_eval (e.g. `let x=1; x`) must carry its own `return`; agents send
+            // a single expression or an async IIFE, both of which wrap cleanly.
+            let body = format!("return await ({});", js);
+            let nsjs: id = NSString::alloc(nil).init_str(&body);
+            // Empty arguments dict (nil asserts on some SDKs); page-world content world.
+            let args: id = msg_send![class!(NSDictionary), dictionary];
+            let world: id = msg_send![class!(WKContentWorld), pageWorld];
             let tx2 = tx.clone();
             let handler = block::ConcreteBlock::new(move |result: id, error: id| {
                 let out = if error != nil { Err(id_to_string(error)) } else { Ok(id_to_string(result)) };
                 let _ = tx2.send(out);
             });
             let handler = handler.copy();
-            let _: () = msg_send![wk, evaluateJavaScript: nsjs completionHandler: &*handler];
+            let _: () = msg_send![wk,
+                callAsyncJavaScript: nsjs
+                arguments: args
+                inFrame: nil
+                inContentWorld: world
+                completionHandler: &*handler];
         }
     })
     .map_err(|e| e.to_string())?;
