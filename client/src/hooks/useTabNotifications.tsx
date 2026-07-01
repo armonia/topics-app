@@ -227,10 +227,22 @@ export function TabNotificationProvider({
     for (const n of extraCounts.values()) extra += n;
     return rollupGlobalAttention(topics, unreadData, claudeAttentionTopics, terminalFinishedIds) + extra;
   }, [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, extraCounts]);
+  // The top attention chats, as clickable tray-menu rows (id + title). Sorted by
+  // attention weight, capped so the tray menu stays short. Only chat topics: they
+  // navigate cleanly via handleTopicClick; terminal/agent attention still counts
+  // toward the badge but isn't a menu row.
+  const attentionItems = useMemo(() => {
+    return Object.values(topics)
+      .map((t) => ({ id: t.id, title: t.name || t.id, n: topicAttentionCount(t.id, unreadData, claudeAttentionTopics) }))
+      .filter((x) => x.n > 0)
+      .sort((a, b) => b.n - a.n)
+      .slice(0, 8)
+      .map(({ id, title }) => ({ id, title }));
+  }, [topics, unreadData, claudeAttentionTopics]);
   useEffect(() => {
     if (!isTauri) return;
-    void tauriInvoke('set_app_status', { count: totalAttention }).catch(() => {});
-  }, [totalAttention]);
+    void tauriInvoke('set_app_status', { count: totalAttention, items: attentionItems }).catch(() => {});
+  }, [totalAttention, attentionItems]);
 
   const value = useMemo((): TabNotificationContextValue => ({
     getBadgeCount,
