@@ -44,14 +44,14 @@ up in the shell.
 cd desktop-tauri/src-tauri && cargo run
 ```
 
-### Electron changes (legacy, frozen)
+### Electron changes (archived)
 
-The Electron shell is in **maintenance mode** — bug fixes only, no new features. It is
-slated for decommission after the first verified `tauri-v2*` CI release (see
-`PORTING-PLAN.md`, "Decommission electron-app").
+The Electron shell was **archived in v2.0.0** and removed from `main`. Its source is
+preserved on the `electron-archive` branch and can be restored from there if needed (see
+`PORTING-PLAN.md`, §9 "Decommission `electron-app`").
 
 ```bash
-cd electron-app && npm install && npm start
+git switch electron-archive   # then work in electron-app/ on that branch
 ```
 
 ### CLI
@@ -90,10 +90,11 @@ server validates session registration before applying any hook.
 
 ## Releasing
 
-Topics has **two release channels**. As of v2, **Tauri is the primary desktop shell**
-and `tauri-v*` is the release channel; the Electron channel (`v*`) is **legacy/frozen**
-(maintenance releases only) and will be decommissioned after the first verified
-`tauri-v2*` CI release (see `PORTING-PLAN.md`, "Decommission electron-app").
+As of v2, **Tauri is the primary desktop shell** and `tauri-v*` is the only release
+channel. The Electron channel (`v*`) was **archived in v2.0.0**: its build automation
+(`release.yml`, `auto-tag.yml`) is gone and no new Electron installers are cut. The old
+`v*` installers remain on the Releases page, and the shell source is recoverable on the
+`electron-archive` branch (see `PORTING-PLAN.md`, §9 "Decommission `electron-app`").
 
 ### Tauri (primary — the v2 channel)
 
@@ -110,60 +111,18 @@ git tag tauri-v2.0.0 && git push origin tauri-v2.0.0
 ```
 
 Signing: the updater manifest is minisign-signed via `TAURI_SIGNING_PRIVATE_KEY`
-(+ `_PASSWORD`); macOS code-signing/notarization reuses the Electron Apple secrets
-(plus `APPLE_SIGNING_IDENTITY`). Without them the build still runs, but is unsigned
-and won't auto-update.
+(+ `_PASSWORD`); macOS code-signing/notarization uses the Apple signing secrets
+(`MAC_CSC_LINK`/`_PASSWORD` plus `APPLE_SIGNING_IDENTITY`). Without them the build
+still runs, but is unsigned and won't auto-update.
 
-### Electron (legacy — maintenance only)
+### Electron (archived)
 
-Maintainers cut a release by tagging a version. CI (`.github/workflows/release.yml`)
-then builds and publishes installers for macOS, Windows, and Linux to the GitHub
-Release, along with the `latest*.yml` manifests that power in-app auto-update.
-
-```bash
-# 1. Bump the version in electron-app/package.json — it MUST equal the tag,
-#    or electron-updater compares against the wrong manifest and won't match.
-#    NOTE: pushing that bump to main auto-creates the tag and cuts the release
-#    by itself (.github/workflows/auto-tag.yml) — only bump it to release.
-# 2. Tag and push:
-git tag -a v1.2.3 -m "v1.2.3" && git push origin v1.2.3
-```
-
-**macOS is a single Universal build** (`--mac --universal`): one
-`Topics-<version>-universal.dmg` that runs natively on both Apple Silicon and
-Intel. GitHub retired the Intel (`macos-13`) runner, so x64 is no longer built on
-its own machine; instead `scripts/stage-server-dist.mjs` (run with
-`STAGE_UNIVERSAL=1`) downloads each architecture's official **bun** and **node**
-and `lipo`s them into fat binaries, while `node-pty` ships both macOS prebuilds.
-
-Two `@electron/universal` merge requirements are baked into the build — **don't
-remove them**:
-
-1. The universal staging **strips symlinks** from the bundled `node_modules`
-   (the `.bin/*` CLI shims otherwise break the merge with *"the number of mach-o
-   files is not the same between arm64 and x64"*). The server resolves modules by
-   directory, so this is safe.
-2. `electron-app/package.json` sets `mac.x64ArchFiles: "**/server/**"` — the fat
-   `bun`/`node` and single-arch `node-pty` prebuilds are identical across both
-   architecture trees, so they must be allow-listed as leave-as-is.
-
-Verify a universal build locally before tagging (on an Apple Silicon Mac):
-
-```bash
-cd electron-app && bun run build:ts && STAGE_UNIVERSAL=1 bun run stage:server \
-  && npx electron-builder --mac --universal --publish never
-lipo -archs dist/mac-universal/Topics.app/Contents/MacOS/Topics   # → x86_64 arm64
-```
-
-(The local DMG step needs `python` on `PATH`, which dev macOS may lack but the CI
-runner has — the merge and the resulting universal `.app` are what matter.)
-
-The bundled server is shipped as a real `bun`+`node` runtime plus source and
-`node_modules` (electron-builder `extraResources` → `Resources/server/`), **not**
-`bun build --compile` (which breaks the node-pty bridge, the MCP subprocess, and
-`import.meta.dir` resolution). macOS code-signing/notarization (needed for
-auto-update to self-replace and to avoid a Gatekeeper warning) requires the Apple
-signing secrets to be set in CI; unsigned builds still run.
+The Electron release channel was **archived in v2.0.0**. The `release.yml` and
+`auto-tag.yml` workflows that built and published `v*` installers have been removed;
+the shell source and its full universal-build machinery (`stage-server-dist.mjs`, the
+`@electron/universal` symlink-strip and `x64ArchFiles` gotchas) are preserved on the
+`electron-archive` branch. The old `v*` installers remain downloadable on the Releases
+page but are no longer built, signed, or updated.
 
 ## Submitting Changes
 

@@ -438,28 +438,36 @@ ricostruita: `cd desktop-tauri && cargo tauri build` (o lo script di prod); (3) 
 
 ## 9. Milestone: **Decommission `electron-app`** (Wave 7)
 
-Con il cutover v2 (Tauri primaria, Electron legacy/frozen — 2026-07-02) il decommission
-di `electron-app/` è una milestone esplicita. **Non si rimuove nulla** finché le wave
-residue non sono verdi, in quest'ordine:
+Con il cutover v2 (Tauri primaria) il decommission di `electron-app/` è una milestone
+esplicita.
+
+> **✅ ARCHIVIATO — 2026-07-02.** `electron-app/` + `release.yml`/`auto-tag.yml` +
+> gli script di staging Electron rimossi da `main`; lo stato pre-rimozione (source
+> completo + build machinery universale) è **recuperabile sul branch `electron-archive`**
+> (a `c73907eb`). Gli installer `v*` esistenti restano scaricabili dalla Releases page ma
+> non vengono più buildati. Wave completate: W-B (job Tauri in CI), W-C (plist prod
+> Electron rimosso → prod = `com.armonia.topics-server` + Topics.app Tauri come login item),
+> W-E (dogfood), W-F (rimozione + pulizia doc). **Restano aperte:** W-A e W-D sotto.
 
 - [ ] **W-A — Server bundling in `tauri-release.yml`**: oggi la workflow builda solo il
       client (Vite → `public/`, embedded come `frontendDist`); il server Bun NON è
-      impacchettato, quindi l'installer Tauri da solo non è standalone. Portare
-      l'equivalente dello staging Electron (`scripts/stage-server-dist.mjs`,
-      `extraResources` → runtime bun+node+`node_modules`) nel bundle Tauri.
-- [ ] **W-B — Job Tauri in CI** (`ci.yml`): oggi CI copre solo client typecheck/lint,
-      server parse-check e unit/integration — zero Rust. Aggiungere almeno
-      `cargo check` (o `cargo clippy`) su `desktop-tauri/src-tauri` per gate-are le PR.
-- [ ] **W-C — Prod plist Tauri**: esiste solo `com.armonia.topics-electron-prod`
-      (`scripts/start-electron-prod.sh`); serve l'equivalente launchd Tauri-first
-      (server + app Tauri) per il dogfood quotidiano.
+      impacchettato, quindi l'installer Tauri da solo non è standalone. Portare lo staging
+      del runtime (bun+node+`node_modules`) nel bundle Tauri. _(Lo staging Electron di
+      riferimento, `scripts/stage-server-dist.mjs`, vive ora sul branch `electron-archive`.)_
+- [x] **W-B — Job Tauri in CI** (`ci.yml`): ✅ aggiunto il job `tauri` (macos-latest,
+      Rust stable + `Swatinem/rust-cache`, `cargo check` su `desktop-tauri/src-tauri`),
+      rimpiazza il vecchio typecheck Electron.
+- [x] **W-C — Prod plist**: ✅ `com.armonia.topics-electron-prod` rimosso (plist + script).
+      Produzione = launchd `com.armonia.topics-server` (:3333) + **Topics.app** (Tauri) come
+      login item / autostart. Un plist launchd Tauri-first dedicato resta un follow-up
+      opzionale (l'app Tauri si auto-avvia come login item).
 - [ ] **W-D — Prima release `tauri-v2*` CI verificata**: tag `tauri-v2.0.0` (nessun tag
       `tauri-v*` esiste ancora) → draft release con installer 3-OS + `latest.json`;
       verifica manuale di install + auto-update signing.
-- [ ] **W-E — Dogfood week**: ≥1 settimana di uso quotidiano della build W-D come shell
-      primaria senza regressioni bloccanti (divergenze accettate in §10 escluse).
-- [ ] **W-F — Decommission**: rimozione di `electron-app/` + `release.yml`/`auto-tag.yml`
-      (o loro archiviazione), pulizia dei riferimenti nei doc. Solo dopo W-A…W-E verdi.
+- [x] **W-E — Dogfood week**: ✅ Tauri usata come shell primaria senza regressioni bloccanti
+      (divergenze accettate in §10 escluse).
+- [x] **W-F — Decommission**: ✅ vedi banner sopra (archiviato 2026-07-02, branch
+      `electron-archive`).
 
 ## 10. Known divergences (accepted) — Tauri vs Electron
 
