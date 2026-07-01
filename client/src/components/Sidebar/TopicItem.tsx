@@ -226,7 +226,7 @@ export const TopicItem = memo(function TopicItem({
           self-hides when the session is idle, so idle rows stay single-line; on
           the mobile full-screen sidebar it's the primary "what is it doing"
           surface. On an attention fill the name goes white (fixes grey-on-blue). */}
-      <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+      <div className="flex-1 min-w-0 flex flex-col justify-center">
         <span className={cn(
           "truncate leading-none",
           onFill && cn("font-semibold", ON_FILL_TEXT),
@@ -234,7 +234,7 @@ export const TopicItem = memo(function TopicItem({
         )}>
           {topic.name}
         </span>
-        <SessionActivity subjectId={topic.id} onFill={onFill} />
+        <SessionActivity subjectId={topic.id} onFill={onFill} className="-mt-0.5" />
       </div>
 
       {/* Cloud (OpenClaw) attribute — a quiet glyph marking this row as a cloud
