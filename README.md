@@ -13,11 +13,13 @@ Grab the latest build for your platform from the **[latest release](https://gith
 
 | Platform | File |
 |----------|------|
-| **macOS** (Apple Silicon / Intel) | `Topics-*.dmg` |
-| **Windows** | `Topics-Setup-*.exe` |
-| **Linux** | `Topics-*.AppImage` · `.deb` |
+| **macOS** (Universal: Apple Silicon + Intel) | `.dmg` |
+| **Windows** | `.exe` installer (also `.msi` on the Tauri channel) |
+| **Linux** | `.AppImage` · `.deb` (Tauri also ships `.rpm`) |
 
 All builds and their checksums live on the [Releases](https://github.com/armonia/topics-app/releases) page.
+
+> **v2 = Tauri.** Starting with **v2.0.0** the desktop app ships as a [Tauri](https://tauri.app) shell (`desktop-tauri/`), released from `tauri-vX.Y.Z` tags (release names "Topics (Tauri) …"). The older **Electron** builds (`v*` tags) are **legacy/frozen** — maintenance only, no new features — and will be decommissioned after the first verified `tauri-v2*` CI release.
 
 > On first launch macOS may warn that the app is from an unidentified developer — right-click the app and choose **Open**. Windows SmartScreen may ask you to confirm. (Signed/notarized builds are tracked in the issues.)
 
@@ -70,16 +72,33 @@ cp .env.example .env   # then edit
 bun run start          # http://localhost:3333
 ```
 
-Desktop shell (Electron):
+### Desktop shell — Tauri (primary, v2)
+
+Requires the [Rust toolchain](https://rustup.rs/). Build the client first (above) — Tauri
+embeds `public/` as its `frontendDist` at compile time:
 
 ```bash
-cd electron-app && npm install && npm start
+cd desktop-tauri/src-tauri && cargo run          # dev build, embeds public/
 ```
 
-Package installers for the current OS (publishes to GitHub Releases when `GH_TOKEN` is set):
+Package installers locally with the [Tauri CLI](https://tauri.app/reference/cli/)
+(`cargo install tauri-cli`):
 
 ```bash
-cd electron-app && npm run build
+cd desktop-tauri && cargo tauri build
+```
+
+Official installers are built by CI from `tauri-vX.Y.Z` tags
+(`.github/workflows/tauri-release.yml`).
+
+### Desktop shell — Electron (legacy, frozen)
+
+The Electron shell (`electron-app/`) is in **maintenance mode**: bug fixes only, no new
+features. It will be decommissioned after the first verified `tauri-v2*` CI release.
+
+```bash
+cd electron-app && npm install && npm start   # run
+cd electron-app && npm run build              # package installers (publishes when GH_TOKEN is set)
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow.
