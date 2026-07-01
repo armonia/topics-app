@@ -246,6 +246,20 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
     },
     surfaces: { passthrough: true, mcp: false },
   },
+  {
+    name: "browser_upload",
+    description:
+      "Upload a local file to a file input (<input type=file>) on the page — e.g. attach a CV/résumé or a document to a form. Pass the [ref] of the file input from browser_observe (omit to target the first file input on the page) and the server-accessible file PATH. The file is set on the input and change/input events fire, exactly as if the user had picked it in the OS file dialog. Use for uploads the user asked for; the file must already exist on disk.",
+    schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Absolute path to the local file to upload (must exist, server-accessible)." },
+        ref: { type: "number", description: "The file input's [ref] from the latest browser_observe. Omit to target the first <input type=file>." },
+      },
+      required: ["path"],
+    },
+    surfaces: { passthrough: true, mcp: true },
+  },
 ];
 
 /** Map a `browser_*` tool name to its REST endpoint slug (kebab, no prefix). */

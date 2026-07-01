@@ -25,6 +25,7 @@ import {
   SNAPSHOT_FN,
   ACT_FN,
   EXTRACT_FN,
+  UPLOAD_FN,
   serialize,
   diff,
   REF_ACTIONS,
@@ -164,6 +165,27 @@ export async function executeNativeBrowserOp(
         const untrusted = action === 'scroll' ? undefined : true;
         return { result: { ok: true, action, ref, snapshot, untrusted } };
       }
+      case 'browser_upload': {
+        // The server (dispatcher.readUploadFile) already read + base64'd the file
+        // and delegated { ref, dataB64, filename, mime } — the WKWebView can't read
+        // local disk. Run the SAME shared UPLOAD_FN the CDP/Playwright path uses to
+        // set it on the <input type=file>. UPLOAD_FN returns a JSON string.
+        const payload = {
+          ref: typeof a.ref === 'number' ? (a.ref as number) : undefined,
+          dataB64: typeof a.dataB64 === 'string' ? (a.dataB64 as string) : '',
+          filename: typeof a.filename === 'string' ? (a.filename as string) : 'upload',
+          mime: typeof a.mime === 'string' ? (a.mime as string) : 'application/octet-stream',
+        };
+        if (!payload.dataB64) return { error: 'browser_upload: missing file data' };
+        const upJs = `(${UPLOAD_FN.toString()})(${JSON.stringify(payload)})`;
+        const raw = await invoke<string>('browser_eval_js', { id, js: upJs });
+        try {
+          const res = JSON.parse(raw || '{"error":"native upload: no result"}') as { ok?: boolean; error?: string };
+          return res.error ? { error: res.error } : { result: res };
+        } catch {
+          return { error: 'native upload: malformed result' };
+        }
+      }
       case 'browser_extract': {
         const fields = coerceExtractFields(a);
         if (!Object.keys(fields).length) {
@@ -252,4 +274,5 @@ export const NATIVE_SUPPORTED_OPS: ReadonlySet<string> = new Set([
   'browser_get_text',
   'browser_console',
   'browser_screenshot',
+  'browser_upload',
 ]);
