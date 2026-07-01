@@ -247,26 +247,64 @@ fn notify(app: tauri::AppHandle, title: String, body: String) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
-/// Reflect the app-wide attention total on the dock-icon badge AND the macOS
-/// menu-bar tray glyph (Electron parity: its tray is dynamic — dock `setBadgeCount`
-/// + `set_title`). `count` = the number of things needing the user right now
-/// (unread chats + Claude-awaiting + finished agent turns + agent escalations),
-/// computed centrally by the client from the SAME signals the in-app tab badges
-/// read (see `useTabNotifications`), so the dock number can never drift from what's
-/// on screen. 0 clears both surfaces. No-op off macOS (no dock; a Win/Linux
-/// taskbar badge can follow later).
+/// One attention row for the dynamic tray menu: a chat topic needing the user,
+/// clickable to jump straight to it (Electron parity: the tray listed unread
+/// topics that navigate on click).
+#[derive(Deserialize)]
+struct StatusItem {
+    id: String,
+    title: String,
+}
+
+/// Reflect the app-wide attention total on the dock-icon badge, the macOS
+/// menu-bar tray glyph, AND the tray menu (Electron parity: its tray is dynamic —
+/// dock `setBadgeCount` + `set_title` + a click-to-navigate unread list).
+/// `count` = the number of things needing the user right now (unread chats +
+/// Claude-awaiting + finished agent turns + agent escalations); `items` = the top
+/// attention chats (id + title) rendered as clickable menu rows. Both are computed
+/// centrally by the client from the SAME signals the in-app tab badges read (see
+/// `useTabNotifications`), so the OS chrome can never drift from what's on screen.
+/// 0/empty clears the badge/glyph and leaves just Show/Quit. No-op off macOS (no
+/// dock; a Win/Linux taskbar badge can follow later).
 #[tauri::command]
-fn set_app_status(app: tauri::AppHandle, count: u32) {
+fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
     #[cfg(target_os = "macos")]
     {
+        use tauri::menu::MenuBuilder;
         use tauri::Manager;
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
         if let Some(win) = app.get_webview_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
         }
-        // Menu-bar tray: show the count next to the icon + reflect it in the tooltip.
+        // Menu-bar tray: glyph + tooltip + the clickable attention rows.
         // Retrieved by the id assigned at build time (`TrayIconBuilder::with_id`).
         if let Some(tray) = app.tray_by_id("main") {
+            // Rebuild the menu: one `nav:<topicId>` row per attention chat, then a
+            // separator, then the static Show/Quit. The tray's `on_menu_event`
+            // (installed at build) routes `nav:` clicks — it fires for whatever
+            // menu is currently set, so dynamically-swapped rows still navigate.
+            let mut mb = MenuBuilder::new(&app);
+            for it in &items {
+                // Trim over-long chat titles so the menu stays tidy.
+                let label = if it.title.chars().count() > 48 {
+                    format!("{}…", it.title.chars().take(47).collect::<String>())
+                } else if it.title.is_empty() {
+                    "(senza titolo)".to_string()
+                } else {
+                    it.title.clone()
+                };
+                mb = mb.text(format!("nav:{}", it.id), label);
+            }
+            if !items.is_empty() {
+                mb = mb.separator();
+            }
+            mb = mb
+                .text("tray-show", "Mostra Topics")
+                .text("tray-quit", "Esci");
+            if let Ok(menu) = mb.build() {
+                let _ = tray.set_menu(Some(menu));
+            }
+
             let title = if count > 0 { Some(count.to_string()) } else { None };
             let tip = if count > 0 {
                 format!("Topics — {count} in attesa")
@@ -278,7 +316,7 @@ fn set_app_status(app: tauri::AppHandle, count: u32) {
         }
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, count);
+    let _ = (app, count, items);
 }
 
 /// Set (or clear, when 0) the macOS dock-icon badge label via the shared
@@ -3033,19 +3071,36 @@ pub fn run() {
                 let mut builder = TrayIconBuilder::with_id("main")
                     .tooltip("Topics")
                     .menu(&tray_menu)
-                    .on_menu_event(|app, event| match event.id().0.as_str() {
-                        "tray-show" => {
+                    .on_menu_event(|app, event| {
+                        let id = event.id().0.as_str();
+                        if id == "tray-show" {
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.show();
                                 let _ = w.unminimize();
                                 let _ = w.set_focus();
                             }
-                        }
-                        "tray-quit" => {
+                        } else if id == "tray-quit" {
                             QUITTING.store(true, Ordering::Relaxed);
                             app.exit(0);
+                        } else if let Some(topic_id) = id.strip_prefix("nav:") {
+                            // A dynamic attention row (set by `set_app_status`): surface
+                            // the window and hand the topic id to the renderer, which
+                            // opens/focuses it exactly like a sidebar click. A DOM
+                            // CustomEvent (not a Tauri event) keeps the client free of
+                            // the @tauri-apps/event dependency — same bridge the native
+                            // shortcut forwarder uses.
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.unminimize();
+                                let _ = w.set_focus();
+                                let arg = serde_json::to_string(topic_id)
+                                    .unwrap_or_else(|_| "\"\"".to_string());
+                                let js = format!(
+                                    "window.dispatchEvent(new CustomEvent('topics:tray-navigate',{{detail:{{topicId:{arg}}}}}))"
+                                );
+                                let _ = w.eval(&js);
+                            }
                         }
-                        _ => {}
                     });
                 if let Some(icon) = app.default_window_icon() {
                     builder = builder.icon(icon.clone());

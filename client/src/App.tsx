@@ -420,6 +420,18 @@ function App() {
     return () => window.removeEventListener('topics:open-project-picker', handler);
   }, [handleOpenProjectPicker]);
 
+  // Native tray menu (Tauri) click on an attention row → open/focus that topic,
+  // exactly like a sidebar click. The Rust `nav:` handler dispatches this DOM
+  // CustomEvent into the webview (no @tauri-apps/event dependency).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const topicId = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
+      if (topicId) handleTopicClick(topicId);
+    };
+    window.addEventListener('topics:tray-navigate', handler);
+    return () => window.removeEventListener('topics:tray-navigate', handler);
+  }, [handleTopicClick]);
+
   // ── Pending-action wrappers (Things3-style soft-destructive flow) ──
   // Each soft-destructive action (close tab, archive topic, archive project)
   // gets two entry points:
