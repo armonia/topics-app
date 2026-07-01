@@ -85,6 +85,13 @@ export function PendingActionProvider({
   countdownMs = 3000,
 }: PendingActionProviderProps) {
   const [entries, setEntries] = useState<PendingActionEntry[]>([]);
+  // Live mirror of `entries`, kept in sync every render. `flushAll` reads this
+  // (not the `setEntries` updater) so it can commit synchronously during page
+  // unload, when React never processes the queued state update — a functional
+  // setState's updater runs during the next render/commit, which never happens
+  // on `pagehide`, so relying on it would silently skip every commit.
+  const entriesRef = useRef<PendingActionEntry[]>(entries);
+  entriesRef.current = entries;
   // Per-key commit timers so cancels are cheap (no need to scan).
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
@@ -140,6 +147,39 @@ export function PendingActionProvider({
     }
   }, [clearTimer]);
 
+  // Force-commit every queued action NOW, synchronously. Called on page unload
+  // (pagehide/beforeunload) so a reload while a close is still counting down
+  // doesn't silently DROP the pending commit — that was the "closed tab
+  // reappears after Cmd+R within the 3 s window" bug: the CLOSE_PANE dispatch
+  // (which records the tombstone + removes the pane from the persisted
+  // snapshot) never ran, so boot reconstructed the pane from the stale
+  // snapshot. Running the commits inline lets the pane-store persistLocal
+  // `pagehide` flush pick up the removed pane. Commits run SYNCHRONOUSLY here
+  // (not via Promise.resolve) because the microtask queue never drains during
+  // unload; any async server side-effect the commit kicks off is best-effort.
+  const flushAll = useCallback(() => {
+    // Snapshot then clear timers so a late setTimeout can't double-fire a
+    // commit we're about to run by hand.
+    const owned = timers.current;
+    for (const t of owned.values()) clearTimeout(t);
+    owned.clear();
+    // Read the live ref (not a setEntries updater) so commits run synchronously
+    // even during unload. Clear the ref immediately so a re-entrant flush (the
+    // pagehide + beforeunload pair both fire) is a no-op.
+    const pending = entriesRef.current;
+    entriesRef.current = [];
+    for (const entry of pending) {
+      try {
+        entry.commit();
+      } catch (err) {
+        console.warn('[PendingAction] flush commit failed:', err);
+      }
+    }
+    // Best-effort state clear for the (rare) case the page survives the flush
+    // — a cancelled unload. Safe to skip if React never re-renders.
+    setEntries([]);
+  }, []);
+
   const tick = useCallback((key: string) => {
     setEntries((prev) =>
       prev.map((e) => (e.key === key ? { ...e, tickedAt: Date.now() } : e)),
@@ -168,11 +208,11 @@ export function PendingActionProvider({
   // Last-mount-wins (only one provider expected, but if multiple are nested
   // for some reason the innermost should be authoritative for the whole tree).
   useEffect(() => {
-    apiSingleton = { enqueue, cancel, tick };
+    apiSingleton = { enqueue, cancel, tick, flushAll };
     return () => {
       if (apiSingleton && apiSingleton.enqueue === enqueue) apiSingleton = null;
     };
-  }, [enqueue, cancel, tick]);
+  }, [enqueue, cancel, tick, flushAll]);
 
   const value = useMemo<PendingActionContextValue>(
     () => ({ entries, enqueue, tick, cancel, __completeForCommit, countdownMs }),
@@ -340,6 +380,7 @@ interface PendingActionApi {
   enqueue: (action: PendingAction) => void;
   cancel: (key: string) => void;
   tick: (key: string) => void;
+  flushAll: () => void;
 }
 
 let apiSingleton: PendingActionApi | null = null;
@@ -370,3 +411,8 @@ export const tickPendingAction = withApi('tick');
  *  pending commit or it double-fires at T+3s with a stale closure. */
 // eslint-disable-next-line react-refresh/only-export-components -- imperative API bound to the module-private singleton wired by the Provider above; cannot live in a separate file
 export const cancelPendingAction = withApi('cancel');
+/** Imperative: synchronously commit ALL queued actions. Used on page unload so
+ *  a reload mid-countdown persists the pending closes instead of dropping them
+ *  (which resurrected the just-closed tab on boot). */
+// eslint-disable-next-line react-refresh/only-export-components -- imperative API bound to the module-private singleton wired by the Provider above; cannot live in a separate file
+export const flushPendingActions = withApi('flushAll');
