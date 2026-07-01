@@ -69,9 +69,7 @@ import { shouldHandleOpenFile } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 import { shouldKeepRestoredTerminalPane } from './terminalReconcile';
 import { stripWrapperPaneId } from './projectPersistence';
-
-const isNativeApp =
-  typeof window !== 'undefined' && !!(window as unknown as { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
+import { popOutTopic } from '../../../lib/popOutTopic';
 
 // --- Module-local helpers (mirrors of ProjectWindow.tsx helpers) ---
 
@@ -1764,13 +1762,8 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     (paneId: string) => {
       const pane = panes.find(p => p.id === paneId);
       if (!pane?.topicId) return;
-      const url = `${window.location.origin}?topic=${pane.topicId}`;
-      if (isNativeApp) {
-        window.open(url, `topic-${pane.topicId}`, 'width=900,height=700');
-      } else {
-        window.open(url, `topic-${pane.topicId}`);
-      }
-      setPanes(prev => prev.filter(p => p.id !== paneId));
+      // Remove the source pane only if a window actually opened — see popOutTopic.
+      if (popOutTopic(pane.topicId)) setPanes(prev => prev.filter(p => p.id !== paneId));
     },
     [panes],
   );
