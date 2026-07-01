@@ -10,7 +10,7 @@
  *     map (tab bar) or the lead-filtered one (sidebar).
  */
 import { describe, test, expect } from "bun:test";
-import { topicAttentionCount, terminalAttentionCount, rollupProjectAttention } from "./signals";
+import { topicAttentionCount, terminalAttentionCount, rollupProjectAttention, rollupGlobalAttention } from "./signals";
 import type { Topic, TerminalSessionInfo } from "../types";
 
 const unread = (counts: Record<string, number>): Record<string, { unreadCount: number }> =>
@@ -79,5 +79,35 @@ describe("rollupProjectAttention", () => {
   test("zero for a project with no pending attention", () => {
     const topics = { a: topic("a", { projectPath: PROJ }) };
     expect(rollupProjectAttention(PROJ, topics, [], unread({}), new Set(), new Set())).toBe(0);
+  });
+});
+
+describe("rollupGlobalAttention", () => {
+  test("sums every topic's attention across ALL projects + all finished terminals", () => {
+    const topics = {
+      a: topic("a", { projectPath: "/work/app" }),
+      b: topic("b", { projectPath: "/work/elsewhere" }),
+      c: topic("c"), // no project
+    };
+    const sum = rollupGlobalAttention(
+      topics,
+      unread({ a: 2, c: 1 }),   // a: 2 unread, c: 1 unread
+      new Set(["b"]),           // b: Claude needs-you (1)
+      new Set(["t1", "t2"]),    // two finished terminal turns (project-agnostic)
+    );
+    // 2 (a) + 1 (b) + 1 (c) + 2 (terminals) = 6. Unlike the project rollup, no
+    // cwd/project filtering — every subject counts once toward the dock badge.
+    expect(sum).toBe(6);
+  });
+
+  test("is zero when nothing anywhere is pending", () => {
+    const topics = { a: topic("a"), b: topic("b") };
+    expect(rollupGlobalAttention(topics, unread({}), new Set(), new Set())).toBe(0);
+  });
+
+  test("takes max(unread, needs-you) per chat — never double counts", () => {
+    const topics = { a: topic("a") };
+    // a is BOTH 3-unread AND needs-you → still 3 (max), plus no terminals.
+    expect(rollupGlobalAttention(topics, unread({ a: 3 }), new Set(["a"]), new Set())).toBe(3);
   });
 });
