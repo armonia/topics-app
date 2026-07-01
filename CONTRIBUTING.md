@@ -34,7 +34,21 @@ cd client && bun run build   # builds to public/
 bun run start                # server serves public/ on http://localhost:3333
 ```
 
-### Electron changes
+### Desktop shell changes — Tauri (primary, v2)
+
+The client must be built first (`cd client && bun run build`): Tauri embeds `public/`
+(its `frontendDist`) at compile time, so client changes need a fresh Rust build to show
+up in the shell.
+
+```bash
+cd desktop-tauri/src-tauri && cargo run
+```
+
+### Electron changes (legacy, frozen)
+
+The Electron shell is in **maintenance mode** — bug fixes only, no new features. It is
+slated for decommission after the first verified `tauri-v2*` CI release (see
+`PORTING-PLAN.md`, "Decommission electron-app").
 
 ```bash
 cd electron-app && npm install && npm start
@@ -76,6 +90,32 @@ server validates session registration before applying any hook.
 
 ## Releasing
 
+Topics has **two release channels**. As of v2, **Tauri is the primary desktop shell**
+and `tauri-v*` is the release channel; the Electron channel (`v*`) is **legacy/frozen**
+(maintenance releases only) and will be decommissioned after the first verified
+`tauri-v2*` CI release (see `PORTING-PLAN.md`, "Decommission electron-app").
+
+### Tauri (primary — the v2 channel)
+
+Tag `tauri-vX.Y.Z` — it must match the `version` in
+`desktop-tauri/src-tauri/tauri.conf.json` (kept in lockstep with the root
+`package.json` and `desktop-tauri/src-tauri/Cargo.toml`). CI
+(`.github/workflows/tauri-release.yml`) builds a **Universal macOS** app plus Windows
+and Linux installers with `tauri-apps/tauri-action`, and publishes them to a **draft**
+GitHub Release together with the `latest.json` auto-update manifest.
+
+```bash
+git tag tauri-v2.0.0 && git push origin tauri-v2.0.0
+# then review + publish the draft release on GitHub
+```
+
+Signing: the updater manifest is minisign-signed via `TAURI_SIGNING_PRIVATE_KEY`
+(+ `_PASSWORD`); macOS code-signing/notarization reuses the Electron Apple secrets
+(plus `APPLE_SIGNING_IDENTITY`). Without them the build still runs, but is unsigned
+and won't auto-update.
+
+### Electron (legacy — maintenance only)
+
 Maintainers cut a release by tagging a version. CI (`.github/workflows/release.yml`)
 then builds and publishes installers for macOS, Windows, and Linux to the GitHub
 Release, along with the `latest*.yml` manifests that power in-app auto-update.
@@ -83,6 +123,8 @@ Release, along with the `latest*.yml` manifests that power in-app auto-update.
 ```bash
 # 1. Bump the version in electron-app/package.json — it MUST equal the tag,
 #    or electron-updater compares against the wrong manifest and won't match.
+#    NOTE: pushing that bump to main auto-creates the tag and cuts the release
+#    by itself (.github/workflows/auto-tag.yml) — only bump it to release.
 # 2. Tag and push:
 git tag -a v1.2.3 -m "v1.2.3" && git push origin v1.2.3
 ```

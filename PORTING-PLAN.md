@@ -1,6 +1,8 @@
 # Topics — Porting Plan: low-footprint + multi-device
 
-> Stato: **draft / in esecuzione** · Avviato 2026-06-25 · Owner: Attilio + Jarvis
+> Stato: **v2 CUTOVER (2026-07-02)** — Tauri è la shell desktop **PRIMARIA** (v2.0.0);
+> Electron è **LEGACY/FROZEN** (solo manutenzione, niente feature nuove) fino al
+> decommission (vedi §9). · Avviato 2026-06-25 · Owner: Attilio + Jarvis
 > Goal: porting totale a stack a bassissimo impatto RAM/CPU, **un tier alla volta con
 > gate di valutazione**, mantenendo **parità totale di funzionalità** e abilitando
 > **multi-device** (web, PWA, telefono).
@@ -94,7 +96,14 @@ on-demand). Decisione formale richiesta nel gate di Tier 1.
 Ogni tier ha **criteri di uscita misurabili**. Non si passa al successivo finché il
 gate non è verde.
 
-### TIER 1 — Desktop su Tauri + PWA first-class  ⏳ IN CORSO
+### TIER 1 — Desktop su Tauri + PWA first-class  ✅ EXIT (v2 cutover 2026-07-02)
+
+> **✅✅✅ TIER-1 EXIT / CUTOVER v2 (2026-07-02).** Tauri è dichiarata la shell desktop
+> **primaria** — versione prodotto **2.0.0** (root `package.json`, `tauri.conf.json`,
+> `Cargo.toml` in lockstep), canale release `tauri-v*` (`tauri-release.yml`). Electron
+> passa **LEGACY/FROZEN** (manutenzione only); il decommission definitivo segue le wave
+> residue in §9. Le checkbox di scope qui sotto sono **storiche** (fotografia in-corso):
+> lo stato spedito reale è tracciato in §6 (D1–D4), §8 e nei memory-log di progetto.
 
 > **✅ T1.0 GATE VERDE (2026-06-25).** Spike reale: Tauri v2 (`desktop-tauri/`)
 > compila e apre una finestra "Topics" 1400×900 che renderizza il React esistente
@@ -424,3 +433,48 @@ ricostruita: `cd desktop-tauri && cargo tauri build` (o lo script di prod); (3) 
   nativa va old→finale in lockstep col reveal del transform (entrambi 200ms, curva matchata); il flush a
   `transitionend` corregge il drift sub-px. VERIFICA solo per conferma: in floating-splits il frost dei gap
   traccia i card durante i 200ms senza trail/salto.
+
+---
+
+## 9. Milestone: **Decommission `electron-app`** (Wave 7)
+
+Con il cutover v2 (Tauri primaria, Electron legacy/frozen — 2026-07-02) il decommission
+di `electron-app/` è una milestone esplicita. **Non si rimuove nulla** finché le wave
+residue non sono verdi, in quest'ordine:
+
+- [ ] **W-A — Server bundling in `tauri-release.yml`**: oggi la workflow builda solo il
+      client (Vite → `public/`, embedded come `frontendDist`); il server Bun NON è
+      impacchettato, quindi l'installer Tauri da solo non è standalone. Portare
+      l'equivalente dello staging Electron (`scripts/stage-server-dist.mjs`,
+      `extraResources` → runtime bun+node+`node_modules`) nel bundle Tauri.
+- [ ] **W-B — Job Tauri in CI** (`ci.yml`): oggi CI copre solo client typecheck/lint,
+      server parse-check e unit/integration — zero Rust. Aggiungere almeno
+      `cargo check` (o `cargo clippy`) su `desktop-tauri/src-tauri` per gate-are le PR.
+- [ ] **W-C — Prod plist Tauri**: esiste solo `com.armonia.topics-electron-prod`
+      (`scripts/start-electron-prod.sh`); serve l'equivalente launchd Tauri-first
+      (server + app Tauri) per il dogfood quotidiano.
+- [ ] **W-D — Prima release `tauri-v2*` CI verificata**: tag `tauri-v2.0.0` (nessun tag
+      `tauri-v*` esiste ancora) → draft release con installer 3-OS + `latest.json`;
+      verifica manuale di install + auto-update signing.
+- [ ] **W-E — Dogfood week**: ≥1 settimana di uso quotidiano della build W-D come shell
+      primaria senza regressioni bloccanti (divergenze accettate in §10 escluse).
+- [ ] **W-F — Decommission**: rimozione di `electron-app/` + `release.yml`/`auto-tag.yml`
+      (o loro archiviazione), pulizia dei riferimenti nei doc. Solo dopo W-A…W-E verdi.
+
+## 10. Known divergences (accepted) — Tauri vs Electron
+
+Differenze **note e accettate** della shell Tauri (WKWebView) rispetto a Electron.
+**Non bloccano** il cutover v2 né il decommission; restano aperte come follow-up
+opzionali:
+
+- **Context menu nel browser pane** — niente menu contestuale nativo completo nel pane
+  WKWebView (Electron lo aveva via webContents).
+- **Download progress %** — i download dal pane non espongono la percentuale di
+  avanzamento (Electron: `will-download` + progress).
+- **Notification deep-link** — il click sul banner OS non naviga al topic
+  (`notification.showScoped` DEFER, vedi §6 D4).
+- **Find-in-page match counts** — la ricerca nella pagina non riporta il conteggio
+  "n di m" delle occorrenze.
+- **Native zoom** — niente controlli di zoom nativi per-webview (Cmd+/− a livello pane).
+- **Pane devtools docked** — le devtools del pane nativo non si agganciano docked
+  dentro la finestra (ispezione solo esterna, es. Safari Web Inspector).

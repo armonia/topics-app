@@ -1,5 +1,10 @@
 # Topics Electron App
 
+> **LEGACY / FROZEN (as of v2.0.0).** The primary desktop shell is now **Tauri**
+> (`desktop-tauri/`, released from `tauri-v*` tags). This Electron shell is in
+> maintenance mode — bug fixes only, no new features — and will be decommissioned
+> after the first verified `tauri-v2*` CI release (see `PORTING-PLAN.md` §9).
+
 Standalone Electron app with integrated browser panel controllable via CDP.
 
 ## Features
