@@ -836,6 +836,9 @@ export function GroupLayout({
     <div
       ref={containerRef}
       data-split-surface
+      // See PanelGrid: mid-drag, neutralise the divider grab band (CSS below)
+      // so an edge drop that lands on the divider band still splits the group.
+      data-drag-active={dragActive || undefined}
       className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
       onDragEnd={resetDndOverlays}
       onDragEnterCapture={(e) => { if (isPaneTabDrag(e)) setDragActive(true); }}
