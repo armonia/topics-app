@@ -1426,7 +1426,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const targetId = typeof body?.topicId === "string" ? body.topicId : "";
         if (!targetId) return json({ error: "topicId (string) is required" }, 400);
         const target = getTopicById(targetId);
-        if (!target || target.archived) return json({ error: "target topic not found" }, 404);
+        if (!target) return json({ error: "target topic not found" }, 404);
+        // AC-01: archived is a client error distinct from "doesn't exist" — the
+        // topic IS there, it's just not switchable (unarchive/open it first).
+        if (target.archived) return json({ error: "target topic is archived", code: "topic_archived", topicId: target.id }, 400);
         broadcastToAll({ type: "topic:switch", fromTopicId: cur.id, fromSessionKey: cur.sessionKey, toTopicId: target.id, toSessionKey: target.sessionKey });
         return json({ ok: true, toTopicId: target.id });
       }
@@ -1461,10 +1464,16 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, "");
         if (!safeName) return json({ error: "name (alphanumeric) is required" }, 400);
         const targetDir = join(WORKSPACE_DIR, safeName);
-        if (!existsSync(targetDir)) {
-          mkdirSync(targetDir, { recursive: true });
-          writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
+        // AC-01: create means CREATE — a name collision is a 409, never a silent
+        // bind to whatever already lives there (that's open-project/bind-project).
+        if (existsSync(targetDir)) {
+          return json(
+            { error: `project "${safeName}" already exists`, code: "project_exists", name: safeName, projectPath: targetDir },
+            409,
+          );
         }
+        mkdirSync(targetDir, { recursive: true });
+        writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
         bindTopicToProject(cur.id, targetDir, { focus: true });
         return json({ ok: true, projectPath: targetDir });
       }
