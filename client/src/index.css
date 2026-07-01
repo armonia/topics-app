@@ -1277,6 +1277,20 @@ html.electron-mac :has(> [data-testid="browser-native-panel"]) {
 .cursor-col-resize::before { top: 0; bottom: 0; left: -7px; right: -3px; }
 .cursor-row-resize::before { left: 0; right: 0; top: -7px; bottom: -3px; }
 
+/* While a pane tab is being dragged over a split surface, make the divider — and
+ * its overhanging grab band (the z-50, pointer-events:auto ::before) — transparent
+ * to the pointer. The SplitTree divider is a flex sibling with NO drop handler, so
+ * its grab band (7px into the left pane, 3px into the right) otherwise swallowed
+ * dragover/drop on a pane's inner edge and the split silently failed ("se trascino
+ * una tab di uno split sulla sinistra non va"). At rest the band is untouched, so
+ * resize/hover still work; only mid-drag do the pane edge drop-zones win. */
+[data-split-surface][data-drag-active] .cursor-col-resize,
+[data-split-surface][data-drag-active] .cursor-row-resize,
+[data-split-surface][data-drag-active] .cursor-col-resize::before,
+[data-split-surface][data-drag-active] .cursor-row-resize::before {
+  pointer-events: none;
+}
+
 .cursor-col-resize::after,
 .cursor-row-resize::after {
   content: '';
