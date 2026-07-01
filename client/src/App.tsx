@@ -942,14 +942,18 @@ function App() {
         </ErrorBoundary>
       </div>
 
-      {/* Sidebar resize handle - hide on mobile */}
+      {/* Sidebar resize handle - hide on mobile. z-50 + wide grab band:
+          adjacent pane content must not steal the grab (same lesson as the
+          SplitTree dividers). The inner bands paint a visible affordance on
+          hover so the resize is discoverable. */}
       {!isMobile && (
         <div
-          className="w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border hover:bg-primary transition-colors z-20"
+          className="group w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border transition-colors z-50"
           onMouseDown={handleSidebarResizeStart}
           onDoubleClick={handleSidebarDoubleClick}
         >
-          <div className="absolute inset-y-0 -left-[3px] -right-[3px]" />
+          <div className="absolute inset-y-0 -left-[5px] -right-[5px] group-hover:bg-primary/25" />
+          <div className="absolute inset-y-0 -left-[1px] -right-[1px] group-hover:bg-primary" />
         </div>
       )}
 

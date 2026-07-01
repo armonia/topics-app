@@ -234,7 +234,7 @@ export const TopicItem = memo(function TopicItem({
         )}>
           {topic.name}
         </span>
-        <SessionActivity subjectId={topic.id} onFill={onFill} className="-mt-0.5" />
+        <SessionActivity subjectId={topic.id} onFill={onFill} className="mt-[3px]" />
       </div>
 
       {/* Cloud (OpenClaw) attribute — a quiet glyph marking this row as a cloud
