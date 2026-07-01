@@ -17,6 +17,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   enableNewChat: false,
   // Experimental floating-splits layout — OFF by default, desktop-only.
   floatingSplits: false,
+  // Animated "working" glow ring around actively-streaming chat panes — ON by
+  // default (subtle, readability-safe; users can disable in Settings → Appearance).
+  workingGlow: true,
 };
 
 export function loadSettings(): AppSettings {
