@@ -315,6 +315,38 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     };
   }, [id, ready, isVisible]);
 
+  // #3 instant focus-on-click. The 800ms data poll above ALSO detects clicks
+  // into the native pane (the pointerdown bump → activate the tab), but at up to
+  // 800ms latency the tab activates visibly late. A native WKWebView composites
+  // ABOVE the React DOM, so the click never reaches React — polling the injected
+  // counter is the only pull signal. Run a dedicated, lightweight poll (bump
+  // counter ONLY — a trivial eval) at ~120ms so the tab activates near-instantly.
+  // Shares __topicsFocusBump + lastFocusBumpRef with the data poll: whichever
+  // observes the increment first fires onFocused; the other sees no change (the
+  // compare+set is synchronous, no await between, so no double-fire).
+  useEffect(() => {
+    if (!ready || !isVisible) return;
+    let stop = false;
+    const FAST =
+      "(function(){if(!window.__tFocusHook){window.__tFocusHook=1;window.__topicsFocusBump=0;" +
+      "addEventListener('pointerdown',function(){window.__topicsFocusBump++},true);}" +
+      "return String(window.__topicsFocusBump||0)})()";
+    const tick = async () => {
+      if (stop) return;
+      try {
+        const raw = await tauriInvoke<string>('browser_eval_js', { id, js: FAST });
+        if (stop || raw == null) return;
+        const bump = parseInt(raw, 10) || 0;
+        if (lastFocusBumpRef.current >= 0 && bump > lastFocusBumpRef.current) {
+          onFocusedRef.current?.();
+        }
+        lastFocusBumpRef.current = bump;
+      } catch { /* pane closing / eval timeout — next tick retries */ }
+    };
+    const iv = window.setInterval(tick, 120);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [id, ready, isVisible]);
+
   const toggleDevTools = useCallback(async () => {
     await tauriInvoke('browser_toggle_devtools', { id }).catch(() => {});
   }, [id]);
