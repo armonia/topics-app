@@ -302,6 +302,31 @@ fn toggle_always_on_top(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.set_always_on_top(next);
     }
+    // Persist so the floating state survives relaunch (Electron parity — it was an
+    // in-memory AtomicBool that reset to off every launch).
+    if let Some(path) = aot_file(app) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, if next { "true" } else { "false" });
+    }
+}
+
+/// Path of the always-on-top store: `<app_config_dir>/topics-aot.json`.
+fn aot_file(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|d| d.join("topics-aot.json"))
+}
+
+/// Read the persisted always-on-top flag (default false).
+fn read_aot(app: &tauri::AppHandle) -> bool {
+    aot_file(app)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|s| s.trim() == "true")
+        .unwrap_or(false)
 }
 
 // ─────────────────────── Per-region vibrancy (macOS) ───────────────────────
@@ -2950,6 +2975,19 @@ pub fn run() {
                 let _ = builder.build(app.handle())?;
             }
 
+            // Restore the persisted always-on-top state (Electron parity — it was
+            // an in-memory flag that reset to off every launch).
+            {
+                use tauri::Manager;
+                let on = read_aot(app.handle());
+                ALWAYS_ON_TOP.store(on, Ordering::Relaxed);
+                if on {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.set_always_on_top(true);
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2983,8 +3021,23 @@ pub fn run() {
             updater_check,
             updater_install
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // macOS dock-icon click while the app is hidden-to-tray: bring the
+            // window back (Electron parity: app.on('activate')). Without this the
+            // dock icon is DEAD once the red button / ⌘W parks the app in the tray
+            // — the only way back was the tray menu. RunEvent::Reopen fires on the
+            // dock click (and on `open` with no windows).
+            if let tauri::RunEvent::Reopen { .. } = event {
+                use tauri::Manager;
+                if let Some(w) = app_handle.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+            }
+        });
 }
 
 #[cfg(all(test, target_os = "macos"))]
