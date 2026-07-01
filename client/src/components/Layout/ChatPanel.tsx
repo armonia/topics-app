@@ -13,8 +13,7 @@ const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m
 import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
 import { useContextInspector } from '../../hooks/useContextInspector';
-
-const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
+import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
 
 const CONTEXT_INSPECTOR_KEY = 'topics-context-inspector-open';
 
@@ -220,7 +219,7 @@ export function ChatPanel({
               <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
               {!isMobile && <CommandMenu onStatus={handleCommandStatus} onClear={handleCommandClear} onModel={handleCommandModel} onReasoning={handleCommandReasoning} isLoading={commandLoading} />}
               {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag`} title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
-              {!isMobile && <button onClick={(e) => { e.stopPropagation(); const url = `${window.location.origin}?topic=${topic.id}`; if (isNativeApp) { window.open(url, `topic-${topic.id}`, 'width=900,height=700'); } else { window.open(url, `topic-${topic.id}`); } onClose(); }} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag" title="Pop out to new window" aria-label="Pop out to new window"><ExternalLink size={14} /></button>}
+              {!isMobile && <button onClick={(e) => { e.stopPropagation(); if (popOutTopic(topic.id)) onClose(); }} disabled={!canPopOut} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag disabled:opacity-40 disabled:cursor-not-allowed" title={canPopOut ? 'Pop out to new window' : 'Pop-out non ancora supportato nella shell Tauri'} aria-label="Pop out to new window"><ExternalLink size={14} /></button>}
             </>
           )}
           {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={14} /></button>}

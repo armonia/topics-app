@@ -24,8 +24,7 @@ import { primaryFromSoloCellKey } from '../soloCells';
 import { clearBrowserSpawner } from '../../../state/browserSpawner';
 import { normalizeTerminalAgent } from '../../../lib/terminalAgents';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
-
-const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
+import { popOutTopic } from '../../../lib/popOutTopic';
 
 /**
  * Per-pane-kind close-side-effect descriptor. Keeps handleClosePane +
@@ -184,13 +183,8 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
   }, []);
 
   const handlePopOut = useCallback((paneId: string) => {
-    const url = `${window.location.origin}?topic=${paneId}`;
-    if (isNativeApp) {
-      window.open(url, `topic-${paneId}`, 'width=900,height=700');
-    } else {
-      window.open(url, `topic-${paneId}`);
-    }
-    onClosePanel(paneId);
+    // Close the source pane only if a window actually opened — see popOutTopic.
+    if (popOutTopic(paneId)) onClosePanel(paneId);
   }, [onClosePanel]);
 
   // Determine if a pane can be split into its own grid cell.
