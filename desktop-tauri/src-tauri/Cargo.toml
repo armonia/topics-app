@@ -46,6 +46,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 # Global hotkey (Electron-parity): Cmd/Ctrl+Alt+T toggles always-on-top.
 tauri-plugin-global-shortcut = "2"
+# "Open at Login" (Electron parity: app.setLoginItemSettings). Menu toggle.
+tauri-plugin-autostart = "2"
 sysinfo = "0.33"
 # Loopback TLS-origination proxy: the WKWebView talks plain HTTP/WS to a local
 # port; this re-originates TLS to the data server (whose local-CA cert WKWebView

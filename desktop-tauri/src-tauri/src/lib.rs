@@ -2375,6 +2375,14 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
+        // "Open at Login" (Electron parity: app.setLoginItemSettings). A LaunchAgent
+        // is registered/removed by the View ▸ "Apri al login" toggle. NOT auto-enabled
+        // on first run (unlike Electron) — the user opts in, avoiding a surprise
+        // login item.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_notification::init())
         // NOTE: tauri-plugin-window-state was REMOVED — it mis-handled scale on this
         // mixed-DPI multi-monitor setup (persisted physical pixels as logical, failed to
@@ -2401,6 +2409,12 @@ pub fn run() {
             // would double-fire and cancel the toggle when the window is focused.
             let always_on_top =
                 MenuItem::with_id(handle, "always-on-top", "Always on Top", true, None::<&str>)?;
+            // "Open at Login" (Electron parity). Toggling registers/removes the
+            // LaunchAgent immediately. NOTE: we cannot read the current enabled state
+            // here — the .menu() closure runs BEFORE the autostart plugin's setup
+            // manages its AutoLaunchManager, so is_enabled() would panic. Plain label.
+            let open_at_login =
+                MenuItem::with_id(handle, "open-at-login", "Apri al login", true, None::<&str>)?;
             // Custom Quit (not the predefined .quit()) so ⌘Q sets QUITTING before
             // exiting — otherwise the hide-to-tray CloseRequested handler would
             // swallow the quit and trap the app in the tray.
@@ -2433,6 +2447,7 @@ pub fn run() {
                 .item(&zoom_reset)
                 .separator()
                 .item(&always_on_top)
+                .item(&open_at_login)
                 .separator()
                 .fullscreen()
                 .build()?;
@@ -2465,6 +2480,15 @@ pub fn run() {
                     app.exit(0);
                 }
                 "always-on-top" => toggle_always_on_top(app),
+                "open-at-login" => {
+                    use tauri_plugin_autostart::ManagerExt;
+                    let mgr = app.autolaunch();
+                    let _ = if mgr.is_enabled().unwrap_or(false) {
+                        mgr.disable()
+                    } else {
+                        mgr.enable()
+                    };
+                }
                 id @ ("zoom-in" | "zoom-out" | "zoom-reset") => {
                     let cur = ZOOM_PERCENT.load(Ordering::Relaxed);
                     let next = match id {
