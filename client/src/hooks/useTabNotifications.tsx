@@ -1,9 +1,11 @@
 import { createContext, useContext, useCallback, useRef, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
-import { useAttentionSignals, rollupProjectAttention, topicAttentionCount, terminalAttentionCount } from '../state/signals';
+import { useAttentionSignals, rollupProjectAttention, rollupGlobalAttention, topicAttentionCount, terminalAttentionCount } from '../state/signals';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
 import { useRefMirror } from './useRefMirror';
+import { isTauri } from '../lib/shell';
+import { tauriInvoke } from '../lib/shell/tauri';
 
 interface TabNotificationContextValue {
   /** Get badge count for a pane. Chat panes use unreadData[topicId], others use extraCounts. */
@@ -214,6 +216,21 @@ export function TabNotificationProvider({
   const getProjectBadgeCount = useCallback((projectPath: string): number => {
     return rollupProjectAttention(projectPath, topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds);
   }, [topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds]);
+
+  // Desktop (Tauri) dock-icon badge + macOS menu-bar tray glyph: reflect the
+  // app-wide attention total on the OS chrome, driven by the SAME signals as the
+  // in-app tab badges so it can never drift from what's on screen. The rollup
+  // covers every topic + terminal; `extraCounts` adds the agent/session-viewer
+  // pane badges (which live only in this layer). No-op off Tauri.
+  const totalAttention = useMemo(() => {
+    let extra = 0;
+    for (const n of extraCounts.values()) extra += n;
+    return rollupGlobalAttention(topics, unreadData, claudeAttentionTopics, terminalFinishedIds) + extra;
+  }, [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, extraCounts]);
+  useEffect(() => {
+    if (!isTauri) return;
+    void tauriInvoke('set_app_status', { count: totalAttention }).catch(() => {});
+  }, [totalAttention]);
 
   const value = useMemo((): TabNotificationContextValue => ({
     getBadgeCount,
