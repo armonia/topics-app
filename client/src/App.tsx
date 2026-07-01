@@ -43,8 +43,8 @@ import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
-import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction } from './contexts/PendingActionContext';
-import { flushPaneStoreNow } from './state/pane/middleware';
+import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
+import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useAgentActivityCounts } from './state/signals';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
@@ -109,6 +109,30 @@ function App() {
   // mirroring `.app-drag-region`/`.app-no-drag` onto Tauri's drag attributes.
   // No-op off Tauri; safe to run once on mount.
   useEffect(() => { wireTauriDragRegions(); }, []);
+
+  // Unload-time flush: a reload / navigation while a close is still counting
+  // down must COMMIT the pending close, not drop it — otherwise the just-closed
+  // browser / terminal / utility tab resurrects on the next boot (the pending
+  // CLOSE_PANE that records the tombstone + removes the pane from the persisted
+  // snapshot never ran). Order matters and is why this lives in ONE handler
+  // instead of two independent `pagehide` listeners: flush the pending commits
+  // FIRST (each dispatches CLOSE_PANE into the store), THEN write the store
+  // snapshot to localStorage. The persistLocal middleware also has a `pagehide`
+  // flush, but it registers at bootstrap — before this component mounts — so it
+  // would run first and persist the stale pre-close snapshot. Calling the local
+  // flush explicitly here guarantees the post-commit state is the one written.
+  useEffect(() => {
+    const onUnload = () => {
+      flushPendingActions();
+      flushLocalPaneStoreNow();
+    };
+    window.addEventListener('pagehide', onUnload);
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      window.removeEventListener('pagehide', onUnload);
+      window.removeEventListener('beforeunload', onUnload);
+    };
+  }, []);
 
   // Check if we're in detached/pop-out mode (single topic window)
   const urlParams = new URLSearchParams(window.location.search);

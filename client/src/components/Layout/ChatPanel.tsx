@@ -14,6 +14,8 @@ import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
+import { useTopicLoading } from '@/state/signals';
+import { loadSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 
 const CONTEXT_INSPECTOR_KEY = 'topics-context-inspector-open';
 
@@ -145,9 +147,34 @@ export function ChatPanel({
 
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
+  // "Working" glow — the SAME condition the sidebar green row uses
+  // (useTopicLoading = live stream OR hydrated mid-reply OR active agent), so
+  // the ring and the sidebar dot can never disagree about whether a chat is
+  // working. Gated behind the `workingGlow` app setting (default ON); read via
+  // the settings-change event so a toggle applies live without a prop drill.
+  const isWorking = useTopicLoading(topic.id);
+  const [workingGlowEnabled, setWorkingGlowEnabled] = useState(() => loadSettings().workingGlow);
+  useEffect(() => {
+    const reload = () => setWorkingGlowEnabled(loadSettings().workingGlow);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
+  // The ring element exists in the DOM ONLY while working (conditional render,
+  // not display:none) — zero cost when idle, per the perf rationale in index.css.
+  const showWorkingRing = isWorking && workingGlowEnabled;
+
   return (
     <>
       <div role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+        {/* Apple-Intelligence "working" glow — a thin rotating ring hugging the
+            pane edge while the session streams. Rendered only when working so
+            it costs nothing at rest; transform-only animation (see index.css).
+            aria-hidden: purely decorative. */}
+        {showWorkingRing && <div className="chat-working-ring" aria-hidden="true" />}
         {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
             with tabs: floating overlay with blur for scroll-through effect. */}
         {!bodyOnly && <div className={`flex items-center ${headerLeft

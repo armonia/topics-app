@@ -1212,6 +1212,13 @@ export interface AppSettings {
   // easier to read. Gated to Electron (relies on native vibrancy) and ignored
   // on web/PWA. Surfaced in Settings → Appearance. Defaults OFF.
   floatingSplits: boolean;
+  // Apple-Intelligence-style animated glow ring around a chat pane while its
+  // session is actively WORKING (streaming / an agent running). Thin, cool,
+  // low-opacity rotating conic-gradient ring — never a fill, never behind text.
+  // Purely cosmetic; the ring element only exists in the DOM while the session
+  // is working (see .chat-working-ring). Surfaced in Settings → Appearance.
+  // Defaults ON.
+  workingGlow: boolean;
 }
 
 export interface ProcessInfo {
