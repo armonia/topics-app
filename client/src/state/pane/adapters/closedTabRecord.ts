@@ -84,6 +84,48 @@ export function getTerminalTombstones(): Set<string> {
   return new Set(readTombstones().map(t => t.sessionId));
 }
 
+// Browser-context tombstones — the exact analogue of the terminal ones above,
+// for browser panes closed INSIDE a project window. Project-inner panes live in
+// `useProjectLayout` React state (not the pane store), and their persisted
+// `nonChatPanes` snapshot is restored VERBATIM on the next mount. Terminals were
+// already protected by their tombstone (the auto-add-active-session effect skips
+// tombstoned ids); browsers had no equivalent, so a browser tab closed in a
+// project reappeared on reload — especially when the close committed at unload
+// (flushPendingActions), where the React persistence-save effect never re-runs
+// to drop the pane from `nonChatPanes`. Same 5-minute TTL + localStorage store.
+const BROWSER_TOMBSTONE_KEY = 'browser-context-tombstones';
+
+interface BrowserTombstone { contextId: string; ts: number }
+
+function readBrowserTombstones(): BrowserTombstone[] {
+  try {
+    const raw = localStorage.getItem(BROWSER_TOMBSTONE_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as BrowserTombstone[];
+    const now = Date.now();
+    return list.filter(t => now - t.ts < TOMBSTONE_TTL_MS);
+  } catch { return []; }
+}
+
+function writeBrowserTombstones(list: BrowserTombstone[]): void {
+  try { localStorage.setItem(BROWSER_TOMBSTONE_KEY, JSON.stringify(list)); }
+  catch { /* quota / private mode */ }
+}
+
+export function addBrowserTombstone(contextId: string): void {
+  const list = readBrowserTombstones().filter(t => t.contextId !== contextId);
+  list.push({ contextId, ts: Date.now() });
+  writeBrowserTombstones(list);
+}
+
+export function clearBrowserTombstone(contextId: string): void {
+  writeBrowserTombstones(readBrowserTombstones().filter(t => t.contextId !== contextId));
+}
+
+export function getBrowserTombstones(): Set<string> {
+  return new Set(readBrowserTombstones().map(t => t.contextId));
+}
+
 // Wire a one-shot beforeunload listener so any pending cleanup timers
 // (terminal DELETEs scheduled with a grace window) are force-flushed
 // before the page unloads. Without this, a reload within the grace

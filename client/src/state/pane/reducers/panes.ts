@@ -9,6 +9,19 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
   switch (action.type) {
     case 'OPEN_PANE': {
       const { groupId, insertIndex, ...pane } = action.payload;
+      // Opening a pane CLEARS any closedStack tombstone for its id. A tombstone
+      // means "this id is closed"; re-opening the same id (e.g. a browser pane
+      // re-navigated to the same `browser:<ctx>` id via persistBrowserPane,
+      // which OPEN_PANEs rather than going through the reopen-closed-tab path)
+      // must retract that claim — otherwise the HYDRATE_FROM_SNAPSHOT strip
+      // below would drop the freshly re-opened pane on the next union, and
+      // ⇧⌘T would still list it as "recently closed". Reopen-via-history
+      // already clears the record (removeClosedTab / UNDO_CLOSE); this covers
+      // the OPEN_PANE re-entry those paths don't touch.
+      {
+        const idx = state.closedStack.findIndex((r) => r.id === pane.id);
+        if (idx >= 0) state.closedStack.splice(idx, 1);
+      }
       // Seed stableKey on first insert so PANE_ID_REMAP has something to
       // preserve. For panes that come back through hydration (sanitizeSnapshot
       // already stripped/preserved the field), we leave the existing value.
@@ -306,6 +319,47 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         }
         merged.sort((a, b) => (a.closedAt ?? 0) - (b.closedAt ?? 0));
         state.closedStack = merged;
+      }
+      // Bidirectional tombstone strip. The `remoteClosedIds` filter above only
+      // drops a LOCAL pane the REMOTE closed; it does nothing about the reverse
+      // — a stale snapshot (older cross-tab write, a warm-boot localStorage
+      // read, or a second client that never learned about the close) whose
+      // `clean.panes` STILL lists a pane this client already tombstoned.
+      // `state.panes = clean.panes` applied it verbatim, resurrecting the
+      // just-closed tab (the browser/terminal-tab reappears-after-reload bug:
+      // durable pane + one-directional union). Now that closedStack holds the
+      // MERGED tombstone set, evict every applied pane whose id is tombstoned.
+      //
+      // A live tombstone means "closed, do not resurrect": OPEN_PANE (and every
+      // reopen-history path — CLEAR_CLOSED_RECORD / UNDO_CLOSE / PANE_ID_REMAP)
+      // clears it, so re-opening the SAME id on this client retracts the strip.
+      // The one residual case — another client re-opens the exact same id within
+      // the tombstone's lifetime while this client still holds the record —
+      // self-heals: this client's next local OPEN of that id (or the record
+      // ageing out of the FIFO) clears it, and until then a stale resurrection
+      // is the worse failure. Local drafts / local-kept panes are re-injected
+      // below and are never in closedStack, so they're untouched.
+      {
+        const tombstonedIds = new Set(state.closedStack.map((r) => r.id));
+        if (tombstonedIds.size > 0) {
+          for (const id of tombstonedIds) {
+            if (state.panes[id]) delete state.panes[id];
+          }
+          for (const [gid, group] of Object.entries(state.groups)) {
+            const kept = group.paneIds.filter((id) => !tombstonedIds.has(id));
+            if (kept.length !== group.paneIds.length) {
+              group.paneIds = kept;
+              // Mirror the OPEN_PANE / CLOSE_PANE ghost-group pruning: a
+              // non-default group emptied purely by the strip must not leave a
+              // dangling tab-bar slot + groupOrder entry.
+              if (kept.length === 0 && gid !== 'group:default') {
+                delete state.groups[gid];
+                const orderIdx = state.groupOrder.indexOf(gid);
+                if (orderIdx >= 0) state.groupOrder.splice(orderIdx, 1);
+              }
+            }
+          }
+        }
       }
       // Re-inject local drafts on top of the freshly applied snapshot. We
       // append rather than insert at a fixed index because the draft's prior
