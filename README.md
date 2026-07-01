@@ -19,7 +19,7 @@ Grab the latest build for your platform from the **[latest release](https://gith
 
 All builds and their checksums live on the [Releases](https://github.com/armonia/topics-app/releases) page.
 
-> **v2 = Tauri.** Starting with **v2.0.0** the desktop app ships as a [Tauri](https://tauri.app) shell (`desktop-tauri/`), released from `tauri-vX.Y.Z` tags (release names "Topics (Tauri) …"). The older **Electron** builds (`v*` tags) are **legacy/frozen** — maintenance only, no new features — and will be decommissioned after the first verified `tauri-v2*` CI release.
+> **v2 = Tauri.** Starting with **v2.0.0** the desktop app ships as a [Tauri](https://tauri.app) shell (`desktop-tauri/`), released from `tauri-vX.Y.Z` tags (release names "Topics (Tauri) …"). The older **Electron** shell was **archived in v2.0.0** — its source is preserved on the `electron-archive` branch and can be restored from there if ever needed. The legacy Electron installers (`v*` tags) remain downloadable on the Releases page but are no longer built or updated.
 
 > On first launch macOS may warn that the app is from an unidentified developer — right-click the app and choose **Open**. Windows SmartScreen may ask you to confirm. (Signed/notarized builds are tracked in the issues.)
 
@@ -91,14 +91,14 @@ cd desktop-tauri && cargo tauri build
 Official installers are built by CI from `tauri-vX.Y.Z` tags
 (`.github/workflows/tauri-release.yml`).
 
-### Desktop shell — Electron (legacy, frozen)
+### Desktop shell — Electron (archived)
 
-The Electron shell (`electron-app/`) is in **maintenance mode**: bug fixes only, no new
-features. It will be decommissioned after the first verified `tauri-v2*` CI release.
+The Electron shell was **archived in v2.0.0** and its source (`electron-app/`) removed from
+`main`. It is fully recoverable on the `electron-archive` branch:
 
 ```bash
-cd electron-app && npm install && npm start   # run
-cd electron-app && npm run build              # package installers (publishes when GH_TOKEN is set)
+git checkout electron-archive -- electron-app   # restore the source, or
+git switch electron-archive                     # check out the whole pre-removal state
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev workflow.
