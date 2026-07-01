@@ -116,9 +116,12 @@ function stageUniversalRuntimes() {
 }
 
 // 2. Server source + static assets (server.ts resolves these via import.meta.dir)
+// Unit tests never run from the bundle — and shipping them makes `bun test`'s
+// substring path filters (see package.json test:unit) collect the stale copies.
+const isTestFile = (p) => /\.(test|spec)\.(ts|tsx|js|jsx|mjs)$/.test(p);
 for (const p of ['server.ts', 'server', 'public', 'package.json']) {
   const src = join(root, p);
-  if (existsSync(src)) cpSync(src, join(out, p), { recursive: true });
+  if (existsSync(src)) cpSync(src, join(out, p), { recursive: true, filter: (s) => !isTestFile(s) });
   else console.warn('[stage] missing (skipped):', p);
 }
 

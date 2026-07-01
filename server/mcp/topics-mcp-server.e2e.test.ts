@@ -109,7 +109,7 @@ describe("MCP stdio server (subprocess)", () => {
     expect(names).toEqual([
       "open_browser_pane", "import_chrome", "browser_observe", "browser_act",
       "browser_extract", "browser_get_text", "browser_screenshot", "browser_read_screen", "browser_console", "browser_eval",
-      "browser_save_state", "browser_load_state",
+      "browser_save_state", "browser_load_state", "browser_status", "browser_upload",
       "run_script", "list_processes",
       "read_process_output", "stop_process", "list_tasks", "update_task",
       "move_session_to_project",
