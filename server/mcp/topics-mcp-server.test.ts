@@ -226,6 +226,8 @@ describe("handleMessage", () => {
       "browser_eval",
       "browser_save_state",
       "browser_load_state",
+      "browser_status",
+      "browser_upload",
       "run_script",
       "list_processes",
       "read_process_output",

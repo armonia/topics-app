@@ -8,6 +8,7 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false, // sequential to avoid race conditions on shared DB
+  workers: 1, // single worker: shared DB + capped CPU (avoids the headless-Chrome swarm that pegs the machine)
   retries: 1,
   reporter: [
     ["html", { outputFolder: "test-results/html-report", open: "never" }],
