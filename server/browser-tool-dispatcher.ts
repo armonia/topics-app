@@ -25,11 +25,50 @@ import {
   handleBrowserScreenshot,
   handleBrowserPoint,
   handleBrowserImportChrome,
+  handleBrowserUpload,
 } from "./browser-tools-handler";
 import type { BrowserActAction } from "./browser-tools";
 import { describeImage, pointObject } from "./integrations/moondream-client";
+import { basename, extname } from "node:path";
 
 export type ToolCallArgs = Record<string, unknown>;
+
+/** Upload payload: the file already read + base64-encoded server-side (the page —
+ *  WKWebView or Playwright — can't read local disk), plus the target input ref. */
+export type UploadFile = { ref?: number; dataB64: string; filename: string; mime: string };
+
+const UPLOAD_MAX_BYTES = 25 * 1024 * 1024; // CVs / docs / images; guards huge reads
+const MIME_BY_EXT: Record<string, string> = {
+  ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml", ".txt": "text/plain",
+  ".csv": "text/csv", ".json": "application/json", ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".zip": "application/zip", ".mp4": "video/mp4", ".mp3": "audio/mpeg",
+};
+
+/** Read + base64-encode the agent-supplied upload file ONCE (both the Tauri
+ *  native-delegate path and the CDP/Playwright path need the bytes, not the path,
+ *  since neither the WKWebView nor the page can read local disk). Existence +
+ *  size-capped; the browser REST bridge is gateway-token gated, and the
+ *  passthrough path is the user's own trusted session. */
+async function readUploadFile(args: ToolCallArgs): Promise<UploadFile | { error: string }> {
+  const path = typeof args.path === "string" ? args.path.trim() : "";
+  if (!path) return { error: "browser_upload: 'path' (string) is required" };
+  const ref = typeof args.ref === "number" ? args.ref : undefined;
+  try {
+    const f = Bun.file(path);
+    if (!(await f.exists())) return { error: `browser_upload: file not found: ${path}` };
+    if (f.size > UPLOAD_MAX_BYTES)
+      return { error: `browser_upload: file too large (${f.size} bytes > ${UPLOAD_MAX_BYTES})` };
+    const dataB64 = Buffer.from(await f.arrayBuffer()).toString("base64");
+    const mime = MIME_BY_EXT[extname(path).toLowerCase()] || "application/octet-stream";
+    return { ref, dataB64, filename: basename(path), mime };
+  } catch (e) {
+    return { error: `browser_upload: cannot read ${path}: ${String((e as Error)?.message || e)}` };
+  }
+}
 
 /**
  * Tauri native pane vision: `browser_read_screen` / `browser_point` have no
@@ -193,6 +232,18 @@ export async function dispatchBrowserToolCallByContext(
   // this is a best-effort UX side-effect, so a partial/legacy service (or a test
   // mock) without setAgentAction must never break actual tool dispatch.
   browserService.setAgentAction?.(contextId, describeBrowserAction(toolName, args));
+  // browser_upload: read the file bytes ONCE here (neither the WKWebView nor the
+  // Playwright page can read local disk), then hand the base64 to whichever
+  // surface renders the pane — the native executor evals UPLOAD_FN on Tauri, the
+  // handler evals it over CDP/Playwright. Same UPLOAD_FN, one code path each.
+  if (toolName === "browser_upload") {
+    const file = await readUploadFile(args);
+    if ("error" in file) return file;
+    if (nativeDelegateRegistry.isDelegated(contextId)) {
+      return nativeDelegateRegistry.delegateOp(contextId, "browser_upload", file);
+    }
+    return handleBrowserUpload(browserService, contextId, file);
+  }
   // Tauri native pane: this contextId belongs to a real WKWebView the server can't
   // reach via CDP/Playwright. A Tauri client has registered as its executor over
   // /ws/browser, so forward the WHOLE tool-call there and return the client's reply.

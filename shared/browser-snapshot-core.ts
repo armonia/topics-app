@@ -492,3 +492,52 @@ export const EXTRACT_FN = (spec: Record<string, any>): Record<string, unknown> =
   }
   return out;
 };
+
+/**
+ * In-page file upload: set a base64-encoded file onto an `<input type=file>` and
+ * fire input/change, exactly as if the OS file dialog had picked it. Self-contained
+ * (stringified + run in the page) so it works on EVERY surface — server Playwright /
+ * Electron CDP via `evalExpression`, and the Tauri WKWebView via `browser_eval_js`.
+ * Assigns `input.files` through a DataTransfer (the one supported way to set a file
+ * programmatically). Targets the element carrying `data-topics-ref` (from the latest
+ * browser_observe) when `ref` is given, else the first file input; if the ref is a
+ * wrapper (label/button), it looks for a file input inside. Returns a JSON string so
+ * the eval bridges (which stringify results) round-trip a structured result.
+ * NOTE: the change event is untrusted (isTrusted=false) — covers the vast majority
+ * of upload widgets; a few that demand a trusted picker will differ.
+ */
+export const UPLOAD_FN = (p: {
+  ref?: number;
+  dataB64: string;
+  filename?: string;
+  mime?: string;
+}): string => {
+  try {
+    const q = (sel: string): any => document.querySelector(sel);
+    let input: any =
+      p.ref != null ? q('[data-topics-ref="' + p.ref + '"]') : q('input[type=file]');
+    if (!input)
+      return JSON.stringify({
+        error: p.ref != null ? "no element with ref " + p.ref : "no <input type=file> found",
+      });
+    if (!(input.tagName === "INPUT" && input.type === "file")) {
+      const inner = input.querySelector && input.querySelector('input[type=file]');
+      if (inner) input = inner;
+      else return JSON.stringify({ error: "ref " + p.ref + " is not a file input" });
+    }
+    const bin = atob(p.dataB64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const file = new File([bytes], p.filename || "upload", {
+      type: p.mime || "application/octet-stream",
+    });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return JSON.stringify({ ok: true, name: file.name, size: file.size, type: file.type });
+  } catch (e: any) {
+    return JSON.stringify({ error: String((e && e.message) || e) });
+  }
+};
