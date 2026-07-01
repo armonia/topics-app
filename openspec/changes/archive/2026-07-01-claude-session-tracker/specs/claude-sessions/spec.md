@@ -45,8 +45,10 @@ The system SHALL expose `POST /api/claude-hooks/:event` that accepts Claude Code
 #### Scenario: Rate limit applied per claude_session_id
 - **GIVEN** session X has produced 50 hook events in the past second
 - **WHEN** a 51st event arrives within the same window
-- **THEN** the server responds 429 and the event is dropped
+- **THEN** the server responds 200 with `{ok: true, result: 'rate-limited'}` and the event is dropped without altering session state
 - **AND** a warning is logged with `claude_session_id` and event name
+
+> Note: the endpoint deliberately never returns 4xx to authenticated hook callers — hook wrapper scripts must never crash a Claude Code session because the server refused an event. 4xx is reserved for protocol-level failures (bad token, non-localhost, malformed JSON); semantic outcomes (dedup, rate-limit, unknown session) are reported in the 200 body's `result` kind (see `server/routes/claude-hooks.ts`).
 
 ### Requirement: CCS-03 — Phase derivation from hooks
 
@@ -118,8 +120,8 @@ The system SHALL provide a script that installs Topics App hook wrappers into `~
 #### Scenario: First-time install
 - **GIVEN** the user has never run the installer
 - **WHEN** the user runs `bun run hooks:install`
-- **THEN** `~/.claude/topics-hooks/` exists with eight shell scripts
-- **AND** `~/.claude/settings.json` contains a `hooks` block referencing those scripts
+- **THEN** `~/.claude/topics-hooks/` exists with ONE shared wrapper script (`post-hook.sh`), registered for 7 hook events (`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop` — `SubagentStop` intentionally dropped, a no-op in `applyHook`)
+- **AND** `~/.claude/settings.json` contains a `hooks` block referencing that wrapper with the event name as argument
 - **AND** `~/.claude/topics-app/hook-token` exists with mode 0600
 
 #### Scenario: Re-running installer is idempotent
