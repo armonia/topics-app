@@ -9,10 +9,11 @@ import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useTopicLoading, useTopicAwaitingFeedback } from '@/state/signals';
+import { useTopicLoading, useTopicAttentionTier } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
+import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { GridLoader } from '@/components/Layout/StreamingIndicator';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 
@@ -86,9 +87,14 @@ export const TopicItem = memo(function TopicItem({
   // Canonical streaming signal — same context the chat tab reads. No
   // upstream prop needed; deduplicates the wiring across surfaces.
   const isStreaming = useTopicLoading(topic.id);
-  // Blue "awaiting feedback" wash — same signal/look the chat tab uses, so the
-  // sidebar row and the tab can't drift (tabbar ≡ sidebar invariant).
-  const isAwaitingFeedback = useTopicAwaitingFeedback(topic.id);
+  // Attention TIER — amber 'input' (a permission gate, act now) vs blue 'done'
+  // (turn finished, look when ready), or null. Same signal/look the chat tab
+  // uses, so the sidebar row and the tab can't drift (tabbar ≡ sidebar
+  // invariant). The FILL only shows on an UNfocused row — focus clears it (you've
+  // seen the row you're on), so a focused needy row reads as plain selected and
+  // its labels use normal text, not the on-fill white.
+  const attentionTier = useTopicAttentionTier(topic.id);
+  const onFill = attentionTier !== null && !isFocused;
   // Where this topic's pane sits in the standalone split grid (undefined unless
   // it's open AND the grid is split). Rendered as the same proportional
   // mini-map the tab shows, so the sidebar card mirrors the tab's position cue.
@@ -171,7 +177,7 @@ export const TopicItem = memo(function TopicItem({
         // sidebar row type. No border (hairlines read as dividing lines); a
         // filled inset rounded surface makes each row a tab-like card.
         `group flex items-center gap-2 min-h-[40px] h-10 md:min-h-[34px] md:h-[34px] ${ROW_PX} cursor-pointer text-[14px] md:text-[13px] font-medium select-none`,
-        sidebarRowCard({ focused: isFocused, open: isOpen, awaiting: isAwaitingFeedback }),
+        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier }),
         // Preview panels show italic name
         isPreview && 'italic',
         isArchived && 'opacity-60',
@@ -216,18 +222,25 @@ export const TopicItem = memo(function TopicItem({
         </span>
       )}
 
-      {/* Name */}
-      <span className={cn(
-        "flex-1 truncate leading-none",
-        notificationCount > 0 && !isFocused && "font-semibold text-app-text"
-      )}>
-        {topic.name}
-      </span>
+      {/* Name + live "what it's doing" subline. The subline (SessionActivity)
+          self-hides when the session is idle, so idle rows stay single-line; on
+          the mobile full-screen sidebar it's the primary "what is it doing"
+          surface. On an attention fill the name goes white (fixes grey-on-blue). */}
+      <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+        <span className={cn(
+          "truncate leading-none",
+          onFill && cn("font-semibold", ON_FILL_TEXT),
+          !onFill && notificationCount > 0 && !isFocused && "font-semibold text-app-text"
+        )}>
+          {topic.name}
+        </span>
+        <SessionActivity subjectId={topic.id} onFill={onFill} />
+      </div>
 
       {/* Cloud (OpenClaw) attribute — a quiet glyph marking this row as a cloud
           session, not a local one. Muted tone (not the attention axis). */}
       {topic.provider === 'openclaw' && (
-        <span className="flex-shrink-0 flex items-center text-app-text-tertiary" title="Cloud (OpenClaw)" aria-label="Sessione cloud (OpenClaw)">
+        <span className={cn("flex-shrink-0 flex items-center", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")} title="Cloud (OpenClaw)" aria-label="Sessione cloud (OpenClaw)">
           <Cloud size={12} />
         </span>
       )}
@@ -277,7 +290,7 @@ export const TopicItem = memo(function TopicItem({
           <>
             {topic.updatedAt && (
               <span
-                className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums"
+                className={cn("flex-shrink-0 text-[11px] tabular-nums", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
                 title={new Date(topic.updatedAt).toLocaleString()}
               >
                 {relativeTime(topic.updatedAt)}
@@ -328,7 +341,7 @@ export const TopicItem = memo(function TopicItem({
               <>
                 {topic.updatedAt && (
                   <span
-                    className="text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden"
+                    className={cn("text-[11px] tabular-nums group-hover:hidden", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
                     title={new Date(topic.updatedAt).toLocaleString()}
                   >
                     {relativeTime(topic.updatedAt)}
@@ -363,7 +376,7 @@ export const TopicItem = memo(function TopicItem({
       {/* Notification badge — hidden when focused so the user doesn't see a
           count for the topic they're actively looking at. The only element
           after the spinner/timestamp slot, so "working" reads at the row end. */}
-      {!isFocused && <NotificationBadge count={notificationCount} />}
+      {!isFocused && <NotificationBadge count={notificationCount} variant={onFill ? 'onFill' : 'default'} />}
     </div>
   );
 });
