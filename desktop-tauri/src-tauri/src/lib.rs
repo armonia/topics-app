@@ -1168,8 +1168,48 @@ fn main_window_logical_size(app: &tauri::AppHandle) -> Option<(f64, f64)> {
     Some((is.width as f64 / sf, is.height as f64 / sf))
 }
 
+/// Deterministic 16-byte data-store identifier for a pane's contextId — feeds
+/// `WKWebsiteDataStore dataStoreForIdentifier:` (via tauri's
+/// `data_store_identifier`, plumbed to wry) so each isolated pane gets its OWN
+/// cookie/localStorage silo that PERSISTS across app restarts (the contextId is
+/// stable in the pane store, e.g. `browser:<uuid>` or the project path).
+///
+/// Two seeded FNV-1a 64-bit hashes → 16 bytes, then RFC 4122 version/variant
+/// bits are forced (also guarantees the UUID is never all-zero, which
+/// dataStoreForIdentifier rejects). ⚠️ This derivation is CONTRACT: changing
+/// seeds/algorithm orphans every existing pane's cookie store on disk.
+fn data_store_uuid_for(context_id: &str) -> [u8; 16] {
+    fn fnv1a64(seed: u64, bytes: &[u8]) -> u64 {
+        let mut h = seed;
+        for &b in bytes {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        h
+    }
+    // Seed A = FNV-1a offset basis; seed B = golden-ratio constant (distinct
+    // streams over the same input → 128 independent-ish bits).
+    let a = fnv1a64(0xcbf2_9ce4_8422_2325, context_id.as_bytes());
+    let b = fnv1a64(0x9e37_79b9_7f4a_7c15, context_id.as_bytes());
+    let mut out = [0u8; 16];
+    out[..8].copy_from_slice(&a.to_be_bytes());
+    out[8..].copy_from_slice(&b.to_be_bytes());
+    out[6] = (out[6] & 0x0F) | 0x40; // version nibble (v4 layout) — never zero
+    out[8] = (out[8] & 0x3F) | 0x80; // RFC 4122 variant
+    out
+}
+
 /// Create (or, if it already exists, reuse) the native webview for a browser
 /// pane and place it at the given window-relative rect.
+///
+/// `isolate: Some(true)` gives the NEW pane its own persistent
+/// `WKWebsiteDataStore` keyed on `id` (per-topic cookie/localStorage isolation).
+/// Optional + default-off on purpose: every existing pane lives in the SHARED
+/// default store, so flipping isolation unconditionally would silently drop all
+/// current logins. macOS 14+ only — on 13 wry silently falls back to the shared
+/// default store (no error), so isolation degrades gracefully. Applies at
+/// creation only: an already-open pane keeps whatever store it was built with
+/// (the WKWebViewConfiguration is consumed inside wry) until closed + reopened.
 #[tauri::command]
 fn browser_open(
     app: tauri::AppHandle,
@@ -1179,6 +1219,7 @@ fn browser_open(
     y: f64,
     width: f64,
     height: f64,
+    isolate: Option<bool>,
 ) -> Result<(), String> {
     use tauri::Manager;
     let label = browser_label(&id);
@@ -1189,10 +1230,38 @@ fn browser_open(
     }
     let window = app.get_window("main").ok_or("no 'main' window")?;
     let parsed: tauri::Url = url.parse().map_err(|_| format!("bad url: {url}"))?;
+    // window.open / target=_blank: wry's WKUIDelegate asks this handler what to
+    // do (with NO handler set the popup was silently dropped). Electron-parity
+    // semantics (setWindowOpenHandler): never spawn a detached native window —
+    // navigate the SAME pane in place for web URLs and deny the popup; deny
+    // silently for non-web schemes. The handler runs inside the UI delegate on
+    // the main thread, so the navigation is deferred to the async runtime
+    // (Webview::navigate marshals back to main itself) rather than re-entering
+    // WebKit mid-delegate. NOTE: the popup sees a nil return (window.open() →
+    // null), so opener/postMessage popup flows won't link up — accepted.
+    let nw_app = app.clone();
+    let nw_label = label.clone();
+    let mut builder = tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
+        .initialization_script(CONSOLE_PROXY_JS)
+        .on_new_window(move |url, _features| {
+            let scheme = url.scheme();
+            if scheme == "http" || scheme == "https" {
+                let app = nw_app.clone();
+                let label = nw_label.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(wv) = app.get_webview(&label) {
+                        let _ = wv.navigate(url);
+                    }
+                });
+            }
+            tauri::webview::NewWindowResponse::Deny
+        });
+    if isolate.unwrap_or(false) {
+        builder = builder.data_store_identifier(data_store_uuid_for(&id));
+    }
     window
         .add_child(
-            tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
-                .initialization_script(CONSOLE_PROXY_JS)
+            builder
                 .on_download(|_webview, event| {
                     use tauri::webview::DownloadEvent;
                     match event {
@@ -1544,6 +1613,293 @@ async fn browser_screenshot(app: tauri::AppHandle, id: String) -> Result<String,
         {
             let _ = wv;
             Err("browser_screenshot: macOS only".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ── Cookies (WKHTTPCookieStore) ──────────────────────────────────────────────
+// Read/write the pane's cookie jar so the server's save_state / load_state /
+// import_chrome tools work on the NATIVE pane (they speak Playwright
+// storageState JSON — server/browser-login-state.ts StorageCookie). WKWebView
+// has no CDP; the jar is `webview.configuration.websiteDataStore.httpCookieStore`
+// (the pane's OWN isolated store when opened with `isolate`, the shared default
+// store otherwise — so on non-isolated panes a set_cookies leaks into every
+// other non-isolated pane; documented semantics, not a bug). Unlike
+// document.cookie this reaches httpOnly cookies too.
+
+/// Playwright storageState cookie — the wire shape both new cookie commands
+/// speak (matches server/browser-login-state.ts `StorageCookie`).
+/// `expires`: epoch seconds, -1 (or absent) = session cookie.
+#[derive(Clone, Serialize, Deserialize)]
+struct CookieJson {
+    name: String,
+    value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires: Option<f64>,
+    #[serde(rename = "httpOnly", skip_serializing_if = "Option::is_none")]
+    http_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secure: Option<bool>,
+    #[serde(rename = "sameSite", skip_serializing_if = "Option::is_none")]
+    same_site: Option<String>,
+}
+
+/// NSString (or any NSObject via `description`) → Rust String. nil → "".
+/// SAFETY: `obj` must be nil or a valid ObjC object.
+#[cfg(target_os = "macos")]
+unsafe fn nsobject_to_string(obj: cocoa::base::id) -> String {
+    use cocoa::base::nil;
+    use objc::{msg_send, sel, sel_impl};
+    use std::ffi::CStr;
+    use std::os::raw::c_char;
+    if obj == nil {
+        return String::new();
+    }
+    let desc: cocoa::base::id = msg_send![obj, description];
+    let c: *const c_char = msg_send![desc, UTF8String];
+    if c.is_null() { String::new() } else { CStr::from_ptr(c).to_string_lossy().into_owned() }
+}
+
+/// `[dict setObject:<NSString val> forKey:<NSString key>]` — property-dict helper
+/// for `NSHTTPCookie cookieWithProperties:`. SAFETY: `dict` must be a valid
+/// NSMutableDictionary.
+#[cfg(target_os = "macos")]
+unsafe fn ns_dict_set_str(dict: cocoa::base::id, key: &str, val: &str) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{msg_send, sel, sel_impl};
+    let k: id = NSString::alloc(nil).init_str(key);
+    let v: id = NSString::alloc(nil).init_str(val);
+    let _: () = msg_send![dict, setObject: v forKey: k];
+}
+
+/// Dump the pane's WKHTTPCookieStore as storageState-cookie JSON (a serialized
+/// `Vec<CookieJson>`). Same async-objc bridge as `eval_js_blocking`: the
+/// `getAllCookies:` completion handler runs ON MAIN, its result crosses back on
+/// a channel — so this MUST be called off-main (see browser_eval_js's rationale).
+#[cfg(target_os = "macos")]
+fn cookies_get_blocking(wv: &tauri::Webview) -> Result<String, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    wv.with_webview(move |platform| {
+        use cocoa::base::{id, nil, BOOL, YES};
+        use objc::{msg_send, sel, sel_impl};
+        unsafe {
+            let wk = platform.inner() as id; // WKWebView
+            let config: id = msg_send![wk, configuration];
+            let store: id = msg_send![config, websiteDataStore];
+            let jar: id = msg_send![store, httpCookieStore];
+            let tx2 = tx.clone();
+            let handler = block::ConcreteBlock::new(move |cookies: id| {
+                let mut list: Vec<CookieJson> = Vec::new();
+                if cookies != nil {
+                    let count: usize = msg_send![cookies, count];
+                    for i in 0..count {
+                        let c: id = msg_send![cookies, objectAtIndex: i];
+                        if c == nil {
+                            continue;
+                        }
+                        let name: id = msg_send![c, name];
+                        let value: id = msg_send![c, value];
+                        let domain: id = msg_send![c, domain];
+                        let path: id = msg_send![c, path];
+                        // nil expiresDate = session cookie → Playwright's -1.
+                        let exp: id = msg_send![c, expiresDate];
+                        let expires: f64 = if exp == nil {
+                            -1.0
+                        } else {
+                            msg_send![exp, timeIntervalSince1970]
+                        };
+                        let secure: BOOL = msg_send![c, isSecure];
+                        let http_only: BOOL = msg_send![c, isHTTPOnly];
+                        // sameSitePolicy: NSString @"lax"/@"strict", nil = no
+                        // restriction → storageState's "None".
+                        let ss: id = msg_send![c, sameSitePolicy];
+                        let same_site = if ss == nil {
+                            "None".to_string()
+                        } else {
+                            match nsobject_to_string(ss).to_ascii_lowercase().as_str() {
+                                "lax" => "Lax".to_string(),
+                                "strict" => "Strict".to_string(),
+                                _ => "None".to_string(),
+                            }
+                        };
+                        list.push(CookieJson {
+                            name: nsobject_to_string(name),
+                            value: nsobject_to_string(value),
+                            domain: Some(nsobject_to_string(domain)),
+                            path: Some(nsobject_to_string(path)),
+                            expires: Some(expires),
+                            http_only: Some(http_only == YES),
+                            secure: Some(secure == YES),
+                            same_site: Some(same_site),
+                        });
+                    }
+                }
+                let _ = tx2.send(serde_json::to_string(&list).map_err(|e| e.to_string()));
+            });
+            let handler = handler.copy();
+            let _: () = msg_send![jar, getAllCookies: &*handler];
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| "get cookies timeout".to_string())?
+}
+
+/// Message channel for cookies_set_blocking: the with_webview closure first
+/// reports how many cookies were valid vs skipped, then one Done per
+/// `setCookie:completionHandler:` completion. All sends happen on the main
+/// thread in program order, so Counts always arrives first.
+#[cfg(target_os = "macos")]
+enum CookieSetMsg {
+    Counts { set: usize, skipped: usize },
+    Done,
+}
+
+/// Inject storageState cookies into the pane's WKHTTPCookieStore. Builds each
+/// `NSHTTPCookie cookieWithProperties:` from the documented literal keys
+/// ("Name"/"Value"/"Domain"/"Path"/"Expires"/"Secure"); httpOnly rides the
+/// UNDOCUMENTED "HttpOnly" key (works in practice — Cordova/Capacitor rely on
+/// it — worst case the cookie lands non-httpOnly, which still authenticates).
+/// Cookies with no domain, or that NSHTTPCookie rejects (nil), are counted as
+/// skipped. Returns `{"set":n,"skipped":m}`. Off-main only (main-thread
+/// completion handlers, same as cookies_get_blocking).
+#[cfg(target_os = "macos")]
+fn cookies_set_blocking(wv: &tauri::Webview, cookies: Vec<CookieJson>) -> Result<String, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (tx, rx) = mpsc::channel::<CookieSetMsg>();
+    wv.with_webview(move |platform| {
+        use cocoa::base::{id, nil};
+        use cocoa::foundation::NSString;
+        use objc::{class, msg_send, sel, sel_impl};
+        unsafe {
+            let wk = platform.inner() as id; // WKWebView
+            let config: id = msg_send![wk, configuration];
+            let store: id = msg_send![config, websiteDataStore];
+            let jar: id = msg_send![store, httpCookieStore];
+            let mut natives: Vec<id> = Vec::new();
+            let mut skipped = 0usize;
+            for ck in &cookies {
+                // NSHTTPCookie needs Domain (we never pass OriginURL).
+                let Some(domain) = ck.domain.as_deref().filter(|d| !d.is_empty()) else {
+                    skipped += 1;
+                    continue;
+                };
+                let props: id = msg_send![class!(NSMutableDictionary), dictionary];
+                ns_dict_set_str(props, "Name", &ck.name);
+                ns_dict_set_str(props, "Value", &ck.value);
+                ns_dict_set_str(props, "Domain", domain);
+                ns_dict_set_str(props, "Path", ck.path.as_deref().filter(|p| !p.is_empty()).unwrap_or("/"));
+                // expires <= 0 (Playwright -1) = session cookie → omit Expires.
+                if let Some(exp) = ck.expires.filter(|e| *e > 0.0) {
+                    let date: id = msg_send![class!(NSDate), dateWithTimeIntervalSince1970: exp];
+                    let k: id = NSString::alloc(nil).init_str("Expires");
+                    let _: () = msg_send![props, setObject: date forKey: k];
+                }
+                // NSHTTPCookieSecure: PRESENCE of any value marks the cookie secure.
+                if ck.secure == Some(true) {
+                    ns_dict_set_str(props, "Secure", "TRUE");
+                }
+                if ck.http_only == Some(true) {
+                    ns_dict_set_str(props, "HttpOnly", "TRUE");
+                }
+                // NSHTTPCookieSameSitePolicy (@"SameSite"): lowercase "lax"/"strict";
+                // "None"/absent = unrestricted → omit the key.
+                match ck.same_site.as_deref() {
+                    Some("Lax") => ns_dict_set_str(props, "SameSite", "lax"),
+                    Some("Strict") => ns_dict_set_str(props, "SameSite", "strict"),
+                    _ => {}
+                }
+                let cookie: id = msg_send![class!(NSHTTPCookie), cookieWithProperties: props];
+                if cookie == nil {
+                    skipped += 1;
+                } else {
+                    natives.push(cookie);
+                }
+            }
+            let _ = tx.send(CookieSetMsg::Counts { set: natives.len(), skipped });
+            for c in natives {
+                let tx2 = tx.clone();
+                let done = block::ConcreteBlock::new(move || {
+                    let _ = tx2.send(CookieSetMsg::Done);
+                });
+                let done = done.copy();
+                let _: () = msg_send![jar, setCookie: c completionHandler: &*done];
+            }
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    let (set, skipped) = match rx.recv_timeout(Duration::from_secs(8)) {
+        Ok(CookieSetMsg::Counts { set, skipped }) => (set, skipped),
+        Ok(CookieSetMsg::Done) | Err(_) => return Err("set cookies timeout".to_string()),
+    };
+    for _ in 0..set {
+        if rx.recv_timeout(Duration::from_secs(8)).is_err() {
+            return Err("set cookies timeout".to_string());
+        }
+    }
+    Ok(format!("{{\"set\":{set},\"skipped\":{skipped}}}"))
+}
+
+/// Dump the pane's cookie jar as storageState-cookie JSON (stringified
+/// `[{name,value,domain,path,expires,httpOnly,secure,sameSite}, …]`) — feeds
+/// save_state / import_chrome dry-run diffs for the native pane. Async +
+/// spawn_blocking for the SAME reason as browser_eval_js (main-thread
+/// completion handler; a sync command would deadlock main → frozen app).
+#[tauri::command]
+async fn browser_pane_get_cookies(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            return cookies_get_blocking(&wv);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = wv;
+            Err("browser_pane_get_cookies: macOS only".to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Inject storageState cookies into the pane's jar (load_state / import_chrome
+/// for the native pane). Returns `{"set":n,"skipped":m}`. Async + spawn_blocking
+/// — see browser_pane_get_cookies.
+#[tauri::command]
+async fn browser_pane_set_cookies(
+    app: tauri::AppHandle,
+    id: String,
+    cookies: Vec<CookieJson>,
+) -> Result<String, String> {
+    let label = browser_label(&id);
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&label)
+            .ok_or_else(|| "no such browser pane".to_string())?;
+        #[cfg(target_os = "macos")]
+        {
+            return cookies_set_blocking(&wv, cookies);
+        }
+        #[allow(unreachable_code)]
+        {
+            let _ = (wv, cookies);
+            Err("browser_pane_set_cookies: macOS only".to_string())
         }
     })
     .await
@@ -2940,6 +3296,7 @@ pub fn run() {
                                 y,
                                 w,
                                 ht,
+                                None,
                             ) {
                                 Ok(()) => eprintln!("[corner-demo] opened ok"),
                                 Err(e) => eprintln!("[corner-demo] open err: {e}"),
@@ -3165,6 +3522,8 @@ pub fn run() {
             browser_close,
             browser_eval_js,
             browser_screenshot,
+            browser_pane_get_cookies,
+            browser_pane_set_cookies,
             browser_exec_js,
             browser_back,
             browser_forward,
