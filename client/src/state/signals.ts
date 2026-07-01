@@ -706,4 +706,27 @@ export function rollupProjectAttention(
   return sum;
 }
 
+/**
+ * App-wide attention total for the desktop dock badge + macOS menu-bar tray glyph
+ * (Electron parity). The number of things needing the user across EVERY topic and
+ * terminal, using the SAME per-subject attention the tab badges show — chats
+ * contribute their unread-or-awaiting count, finished claude-code turns one each —
+ * summed once. Pure so it's unit-testable and shares the single definition of
+ * "attention" with the tab bar / sidebar (no drift). Agent/session-viewer pane
+ * badges live in the notification layer's local `extraCounts`, so the caller adds
+ * those; keeping them out here keeps this a pure function of the global stores.
+ */
+export function rollupGlobalAttention(
+  topics: Record<string, Topic>,
+  unread: Record<string, { unreadCount: number } | undefined>,
+  claudeAttentionTopics: Set<string>,
+  terminalFinishedIds: Set<string>,
+): number {
+  let sum = 0;
+  for (const t of Object.values(topics)) {
+    sum += topicAttentionCount(t.id, unread, claudeAttentionTopics);
+  }
+  return sum + terminalFinishedIds.size;
+}
+
 export { topicIdOf, terminalIdOf, projectPathOf };

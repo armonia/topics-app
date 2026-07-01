@@ -247,6 +247,60 @@ fn notify(app: tauri::AppHandle, title: String, body: String) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
+/// Reflect the app-wide attention total on the dock-icon badge AND the macOS
+/// menu-bar tray glyph (Electron parity: its tray is dynamic — dock `setBadgeCount`
+/// + `set_title`). `count` = the number of things needing the user right now
+/// (unread chats + Claude-awaiting + finished agent turns + agent escalations),
+/// computed centrally by the client from the SAME signals the in-app tab badges
+/// read (see `useTabNotifications`), so the dock number can never drift from what's
+/// on screen. 0 clears both surfaces. No-op off macOS (no dock; a Win/Linux
+/// taskbar badge can follow later).
+#[tauri::command]
+fn set_app_status(app: tauri::AppHandle, count: u32) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.run_on_main_thread(move || set_dock_badge(count));
+        }
+        // Menu-bar tray: show the count next to the icon + reflect it in the tooltip.
+        // Retrieved by the id assigned at build time (`TrayIconBuilder::with_id`).
+        if let Some(tray) = app.tray_by_id("main") {
+            let title = if count > 0 { Some(count.to_string()) } else { None };
+            let tip = if count > 0 {
+                format!("Topics — {count} in attesa")
+            } else {
+                "Topics".to_string()
+            };
+            let _ = tray.set_title(title);
+            let _ = tray.set_tooltip(Some(tip));
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, count);
+}
+
+/// Set (or clear, when 0) the macOS dock-icon badge label via the shared
+/// `NSApplication` dock tile. AppKit UI call — the caller runs it on the main
+/// thread. Electron's `app.dock.setBadge` equivalent.
+#[cfg(target_os = "macos")]
+fn set_dock_badge(count: u32) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+    unsafe {
+        let ns_app: id = msg_send![class!(NSApplication), sharedApplication];
+        let tile: id = msg_send![ns_app, dockTile];
+        if count == 0 {
+            let _: () = msg_send![tile, setBadgeLabel: nil];
+        } else {
+            let label: id = NSString::alloc(nil).init_str(&count.to_string());
+            let _: () = msg_send![tile, setBadgeLabel: label];
+        }
+    }
+}
+
 /// Update metadata handed to the renderer by `updater_check`.
 #[derive(Serialize)]
 struct UpdateInfo {
@@ -2976,7 +3030,7 @@ pub fn run() {
                 let show = MenuItem::with_id(handle, "tray-show", "Mostra Topics", true, None::<&str>)?;
                 let quit = MenuItem::with_id(handle, "tray-quit", "Esci", true, None::<&str>)?;
                 let tray_menu = MenuBuilder::new(handle).items(&[&show, &quit]).build()?;
-                let mut builder = TrayIconBuilder::new()
+                let mut builder = TrayIconBuilder::with_id("main")
                     .tooltip("Topics")
                     .menu(&tray_menu)
                     .on_menu_event(|app, event| match event.id().0.as_str() {
@@ -3019,6 +3073,7 @@ pub fn run() {
             set_traffic_lights,
             set_theme,
             notify,
+            set_app_status,
             vibrancy_set_regions,
             vibrancy_animate_regions,
             browser_open,
