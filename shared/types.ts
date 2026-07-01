@@ -11,7 +11,7 @@
  *     client unchanged (ProviderSnapshotEntry, ProvidersSnapshot,
  *     ProviderRequirement).
  *   - User input / form-response envelopes shared by both halves
- *     (UserInputSchema, ToolUserResponse) — TODO once we touch them.
+ *     (AskUserQuestionItem, UserInputSchema, ToolUserResponse).
  *
  * What does NOT belong here:
  *   - Client-only render-state types (e.g. UI-flavour fields on Topic).
@@ -39,6 +39,52 @@
  *   error               — terminal, with an error field
  */
 export type ToolCallStatus = 'pending' | 'running' | 'waiting_for_input' | 'success' | 'error';
+
+// ─── User-input request / response envelopes ───────────────────────────
+//
+// Emitted when a tool needs human input (`status === 'waiting_for_input'`).
+// The dispatcher persists `userResponse` and re-injects it into the
+// provider stream verbatim, so these are on-wire payloads — any change
+// must keep both halves compatible in the same commit.
+
+/** One question emitted by the AskUserQuestion tool. */
+export interface AskUserQuestionItem {
+  question: string;
+  /** Short label, ≤ 12 chars by SDK convention. */
+  header: string;
+  options: { label: string; description?: string }[];
+  multiSelect?: boolean;
+}
+
+/**
+ * The input form a tool requests from the user. Persisted on the
+ * tool-call row so re-renders / scroll-back show the original prompt
+ * next to `userResponse`.
+ */
+export type UserInputSchema =
+  | { kind: 'questions'; questions: AskUserQuestionItem[] }
+  | {
+      kind: 'elicitation';
+      requestedSchema: unknown; // JSON Schema — opaque here, narrowed by form runtime
+      message?: string;
+    }
+  | { kind: 'raw'; rawInput: unknown };
+
+/**
+ * The answer the user submitted via `POST /api/chat/tool-response`.
+ * Persisted onto the message blob so the exchange survives session
+ * restart and is auditable in scroll-back.
+ */
+export type ToolUserResponse =
+  | {
+      kind: 'questions';
+      /** Keyed by `question` text; values are the selected label or free text. */
+      answers: Record<string, string>;
+      metadata?: Record<string, unknown>;
+      submittedAt: string;
+    }
+  | { kind: 'elicitation'; value: unknown; submittedAt: string }
+  | { kind: 'raw'; text: string; submittedAt: string };
 
 // ─── Provider snapshot (REST + WS broadcasts) ──────────────────────────
 
