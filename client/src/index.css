@@ -1067,6 +1067,26 @@ input[type="range"]::-webkit-slider-thumb {
   will-change: opacity;
 }
 
+/* Amber "awaiting INPUT" tab/row — the LOUD tier: a permission gate the session
+ * is BLOCKED on, needing an answer now. A brighter, faster breathe than the calm
+ * blue done-unseen pulse so "act now" reads as more urgent than "finished". Same
+ * compositor-only ::after opacity technique (zero per-frame main-thread cost). */
+@keyframes awaiting-attention {
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 0.22; }
+}
+.animate-awaiting-attention::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  animation: awaiting-attention 1.15s ease-in-out infinite;
+  will-change: opacity;
+}
+
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
  * useAnimationPause, which toggles `.anims-paused` on <html> on blur/hide). On
  * the big transparent-vibrancy desktop window the always-running loaders

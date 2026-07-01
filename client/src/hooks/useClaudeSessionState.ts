@@ -118,6 +118,39 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
     });
   });
 
+  // Stale-attention TTL sweep. A session that DIES without a terminating event
+  // (process killed, SessionEnd hook lost, and no WS reconnect to heal via the
+  // bootstrap above) keeps its phase forever — an amber/blue tab "lit up at
+  // random" long after anything is really waiting on you. So periodically demote
+  // an ABANDONED attention phase to `dormant` (no fill). Deliberately scoped to
+  // `awaiting-approval` + `paused`: a stale permission gate is the worst offender
+  // (the server reaper turns awaiting-approval→paused at 10 min, then it sits
+  // forever). `awaiting-user` is LEFT ALONE — "your turn" legitimately lasts as
+  // long as you're away, and the focus-clears-the-fill rule already stops it
+  // flashing on the tab you're viewing. Server truth still wins: a fresh
+  // session:state (or the reconnect bootstrap) re-instates a real phase.
+  useEffect(() => {
+    const STALE_MS = 30 * 60_000; // 30 min with no update → treat as abandoned
+    const sweep = () => {
+      const now = Date.now();
+      setSessions((prev) => {
+        let changed = false;
+        let next: Map<string, ClaudeSessionState> | null = null;
+        for (const [key, st] of prev) {
+          if (st.phase !== 'awaiting-approval' && st.phase !== 'paused') continue;
+          const last = st.updatedAt || st.phaseUpdatedAt || 0;
+          if (now - last < STALE_MS) continue;
+          if (!next) next = new Map(prev);
+          next.set(key, { ...st, phase: 'dormant', phaseUpdatedAt: now, updatedAt: now });
+          changed = true;
+        }
+        return changed && next ? next : prev;
+      });
+    };
+    const interval = setInterval(sweep, 5 * 60_000); // check every 5 min
+    return () => clearInterval(interval);
+  }, []);
+
   const getByClaudeSessionId = useCallback((id: string): ClaudeSessionState | undefined => {
     for (const s of sessionsRef.current.values()) {
       if (s.claudeSessionId === id) return s;

@@ -3,6 +3,7 @@ import { LazyPane } from './LazyPane';
 import { Settings, Pin, X, ExternalLink, Layers, Globe, Cloud } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
+import { SessionActivityBar } from '../Shared/SessionActivity';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { TopicIcon } from '@/lib/topicIcons';
 import { topicsApi, commandApi } from '../../lib/api';
@@ -224,6 +225,11 @@ export function ChatPanel({
           )}
           {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={14} /></button>}
         </div>}
+
+        {/* Mobile "what is this session doing" strip — front-and-centre on the
+            small screen (the sidebar list carries it on desktop). Self-hides when
+            the session is idle. */}
+        {isMobile && <SessionActivityBar subjectId={topic.id} />}
 
         {/* Banners */}
         {suggestedProject && (

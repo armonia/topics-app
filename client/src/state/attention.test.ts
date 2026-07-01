@@ -10,8 +10,12 @@
  *     map (tab bar) or the lead-filtered one (sidebar).
  */
 import { describe, test, expect } from "bun:test";
-import { topicAttentionCount, terminalAttentionCount, rollupProjectAttention, rollupGlobalAttention } from "./signals";
-import type { Topic, TerminalSessionInfo } from "../types";
+import {
+  topicAttentionCount, terminalAttentionCount, rollupProjectAttention, rollupGlobalAttention,
+  attentionTierForPhase, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics,
+  derivePhaseTerminals, projectAttentionTier, deriveSessionActivity,
+} from "./signals";
+import type { Topic, TerminalSessionInfo, ClaudeSessionState } from "../types";
 
 const unread = (counts: Record<string, number>): Record<string, { unreadCount: number }> =>
   Object.fromEntries(Object.entries(counts).map(([id, n]) => [id, { unreadCount: n }]));
@@ -109,5 +113,111 @@ describe("rollupGlobalAttention", () => {
     const topics = { a: topic("a") };
     // a is BOTH 3-unread AND needs-you → still 3 (max), plus no terminals.
     expect(rollupGlobalAttention(topics, unread({ a: 3 }), new Set(["a"]), new Set())).toBe(3);
+  });
+});
+
+// ─── Attention TIER split (amber "act now" vs blue "done, look when ready") ───
+
+const sess = (over: Partial<ClaudeSessionState> = {}): ClaudeSessionState => ({
+  sessionKey: null, claudeSessionId: "c", phase: "running",
+  phaseUpdatedAt: 1000, rev: 1, updatedAt: 1000, ...over,
+});
+
+describe("attentionTierForPhase", () => {
+  test("awaiting-approval is the LOUD 'input' tier", () => {
+    expect(attentionTierForPhase("awaiting-approval")).toBe("input");
+  });
+  test("awaiting-user and paused are the calm 'done' tier", () => {
+    expect(attentionTierForPhase("awaiting-user")).toBe("done");
+    expect(attentionTierForPhase("paused")).toBe("done");
+  });
+  test("working/error/idle phases have no tier (badge handles error)", () => {
+    for (const p of ["running", "tool-running", "error", "completed", "dormant", "starting"] as const) {
+      expect(attentionTierForPhase(p)).toBeNull();
+    }
+  });
+});
+
+describe("deriveAwaitingInputTopics ⊂ deriveAwaitingFeedbackTopics", () => {
+  const topics = {
+    t1: topic("t1", { sessionKey: "k1" }),
+    t2: topic("t2", { sessionKey: "k2" }),
+    t3: topic("t3", { sessionKey: "k3" }),
+    t4: topic("t4", { sessionKey: "k4" }),
+  };
+  const sessions = new Map<string, ClaudeSessionState>([
+    ["k1", sess({ sessionKey: "k1", phase: "awaiting-approval" })],
+    ["k2", sess({ sessionKey: "k2", phase: "awaiting-user" })],
+    ["k3", sess({ sessionKey: "k3", phase: "paused" })],
+    ["k4", sess({ sessionKey: "k4", phase: "running" })],
+  ]);
+
+  test("feedback = all awaiting (approval + user + paused), not running", () => {
+    expect(deriveAwaitingFeedbackTopics(topics, sessions)).toEqual(new Set(["t1", "t2", "t3"]));
+  });
+  test("input = only the awaiting-approval subset", () => {
+    expect(deriveAwaitingInputTopics(topics, sessions)).toEqual(new Set(["t1"]));
+  });
+});
+
+describe("derivePhaseTerminals — awaitingInput is a subset of awaiting", () => {
+  const roster = [
+    { id: "term-appr", type: "claude-code", claudeSessionId: "a" },
+    { id: "term-user", type: "claude-code", claudeSessionId: "u" },
+    { id: "term-run", type: "claude-code", claudeSessionId: "r" },
+    { id: "shell", type: "shell", claudeSessionId: null },
+  ];
+  const byCsid = new Map([
+    ["a", { phase: "awaiting-approval" as const }],
+    ["u", { phase: "awaiting-user" as const }],
+    ["r", { phase: "running" as const }],
+  ]);
+
+  test("splits awaiting into the amber input subset and leaves the rest blue", () => {
+    const { active, awaiting, awaitingInput } = derivePhaseTerminals(roster, byCsid);
+    expect(active).toEqual(new Set(["term-run"]));
+    expect(awaiting).toEqual(new Set(["term-appr", "term-user"]));
+    expect(awaitingInput).toEqual(new Set(["term-appr"])); // only the permission gate
+  });
+});
+
+describe("projectAttentionTier — loudest child wins", () => {
+  const PROJ = "/work/app";
+  const topics = {
+    a: topic("a", { projectPath: PROJ }),
+    b: topic("b", { projectPath: PROJ }),
+  };
+  test("'input' if any child is awaiting a permission", () => {
+    expect(projectAttentionTier(PROJ, topics, [], new Set(["a", "b"]), new Set(), new Set(["b"]), new Set())).toBe("input");
+  });
+  test("'done' when children are only finished-unseen", () => {
+    expect(projectAttentionTier(PROJ, topics, [], new Set(["a"]), new Set(), new Set(), new Set())).toBe("done");
+  });
+  test("null when no child needs you", () => {
+    expect(projectAttentionTier(PROJ, topics, [], new Set(), new Set(), new Set(), new Set())).toBeNull();
+  });
+});
+
+describe("deriveSessionActivity", () => {
+  const topics = {
+    work: topic("work", { sessionKey: "kw" }),
+    appr: topic("appr", { sessionKey: "ka" }),
+    idle: topic("idle", { sessionKey: "ki" }),
+  };
+  const sessions = new Map<string, ClaudeSessionState>([
+    ["kw", sess({ sessionKey: "kw", phase: "tool-running", lastTool: { name: "Bash", startedAt: 2000 } })],
+    ["ka", sess({ sessionKey: "ka", phase: "awaiting-approval", pendingApproval: { kind: "edit", prompt: "?", requestedAt: 1500 } })],
+    ["ki", sess({ sessionKey: "ki", phase: "completed" })],
+  ]);
+  const activity = deriveSessionActivity(topics, [], sessions);
+
+  test("a working session reports its tool and 'since'", () => {
+    expect(activity.get("work")).toMatchObject({ working: true, tool: "Bash", since: 2000, tier: null });
+  });
+  test("an awaiting-approval session reports the 'input' tier + approval kind", () => {
+    expect(activity.get("appr")).toMatchObject({ working: false, tier: "input", approvalKind: "edit" });
+  });
+  test("an idle/completed session produces NO entry (label stays hidden)", () => {
+    expect(activity.has("idle")).toBe(false);
   });
 });
