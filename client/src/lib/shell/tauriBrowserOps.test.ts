@@ -168,15 +168,181 @@ test('observe/act/extract are now supported native ops', () => {
   expect(NATIVE_SUPPORTED_OPS.has('browser_eval')).toBe(true);
 });
 
-test('still-unsupported ops return a structured streaming-mode hint (no invoke)', async () => {
+test('ops with no native mapping return a structured streaming-mode hint (no invoke)', async () => {
   const { invoke, calls } = recordingInvoke();
-  for (const tool of ['browser_read_screen', 'browser_point', 'browser_save_state', 'browser_load_state', 'browser_import_chrome']) {
+  // read_screen/point are server-orchestrated (dispatcher nativeVisionOp) and so
+  // never delegate here as-is; if they DO arrive, the hint is the honest answer.
+  for (const tool of ['browser_read_screen', 'browser_point', 'browser_totally_new']) {
     const out = await executeNativeBrowserOp('ctx', tool, {}, invoke);
     expect(out.error).toContain('not supported on the native Tauri pane');
     expect(out.error).toContain('streaming');
     expect(NATIVE_SUPPORTED_OPS.has(tool)).toBe(false);
   }
   expect(calls).toHaveLength(0);
+});
+
+// ---------------- login-state legs (save/load/import_chrome) ----------------
+
+/** Invoke stub for the state ops mirroring the Rust reality: get_cookies returns
+ *  a JSON STRING of storageState cookies; set_cookies returns a JSON string
+ *  `{"set":n,"skipped":m}`. Plus an eval router answering the localStorage
+ *  capture / readyState probe / href reads, and a recorder for set + navigate. */
+function stateAwareInvoke(opts: {
+  paneCookies?: unknown;
+  origin?: string;
+  href?: string;
+  localStorageJson?: string;
+  failBatchSet?: boolean;
+} = {}): { invoke: Invoke; calls: Array<[string, unknown]> } {
+  const origin = opts.origin ?? 'https://example.com';
+  const calls: Array<[string, unknown]> = [];
+  const invoke: Invoke = async (cmd, args) => {
+    calls.push([cmd, args]);
+    if (cmd === 'browser_pane_get_cookies') {
+      return JSON.stringify(opts.paneCookies ?? []) as never;
+    }
+    if (cmd === 'browser_pane_set_cookies') {
+      const batch = (args as { cookies: unknown[] }).cookies;
+      if (opts.failBatchSet && batch.length > 1) throw new Error('batch rejected');
+      return JSON.stringify({ set: batch.length, skipped: 0 }) as never;
+    }
+    if (cmd === 'browser_eval_js') {
+      const js = (args as { js: string }).js;
+      if (js.includes('localStorage.key')) return (opts.localStorageJson ?? 'null') as never;
+      if (js.includes('readyState')) return JSON.stringify({ origin, ready: 'complete' }) as never;
+      if (js === 'location.href') return (opts.href ?? `${origin}/page`) as never;
+      return '' as never;
+    }
+    return '' as never;
+  };
+  return { invoke, calls };
+}
+
+test('browser_save_state parses the pane cookie jar (already storageState-shaped) + current-origin localStorage', async () => {
+  // The Rust browser_pane_get_cookies already returns storageState cookies, so
+  // this leg parses the JSON string and passes them through untouched.
+  const jarCookies = [
+    { name: 'sid', value: 's3cr3t', domain: 'example.com', path: '/', expires: 1900000000, httpOnly: true, secure: true, sameSite: 'Lax' },
+    { name: 'pref', value: 'dark', domain: '.example.com', path: '/', expires: -1, httpOnly: false, secure: false },
+  ];
+  const { invoke } = stateAwareInvoke({
+    paneCookies: jarCookies,
+    localStorageJson: JSON.stringify({ origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] }),
+  });
+  const out = await executeNativeBrowserOp('ctx', 'browser_save_state', { handle: 'example' }, invoke);
+  expect(out.result).toEqual({
+    cookies: jarCookies,
+    origins: [{ origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] }],
+  });
+});
+
+test('browser_save_state tolerates a malformed jar dump — no cookies, localStorage still exported', async () => {
+  const invoke: Invoke = async (cmd, args) => {
+    if (cmd === 'browser_pane_get_cookies') return 'not json' as never;
+    if (cmd === 'browser_eval_js') {
+      const js = (args as { js: string }).js;
+      if (js.includes('localStorage.key')) {
+        return JSON.stringify({ origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] }) as never;
+      }
+    }
+    return '' as never;
+  };
+  const out = await executeNativeBrowserOp('ctx', 'browser_save_state', { handle: 'example' }, invoke);
+  expect(out.result).toEqual({
+    cookies: [],
+    origins: [{ origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] }],
+  });
+});
+
+test('browser_load_state applies cookies + per-origin localStorage and returns to the original page', async () => {
+  clearNativeSnapshotCache('ctx');
+  const { invoke, calls } = stateAwareInvoke({ href: 'https://example.com/inbox' });
+  const state = {
+    cookies: [
+      { name: 'sid', value: 's3cr3t', domain: '.example.com', path: '/', expires: 1900000000, httpOnly: true, secure: true, sameSite: 'Lax' },
+    ],
+    origins: [
+      { origin: 'https://example.com', localStorage: [{ name: 'token', value: 'abc' }] },
+      { origin: 'file:///etc', localStorage: [{ name: 'evil', value: 'x' }] }, // non-web origin → never navigated
+    ],
+  };
+  const out = await executeNativeBrowserOp('ctx', 'browser_load_state', { state }, invoke);
+  expect(out).toEqual({ result: { ok: true, cookies: 1, origins: 1 } });
+  const set = calls.find(([c]) => c === 'browser_pane_set_cookies');
+  // Cookies pass through in the storageState (CookieJson) shape the Rust command
+  // takes — no Electron `url`/`expirationDate`/lowercase-sameSite conversion.
+  expect(set?.[1]).toEqual({
+    id: 'ctx',
+    cookies: [
+      { name: 'sid', value: 's3cr3t', domain: '.example.com', path: '/', secure: true, httpOnly: true, expires: 1900000000, sameSite: 'Lax' },
+    ],
+  });
+  const navs = calls.filter(([c]) => c === 'browser_navigate').map(([, a]) => (a as { url: string }).url);
+  expect(navs).toEqual(['https://example.com', 'https://example.com/inbox']);
+});
+
+test('browser_load_state falls back to per-cookie set when the batch is rejected', async () => {
+  const { invoke, calls } = stateAwareInvoke({ failBatchSet: true });
+  const state = {
+    cookies: [
+      { name: 'a', value: '1', domain: 'example.com' },
+      { name: 'b', value: '2', domain: 'example.com' },
+    ],
+    origins: [],
+  };
+  const out = await executeNativeBrowserOp('ctx', 'browser_load_state', { state }, invoke);
+  expect(out.result).toMatchObject({ ok: true, cookies: 2 });
+  expect(calls.filter(([c]) => c === 'browser_pane_set_cookies')).toHaveLength(3); // batch + 2 singles
+});
+
+test('browser_load_state without a server-resolved state is a structured error', async () => {
+  const { invoke, calls } = recordingInvoke();
+  const out = await executeNativeBrowserOp('ctx', 'browser_load_state', { handle: 'x' }, invoke);
+  expect(out.error).toContain("missing resolved 'state'");
+  expect(calls).toHaveLength(0);
+});
+
+test('browser_import_chrome injects the server-decrypted CDP cookies and reloads', async () => {
+  const { invoke, calls } = stateAwareInvoke();
+  const out = await executeNativeBrowserOp(
+    'ctx',
+    'browser_import_chrome',
+    {
+      cookies: [
+        // CDP host-only form carries `url` (no domain) — must ride url untouched.
+        { name: 'sid', value: 'v', secure: true, httpOnly: true, url: 'https://youtube.com/', expires: 1900000000, sameSite: 'None' },
+        { name: 'dom', value: 'w', domain: '.youtube.com', path: '/' },
+      ],
+    },
+    invoke,
+  );
+  expect(out).toEqual({ result: { ok: true, imported: 2 } });
+  const set = calls.find(([c]) => c === 'browser_pane_set_cookies');
+  // CDP → storageState CookieJson: the host-only `url` cookie gets a derived
+  // domain (no leading dot); the dotted-domain cookie keeps its dot. sameSite
+  // casing is preserved (Strict/Lax/None), no Electron shape.
+  expect(set?.[1]).toEqual({
+    id: 'ctx',
+    cookies: [
+      { name: 'sid', value: 'v', domain: 'youtube.com', path: '/', secure: true, httpOnly: true, expires: 1900000000, sameSite: 'None' },
+      { name: 'dom', value: 'w', domain: '.youtube.com', path: '/', secure: false, httpOnly: false, expires: -1 },
+    ],
+  });
+  const reload = calls.find(([c, a]) => c === 'browser_eval_js' && (a as { js: string }).js === 'location.reload()');
+  expect(reload).toBeDefined();
+});
+
+test('browser_import_chrome without server-decrypted cookies is a structured error', async () => {
+  const { invoke, calls } = recordingInvoke();
+  const out = await executeNativeBrowserOp('ctx', 'browser_import_chrome', { domains: ['youtube.com'] }, invoke);
+  expect(out.error).toContain("missing decrypted 'cookies'");
+  expect(calls).toHaveLength(0);
+});
+
+test('login-state ops are supported native ops', () => {
+  expect(NATIVE_SUPPORTED_OPS.has('browser_save_state')).toBe(true);
+  expect(NATIVE_SUPPORTED_OPS.has('browser_load_state')).toBe(true);
+  expect(NATIVE_SUPPORTED_OPS.has('browser_import_chrome')).toBe(true);
 });
 
 test('an invoke that throws is caught and reported as a structured error', async () => {

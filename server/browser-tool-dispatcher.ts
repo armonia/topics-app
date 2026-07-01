@@ -11,6 +11,7 @@
 import type { BrowserService } from "./browser-service";
 import type { Topic } from "./types";
 import { nativeDelegateRegistry } from "./browser-native-delegate";
+import { isNativeStateOp, nativeStateOp } from "./browser-native-state";
 import {
   handleBrowserOpen,
   handleBrowserObserve,
@@ -254,6 +255,12 @@ export async function dispatchBrowserToolCallByContext(
     // delegated native screenshot instead of forwarding the whole call.
     if (toolName === "browser_read_screen" || toolName === "browser_point") {
       return nativeVisionOp(toolName, args, contextId);
+    }
+    // Login-state ops split across the seam the same way: handle persistence
+    // (Topics + Jarvis stores) and Chrome Keychain decryption stay server-side,
+    // only the pane-local cookie/localStorage legs are delegated.
+    if (isNativeStateOp(toolName)) {
+      return nativeStateOp(toolName, args, contextId);
     }
     return nativeDelegateRegistry.delegateOp(contextId, toolName, args);
   }
