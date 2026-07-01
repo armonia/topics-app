@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useToast } from '../components/Shared/Toast';
 import type { AppSettings, ClaudeSessionPhase, TerminalSessionInfo, Topic, WSMessage } from '../types';
 import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
@@ -132,8 +131,6 @@ export function useCompletionNotifier({
   focusedPanelId,
   terminalSessions,
 }: CompletionNotifierProps): void {
-  const { success, warning } = useToast();
-
   // Prime OS-notification permission once on mount. In the Electron main window
   // the default session already reports 'granted'; in a browser tab this raises
   // the one-time prompt so later completions can surface a system banner.
@@ -150,42 +147,27 @@ export function useCompletionNotifier({
   // renderer must not duplicate them there — see `fire` / the `osBanner` gate.
   const isElectron = !!(window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron;
 
-  // Single fan-out for every completion/attention cue: native OS banner (the
-  // primary channel, fires even when backgrounded) + in-app toast + optional
-  // sound. Keeps the notifier paths below from drifting in how they surface an
-  // event.
-  //
-  // De-dup against the OS banner: a green "done" toast is pure FYI, so when the
-  // banner actually fired (granted permission — always the case in the Electron
-  // desktop app) we DON'T also pop the in-app toast — the system notification
-  // already covers it. The in-app toast remains the FALLBACK for a browser tab
-  // with notifications denied. Warnings (approval/error) are actionable, so they
-  // always toast in-window too — the redundancy is worth it for the cue you must
-  // act on.
+  // Single fan-out for every completion/attention cue: a native OS banner (the
+  // only surface — no in-app toast, per user preference) + an optional sound.
+  // Keeps the notifier paths below from drifting in how they surface an event.
   //
   // `osBanner` (default true) lets a caller SUPPRESS the renderer's native
   // banner for a channel the Electron main process already banners — namely
   // agents:sessions, session:state(error/approval), and chat replies via
-  // message:new. Without this the Electron desktop build (the primary prod
-  // target) fired TWO banners per event: one from main, one from here. When
-  // suppressed the renderer still shows the in-app toast (its in-window
-  // complement). The pty `terminal:activity` path is genuinely uncovered by
-  // main, so it keeps osBanner=true; in a plain browser tab there is no main
-  // process, so everything banners (osBanner stays true everywhere).
-  const fire = useCallback((level: 'ok' | 'warn', message: string, sound: boolean, osBanner = true) => {
-    // OS system banner ONLY for actionable 'warn' events (awaiting-approval /
-    // error — the "act now" amber tier). A plain 'ok' completion (turn done /
-    // agent idle — the calm blue "look when ready" tier) NEVER posts an OS banner:
-    // it's already conveyed in-app by the blue done-fill + the tab badge + the
-    // in-window toast below. This is what stops the system-notification RAFFICA
-    // once the Claude hooks are installed and many concurrent sessions each end a
-    // turn — a banner per turn-end across N sessions was the flood. Mirrors the
-    // status redesign: loud = interrupt you (banner), calm = show in-app only.
-    const banner = osBanner && level === 'warn' ? emitSystemNotification(message) : false;
-    if (level === 'warn') warning(message);
-    else if (!banner) success(message);
+  // message:new. Without this the Electron desktop build fired TWO banners per
+  // event: one from main, one from here. The pty `terminal:activity` path is
+  // genuinely uncovered by main, so it keeps osBanner=true; in a plain browser
+  // tab / the Tauri build there is no Electron main, so everything banners.
+  const fire = useCallback((_level: 'ok' | 'warn', message: string, sound: boolean, osBanner = true) => {
+    // The OS system banner is the ONLY surface now (no in-app toast — user pref):
+    // it fires for BOTH an action-required event (awaiting-approval / error) AND
+    // a finish (turn done / completed / agent idle). Every call site is already
+    // guarded by a 10s per-topic cooldown (and focused-pane suppression), so the
+    // same session can't re-banner in a tight loop. `osBanner` is false only on
+    // Electron for channels its main process already banners (avoids a double).
+    if (osBanner) emitSystemNotification(message);
     if (sound) playCompletionTone();
-  }, [success, warning]);
+  }, []);
 
   // Per-session previous status, keyed by `session.key`. We diff frames
   // here — the server publishes the full session list on every frame, so
