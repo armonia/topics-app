@@ -170,7 +170,31 @@ export function useWebSocket(): UseWebSocketReturn {
     connectRef.current = connect;
     connect();
 
+    // Mobile PWAs (and laptops on sleep / Tailscale drops) SUSPEND the socket and
+    // its backoff timer when backgrounded, so on return the scheduled reconnect can
+    // be up to 30s away — the app shows STALE state (tabs/topics not synced) until
+    // then. When the page becomes visible again, comes back online, or regains
+    // focus, reconnect IMMEDIATELY (skip the accumulated backoff) if the socket
+    // isn't already live — the fresh connection's `ui-state:init` re-hydrates the
+    // pane store, so mobile re-syncs with the system the instant it foregrounds.
+    const reconnectNow = () => {
+      if (typeof document !== 'undefined' && document.hidden) return; // only when foreground
+      const ws = wsRef.current;
+      const state = ws ? ws.readyState : WebSocket.CLOSED;
+      if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) return; // already live/connecting
+      if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+      reconnectAttemptRef.current = 0; // fresh — no inherited backoff delay
+      connectRef.current();
+    };
+    const onVisible = () => { if (!document.hidden) reconnectNow(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', reconnectNow);
+    window.addEventListener('focus', reconnectNow);
+
     return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', reconnectNow);
+      window.removeEventListener('focus', reconnectNow);
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       clearOfflineTimer();
