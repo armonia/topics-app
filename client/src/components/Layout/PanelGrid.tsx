@@ -1986,6 +1986,11 @@ export function PanelGrid({
     <div
       ref={containerRef}
       data-split-surface
+      // Mid tab-drag, neutralise the divider grab band (CSS below) so a tab
+      // dropped onto a pane's inner edge that abuts a divider still splits —
+      // the built-in SplitTree divider is z-50 pointer-events:auto but has no
+      // drop handler, so it silently ate left/right edge drops otherwise.
+      data-drag-active={isAnyDragActive || undefined}
       className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
       onDragStartCapture={handleAnyDragStart}
       onDragEnd={(e) => { handleDragEnd(e); handleGridItemDragEnd(); handleAnyDragEnd(); }}
