@@ -41,8 +41,13 @@ export interface NativeOpOutcome {
   error?: string;
 }
 
+// The native WKWebView pane is ALWAYS agent-drivable (no setting gates it). The
+// ops that hit this hint are the ones needing the server's Playwright/CDP stack —
+// vision (read_screen/point) and cookie state (save_state/load_state/import_chrome)
+// — which can't run via in-page eval on an external origin. The old text pointed
+// users at a "Browser pilotabile" toggle in Settings that never existed.
 const STREAMING_HINT =
-  'enable "Browser pilotabile dall\'agente" (streaming) in Settings → Appearance for full agent control of this pane';
+  'this action needs the server browser stack (vision / cookie state), which the native pane can\'t run in-page yet — use it on a streaming/CDP browser pane instead';
 
 /**
  * Per-pane previous snapshot, so `browser_observe`/`browser_act` can return an

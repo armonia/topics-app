@@ -6,6 +6,7 @@ import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browser
 import { overlayMenusAvailable, showOverlayMenu } from '../../lib/overlayMenu';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { DropdownPortal } from '../Shared/DropdownPortal';
+import { openExternalOnce } from '../../lib/openExternal';
 
 /** Split a URL into scheme / host / rest for Chrome-style emphasis (host bold,
  *  the rest muted). Falls back to the raw string for non-URLs (about:blank,
@@ -209,9 +210,12 @@ export function BrowserToolbar({
   }, [editUrl, onUrlChange]);
 
   const handleOpenExternal = useCallback(() => {
-    if (url) {
-      window.open(url, '_blank');
-    }
+    // Hand the current page to the REAL system browser (Chrome/Safari/…) via the
+    // shell bridge — `window.open('_blank')` is a no-op inside the WKWebView pane.
+    // This is also the escape hatch for reCAPTCHA-v3-gated / captcha-login sites:
+    // the WKWebView is flagged as a bot, so the user finishes the flow in a real,
+    // un-flagged browser (with that browser's own session).
+    if (url) openExternalOnce(url);
   }, [url]);
 
   return (
@@ -431,7 +435,7 @@ export function BrowserToolbar({
               disabled={!url}
               className={`${POPOVER_ITEM} disabled:opacity-40`}
             >
-              <ExternalLink size={13} className="shrink-0 text-app-text-tertiary" /> Apri nel browser
+              <ExternalLink size={13} className="shrink-0 text-app-text-tertiary" /> Apri nel browser di sistema
             </button>
           </DropdownPortal>
         </>
@@ -500,7 +504,7 @@ export function BrowserToolbar({
             onClick={handleOpenExternal}
             disabled={!url}
             className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
-            title="Open in browser"
+            title="Apri nel browser di sistema (per captcha / login difficili)"
           >
             <ExternalLink size={14} />
           </button>
