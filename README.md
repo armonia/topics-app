@@ -40,11 +40,13 @@ Topics reads configuration from environment variables (or a `.env` file). Copy `
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PORT` | Local server port | `3333` |
-| `AI_PROVIDER` | `openclaw` or `claude` | `openclaw` |
+| `AI_PROVIDER` | `claude`, `openai`, or `openclaw` — when unset, auto-detected from available keys (`ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, else `openclaw` only if `GATEWAY_URL` is set) | `claude` |
 | `GATEWAY_TOKEN` | OpenClaw gateway token (required when `AI_PROVIDER=openclaw`) | — |
 | `GATEWAY_URL` | OpenClaw gateway URL | `http://127.0.0.1:18789` |
 | `ANTHROPIC_API_KEY` | Anthropic API key (required when `AI_PROVIDER=claude`) | — |
 | `CLAUDE_MODEL` | Model id for the `claude` provider | — |
+| `OPENAI_API_KEY` | OpenAI API key (required when `AI_PROVIDER=openai`) | — |
+| `OPENAI_MODEL` | Model id for the `openai` provider | — |
 | `ELEVENLABS_API_KEY` | ElevenLabs key — enables text-to-speech (optional) | — |
 | `MOONDREAM_API_KEY` | Moondream key — enables browser vision grounding (optional) | — |
 | `APP_DATA_DIR` | Where conversations and app data are stored | `~/.openclaw` |
