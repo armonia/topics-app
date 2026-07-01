@@ -322,6 +322,9 @@ export function createBrowserRouter(
         switch (body.action) {
           case "navigate":
             if (!body.url) return errorResponse(400, "url required");
+            // Fresh page = fresh vision budget: a multi-step flow that navigates
+            // shouldn't stay throttled by the previous page's read_screen calls.
+            resetMoondreamCounter(id);
             return json(await browserService.navigate(id, body.url));
 
           case "click":
