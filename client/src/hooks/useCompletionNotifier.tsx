@@ -173,7 +173,15 @@ export function useCompletionNotifier({
   // main, so it keeps osBanner=true; in a plain browser tab there is no main
   // process, so everything banners (osBanner stays true everywhere).
   const fire = useCallback((level: 'ok' | 'warn', message: string, sound: boolean, osBanner = true) => {
-    const banner = osBanner ? emitSystemNotification(message) : false;
+    // OS system banner ONLY for actionable 'warn' events (awaiting-approval /
+    // error — the "act now" amber tier). A plain 'ok' completion (turn done /
+    // agent idle — the calm blue "look when ready" tier) NEVER posts an OS banner:
+    // it's already conveyed in-app by the blue done-fill + the tab badge + the
+    // in-window toast below. This is what stops the system-notification RAFFICA
+    // once the Claude hooks are installed and many concurrent sessions each end a
+    // turn — a banner per turn-end across N sessions was the flood. Mirrors the
+    // status redesign: loud = interrupt you (banner), calm = show in-app only.
+    const banner = osBanner && level === 'warn' ? emitSystemNotification(message) : false;
     if (level === 'warn') warning(message);
     else if (!banner) success(message);
     if (sound) playCompletionTone();
