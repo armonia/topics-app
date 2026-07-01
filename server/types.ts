@@ -1,9 +1,14 @@
 import type { ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
-import type { ToolCallStatus } from "../shared/types";
+import type { ToolCallStatus, UserInputSchema, ToolUserResponse } from "../shared/types";
 
 // Re-export so existing imports `from "./types"` keep resolving.
-export type { ToolCallStatus } from "../shared/types";
+export type {
+  ToolCallStatus,
+  AskUserQuestionItem,
+  UserInputSchema,
+  ToolUserResponse,
+} from "../shared/types";
 
 export interface WSData {
   id: string;
@@ -87,33 +92,9 @@ export interface ToolCall {
   userResponse?: ToolUserResponse;
 }
 
-// --- User-input shapes (mirror of `client/src/types/index.ts`) -------------
-//
-// Keep this block byte-identical to the client mirror except for the leading
-// `export`. The dispatcher re-injects `userResponse` into the provider stream
-// verbatim; any drift here silently corrupts the wire payload.
-
-export interface AskUserQuestionItem {
-  question: string;
-  header: string;
-  options: { label: string; description?: string }[];
-  multiSelect?: boolean;
-}
-
-export type UserInputSchema =
-  | { kind: 'questions'; questions: AskUserQuestionItem[] }
-  | { kind: 'elicitation'; requestedSchema: unknown; message?: string }
-  | { kind: 'raw'; rawInput: unknown };
-
-export type ToolUserResponse =
-  | {
-      kind: 'questions';
-      answers: Record<string, string>;
-      metadata?: Record<string, unknown>;
-      submittedAt: string;
-    }
-  | { kind: 'elicitation'; value: unknown; submittedAt: string }
-  | { kind: 'raw'; text: string; submittedAt: string };
+// User-input shapes (AskUserQuestionItem, UserInputSchema, ToolUserResponse)
+// live in `shared/types.ts` — single wire-contract source for both halves.
+// Re-exported at the top of this file.
 
 /**
  * One element in a message's chronological content timeline.

@@ -7,10 +7,15 @@ export type {
   ProviderRequirement,
   ProviderSnapshotEntry,
   ProvidersSnapshot,
+  AskUserQuestionItem,
+  UserInputSchema,
+  ToolUserResponse,
 } from '../../../shared/types';
 import type {
   ToolCallStatus,
   ProvidersSnapshot,
+  UserInputSchema,
+  ToolUserResponse,
 } from '../../../shared/types';
 
 export type AutonomyLevel = 'ask' | 'auto-apply' | 'yolo';
@@ -199,41 +204,10 @@ export interface ToolCall {
   userResponse?: ToolUserResponse;
 }
 
-// --- User-input request / response shapes (shared with `server/types.ts`) ---
-//
-// MUST stay in lockstep with the same names in `server/types.ts`. The
-// dispatcher persists `userResponse` and re-injects it into the provider
-// stream verbatim, so any divergence here silently corrupts the on-wire
-// payload. When you change a variant, update both files in the same
-// commit.
-
-export interface AskUserQuestionItem {
-  question: string;
-  /** Short label, ≤ 12 chars by SDK convention. */
-  header: string;
-  options: { label: string; description?: string }[];
-  multiSelect?: boolean;
-}
-
-export type UserInputSchema =
-  | { kind: 'questions'; questions: AskUserQuestionItem[] }
-  | {
-      kind: 'elicitation';
-      requestedSchema: unknown; // JSON Schema — opaque here, narrowed by form runtime
-      message?: string;
-    }
-  | { kind: 'raw'; rawInput: unknown };
-
-export type ToolUserResponse =
-  | {
-      kind: 'questions';
-      /** Keyed by `question` text; values are the selected label or free text. */
-      answers: Record<string, string>;
-      metadata?: Record<string, unknown>;
-      submittedAt: string;
-    }
-  | { kind: 'elicitation'; value: unknown; submittedAt: string }
-  | { kind: 'raw'; text: string; submittedAt: string };
+// User-input request / response shapes (AskUserQuestionItem,
+// UserInputSchema, ToolUserResponse) live in `shared/types.ts` — single
+// wire-contract source for both halves. Re-exported at the top of this
+// file.
 
 /**
  * Chronological content block emitted during assistant streaming. The
@@ -701,7 +675,8 @@ export interface WSPaneFocusSuggestMessage {
    * When set, the listener opens this project window and nests the topic
    * inside it. Sent inline (rather than read from the topic) so the client
    * needn't wait for a preceding topic:updated to land first — used when a
-   * cloud session binds itself to a project via {{PROJECT_OPEN}} / /project.
+   * session binds itself to a project via the bind/create/open-project
+   * control endpoints or the /project command.
    */
   projectPath?: string;
 }
