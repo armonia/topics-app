@@ -13,10 +13,18 @@
  * ref-based snapshot/diff format on the native pane and the Electron CDP pane.
  * One source of truth, no format drift.
  *
- * Ops still bound to the server's Playwright/CDP stack (vision read_screen/point,
- * cookie save_state/load_state/import_chrome) return a structured error pointing
- * at streaming mode, rather than half-working — the agent gets a clear, actionable
- * failure. (Those are closed in later phases.)
+ * The login-state ops (save_state / load_state / import_chrome) split across the
+ * delegation seam like browser_upload: the SERVER keeps everything that needs its
+ * stack (handle persistence in the Topics+Jarvis stores, Chrome-cookie Keychain
+ * decryption — see server/browser-native-state.ts) and delegates only the
+ * pane-local legs here: the cookie store via the native `browser_pane_get_cookies`
+ * / `browser_pane_set_cookies` commands (which speak the SAME Playwright
+ * storageState cookie shape as the server store — get returns a JSON string of
+ * them, set takes them directly and reports `{"set":n,"skipped":m}`; only
+ * import_chrome's CDP-shape cookies get normalized, via browserLoginState.ts) and
+ * localStorage via `browser_eval_js`. Vision (read_screen/point) is likewise server-orchestrated
+ * (Moondream over a delegated native screenshot), so only genuinely unknown ops
+ * fall through to the streaming-mode hint.
  *
  * `invoke` is injected so the mapping is unit-tested without a live Tauri runtime.
  */
@@ -33,6 +41,15 @@ import {
   ACT_ACTIONS,
   type Snapshot,
 } from '../../../../shared/browser-snapshot-core';
+import {
+  toCookieJson,
+  isHttpUrl,
+  setLocalStorageJs,
+  CAPTURE_LOCAL_STORAGE_JS,
+  type StorageCookie,
+  type StorageOrigin,
+  type StorageState,
+} from './browserLoginState';
 
 export type Invoke = <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -41,13 +58,13 @@ export interface NativeOpOutcome {
   error?: string;
 }
 
-// The native WKWebView pane is ALWAYS agent-drivable (no setting gates it). The
-// ops that hit this hint are the ones needing the server's Playwright/CDP stack —
-// vision (read_screen/point) and cookie state (save_state/load_state/import_chrome)
-// — which can't run via in-page eval on an external origin. The old text pointed
-// users at a "Browser pilotabile" toggle in Settings that never existed.
+// The native WKWebView pane is ALWAYS agent-drivable (no setting gates it). Only
+// tools with NO native mapping at all reach this hint now — vision runs
+// server-orchestrated (dispatcher nativeVisionOp) and the login-state ops run
+// through server/browser-native-state.ts + the cases below, so in practice this
+// is the "unknown/new tool" fallback.
 const STREAMING_HINT =
-  'this action needs the server browser stack (vision / cookie state), which the native pane can\'t run in-page yet — use it on a streaming/CDP browser pane instead';
+  'this action needs the server browser stack, which the native pane can\'t run in-page yet — use it on a streaming/CDP browser pane instead';
 
 /**
  * Per-pane previous snapshot, so `browser_observe`/`browser_act` can return an
@@ -72,6 +89,75 @@ async function takeSnapshot(id: string, invoke: Invoke, max: number): Promise<Sn
 /** Ref-targeting act actions (require a ref) — the SHARED set, so this native
  *  validator can never drift from the server one. */
 const REF_ACTION_SET = new Set<string>(REF_ACTIONS);
+
+/**
+ * Poll until the pane's document is at `origin` (when given) and past 'loading' —
+ * the native stand-in for Playwright's goto(waitUntil:'domcontentloaded'), since
+ * `browser_navigate` returns before WKWebView finishes the load. Checks first,
+ * then sleeps, so an already-settled page returns immediately; a mid-navigation
+ * eval failure just retries. Best-effort: on timeout the caller proceeds anyway
+ * (mirrors the server's catch-and-continue around goto).
+ */
+async function waitForPaneLoad(
+  id: string,
+  invoke: Invoke,
+  origin: string | null,
+  timeoutMs: number,
+): Promise<void> {
+  const probeJs = 'JSON.stringify({origin:location.origin,ready:document.readyState})';
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const raw = await invoke<string>('browser_eval_js', { id, js: probeJs });
+      const s = JSON.parse(raw || '{}') as { origin?: string; ready?: string };
+      if ((!origin || s.origin === origin) && s.ready && s.ready !== 'loading') return;
+    } catch {
+      /* execution context mid-swap — retry */
+    }
+    if (Date.now() >= deadline) return;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+/** Parse the Rust `browser_pane_set_cookies` reply (`{"set":n,"skipped":m}`) to
+ *  the count that actually landed. A non-JSON/legacy reply falls back to the
+ *  batch size so a successful set is never reported as zero. */
+function parseSetCount(raw: unknown, batchSize: number): number {
+  if (typeof raw === 'string') {
+    try {
+      const r = JSON.parse(raw) as { set?: unknown };
+      if (typeof r.set === 'number') return r.set;
+    } catch {
+      /* legacy/void reply — fall through */
+    }
+  }
+  return batchSize;
+}
+
+/** Batch cookie-set with per-cookie fallback (one bad cookie must not drop the
+ *  rest) — mirror of the server applyStateToPage's addCookies strategy. The Rust
+ *  command already skips individual cookies it rejects and reports the real
+ *  `set` count, so the batch path is honest on its own; the per-cookie retry
+ *  covers only a whole-batch throw (e.g. the pane vanished mid-call). Returns
+ *  how many actually landed. */
+async function setPaneCookies(id: string, invoke: Invoke, cookies: StorageCookie[]): Promise<number> {
+  if (!cookies.length) return 0;
+  try {
+    const raw = await invoke('browser_pane_set_cookies', { id, cookies });
+    return parseSetCount(raw, cookies.length);
+  } catch {
+    let n = 0;
+    for (const c of cookies) {
+      try {
+        const raw = await invoke('browser_pane_set_cookies', { id, cookies: [c] });
+        n += parseSetCount(raw, 1);
+      } catch {
+        /* skip the offending cookie */
+      }
+    }
+    return n;
+  }
+}
 
 export async function executeNativeBrowserOp(
   id: string,
@@ -244,6 +330,117 @@ export async function executeNativeBrowserOp(
         try { entries = JSON.parse(raw || '[]'); } catch { entries = []; }
         return { result: entries };
       }
+      case 'browser_save_state': {
+        // EXPORT leg only: cookies from the pane's real cookie store (already
+        // storageState-shaped — the Rust command speaks StorageCookie) + the
+        // CURRENT origin's localStorage via eval (a WKWebView can only execute in
+        // the loaded page — same practical scope as the other surfaces, hence the
+        // shared "save while ON the site" guidance). The server persists the
+        // returned StorageState under the handle in the Topics+Jarvis stores
+        // (browser-native-state.ts): the pane has no disk access.
+        const raw = await invoke<string>('browser_pane_get_cookies', { id });
+        let cookies: StorageCookie[] = [];
+        try {
+          const parsed = JSON.parse(raw || '[]');
+          if (Array.isArray(parsed)) cookies = parsed as StorageCookie[];
+        } catch {
+          /* malformed jar dump → no cookies (localStorage may still export) */
+        }
+        const origins: StorageOrigin[] = [];
+        try {
+          const lsRaw = await invoke<string>('browser_eval_js', { id, js: CAPTURE_LOCAL_STORAGE_JS });
+          const parsed = JSON.parse(lsRaw || 'null') as StorageOrigin | null;
+          if (parsed?.origin && Array.isArray(parsed.localStorage) && parsed.localStorage.length) {
+            origins.push(parsed);
+          }
+        } catch {
+          /* localStorage best-effort — cookies still exported */
+        }
+        return { result: { cookies, origins } satisfies StorageState };
+      }
+      case 'browser_load_state': {
+        // APPLY leg only: the server already resolved the handle (Topics →
+        // Jarvis fallback) and delegated with the state inlined. Mirror of the
+        // server's applyStateToPage: cookies (batch → per-cookie fallback), then
+        // per-http(s)-origin localStorage (requires visiting the origin), then
+        // back to the original page — now authenticated.
+        const state = (a.state ?? null) as StorageState | null;
+        if (!state || !Array.isArray(state.cookies)) {
+          return {
+            error:
+              "browser_load_state: missing resolved 'state' — the server resolves the handle before delegating to the native pane",
+          };
+        }
+        let origUrl = '';
+        try {
+          origUrl = await invoke<string>('browser_eval_js', { id, js: 'location.href' });
+        } catch {
+          /* blank pane */
+        }
+
+        const cookieCount = await setPaneCookies(
+          id,
+          invoke,
+          state.cookies.map(toCookieJson).filter((c): c is StorageCookie => c != null),
+        );
+
+        let originCount = 0;
+        for (const o of Array.isArray(state.origins) ? state.origins : []) {
+          if (!o?.origin || !Array.isArray(o.localStorage) || !o.localStorage.length) continue;
+          // A state file is agent/peer-supplied data: never auto-navigate to a
+          // non-web origin (e.g. a planted file:///) just to seed localStorage.
+          if (!isHttpUrl(o.origin)) continue;
+          try {
+            await invoke('browser_navigate', { id, url: o.origin });
+            await waitForPaneLoad(id, invoke, new URL(o.origin).origin, 8_000);
+            await invoke<string>('browser_eval_js', { id, js: setLocalStorageJs(o.localStorage) });
+            originCount++;
+          } catch {
+            /* origin unreachable — cookies still applied */
+          }
+        }
+
+        // Return to where the pane was (now logged in), or reload if it was blank.
+        try {
+          if (origUrl && isHttpUrl(origUrl)) {
+            await invoke('browser_navigate', { id, url: origUrl });
+            await waitForPaneLoad(id, invoke, new URL(origUrl).origin, 8_000);
+          } else {
+            await invoke<string>('browser_eval_js', { id, js: 'location.reload()' });
+          }
+        } catch {
+          /* navigation best-effort */
+        }
+        clearNativeSnapshotCache(id); // page navigated/reloaded → refs stale
+        return { result: { ok: true, cookies: cookieCount, origins: originCount } };
+      }
+      case 'browser_import_chrome': {
+        // INJECT leg only: dry_run and the Keychain decryption run SERVER-side
+        // (browser-native-state.ts → integrations/chrome-cookies.ts); this leg
+        // receives the already-decrypted CDP-shape cookies, normalizes them to
+        // the storageState CookieJson shape the Rust jar takes (host-only `url`
+        // cookies get a derived domain), lands them in the pane's cookie store,
+        // and reloads — mirror of the CDP path's Network.setCookies + reload.
+        const list = Array.isArray(a.cookies) ? (a.cookies as unknown[]) : [];
+        if (!list.length) {
+          return {
+            error:
+              "browser_import_chrome: missing decrypted 'cookies' — the server reads the Chrome store before delegating to the native pane",
+          };
+        }
+        const imported = await setPaneCookies(
+          id,
+          invoke,
+          list.map(toCookieJson).filter((c): c is StorageCookie => c != null),
+        );
+        try {
+          await invoke<string>('browser_eval_js', { id, js: 'location.reload()' });
+        } catch {
+          /* harmless if on about:blank */
+        }
+        clearNativeSnapshotCache(id); // page reloaded → refs stale
+        return { result: { ok: true, imported } };
+      }
       case 'browser_screenshot': {
         // Native WKWebView snapshot → base64 PNG. The agent's screenshot tool
         // expects { data } base64; mirror that shape so the streaming and native
@@ -291,4 +488,8 @@ export const NATIVE_SUPPORTED_OPS: ReadonlySet<string> = new Set([
   'browser_screenshot',
   'browser_upload',
   'browser_status',
+  // Login-state legs (the server-side halves live in server/browser-native-state.ts).
+  'browser_save_state',
+  'browser_load_state',
+  'browser_import_chrome',
 ]);

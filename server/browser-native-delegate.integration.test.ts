@@ -39,13 +39,15 @@ test('browser_open round-trips and the native navigate is invoked', async () => 
 });
 
 test('an unsupported op round-trips a structured streaming hint (no native invoke)', async () => {
-  // browser_act became NATIVE in 0811f083 (observe/act/extract run in-page);
-  // cookie-state ops like browser_save_state still need the server's CDP stack
-  // and must return the honest structured hint without touching native invoke.
+  // browser_act became NATIVE in 0811f083 (observe/act/extract run in-page) and
+  // the cookie-state ops followed (save/load/import_chrome via browser-native-state
+  // + the pane cookie commands), so only a tool with NO native mapping at all —
+  // e.g. one newer than this client — gets the honest structured hint, without
+  // touching native invoke.
   const calls: string[] = [];
   const invoke: Invoke = async (cmd) => { calls.push(cmd); return '' as never; };
   const reg = wired(invoke);
-  const out = (await reg.delegateOp('ctx', 'browser_save_state', {})) as { error: string };
+  const out = (await reg.delegateOp('ctx', 'browser_totally_new', {})) as { error: string };
   expect(out.error).toContain('streaming');
   expect(calls).toHaveLength(0);
 });
