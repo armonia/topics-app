@@ -264,6 +264,28 @@ function AppearanceSection({ settings, themeMode, onThemeChange, onChange }: App
         </div>
       )}
 
+      {/* Animated glow on working chats — shown everywhere (no vibrancy
+          dependency, unlike floating splits). Subtle by design; the toggle is
+          for users who want zero motion around active panes. */}
+      <div>
+        <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
+          <Sparkles size={14} />
+          Working glow
+        </label>
+        <p className="text-[12px] text-app-text-muted mb-3">
+          Wrap a chat in a soft, slowly-rotating glow while its session is
+          actively working — a subtle at-a-glance cue that never touches
+          readability.
+        </p>
+
+        <ToggleRow
+          label="Working glow"
+          description="Animate a thin glow ring around chats that are streaming."
+          value={settings.workingGlow}
+          onChange={(v) => onChange('workingGlow', v)}
+        />
+      </div>
+
     </div>
   );
 }

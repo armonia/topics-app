@@ -1087,6 +1087,110 @@ input[type="range"]::-webkit-slider-thumb {
   will-change: opacity;
 }
 
+/* ─── "Working" glow ring (Apple-Intelligence style) ─────────────────────────
+ * A thin, cool, slowly-rotating conic-gradient ring drawn AROUND a chat pane
+ * while its session is actively working (streaming / an agent running). It's a
+ * cue, not a fill: it sits behind nothing readable and never tints the content,
+ * so chat legibility is untouched.
+ *
+ * PERFORMANCE — why it's built this exact way (this app is FPS-sensitive and has
+ * regressed before from per-frame main-thread work):
+ *   - The ONLY animated property is `transform: rotate()`. Transform animates on
+ *     the compositor thread → zero per-frame style-recalc/layout/paint. We do NOT
+ *     animate an @property <angle> conic-gradient (that repaints the gradient
+ *     every frame on the main thread) nor a box-shadow (also main-thread paint).
+ *   - The rotating layer is a single oversized absolutely-positioned child
+ *     (`.chat-working-ring`) whose conic-gradient background is spun. The parent
+ *     is `overflow: hidden`, so the oversize is clipped for free.
+ *   - It's masked to a ~1.5px RING (not a disc) with a padding-box mask composite:
+ *     an opaque fill clipped to the border-box XORed against the same clipped to
+ *     the content-box, leaving only the `padding` band painted. `padding` sets
+ *     the ring thickness; the gradient shows only through that band.
+ *   - The element is CONDITIONALLY RENDERED by React only while the session is
+ *     working (see ChatPanel) — so when a chat is idle there is NOTHING in the
+ *     DOM and nothing to animate. Zero idle cost, by construction.
+ *   - `.anims-paused` (window backgrounded) freezes the rotation like every other
+ *     keyframe animation here, so a hidden window costs nothing either.
+ *
+ * The host is the ChatPanel root (already `position: relative; overflow: hidden`).
+ * `border-radius: inherit` makes the ring follow the pane's corners — including
+ * the rounded `--float-radius` cards in floating-splits mode. */
+@keyframes chat-working-spin {
+  to { transform: rotate(360deg); }
+}
+/* WRAPPER — matches the PANE box exactly (inset:0) so the ring hugs the pane's
+ * rounded border precisely. It is masked to a thin ring and clips its spinning
+ * child. It does NOT rotate (rotating the mask would peel the ring off the
+ * corners); only the child inside spins. */
+.chat-working-ring {
+  position: absolute;
+  inset: 0;
+  /* Above the opaque pane content so the thin edge band is actually visible
+   * (content is `bg-surface` edge-to-edge and would otherwise cover it). Safe:
+   * masked to a ~1.5px perimeter ring and pointer-events:none, so it overlays
+   * only the border band — never text, never clicks. */
+  z-index: 30;
+  pointer-events: none;
+  border-radius: inherit;
+  overflow: hidden;
+  /* Mask the wrapper down to a thin ring: paint only the `padding` band between
+   * the border-box and the content-box. An opaque fill clipped to the
+   * content-box is EXCLUDED from the same fill over the whole box, leaving just
+   * the outer `padding` band. `padding` = ring thickness; the spinning child
+   * shows only through that band. */
+  padding: 1.5px;                       /* = ring thickness */
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  /* One-shot fade-in when the ring mounts as the session flips to working.
+   * There's no fade-OUT — a conditionally rendered node just unmounts — but the
+   * appear-in softens the onset. */
+  animation: chat-working-ring-in 300ms ease-out;
+}
+/* SPINNER — an oversized conic-gradient disc that fills past the wrapper (so the
+ * gradient seam never sweeps into the visible band) and rotates. Transform-only
+ * → compositor thread, zero per-frame main-thread cost. */
+.chat-working-ring::before {
+  content: '';
+  position: absolute;
+  /* Oversize so the disc always covers the wrapper at any rotation; the wrapper
+   * clips (overflow:hidden) + masks it to the ring. Use the larger side so a
+   * very wide/tall pane is still fully covered. */
+  inset: -50%;
+  min-width: 200%;
+  min-height: 200%;
+  /* Cool Apple-Intelligence palette: blue → indigo → violet → magenta hint and
+   * back, biased cool (no warm/amber). Low alpha so it reads as a soft light,
+   * not a hard band. The transparent wedge gives the rotation a visible "comet". */
+  background: conic-gradient(
+    from 0deg,
+    rgba(10, 132, 255, 0)    0deg,
+    rgba(10, 132, 255, 0.45) 60deg,
+    rgba(94, 92, 230, 0.5)   140deg,
+    rgba(175, 82, 222, 0.45) 210deg,
+    rgba(255, 55, 175, 0.35) 270deg,
+    rgba(10, 132, 255, 0)    360deg
+  );
+  animation: chat-working-spin 7s linear infinite;
+  will-change: transform;
+}
+@keyframes chat-working-ring-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* prefers-reduced-motion: keep the ring as a STATIC soft gradient (still a cue)
+ * but stop all rotation and the fade-in. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-working-ring,
+  .chat-working-ring::before { animation: none; }
+}
+
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
  * useAnimationPause, which toggles `.anims-paused` on <html> on blur/hide). On
  * the big transparent-vibrancy desktop window the always-running loaders
