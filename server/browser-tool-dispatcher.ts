@@ -26,6 +26,7 @@ import {
   handleBrowserPoint,
   handleBrowserImportChrome,
   handleBrowserUpload,
+  handleBrowserStatus,
 } from "./browser-tools-handler";
 import type { BrowserActAction } from "./browser-tools";
 import { describeImage, pointObject } from "./integrations/moondream-client";
@@ -296,6 +297,8 @@ export async function dispatchBrowserToolCallByContext(
     case "browser_import_chrome":
       // Args validated by handler
       return handleBrowserImportChrome(browserService, contextId, args as { domains?: string[]; profile?: string; dry_run?: boolean });
+    case "browser_status":
+      return handleBrowserStatus(browserService, contextId);
     default:
       return { error: `Unknown browser tool: ${toolName}` };
   }

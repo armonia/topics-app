@@ -247,6 +247,13 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
     surfaces: { passthrough: true, mcp: false },
   },
   {
+    name: "browser_status",
+    description:
+      "Report the pane's current state: { url, title, viewport: {width,height}, loading }. Use to confirm where the pane is, read its REAL viewport size (e.g. before responsive checks), or poll whether a navigation has finished.",
+    schema: { type: "object", properties: {}, required: [] },
+    surfaces: { passthrough: true, mcp: true },
+  },
+  {
     name: "browser_upload",
     description:
       "Upload a local file to a file input (<input type=file>) on the page — e.g. attach a CV/résumé or a document to a form. Pass the [ref] of the file input from browser_observe (omit to target the first file input on the page) and the server-accessible file PATH. The file is set on the input and change/input events fire, exactly as if the user had picked it in the OS file dialog. Use for uploads the user asked for; the file must already exist on disk.",
