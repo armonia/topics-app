@@ -2170,6 +2170,130 @@ fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<
     Ok(())
 }
 
+/// Map a keyDown chord to the JS that re-dispatches it as a synthetic keydown on
+/// the main webview's window (so the single `useKeyboardShortcuts` handler runs),
+/// or None if the chord is NOT an app shortcut (let the focused page keep it).
+///
+/// Curated allowlist — a MIRROR of the app chords in
+/// `client/src/hooks/useKeyboardShortcuts.ts`. It deliberately EXCLUDES
+/// page-critical chords (⌘C/⌘V/⌘X/⌘A/⌘Z, ⌘F find-in-page, ⌘R reload) so a focused
+/// web page keeps them — the fail-safe default is "not a chord → pass through".
+#[cfg(target_os = "macos")]
+fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, chars: &str, key_code: u16) -> Option<String> {
+    // Tab == keyCode 48. Standard cycle: ⌃Tab, ⌃⇧Tab, ⌘⇧Tab (⌘Tab is macOS).
+    let is_tab = key_code == 48;
+    let key: &str = if is_tab && (ctrl || (cmd && shift)) {
+        "Tab"
+    } else if cmd && !ctrl {
+        match chars {
+            // close pane / palette / sidebar / file-finder / new (⌘N & ⌘⇧N)
+            "w" | "k" | "b" | "p" | "n" => chars,
+            // direct tab jump ⌘1‥⌘9
+            "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" => chars,
+            // reopen-closed-tab ⌘⇧T / ⌘⇧U
+            "t" | "u" if shift => chars,
+            // shortcuts help ⌘/ (⌘? = shift+/)
+            "/" | "?" => chars,
+            // ⌘C/V/X/A/Z/F/R and everything else → the page keeps it
+            _ => return None,
+        }
+    } else {
+        return None;
+    };
+    // `key` for a letter is lowercase; the renderer checks both cases and reads
+    // shiftKey, so lowercase + the shift flag is enough. Only quote-safe chars
+    // reach here ('/', '?', letters, digits, 'Tab').
+    Some(format!(
+        "window.dispatchEvent(new KeyboardEvent('keydown',{{key:'{key}',metaKey:{cmd},ctrlKey:{ctrl},shiftKey:{shift},altKey:false,bubbles:true,cancelable:true}}))"
+    ))
+}
+
+/// macOS: forward app keyboard shortcuts to the renderer WHEN a child browser
+/// pane (WKWebView) holds keyboard focus.
+///
+/// A focused child WKWebView swallows keydown events before they reach the main
+/// webview, so ⌘W / ⌘⇧Tab / ⌘1-9 never reach `useKeyboardShortcuts` — the tab
+/// won't close, the "devo cliccare sulla tab per fare ⌘W" bug. Menu accelerators
+/// don't help (the focused WKWebView eats their key-equivalents too — same reason
+/// ⌘R is intercepted in the renderer). A LOCAL NSEvent monitor sees the event
+/// first: for the allowlisted app chords, and ONLY when the first responder is
+/// NOT inside the main webview, re-dispatch the chord as a synthetic keydown into
+/// the main webview (so the one renderer handler runs) and swallow the original
+/// (so the page doesn't also act on it). Everything else — all page typing, and
+/// ⌘C/⌘V/⌘Z/⌘F which the page needs — passes through untouched.
+#[cfg(target_os = "macos")]
+fn install_shortcut_forwarder(app: &tauri::AppHandle) {
+    use cocoa::base::{id, nil, BOOL, YES};
+    use objc::{class, msg_send, sel, sel_impl};
+    use tauri::Manager;
+
+    // Cache the main webview's WKWebView (an NSView) so the monitor can tell
+    // "main webview focused" (pass) from "browser pane focused" (forward).
+    // with_webview wants a Send + 'static closure (can't borrow a local), so shuttle
+    // the pointer out through an Arc<AtomicUsize> (runs inline on the main thread here).
+    let cell = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    if let Some(wv) = app.get_webview("main") {
+        let c = cell.clone();
+        let _ = wv.with_webview(move |platform| {
+            c.store(platform.inner() as usize, Ordering::SeqCst);
+        });
+    }
+    let main_view: usize = cell.load(Ordering::SeqCst);
+    if main_view == 0 {
+        log::warn!("[topics] shortcut-forwarder: main webview not resolved; ⌘W over a focused browser pane will not forward");
+        return;
+    }
+
+    let app = app.clone();
+    let mask: u64 = 1 << 10; // NSEventMaskKeyDown
+    let block = block::ConcreteBlock::new(move |event: id| -> id {
+        unsafe {
+            // Only act when a browser PANE holds focus. If the first responder is
+            // inside the main webview (or we can't tell), pass the event so the
+            // renderer's normal keydown path handles it — never double-fire.
+            let ev_window: id = msg_send![event, window];
+            if ev_window == nil { return event; }
+            let fr: id = msg_send![ev_window, firstResponder];
+            if fr == nil { return event; }
+            let mv = main_view as id;
+            let is_view: BOOL = msg_send![fr, isKindOfClass: class!(NSView)];
+            if is_view == YES {
+                let inside_main: BOOL = msg_send![fr, isDescendantOf: mv];
+                if inside_main == YES { return event; } // main webview → normal path
+            }
+
+            // A browser pane holds focus. Is this an app chord we should forward?
+            let flags: u64 = msg_send![event, modifierFlags];
+            const CMD: u64 = 1 << 20;
+            const CTRL: u64 = 1 << 18;
+            const SHIFT: u64 = 1 << 17;
+            let cmd = flags & CMD != 0;
+            let ctrl = flags & CTRL != 0;
+            let shift = flags & SHIFT != 0;
+            let key_code: u16 = msg_send![event, keyCode];
+            let chars_id: id = msg_send![event, charactersIgnoringModifiers];
+            let chars = ns_string_to_rust(chars_id).to_lowercase();
+
+            if let Some(js) = app_chord_dispatch_js(cmd, ctrl, shift, &chars, key_code) {
+                if let Some(mw) = app.get_webview("main") {
+                    let _ = mw.eval(&js);
+                }
+                return nil; // swallow — the page must not also act on the chord
+            }
+            event // not an app chord → let the focused page have it
+        }
+    });
+    let block = block.copy();
+    unsafe {
+        let _monitor: id = msg_send![class!(NSEvent),
+            addLocalMonitorForEventsMatchingMask: mask
+            handler: &*block];
+    }
+    // AppKit Block_copy'd the handler; keep OUR heap block alive for the app
+    // lifetime too (the monitor is never removed).
+    std::mem::forget(block);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -2366,6 +2490,12 @@ pub fn run() {
                     log::warn!("[topics] Cmd+Alt+T global shortcut not registered: {e}");
                 }
             }
+
+            // Forward app keyboard shortcuts (⌘W, ⌘⇧Tab, ⌘1-9…) to the renderer
+            // when a child browser pane holds focus and would otherwise swallow
+            // the keydown. macOS-only (NSEvent local monitor); see the fn doc.
+            #[cfg(target_os = "macos")]
+            install_shortcut_forwarder(app.handle());
 
             // NO dev hot-reload for /public. This config has no `devUrl`, so the
             // frontend is EMBEDDED into the binary at compile time (tauri-codegen
