@@ -5,9 +5,9 @@ import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
-import type { Pane, PaneType, PaneGroupType } from '../../types';
+import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
 import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
-import { signalsActions, useSignalsStore, projectHasAwaitingChild } from '../../state/signals';
+import { signalsActions, useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -18,7 +18,7 @@ import { useMobile, haptic } from '../../hooks/useMobile';
 import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, AgentStreamingSpinner } from './StreamingIndicator';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, AWAITING_SURFACE } from '../../lib/selectionStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE } from '@/lib/popoverStyles';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
@@ -143,6 +143,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // state synchronously from these in the loop.
   const awaitingTopics = useSignalsStore((s) => s.awaitingFeedbackTopics);
   const awaitingTermIds = useSignalsStore((s) => s.claudePhaseAwaitingTermIds);
+  // The LOUD 'input' tier subsets (amber, act-now) — the rest of the awaiting
+  // sets are the calm 'done' tier (blue). Used to pick the tab fill colour.
+  const inputTopics = useSignalsStore((s) => s.awaitingInputTopics);
+  const inputTermIds = useSignalsStore((s) => s.claudePhaseAwaitingInputTermIds);
   const claudeCodeSessionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const s of terminalSessions) {
@@ -584,18 +588,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const isSelected = activePaneId === pane.id;
         const isFullyActive = isSelected && groupIsFocused && isAppFocused;
         const isActiveDimmed = isSelected && !(groupIsFocused && isAppFocused);
-        // Electric-blue "awaiting feedback" background: a chat / Claude-Code
-        // terminal parked waiting for the user, or a project rolling up such a
-        // child. Codex/shell never qualify (no Claude phase). Takes priority over
-        // the neutral selection surface.
-        const isAwaiting =
+        // "Awaiting" background split by TIER: amber 'input' (a permission gate,
+        // act now) vs blue 'done' (turn finished, look when ready) — a chat /
+        // Claude-Code terminal parked for the user, or a project rolling up such
+        // a child. Codex/shell never qualify (no Claude phase).
+        const attentionTier: AttentionTier | null =
           pane.type === 'chat'
-            ? (!!pane.topicId && awaitingTopics.has(pane.topicId))
+            ? (pane.topicId ? (inputTopics.has(pane.topicId) ? 'input' : awaitingTopics.has(pane.topicId) ? 'done' : null) : null)
             : pane.type === 'terminal'
-              ? (isClaudeCodeTab && !!termSid && awaitingTermIds.has(termSid))
+              ? (isClaudeCodeTab && termSid ? (inputTermIds.has(termSid) ? 'input' : awaitingTermIds.has(termSid) ? 'done' : null) : null)
               : pane.type === 'project'
-                ? (!!pane.projectPath && projectHasAwaitingChild(pane.projectPath, topics, terminalSessions, awaitingTopics, awaitingTermIds))
-                : false;
+                ? (pane.projectPath ? projectAttentionTier(pane.projectPath, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds) : null)
+                : null;
+        // Focus clears the fill: the tab you're actively viewing (fully active =
+        // selected + its group focused + app focused) shows the neutral selected
+        // surface, never a flashing attention fill — the fix for "the tab I'm on
+        // keeps pulsing". A background/dimmed needy tab keeps its tier fill.
+        const onFill = attentionTier !== null && !isFullyActive;
         const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
@@ -641,10 +650,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // sum past the fixed 150px and spill into the next tab. The label
             // already truncates; this guarantees the rest can't escape either.
             className={`group flex items-center gap-1.5 ${ROW_PX} ${isTouch ? 'h-9' : 'h-7'} text-[11px] font-medium transition-all relative cursor-pointer select-none rounded-md overflow-hidden app-no-drag ${
-              isAwaiting
-                ? AWAITING_SURFACE
-                : isFullyActive
-                  ? SELECTED_SURFACE
+              isFullyActive
+                ? SELECTED_SURFACE
+                : attentionTier
+                  ? attentionSurface(attentionTier)
                   : isActiveDimmed
                     ? SELECTED_SURFACE_SOFT
                     : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
@@ -761,7 +770,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               if (!spawnerKey || !spawnedBrowserMap[spawnerKey]) return null;
               return (
                 <span
-                  className="ml-0.5 flex items-center text-app-text-faint/70"
+                  className={`ml-0.5 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
                   title="Questa tab ha aperto un browser"
                   data-testid="tab-spawned-browser"
                   aria-label="Ha aperto un browser"
@@ -774,7 +783,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 a cloud session, not a local one. Muted, like the browser cue. */}
             {pane.type === 'chat' && pane.topicId && topics[pane.topicId]?.provider === 'openclaw' && (
               <span
-                className="ml-0.5 flex items-center text-app-text-faint/70"
+                className={`ml-0.5 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
                 title="Cloud (OpenClaw)"
                 data-testid="tab-cloud"
                 aria-label="Sessione cloud (OpenClaw)"
@@ -786,7 +795,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 only (user preference), NOT on the top tab bar — see
                 Sidebar/TopicItem + SplitMiniMap. `splitMap` is intentionally
                 ignored here. */}
-            <NotificationBadge count={badgeCount} className="ml-0.5" />
+            <NotificationBadge count={badgeCount} className="ml-0.5" variant={onFill ? 'onFill' : 'default'} />
             {showRightIndicator && <InsertCaret side="right" />}
           </div>
         );

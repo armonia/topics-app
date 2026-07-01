@@ -22,14 +22,24 @@ interface NotificationBadgeProps {
   ariaLabel?: string;
   /** Optional tooltip. */
   title?: string;
+  /** `onFill` = the badge sits ON an attention fill (amber/blue). Use a
+   *  translucent-white pill so it stays legible instead of the default
+   *  primary-blue, which rendered blue-on-blue (invisible) on the awaiting fill. */
+  variant?: 'default' | 'onFill';
 }
 
-export function NotificationBadge({ count, className = '', ariaLabel, title }: NotificationBadgeProps) {
+export function NotificationBadge({ count, className = '', ariaLabel, title, variant = 'default' }: NotificationBadgeProps) {
   if (count <= 0) return null;
   const display = count > 99 ? '99+' : String(count);
+  // `onFill`: a translucent-black pill + white text reads on BOTH attention
+  // fills (dark-text amber AND white-text blue), where the default primary-blue
+  // pill went blue-on-blue (invisible) on the awaiting surface.
+  const tone = variant === 'onFill'
+    ? 'bg-black/35 text-white'
+    : 'bg-primary text-white';
   return (
     <span
-      className={`flex-shrink-0 bg-primary text-white text-[11px] font-semibold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none ${className}`}
+      className={`flex-shrink-0 ${tone} text-[11px] font-semibold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 leading-none ${className}`}
       aria-label={ariaLabel ?? `${count} unread`}
       title={title}
     >

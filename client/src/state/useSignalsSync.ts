@@ -6,8 +6,8 @@
 import { useEffect } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
 import type { AgentSession } from '../hooks/useAgents';
-import { signalsActions, derivePhaseTerminals, useSignalsStore, type TerminalPhaseLite } from './signals';
-import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics } from './signals';
+import { signalsActions, derivePhaseTerminals, deriveSessionActivity, useSignalsStore, type TerminalPhaseLite } from './signals';
+import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics } from './signals';
 
 interface Args {
   topics: Record<string, Topic>;
@@ -42,12 +42,21 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
     signalsActions.setClaudeAttentionTopics(ids);
   }, [topics, claudeSessions]);
 
-  // Claude "stopped, waiting for YOU" phases → blue awaiting-feedback fill by
-  // topic. Subset of the attention set above (drops `error`); kept as its own
-  // signal so the blue tab/row is decoupled from the badge.
+  // Claude "stopped, waiting for YOU" phases → awaiting-feedback fill by topic
+  // (the UNION set: amber 'input' + blue 'done'). Subset of the attention set
+  // above (drops `error`); kept as its own signal so the fill is decoupled from
+  // the badge. Also feed the LOUD 'input' subset (awaiting-approval) so the UI
+  // can pick amber vs blue.
   useEffect(() => {
     signalsActions.setAwaitingFeedbackTopics(deriveAwaitingFeedbackTopics(topics, claudeSessions));
+    signalsActions.setAwaitingInputTopics(deriveAwaitingInputTopics(topics, claudeSessions));
   }, [topics, claudeSessions]);
+
+  // "What is each session doing" → the activity map (keyed by topicId/terminalId).
+  // Drives the SessionActivity label on sidebar rows + the mobile activity view.
+  useEffect(() => {
+    signalsActions.setSessionActivity(deriveSessionActivity(topics, terminalSessions, claudeSessions));
+  }, [topics, terminalSessions, claudeSessions]);
 
   // Live chat streams (useChat) → by topic.
   useEffect(() => {
@@ -133,8 +142,8 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
   useEffect(() => {
     const byCsid = new Map<string, TerminalPhaseLite>();
     for (const st of claudeSessions.values()) byCsid.set(st.claudeSessionId, { phase: st.phase });
-    const { active, resting, awaiting } = derivePhaseTerminals(terminalSessions, byCsid);
-    signalsActions.setClaudePhaseTerminals(active, resting, awaiting);
+    const { active, resting, awaiting, awaitingInput } = derivePhaseTerminals(terminalSessions, byCsid);
+    signalsActions.setClaudePhaseTerminals(active, resting, awaiting, awaitingInput);
   }, [terminalSessions, claudeSessions]);
 
   // Reconcile busy/finished against the authoritative session roster. The

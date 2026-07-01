@@ -914,6 +914,18 @@ export type ClaudeSessionPhase =
   | 'error'
   | 'dormant';
 
+/**
+ * The two visual tiers of "a session needs you", split so the UI can paint them
+ * differently (the status-system redesign):
+ *   - 'input' — a permission prompt mid-task (awaiting-approval): you must ACT
+ *     now. Painted LOUD (amber, assertive pulse).
+ *   - 'done'  — the turn finished or timed out (awaiting-user / paused): look
+ *     when you're ready. Painted CALM (blue, gentle breathe).
+ * Single definition shared by signals.ts (derivation) and selectionStyles.ts
+ * (surface colours) so every surface agrees on the tier→colour mapping.
+ */
+export type AttentionTier = 'input' | 'done';
+
 export interface ClaudeSessionPendingApproval {
   kind: 'plan' | 'edit' | 'bash' | 'other';
   prompt: string;

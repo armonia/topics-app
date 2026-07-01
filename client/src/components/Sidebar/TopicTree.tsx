@@ -19,10 +19,11 @@ import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
-import { useAttentionSignals, signalsActions, useTerminalAwaitingFeedback, useSignalsStore, projectHasAwaitingChild } from '@/state/signals';
+import { useAttentionSignals, signalsActions, useTerminalAttentionTier, useSignalsStore, projectAttentionTier } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
+import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
@@ -142,6 +143,11 @@ export function TopicTree({
   // closure can derive a project's electric-blue rollup synchronously.
   const awaitingTopics = useSignalsStore((s) => s.awaitingFeedbackTopics);
   const awaitingTermIds = useSignalsStore((s) => s.claudePhaseAwaitingTermIds);
+  // The LOUD 'input' tier subsets (amber) — the rest of the awaiting sets are the
+  // calm 'done' tier (blue). Feed projectAttentionTier so a project row picks the
+  // colour of its loudest child.
+  const inputTopics = useSignalsStore((s) => s.awaitingInputTopics);
+  const inputTermIds = useSignalsStore((s) => s.claudePhaseAwaitingInputTermIds);
 
   const toggleProject = useCallback((projectId: string) => {
     onToggleProject(prev => {
@@ -360,6 +366,13 @@ export function TopicTree({
     // (below): now that selection is a flat fill (no ring/shadow), folder + child
     // read as one clean nested-selection block, not overlapping rows.
     const folderFilled = isProjectFocused;
+    // Attention TIER rolled up from the project's children (amber 'input' beats
+    // blue 'done'). Fill only shows on an UNfocused folder (focus clears it), so
+    // the name/badge must switch to the on-fill treatment then — otherwise the
+    // hardcoded muted name colour + default blue badge render grey-on-fill /
+    // blue-on-blue, the exact illegibility this redesign removes.
+    const projTier = projectAttentionTier(pp, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds);
+    const projOnFill = !isProjectFocused && projTier !== null;
 
     return (
       <div key={item.id}>
@@ -372,7 +385,7 @@ export function TopicTree({
           // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
           // child rows.
           className={`group/proj flex items-center h-11 md:h-8 pl-1 pr-2 select-none ${
-            sidebarRowCard({ focused: folderFilled, awaiting: projectHasAwaitingChild(pp, topics, terminalSessions, awaitingTopics, awaitingTermIds) })
+            sidebarRowCard({ focused: folderFilled, attention: projTier })
           }`}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -409,7 +422,7 @@ export function TopicTree({
               }
             }}
             className={`flex items-center gap-2 h-full flex-1 min-w-0 text-left text-[13px] font-medium transition-colors ${
-              isProjectFocused ? 'text-app-text' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
+              projOnFill ? `${ON_FILL_TEXT} font-semibold` : isProjectFocused ? 'text-app-text' : allArchived ? 'text-app-text-muted' : 'text-app-text-secondary hover:text-app-text'
             }`}
             title={pp}
             aria-label={`${item.name} project`}
@@ -446,7 +459,7 @@ export function TopicTree({
                 and process status live where they're actionable (git/terminal
                 panes + the project tab). */}
             {item.notificationCount > 0 && (
-              <NotificationBadge count={item.notificationCount} className={`ml-0.5 ${isTouch ? '' : 'group-hover/proj:hidden'}`} />
+              <NotificationBadge count={item.notificationCount} className={`ml-0.5 ${isTouch ? '' : 'group-hover/proj:hidden'}`} variant={projOnFill ? 'onFill' : 'default'} />
             )}
             {/* Action buttons on hover */}
             {!isTouch && (
@@ -682,8 +695,10 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   // closing the terminal pane via the topbar X shows the countdown in
   // the sidebar terminal row too.
   const pendingClose = useTerminalPendingStatus(s.id);
-  // Electric-blue background when this Claude-Code session is awaiting the user.
-  const isAwaiting = useTerminalAwaitingFeedback(s.id);
+  // Attention TIER — amber 'input' (permission gate) vs blue 'done' (turn
+  // finished), or null. The fill only shows on an UNfocused row (focus clears it).
+  const attentionTier = useTerminalAttentionTier(s.id);
+  const onFill = attentionTier !== null && !isFocused;
 
   return (
     <div
@@ -692,7 +707,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
       className={[
         `group/terminal flex items-center h-11 md:h-8 ${ROW_PX}`,
-        sidebarRowCard({ focused: isFocused, open: isOpen, awaiting: isAwaiting }),
+        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
     >
@@ -707,9 +722,13 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           : s.type === 'codex'
             ? <CodexIcon size={13} className="flex-shrink-0" />
             : <TerminalSquare size={13} className="flex-shrink-0 text-app-text-tertiary" />}
-        <span className="text-[12px] truncate flex-1">{s.name}</span>
+        {/* Name + live "what it's doing" subline (self-hides when idle). */}
+        <span className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+          <span className={`text-[12px] truncate ${onFill ? 'font-semibold' : ''}`}>{s.name}</span>
+          <SessionActivity subjectId={s.id} onFill={onFill} />
+        </span>
         {projectName && (
-          <span className="text-[11px] text-app-text-tertiary truncate max-w-[80px] mr-1" title={s.cwd}>
+          <span className={`text-[11px] truncate max-w-[80px] mr-1 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`} title={s.cwd}>
             {projectName}
           </span>
         )}
@@ -723,7 +742,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             the tab bar. A finished turn surfaces as the notification badge, not
             a separate dot. */}
         <TerminalStreamingSpinner sessionId={s.id} className="ml-0.5" />
-        <NotificationBadge count={notificationCount} className="ml-0.5" />
+        <NotificationBadge count={notificationCount} className="ml-0.5" variant={onFill ? 'onFill' : 'default'} />
       </button>
 
       {/* Inline "Open as project" icon removed — it competed with the

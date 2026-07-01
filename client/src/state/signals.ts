@@ -25,7 +25,7 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
-import type { Pane, Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState } from '../types';
+import type { Pane, Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState, AttentionTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId, getProjectPathFromPaneId } from './pane/adapters';
 
@@ -59,6 +59,25 @@ export const AWAITING_FEEDBACK_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set
   'paused',
 ]);
 
+/** The LOUD subset of AWAITING_FEEDBACK_PHASES: Claude is blocked on a permission
+ *  and needs an answer NOW (the amber "act now" tier). Strictly `awaiting-approval`
+ *  — a mid-task gate — as opposed to `awaiting-user`/`paused`, which mean the turn
+ *  simply finished (the calm blue "done, look when ready" tier). Splitting the two
+ *  is the fix for "one blue does two jobs → everything looks equally urgent". */
+export const AWAITING_INPUT_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
+  'awaiting-approval',
+]);
+
+/** Map a phase to its attention TIER, or null if it isn't a "needs you" phase.
+ *  `awaiting-approval` → 'input' (loud amber); `awaiting-user`/`paused` → 'done'
+ *  (calm blue). The ONE definition every surface reads, so the tier→colour choice
+ *  can never drift between the tab bar, the sidebar and the project rollup. */
+export function attentionTierForPhase(phase: ClaudeSessionPhase): AttentionTier | null {
+  if (AWAITING_INPUT_PHASES.has(phase)) return 'input';
+  if (AWAITING_FEEDBACK_PHASES.has(phase)) return 'done';
+  return null;
+}
+
 /** Pure: topic ids whose bound Claude session is parked awaiting human input.
  *  Mirror of the `claudeAttentionTopics` derivation but keyed on
  *  AWAITING_FEEDBACK_PHASES. Extracted (and unit-tested) so the blue-tab signal
@@ -71,6 +90,22 @@ export function deriveAwaitingFeedbackTopics(
   for (const t of Object.values(topics)) {
     const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
     if (st && AWAITING_FEEDBACK_PHASES.has(st.phase)) ids.add(t.id);
+  }
+  return ids;
+}
+
+/** Pure: topic ids whose bound Claude session is specifically awaiting a
+ *  permission answer (the amber 'input' tier) — a strict subset of
+ *  deriveAwaitingFeedbackTopics. Kept separate so the UI can pick amber vs blue
+ *  while the union set still drives the tier-agnostic counts/rollups. */
+export function deriveAwaitingInputTopics(
+  topics: Record<string, Topic>,
+  claudeSessions: ReadonlyMap<string, ClaudeSessionState>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const t of Object.values(topics)) {
+    const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
+    if (st && AWAITING_INPUT_PHASES.has(st.phase)) ids.add(t.id);
   }
   return ids;
 }
@@ -135,18 +170,31 @@ interface SignalsState {
   // reason. pty still drives plain shells and any session with no phase yet.
   claudePhaseRestingTermIds: Set<string>;
   // claude-code terminals whose phase is specifically awaiting the user
-  // (awaiting-user/-approval/paused) — subset of resting. Drives the blue
-  // "awaiting feedback" fill on terminal tabs/rows, the terminal twin of
+  // (awaiting-user/-approval/paused) — subset of resting. Drives the "awaiting
+  // feedback" fill on terminal tabs/rows, the terminal twin of
   // awaitingFeedbackTopics. By terminal session id.
   claudePhaseAwaitingTermIds: Set<string>;
+  // claude-code terminals in the LOUD 'input' tier (awaiting-approval only) —
+  // a strict subset of claudePhaseAwaitingTermIds. Amber fill (act now); the
+  // rest of the awaiting set is calm blue (done-unseen). By terminal session id.
+  claudePhaseAwaitingInputTermIds: Set<string>;
   // attention inputs
   claudeAttentionTopics: Set<string>;   // chat Claude awaiting-*/error
   // chat Claude parked awaiting human input (awaiting-user/-approval/paused) —
-  // the subset that drives the blue "awaiting feedback" tab/row fill. Separate
-  // from claudeAttentionTopics because `error` belongs to the badge, not blue.
+  // the subset that drives the "awaiting feedback" tab/row fill. Separate
+  // from claudeAttentionTopics because `error` belongs to the badge, not the fill.
   awaitingFeedbackTopics: Set<string>;
+  // chat topics in the LOUD 'input' tier (awaiting-approval) — subset of
+  // awaitingFeedbackTopics. Amber fill; the rest is calm blue done-unseen.
+  awaitingInputTopics: Set<string>;
   terminalFinishedIds: Set<string>;     // claude-code finished a turn, until the user looks
   terminalReloadingIds: Set<string>;    // a terminal is restarting (Ricarica), until it reconnects
+  // "What is this session doing right now" — a compact descriptor keyed by
+  // SUBJECT id (topicId for chats, terminalSessionId for terminals; the two id
+  // spaces are disjoint so one map is unambiguous). Drives the SessionActivity
+  // label on sidebar rows and the mobile activity view. Derived centrally from
+  // the claude session states + roster (see deriveSessionActivity).
+  sessionActivity: Map<string, SessionActivitySignal>;
 
   setTopicSet: (key: TopicSetKey, ids: Set<string>) => void;
   setBrowserBusy: (paneId: string, busy: boolean) => void;
@@ -156,7 +204,28 @@ interface SignalsState {
   markTerminalReloading: (id: string) => void;
   clearTerminalReloading: (id: string) => void;
   reconcileTerminals: (roster: TerminalRosterEntry[]) => void;
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>) => void;
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>) => void;
+  setSessionActivity: (activity: Map<string, SessionActivitySignal>) => void;
+}
+
+/**
+ * Compact "what is this session doing" descriptor — the display half of a
+ * ClaudeSessionState, flattened to exactly what an activity label renders so the
+ * label component never has to reach into the full session map. `since` powers a
+ * live elapsed timer. Pure data; one per subject (topic/terminal).
+ */
+export interface SessionActivitySignal {
+  phase: ClaudeSessionPhase;
+  /** null = neither working nor awaiting (idle/error handled by badge). */
+  tier: AttentionTier | null;
+  /** running / tool-running — Claude is producing work right now. */
+  working: boolean;
+  /** The tool Claude is currently running (from lastTool), when working. */
+  tool?: string;
+  /** The pending approval kind (plan/edit/bash/other), when tier === 'input'. */
+  approvalKind?: string;
+  /** Timestamp the current phase/tool started — for the elapsed counter. */
+  since: number;
 }
 
 /** Minimal shape the reconciler reads from the server session roster. */
@@ -165,7 +234,7 @@ export interface TerminalRosterEntry {
   busy?: boolean;
 }
 
-type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'agentActiveTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics';
+type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'agentActiveTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics';
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return false;
@@ -270,10 +339,13 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   claudePhaseActiveTermIds: new Set(),
   claudePhaseRestingTermIds: new Set(),
   claudePhaseAwaitingTermIds: new Set(),
+  claudePhaseAwaitingInputTermIds: new Set(),
   claudeAttentionTopics: new Set(),
   awaitingFeedbackTopics: new Set(),
+  awaitingInputTopics: new Set(),
   terminalFinishedIds: new Set(),
   terminalReloadingIds: new Set(),
+  sessionActivity: new Map(),
 
   setTopicSet: (key, ids) =>
     set((s) => (setsEqual(ids, s[key]) ? s : ({ [key]: ids } as Pick<SignalsState, TopicSetKey>))),
@@ -321,19 +393,38 @@ export const useSignalsStore = create<SignalsState>((set) => ({
       return { terminalBusyIds: busy, terminalFinishedIds: finished };
     }),
 
-  setClaudePhaseTerminals: (active, resting, awaiting) =>
+  setClaudePhaseTerminals: (active, resting, awaiting, awaitingInput) =>
     set((s) => {
       const activeChanged = !setsEqual(active, s.claudePhaseActiveTermIds);
       const restingChanged = !setsEqual(resting, s.claudePhaseRestingTermIds);
       const awaitingChanged = !setsEqual(awaiting, s.claudePhaseAwaitingTermIds);
-      if (!activeChanged && !restingChanged && !awaitingChanged) return s;
+      const awaitingInputChanged = !setsEqual(awaitingInput, s.claudePhaseAwaitingInputTermIds);
+      if (!activeChanged && !restingChanged && !awaitingChanged && !awaitingInputChanged) return s;
       return {
         ...(activeChanged ? { claudePhaseActiveTermIds: active } : {}),
         ...(restingChanged ? { claudePhaseRestingTermIds: resting } : {}),
         ...(awaitingChanged ? { claudePhaseAwaitingTermIds: awaiting } : {}),
+        ...(awaitingInputChanged ? { claudePhaseAwaitingInputTermIds: awaitingInput } : {}),
       };
     }),
+
+  setSessionActivity: (activity) =>
+    set((s) => (sessionActivityEqual(s.sessionActivity, activity) ? s : { sessionActivity: activity })),
 }));
+
+/** Shallow structural equality for the sessionActivity map — same keys and each
+ *  descriptor field-equal — so an identical re-derivation skips the store update
+ *  (no spurious re-render of every activity label). */
+function sessionActivityEqual(a: Map<string, SessionActivitySignal>, b: Map<string, SessionActivitySignal>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [k, va] of a) {
+    const vb = b.get(k);
+    if (!vb) return false;
+    if (va.phase !== vb.phase || va.tier !== vb.tier || va.working !== vb.working
+      || va.tool !== vb.tool || va.approvalKind !== vb.approvalKind || va.since !== vb.since) return false;
+  }
+  return true;
+}
 
 // ---- Raw setters for App-level sync (stable references) ---------------------
 
@@ -343,6 +434,8 @@ export const signalsActions = {
   setAgentActiveTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('agentActiveTopics', ids),
   setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
+  setAwaitingInputTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingInputTopics', ids),
+  setSessionActivity: (activity: Map<string, SessionActivitySignal>) => useSignalsStore.getState().setSessionActivity(activity),
   setBrowserBusy: (paneId: string, busy: boolean) => useSignalsStore.getState().setBrowserBusy(paneId, busy),
   setTerminalBusy: (id: string, busy: boolean) => useSignalsStore.getState().setTerminalBusy(id, busy),
   markTerminalFinished: (id: string) => useSignalsStore.getState().markTerminalFinished(id),
@@ -350,7 +443,7 @@ export const signalsActions = {
   markTerminalReloading: (id: string) => useSignalsStore.getState().markTerminalReloading(id),
   clearTerminalReloading: (id: string) => useSignalsStore.getState().clearTerminalReloading(id),
   reconcileTerminals: (roster: TerminalRosterEntry[]) => useSignalsStore.getState().reconcileTerminals(roster),
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting, awaiting),
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting, awaiting, awaitingInput),
 };
 
 /**
@@ -405,13 +498,15 @@ export interface TerminalRosterTypeEntry {
 export function derivePhaseTerminals(
   roster: TerminalRosterTypeEntry[],
   byCsid: Map<string, TerminalPhaseLite>,
-): { active: Set<string>; resting: Set<string>; awaiting: Set<string> } {
+): { active: Set<string>; resting: Set<string>; awaiting: Set<string>; awaitingInput: Set<string> } {
   const active = new Set<string>();
   const resting = new Set<string>();
   // `awaiting` is a SUBSET of `resting` (AWAITING_FEEDBACK_PHASES ⊂
   // RESTING_CLAUDE_PHASES): the session is idle (no spinner) AND specifically
-  // parked waiting for the user → drives the blue terminal-tab/row fill.
+  // parked waiting for the user → drives the terminal-tab/row fill.
   const awaiting = new Set<string>();
+  // `awaitingInput` ⊂ `awaiting`: the LOUD amber tier (awaiting-approval only).
+  const awaitingInput = new Set<string>();
   for (const ts of roster) {
     if (ts.type !== 'claude-code' && ts.type !== 'claude-code-team') continue;
     if (!ts.claudeSessionId) continue;
@@ -421,10 +516,61 @@ export function derivePhaseTerminals(
     else if (RESTING_CLAUDE_PHASES.has(st.phase)) {
       resting.add(ts.id);
       if (AWAITING_FEEDBACK_PHASES.has(st.phase)) awaiting.add(ts.id);
+      if (AWAITING_INPUT_PHASES.has(st.phase)) awaitingInput.add(ts.id);
     }
     // `starting` / unknown → neither set → pty heuristic decides.
   }
-  return { active, resting, awaiting };
+  return { active, resting, awaiting, awaitingInput };
+}
+
+/**
+ * Build the "what is each session doing" map, keyed by SUBJECT id (topicId for
+ * chats, terminalSessionId for claude-code terminals). Only sessions that are
+ * WORKING or AWAITING produce an entry — an idle/dormant session shows nothing,
+ * so the map stays small and the activity labels only render where there's
+ * something to say. The descriptor is flattened from the full session state so
+ * the label component never reaches into the session map itself.
+ */
+export function deriveSessionActivity(
+  topics: Record<string, Topic>,
+  roster: TerminalRosterTypeEntry[],
+  claudeSessions: ReadonlyMap<string, ClaudeSessionState>,
+): Map<string, SessionActivitySignal> {
+  const out = new Map<string, SessionActivitySignal>();
+  const signalFor = (st: ClaudeSessionState): SessionActivitySignal | null => {
+    const working = ACTIVE_CLAUDE_PHASES.has(st.phase);
+    const tier = attentionTierForPhase(st.phase);
+    if (!working && !tier) return null; // idle / completed / dormant / error → no label
+    return {
+      phase: st.phase,
+      tier,
+      working,
+      tool: working ? st.lastTool?.name : undefined,
+      approvalKind: tier === 'input' ? st.pendingApproval?.kind : undefined,
+      // Prefer the running tool's start (freshest) when working, else the phase
+      // change — so the elapsed counter tracks the current action.
+      since: (working && st.lastTool?.startedAt) || st.phaseUpdatedAt || st.updatedAt,
+    };
+  };
+  // Chats — keyed by topicId via sessionKey.
+  for (const t of Object.values(topics)) {
+    const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
+    if (!st) continue;
+    const sig = signalFor(st);
+    if (sig) out.set(t.id, sig);
+  }
+  // Terminals — keyed by terminal session id via claudeSessionId.
+  const byCsid = new Map<string, ClaudeSessionState>();
+  for (const st of claudeSessions.values()) byCsid.set(st.claudeSessionId, st);
+  for (const ts of roster) {
+    if (ts.type !== 'claude-code' && ts.type !== 'claude-code-team') continue;
+    if (!ts.claudeSessionId) continue;
+    const st = byCsid.get(ts.claudeSessionId);
+    if (!st) continue;
+    const sig = signalFor(st);
+    if (sig) out.set(ts.id, sig);
+  }
+  return out;
 }
 
 // ---- Key derivation --------------------------------------------------------
@@ -509,6 +655,34 @@ export function projectHasAwaitingChild(
   return false;
 }
 
+/** The attention TIER a project row/tab should paint: 'input' (amber) if ANY
+ *  child is awaiting a permission — the loudest child wins — else 'done' (blue)
+ *  if any child finished-and-unseen, else null. Mirrors projectHasAwaitingChild's
+ *  child-walk but tier-aware, so the project surface matches its leaves. */
+export function projectAttentionTier(
+  projectPath: string,
+  topics: Record<string, Topic>,
+  terminalSessions: TerminalSessionInfo[],
+  awaitingTopics: ReadonlySet<string>,
+  awaitingTerms: ReadonlySet<string>,
+  inputTopics: ReadonlySet<string>,
+  inputTerms: ReadonlySet<string>,
+): AttentionTier | null {
+  let hasDone = false;
+  for (const t of Object.values(topics)) {
+    if (t.projectPath !== projectPath) continue;
+    if (inputTopics.has(t.id)) return 'input';
+    if (awaitingTopics.has(t.id)) hasDone = true;
+  }
+  for (const ts of terminalSessions) {
+    if (ts.type === 'shell') continue;
+    if (!ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
+    if (inputTerms.has(ts.id)) return 'input';
+    if (awaitingTerms.has(ts.id)) hasDone = true;
+  }
+  return hasDone ? 'done' : null;
+}
+
 /** Is this pane producing output right now? Single entry point for every
  *  loading indicator, dispatching by pane type with derived keys. */
 export function usePaneLoading(pane: Pane): boolean {
@@ -560,6 +734,42 @@ export function useTopicLoading(topicId: string | undefined): boolean {
  *  the attention badge (which also counts `error` + unread). */
 export function useTopicAwaitingFeedback(topicId: string | undefined): boolean {
   return useSignalsStore((s) => !!topicId && s.awaitingFeedbackTopics.has(topicId));
+}
+
+/** The attention TIER of a chat topic's Claude session, or null. 'input' (amber,
+ *  act now) when awaiting a permission; 'done' (blue, look when ready) when the
+ *  turn finished/paused. The surface colour is chosen from this — see
+ *  selectionStyles.attentionSurface. Returns a stable primitive so the selector
+ *  is referentially safe. */
+export function useTopicAttentionTier(topicId: string | undefined): AttentionTier | null {
+  return useSignalsStore((s) => {
+    if (!topicId) return null;
+    if (s.awaitingInputTopics.has(topicId)) return 'input';
+    if (s.awaitingFeedbackTopics.has(topicId)) return 'done';
+    return null;
+  });
+}
+
+/** The attention TIER of a claude-code terminal session — the terminal twin of
+ *  useTopicAttentionTier. */
+export function useTerminalAttentionTier(sessionId: string | undefined): AttentionTier | null {
+  return useSignalsStore((s) => {
+    if (!sessionId) return null;
+    if (s.claudePhaseAwaitingInputTermIds.has(sessionId)) return 'input';
+    if (s.claudePhaseAwaitingTermIds.has(sessionId)) return 'done';
+    return null;
+  });
+}
+
+/** "What is this session doing" for a subject id (topicId or terminalSessionId),
+ *  or undefined when idle. Drives the SessionActivity label. */
+export function useSessionActivity(subjectId: string | undefined): SessionActivitySignal | undefined {
+  // Field-level (shallow) equality, NOT Object.is: deriveSessionActivity rebuilds
+  // fresh descriptor objects for EVERY subject on each derivation, so any one
+  // session's tool tick would otherwise re-render every activity label (its .get
+  // returns a new-but-equal ref). useShallow compares the descriptor's fields so
+  // an unchanged subject stays referentially stable to its consumer.
+  return useSignalsStore(useShallow((s) => (subjectId ? s.sessionActivity.get(subjectId) : undefined)));
 }
 
 /** A terminal session is loading when its claude phase is active, or (for
