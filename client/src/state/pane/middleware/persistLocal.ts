@@ -109,6 +109,19 @@ function flushNow(): void {
   writeSnapshotNow();
 }
 
+/**
+ * Synchronously write the current pane-store snapshot to localStorage,
+ * cancelling any pending debounce. Exposed so an unload handler can flush the
+ * store AFTER committing pending closes (which dispatch CLOSE_PANE) — the
+ * separate `pagehide` listener registered here would otherwise fire first
+ * (registered at bootstrap, before the PendingActionProvider mounts) and
+ * persist the stale pre-close snapshot, resurrecting the tab on reload.
+ */
+export function flushLocalPaneStoreNow(): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  flushNow();
+}
+
 export function initLocalPersistence(): void {
   if (started) return;
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;

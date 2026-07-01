@@ -47,6 +47,9 @@ import {
   addTerminalTombstone,
   clearTerminalTombstone,
   getTerminalTombstones,
+  addBrowserTombstone,
+  clearBrowserTombstone,
+  getBrowserTombstones,
 } from '../../../state/pane/adapters';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
@@ -223,7 +226,18 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
   // --- Core state ---
   const [panes, setPanes] = useState<Pane[]>(() => {
-    const seed: Pane[] = stripWrapperPaneId(initial?.nonChatPanes || [], projectPath);
+    // Skip browser panes the user just closed (tombstone survives reload). The
+    // persisted `nonChatPanes` snapshot may still list a browser pane whose
+    // close committed at unload — where the React persistence effect never
+    // re-ran to drop it — so consult the browser tombstone the same way the
+    // terminal-sync effect consults getTerminalTombstones() for terminals.
+    const browserTombstones = getBrowserTombstones();
+    const seed: Pane[] = stripWrapperPaneId(initial?.nonChatPanes || [], projectPath)
+      .filter(p => {
+        if (p.type !== 'browser') return true;
+        const ctx = getBrowserContextFromPaneId(p.id);
+        return !(ctx && browserTombstones.has(ctx));
+      });
     const seenIds = new Set(seed.map(p => p.id));
     for (const topicId of initial?.openChatTopicIds || []) {
       // Defensive: a utility-pane id (`__agents__`, `__dashboard__`, …)
@@ -1037,6 +1051,15 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           // context on a real close.
           const bctx = getBrowserContextFromPaneId(paneId);
           if (bctx) {
+            // Tombstone the context id IMMEDIATELY (localStorage, survives
+            // reload). The `panes` useState seed on the next mount skips
+            // tombstoned browser panes — so a reload before the persistence
+            // effect has re-run (e.g. the close committed at unload via
+            // flushPendingActions, where React never re-renders) can no longer
+            // resurrect this browser as a phantom tab from the stale
+            // `nonChatPanes` snapshot. Mirrors addTerminalTombstone above; the
+            // earlier "no tombstone needed" assumption was the resurrection bug.
+            addBrowserTombstone(bctx);
             // Unregister the native CDP target (clears isNativeBound + agent caches).
             // useNativeBrowser intentionally no longer does this on React unmount
             // (that emptied the registry during remounts → phantom); a real close
@@ -1067,6 +1090,13 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           description: `Close ${pane.title || pane.type}`,
           undo: async () => {
             const restored = await reopenClosedTab(capturedRecord);
+            // Undo of a browser close retracts its tombstone so a later reload
+            // doesn't re-close it via the seed filter (mirrors reopenClosedTab's
+            // clearTerminalTombstone for terminals).
+            if (restored.type === 'browser') {
+              const ctx = getBrowserContextFromPaneId(restored.id);
+              if (ctx) clearBrowserTombstone(ctx);
+            }
             // Id-dedup guard (same pattern as reopenChatPane /
             // handleAddPaneToGroup): the pane may have been reopened via the
             // sidebar between close and ⌘Z — re-adding would duplicate the
@@ -1296,6 +1326,13 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         // `term-<id>` the server's observe/act routes resolve to).
         paneId = createPaneId(type, paneKey);
         paneTitle = config.label;
+        // Re-opening a browser retracts any close tombstone for its context, so
+        // the seed filter above won't suppress it on the next reload. Symmetric
+        // with clearTerminalTombstone on the terminal reopen path.
+        if (type === 'browser') {
+          const ctx = getBrowserContextFromPaneId(paneId);
+          if (ctx) clearBrowserTombstone(ctx);
+        }
       }
 
       // A browser pane is a DURABLE resource (a live WebContentsView the user —

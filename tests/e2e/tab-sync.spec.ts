@@ -93,6 +93,107 @@ test.describe("Tab Sync & Persistence", () => {
     // If no tab bar visible, all tabs were closed — that's also valid
   });
 
+  test("TAB-SYNC-01: closed BROWSER tab does not reappear after reload", async ({
+    page,
+    tabSyncPage,
+  }) => {
+    // Regression: a durable (browser/terminal/utility) pane closed via the tab
+    // X used to resurrect on Cmd+R — chat tabs were protected by the archived-
+    // topic filter, these had no tombstone backstop. The pane-store closedStack
+    // tombstone now covers all durable app-level tabs, and the union respects it
+    // bidirectionally so a stale cross-tab snapshot can't re-add the closed tab.
+    test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
+    await goToApp(page);
+
+    // Pin a chat so the tab bar has a stable neighbour, then open a Browser pane
+    // via the add-pane (+) menu.
+    await openTopicByDoubleClick(page, /Web Search Test/);
+    await tabSyncPage.openPaneByType("browser");
+
+    // The browser tab should be present before we close it.
+    const labelsBefore = await tabSyncPage.getTabLabels();
+    expect(labelsBefore.some((l) => /browser/i.test(l))).toBeTruthy();
+
+    // Close the browser tab via its close button.
+    const tabs = tabSyncPage.tabs;
+    const count = await tabs.count();
+    let browserTab = tabs.first();
+    for (let i = 0; i < count; i++) {
+      const text = (await tabs.nth(i).textContent())?.trim() || "";
+      if (/browser/i.test(text)) {
+        browserTab = tabs.nth(i);
+        break;
+      }
+    }
+    await browserTab.locator("button").last().click();
+
+    // Let the deferred close commit (CLOSE_PANE → tombstone) and sync.
+    await tabSyncPage.waitForSyncPut("panels").catch(() => {});
+
+    // Reload.
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector('[aria-label="Topics sidebar"]', {
+      state: "visible",
+      timeout: 15000,
+    });
+
+    const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
+    const tabBarVisible = await tabBar
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (tabBarVisible) {
+      const labelsAfter = await tabSyncPage.getTabLabels();
+      // The closed browser tab must NOT be among the restored tabs.
+      expect(labelsAfter.some((l) => /browser/i.test(l))).toBeFalsy();
+    }
+  });
+
+  test("TAB-SYNC-01: browser tab closed then reloaded IMMEDIATELY (within the countdown) stays closed", async ({
+    page,
+    tabSyncPage,
+  }) => {
+    // The deferred-close window: the CLOSE_PANE commit is a client-only pending
+    // action (no reload persistence). A reload during the ~1.5 s countdown used
+    // to discard the pending commit → no tombstone → the browser tab resurrected
+    // from the still-present persisted snapshot. The unload flush now commits the
+    // pending close (records the tombstone + prunes the persisted snapshot)
+    // before the page unloads.
+    test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
+    await goToApp(page);
+
+    await openTopicByDoubleClick(page, /Web Search Test/);
+    await tabSyncPage.openPaneByType("browser");
+    expect((await tabSyncPage.getTabLabels()).some((l) => /browser/i.test(l))).toBeTruthy();
+
+    const tabs = tabSyncPage.tabs;
+    const count = await tabs.count();
+    let browserTab = tabs.first();
+    for (let i = 0; i < count; i++) {
+      const text = (await tabs.nth(i).textContent())?.trim() || "";
+      if (/browser/i.test(text)) { browserTab = tabs.nth(i); break; }
+    }
+    await browserTab.locator("button").last().click();
+
+    // Reload IMMEDIATELY — no wait for the countdown to elapse. The unload flush
+    // must persist the close.
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector('[aria-label="Topics sidebar"]', {
+      state: "visible",
+      timeout: 15000,
+    });
+
+    const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
+    const tabBarVisible = await tabBar
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (tabBarVisible) {
+      const labelsAfter = await tabSyncPage.getTabLabels();
+      expect(labelsAfter.some((l) => /browser/i.test(l))).toBeFalsy();
+    }
+  });
+
   test("TAB-SYNC-01: server receives PUT to /api/ui-state when tab state changes", async ({
     page,
     tabSyncPage,
