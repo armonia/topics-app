@@ -1,5 +1,9 @@
 #!/bin/bash
 # Launch ONLY Electron (assumes server already running on :3333)
+# NOTE: invoked by the installed LaunchAgent com.armonia.topics-electron-prod
+# (~/Library/LaunchAgents/com.armonia.topics-electron-prod.plist) — do NOT
+# delete this script in grep-based cleanup passes even if nothing in the repo
+# references it.
 set -e
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP_DIR"
