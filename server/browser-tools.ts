@@ -30,7 +30,8 @@ export type BrowserToolName =
   | "browser_load_state"
   | "browser_point"
   | "browser_import_chrome"
-  | "browser_upload";
+  | "browser_upload"
+  | "browser_status";
 
 // Derived from the SHARED action set so this type can't drift from the runtime
 // validators (native + server) — one source for the whole browser_act surface.

@@ -40,7 +40,7 @@ import {
 } from "./browser-login-state";
 // SHARED action set — the SAME source the native validator (tauriBrowserOps) uses,
 // so the two paths can never disagree on what browser_act accepts.
-import { REF_ACTIONS, ACT_ACTIONS, UPLOAD_FN } from "../shared/browser-snapshot-core";
+import { REF_ACTIONS, ACT_ACTIONS, UPLOAD_FN, STATUS_JS } from "../shared/browser-snapshot-core";
 
 const observeCache = new Map<string, IndexedElement[]>();
 /** Last ref-based snapshot per context — powers incremental diffs in observe/act. */
@@ -396,6 +396,27 @@ export async function handleBrowserUpload(
       return { error: `browser_upload failed: ${err instanceof Error ? err.message : String(err)}` };
     }
   });
+}
+
+/**
+ * browser_status — the pane's current { url, title, viewport, loading }. Runs the
+ * shared STATUS_JS in the page (CDP/Playwright surface; the Tauri native pane
+ * takes the delegated path). Fixes the 1280×720 viewport stub with the real size.
+ */
+export async function handleBrowserStatus(
+  service: BrowserService,
+  contextId: string,
+): Promise<{ url?: string; title?: string; viewport?: { width: number; height: number }; loading?: boolean; error?: string }> {
+  const ops = await resolveOps(service, contextId);
+  try {
+    const { result } = await ops.evalExpression(STATUS_JS);
+    const parsed = typeof result === "string" ? JSON.parse(result) : result;
+    return parsed && typeof parsed === "object"
+      ? (parsed as { url?: string; title?: string })
+      : { error: "browser_status: unexpected result" };
+  } catch (err: unknown) {
+    return { error: `browser_status failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
 
 /**

@@ -26,6 +26,7 @@ import {
   ACT_FN,
   EXTRACT_FN,
   UPLOAD_FN,
+  STATUS_JS,
   serialize,
   diff,
   REF_ACTIONS,
@@ -186,6 +187,15 @@ export async function executeNativeBrowserOp(
           return { error: 'native upload: malformed result' };
         }
       }
+      case 'browser_status': {
+        // Real url/title/viewport/loading from the pane (fixes the 1280×720 stub).
+        const raw = await invoke<string>('browser_eval_js', { id, js: STATUS_JS });
+        try {
+          return { result: JSON.parse(raw || '{}') };
+        } catch {
+          return { error: 'native status: malformed result' };
+        }
+      }
       case 'browser_extract': {
         const fields = coerceExtractFields(a);
         if (!Object.keys(fields).length) {
@@ -275,4 +285,5 @@ export const NATIVE_SUPPORTED_OPS: ReadonlySet<string> = new Set([
   'browser_console',
   'browser_screenshot',
   'browser_upload',
+  'browser_status',
 ]);

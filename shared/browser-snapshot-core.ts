@@ -506,6 +506,17 @@ export const EXTRACT_FN = (spec: Record<string, any>): Record<string, unknown> =
  * NOTE: the change event is untrusted (isTrusted=false) — covers the vast majority
  * of upload widgets; a few that demand a trusted picker will differ.
  */
+/**
+ * In-page status probe: current url/title/viewport/loading as a JSON string.
+ * Runs identically on every surface (server Playwright / Electron CDP via
+ * evalExpression, Tauri WKWebView via browser_eval_js). Fixes the hardcoded
+ * 1280×720 viewport stub — the agent gets the pane's REAL viewport.
+ */
+export const STATUS_JS =
+  "JSON.stringify({url:location.href,title:document.title," +
+  "viewport:{width:Math.round(innerWidth),height:Math.round(innerHeight)}," +
+  "loading:document.readyState!=='complete'})";
+
 export const UPLOAD_FN = (p: {
   ref?: number;
   dataB64: string;
