@@ -43,12 +43,12 @@ const EASE_KEYWORDS: Record<string, Timing> = {
   'ease-in': [0.42, 0, 1, 1], 'ease-out': [0, 0, 0.58, 1], 'ease-in-out': [0.42, 0, 0.58, 1],
 };
 
-/** Read the element's `width` transition duration + timing curve straight from CSS
- *  (the single source of truth), or null if there's no parseable width transition. */
-function readWidthTiming(el: HTMLElement): { durationMs: number; timing: Timing } | null {
+/** Read a CSS transition's duration + timing curve for `prop` straight from CSS
+ *  (the single source of truth), or null if there's no parseable transition for it. */
+function readTiming(el: HTMLElement, prop: string): { durationMs: number; timing: Timing } | null {
   const cs = getComputedStyle(el);
   const props = cs.transitionProperty.split(',').map((s) => s.trim());
-  let idx = props.indexOf('width');
+  let idx = props.indexOf(prop);
   if (idx < 0) idx = props.indexOf('all');
   if (idx < 0) return null;
   const durs = cs.transitionDuration.split(',').map((s) => s.trim());
@@ -231,15 +231,29 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     const beginSidebarFrostAnimation = () => {
       const el = sidebarEl();
       if (!floatingSplits || !api.animateRegions || !el) { startLive(); return; }
-      const sbTargetW = parseFloat(el.style.width); // React set inline width = target at transitionrun
-      const t = readWidthTiming(el);
-      const startRects = collect();
-      const sb = startRects[0]; // collect() always yields the sidebar first (even collapsed)
-      if (!Number.isFinite(sbTargetW) || !t || !sb) { startLive(); return; }
-      const end = predictSidebarEnd(startRects, sb.w, sbTargetW);
-      frozen = true; // suspend settle/poll/RO pushes for the duration of the native anim
+      // The desktop sidebar collapses via a composited translateX(0 ↔ -100%) over
+      // a `transform` transition (CONSTANT width), NOT a width change — so read the
+      // TRANSFORM timing and model the slide. (The old width path never fired: no
+      // width transition runs, so the frost fell to the 90ms debounce and trailed.)
+      const t = readTiming(el, 'transform');
+      // Base = the SETTLED resting regions we last pushed (clean, pre-toggle, no
+      // in-flight transform). collect() here would read mid-flip transformed rects.
+      let base: Rect[] = [];
+      try { base = JSON.parse(lastKey || '[]') as Rect[]; } catch { /* keep [] */ }
+      const sb = base[0]; // collect() always yields the sidebar first
+      if (!t || !sb || !Number.isFinite(sb.w) || sb.w <= 0) { startLive(); return; }
+      const collapsing = /translateX\(\s*-100%/.test(el.style.transform || '');
+      const W = sb.w;
+      // The content area reclaims (collapse) / yields (expand) the sidebar's width,
+      // so the CARDS scale exactly like a width toggle (sidebar W↔0) — reuse the
+      // width-scale predictor for them. The SIDEBAR itself doesn't shrink; it
+      // slides: collapsed → x=-W (off-screen), expanded → x=0.
+      const [sbStartW, sbTargetW] = collapsing ? [W, 0] : [0, W];
+      const end = predictSidebarEnd(base, sbStartW, sbTargetW);
+      end[0] = { ...sb, x: collapsing ? -Math.round(W) : 0, w: Math.round(W) };
+      frozen = true; // suspend settle/poll/RO pushes for the native anim's duration
       if (settle) { clearTimeout(settle); settle = 0; }
-      lastKey = JSON.stringify(end); // so the end-of-toggle flush only re-pushes if pixels differ
+      lastKey = JSON.stringify(end); // end-of-toggle flush only re-pushes if pixels differ
       api.animateRegions(end, t.durationMs, t.timing);
     };
 
@@ -287,10 +301,14 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // doppio bordo"). Track it LIVE for the animation's duration — exactly like a
     // divider drag — then settle on transitionend. Scoped to the sidebar's width
     // transition so unrelated CSS transitions don't spin the rAF loop.
-    const isSidebarWidth = (e: TransitionEvent) =>
-      e.propertyName === 'width' && e.target instanceof Element && e.target === sidebarEl();
-    const onSidebarTransitionRun = (e: TransitionEvent) => { if (isSidebarWidth(e)) beginSidebarFrostAnimation(); };
-    const onSidebarTransitionEnd = (e: TransitionEvent) => { if (isSidebarWidth(e)) stopLive(); };
+    // The desktop sidebar collapse/expand is a `transform` (translateX) slide.
+    // Match ONLY that on the sidebar element: a `width` transition now means a
+    // sidebar RESIZE (constant-width collapse doesn't touch width), which must
+    // snap via the generic settle, NOT run the collapse slide animation.
+    const isSidebarSlide = (e: TransitionEvent) =>
+      e.propertyName === 'transform' && e.target instanceof Element && e.target === sidebarEl();
+    const onSidebarTransitionRun = (e: TransitionEvent) => { if (isSidebarSlide(e)) beginSidebarFrostAnimation(); };
+    const onSidebarTransitionEnd = (e: TransitionEvent) => { if (isSidebarSlide(e)) stopLive(); };
     document.addEventListener('transitionrun', onSidebarTransitionRun, true);
     document.addEventListener('transitionend', onSidebarTransitionEnd, true);
     document.addEventListener('transitioncancel', onSidebarTransitionEnd, true);
