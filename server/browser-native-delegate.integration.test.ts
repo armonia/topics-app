@@ -39,10 +39,13 @@ test('browser_open round-trips and the native navigate is invoked', async () => 
 });
 
 test('an unsupported op round-trips a structured streaming hint (no native invoke)', async () => {
+  // browser_act became NATIVE in 0811f083 (observe/act/extract run in-page);
+  // cookie-state ops like browser_save_state still need the server's CDP stack
+  // and must return the honest structured hint without touching native invoke.
   const calls: string[] = [];
   const invoke: Invoke = async (cmd) => { calls.push(cmd); return '' as never; };
   const reg = wired(invoke);
-  const out = (await reg.delegateOp('ctx', 'browser_act', { ref: 1, action: 'click' })) as { error: string };
+  const out = (await reg.delegateOp('ctx', 'browser_save_state', {})) as { error: string };
   expect(out.error).toContain('streaming');
   expect(calls).toHaveLength(0);
 });
