@@ -40,7 +40,7 @@ import {
 } from "./browser-login-state";
 // SHARED action set — the SAME source the native validator (tauriBrowserOps) uses,
 // so the two paths can never disagree on what browser_act accepts.
-import { REF_ACTIONS, ACT_ACTIONS } from "../shared/browser-snapshot-core";
+import { REF_ACTIONS, ACT_ACTIONS, UPLOAD_FN } from "../shared/browser-snapshot-core";
 
 const observeCache = new Map<string, IndexedElement[]>();
 /** Last ref-based snapshot per context — powers incremental diffs in observe/act. */
@@ -367,6 +367,33 @@ export async function handleBrowserEval(
       return await ops.evalExpression(args.expression);
     } catch (err: unknown) {
       return { error: `browser_eval failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  });
+}
+
+/**
+ * browser_upload — set a base64-read file onto an `<input type=file>`. The file
+ * was read + encoded server-side by the dispatcher (readUploadFile); here we run
+ * the shared UPLOAD_FN in the page over the CDP/Playwright surface (the Tauri
+ * native pane takes the delegated path instead). UPLOAD_FN returns a JSON string.
+ */
+export async function handleBrowserUpload(
+  service: BrowserService,
+  contextId: string,
+  file: { ref?: number; dataB64: string; filename: string; mime: string },
+): Promise<{ ok?: boolean; name?: string; size?: number; type?: string; error?: string }> {
+  console.log(`[BrowserTools] browser_upload(${contextId}, ${file.filename}, ref=${file.ref ?? "-"})`);
+  const ops = await resolveOps(service, contextId);
+  const js = `(${UPLOAD_FN.toString()})(${JSON.stringify(file)})`;
+  return withLock(service, contextId, async () => {
+    try {
+      const { result } = await ops.evalExpression(js);
+      const parsed = typeof result === "string" ? JSON.parse(result) : result;
+      return parsed && typeof parsed === "object"
+        ? (parsed as { ok?: boolean; error?: string })
+        : { error: "browser_upload: unexpected result" };
+    } catch (err: unknown) {
+      return { error: `browser_upload failed: ${err instanceof Error ? err.message : String(err)}` };
     }
   });
 }
