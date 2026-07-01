@@ -290,6 +290,26 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
+      // Tab cycling (standard): ⌃Tab → next tab, ⌃⇧Tab → previous, and ⌘⇧Tab
+      // → previous (⌘Tab is reserved by macOS for app-switching, so the ⌘ pair
+      // only does previous). Cycles the TOP-LEVEL panels relative to the focused
+      // one, wrapping. When focus is inside a native browser pane this keydown is
+      // swallowed by the OS view — the native key-forwarder (Electron before-
+      // input-event / Tauri NSEvent monitor) re-dispatches it so it still fires.
+      if (e.key === 'Tab' && (e.ctrlKey || (e.metaKey && e.shiftKey))) {
+        e.preventDefault();
+        const panels = openPanelsRef.current;
+        if (panels.length >= 2) {
+          const cur = focusedPanelIdRef.current;
+          const idx = cur ? panels.indexOf(cur) : -1;
+          const dir = e.shiftKey ? -1 : 1; // ⇧ → previous, else next
+          const base = idx < 0 ? 0 : idx;
+          const nextId = panels[(base + dir + panels.length) % panels.length];
+          setFocusedPanelId(nextId);
+        }
+        return;
+      }
+
       if (isDesktop && isMod && e.key >= '1' && e.key <= '9') {
         const idx = parseInt(e.key) - 1;
         const panels = openPanelsRef.current;
