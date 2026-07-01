@@ -205,7 +205,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   useEffect(() => {
     let cancelled = false;
     const startUrl = normalizeUrl(initialUrlRef.current ?? 'about:blank');
-    void tauriInvoke('browser_open', { id, url: startUrl, x: -100000, y: 0, width: 800, height: 600 })
+    // isolate: each pane gets its OWN persistent WKWebsiteDataStore keyed on the
+    // contextId (stable across restarts) — per-topic cookie/localStorage
+    // isolation, matching Electron's persist:topic-<contextId> partition. One
+    // time cost: panes that had been living in the shared default store lose that
+    // login once on this switch (recoverable via browser_import_chrome /
+    // browser_load_state). macOS 14+; degrades to the shared store on older.
+    void tauriInvoke('browser_open', { id, url: startUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true })
       .then(() => {
         if (cancelled) return;
         openedRef.current = true;
