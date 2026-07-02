@@ -9,17 +9,22 @@
 // useTauriBrowser.freeze).
 //
 // We track overlays structurally (no edits to every popover primitive): the
-// canonical popover is a `.glass-surface` card (lib/popoverStyles), modals carry
-// `role="dialog"`, and menus/listboxes carry their ARIA roles. A cheap
-// MutationObserver collects their RECTS so each pane can decide whether it is
-// actually intersected — a menu nowhere near a browser pane must NOT touch it
-// (the old global "any overlay hides every pane" was over-broad).
+// canonical popover is a `.glass-surface` card (lib/popoverStyles), the canonical
+// modal card is `.native-occlude` (baked into MODAL_PANEL in lib/modalStyles, so
+// EVERY full-screen dialog is covered without opting in per modal), and
+// menus/listboxes carry their ARIA roles. A cheap MutationObserver collects their
+// RECTS so each pane can decide whether it is actually intersected — a menu
+// nowhere near a browser pane must NOT touch it (the old global "any overlay hides
+// every pane" was over-broad).
 
 import { isTauri } from './index';
 
-/** Selector matching any HTML overlay that can float over a browser pane. */
+/** Selector matching any HTML overlay that can float over a browser pane.
+ *  `.native-occlude` is the class MODAL_PANEL carries: marking the opaque modal
+ *  CARD (not the semi-transparent backdrop, which the pane shows through anyway)
+ *  makes the freeze scope exactly the region the dialog actually covers. */
 const OVERLAY_SELECTOR =
-  '.glass-surface, [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]';
+  '.glass-surface, .native-occlude, [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]';
 
 /** Viewport-relative rect of an open overlay. */
 export interface OverlayRect { left: number; top: number; right: number; bottom: number; }
