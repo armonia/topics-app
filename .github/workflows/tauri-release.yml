@@ -91,6 +91,11 @@ jobs:
           # unsigned, non-auto-updating (but runnable) build.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # linuxdeploy strips every binary in the AppDir by default and chokes on
+          # the bun-compiled server sidecar ("failed to run linuxdeploy", tauri-v2.1.0
+          # take-2). Bun single-file executables embed their JS payload past the ELF
+          # sections and don't survive strip anyway. Linux-only effect.
+          NO_STRIP: true
           # macOS code signing + notarization: DISABLED for now. The tauri-v2.1.0
           # run proved the inherited MAC_CSC_LINK org secret is NOT an importable
           # .p12 for tauri-action (`security import: failed to import keychain
