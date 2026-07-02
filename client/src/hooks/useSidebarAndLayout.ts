@@ -220,6 +220,14 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
     if (sidebarRef.current) {
       sidebarRef.current.style.transition = 'none';
     }
+    // Hide native browser views NOW, not lazily on the first past-slop
+    // mousemove: a native WKWebView/WebContentsView adjacent to the divider
+    // swallows the pointer, so dragging RIGHT (widening) never delivers the
+    // mousemove that would have raised the overlay — the drag froze on the
+    // first pixel. Dispatching on mousedown mirrors what SplitTree dividers
+    // do on dragstart; the matching '-end' fires in onUp. (A bare click or
+    // double-click briefly hides the panes — acceptable for a narrow strip.)
+    window.dispatchEvent(new Event('topics:pane-resize-start'));
   }, [sidebarWidth, sidebarCollapsed]);
 
   const handleSidebarDoubleClick = useCallback(() => {
@@ -239,7 +247,6 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
       if (sidebarDragOverlay.current) {
         sidebarDragOverlay.current.remove();
         sidebarDragOverlay.current = null;
-        window.dispatchEvent(new Event('topics:pane-resize-end'));
       }
     };
     const onMove = (e: MouseEvent) => {
@@ -256,7 +263,7 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
         ov.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:col-resize';
         document.body.appendChild(ov);
         sidebarDragOverlay.current = ov;
-        window.dispatchEvent(new Event('topics:pane-resize-start'));
+        // pane-resize-start already fired on mousedown (native views hidden).
       }
       const newWidth = Math.max(180, Math.min(400, sidebarStartWidth.current + delta));
       if (sidebarRef.current) {
@@ -270,6 +277,8 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       dropChrome();
+      // Balance the mousedown's pane-resize-start (native views restore).
+      window.dispatchEvent(new Event('topics:pane-resize-end'));
       if (sidebarRef.current) {
         sidebarRef.current.style.transition = '';
       }
