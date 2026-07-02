@@ -832,6 +832,120 @@ test.describe("Grid Split System", () => {
       // Marking as fixme if it proves unreliable.
       test.fixme();
     });
+
+    test("GRID-09: 'Reimposta pannelli' flattens the standalone grid to one row of equal cells", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten)" });
+      await goToApp(page);
+      await openTwoTopics(page);
+
+      // Nest the layout: Split Down creates a vertical sub-stack (cellStack).
+      await splitViaContextMenu(page, 'Split Down');
+      expect(await countRowDividers(page), 'Split Down should create a row divider').toBeGreaterThanOrEqual(1);
+
+      const tabsBefore = (await getVisibleTabLabels(page)).length;
+
+      // Right-click a tab → "Reimposta pannelli" is offered on a nested layout.
+      const tab = page.locator('[role="main"] [draggable="true"]').first();
+      await tab.click({ button: 'right' });
+      const resetBtn = page.getByText('Reimposta pannelli', { exact: true });
+      await expect(resetBtn, 'nested layout must offer Reimposta pannelli').toBeVisible({ timeout: 3000 });
+      await resetBtn.click();
+      await page.waitForTimeout(500);
+
+      // One row: the vertical stack dissolved into side-by-side columns.
+      expect(await countRowDividers(page), 'flatten should remove every row divider').toBe(0);
+      expect(await countColDividers(page), 'flattened cells sit side by side').toBeGreaterThanOrEqual(1);
+
+      // No pane closed: same visible tab count.
+      expect((await getVisibleTabLabels(page)).length, 'flatten must not close any tab').toBe(tabsBefore);
+
+      // Equal-width cells (bounding boxes, ±2px) — exactly equalizeWidths(n).
+      const cells = page.locator('[role="main"] [data-panel-cell]');
+      const cellCount = await cells.count();
+      expect(cellCount, 'stack members become top-level cells').toBeGreaterThanOrEqual(2);
+      const widths: number[] = [];
+      for (let i = 0; i < cellCount; i++) {
+        const b = await cells.nth(i).boundingBox();
+        expect(b, `cell ${i} should have a bounding box`).not.toBeNull();
+        widths.push(b!.width);
+      }
+      const maxDiff = Math.max(...widths) - Math.min(...widths);
+      expect(maxDiff, 'flattened cells should be equal width (±2px)').toBeLessThanOrEqual(2);
+
+      // Persistence: the flat layout survives a reload (written through the
+      // usePanelGridPersistence debounced writer, restored by its sanitizers).
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.waitForTimeout(2000);
+      expect(await countRowDividers(page), 'flat layout must persist across reload').toBe(0);
+      expect((await getVisibleTabLabels(page)).length, 'tabs must persist across reload').toBe(tabsBefore);
+
+      // Already flat → the menu entry is hidden.
+      const tabAfter = page.locator('[role="main"] [draggable="true"]').first();
+      await tabAfter.click({ button: 'right' });
+      const ctxMenu = page.locator('.fixed.z-\\[9999\\]').last();
+      await expect(ctxMenu).toBeVisible({ timeout: 3000 });
+      await expect(ctxMenu.getByText('Reimposta pannelli', { exact: true }), 'menu entry must hide on a flat layout').toHaveCount(0);
+      await page.keyboard.press('Escape');
+    });
+
+    test("GRID-10: 'Reimposta pannelli' flattens a project window's internal splits", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten, project)" });
+      await goToApp(page);
+      await collapseSidebarSections(page);
+
+      // Open the self-provisioned project (same flow as GRID-05).
+      const projectsBtn = page.getByRole("button", { name: /Projects section/ });
+      if (await projectsBtn.count() > 0) {
+        const expanded = await projectsBtn.getAttribute("aria-expanded");
+        if (expanded === "false") {
+          await projectsBtn.click();
+          await page.waitForTimeout(500);
+        }
+      }
+      const projectItem = page.locator('[aria-label="Topics sidebar"] button').filter({ hasText: /e2e-grid/ }).first();
+      if (await projectItem.count() === 0) {
+        test.skip();
+        return;
+      }
+      await projectItem.click();
+      await page.waitForTimeout(2000);
+
+      // Split a project-internal tab down → a cellStack inside GroupLayout.
+      const tab = page.locator('[role="main"] [draggable="true"]').first();
+      if (await tab.count() === 0) {
+        test.skip();
+        return;
+      }
+      await tab.click({ button: 'right' });
+      const ctxMenu = page.locator('.fixed.z-\\[9999\\]').last();
+      await expect(ctxMenu).toBeVisible({ timeout: 3000 });
+      const splitDown = ctxMenu.getByText('Split Down', { exact: true });
+      if (!(await splitDown.isVisible().catch(() => false))) {
+        await page.keyboard.press('Escape');
+        test.skip();
+        return;
+      }
+      await splitDown.click();
+      await page.waitForTimeout(1000);
+      if (await countRowDividers(page) === 0) {
+        // Split was a no-op (single-pane group / not splittable) — nothing to flatten.
+        test.skip();
+        return;
+      }
+
+      const tabsBefore = (await getVisibleTabLabels(page)).length;
+
+      // Flatten from any project tab's context menu.
+      const anyTab = page.locator('[role="main"] [draggable="true"]').first();
+      await anyTab.click({ button: 'right' });
+      const resetBtn = page.getByText('Reimposta pannelli', { exact: true });
+      await expect(resetBtn, 'project window with a stack must offer Reimposta pannelli').toBeVisible({ timeout: 3000 });
+      await resetBtn.click();
+      await page.waitForTimeout(500);
+
+      expect(await countRowDividers(page), 'project flatten should remove row dividers').toBe(0);
+      expect((await getVisibleTabLabels(page)).length, 'project flatten must not close tabs').toBe(tabsBefore);
+    });
   });
 
   test.describe("DnD MIME types", () => {

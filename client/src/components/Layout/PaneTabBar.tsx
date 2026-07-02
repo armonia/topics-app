@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -78,6 +78,13 @@ interface PaneTabBarProps {
   onDetach?: (paneId: string) => void;
   onSplitRight?: (paneId: string) => void;
   onSplitDown?: (paneId: string) => void;
+  /**
+   * "Reimposta pannelli" — flatten the surrounding split layout back to a
+   * single row of equal-width columns (cellStacks dissolve into top-level
+   * columns; no tab closes, no groups merge — geometry only). Hosts pass
+   * `undefined` when the layout is already flat, so the menu entry hides.
+   */
+  onResetLayout?: () => void;
   onRename?: (paneId: string) => void;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
@@ -118,7 +125,7 @@ interface PaneTabBarProps {
   splitMap?: SplitMapDescriptor;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onResetLayout, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -919,6 +926,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   <span>Split Down</span>
                 </button>
               )}
+            </>
+          )}
+          {/* Layout-actions section (divider owned here): "Reimposta pannelli"
+              first; future entries ("Sposta nello Spazio →", "Sposta in una
+              nuova finestra") append INSIDE this section, after it. */}
+          {onResetLayout && (
+            <>
+              <div className="h-px bg-app-border my-1" />
+              <button
+                onClick={() => { onResetLayout(); setCtxMenu(null); }}
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                title="Appiattisce gli split su un solo livello (le schede restano aperte)"
+              >
+                <LayoutGrid size={14} />
+                <span className="flex-1 text-left">Reimposta pannelli</span>
+              </button>
             </>
           )}
           {onDetach && (

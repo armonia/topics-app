@@ -16,6 +16,7 @@ import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION } from '
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths } from './gridWidths';
+import { flattenGridRows } from './flattenLayout';
 import { addSoloCell, extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey } from './soloCells';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { SplitTree } from './SplitTree';
@@ -1706,6 +1707,33 @@ export function PanelGrid({
   const splitRowWidths = useMemo(() => gridRows.map((r) => r.widths), [gridRows]);
   const hasGridSplit = useMemo(() => splitRowWidths.reduce((a, r) => a + r.length, 0) > 1, [splitRowWidths]);
 
+  // "Reimposta pannelli" — flatten the standalone grid back to one row of
+  // equal-width cells (cellStacks dissolve into top-level cells, soloCells
+  // untouched — stack members are already valid grid keys). Null = already
+  // flat, so the ctx-menu entry hides. rows + rowHeights are plain values
+  // committed together (React 18 batches); writes go through the
+  // usePanelGridPersistence setters only — never the storage key directly.
+  const canFlattenGrid = useMemo(() => flattenGridRows(gridRows) !== null, [gridRows]);
+  const handleResetGridLayout = useCallback(() => {
+    const flat = flattenGridRows(gridRowsRef.current);
+    if (!flat) return;
+    setGridRows(flat.rows);
+    setGridRowHeights(flat.rowHeights);
+  }, [gridRowsRef, setGridRows, setGridRowHeights]);
+
+  // Palette path — same per-window CustomEvent GroupLayout listens to. This
+  // surface acts only when the App-focused panel is a standalone grid item
+  // (NOT a project pane): a focused project window owns the event via its
+  // GroupLayout listener, so the two never flatten together.
+  useEffect(() => {
+    const handler = () => {
+      if (!focusedPanelId || getProjectPathFromPaneId(focusedPanelId)) return;
+      handleResetGridLayout();
+    };
+    window.addEventListener('topics:reset-split-layout', handler);
+    return () => window.removeEventListener('topics:reset-split-layout', handler);
+  }, [focusedPanelId, handleResetGridLayout]);
+
   // Publish each open topic's grid position so the SIDEBAR cards can render the
   // same proportional mini-map with that topic's cell lit (not just the tab
   // bar). Every topic in a cell — including those stacked in a vertical
@@ -1785,6 +1813,7 @@ export function PanelGrid({
         promoteDraft={promoteDraft}
         draftMeta={draftMeta}
         onSplitPane={handleSplitPane}
+        onResetLayout={canFlattenGrid ? handleResetGridLayout : undefined}
         persistOrder={key === 'standalone'}
         gridItemKey={key}
         onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
@@ -1805,6 +1834,7 @@ export function PanelGrid({
       onCreateTerminal, handleStandaloneUtilityChange, pendingBrowserPane,
       onPendingBrowserPaneConsumed, onOpenBrowserContextIds, promoteDraft,
       draftMeta, handleSplitPane, handleUnsoloTopic,
+      canFlattenGrid, handleResetGridLayout,
       hasGridSplit, splitRowWidths, gridRowHeights,
       handleMergeIntoCell, handlePersistPoolReorder, onClosePanelImmediate,
     ],

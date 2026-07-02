@@ -81,6 +81,7 @@ export function OverlayHostApp() {
         onNewTerminal={() => act('onNewTerminal')}
         onToggleTheme={() => relay('onToggleTheme')}
         onOpenSettings={() => act('onOpenSettings')}
+        onResetPanels={() => act('onResetPanels')}
         onOpenFileSearch={() => act('onOpenFileSearch')}
         onOpenFile={(path, line) => act('onOpenFile', path, line)}
         onReopenClosedTab={(rec) => act('onReopenClosedTab', rec)}

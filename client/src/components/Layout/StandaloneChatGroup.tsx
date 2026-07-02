@@ -102,6 +102,10 @@ interface StandaloneChatGroupProps {
   draftMeta?: Record<string, { projectPath?: string }>;
   // Split a pane into its own grid cell (right or down)
   onSplitPane?: (topicId: string, direction: 'right' | 'down') => void;
+  // "Reimposta pannelli" — flatten the surrounding grid back to one row of
+  // equal cells. Passed through to PaneTabBar's context menu; undefined when
+  // the grid is already flat (PanelGrid hides the entry).
+  onResetLayout?: () => void;
   // Only the main standalone group should persist panel order (solo groups skip)
   persistOrder?: boolean;
   // Grid item key — used as groupId in PaneTabBar for cross-group DnD detection.
@@ -141,6 +145,7 @@ export function StandaloneChatGroup({
   onOpenBrowserContextIds,
   promoteDraft, draftMeta: _draftMeta,
   onSplitPane,
+  onResetLayout,
   persistOrder = true,
   gridItemKey = 'standalone',
   onUnsolo, onAcceptSoloDrop, onMergeIntoCell, onPersistReorder,
@@ -547,6 +552,7 @@ export function StandaloneChatGroup({
       // and when we lack a split callback at all.
       onSplitRight={onSplitPane && !gridItemKey.startsWith('solo:') ? handleSplitRight : undefined}
       onSplitDown={onSplitPane && !gridItemKey.startsWith('solo:') ? handleSplitDown : undefined}
+      onResetLayout={onResetLayout}
       onCloseOthers={handleCloseOthers}
       onSettings={handleSettings}
       onPopOut={handlePopOut}
