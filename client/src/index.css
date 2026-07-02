@@ -1130,6 +1130,35 @@ input[type="range"]::-webkit-slider-thumb {
 @keyframes chat-working-spin {
   to { transform: rotate(360deg); }
 }
+.chat-working-aura {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  border-radius: inherit;
+  overflow: hidden;
+  filter: blur(10px) saturate(140%);
+  animation: chat-working-ring-in 300ms ease-out;
+}
+/* STATIC band mask — paints only the `padding` perimeter strip; the parent's
+ * blur feathers it into the soft inner shadow. Must stay a separate static
+ * element: rotating a mask peels it off the corners, and a filter on the SAME
+ * element would apply before the mask (hard inner edge). */
+.chat-working-aura-band {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  padding: 14px;                        /* aura reach before the blur feathers it */
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
 @keyframes aura-roll-a {
   0%   { transform: rotate(0deg)    scale(1); }
   22%  { transform: rotate(160deg)  scale(1.22); }
@@ -1216,6 +1245,11 @@ input[type="range"]::-webkit-slider-thumb {
 }
 /* prefers-reduced-motion: keep the aura as a STATIC soft gradient (still a cue)
  * but stop the sweep, the breathing and the fade-in. */
+@keyframes chat-working-ring-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-working-aura,
   .chat-working-aura-band::before,
