@@ -614,7 +614,11 @@ function App() {
   // unpin skip the archive.
   const { isPinned: sidebarIsPinned, togglePin: sidebarTogglePin } = sidebar;
   const handleTogglePin = useCallback((id: string) => {
-    if (sidebarIsPinned(id) && !id.startsWith('project:')) {
+    // Chat-only unpin-while-closed archive semantics. Projects (`project:<path>`)
+    // and terminals (`terminal:<id>`) don't archive on unpin — a terminal is an
+    // ephemeral PTY, not an archivable record — so both prefixes skip this branch
+    // and just toggle the pin.
+    if (sidebarIsPinned(id) && !id.startsWith('project:') && !id.startsWith('terminal:')) {
       const topic = topics[id];
       if (topic && !topic.archived) {
         const chatPaneId = createPaneId('chat', id);
@@ -1131,6 +1135,8 @@ function App() {
           onFocusPanel={handleFocusPanel}
           onClosePanel={handleClosePanelDeferred}
           onClosePanelImmediate={handleClosePanelImmediate}
+          onToggleFissato={handleTogglePin}
+          isFissato={sidebar.isPinned}
           onReorderPanels={handleReorderPanels}
           onOpenPanelAt={handleOpenPanelAt}
           nextPanelMode={nextPanelMode}

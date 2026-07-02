@@ -378,9 +378,11 @@ export function TopicTree({
         notificationCount={item.notificationCount}
         isTouch={isTouch}
         depth={depth}
+        pinned={!!item.pinned}
         onTerminalClick={onTerminalClick}
         onCloseTerminal={onCloseTerminal}
         onOpenAsProject={onOpenAsProject}
+        onTogglePin={onTogglePin ? () => onTogglePin(paneId) : undefined}
       />
     );
     if (subAgents.length === 0) return row;
@@ -805,14 +807,34 @@ interface TerminalSidebarItemProps {
   isTouch: boolean;
   depth?: number;
   projectName?: string;
+  /** Pinned ("Fissati") — renders the trailing Pin glyph and the row survives
+   *  tab close (see buildSidebarItems pinnedIds escape for `terminal:<id>`). */
+  pinned?: boolean;
   onTerminalClick?: (sessionId: string, sessionName: string) => void;
   onCloseTerminal?: (sessionId: string) => void;
   onOpenAsProject?: (path: string) => void;
+  /** Pin/unpin this terminal ("Fissa" / "Rimuovi dai Fissati") — surfaced in
+   *  the right-click context menu and the touch overflow menu. */
+  onTogglePin?: () => void;
 }
 
-function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, onTerminalClick, onCloseTerminal, onOpenAsProject }: TerminalSidebarItemProps) {
+function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, pinned, onTerminalClick, onCloseTerminal, onOpenAsProject, onTogglePin }: TerminalSidebarItemProps) {
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
+  // Desktop right-click menu (touch uses the overflow "…" DropdownPortal). null
+  // = closed; positioned at the cursor, viewport-clamped like the project menu.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [ctxMenu]);
   // v3 sidebar↔topbar sync: also check `close-tab:terminal:<id>` so that
   // closing the terminal pane via the topbar X shows the countdown in
   // the sidebar terminal row too.
@@ -832,6 +854,8 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
+      data-pinned={pinned ? 'true' : undefined}
+      onContextMenu={onTogglePin ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
       <button
@@ -867,6 +891,17 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         <NotificationBadge count={notificationCount} className="ml-0.5" variant={onFill ? 'onFill' : 'default'} />
       </button>
 
+      {/* Pinned ("Fissato") trailing glyph — mirrors the chat row's rail. */}
+      {pinned && (
+        <span
+          className={`flex-shrink-0 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+          title="Fissato"
+          aria-label="Fissato"
+        >
+          <Pin size={12} />
+        </span>
+      )}
+
       {/* Inline "Open as project" icon removed — it competed with the
           close-button slot for hover attention and made the row noisy.
           The action is still reachable from the touch overflow menu
@@ -891,6 +926,15 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
                 <MoreHorizontal size={12} />
               </button>
               <DropdownPortal open={overflowOpen} anchorRef={overflowRef} onClose={() => setOverflowOpen(false)}>
+                {onTogglePin && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onTogglePin(); setOverflowOpen(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  >
+                    {pinned ? <PinOff size={14} className="flex-shrink-0" /> : <Pin size={14} className="flex-shrink-0" />}
+                    <span>{pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
+                  </button>
+                )}
                 {onOpenAsProject && !projectName && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onOpenAsProject(s.cwd); setOverflowOpen(false); }}
@@ -931,6 +975,55 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           )}
         </span>
       )}
+
+      {/* Desktop right-click menu — the pin affordance for terminal rows on
+          desktop (touch uses the overflow "…" above). Reuses the shared popover
+          tokens like the project header menu. Rendered inline (not a portal): a
+          fixed-position node clamped to the viewport, same as the project menu. */}
+      {ctxMenu && onTogglePin && (() => {
+        const MENU_W = 200;
+        const rows = 1 + (onOpenAsProject && !projectName ? 1 : 0) + (onCloseTerminal ? 1 : 0);
+        const menuH = rows * 34 + 8;
+        const left = Math.max(8, Math.min(ctxMenu.x, window.innerWidth - MENU_W - 8));
+        const top = Math.max(8, Math.min(ctxMenu.y, window.innerHeight - menuH - 8));
+        return (
+          <div
+            role="menu"
+            className={`fixed z-50 ${POPOVER_SURFACE} min-w-[200px]`}
+            style={{ left, top }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              role="menuitem"
+              onClick={() => { onTogglePin(); setCtxMenu(null); }}
+              className={POPOVER_ITEM}
+            >
+              {pinned ? <PinOff size={14} className="text-app-text-tertiary" /> : <Pin size={14} className="text-app-text-tertiary" />}
+              {pinned ? 'Rimuovi dai Fissati' : 'Fissa'}
+            </button>
+            {onOpenAsProject && !projectName && (
+              <button
+                role="menuitem"
+                onClick={() => { onOpenAsProject(s.cwd); setCtxMenu(null); }}
+                className={POPOVER_ITEM}
+              >
+                <FolderOpen size={14} className="text-app-text-tertiary" />
+                Open as project
+              </button>
+            )}
+            {onCloseTerminal && (
+              <button
+                role="menuitem"
+                onClick={() => { onCloseTerminal(s.id); setCtxMenu(null); }}
+                className={POPOVER_ITEM}
+              >
+                <X size={14} className="text-app-text-tertiary" />
+                Close
+              </button>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

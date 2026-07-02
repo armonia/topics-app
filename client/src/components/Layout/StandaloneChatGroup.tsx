@@ -128,6 +128,11 @@ interface StandaloneChatGroupProps {
   // this cell lit — forwarded straight to the tab bar. Omitted for single-cell
   // grids where there's nothing to orient against.
   splitMap?: SplitMapDescriptor;
+  // Sidebar "Fissati" pin toggle + state for a tab's subject (chat topicId or
+  // `terminal:<sessionId>`). Forwarded to PaneTabBar's context menu so a tab
+  // can be pinned/unpinned like its sidebar row. App-level only.
+  onToggleFissato?: (pinKey: string) => void;
+  isFissato?: (pinKey: string) => boolean;
 }
 
 export function StandaloneChatGroup({
@@ -151,6 +156,7 @@ export function StandaloneChatGroup({
   gridItemKey = 'standalone',
   onUnsolo, onAcceptSoloDrop, onMergeIntoCell, onPersistReorder,
   splitMap,
+  onToggleFissato, isFissato,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
 
@@ -577,6 +583,8 @@ export function StandaloneChatGroup({
       onReattach={handleUnsolo}
       onStopStreaming={handleStopStreaming}
       onPinPane={handlePinPane}
+      onToggleFissato={onToggleFissato}
+      isFissato={isFissato}
       projectStatus={projectStatus}
       tabNotifications={tabNotifications}
       hasLeftOverlay={!!onToggleSidebar}
