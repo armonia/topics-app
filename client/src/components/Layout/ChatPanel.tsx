@@ -174,10 +174,11 @@ export function ChatPanel({
             pane edge while the session streams. Rendered only when working so
             it costs nothing at rest; transform-only animation (see index.css).
             aria-hidden: purely decorative. */}
-        {showWorkingRing && <>
-          <div className="chat-working-halo" aria-hidden="true" />
-          <div className="chat-working-ring" aria-hidden="true" />
-        </>}
+        {showWorkingRing && (
+          <div className="chat-working-aura" aria-hidden="true">
+            <div className="chat-working-aura-band" />
+          </div>
+        )}
         {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
             with tabs: floating overlay with blur for scroll-through effect. */}
         {!bodyOnly && <div className={`flex items-center ${headerLeft
