@@ -119,12 +119,16 @@ describe('validateInbound — structural rejects', () => {
 
 describe('client inbound registry contract', () => {
   test('REGISTERED_INBOUND_TYPES is the locked subset', () => {
+    // presence:windows joined the client inbound registry in 724284d3
+    // (cross-window presence protocol) — the server's full window-list
+    // snapshot the client projects into "open elsewhere" affordances.
     expect(REGISTERED_INBOUND_TYPES).toEqual([
       'connected',
       'dashboard:updated',
       'error',
       'message:new',
       'pong',
+      'presence:windows',
       'stream:catchup',
       'stream:content_chunk',
       'stream:end',
