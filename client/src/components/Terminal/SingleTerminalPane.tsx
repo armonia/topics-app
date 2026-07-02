@@ -7,8 +7,9 @@ import { attachTerminalTouchScroll } from './touchScroll';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
-import { signalsActions, useTerminalFinished, useTerminalReloading } from '../../state/signals';
+import { signalsActions, useTerminalFinished, useTerminalReloading, useTerminalLoading } from '../../state/signals';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
+import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -140,6 +141,28 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   useEffect(() => {
     if (isActive && finished) signalsActions.clearTerminalFinished(sessionId);
   }, [isActive, finished, sessionId]);
+
+  // "Working" glow — the Apple-Intelligence ring, the terminal twin of the one
+  // in ChatPanel. `useTerminalLoading` is the SAME signal the sidebar green
+  // terminal row reads (claude phase active, OR pty busy when not resting), so
+  // the ring and the sidebar dot can never disagree. Gated behind the same
+  // `workingGlow` setting via the same SETTINGS_CHANGED_EVENT pattern, so the
+  // one Appearance toggle governs chats and terminals alike. The ring node is
+  // rendered ONLY while working (conditional, not display:none) → zero idle cost.
+  const isWorking = useTerminalLoading(sessionId);
+  const [workingGlowEnabled, setWorkingGlowEnabled] = useState(() => loadSettings().workingGlow);
+  useEffect(() => {
+    const reload = () => setWorkingGlowEnabled(loadSettings().workingGlow);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, []);
+  // Suppress the ring while the "expired"/"reloading" overlays own the pane —
+  // those are their own state, and a glow around a dead pane would be noise.
+  const showWorkingRing = isWorking && workingGlowEnabled && !stale && !reloading;
   const [copied, setCopied] = useState(false);
   const isDarkRef = useRef(document.documentElement.classList.contains('dark'));
 
@@ -685,6 +708,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           className="absolute inset-0"
           onClick={() => termRef.current?.term.focus()}
         />
+        {/* Apple-Intelligence "working" glow — a thin rotating ring hugging this
+            pane's edge while the Claude Code session works. Same CSS + perf
+            model as ChatPanel (transform-only, masked to a ~1.5px ring,
+            pointer-events:none, z-30, border-radius inherit). Absolutely
+            positioned over the xterm container, so it never touches xterm's
+            layout or fit. Rendered only when working → zero idle cost. */}
+        {showWorkingRing && <div className="chat-working-ring" aria-hidden="true" />}
         {/* Copy button for non-touch */}
         {!isTouchDevice && !stale && (
           <button
