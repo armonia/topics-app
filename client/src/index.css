@@ -1093,6 +1093,9 @@ input[type="range"]::-webkit-slider-thumb {
  * while the session works → zero idle cost. `.anims-paused` freezes it when
  * the window is backgrounded. Only transform/opacity animate (compositor);
  * blur lives on each blob's OWN layer (WebKit-safe). */
+/* v10 = v9 tuned per Attilio ("troppo grande, più animata/ruotare"): edge
+ * mask 76→38px, swells 40%→30%, band spin 9s→5.5s, swell periods ~25% faster.
+ */
 /* v9 TRAVELING WAVES — Attilio: "una roba tutto intorno ad onde", "l'ombra è
  * troppo omogenea", "si vedono solo due bagliori". Two layers:
  * 1. BAND (<s>): a conic gradient with UNEVEN color stops on a 220% disc that
@@ -1123,16 +1126,16 @@ input[type="range"]::-webkit-slider-thumb {
   inset: 0;
   display: block;
   -webkit-mask-image:
-    linear-gradient(to bottom, #fff, transparent 76px),
-    linear-gradient(to top, #fff, transparent 76px),
-    linear-gradient(to right, #fff, transparent 76px),
-    linear-gradient(to left, #fff, transparent 76px);
+    linear-gradient(to bottom, #fff, transparent 38px),
+    linear-gradient(to top, #fff, transparent 38px),
+    linear-gradient(to right, #fff, transparent 38px),
+    linear-gradient(to left, #fff, transparent 38px);
   -webkit-mask-composite: source-over;
   mask-image:
-    linear-gradient(to bottom, #fff, transparent 76px),
-    linear-gradient(to top, #fff, transparent 76px),
-    linear-gradient(to right, #fff, transparent 76px),
-    linear-gradient(to left, #fff, transparent 76px);
+    linear-gradient(to bottom, #fff, transparent 38px),
+    linear-gradient(to top, #fff, transparent 38px),
+    linear-gradient(to right, #fff, transparent 38px),
+    linear-gradient(to left, #fff, transparent 38px);
   mask-composite: add;
 }
 /* band disc: rasterized at PANE size (cheap texture + cheap blur), then
@@ -1156,7 +1159,7 @@ input[type="range"]::-webkit-slider-thumb {
    * keyframes' scale never applies — without this the disc stays pane-sized
    * and the corners go uncovered */
   transform: scale(2.4);
-  animation: aura-band-spin 9s linear infinite;
+  animation: aura-band-spin 5.5s linear infinite;
   will-change: transform;
 }
 @keyframes aura-band-spin {
@@ -1165,11 +1168,55 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .chat-working-aura > i {
   position: absolute;
-  width: 40%;
+  width: 30%;
   aspect-ratio: 1;
   border-radius: 50%;
-  filter: blur(12px) saturate(150%);
+  filter: blur(10px) saturate(150%);
   will-change: transform, opacity;
+}
+/* ORBITERS (<b>) — the unmistakable "travels along the perimeter" element.
+ * A rotating conic can't deliver it: constant ANGULAR speed maps to a crest
+ * that crawls at edge midpoints and teleports past corners (x = cy·tanθ).
+ * CSS Motion Path solves it exactly: offset-path: inset(0) IS the pane's
+ * border rectangle, and animating offset-distance 0→100% moves the crest
+ * along it at constant PATH speed. Negative delays spread the crests around
+ * the loop; one runs reverse. Hidden where Motion Path is unsupported (the
+ * band+swells still carry the effect). */
+.chat-working-aura > b {
+  display: none;
+}
+@supports (offset-path: inset(0%)) {
+  .chat-working-aura > b {
+    display: block;
+    position: absolute;
+    width: 24%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    filter: blur(10px) saturate(160%);
+    offset-path: inset(0 round 16px);
+    offset-rotate: 0deg;
+    will-change: transform, opacity;
+    animation: aura-orbit 8s linear infinite;
+  }
+  .chat-working-aura > .aura-o1 {
+    background: radial-gradient(circle, rgba(50, 200, 255, 0.8) 0%, rgba(50, 200, 255, 0) 62%);
+    animation-duration: 7.5s;
+  }
+  .chat-working-aura > .aura-o2 {
+    background: radial-gradient(circle, rgba(191, 90, 242, 0.75) 0%, rgba(191, 90, 242, 0) 62%);
+    animation-duration: 10.5s;
+    animation-delay: -3.5s;
+  }
+  .chat-working-aura > .aura-o3 {
+    background: radial-gradient(circle, rgba(255, 55, 175, 0.7) 0%, rgba(255, 55, 175, 0) 62%);
+    animation-duration: 8.5s;
+    animation-delay: -6s;
+    animation-direction: reverse;
+  }
+}
+@keyframes aura-orbit {
+  from { offset-distance: 0%; }
+  to   { offset-distance: 100%; }
 }
 /* swell keyframes — scale IS the wave: the blob's bulge into the pane grows
  * and retreats; translate slides the swell along its edge. Fast + irregular;
@@ -1230,38 +1277,40 @@ input[type="range"]::-webkit-slider-thumb {
 /* eight blobs: 4 corners + 4 edge midpoints (mostly outside; the pane clips) */
 .chat-working-aura > .aura-b1 { top: -28%; left: -14%;
   background: radial-gradient(circle, rgba(50, 200, 255, 0.7) 0%, rgba(50, 200, 255, 0) 65%);
-  animation: aura-swell-1 6.3s ease-in-out infinite; }
+  animation: aura-swell-1 4.9s ease-in-out infinite; }
 .chat-working-aura > .aura-b2 { top: -32%; left: 29%;
   background: radial-gradient(circle, rgba(94, 92, 230, 0.7) 0%, rgba(94, 92, 230, 0) 65%);
-  animation: aura-swell-2 8.5s ease-in-out infinite; }
+  animation: aura-swell-2 6.4s ease-in-out infinite; }
 .chat-working-aura > .aura-b3 { top: -28%; right: -14%;
   background: radial-gradient(circle, rgba(191, 90, 242, 0.68) 0%, rgba(191, 90, 242, 0) 65%);
-  animation: aura-swell-3 5.3s ease-in-out infinite; }
+  animation: aura-swell-3 4.1s ease-in-out infinite; }
 .chat-working-aura > .aura-b4 { top: 26%; right: -26%;
   background: radial-gradient(circle, rgba(255, 55, 175, 0.64) 0%, rgba(255, 55, 175, 0) 65%);
-  animation: aura-swell-4 7.1s ease-in-out infinite; }
+  animation: aura-swell-4 5.6s ease-in-out infinite; }
 .chat-working-aura > .aura-b5 { bottom: -28%; right: -14%;
   background: radial-gradient(circle, rgba(255, 100, 130, 0.62) 0%, rgba(255, 100, 130, 0) 65%);
-  animation: aura-swell-5 4.7s ease-in-out infinite; }
+  animation: aura-swell-5 3.7s ease-in-out infinite; }
 .chat-working-aura > .aura-b6 { bottom: -32%; left: 30%;
   background: radial-gradient(circle, rgba(60, 220, 210, 0.64) 0%, rgba(60, 220, 210, 0) 65%);
-  animation: aura-swell-6 7.9s ease-in-out infinite; }
+  animation: aura-swell-6 6.1s ease-in-out infinite; }
 .chat-working-aura > .aura-b7 { bottom: -28%; left: -14%;
   background: radial-gradient(circle, rgba(10, 132, 255, 0.7) 0%, rgba(10, 132, 255, 0) 65%);
-  animation: aura-swell-7 5.9s ease-in-out infinite; }
+  animation: aura-swell-7 4.6s ease-in-out infinite; }
 .chat-working-aura > .aura-b8 { top: 26%; left: -26%;
   background: radial-gradient(circle, rgba(100, 210, 255, 0.66) 0%, rgba(100, 210, 255, 0) 65%);
-  animation: aura-swell-8 6.7s ease-in-out infinite; }
+  animation: aura-swell-8 5.2s ease-in-out infinite; }
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 
-/* prefers-reduced-motion: keep a static soft glow (still a cue), stop motion */
+/* prefers-reduced-motion: keep a static soft glow (still a cue), stop motion.
+ * Orbiters are hidden outright — static, they'd read as three random dots. */
 @media (prefers-reduced-motion: reduce) {
   .chat-working-aura,
   .chat-working-aura > s::before,
   .chat-working-aura > i { animation: none; }
+  .chat-working-aura > b { display: none; }
 }
 
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
