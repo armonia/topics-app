@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { PenLine, Smile, Palette, Bot, Trash2, Pin, PinOff, type LucideIcon } from 'lucide-react';
+import { PenLine, Smile, Palette, Bot, Trash2, Pin, PinOff, ExternalLink, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { TOPIC_ICONS, getTopicIcon } from '@/lib/topicIcons';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
@@ -16,6 +16,9 @@ interface ContextMenuProps {
    *  Fissati"). Optional so legacy hosts render without the entry. */
   isPinned?: boolean;
   onTogglePin?: () => void;
+  /** Pop the topic into its own OS window (parity with the pane-header /
+   *  tab-menu pop-out). Optional so legacy hosts render without the entry. */
+  onPopOut?: () => void;
 }
 
 const COLOR_OPTIONS = [
@@ -26,7 +29,7 @@ const COLOR_OPTIONS = [
 
 type SubMenu = 'none' | 'rename' | 'icon' | 'color' | 'confirm-delete';
 
-export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents, isPinned, onTogglePin }: ContextMenuProps) {
+export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents, isPinned, onTogglePin, onPopOut }: ContextMenuProps) {
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
   const [renameValue, setRenameValue] = useState(topic.name);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -95,6 +98,13 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
               icon={isPinned ? PinOff : Pin}
               label={isPinned ? 'Rimuovi dai Fissati' : 'Fissa'}
               onClick={() => { onTogglePin(); onClose(); }}
+            />
+          )}
+          {onPopOut && (
+            <MenuItem
+              icon={ExternalLink}
+              label="Apri in nuova finestra"
+              onClick={() => { onPopOut(); onClose(); }}
             />
           )}
           {onAssignAgents && (

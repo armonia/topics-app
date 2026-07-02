@@ -22,6 +22,7 @@ import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useAttentionSignals, signalsActions, useTerminalAttentionTier, useSignalsStore, projectAttentionTier } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { useDetachedTopicMap } from '@/state/windowPresence';
+import { POPOVER_SURFACE, POPOVER_ITEM } from '@/lib/popoverStyles';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
@@ -739,7 +740,7 @@ export function TopicTree({
         const top = Math.max(8, Math.min(projectContextMenu.y, window.innerHeight - menuH - 8));
         return (
         <div
-          className="fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 z-[100] min-w-[160px]"
+          className={`fixed ${POPOVER_SURFACE} z-[100] min-w-[160px]`}
           style={{ top, left }}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -751,7 +752,7 @@ export function TopicTree({
                 }
                 setProjectContextMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className={POPOVER_ITEM}
             >
               <CheckCheck size={14} />
               <span>Mark all as read</span>
@@ -765,7 +766,7 @@ export function TopicTree({
                 onTogglePin(`project:${projectContextMenu.projectPath}`);
                 setProjectContextMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className={POPOVER_ITEM}
             >
               {projectContextMenu.pinned ? <PinOff size={14} /> : <Pin size={14} />}
               <span>{projectContextMenu.pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
@@ -777,7 +778,7 @@ export function TopicTree({
                 onArchiveProject(projectContextMenu.projectPath, !projectContextMenu.allArchived);
                 setProjectContextMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              className={POPOVER_ITEM}
             >
               {projectContextMenu.allArchived ? <ArchiveRestore size={14} /> : <Archive size={14} />}
               <span>{projectContextMenu.allArchived ? 'Restore Project' : 'Archive Project'}</span>

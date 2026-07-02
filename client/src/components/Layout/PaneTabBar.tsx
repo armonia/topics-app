@@ -219,6 +219,37 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // context menu). Collapses whenever the menu re-opens on another tab.
   const [spaceSubmenuOpen, setSpaceSubmenuOpen] = useState(false);
   useEffect(() => { setSpaceSubmenuOpen(false); }, [ctxMenu]);
+  // Inline "Rinomina" editor for terminal tabs, expanded IN PLACE inside the
+  // context menu (mirrors the sidebar ContextMenu rename submenu). null = not
+  // editing; a string = the draft label. Collapses whenever the menu re-opens.
+  const [renameDraft, setRenameDraft] = useState<string | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { setRenameDraft(null); }, [ctxMenu]);
+  useEffect(() => {
+    if (renameDraft !== null) {
+      // Defer focus so the input has mounted; select-all so a re-label is one keystroke.
+      const t = window.setTimeout(() => { renameInputRef.current?.focus(); renameInputRef.current?.select(); }, 30);
+      return () => window.clearTimeout(t);
+    }
+  }, [renameDraft]);
+
+  // Persist a terminal-tab rename via PATCH /api/terminal/sessions/:id (marks
+  // name_source='user' so the auto-namer leaves it alone) — mirrors the raw
+  // fetch the "Ricarica" entry uses. The server re-broadcasts the roster so the
+  // tab relabels without a local write.
+  const submitRename = useCallback((paneId: string, next: string) => {
+    const sid = getTerminalSessionFromPaneId(paneId);
+    const name = next.replace(/\s+/g, ' ').trim();
+    if (sid && name) {
+      void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }).catch(() => {});
+    }
+    setRenameDraft(null);
+    setCtxMenu(null);
+  }, []);
   // Registry read is cheap (identity-stable slice); only consulted when the
   // context menu offers the move entry.
   const spacesRegistry = usePaneStore((s) => s.spaces);
@@ -908,6 +939,50 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <RotateCw size={14} />
               <span className="flex-1 text-left">Ricarica</span>
             </button>
+          )}
+          {/* "Rinomina" — terminal panes only. Expands an inline editor in place
+              (Enter saves, Esc cancels) that PATCHes the session name with
+              name_source='user'. Chat/topic tabs rename from the sidebar
+              context menu, so this entry stays terminal-scoped. */}
+          {isTerminalPaneId(ctxMenu.paneId) && (
+            renameDraft === null ? (
+              <button
+                onClick={() => {
+                  const pane = panes.find(p => p.id === ctxMenu.paneId);
+                  setRenameDraft(pane?.title ?? '');
+                }}
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                title="Rinomina questa sessione"
+              >
+                <Edit3 size={14} />
+                <span className="flex-1 text-left">Rinomina</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2">
+                <Edit3 size={14} className="shrink-0 text-app-text-muted" />
+                <input
+                  ref={renameInputRef}
+                  value={renameDraft}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter') submitRename(ctxMenu.paneId, renameDraft);
+                    else if (e.key === 'Escape') setRenameDraft(null);
+                  }}
+                  placeholder="Nome sessione"
+                  maxLength={120}
+                  className="flex-1 min-w-0 bg-app-input border border-app-border rounded px-2 py-1 text-[13px] md:text-[12px] text-app-text focus:outline-none focus:border-primary"
+                />
+                <button
+                  onClick={() => submitRename(ctxMenu.paneId, renameDraft)}
+                  className="shrink-0 p-1 rounded hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors"
+                  title="Salva"
+                  aria-label="Salva"
+                >
+                  <Check size={14} />
+                </button>
+              </div>
+            )
           )}
           {/* Right-click "Close" is the explicit-confirmation path — bypass
               the PendingAction countdown that gates the default X button.
