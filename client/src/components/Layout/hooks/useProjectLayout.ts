@@ -152,11 +152,11 @@ export interface UseProjectLayoutReturn {
     setSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
   };
   refs: {
-    panesRef: React.MutableRefObject<Pane[]>;
-    groupsRef: React.MutableRefObject<PaneGroup[]>;
-    focusedGroupIdRef: React.MutableRefObject<string | null>;
-    rowsRef: React.MutableRefObject<GroupLayoutRow[]>;
-    rowHeightsRef: React.MutableRefObject<number[]>;
+    panesRef: React.RefObject<Pane[]>;
+    groupsRef: React.RefObject<PaneGroup[]>;
+    focusedGroupIdRef: React.RefObject<string | null>;
+    rowsRef: React.RefObject<GroupLayoutRow[]>;
+    rowHeightsRef: React.RefObject<number[]>;
   };
   handlers: {
     activate: (groupId: string, paneId: string) => void;
