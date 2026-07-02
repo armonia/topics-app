@@ -661,4 +661,61 @@ test.describe("Command Palette", () => {
       page.getByRole("heading", { name: "Keyboard Shortcuts" })
     ).toBeHidden();
   });
+
+  // CMD-15: "Reimposta pannelli al primo livello" action row flattens the
+  // focused surface's split layout (per-window CustomEvent → PanelGrid).
+  test("CMD-15: 'Reimposta pannelli al primo livello' flattens the focused surface", async ({
+    commandPalettePage,
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01 (flatten)" });
+    const BASE = "http://localhost:13334";
+    const [idA, idB] = topicIds;
+
+    // Seed two open panels in one standalone group, flat layout.
+    await Promise.all([
+      page.request.put(`${BASE}/api/ui-state/panels`, {
+        data: { openPanels: [idA, idB] },
+      }).catch(() => {}),
+      page.request.put(`${BASE}/api/ui-state/grid-layout`, {
+        data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
+      }).catch(() => {}),
+      page.request.put(`${BASE}/api/ui-state/panel-order`, {
+        data: { order: [idA, idB], pinned: [idA, idB] },
+      }).catch(() => {}),
+    ]);
+    await page.goto("/", { waitUntil: "networkidle" });
+
+    // Nest the layout via the tab context menu (Split Down → vertical stack).
+    const tab = page.locator('[role="main"] [draggable="true"]').first();
+    await expect(tab).toBeVisible({ timeout: 10000 });
+    await tab.click({ button: "right" });
+    const splitDown = page.getByText("Split Down", { exact: true });
+    await expect(splitDown).toBeVisible({ timeout: 3000 });
+    await splitDown.click();
+    await expect
+      .poll(() => page.locator('[role="main"] .cursor-row-resize').count(), { timeout: 5000 })
+      .toBeGreaterThanOrEqual(1);
+
+    // Focus a standalone tab so the standalone grid owns the reset event.
+    await page.locator('[role="main"] [draggable="true"]').first().click();
+    const tabsBefore = await page.locator('[role="main"] [draggable="true"]').count();
+
+    // Palette: the action row renders in the 'action' category…
+    await commandPalettePage.search("reimposta");
+    await expect(commandPalettePage.overlay.getByText("Azioni")).toBeVisible({ timeout: 3000 });
+    const actionRow = commandPalettePage.overlay
+      .getByRole("option")
+      .filter({ hasText: "Reimposta pannelli al primo livello" });
+    await expect(actionRow).toBeVisible({ timeout: 3000 });
+
+    // …and Enter runs it: palette closes, the focused surface flattens.
+    await page.keyboard.press("Enter");
+    await expect(commandPalettePage.overlay).toBeHidden();
+    await expect
+      .poll(() => page.locator('[role="main"] .cursor-row-resize').count(), { timeout: 5000 })
+      .toBe(0);
+    // No pane closed by the reset.
+    expect(await page.locator('[role="main"] [draggable="true"]').count()).toBe(tabsBefore);
+  });
 });

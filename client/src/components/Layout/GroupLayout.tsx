@@ -3,6 +3,7 @@ import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '.
 import { PaneTabBar } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
 import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
+import { flattenGroupRows } from './flattenLayout';
 import { equalizeWidths, weightedWidths } from './gridWidths';
 import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -565,6 +566,33 @@ export function GroupLayout({
     }
   }, [rows, rowVerticalDepth, onUpdateRows, onUpdateRowHeights]);
 
+  // "Reimposta pannelli" — flatten every split back to a single row of equal
+  // columns (cellStacks dissolve; nothing closes). Null = already flat, so
+  // the ctx-menu entry hides. The handler passes the LIVE group ids so the
+  // [groups]-dep sync effect can't "heal" a missed group afterwards and skew
+  // the equal widths. rows + rowHeights are computed OUTSIDE the setters as
+  // plain values and committed in one handler (React 18 batches them; the
+  // StrictMode double-invoke hazard only bites functional updaters reading
+  // stale siblings).
+  const canFlatten = useMemo(() => flattenGroupRows(rows) !== null, [rows]);
+  const handleResetLayout = useCallback(() => {
+    const flat = flattenGroupRows(rows, [...groupMap.keys()]);
+    if (!flat) return;
+    onUpdateRows(flat.rows);
+    onUpdateRowHeights(flat.rowHeights);
+  }, [rows, groupMap, onUpdateRows, onUpdateRowHeights]);
+
+  // Palette path ('topics:reset-split-layout' is a per-window CustomEvent bus,
+  // like topics:open-project-picker). Gated on isAppFocused so the FOCUSED
+  // surface flattens — with several project windows mounted in split view,
+  // only the App-focused one may act, and PanelGrid only acts when the
+  // focused panel is NOT a project pane (mutually exclusive by construction).
+  useEffect(() => {
+    const handler = () => { if (isAppFocused) handleResetLayout(); };
+    window.addEventListener('topics:reset-split-layout', handler);
+    return () => window.removeEventListener('topics:reset-split-layout', handler);
+  }, [isAppFocused, handleResetLayout]);
+
   if (rows.length === 0) {
     const emptyAvailableTypes = availableTypesForGroup('chat', '');
     return (
@@ -581,6 +609,7 @@ export function GroupLayout({
               onAddPane={(type, subType) => (onAddPaneWhenEmpty ?? (() => {}))(type, subType)}
               availableTypes={emptyAvailableTypes}
               dndScope={dndScope}
+              onResetLayout={canFlatten ? handleResetLayout : undefined}
               onNewChat={onNewChatInGroup ? () => onNewChatInGroup('') : undefined}
             />
           </div>
@@ -678,6 +707,7 @@ export function GroupLayout({
               ? (paneId) => onSplitGroup(gid, paneId, gid, 'bottom')
               : undefined
             }
+            onResetLayout={canFlatten ? handleResetLayout : undefined}
             contextPercent={contextPercent}
             onContextRingClick={onContextRingClick}
             onStopStreaming={onStopStreaming}

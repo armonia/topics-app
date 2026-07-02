@@ -867,3 +867,122 @@ test.describe("I: Full Lifecycle Regression", () => {
     expect(await countTabs(page)).toBeGreaterThanOrEqual(1);
   });
 });
+
+// =============================================================================
+//  J. Reimposta pannelli (flatten to first level)
+// =============================================================================
+
+test.describe("J: Reimposta pannelli (flatten)", () => {
+  test("J25: nested grid (2 rows + cellStack) flattens to one row of equal cells, no tab closes", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten)" });
+    const [idA, idB, idC, idD] = topicIds;
+    // 2 rows; row 0 col 0 hosts a vertical sub-stack (standalone + solo:C).
+    await seedAndLoad(page, [idA, idB, idC, idD], {
+      soloTopicIds: [idB, idC, idD],
+      gridRows: [
+        {
+          itemKeys: ["standalone", `solo:${idB}`],
+          widths: [0.6, 0.4],
+          cellStacks: { standalone: { items: [`solo:${idC}`], heights: [0.5, 0.5] } },
+        },
+        { itemKeys: [`solo:${idD}`], widths: [1] },
+      ],
+      gridRowHeights: [0.5, 0.5],
+    });
+    await waitForTabs(page, 4);
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(4);
+    expect(await countRowDividers(page), "seeded layout must be nested").toBeGreaterThanOrEqual(1);
+
+    const tabsBefore = await countTabs(page);
+
+    await rightClickTabAndSelect(page, 0, "Reimposta pannelli");
+
+    // One row: stack dissolved into top-level columns, rows merged.
+    await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);
+    await expect.poll(() => countColDividers(page), { timeout: 5000 }).toBe(3);
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(4);
+    expect(await countTabs(page), "flatten must not close any tab").toBe(tabsBefore);
+
+    // Equal-width cells (visual order preserved by the walk) — measure boxes.
+    const cells = page.locator('[role="main"] [data-panel-cell]');
+    await expect(cells).toHaveCount(4, { timeout: 5000 });
+    const widths: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const b = await cells.nth(i).boundingBox();
+      expect(b, `cell ${i} should have a bounding box`).not.toBeNull();
+      widths.push(b!.width);
+    }
+    const maxDiff = Math.max(...widths) - Math.min(...widths);
+    expect(maxDiff, "flattened cells should be equal width (±2px)").toBeLessThanOrEqual(2);
+    // No post-reset width flicker: the auto-equalize effects see equal widths
+    // and a single equal row and must leave them untouched.
+    const b0 = await cells.first().boundingBox();
+    expect(Math.abs(b0!.width - widths[0]), "no width flicker after the reset").toBeLessThanOrEqual(2);
+
+    // Reload — the flat layout persists through the existing persistence
+    // helper (usePanelGridPersistence); asserted via the UI, not a raw key.
+    const panelsFetch = page.waitForResponse(
+      r => r.url().includes("/api/ui-state/panels") && r.status() === 200,
+      { timeout: 10000 }
+    ).catch(() => {});
+    await page.goto("/");
+    await panelsFetch;
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    await waitForTabs(page, 4);
+    await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(4);
+  });
+
+  test("J26: already-flat layout hides the 'Reimposta pannelli' menu entry", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten)" });
+    const [idA, idB] = topicIds;
+    await seedAndLoad(page, [idA, idB], {
+      soloTopicIds: [idB],
+      gridRows: [{ itemKeys: ["standalone", `solo:${idB}`], widths: [0.5, 0.5] }],
+      gridRowHeights: [1],
+    });
+    await waitForTabs(page, 2);
+
+    const hasReset = await rightClickTabHasOption(page, 0, "Reimposta pannelli");
+    expect(hasReset, "flat layout must not offer Reimposta pannelli").toBe(false);
+    // Sanity: the menu did open and carries the usual entries.
+    const hasSplitRight = await rightClickTabHasOption(page, 0, "Split Right");
+    expect(hasSplitRight).toBe(true);
+  });
+
+  test("J27: terminal pane in the layout survives the reset (remount, no reload)", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten)" });
+    const [idA] = topicIds;
+    const session = await createTerminalSession(request, { name: `EC-FlattenTerm-${TS}` });
+    const termPaneId = `terminal:${session.id}`;
+    try {
+      // Two rows: the standalone group (hosting the terminal tab, active)
+      // above a solo'd topic — a nested layout the reset will flatten.
+      await seedAndLoad(page, [termPaneId, idA], {
+        soloTopicIds: [idA],
+        gridRows: [
+          { itemKeys: ["standalone"], widths: [1] },
+          { itemKeys: [`solo:${idA}`], widths: [1] },
+        ],
+        gridRowHeights: [0.5, 0.5],
+      });
+      await waitForTabs(page, 2);
+      expect(await countRowDividers(page)).toBeGreaterThanOrEqual(1);
+
+      // The terminal must be mounted before the reset.
+      const xterm = page.locator('[role="main"] .xterm').first();
+      await expect(xterm, "terminal should render before the reset").toBeVisible({ timeout: 15000 });
+
+      await rightClickTabAndSelect(page, 0, "Reimposta pannelli");
+      await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);
+      await expect.poll(() => countColDividers(page), { timeout: 5000 }).toBe(1);
+
+      // Remount-survival: the terminal pane re-mounts its renderer and the
+      // tab stays open (PTY survives — lossless reattach, no dead-end).
+      expect(await countTabs(page), "no tab may close on reset").toBe(2);
+      await expect(page.locator('[role="main"] .xterm').first(), "terminal must still render after the reset").toBeVisible({ timeout: 15000 });
+    } finally {
+      await deleteTerminalSession(request, session.id);
+    }
+  });
+});

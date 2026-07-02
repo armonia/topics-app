@@ -64,6 +64,11 @@ interface CommandPaletteProps {
   onToggleTheme: () => void;
   onOpenSettings: () => void;
   onOpenFileSearch?: () => void;
+  /** "Reimposta pannelli al primo livello" — flattens the FOCUSED surface's
+   *  split layout to a single row (App dispatches the per-window
+   *  'topics:reset-split-layout' CustomEvent; the focused GroupLayout /
+   *  PanelGrid listener acts). Always offered; a no-op when already flat. */
+  onResetPanels?: () => void;
   themeMode: string;
   projectPath?: string;
   onOpenFile?: (path: string, lineNumber?: number) => void;
@@ -88,6 +93,7 @@ export function CommandPalette({
   onNewTerminal,
   onToggleTheme,
   onOpenSettings,
+  onResetPanels,
   themeMode,
   projectPath,
   onOpenFile,
@@ -265,6 +271,22 @@ export function CommandPalette({
       .sort((a, b) => (b._ts || 0) - (a._ts || 0));
   }, [topics, onOpenTopic, onClose]);
 
+  // ── Layout actions (searchable command rows, 'action' category) ─────────
+  // Only "Reimposta pannelli al primo livello" for now. Always offered when
+  // the host wires the callback (the reset itself no-ops on an already-flat
+  // surface); rendered in the query results, not the empty-state columns.
+  const actionItems = useMemo((): CommandAction[] => {
+    if (!onResetPanels) return [];
+    return [{
+      id: 'reset-panels',
+      label: 'Reimposta pannelli al primo livello',
+      description: 'Appiattisce gli split su un solo livello (le schede restano aperte)',
+      icon: <RotateCcw size={14} />,
+      category: 'action' as const,
+      action: () => { onResetPanels(); onClose(); },
+    }];
+  }, [onResetPanels, onClose]);
+
   // ── File search results (only when query has text) ──────────────────────
   const searchFileItems = useMemo((): CommandAction[] => {
     if (!projectPath || !query.trim() || !onOpenFile) return [];
@@ -304,16 +326,17 @@ export function CommandPalette({
   const filteredProjects = useMemo(() => filterByQuery(projectItems), [projectItems, filterByQuery]);
   const filteredRecenti = useMemo(() => filterByQuery(recentItems), [recentItems, filterByQuery]);
   const filteredMain = useMemo(() => filterByQuery(topicItems), [topicItems, filterByQuery]);
+  const filteredActions = useMemo(() => filterByQuery(actionItems), [actionItems, filterByQuery]);
 
   // Flat order for keyboard nav, matching the render order in each mode:
   //  · projects scope:   Projects only (⌘F — jump to a project)
   //  · empty (no query): Projects column → Recently-closed column
-  //  · query:            Projects → Topics → Recently-closed → Files → Messages
+  //  · query:            Projects → Actions → Topics → Recently-closed → Files → Messages
   const allItems = useMemo(() => {
     if (scope === 'projects') return filteredProjects;
     if (!query.trim()) return [...filteredProjects, ...filteredRecenti];
-    return [...filteredProjects, ...filteredMain, ...filteredRecenti, ...searchFileItems, ...searchResults];
-  }, [scope, query, filteredProjects, filteredRecenti, filteredMain, searchFileItems, searchResults]);
+    return [...filteredProjects, ...filteredActions, ...filteredMain, ...filteredRecenti, ...searchFileItems, ...searchResults];
+  }, [scope, query, filteredProjects, filteredActions, filteredRecenti, filteredMain, searchFileItems, searchResults]);
 
   // O(1) id→index lookup, built once per `allItems` change. Rendering each
   // section calls `indexOf` per row; a findIndex there made render O(n²) over
@@ -463,6 +486,12 @@ export function CommandPalette({
                     <>
                       <SectionHeader label="Progetti" />
                       {filteredProjects.map(item => renderRow(item, { highlight: true }))}
+                    </>
+                  )}
+                  {filteredActions.length > 0 && (
+                    <>
+                      <SectionHeader label="Azioni" />
+                      {filteredActions.map(item => renderRow(item, { highlight: true }))}
                     </>
                   )}
                   {filteredMain.length > 0 && (
