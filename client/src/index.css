@@ -1138,7 +1138,7 @@ input[type="range"]::-webkit-slider-thumb {
    * content-box is EXCLUDED from the same fill over the whole box, leaving just
    * the outer `padding` band. `padding` = ring thickness; the spinning child
    * shows only through that band. */
-  padding: 1.5px;                       /* = ring thickness */
+  padding: 2.5px;                       /* = ring thickness */
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
@@ -1164,20 +1164,49 @@ input[type="range"]::-webkit-slider-thumb {
   inset: -50%;
   min-width: 200%;
   min-height: 200%;
-  /* Cool Apple-Intelligence palette: blue → indigo → violet → magenta hint and
-   * back, biased cool (no warm/amber). Low alpha so it reads as a soft light,
-   * not a hard band. The transparent wedge gives the rotation a visible "comet". */
+  /* Cool Apple-Intelligence palette, TWO chasing comets: a cyan→blue arc and an
+   * indigo→magenta arc separated by transparent gaps, so the rotation reads as
+   * two glints orbiting the pane instead of one faint smear. Alphas are high on
+   * purpose — the band is only ~2.5px, it has to be luminous to be seen — and
+   * the palette stays cool (no warm/amber). */
   background: conic-gradient(
     from 0deg,
-    rgba(10, 132, 255, 0)    0deg,
-    rgba(10, 132, 255, 0.45) 60deg,
-    rgba(94, 92, 230, 0.5)   140deg,
-    rgba(175, 82, 222, 0.45) 210deg,
-    rgba(255, 55, 175, 0.35) 270deg,
-    rgba(10, 132, 255, 0)    360deg
+    rgba(50, 200, 255, 0)     0deg,
+    rgba(50, 200, 255, 0.95) 45deg,
+    rgba(10, 132, 255, 0.9)  100deg,
+    rgba(10, 132, 255, 0)    150deg,
+    rgba(94, 92, 230, 0)     175deg,
+    rgba(94, 92, 230, 0.9)   225deg,
+    rgba(191, 90, 242, 0.95) 275deg,
+    rgba(255, 55, 175, 0.7)  315deg,
+    rgba(50, 200, 255, 0)    360deg
   );
-  animation: chat-working-spin 7s linear infinite;
+  animation: chat-working-spin 4.5s linear infinite;
   will-change: transform;
+}
+/* HALO — a soft inward bloom hugging the pane edge, breathing slowly under the
+ * crisp ring. Separate SIBLING node (the ring wrapper's mask would clip any
+ * pseudo-element of its own down to the 2.5px band, so the bloom can't live
+ * inside it). Static inset box-shadows painted ONCE — the only animated
+ * property is layer opacity (compositor thread), so per-frame cost stays zero.
+ * Alphas are low and the falloff quick: it kisses the outer ~14px of the pane,
+ * never the text body. */
+.chat-working-halo {
+  position: absolute;
+  inset: 0;
+  z-index: 29;                          /* just under the ring */
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 14px rgba(10, 132, 255, 0.22),
+    inset 0 0 3px  rgba(94, 92, 230, 0.30);
+  animation:
+    chat-working-ring-in 300ms ease-out,
+    chat-working-breathe 2.8s ease-in-out 300ms infinite alternate;
+}
+@keyframes chat-working-breathe {
+  from { opacity: 0.45; }
+  to   { opacity: 1; }
 }
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
@@ -1188,7 +1217,8 @@ input[type="range"]::-webkit-slider-thumb {
  * but stop all rotation and the fade-in. */
 @media (prefers-reduced-motion: reduce) {
   .chat-working-ring,
-  .chat-working-ring::before { animation: none; }
+  .chat-working-ring::before,
+  .chat-working-halo { animation: none; }
 }
 
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
