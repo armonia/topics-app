@@ -146,12 +146,14 @@ path — it does exactly this and cleans up after itself:
 scripts/build-server-sidecar.sh smoke
 # sets: NO_TLS=1 BUN_PORT>=13460 SERVER_HOST=127.0.0.1
 #       TOPICS_DATA_DIR/DATA_DIR/TOPICS_HOME (isolated tempdir)
-#       TOPICS_PTY_SOCKET=/tmp/sidecar-smoke-$$.sock  TOPICS_DISABLE_PTY_BRIDGE=1
+#       TOPICS_PTY_SOCKET=/tmp/sidecar-smoke-$$.sock
+#       TOPICS_DISABLE_PTY_BRIDGE=1  (alias: TOPICS_EMBEDDED=1)
 ```
 
 Never launch the compiled binary by hand from the repo root. The shipped sidecar is
-spawned with the same isolation + `TOPICS_DISABLE_PTY_BRIDGE=1` by the shell
-(`desktop-tauri/src-tauri/src/lib.rs`), so terminal endpoints answer `503`
+spawned with the same isolation + the standalone kill-switch by the shell
+(`desktop-tauri/src-tauri/src/lib.rs`) — `TOPICS_DISABLE_PTY_BRIDGE=1` (or
+`TOPICS_EMBEDDED=1`; the server honors either) — so terminal endpoints answer `503`
 ("terminals not available in standalone mode") instead of touching a bridge.
 
 Two things the sidecar needs that a naïve `--compile` drops, both handled:
