@@ -15,12 +15,66 @@
  *   - switch-topic returned 404 for an ARCHIVED target, conflating it with
  *     "does not exist" (AC-01 says 404 unknown / 400 archived).
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createTopicsRouter } from "./topics";
 import type { Topic } from "../types";
+
+// The terminal-tab fallback of open/create-project (and move-to-project) resolves
+// the caller via getTerminalSessionById, which is imported statically from
+// ./terminal and reads a module-private `sessions` Map only a live PTY bridge
+// populates. Mock the module so a test can register a fake terminal session by id
+// without standing up a bridge. registerTerminalSession(...) drives the mock;
+// clearTerminalSessions() resets it between tests.
+const terminalSessions = new Map<string, { id: string; name?: string }>();
+function registerTerminalSession(id: string, name?: string) {
+  terminalSessions.set(id, { id, name });
+}
+function clearTerminalSessions() {
+  terminalSessions.clear();
+}
+mock.module("./terminal", () => ({
+  getTerminalSessionById: (id: string) => terminalSessions.get(id),
+}));
+
+/**
+ * Minimal in-memory stand-in for the SQLite `ui_state` table, faithful to the
+ * subset the pane-move helper uses: `query(sql).get(...)` for a single-row read
+ * (by key, or the MAX(server_seq) aggregate), `run(sql, params)` for the upsert,
+ * and `transaction(fn).immediate()` (synchronous — the real BEGIN IMMEDIATE is
+ * about seq collision under concurrency, not needed single-threaded in a test).
+ * Backed by a plain Map so tests can assert the persisted rows directly.
+ */
+function makeUiStateDb() {
+  const rows = new Map<string, { value: string; server_seq: number }>();
+  const db = {
+    query(sql: string) {
+      if (/MAX\(server_seq\)/.test(sql)) {
+        return {
+          get: () => {
+            let maxSeq = 0;
+            for (const r of rows.values()) if (r.server_seq > maxSeq) maxSeq = r.server_seq;
+            return { maxSeq };
+          },
+        };
+      }
+      // SELECT value FROM ui_state WHERE key = ?
+      return { get: (key: string) => rows.get(key) };
+    },
+    run(_sql: string, params: unknown[]) {
+      const [key, value, seq] = params as [string, string, number];
+      rows.set(key, { value, server_seq: seq });
+    },
+    transaction<T>(fn: () => T) {
+      const runner = () => fn();
+      (runner as unknown as { immediate: () => T }).immediate = () => fn();
+      return runner as (() => T) & { immediate: () => T };
+    },
+  };
+  return { db, rows };
+}
 
 function makeTopic(overrides: Partial<Topic> & { id: string }): Topic {
   return {
@@ -46,9 +100,11 @@ function makeHarness() {
 
   const topics = new Map<string, Topic>();
   const broadcasts: Array<{ type: string } & Record<string, unknown>> = [];
+  const { db, rows: uiState } = makeUiStateDb();
 
   const ctx = {
     OPENCLAW_DIR: openclawDir,
+    db,
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },
@@ -90,8 +146,25 @@ function makeHarness() {
   };
   const cleanup = () => rmSync(openclawDir, { recursive: true, force: true });
 
-  return { topics, broadcasts, workspaceDir, call, cleanup };
+  // djb2 — mirrors moveTerminalPaneToProject / the client projectHash(), so a
+  // test can assert the exact membership key a moved pane lands under.
+  const projectHash = (p: string): string => {
+    let h = 0;
+    for (let i = 0; i < p.length; i++) { h = p.charCodeAt(i) + ((h << 5) - h); h = h & h; }
+    return Math.abs(h).toString(36);
+  };
+  const readUi = (key: string): Record<string, unknown> | null => {
+    const row = uiState.get(key);
+    if (!row) return null;
+    try { return JSON.parse(row.value) as Record<string, unknown>; } catch { return null; }
+  };
+
+  return { topics, broadcasts, workspaceDir, call, cleanup, uiState, readUi, projectHash };
 }
+
+// Terminal sessions live in a module-level Map behind the mock; reset it so one
+// test's fake tab can't leak into the next.
+beforeEach(() => { clearTerminalSessions(); });
 
 describe("POST /api/sessions/:sessionKey/switch-topic", () => {
   test("200 + topic:switch broadcast for an existing non-archived target", async () => {
@@ -277,6 +350,160 @@ describe("POST /api/sessions/:sessionKey/open-project", () => {
       h.topics.set("cur", makeTopic({ id: "cur" }));
       expect((await h.call("POST", "/api/sessions/topic:nobody/open-project", { ref: "x" }))!.status).toBe(404);
       expect((await h.call("POST", "/api/sessions/topic:cur/open-project", {}))!.status).toBe(400);
+    } finally { h.cleanup(); }
+  });
+});
+
+// --- Terminal Claude tab (no chat topic) --------------------------------------
+// A terminal tab's MCP carries session-key = terminal UUID, so
+// getTopicBySessionKey is null but getTerminalSessionById resolves. open/create
+// -project fall back to moveTerminalPaneToProject (splice from pane-store-v2 →
+// add to the project membership + broadcasts); switch/new return a structured
+// 400 naming the right tool instead of a bare 404.
+
+/** Seed a terminal pane in the app-level pane-store-v2, in a group, at seq 1. */
+function seedTerminalPane(h: ReturnType<typeof makeHarness>, termId: string) {
+  const paneId = `terminal:${termId}`;
+  h.uiState.set("pane-store-v2", {
+    value: JSON.stringify({
+      panes: { [paneId]: { id: paneId, type: "terminal", title: "Claude Code", terminalType: "claude-code", scrollOffset: 42 } },
+      groups: { g1: { paneIds: [paneId, "other:keep"] } },
+    }),
+    server_seq: 1,
+  });
+  return paneId;
+}
+
+describe("terminal Claude tab (session-key = terminal id, no chat topic)", () => {
+  test("open-project: resolves a known project by NAME, splices the pane out of pane-store-v2, adds it to the project membership, broadcasts ui-state + open-project", async () => {
+    const h = makeHarness();
+    try {
+      registerTerminalSession("term-abc", "my tab");
+      const paneId = seedTerminalPane(h, "term-abc");
+      const dir = join(h.workspaceDir, "yup");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "CLAUDE.md"), "# yup\n"); // project marker
+
+      // Fix B: resolves by NAME (not an absolute path) — "apri il progetto yup".
+      const resp = (await h.call("POST", "/api/sessions/term-abc/open-project", { ref: "yup" }))!;
+      expect(resp.status).toBe(200);
+      expect((await resp.json()).projectPath).toBe(dir);
+
+      // Pane spliced out of the standalone store (both the panes entry and the
+      // group ref), the sibling pane left intact.
+      const app = h.readUi("pane-store-v2") as { panes: Record<string, unknown>; groups: Record<string, { paneIds: string[] }> };
+      expect(app.panes[paneId]).toBeUndefined();
+      expect(app.groups.g1.paneIds).toEqual(["other:keep"]);
+
+      // Added to the project's server-synced membership under the exact hash key,
+      // carrying the pane shape minus scrollOffset.
+      const memKey = `topics-project-panes-${h.projectHash(dir)}`;
+      const mem = h.readUi(memKey) as { nonChatPanes: Array<Record<string, unknown>> };
+      expect(mem.nonChatPanes).toHaveLength(1);
+      expect(mem.nonChatPanes[0]).toMatchObject({ id: paneId, type: "terminal", terminalType: "claude-code" });
+      expect(mem.nonChatPanes[0].scrollOffset).toBeUndefined();
+
+      // Broadcasts: a ui-state:updated for each key + a single open-project (focus).
+      const uiKeys = h.broadcasts.filter((b) => b.type === "ui-state:updated").map((b) => b.key);
+      expect(uiKeys).toContain("pane-store-v2");
+      expect(uiKeys).toContain(memKey);
+      expect(h.broadcasts.filter((b) => b.type === "open-project")).toMatchObject([{ projectPath: dir }]);
+      // No chat-topic side effects.
+      expect(h.broadcasts.some((b) => b.type === "topic:updated")).toBe(false);
+    } finally { h.cleanup(); }
+  });
+
+  test("open-project: 404 for an unknown ref (the terminal path is NOT trustRawPaths — /etc is refused)", async () => {
+    const h = makeHarness();
+    try {
+      registerTerminalSession("term-x");
+      seedTerminalPane(h, "term-x");
+      expect((await h.call("POST", "/api/sessions/term-x/open-project", { ref: "ghost" }))!.status).toBe(404);
+      expect((await h.call("POST", "/api/sessions/term-x/open-project", { ref: "/etc" }))!.status).toBe(404);
+      expect(h.broadcasts).toHaveLength(0);
+    } finally { h.cleanup(); }
+  });
+
+  test("create-project: scaffolds the dir + moves the terminal pane in + broadcasts open-project", async () => {
+    const h = makeHarness();
+    try {
+      registerTerminalSession("term-c");
+      const paneId = seedTerminalPane(h, "term-c");
+
+      const resp = (await h.call("POST", "/api/sessions/term-c/create-project", { name: "FromTab" }))!;
+      expect(resp.status).toBe(200);
+      const dir = join(h.workspaceDir, "FromTab");
+      expect((await resp.json()).projectPath).toBe(dir);
+      expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
+
+      // Pane moved into the new project's membership.
+      const memKey = `topics-project-panes-${h.projectHash(dir)}`;
+      const mem = h.readUi(memKey) as { nonChatPanes: Array<{ id: string }> };
+      expect(mem.nonChatPanes.map((p) => p.id)).toEqual([paneId]);
+      expect((h.readUi("pane-store-v2") as { panes: Record<string, unknown> }).panes[paneId]).toBeUndefined();
+      expect(h.broadcasts.filter((b) => b.type === "open-project")).toMatchObject([{ projectPath: dir }]);
+    } finally { h.cleanup(); }
+  });
+
+  test("create-project: 409 collision still holds from a terminal tab — no scaffold overwrite, no move, no broadcast", async () => {
+    const h = makeHarness();
+    try {
+      registerTerminalSession("term-dup");
+      seedTerminalPane(h, "term-dup");
+      const dir = join(h.workspaceDir, "Taken");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "CLAUDE.md"), "# original\n");
+
+      const resp = (await h.call("POST", "/api/sessions/term-dup/create-project", { name: "Taken" }))!;
+      expect(resp.status).toBe(409);
+      const body = await resp.json();
+      expect(body.code).toBe("project_exists");
+      expect(body.projectPath).toBe(dir);
+      // Existing CLAUDE.md untouched; no pane move; no broadcast.
+      expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toBe("# original\n");
+      expect((h.readUi("pane-store-v2") as { panes: Record<string, unknown> }).panes["terminal:term-dup"]).toBeDefined();
+      expect(h.broadcasts).toHaveLength(0);
+    } finally { h.cleanup(); }
+  });
+
+  test("switch-topic: structured 400 (not 404) naming open_project/move_session_to_project", async () => {
+    const h = makeHarness();
+    try {
+      registerTerminalSession("term-s");
+      h.topics.set("tgt", makeTopic({ id: "tgt" }));
+      const resp = (await h.call("POST", "/api/sessions/term-s/switch-topic", { topicId: "tgt" }))!;
+      expect(resp.status).toBe(400);
+      const body = await resp.json();
+      expect(body.code).toBe("not_a_chat_topic");
+      expect(body.tool).toBe("switch_topic");
+      expect(body.error).toMatch(/open_project/);
+      expect(body.error).toMatch(/move_session_to_project/);
+      expect(h.broadcasts.filter((b) => b.type === "topic:switch")).toHaveLength(0);
+    } finally { h.cleanup(); }
+  });
+
+  test("new-topic: structured 400 (not 404) naming open_project/move_session_to_project", async () => {
+    const h = makeHarness();
+    try {
+      registerTerminalSession("term-n");
+      const resp = (await h.call("POST", "/api/sessions/term-n/new-topic", { title: "x" }))!;
+      expect(resp.status).toBe(400);
+      const body = await resp.json();
+      expect(body.code).toBe("not_a_chat_topic");
+      expect(body.tool).toBe("new_topic");
+      expect(body.error).toMatch(/open_project/);
+      expect(h.broadcasts.filter((b) => b.type === "topic:created")).toHaveLength(0);
+    } finally { h.cleanup(); }
+  });
+
+  test("still a bare 404 when the session is neither a chat topic NOR a terminal tab", async () => {
+    const h = makeHarness();
+    try {
+      // No terminal registered, no topic — genuinely unbound.
+      const sw = (await h.call("POST", "/api/sessions/nobody/switch-topic", { topicId: "x" }))!;
+      expect(sw.status).toBe(404);
+      const op = (await h.call("POST", "/api/sessions/nobody/open-project", { ref: "x" }))!;
+      expect(op.status).toBe(404);
     } finally { h.cleanup(); }
   });
 });
