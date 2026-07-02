@@ -1053,8 +1053,9 @@ function App() {
           onMouseDown={handleSidebarResizeStart}
           onDoubleClick={handleSidebarDoubleClick}
         >
-          {/* crisp 1px boundary line, always visible at the true edge */}
-          <div className="absolute inset-y-0 right-[2px] w-[1px] bg-app-border" />
+          {/* No resting visuals — the sidebar's own shadow separates it from the
+              content (Attilio: a visible edge line "non va bene"). The handle
+              paints only on hover. */}
           <div className="absolute inset-0 group-hover:bg-primary/25" />
           <div className="absolute inset-y-0 right-[1px] w-[3px] group-hover:bg-primary" />
         </div>
