@@ -1093,20 +1093,21 @@ input[type="range"]::-webkit-slider-thumb {
  * while the session works → zero idle cost. `.anims-paused` freezes it when
  * the window is backgrounded. Only transform/opacity animate (compositor);
  * blur lives on each blob's OWN layer (WebKit-safe). */
-/* DEPTH WAVES — Attilio: "la grandezza dell'ombra deve variare in vari punti
- * facendo un'onda" + "deve esserci per tutto il perimetro". The signature
- * AI-glow (Siri bezel, Claude thinking) is a glow whose REACH undulates along
- * the edge: local swells of colored light that push deeper into the pane and
- * retreat, out of phase — while the WHOLE edge stays lit.
- * Build: EIGHT radial blobs (4 corners + 4 edge midpoints, mostly outside the
- * pane, clipped by it), each self-blurred, each animating scale (the swell —
- * this is what makes the depth vary), a slide along its edge, and opacity on
- * co-prime periods with irregular multi-stop keyframes. Opacity NEVER drops
- * below ~0.4: the wave modulates depth, not existence — v7's deep troughs
- * (0.18) left only 2 visible blobs on a large pane. A breathing rim
- * (::before) underlays them so the perimeter has no dark gaps between
- * swells. Transform/opacity only → compositor-thread; blur is on each blob's
- * OWN layer. Conditionally rendered while working → zero idle cost. */
+/* v9 TRAVELING WAVES — Attilio: "una roba tutto intorno ad onde", "l'ombra è
+ * troppo omogenea", "si vedono solo due bagliori". Two layers:
+ * 1. BAND (<s>): a conic gradient with UNEVEN color stops on a 220% disc that
+ *    ROTATES (9s), clipped to the pane's edge by a feathered 4-edge union
+ *    mask on the parent. This is the "all around" part: bright sectors travel
+ *    visibly along the whole perimeter — never homogeneous, never spotty.
+ *    Mask on parent + rotating blurred child is the WebKit-verified pattern
+ *    (mask-composite: add / -webkit-mask-composite: source-over).
+ * 2. SWELLS (<i>): eight radial blobs pinned around the perimeter animating
+ *    scale/opacity on FAST co-prime periods (4.7–8.5s — v8's 9–19s read as
+ *    static to the eye): local surges of depth riding on the band, out of
+ *    phase, so the glow's reach undulates like a wave.
+ * Transform/opacity only → compositor-thread; blur on each layer's OWN
+ * element. Conditionally rendered while working → zero idle cost;
+ * `.anims-paused *` / `*::before` freeze everything when backgrounded. */
 .chat-working-aura {
   position: absolute;
   inset: 0;
@@ -1116,112 +1117,130 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
   animation: chat-working-ring-in 300ms ease-out;
 }
-/* continuous rim: the full-perimeter base coat the swells ride on */
-.chat-working-aura::before {
-  content: '';
+/* band host: feathered edge mask (union of the four edges) */
+.chat-working-aura > s {
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  box-shadow:
-    inset 0 0 22px rgba(94, 92, 230, 0.34),
-    inset 0 0 58px rgba(50, 200, 255, 0.16),
-    inset 0 0 110px rgba(191, 90, 242, 0.10);
-  animation: aura-rim-breathe 7s ease-in-out infinite;
-  will-change: opacity;
+  display: block;
+  -webkit-mask-image:
+    linear-gradient(to bottom, #fff, transparent 76px),
+    linear-gradient(to top, #fff, transparent 76px),
+    linear-gradient(to right, #fff, transparent 76px),
+    linear-gradient(to left, #fff, transparent 76px);
+  -webkit-mask-composite: source-over;
+  mask-image:
+    linear-gradient(to bottom, #fff, transparent 76px),
+    linear-gradient(to top, #fff, transparent 76px),
+    linear-gradient(to right, #fff, transparent 76px),
+    linear-gradient(to left, #fff, transparent 76px);
+  mask-composite: add;
 }
-@keyframes aura-rim-breathe {
-  0%, 100% { opacity: 0.72; }
-  50%      { opacity: 1; }
+/* band disc: oversized so rotation always covers the corners; uneven stops =
+ * bright crests with dim troughs that chase each other around the edge */
+.chat-working-aura > s::before {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  background: conic-gradient(from 20deg,
+    rgba(50, 200, 255, 0.85), rgba(94, 92, 230, 0.30) 12%,
+    rgba(191, 90, 242, 0.9) 26%, rgba(255, 55, 175, 0.35) 37%,
+    rgba(10, 132, 255, 0.8) 52%, rgba(60, 220, 210, 0.28) 63%,
+    rgba(255, 100, 130, 0.85) 78%, rgba(94, 92, 230, 0.32) 90%,
+    rgba(50, 200, 255, 0.85));
+  filter: blur(18px) saturate(160%);
+  animation: aura-band-spin 9s linear infinite;
+  will-change: transform;
 }
+@keyframes aura-band-spin { to { transform: rotate(360deg); } }
 .chat-working-aura > i {
   position: absolute;
-  width: 44%;
+  width: 40%;
   aspect-ratio: 1;
   border-radius: 50%;
-  filter: blur(14px) saturate(150%);
+  filter: blur(12px) saturate(150%);
   will-change: transform, opacity;
 }
 /* swell keyframes — scale IS the wave: the blob's bulge into the pane grows
- * and retreats; translate slides the swell along its edge. Irregular
- * multi-stop, co-prime periods; opacity floor ≥ 0.4 (see block comment). */
+ * and retreats; translate slides the swell along its edge. Fast + irregular;
+ * the band below guarantees the perimeter, so troughs may dip low. */
 @keyframes aura-swell-1 {
-  0%   { transform: translate(0, 0)      scale(0.72); opacity: 0.5; }
-  24%  { transform: translate(12%, 4%)   scale(1.3);  opacity: 0.95; }
-  43%  { transform: translate(7%, 1%)    scale(0.85); opacity: 0.62; }
-  68%  { transform: translate(24%, 3%)   scale(1.45); opacity: 1; }
-  100% { transform: translate(0, 0)      scale(0.72); opacity: 0.5; }
+  0%   { transform: translate(0, 0)      scale(0.6);  opacity: 0.4; }
+  24%  { transform: translate(12%, 4%)   scale(1.35); opacity: 1; }
+  43%  { transform: translate(7%, 1%)    scale(0.8);  opacity: 0.55; }
+  68%  { transform: translate(24%, 3%)   scale(1.5);  opacity: 1; }
+  100% { transform: translate(0, 0)      scale(0.6);  opacity: 0.4; }
 }
 @keyframes aura-swell-2 {
-  0%   { transform: translate(0, 0)      scale(1.25); opacity: 0.9; }
-  31%  { transform: translate(-14%, 5%)  scale(0.75); opacity: 0.45; }
-  57%  { transform: translate(-5%, 2%)   scale(1.4);  opacity: 0.98; }
-  81%  { transform: translate(-20%, 0)   scale(0.95); opacity: 0.6; }
-  100% { transform: translate(0, 0)      scale(1.25); opacity: 0.9; }
+  0%   { transform: translate(0, 0)      scale(1.3);  opacity: 0.95; }
+  31%  { transform: translate(-14%, 5%)  scale(0.65); opacity: 0.4; }
+  57%  { transform: translate(-5%, 2%)   scale(1.45); opacity: 1; }
+  81%  { transform: translate(-20%, 0)   scale(0.9);  opacity: 0.55; }
+  100% { transform: translate(0, 0)      scale(1.3);  opacity: 0.95; }
 }
 @keyframes aura-swell-3 {
-  0%   { transform: translate(0, 0)      scale(0.95); opacity: 0.65; }
-  22%  { transform: translate(3%, 18%)   scale(1.45); opacity: 1; }
-  49%  { transform: translate(1%, 7%)    scale(0.78); opacity: 0.45; }
-  76%  { transform: translate(4%, 24%)   scale(1.3);  opacity: 0.92; }
-  100% { transform: translate(0, 0)      scale(0.95); opacity: 0.65; }
+  0%   { transform: translate(0, 0)      scale(0.95); opacity: 0.6; }
+  22%  { transform: translate(3%, 18%)   scale(1.5);  opacity: 1; }
+  49%  { transform: translate(1%, 7%)    scale(0.7);  opacity: 0.4; }
+  76%  { transform: translate(4%, 24%)   scale(1.35); opacity: 0.95; }
+  100% { transform: translate(0, 0)      scale(0.95); opacity: 0.6; }
 }
 @keyframes aura-swell-4 {
-  0%   { transform: translate(0, 0)      scale(1.35); opacity: 0.95; }
-  27%  { transform: translate(-4%, -13%) scale(0.8);  opacity: 0.52; }
-  52%  { transform: translate(-1%, -22%) scale(1.28); opacity: 0.9; }
-  79%  { transform: translate(-5%, -6%)  scale(0.72); opacity: 0.42; }
-  100% { transform: translate(0, 0)      scale(1.35); opacity: 0.95; }
+  0%   { transform: translate(0, 0)      scale(1.4);  opacity: 1; }
+  27%  { transform: translate(-4%, -13%) scale(0.72); opacity: 0.45; }
+  52%  { transform: translate(-1%, -22%) scale(1.3);  opacity: 0.95; }
+  79%  { transform: translate(-5%, -6%)  scale(0.62); opacity: 0.38; }
+  100% { transform: translate(0, 0)      scale(1.4);  opacity: 1; }
 }
 @keyframes aura-swell-5 {
-  0%   { transform: translate(0, 0)      scale(0.78); opacity: 0.52; }
-  35%  { transform: translate(16%, -6%)  scale(1.38); opacity: 0.95; }
-  61%  { transform: translate(27%, -2%)  scale(0.9);  opacity: 0.58; }
-  100% { transform: translate(0, 0)      scale(0.78); opacity: 0.52; }
+  0%   { transform: translate(0, 0)      scale(0.7);  opacity: 0.45; }
+  35%  { transform: translate(16%, -6%)  scale(1.42); opacity: 1; }
+  61%  { transform: translate(27%, -2%)  scale(0.85); opacity: 0.5; }
+  100% { transform: translate(0, 0)      scale(0.7);  opacity: 0.45; }
 }
 @keyframes aura-swell-6 {
-  0%   { transform: translate(0, 0)      scale(1.15); opacity: 0.85; }
-  29%  { transform: translate(-18%, -4%) scale(0.75); opacity: 0.46; }
-  55%  { transform: translate(-8%, 2%)   scale(1.45); opacity: 1; }
-  100% { transform: translate(0, 0)      scale(1.15); opacity: 0.85; }
+  0%   { transform: translate(0, 0)      scale(1.2);  opacity: 0.9; }
+  29%  { transform: translate(-18%, -4%) scale(0.68); opacity: 0.42; }
+  55%  { transform: translate(-8%, 2%)   scale(1.5);  opacity: 1; }
+  100% { transform: translate(0, 0)      scale(1.2);  opacity: 0.9; }
 }
 @keyframes aura-swell-7 {
-  0%   { transform: translate(0, 0)      scale(1.3);  opacity: 0.92; }
-  26%  { transform: translate(10%, 5%)   scale(0.78); opacity: 0.48; }
-  58%  { transform: translate(22%, 1%)   scale(1.42); opacity: 0.98; }
-  83%  { transform: translate(6%, 3%)    scale(0.9);  opacity: 0.6; }
-  100% { transform: translate(0, 0)      scale(1.3);  opacity: 0.92; }
+  0%   { transform: translate(0, 0)      scale(1.35); opacity: 0.95; }
+  26%  { transform: translate(10%, 5%)   scale(0.7);  opacity: 0.42; }
+  58%  { transform: translate(22%, 1%)   scale(1.45); opacity: 1; }
+  83%  { transform: translate(6%, 3%)    scale(0.9);  opacity: 0.55; }
+  100% { transform: translate(0, 0)      scale(1.35); opacity: 0.95; }
 }
 @keyframes aura-swell-8 {
-  0%   { transform: translate(0, 0)      scale(0.8);  opacity: 0.55; }
-  33%  { transform: translate(-3%, -18%) scale(1.4);  opacity: 0.96; }
-  62%  { transform: translate(-1%, -7%)  scale(0.85); opacity: 0.5; }
-  100% { transform: translate(0, 0)      scale(0.8);  opacity: 0.55; }
+  0%   { transform: translate(0, 0)      scale(0.75); opacity: 0.5; }
+  33%  { transform: translate(-3%, -18%) scale(1.45); opacity: 1; }
+  62%  { transform: translate(-1%, -7%)  scale(0.8);  opacity: 0.45; }
+  100% { transform: translate(0, 0)      scale(0.75); opacity: 0.5; }
 }
 /* eight blobs: 4 corners + 4 edge midpoints (mostly outside; the pane clips) */
 .chat-working-aura > .aura-b1 { top: -28%; left: -14%;
-  background: radial-gradient(circle, rgba(50, 200, 255, 0.68) 0%, rgba(50, 200, 255, 0) 65%);
-  animation: aura-swell-1 9.5s ease-in-out infinite; }
+  background: radial-gradient(circle, rgba(50, 200, 255, 0.7) 0%, rgba(50, 200, 255, 0) 65%);
+  animation: aura-swell-1 6.3s ease-in-out infinite; }
 .chat-working-aura > .aura-b2 { top: -32%; left: 29%;
-  background: radial-gradient(circle, rgba(94, 92, 230, 0.68) 0%, rgba(94, 92, 230, 0) 65%);
-  animation: aura-swell-2 13s ease-in-out infinite; }
+  background: radial-gradient(circle, rgba(94, 92, 230, 0.7) 0%, rgba(94, 92, 230, 0) 65%);
+  animation: aura-swell-2 8.5s ease-in-out infinite; }
 .chat-working-aura > .aura-b3 { top: -28%; right: -14%;
-  background: radial-gradient(circle, rgba(191, 90, 242, 0.66) 0%, rgba(191, 90, 242, 0) 65%);
-  animation: aura-swell-3 16s ease-in-out infinite; }
+  background: radial-gradient(circle, rgba(191, 90, 242, 0.68) 0%, rgba(191, 90, 242, 0) 65%);
+  animation: aura-swell-3 5.3s ease-in-out infinite; }
 .chat-working-aura > .aura-b4 { top: 26%; right: -26%;
-  background: radial-gradient(circle, rgba(255, 55, 175, 0.62) 0%, rgba(255, 55, 175, 0) 65%);
-  animation: aura-swell-4 11s ease-in-out infinite; }
+  background: radial-gradient(circle, rgba(255, 55, 175, 0.64) 0%, rgba(255, 55, 175, 0) 65%);
+  animation: aura-swell-4 7.1s ease-in-out infinite; }
 .chat-working-aura > .aura-b5 { bottom: -28%; right: -14%;
-  background: radial-gradient(circle, rgba(255, 100, 130, 0.6) 0%, rgba(255, 100, 130, 0) 65%);
-  animation: aura-swell-5 19s ease-in-out infinite; }
+  background: radial-gradient(circle, rgba(255, 100, 130, 0.62) 0%, rgba(255, 100, 130, 0) 65%);
+  animation: aura-swell-5 4.7s ease-in-out infinite; }
 .chat-working-aura > .aura-b6 { bottom: -32%; left: 30%;
-  background: radial-gradient(circle, rgba(60, 220, 210, 0.62) 0%, rgba(60, 220, 210, 0) 65%);
-  animation: aura-swell-6 15s ease-in-out infinite; }
+  background: radial-gradient(circle, rgba(60, 220, 210, 0.64) 0%, rgba(60, 220, 210, 0) 65%);
+  animation: aura-swell-6 7.9s ease-in-out infinite; }
 .chat-working-aura > .aura-b7 { bottom: -28%; left: -14%;
-  background: radial-gradient(circle, rgba(10, 132, 255, 0.68) 0%, rgba(10, 132, 255, 0) 65%);
-  animation: aura-swell-7 12.5s ease-in-out infinite; }
+  background: radial-gradient(circle, rgba(10, 132, 255, 0.7) 0%, rgba(10, 132, 255, 0) 65%);
+  animation: aura-swell-7 5.9s ease-in-out infinite; }
 .chat-working-aura > .aura-b8 { top: 26%; left: -26%;
-  background: radial-gradient(circle, rgba(100, 210, 255, 0.64) 0%, rgba(100, 210, 255, 0) 65%);
-  animation: aura-swell-8 17.5s ease-in-out infinite; }
+  background: radial-gradient(circle, rgba(100, 210, 255, 0.66) 0%, rgba(100, 210, 255, 0) 65%);
+  animation: aura-swell-8 6.7s ease-in-out infinite; }
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -1230,7 +1249,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* prefers-reduced-motion: keep a static soft glow (still a cue), stop motion */
 @media (prefers-reduced-motion: reduce) {
   .chat-working-aura,
-  .chat-working-aura::before,
+  .chat-working-aura > s::before,
   .chat-working-aura > i { animation: none; }
 }
 
