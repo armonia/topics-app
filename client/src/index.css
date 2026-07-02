@@ -1088,48 +1088,22 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* ─── "Working" aura (Apple-Intelligence style) ──────────────────────────────
- * A soft, colorful INNER glow that seeps in from the pane's edges while the
- * session works — an animated colored inner shadow, not a border (Attilio: the
- * ring "non dovrebbe essere un bordo ma un'ombra interna animata colorata").
- * The colors sweep slowly around the perimeter; the whole aura breathes.
- *
- * STRUCTURE (three layers, each with one job — none is optional):
- *   .chat-working-aura        blur + saturate filter, clips to the pane, breathes
- *     └ .chat-working-aura-band   STATIC mask → a ~14px perimeter band
- *         └ ::before              oversized conic gradient, transform-spins
- * The mask must sit on a static element (rotating a mask peels it off the
- * rounded corners) and the blur must sit on an ANCESTOR of the mask (filters
- * apply before masks on the same element, which would leave a hard inner edge).
- * The blur turns the hard band into a soft bloom bleeding inward.
- *
- * PERFORMANCE — this app is FPS-sensitive; the budget here is ZERO main-thread
- * work per frame:
- *   - The only animated properties are transform (spin) and opacity (breathe) —
- *     both compositor-thread. No @property angle gradients, no animated
- *     box-shadow (both would repaint per frame on main).
- *   - The blur is a constant filter on a composited layer; Chromium (cc render
- *     pass) and WebKit (CAFilter) both apply it on the GPU each frame with no
- *     main-thread involvement. Rendered only while working → zero idle cost.
- *   - `.anims-paused` (window backgrounded) freezes spin + breathe like every
- *     other keyframe animation here.
- *
  * Host: the pane root (`position: relative; overflow: hidden`); border-radius
- * inherit follows the rounded floating-splits cards too. */
-/* WAVES — the real Apple-Intelligence/AI-glow motion is not a rotating wheel:
- * it's peaks of colored light that are BORN, swell, travel a stretch of the
- * edge, and dissolve while others overtake them (the known SwiftUI recreation
- * regenerates gradient stops on a timer; Siri's bezel glow works the same).
- * CSS translation with zero main-thread cost: FOUR independent "wave" layers,
- * each a narrow conic ARC of one hue family, each animating rotation (position
- * along the perimeter, with backswings), scale (swell → local reach varies)
- * and opacity (birth/dissolve) on co-prime periods — two clockwise, two
- * counter. Their interference reads as waves washing around the pane. A faint
- * continuous base wheel underneath keeps the edge from ever going dark.
- * Transform/opacity only → compositor; the parent blur melts the arcs into
- * soft moving light. */
-@keyframes chat-working-spin {
-  to { transform: rotate(360deg); }
-}
+ * inherit follows the rounded floating-splits cards. Rendered by React only
+ * while the session works → zero idle cost. `.anims-paused` freezes it when
+ * the window is backgrounded. Only transform/opacity animate (compositor);
+ * blur lives on each blob's OWN layer (WebKit-safe). */
+/* DEPTH WAVES — Attilio: "la grandezza dell'ombra deve variare in vari punti
+ * facendo un'onda". The signature AI-glow (Siri bezel, Claude thinking) is a
+ * glow whose REACH undulates along the edge: local swells of colored light
+ * that push deeper into the pane and retreat, out of phase with each other.
+ * Build: SIX radial blobs pinned around the perimeter (mostly outside the
+ * pane, clipped by it), each self-blurred, each animating scale (the swell —
+ * this is what makes the depth vary), a slide along its edge, and opacity
+ * (birth/dissolve), on co-prime periods with irregular multi-stop keyframes.
+ * A faint static rim keeps the edge lit between swells. Transform/opacity
+ * only → compositor-thread; blur is on each blob's OWN layer. Conditionally
+ * rendered while working → zero idle cost. */
 .chat-working-aura {
   position: absolute;
   inset: 0;
@@ -1137,123 +1111,89 @@ input[type="range"]::-webkit-slider-thumb {
   pointer-events: none;
   border-radius: inherit;
   overflow: hidden;
-  filter: blur(10px) saturate(140%);
   animation: chat-working-ring-in 300ms ease-out;
+  /* faint always-on rim so the edge never goes fully dark between swells */
+  box-shadow: inset 0 0 18px rgba(94, 92, 230, 0.16);
 }
-/* STATIC band mask — paints only the `padding` perimeter strip; the parent's
- * blur feathers it into the soft inner shadow. Must stay a separate static
- * element: rotating a mask peels it off the corners, and a filter on the SAME
- * element would apply before the mask (hard inner edge). */
-.chat-working-aura-band {
+.chat-working-aura > i {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  overflow: hidden;
-  padding: 14px;                        /* aura reach before the blur feathers it */
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-}
-@keyframes aura-roll-a {
-  0%   { transform: rotate(0deg)    scale(1); }
-  22%  { transform: rotate(160deg)  scale(1.22); }
-  38%  { transform: rotate(128deg)  scale(1.05); }
-  64%  { transform: rotate(295deg)  scale(1.25); }
-  82%  { transform: rotate(268deg)  scale(1.02); }
-  100% { transform: rotate(360deg)  scale(1); }
-}
-@keyframes aura-roll-b {
-  0%   { transform: rotate(210deg)  scale(1.1); }
-  27%  { transform: rotate(88deg)   scale(1.28); }
-  46%  { transform: rotate(122deg)  scale(1); }
-  71%  { transform: rotate(-45deg)  scale(1.2); }
-  100% { transform: rotate(-150deg) scale(1.1); }
-}
-@keyframes aura-roll-c {
-  0%   { transform: rotate(90deg)   scale(1.15); }
-  33%  { transform: rotate(275deg)  scale(1); }
-  55%  { transform: rotate(240deg)  scale(1.3); }
-  78%  { transform: rotate(390deg)  scale(1.06); }
-  100% { transform: rotate(450deg)  scale(1.15); }
-}
-@keyframes aura-roll-d {
-  0%   { transform: rotate(-30deg)  scale(1.2); }
-  30%  { transform: rotate(-170deg) scale(1); }
-  52%  { transform: rotate(-135deg) scale(1.26); }
-  80%  { transform: rotate(-310deg) scale(1.04); }
-  100% { transform: rotate(-390deg) scale(1.2); }
-}
-/* birth/dissolve — deep troughs so a wave really DISAPPEARS and is re-born */
-@keyframes aura-breathe-a { 0%,100% { opacity: 1; }   45% { opacity: 0.15; } 70% { opacity: 0.8; } }
-@keyframes aura-breathe-b { 0%,100% { opacity: 0.25; } 35% { opacity: 1; }   75% { opacity: 0.4; } }
-@keyframes aura-breathe-c { 0%,100% { opacity: 0.7; }  25% { opacity: 0.2; } 60% { opacity: 1; } }
-@keyframes aura-breathe-d { 0%,100% { opacity: 0.4; }  40% { opacity: 0.95; } 85% { opacity: 0.2; } }
-.chat-working-aura-band > i {
-  position: absolute;
-  inset: -50%;
-  min-width: 200%;
-  min-height: 200%;
+  width: 34%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(12px) saturate(140%);
   will-change: transform, opacity;
 }
-/* base wheel — faint, slow, continuous: the floor the waves ride on */
-.chat-working-aura-band::before {
-  content: '';
-  position: absolute;
-  inset: -50%;
-  min-width: 200%;
-  min-height: 200%;
-  background: conic-gradient(
-    from 0deg,
-    rgba(50, 200, 255, 0.3)   0deg,
-    rgba(10, 132, 255, 0.32) 70deg,
-    rgba(94, 92, 230, 0.32) 140deg,
-    rgba(191, 90, 242, 0.32) 210deg,
-    rgba(255, 55, 175, 0.28) 280deg,
-    rgba(50, 200, 255, 0.3) 360deg
-  );
-  animation: chat-working-spin 31s linear infinite;
-  will-change: transform;
+/* swell keyframes — scale IS the wave: the blob's bulge into the pane grows
+ * and retreats; translate slides the swell along its edge; deep opacity
+ * troughs kill and re-birth it. All irregular, all co-prime. */
+@keyframes aura-swell-1 {
+  0%   { transform: translate(0, 0)      scale(0.55); opacity: 0.25; }
+  24%  { transform: translate(14%, 4%)   scale(1.35); opacity: 0.9; }
+  43%  { transform: translate(8%, 1%)    scale(0.8);  opacity: 0.5; }
+  68%  { transform: translate(30%, 3%)   scale(1.5);  opacity: 0.95; }
+  100% { transform: translate(0, 0)      scale(0.55); opacity: 0.25; }
 }
-.chat-working-aura-band > .aura-w1 {
-  background: conic-gradient(from 0deg,
-    rgba(50, 200, 255, 0) 0deg, rgba(50, 200, 255, 0.95) 32deg,
-    rgba(10, 132, 255, 0.9) 72deg, rgba(10, 132, 255, 0) 112deg, transparent 360deg);
-  animation: aura-roll-a 11s ease-in-out infinite, aura-breathe-a 6.1s ease-in-out infinite;
+@keyframes aura-swell-2 {
+  0%   { transform: translate(0, 0)      scale(1.2);  opacity: 0.8; }
+  31%  { transform: translate(-18%, 5%)  scale(0.6);  opacity: 0.2; }
+  57%  { transform: translate(-6%, 2%)   scale(1.45); opacity: 0.9; }
+  81%  { transform: translate(-26%, 0)   scale(0.9);  opacity: 0.45; }
+  100% { transform: translate(0, 0)      scale(1.2);  opacity: 0.8; }
 }
-.chat-working-aura-band > .aura-w2 {
-  background: conic-gradient(from 0deg,
-    rgba(94, 92, 230, 0) 0deg, rgba(94, 92, 230, 0.92) 40deg,
-    rgba(140, 100, 255, 0.9) 88deg, rgba(94, 92, 230, 0) 132deg, transparent 360deg);
-  animation: aura-roll-b 17s ease-in-out infinite, aura-breathe-b 7.9s ease-in-out infinite;
+@keyframes aura-swell-3 {
+  0%   { transform: translate(0, 0)      scale(0.9);  opacity: 0.55; }
+  22%  { transform: translate(3%, 22%)   scale(1.5);  opacity: 0.95; }
+  49%  { transform: translate(1%, 9%)    scale(0.62); opacity: 0.2; }
+  76%  { transform: translate(4%, 30%)   scale(1.3);  opacity: 0.85; }
+  100% { transform: translate(0, 0)      scale(0.9);  opacity: 0.55; }
 }
-.chat-working-aura-band > .aura-w3 {
-  background: conic-gradient(from 0deg,
-    rgba(255, 55, 175, 0) 0deg, rgba(255, 55, 175, 0.88) 36deg,
-    rgba(191, 90, 242, 0.85) 82deg, rgba(255, 55, 175, 0) 124deg, transparent 360deg);
-  animation: aura-roll-c 23s ease-in-out infinite, aura-breathe-c 9.7s ease-in-out infinite;
+@keyframes aura-swell-4 {
+  0%   { transform: translate(0, 0)      scale(1.4);  opacity: 0.9; }
+  27%  { transform: translate(-4%, -16%) scale(0.7);  opacity: 0.3; }
+  52%  { transform: translate(-1%, -28%) scale(1.25); opacity: 0.8; }
+  79%  { transform: translate(-5%, -8%)  scale(0.58); opacity: 0.18; }
+  100% { transform: translate(0, 0)      scale(1.4);  opacity: 0.9; }
 }
-.chat-working-aura-band > .aura-w4 {
-  background: conic-gradient(from 0deg,
-    rgba(60, 220, 210, 0) 0deg, rgba(60, 220, 210, 0.85) 42deg,
-    rgba(50, 160, 255, 0.85) 90deg, rgba(60, 220, 210, 0) 134deg, transparent 360deg);
-  animation: aura-roll-d 29s ease-in-out infinite, aura-breathe-d 8.3s ease-in-out infinite;
+@keyframes aura-swell-5 {
+  0%   { transform: translate(0, 0)      scale(0.65); opacity: 0.3; }
+  35%  { transform: translate(20%, -6%)  scale(1.4);  opacity: 0.85; }
+  61%  { transform: translate(34%, -2%)  scale(0.85); opacity: 0.4; }
+  100% { transform: translate(0, 0)      scale(0.65); opacity: 0.3; }
 }
-/* prefers-reduced-motion: keep the aura as a STATIC soft gradient (still a cue)
- * but stop the sweep, the breathing and the fade-in. */
+@keyframes aura-swell-6 {
+  0%   { transform: translate(0, 0)      scale(1.1);  opacity: 0.75; }
+  29%  { transform: translate(-24%, -4%) scale(0.6);  opacity: 0.22; }
+  55%  { transform: translate(-10%, 2%)  scale(1.5);  opacity: 0.92; }
+  100% { transform: translate(0, 0)      scale(1.1);  opacity: 0.75; }
+}
+/* six blobs, pinned around the perimeter (mostly outside; the pane clips) */
+.chat-working-aura > .aura-b1 { top: -24%; left: -10%;
+  background: radial-gradient(circle, rgba(50, 200, 255, 0.6) 0%, rgba(50, 200, 255, 0) 65%);
+  animation: aura-swell-1 9.5s ease-in-out infinite; }
+.chat-working-aura > .aura-b2 { top: -26%; right: 10%;
+  background: radial-gradient(circle, rgba(94, 92, 230, 0.6) 0%, rgba(94, 92, 230, 0) 65%);
+  animation: aura-swell-2 13s ease-in-out infinite; }
+.chat-working-aura > .aura-b3 { top: 12%; right: -22%;
+  background: radial-gradient(circle, rgba(191, 90, 242, 0.58) 0%, rgba(191, 90, 242, 0) 65%);
+  animation: aura-swell-3 16s ease-in-out infinite; }
+.chat-working-aura > .aura-b4 { bottom: -26%; right: -8%;
+  background: radial-gradient(circle, rgba(255, 55, 175, 0.55) 0%, rgba(255, 55, 175, 0) 65%);
+  animation: aura-swell-4 11s ease-in-out infinite; }
+.chat-working-aura > .aura-b5 { bottom: -24%; left: 16%;
+  background: radial-gradient(circle, rgba(60, 220, 210, 0.55) 0%, rgba(60, 220, 210, 0) 65%);
+  animation: aura-swell-5 19s ease-in-out infinite; }
+.chat-working-aura > .aura-b6 { top: 26%; left: -22%;
+  background: radial-gradient(circle, rgba(10, 132, 255, 0.6) 0%, rgba(10, 132, 255, 0) 65%);
+  animation: aura-swell-6 15s ease-in-out infinite; }
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 
+/* prefers-reduced-motion: keep a static soft glow (still a cue), stop motion */
 @media (prefers-reduced-motion: reduce) {
   .chat-working-aura,
-  .chat-working-aura-band::before,
-  .chat-working-aura-band > i { animation: none; }
+  .chat-working-aura > i { animation: none; }
 }
 
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
