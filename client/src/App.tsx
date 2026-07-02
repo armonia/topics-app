@@ -58,7 +58,13 @@ import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
 // Lazy-load components that are only shown on demand
 const NewTopicModal = lazy(() => import('./components/Modals/NewTopicModal').then(m => ({ default: m.NewTopicModal })));
 const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings').then(m => ({ default: m.GlobalSettings })));
-const CommandPalette = lazy(() => import('./components/Shared/CommandPalette').then(m => ({ default: m.CommandPalette })));
+// Shared factory so the idle prefetch (App mount) and the `lazy()` boundary
+// resolve the SAME module — a first ⌘K then finds the chunk already parsed
+// instead of paying a ~25–40ms synchronous fetch+eval on the opening frame
+// (measured: cold open worst 41.7ms/1 frame >33ms; warmed open worst 9.4ms,
+// 0 frames >16.7ms).
+const importCommandPalette = () => import('./components/Shared/CommandPalette');
+const CommandPalette = lazy(() => importCommandPalette().then(m => ({ default: m.CommandPalette })));
 const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcuts').then(m => ({ default: m.KeyboardShortcuts })));
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
 const RemoteAccessPanel = lazy(() => import('./components/Sidebar/RemoteAccessPanel').then(m => ({ default: m.RemoteAccessPanel })));
@@ -110,6 +116,18 @@ function App() {
   // mirroring `.app-drag-region`/`.app-no-drag` onto Tauri's drag attributes.
   // No-op off Tauri; safe to run once on mount.
   useEffect(() => { wireTauriDragRegions(); }, []);
+
+  // Warm the ⌘K command-palette chunk on idle so its FIRST open is composited
+  // from an already-parsed module (no fetch+eval on the opening frame). Idle-
+  // scheduled so it never competes with the initial paint; guarded for Safari
+  // (no requestIdleCallback) with a setTimeout fallback.
+  useEffect(() => {
+    const warm = () => { void importCommandPalette().catch(() => {}); };
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    if (ric) { const id = ric(warm, { timeout: 3000 }); return () => (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback?.(id); }
+    const t = window.setTimeout(warm, 1500);
+    return () => window.clearTimeout(t);
+  }, []);
 
   // Unload-time flush: a reload / navigation while a close is still counting
   // down must COMMIT the pending close, not drop it — otherwise the just-closed
