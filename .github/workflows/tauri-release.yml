@@ -55,6 +55,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      - name: Install server deps (for the sidecar compile)
+        run: bun install --frozen-lockfile
+
+      # Compile the Bun server into a self-contained sidecar binary named with the
+      # Rust target triple Tauri's externalBin expects. WITHOUT this the installed
+      # app serves the UI but has no data server on a virgin machine (blank
+      # "connecting"). macOS builds a UNIVERSAL sidecar (arm64+x86_64 via lipo) to
+      # match the universal .app. See scripts/build-server-sidecar.sh + PORTING-PLAN
+      # W-A. The script also regenerates the embedded-migrations manifest first.
+      - name: Build server sidecar (macOS universal)
+        if: runner.os == 'macOS'
+        run: ./scripts/build-server-sidecar.sh macos
+      - name: Build server sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./scripts/build-server-sidecar.sh windows
+      - name: Build server sidecar (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/build-server-sidecar.sh linux
+
       - name: Build client (Vite → public/, the Tauri frontendDist)
         working-directory: client
         run: |

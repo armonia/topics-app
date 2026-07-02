@@ -12,6 +12,13 @@
     "process:allow-restart",
     "os:default",
     "dialog:allow-open",
-    "updater:default"
+    "updater:default",
+    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        { "name": "binaries/topics-server", "sidecar": true, "args": true }
+      ]
+    }
   ]
 }
