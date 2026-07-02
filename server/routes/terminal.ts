@@ -225,8 +225,14 @@ const SOCKET_PATH = getSocketPath();
  * (pty-bridge.mjs resolves to a virtualized path), and — critically — a sidecar that
  * accidentally shares a checkout's cwd must be STRUCTURALLY unable to reconcile-kill
  * a real server's live PTYs (the 2026-07-02 incident). Terminal endpoints answer 503.
+ *
+ * Read LIVE (not a module-const) so a test can flip the env per-case, and accept two
+ * spellings: TOPICS_DISABLE_PTY_BRIDGE (precise) and TOPICS_EMBEDDED (the broader
+ * "self-contained bundle" flag) — either enables standalone mode.
  */
-const PTY_BRIDGE_DISABLED = process.env.TOPICS_DISABLE_PTY_BRIDGE === "1";
+export function isPtyBridgeDisabled(): boolean {
+  return process.env.TOPICS_DISABLE_PTY_BRIDGE === "1" || process.env.TOPICS_EMBEDDED === "1";
+}
 
 /** 503 body for terminal endpoints when the PTY bridge is disabled (standalone). */
 function ptyBridgeUnavailable(): Response {
@@ -236,11 +242,13 @@ function ptyBridgeUnavailable(): Response {
   );
 }
 
-async function ensureBridge(): Promise<void> {
+// Exported ONLY for the standalone-gate unit test (assert no connect/spawn when the
+// flag is set). Not part of the router's public surface otherwise.
+export async function ensureBridge(): Promise<void> {
   // Standalone bundle: no external bridge, ever. Returning here makes every call
   // site inert (startup reconcile, reconnect handlers, per-request ensures), so no
   // socket is ever opened and reconcileSessions can never send a `kill`.
-  if (PTY_BRIDGE_DISABLED) return;
+  if (isPtyBridgeDisabled()) return;
   if (bridgeReady && bridgeSocket && !bridgeSocket.destroyed) return;
   if (bridgeConnecting) {
     // Wait for the in-flight connection attempt
@@ -637,7 +645,7 @@ function restoreDbSessionsOptimistically(): void {
 async function reconcileSessions(attempt = 0): Promise<void> {
   // Standalone bundle: no bridge to reconcile against. Short-circuit so we don't
   // burn the 8× reconnect-retry cycle against a socket that will never answer.
-  if (PTY_BRIDGE_DISABLED) return;
+  if (isPtyBridgeDisabled()) return;
   // Ask the bridge which PTYs are still alive. CRITICAL: distinguish a real
   // answer (even an empty list) from NO answer (a timeout). The old code
   // resolved a timed-out `list` to `[]` and then ran the destructive branch
@@ -1295,7 +1303,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
     // prefix: processes.ts owns /api/sessions/:key/scripts/* (the process registry),
     // which is bridge-independent and must keep working standalone. Returning null
     // for anything else preserves the dispatcher's fall-through.
-    if (PTY_BRIDGE_DISABLED && (
+    if (isPtyBridgeDisabled() && (
       pathname === "/api/terminal" ||
       pathname.startsWith("/api/terminal/") ||
       /^\/api\/sessions\/[^/]+\/agents(\/|$)/.test(pathname)
