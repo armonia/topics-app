@@ -474,6 +474,42 @@ export function terminalLoadingFrom(
   return ptyBusy.has(sid);
 }
 
+/**
+ * The prominent "working" AURA (the Apple-Intelligence ring hugging the pane) is
+ * a STRICTER signal than {@link terminalLoadingFrom}: it lights ONLY when Claude
+ * is CONFIDENTLY processing, never on the mere pty-busy fallback.
+ *
+ * Why stricter than the sidebar spinner: for a claude-code session the pty-busy
+ * fallback fires on the STARTUP BANNER — a freshly-opened session paints the
+ * Claude Code splash + empty prompt, which is real visible text (not a cosmetic
+ * repaint), so `ptyBusy` goes true while the phase is still `starting` (NOT in
+ * RESTING, by design, so hook-less work isn't hidden). That lit the aura "appena
+ * creo la sessione" even though Claude is idle at an empty prompt. The same
+ * fallback also flickers the aura on random idle pty blips. The subtle sidebar
+ * dot can absorb that over-showing (better a stray dot than a hidden hook-less
+ * session); the big glowing ring cannot — it reads as "Claude is working now".
+ *
+ * So for a claude-code session the ring requires phase-active (running /
+ * tool-running) — which the first real prompt reaches instantly via
+ * UserPromptSubmit→running or PreToolUse→tool-running. A PLAIN SHELL has no phase
+ * machine at all, so it legitimately falls back to pty-busy (a long build/test
+ * SHOULD glow). `isClaudeCode` selects between the two.
+ */
+export function terminalRingFrom(
+  sid: string,
+  isClaudeCode: boolean,
+  phaseActive: Set<string>,
+  ptyBusy: Set<string>,
+  phaseResting?: Set<string>,
+): boolean {
+  if (phaseActive.has(sid)) return true;
+  // Claude sessions: ONLY phase-active drives the ring — no pty fallback, so the
+  // startup banner / idle pty blips can't light it. Shells: pty is all there is.
+  if (isClaudeCode) return false;
+  if (phaseResting?.has(sid)) return false;
+  return ptyBusy.has(sid);
+}
+
 /** Minimal phase view the terminal-loading derivation needs. */
 export interface TerminalPhaseLite {
   phase: ClaudeSessionPhase;
@@ -778,6 +814,18 @@ export function useSessionActivity(subjectId: string | undefined): SessionActivi
 export function useTerminalLoading(sessionId: string | undefined): boolean {
   return useSignalsStore((s) =>
     !!sessionId && terminalLoadingFrom(sessionId, s.claudePhaseActiveTermIds, s.terminalBusyIds, s.claudePhaseRestingTermIds),
+  );
+}
+
+/** Should the prominent "working" AURA light for this terminal? Stricter than
+ *  useTerminalLoading: a claude-code session lights the ring ONLY on a
+ *  confidently-active phase (running/tool-running), never on the pty-busy
+ *  fallback — so the startup banner and idle pty blips can't flash it. A plain
+ *  shell still glows on pty activity. Pass whether this session is claude-code
+ *  (the pane knows its own type). See terminalRingFrom. */
+export function useTerminalWorkingRing(sessionId: string | undefined, isClaudeCode: boolean): boolean {
+  return useSignalsStore((s) =>
+    !!sessionId && terminalRingFrom(sessionId, isClaudeCode, s.claudePhaseActiveTermIds, s.terminalBusyIds, s.claudePhaseRestingTermIds),
   );
 }
 
