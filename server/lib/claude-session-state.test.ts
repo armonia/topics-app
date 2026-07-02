@@ -61,6 +61,88 @@ describe('applyHook — phase transitions', () => {
     expect(s1.rev).toBe(3);
   });
 
+  it('PreToolUse AskUserQuestion parks at awaiting-approval (act-now), not tool-running', () => {
+    // The bug: Claude asking the user a question showed a "working" spinner
+    // instead of the amber "tocca a te" tier. AskUserQuestion means Claude is
+    // BLOCKED on a human answer — it must enter awaiting-approval.
+    const s0 = freshState({ phase: 'running', rev: 1 });
+    const s1 = applyHook(s0, hook('PreToolUse', {
+      tool_name: 'AskUserQuestion',
+      tool_input: { questions: [{ question: 'Which framework?', options: [{ label: 'React' }, { label: 'Vue' }] }] },
+    }), T0 + TICK);
+    expect(s1.phase).toBe('awaiting-approval');
+    expect(s1.pendingApproval?.kind).toBe('other');
+    expect(s1.pendingApproval?.prompt).toBe('Which framework?');
+    expect(s1.pendingApproval?.requestedAt).toBe(T0 + TICK);
+    // No working spinner: the active-tool field is cleared, not set.
+    expect(s1.lastTool).toBeUndefined();
+    expect(s1.rev).toBe(2);
+  });
+
+  it('PreToolUse AskUserQuestion with a malformed input still parks at awaiting-approval', () => {
+    const s0 = freshState({ phase: 'running', rev: 1 });
+    const s1 = applyHook(s0, hook('PreToolUse', { tool_name: 'AskUserQuestion', tool_input: {} }), T0 + TICK);
+    expect(s1.phase).toBe('awaiting-approval');
+    expect(s1.pendingApproval?.prompt).toBe('Claude is asking a question');
+    expect(s1.rev).toBe(2);
+  });
+
+  it('PreToolUse ExitPlanMode parks at awaiting-approval with the plan as the prompt', () => {
+    const s0 = freshState({ phase: 'running', rev: 1 });
+    const s1 = applyHook(s0, hook('PreToolUse', {
+      tool_name: 'ExitPlanMode',
+      tool_input: { plan: '## Refactor auth\n1. Extract helper' },
+    }), T0 + TICK);
+    expect(s1.phase).toBe('awaiting-approval');
+    expect(s1.pendingApproval?.kind).toBe('plan');
+    expect(s1.pendingApproval?.prompt).toBe('## Refactor auth\n1. Extract helper');
+    expect(s1.rev).toBe(2);
+  });
+
+  it('ExitPlanMode with no plan text falls back to a generic approval prompt', () => {
+    const s0 = freshState({ phase: 'running', rev: 1 });
+    const s1 = applyHook(s0, hook('PreToolUse', { tool_name: 'ExitPlanMode', tool_input: {} }), T0 + TICK);
+    expect(s1.phase).toBe('awaiting-approval');
+    expect(s1.pendingApproval?.kind).toBe('plan');
+    expect(s1.pendingApproval?.prompt).toBe('Approve plan?');
+  });
+
+  it('a NON-human-input PreToolUse still goes to tool-running (working)', () => {
+    // Guard against over-broad routing: only AskUserQuestion / ExitPlanMode are
+    // "waiting on you". A Bash/Read/Edit PreToolUse is real work → spinner.
+    const s0 = freshState({ phase: 'running', rev: 1 });
+    const s1 = applyHook(s0, hook('PreToolUse', { tool_name: 'Bash', tool_input: { command: 'ls' } }), T0 + TICK);
+    expect(s1.phase).toBe('tool-running');
+    expect(s1.lastTool?.name).toBe('Bash');
+  });
+
+  it('PostToolUse for AskUserQuestion (user answered) returns awaiting-approval → running', () => {
+    const s0 = freshState({
+      phase: 'awaiting-approval',
+      rev: 2,
+      pendingApproval: { kind: 'other', prompt: 'Which framework?', requestedAt: T0 },
+    });
+    const s1 = applyHook(s0, hook('PostToolUse', { tool_name: 'AskUserQuestion' }), T0 + TICK);
+    expect(s1.phase).toBe('running');
+    expect(s1.pendingApproval).toBeUndefined();
+    expect(s1.lastTool).toBeUndefined();
+    expect(s1.rev).toBe(3);
+  });
+
+  it('full AskUserQuestion cycle: running → awaiting-approval → running → awaiting-user on Stop', () => {
+    let s = freshState({ phase: 'running', rev: 1 });
+    s = applyHook(s, hook('PreToolUse', {
+      tool_name: 'AskUserQuestion',
+      tool_input: { questions: [{ question: 'A or B?', options: [{ label: 'A' }, { label: 'B' }] }] },
+    }), T0 + 100);
+    expect(s.phase).toBe('awaiting-approval');
+    s = applyHook(s, hook('PostToolUse', { tool_name: 'AskUserQuestion' }), T0 + 200);
+    expect(s.phase).toBe('running');
+    expect(s.pendingApproval).toBeUndefined();
+    s = applyHook(s, hook('Stop'), T0 + 300);
+    expect(s.phase).toBe('awaiting-user');
+  });
+
   it('PostToolUse without prior PreToolUse defensively clears tool', () => {
     const s0 = freshState({ phase: 'running', rev: 1, lastTool: { name: 'Bash', startedAt: T0 } });
     const s1 = applyHook(s0, hook('PostToolUse'), T0 + TICK);
