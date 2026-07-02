@@ -177,7 +177,7 @@ export interface UsePanelLifecycleArgs {
   // cross-client closed signal), and the buildSidebarItems pinnedIds escape
   // keeps its row while reopen unarchives. See handleClosePanel for why the
   // former pinned-exempt behaviour resurrected closed pinned chats.
-  isPinnedRef?: React.MutableRefObject<(id: string) => boolean>;
+  isPinnedRef?: React.RefObject<(id: string) => boolean>;
   // WS
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   sendWS: (msg: WSMessage) => void;
@@ -221,8 +221,8 @@ export interface UsePanelLifecycleReturn {
     pendingSoloPanelId: string | null;
   };
   refs: {
-    focusedPanelIdRef: React.MutableRefObject<string | null>;
-    openPanelsRef: React.MutableRefObject<string[]>;
+    focusedPanelIdRef: React.RefObject<string | null>;
+    openPanelsRef: React.RefObject<string[]>;
   };
   derived: {
     focusedProjectPath: string | undefined;
