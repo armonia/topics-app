@@ -183,7 +183,9 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
 
   const handlePopOut = useCallback((paneId: string) => {
     // Close the source pane only if a window actually opened — see popOutTopic.
-    if (popOutTopic(paneId)) onClosePanel(paneId);
+    void popOutTopic(paneId).then((opened) => {
+      if (opened) onClosePanel(paneId);
+    });
   }, [onClosePanel]);
 
   // Determine if a pane can be split into its own grid cell — delegated to

@@ -30,6 +30,10 @@ export interface SidebarItem {
    *  pinnedIds escape) and renders in the dedicated pinned block. Set when
    *  the item's id ∈ opts.pinnedIds; render-side partitioning keys off it. */
   pinned?: boolean;
+  /** Set when this topic is open in ANOTHER window (pop-out presence). Carries
+   *  the Tauri window label so a click can `window_focus_label` it instead of
+   *  reopening locally. Renders the trailing AppWindow glyph. */
+  detachedWindowLabel?: string;
   projectPath?: string;      // for project items: the path; for children: their parent project
   children?: SidebarItem[];  // only for project items (accordion content)
   /** Sub-agents this terminal spawned (orchestrator → children). Rendered
@@ -130,10 +134,15 @@ interface BuildSidebarItemsOpts {
    *  orchestratorManaged precedent) so a pinned row survives with zero open
    *  tabs — and, for chats, even archived with showArchived off. */
   pinnedIds?: Set<string>;
+  /** Topics open in ANOTHER window (pop-out presence) → {windowId, windowLabel}.
+   *  Same `||` escape pattern as pinnedIds at the chat visibility gates: a topic
+   *  detached elsewhere keeps its sidebar row (with an AppWindow glyph) even
+   *  with no local tab. Chats only — terminals/browsers can't detach in v1. */
+  detachedTopicIds?: Map<string, { windowId: string; windowLabel?: string }>;
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>() } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>() } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -296,8 +305,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       const hasTopLevelTab = openPanelSet.has(t.id);
       const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
       // Pinned escape (fourth explicit exception, after archived/tab/notification):
-      // a pinned chat keeps its row with the tab closed.
-      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id)) continue;
+      // a pinned chat keeps its row with the tab closed. A topic open in another
+      // window (detachedTopicIds) is the fifth — same `||` escape pattern.
+      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id)) continue;
       children.push({
         id: t.id,
         type: 'chat',
@@ -309,6 +319,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         projectPath: pp,
         topic: t,
         ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
+        ...(detachedTopicIds.has(t.id) ? { detachedWindowLabel: detachedTopicIds.get(t.id)!.windowLabel ?? "" } : {}),
       });
     }
 
@@ -390,10 +401,11 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     if (t.archived && !showArchived && !pinnedIds.has(t.id)) continue;
     const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
     // Archived items shown when showArchived is on; active items need an open
-    // tab, a pending notification (unread / Claude needs-you) — or a pin.
+    // tab, a pending notification (unread / Claude needs-you), a pin — or being
+    // open in another window (detachedTopicIds, same `||` escape).
     if (!t.archived) {
       const hasTab = openPanelSet.has(t.id);
-      if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id)) continue;
+      if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id)) continue;
     }
     items.push({
       id: t.id,
@@ -405,6 +417,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       archived: t.archived,
       topic: t,
       ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
+      ...(detachedTopicIds.has(t.id) ? { detachedWindowLabel: detachedTopicIds.get(t.id)!.windowLabel ?? "" } : {}),
     });
   }
 

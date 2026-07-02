@@ -10,6 +10,8 @@ import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { SpaceSwitcher } from './SpaceSwitcher';
+import { popOutTopics } from '../../lib/popOutTopic';
+import { DetachedWindowMarker } from './DetachedWindowMarker';
 import { usePaneStore } from '../../state/pane/store';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
@@ -1261,12 +1263,12 @@ export function PanelGrid({
       const windowHeight = window.innerHeight;
 
       if (clientX < 0 || clientX > windowWidth || clientY < 0 || clientY > windowHeight) {
-        const url = `${window.location.origin}?topic=${encodeURIComponent(draggedId)}`;
-        // Only close the source pane if the pop-out window actually opened
-        // (blocked popups return null) — otherwise the pane vanishes with
-        // nowhere for it to go.
-        const w = window.open(url, `topic-${draggedId}`, 'width=900,height=700');
-        if (w) onClosePanel(draggedId);
+        // Pop the dragged tab out into a real OS window. Only close the source
+        // pane if the window actually opened (see popOutTopics) — otherwise the
+        // pane vanishes with nowhere for it to go.
+        void popOutTopics([draggedId]).then((opened) => {
+          if (opened) onClosePanel(draggedId);
+        });
       }
     }
   }, [draggingId, onClosePanel, windowId, sendWS]);
@@ -2508,6 +2510,12 @@ export function PanelGrid({
           )}
         </Fragment>
       ))}
+
+      {/* Pop-out presence markers — one card per detached OS window on this
+          device, AFTER the grid rows. Space-agnostic (ruling 3.5): renders in
+          every Spazio. Pure presence projection, disappears when the window
+          dies. Click focuses the window or reopens its topics here on false. */}
+      <DetachedWindowMarker topics={topics} onReopenTopic={(id) => onOpenPanelAt(id, openPanels.length)} />
 
       {/* Expired messages banner */}
       {expiredMessages && expiredMessages.length > 0 && (

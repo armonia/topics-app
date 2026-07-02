@@ -32,6 +32,43 @@ static ZOOM_PERCENT: AtomicI64 = AtomicI64::new(100);
 /// (electron-app/main.ts toggleAlwaysOnTop, same Cmd+Alt+T global shortcut).
 static ALWAYS_ON_TOP: AtomicBool = AtomicBool::new(false);
 
+/// macOS: maps each app window's NSWindow pointer → its top-level UI WKWebView
+/// (NSView) pointer, so the shortcut forwarder can resolve, per event, WHICH
+/// window fired a chord and whether the first responder is that window's own UI
+/// webview (renderer handles it) or a child browser pane (forward the chord).
+/// A single cached `main_view` was the day-one pop-out bug: a ⌘W typed in a
+/// detached window (whose UI webview is not `main_view`) got forwarded to MAIN,
+/// closing a tab in the wrong window. Populated as each window (main + detach-*)
+/// is created; entries are never removed (pointers are only compared, never
+/// dereferenced after the window dies, and the count is tiny).
+#[cfg(target_os = "macos")]
+static UI_WEBVIEW_BY_NSWINDOW: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<usize, usize>>,
+> = std::sync::OnceLock::new();
+
+/// Register (or refresh) a window's UI-webview NSView pointer keyed by its
+/// NSWindow pointer. Called after main + every detach window is built. The
+/// registry is a `&'static Mutex` (from the OnceLock), which is `Send + Copy`,
+/// so the `with_webview` closure (needs `Send + 'static`) can capture it directly.
+#[cfg(target_os = "macos")]
+fn register_ui_webview(window: &tauri::WebviewWindow, label: &str) {
+    use tauri::Manager;
+    let ns_window = match window.ns_window() {
+        Ok(p) => p as usize,
+        Err(_) => return,
+    };
+    let app = window.app_handle();
+    if let Some(wv) = app.get_webview(label) {
+        let map: &'static _ = UI_WEBVIEW_BY_NSWINDOW
+            .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+        let _ = wv.with_webview(move |platform| {
+            if let Ok(mut m) = map.lock() {
+                m.insert(ns_window, platform.inner() as usize);
+            }
+        });
+    }
+}
+
 /// Per-process footprint, mirroring (a subset of) the Electron `perf.getMetrics`
 /// shape so the status-bar dropdown can show the real desktop RAM/CPU. NOTE: on
 /// macOS the WKWebView content/GPU/network processes are XPC services reparented
@@ -2770,39 +2807,45 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
     use objc::{class, msg_send, sel, sel_impl};
     use tauri::Manager;
 
-    // Cache the main webview's WKWebView (an NSView) so the monitor can tell
-    // "main webview focused" (pass) from "browser pane focused" (forward).
-    // with_webview wants a Send + 'static closure (can't borrow a local), so shuttle
-    // the pointer out through an Arc<AtomicUsize> (runs inline on the main thread here).
-    let cell = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    if let Some(wv) = app.get_webview("main") {
-        let c = cell.clone();
-        let _ = wv.with_webview(move |platform| {
-            c.store(platform.inner() as usize, Ordering::SeqCst);
-        });
-    }
-    let main_view: usize = cell.load(Ordering::SeqCst);
-    if main_view == 0 {
-        log::warn!("[topics] shortcut-forwarder: main webview not resolved; ⌘W over a focused browser pane will not forward");
-        return;
+    // Seed the UI-webview registry with the main window before the monitor arms
+    // (detach windows register themselves as they're built). The monitor
+    // resolves the target window PER EVENT from this map — never a cached single
+    // pointer, which mis-forwarded ⌘W from a detached window into main.
+    if let Some(win) = app.get_webview_window("main") {
+        register_ui_webview(&win, "main");
     }
 
     let app = app.clone();
     let mask: u64 = 1 << 10; // NSEventMaskKeyDown
     let block = block::ConcreteBlock::new(move |event: id| -> id {
         unsafe {
-            // Only act when a browser PANE holds focus. If the first responder is
-            // inside the main webview (or we can't tell), pass the event so the
-            // renderer's normal keydown path handles it — never double-fire.
+            // Resolve which of OUR windows fired this event and what its UI
+            // webview is. The event's NSWindow keys the registry; if it isn't
+            // one of ours (or the window died), pass the event untouched.
             let ev_window: id = msg_send![event, window];
             if ev_window == nil { return event; }
+            let ev_window_ptr = ev_window as usize;
+            let ui_view_ptr: usize = match UI_WEBVIEW_BY_NSWINDOW
+                .get()
+                .and_then(|m| m.lock().ok().and_then(|g| g.get(&ev_window_ptr).copied()))
+            {
+                Some(p) if p != 0 => p,
+                _ => return event, // not an app window we manage
+            };
+
+            // If the first responder is inside THIS window's own UI webview, the
+            // renderer's keydown path handles the chord — never double-fire.
+            // Only a child browser PANE (main window only in v1) reaches the
+            // forward path. A detached window has no browser pane, so its ⌘W
+            // always lands here as "inside UI webview" → pass → the DETACHED
+            // renderer closes ITS tab, never main's.
             let fr: id = msg_send![ev_window, firstResponder];
             if fr == nil { return event; }
-            let mv = main_view as id;
+            let ui_view = ui_view_ptr as id;
             let is_view: BOOL = msg_send![fr, isKindOfClass: class!(NSView)];
             if is_view == YES {
-                let inside_main: BOOL = msg_send![fr, isDescendantOf: mv];
-                if inside_main == YES { return event; } // main webview → normal path
+                let inside_ui: BOOL = msg_send![fr, isDescendantOf: ui_view];
+                if inside_ui == YES { return event; } // UI webview → normal path
             }
 
             // A browser pane holds focus. Is this an app chord we should forward?
@@ -2818,8 +2861,24 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
             let chars = ns_string_to_rust(chars_id).to_lowercase();
 
             if let Some(js) = app_chord_dispatch_js(cmd, ctrl, shift, &chars, key_code) {
-                if let Some(mw) = app.get_webview("main") {
-                    let _ = mw.eval(&js);
+                // Forward into the SAME window's UI webview (resolve its label by
+                // matching the event NSWindow), so the chord acts where it was
+                // typed. Browser panes exist only in main today, but keying off
+                // the event window keeps this correct if that ever changes.
+                let mut dispatched = false;
+                for (label, w) in app.webview_windows() {
+                    if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
+                        if let Some(wv) = app.get_webview(&label) {
+                            let _ = wv.eval(&js);
+                            dispatched = true;
+                        }
+                        break;
+                    }
+                }
+                if !dispatched {
+                    if let Some(mw) = app.get_webview("main") {
+                        let _ = mw.eval(&js);
+                    }
                 }
                 return nil; // swallow — the page must not also act on the chord
             }
@@ -2835,6 +2894,117 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
     // AppKit Block_copy'd the handler; keep OUR heap block alive for the app
     // lifetime too (the monitor is never removed).
     std::mem::forget(block);
+}
+
+// ───────────────────────── Pop-out to a real OS window ─────────────────────────
+//
+// A group of topics can be "moved to a new window": a real detached NSWindow that
+// loads the same embedded bundle with `?topics=a,b,c`. The client boots it as a
+// single-surface detached view (no pane-store sync), announces its presence over
+// the WS presence channel, and the origin window swaps the group for a compact
+// "in un'altra finestra" marker. Detachment is DEVICE-LOCAL and EPHEMERAL — there
+// is no persisted state; the window closing IS the state change.
+
+/// Monotonic suffix so two rapid detaches never collide on the same label.
+static DETACH_SEQ: AtomicI64 = AtomicI64::new(0);
+
+/// Short, collision-free label suffix (time-nanos ^ counter, hex). Avoids adding
+/// a `uuid` crate for what only needs to be unique within one process lifetime.
+fn detach_label() -> String {
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let c = DETACH_SEQ.fetch_add(1, Ordering::Relaxed) as u64;
+    format!("detach-{:08x}", ((n ^ (c.wrapping_mul(0x9e37_79b9))) as u32))
+}
+
+/// Open a detached window hosting `topics`. Returns the new window's label so the
+/// client can address it later (focus/close). Chrome parity with the config
+/// window (transparent + Overlay titlebar + traffic lights + no HTML5-DnD
+/// suppression) is set programmatically here because tauri.conf.json grants those
+/// to the "main" window only.
+#[tauri::command]
+async fn window_detach(
+    app: tauri::AppHandle,
+    topics: Vec<String>,
+    width: Option<f64>,
+    height: Option<f64>,
+) -> Result<String, String> {
+    if topics.is_empty() {
+        return Err("no topics to detach".into());
+    }
+    let label = detach_label();
+    // `?topics=` (plural) is the detached-window boot contract read by App.tsx /
+    // usePanelLifecycle; encode each id so commas/spaces survive the query.
+    let encoded = topics
+        .iter()
+        .map(|t| urlencoding_encode(t))
+        .collect::<Vec<_>>()
+        .join(",");
+    let url = format!("index.html?topics={encoded}");
+    let w = width.unwrap_or(900.0);
+    let h = height.unwrap_or(700.0);
+
+    let label_for_build = label.clone();
+    // Window construction touches AppKit; keep it on the main thread via the
+    // async-command executor (Tauri runs #[command] async fns on its runtime,
+    // and the builder marshals to the main thread internally).
+    let build = tauri::WebviewWindowBuilder::new(
+        &app,
+        &label_for_build,
+        tauri::WebviewUrl::App(url.into()),
+    )
+    .title("Topics")
+    .inner_size(w, h)
+    .min_inner_size(480.0, 400.0)
+    .resizable(true)
+    .transparent(true)
+    .decorations(true)
+    .disable_drag_drop_handler(); // mandatory: HTML5 DnD dies without it under wry
+
+    #[cfg(target_os = "macos")]
+    let build = build
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    let win = build.build().map_err(|e| format!("build detach window: {e}"))?;
+
+    #[cfg(target_os = "macos")]
+    {
+        // Traffic lights hidden by default (revealed with the Topics menu, same
+        // as main), live-resize frost cover, and register this window's UI
+        // webview so the shortcut forwarder scopes ⌘W to it (never to main).
+        apply_traffic_lights(&win, false);
+        wire_live_resize_cover(&win);
+        register_ui_webview(&win, &label);
+    }
+    Ok(label)
+}
+
+/// Focus (show + unminimize + raise) the window with `label`. Returns false when
+/// no such window exists on THIS machine, so the client can fall back to a local
+/// reopen (the topic may be detached on another device, or the window just died).
+#[tauri::command]
+fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
+    use tauri::Manager;
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        true
+    } else {
+        false
+    }
+}
+
+/// Close the window that invoked this command. WKWebView's `window.close()` is a
+/// no-op on Tauri, so a detached window whose last tab closes calls this to
+/// actually dismiss its NSWindow. MUST take `tauri::Window` (not `WebviewWindow`,
+/// which the extractor silently rejects once a window is multi-webview).
+#[tauri::command]
+fn window_close_self(window: tauri::Window) {
+    let _ = window.close();
 }
 
 // ───────────────────────── Dev hot-reload (disk-serve) ─────────────────────────
@@ -2884,6 +3054,23 @@ fn resolve_dev_serve(app: &tauri::AppHandle) -> Option<DevServe> {
     }
     eprintln!("[hot-reload] disk-serving /public from {public_dir:?}");
     Some(DevServe { public_dir })
+}
+
+/// Minimal, dep-free percent-encode for a query-value component: keep the
+/// RFC-3986 unreserved set verbatim, escape everything else (notably ',' — the
+/// `?topics=` list separator — and non-ASCII bytes) as `%XX`. Enough to carry
+/// topic ids through the detached-window URL without a `percent_encoding` dep.
+fn urlencoding_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 /// Minimal, dep-free percent-decode (`%XX` → byte), UTF-8 lossy. Enough for asset
@@ -3154,7 +3341,11 @@ pub fn run() {
             tauri::plugin::Builder::<tauri::Wry, ()>::new("nav-guard")
                 .on_navigation(|webview, url| {
                     let label = webview.label();
-                    if label != "main" {
+                    // Detached windows host the SAME app UI as main (loaded from
+                    // tauri://localhost with ?topics=…) — they must fall through to
+                    // the app-origin lock below, NOT the free-nav branch, or an
+                    // external link would hijack the detached UI in place.
+                    if label != "main" && !label.starts_with("detach-") {
                         // Browser PANES navigate the open web freely, BUT block
                         // non-web schemes (file://, chrome://, view-source:) for
                         // page- or agent-driven navigation (e.g. browser_eval
@@ -3911,7 +4102,10 @@ pub fn run() {
             focus_report,
             browser_take_download_events,
             updater_check,
-            updater_install
+            updater_install,
+            window_detach,
+            window_focus_label,
+            window_close_self
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

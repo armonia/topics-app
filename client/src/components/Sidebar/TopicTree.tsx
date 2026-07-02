@@ -21,6 +21,8 @@ import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useAttentionSignals, signalsActions, useTerminalAttentionTier, useSignalsStore, projectAttentionTier } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
+import { useDetachedTopicMap } from '@/state/windowPresence';
+import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -207,6 +209,9 @@ export function TopicTree({
   // Pinned ids as React state through props (NOT a localStorage read inside
   // the builder) so pin toggles repaint — pinnedIds joins the memo deps.
   const pinnedIds = useMemo(() => new Set(pinnedItems), [pinnedItems]);
+  // Topics open in ANOTHER window (pop-out presence). A zustand hook = React
+  // state, so this memo re-fires when a window detaches/closes.
+  const detachedTopicIds = useDetachedTopicMap();
   const allItems = useMemo(() => buildSidebarItems({
     topics,
     workspaceProjects,
@@ -220,7 +225,8 @@ export function TopicTree({
     claudeAttentionTopics,
     terminalFinishedIds,
     pinnedIds,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds]);
+    detachedTopicIds,
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, detachedTopicIds]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -287,6 +293,25 @@ export function TopicTree({
 
   // ── Chat item ────────────────────────────────────────────────────────────
 
+  // Sidebar click decision ladder, step (a): a topic detached in ANOTHER window
+  // focuses that OS window rather than reopening here. On false (window died /
+  // on another machine) fall through to the normal open/focus path — which
+  // resolves the remaining space/active/closed steps (b–d) inside usePanelLifecycle.
+  const handleChatRowClick = useCallback(
+    (topicId: string, detachedWindowLabel: string | undefined, e?: React.MouseEvent) => {
+      if (detachedWindowLabel) {
+        void tauriInvoke<boolean>('window_focus_label', { label: detachedWindowLabel })
+          .then((focused) => {
+            if (!focused) onTopicClick(topicId, e);
+          })
+          .catch(() => onTopicClick(topicId, e));
+        return;
+      }
+      onTopicClick(topicId, e);
+    },
+    [onTopicClick],
+  );
+
   const renderChatItem = (item: SidebarItem, depth = 0) => {
     const topic = item.topic!;
     const isOpen = openPanels.includes(topic.id);
@@ -309,7 +334,7 @@ export function TopicTree({
         notificationCount={item.notificationCount}
         assignedAgentCount={topic.assignedAgents?.length || 0}
         onToggle={() => {}}
-        onClick={(e) => onTopicClick(topic.id, e)}
+        onClick={(e) => handleChatRowClick(topic.id, item.detachedWindowLabel, e)}
         onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
         onContextMenu={(e) => onTopicContextMenu(e, topic)}
         onArchive={handleArchive}
@@ -322,6 +347,7 @@ export function TopicTree({
         } : undefined}
         isArchived={item.archived}
         pinned={!!item.pinned}
+        detachedWindowLabel={item.detachedWindowLabel}
         onTogglePin={onTogglePin ? () => onTogglePin(item.id) : undefined}
         hideIcon={depth > 0}
       />

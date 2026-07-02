@@ -135,10 +135,17 @@ function App() {
     };
   }, []);
 
-  // Check if we're in detached/pop-out mode (single topic window)
+  // Check if we're in detached/pop-out mode (a real OS window hosting one or
+  // more popped-out topics). `?topics=a,b,c` is the current contract; `?topic=`
+  // (singular) stays as a back-compat alias. The window boots showing exactly
+  // these topics and skips pane-store sync (see usePanelLifecycle isDetached).
   const urlParams = new URLSearchParams(window.location.search);
-  const detachedTopicId = urlParams.get('topic');
-  const isDetached = !!detachedTopicId;
+  const detachedTopicIds = (urlParams.get('topics') ?? urlParams.get('topic'))
+    ?.split(',')
+    .map((t) => decodeURIComponent(t).trim())
+    .filter(Boolean) ?? [];
+  const detachedTopicId = detachedTopicIds[0] ?? null;
+  const isDetached = detachedTopicIds.length > 0;
 
   // Topics-menu modal state declared up-front so useSidebarAndLayout can
   // observe it for the macOS traffic-light effect (CRITIQUE C10: modal
@@ -365,7 +372,7 @@ function App() {
   // validation, per-cluster WS subs, handlers). See usePanelLifecycle.ts
   // for the full effect-declaration-order contract.
   const panelLifecycle = usePanelLifecycle({
-    isDetached, detachedTopicId, isMobile,
+    isDetached, detachedTopicId, detachedTopicIds, isMobile,
     topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic,
     workspaceProjects,
     terminalSessions,
