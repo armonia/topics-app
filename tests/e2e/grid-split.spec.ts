@@ -1,6 +1,7 @@
+import { mkdirSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, seedProjectPane } from "./helpers/api-fixtures";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -47,11 +48,21 @@ async function countColDividers(page: Page): Promise<number> {
   return page.locator('[role="main"] .cursor-col-resize').count();
 }
 
-/** Open a project window by clicking its sidebar entry */
-async function openProject(page: Page, name: string | RegExp) {
+/** Open a project window by clicking its sidebar entry. The tab-driven
+ *  sidebar only shows the row while the `project:<path>` pane is open — if a
+ *  previous test's seeding wiped openPanels, re-open the pane and reload. */
+async function openProject(page: Page, name: string | RegExp, projectPath = "/tmp/e2e-grid") {
   const projectBtn = typeof name === 'string'
     ? page.locator(`button:has-text("${name}")`)
     : page.locator('button').filter({ hasText: name });
+  const visible = await projectBtn.first().waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true).catch(() => false);
+  if (!visible) {
+    await seedProjectPane(page.request, projectPath);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 15000 });
+    await expect(projectBtn.first()).toBeVisible({ timeout: 10000 });
+  }
   await projectBtn.first().click();
   await page.waitForTimeout(2000);
 }
@@ -63,10 +74,19 @@ let projectTopicId: string | null = null;
 test.describe("Grid Split System", () => {
   test.beforeAll(async ({ request }) => {
     // Create a project-linked topic so the "Projects" section has an entry
+    // Real directory — a phantom path leaves the project window in
+    // "directory not found" and pane adds misbehave.
+    mkdirSync("/tmp/e2e-grid", { recursive: true });
     const topic = await createTopic(request, "E2E-GridProject", {
       projectPath: "/tmp/e2e-grid",
     });
     projectTopicId = topic.id;
+    // Open the project WINDOW pane: a project-linked topic id seeded into
+    // openPanels is purged by the client (project topics live INSIDE the
+    // project window), and the tab-driven sidebar only shows a project row
+    // while its `project:<path>` pane is open. Without this every
+    // `openProject(page, /e2e-grid/)` call times out on a missing button.
+    await seedProjectPane(request, "/tmp/e2e-grid");
   });
 
   test.afterAll(async ({ request }) => {

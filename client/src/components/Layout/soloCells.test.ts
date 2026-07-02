@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   soloCellKey, flattenSoloCells, removeTopicFromCells, addSoloCell, extractToOwnCell,
   moveTopicToCell, pruneSoloCells, soloCellsFromFlat, primaryFromSoloCellKey,
+  remapTopicInCells, reorderCellPreservingPrimary,
 } from './soloCells';
 
 describe('soloCells — model primitives', () => {
@@ -56,6 +57,46 @@ describe('soloCells — model primitives', () => {
     expect(pruneSoloCells([['B', 'A'], ['C']], new Set(['B', 'C']))).toEqual([['B'], ['C']]);
     const stable = [['A'], ['B']];
     expect(pruneSoloCells(stable, new Set(['A', 'B']))).toBe(stable);
+  });
+});
+
+describe('soloCells — draft promotion remap (topics:pane-id-remap)', () => {
+  test('renames a member in place, preserving order', () => {
+    expect(remapTopicInCells([['A', 'draft:1', 'C']], 'draft:1', 'T')).toEqual([['A', 'T', 'C']]);
+  });
+
+  test('renames a PRIMARY in place (the cell re-keys, membership survives)', () => {
+    expect(remapTopicInCells([['draft:1', 'B']], 'draft:1', 'T')).toEqual([['T', 'B']]);
+  });
+
+  test('returns the same ref when the id is in no cell', () => {
+    const cells = [['A'], ['B']];
+    expect(remapTopicInCells(cells, 'draft:9', 'T')).toBe(cells);
+    expect(remapTopicInCells(cells, 'A', 'A')).toBe(cells); // from === to
+  });
+});
+
+describe('soloCells — cell reorder persistence (primary pinned)', () => {
+  test('members take the new order, primary stays at slot 0', () => {
+    expect(reorderCellPreservingPrimary(['A', 'B', 'C'], ['A', 'C', 'B'])).toEqual(['A', 'C', 'B']);
+    // A reorder that visually puts a member before the primary still persists
+    // the members' relative order — the primary is the cell's grid key.
+    expect(reorderCellPreservingPrimary(['A', 'B', 'C'], ['C', 'A', 'B'])).toEqual(['A', 'C', 'B']);
+  });
+
+  test('members missing from the new order are kept (appended, old order)', () => {
+    expect(reorderCellPreservingPrimary(['A', 'B', 'C', 'D'], ['A', 'D'])).toEqual(['A', 'D', 'B', 'C']);
+  });
+
+  test('foreign ids in the new order are ignored', () => {
+    expect(reorderCellPreservingPrimary(['A', 'B'], ['A', 'Z', 'B'])).toEqual(['A', 'B']);
+  });
+
+  test('returns the same ref when nothing changes', () => {
+    const cell = ['A', 'B'];
+    expect(reorderCellPreservingPrimary(cell, ['A', 'B'])).toBe(cell);
+    const single = ['A'];
+    expect(reorderCellPreservingPrimary(single, ['A'])).toBe(single);
   });
 });
 

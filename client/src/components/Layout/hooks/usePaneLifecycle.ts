@@ -15,12 +15,11 @@ import {
   isBrowserPaneId,
   isTerminalPaneId,
   isSessionViewerPaneId,
-  isDraftPaneId,
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
 } from '../../../state/pane/adapters';
-import { isUtilityPanelId } from '../UtilityPanel';
 import { primaryFromSoloCellKey } from '../soloCells';
+import { canSplitPane, standaloneSplitSurface } from '../splitRules';
 import { clearBrowserSpawner } from '../../../state/browserSpawner';
 import { normalizeTerminalAgent } from '../../../lib/terminalAgents';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
@@ -187,28 +186,26 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     if (popOutTopic(paneId)) onClosePanel(paneId);
   }, [onClosePanel]);
 
-  // Determine if a pane can be split into its own grid cell.
+  // Determine if a pane can be split into its own grid cell — delegated to
+  // the SHARED canSplitPane rule (splitRules.ts), the single source of truth
+  // both surfaces' menus, drags and handlers gate on:
   //
-  // Soft rules:
-  //   - Utility panes and unsaved draft panes can never be split (their
-  //     state model doesn't survive the move out of the standalone group).
-  //   - A pane already in its own solo cell can't be split again — it's
-  //     already as far out as it can go in the current grid model.
-  //
-  // Single-tab split is allowed: the standalone group is permitted to
-  // become temporarily empty while the moved pane lands in its own
-  // cell next to it. PanelGrid's empty-group rendering handles the
-  // transient state, and the user can immediately drag another tab
-  // into it or open a new chat. (Previously we required >=2 splittable
-  // panes, which made "Split right" silently disappear from the right-
-  // click menu when a user had a single chat open — the most common case
-  // and the moment they're most likely to want to split.)
+  //   - the main pool is always splittable (single-tab split auto-spawns a
+  //     draft companion in PanelGrid.handleSplitPane so the result is two
+  //     visible cells);
+  //   - a solo split cell is splittable only when it holds MORE than one tab
+  //     (the lone tab has nothing left to split away from; a multi-tab
+  //     member splits out into its own cell, like the drag path);
+  //   - utility panes and drafts are no longer special-cased: utility panes
+  //     render fine as solo cells, and draft cells survive promotion via the
+  //     'topics:pane-id-remap' remap in PanelGrid — the drag path always
+  //     allowed both, so the menu now agrees with it.
   const isSplittable = useCallback((id: string) => {
-    if (isUtilityPanelId(id) || isDraftPaneId(id)) return false;
-    if (gridItemKey.startsWith('solo:')) return false;
-    return validatedOrderedIds.some(pid =>
-      pid === id && !isUtilityPanelId(pid) && !isDraftPaneId(pid)
-    );
+    if (!validatedOrderedIds.includes(id)) return false;
+    return canSplitPane({
+      surface: standaloneSplitSurface(gridItemKey),
+      groupSize: validatedOrderedIds.length,
+    });
   }, [gridItemKey, validatedOrderedIds]);
 
   const handleSplitRight = useCallback((paneId: string) => {

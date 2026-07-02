@@ -5,11 +5,13 @@ import { CellSubStack } from './CellSubStack';
 import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
 import { equalizeWidths, weightedWidths } from './gridWidths';
-import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
+import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTypes';
+import { canSplitPane } from './splitRules';
+import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { detectDropZone, type EdgeZone } from '../../lib/dropZone';
-import { SplitRegion, FullWidthRowZone } from './DropOverlay';
+import { SplitRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { FULL_ROW_GUTTER_PX } from '../../lib/dropFeedback';
 import { SplitTree } from './SplitTree';
 import { type LayoutNode } from '../../state/layout/layoutTree';
@@ -240,8 +242,20 @@ export function GroupLayout({
     // Scope guard: only this project's tabs may split its groups — a foreign
     // tab gets no edge overlay (and no preventDefault, so it can't drop here).
     if (!dragMatchesScope(e.dataTransfer.types, dndScope)) return;
-    const sourceGroupId = e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP) ? 'other' : null;
-    if (!sourceGroupId) return; // only show edge zones for cross-group drags
+    // Group-tagged tab drags only (dragover can't read VALUES, so we can't
+    // tell WHICH group — every project tab drag qualifies here).
+    if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP)) return;
+    // Self-drop from a SOLO group: splitting a single-pane group into itself
+    // is a no-op (handleSplitGroup refuses it), so don't paint the edge
+    // preview / accept the drop — the promise would be broken. The source
+    // encodes "my group is solo" as a per-group TYPE (readable in dragover).
+    if (e.dataTransfer.types.includes(paneTabSoloSrcType(groupId))) {
+      if (edgeDropTargetRef.current?.groupId === groupId) {
+        edgeDropTargetRef.current = null;
+        setEdgeDropTarget(null);
+      }
+      return;
+    }
 
     e.preventDefault();
     e.stopPropagation();
@@ -325,6 +339,15 @@ export function GroupLayout({
     const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
     if (dndScope && sourceScope && sourceScope !== dndScope) return;
 
+    // Self-drop from a solo group would no-op in handleSplitGroup — the
+    // dragover above already suppressed the preview; refuse the drop too so
+    // it can't fire through a stale cached edge.
+    if (sourceGroupId === groupId && (groupMap.get(sourceGroupId)?.paneIds.length ?? 0) <= 1) {
+      edgeDropTargetRef.current = null;
+      setEdgeDropTarget(null);
+      return;
+    }
+
     // Prefer the cached target from the latest dragover (ref to dodge React
     // commit lag), but if the user wobbled out of the edge zone in the last
     // few pixels before release the cache may be null/stale — fall back to
@@ -353,7 +376,7 @@ export function GroupLayout({
     // full-width strips (gated on dragActive) would stay painted after an
     // edge-split drop too. Clear it here.
     setDragActive(false);
-  }, [onSplitGroup, edgeDropTargetRef, dndScope]);
+  }, [onSplitGroup, edgeDropTargetRef, dndScope, groupMap]);
 
   /* ---- Cross-group tab drop handler ---- */
   const handleCrossGroupDrop = useCallback((targetGroupId: string) =>
@@ -411,6 +434,51 @@ export function GroupLayout({
     // targetGroupId '' → handler falls back to first/last row for the new row.
     onSplitGroup?.(sourceGroupId, sourcePaneId, '', side, { fullRow: true });
   }, [onSplitGroup, dndScope, fullRowDropRef]);
+
+  /* ---- Interior row-gap strips: the ONLY gesture that inserts a full-width
+   * row BETWEEN two existing rows. The extreme strips above cover "above the
+   * first / below the last"; per-cell top/bottom edges stack a SINGLE column;
+   * and the SplitTree dividers are deliberately drop-inert (their band is
+   * neutralized mid-drag so edge drops land on cells) — so this op had no
+   * path at all. One strip per row boundary, positioned by the cumulative
+   * row heights, dropping calls the same fullRow split anchored on the row
+   * ABOVE the gap. Drag-only, like the extreme strips. ---- */
+  const [rowGapDrop, setRowGapDrop] = useState<number | null>(null);
+  const rowGapDropRef = useRefMirror(rowGapDrop);
+
+  const handleRowGapDragOver = useCallback((gapIdx: number) => (e: React.DragEvent) => {
+    if (!onSplitGroup || !isPaneTabDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance
+    if (edgeDropTargetRef.current) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); }
+    if (rowGapDropRef.current !== gapIdx) { rowGapDropRef.current = gapIdx; setRowGapDrop(gapIdx); }
+  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, rowGapDropRef]);
+
+  const handleRowGapDragLeave = useCallback((e: React.DragEvent) => {
+    const rt = e.relatedTarget as Node | null;
+    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    rowGapDropRef.current = null;
+    setRowGapDrop(null);
+  }, [rowGapDropRef]);
+
+  const handleRowGapDrop = useCallback((gapIdx: number) => (e: React.DragEvent) => {
+    const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
+    const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+    rowGapDropRef.current = null;
+    setRowGapDrop(null);
+    setDragActive(false); // see handleFullRowDrop — dragend/drop resets are defeated here
+    if (!sourcePaneId || !sourceGroupId) return;
+    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
+    if (dndScope && sourceScope && sourceScope !== dndScope) return;
+    const anchor = rows[gapIdx]?.groupIds[0];
+    if (!anchor) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // 'bottom' + fullRow anchored on the row above the gap → the new row
+    // lands exactly in this gap.
+    onSplitGroup?.(sourceGroupId, sourcePaneId, anchor, 'bottom', { fullRow: true });
+  }, [onSplitGroup, dndScope, rows, rowGapDropRef]);
 
   /* ---- Row drag reordering (Phase 5) ---- */
   const [draggingRowIdx, setDraggingRowIdx] = useState<number | null>(null);
@@ -486,8 +554,10 @@ export function GroupLayout({
     setRowDropTarget(null);
     fullRowDropRef.current = null;
     setFullRowDrop(null);
+    rowGapDropRef.current = null;
+    setRowGapDrop(null);
     setDragActive(false);
-  }, [edgeDropTargetRef, fullRowDropRef]);
+  }, [edgeDropTargetRef, fullRowDropRef, rowGapDropRef]);
 
   // Reset on dragend OR drop. A cross-group move unmounts the dragged tab
   // synchronously inside its drop handler, and the browser then never fires
@@ -578,9 +648,25 @@ export function GroupLayout({
   const handleResetLayout = useCallback(() => {
     const flat = flattenGroupRows(rows, [...groupMap.keys()]);
     if (!flat) return;
+    // Flatten is undoable — it used to irreversibly discard manual widths/
+    // heights/stacks, and ⌘Z silently undid the previous CLOSE instead. The
+    // pre-flatten rows/rowHeights are pure data, snapshotted verbatim.
+    const prevRows = rows;
+    const prevHeights = rowHeights;
+    pushUndo({
+      description: 'Reimposta pannelli',
+      undo: () => {
+        onUpdateRows(prevRows);
+        onUpdateRowHeights(prevHeights);
+      },
+      redo: () => {
+        onUpdateRows(flat.rows);
+        onUpdateRowHeights(flat.rowHeights);
+      },
+    });
     onUpdateRows(flat.rows);
     onUpdateRowHeights(flat.rowHeights);
-  }, [rows, groupMap, onUpdateRows, onUpdateRowHeights]);
+  }, [rows, rowHeights, groupMap, onUpdateRows, onUpdateRowHeights]);
 
   // Palette path ('topics:reset-split-layout' is a per-window CustomEvent bus,
   // like topics:open-project-picker). Gated on isAppFocused so the FOCUSED
@@ -654,6 +740,11 @@ export function GroupLayout({
     //  - inactive: not the focused group of this project
     const isFullyFocused = isFocusedGroup && isAppFocused;
     const edgeDrop = edgeDropTarget?.groupId === gid ? edgeDropTarget.edge : null;
+    // Shared split gating (splitRules.ts, one predicate with the standalone
+    // surface): splitting the only pane of a group into itself is a visual
+    // no-op — hide the entries instead of offering a silent failure
+    // (handleSplitGroup used to just console.warn).
+    const groupCanSplit = canSplitPane({ surface: 'project', groupSize: group.paneIds.length });
     return (
       <div data-split-card className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
         {/* Per-group tab bar — h-10 to match the project sidebar header
@@ -697,13 +788,13 @@ export function GroupLayout({
               ? (sourcePaneId, sourceGroupId, edge) => onSplitGroup(sourceGroupId, sourcePaneId, gid, edge)
               : undefined
             }
-            onSplitRight={onSplitGroup
+            onSplitRight={onSplitGroup && groupCanSplit
               ? (paneId) => onSplitGroup(gid, paneId, gid, 'right')
               : undefined
             }
             // "Split Down" mirrors the cell bottom-edge drop: a SINGLE-COLUMN
             // vertical stack (under just this column), not a full-width row.
-            onSplitDown={onSplitGroup
+            onSplitDown={onSplitGroup && groupCanSplit
               ? (paneId) => onSplitGroup(gid, paneId, gid, 'bottom')
               : undefined
             }
@@ -886,6 +977,28 @@ export function GroupLayout({
           onDrop={handleFullRowDrop(side)}
         />
       ))}
+      {/* Interior row-gap strips — insert a full-width row BETWEEN rows i and
+          i+1 (see the handlers above). Positioned at each boundary via the
+          cumulative row heights; the 1px divider offset is negligible vs the
+          26px band. */}
+      {dragActive && !!onSplitGroup && rows.length > 1 && (() => {
+        const total = rowHeights.reduce((s, h) => s + (Number.isFinite(h) && h > 0 ? h : 1 / rows.length), 0) || 1;
+        let acc = 0;
+        return rows.slice(0, -1).map((_, i) => {
+          const h = rowHeights[i];
+          acc += (Number.isFinite(h) && h > 0 ? h : 1 / rows.length) / total;
+          return (
+            <RowGapDropZone
+              key={`gap-${i}`}
+              topPct={acc * 100}
+              active={rowGapDrop === i}
+              onDragOver={handleRowGapDragOver(i)}
+              onDragLeave={handleRowGapDragLeave}
+              onDrop={handleRowGapDrop(i)}
+            />
+          );
+        });
+      })()}
       {treeRoot && (
         <SplitTree
           node={treeRoot}

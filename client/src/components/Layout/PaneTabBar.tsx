@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -11,7 +11,7 @@ import { signalsActions, useSignalsStore, projectAttentionTier } from '../../sta
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
-import { DND_TYPES, paneTabScopeType, dragMatchesScope } from '../../lib/dndTypes';
+import { DND_TYPES, paneTabScopeType, paneTabSoloSrcType, dragMatchesScope } from '../../lib/dndTypes';
 import { EDGE_DROP_PX } from './constants';
 import { SplitRegion, InsertCaret } from './DropOverlay';
 import { useMobile, haptic } from '../../hooks/useMobile';
@@ -76,6 +76,12 @@ interface PaneTabBarProps {
   onContextRingClick?: (paneId: string) => void;
   onCloseOthers?: (paneId: string) => void;
   onDetach?: (paneId: string) => void;
+  /**
+   * Merge this tab back into its parent group (a solo split cell's tab
+   * returning to the main pool). The inverse of `onDetach` — the two used to
+   * share a single 'Detach' entry with opposite semantics per group kind.
+   */
+  onReattach?: (paneId: string) => void;
   onSplitRight?: (paneId: string) => void;
   onSplitDown?: (paneId: string) => void;
   /**
@@ -125,7 +131,7 @@ interface PaneTabBarProps {
   splitMap?: SplitMapDescriptor;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onSplitRight, onSplitDown, onResetLayout, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -299,6 +305,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       e.dataTransfer.setData(paneTabScopeType(dndScope), '1');
       e.dataTransfer.setData(DND_TYPES.PANE_TAB_SCOPE, dndScope);
     }
+    // Solo-source marker: this group holds a single pane, so splitting it
+    // into ITSELF would be a no-op. Encoded as a per-group TYPE so the
+    // group's own content-area dragover (GroupLayout) can suppress the
+    // edge-split preview the drop would refuse — no promised-then-broken drop.
+    if (groupId && panes.length === 1) {
+      e.dataTransfer.setData(paneTabSoloSrcType(groupId), '1');
+    }
     e.dataTransfer.effectAllowed = 'move';
     // Custom drag image: a compact tab-like chip instead of the browser's
     // default file icon. The element must be in the DOM AND on-screen at
@@ -356,7 +369,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     e.dataTransfer.dropEffect = 'move';
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const xRatio = (e.clientX - rect.left) / rect.width;
-    const idx = xRatio < 0.5 ? paneIdx : paneIdx + 1;
+    let idx = xRatio < 0.5 ? paneIdx : paneIdx + 1;
+    // Solo split cells clamp CROSS-GROUP inserts to slot ≥ 1: slot 0 is the
+    // cell's primary, and landing there would re-key the whole cell mid-drop
+    // (moveTopicToCell clamps the same way) — so never paint a slot-0 caret
+    // the drop won't honor. Same-group reorders (draggedPaneId set) keep 0.
+    if (idx === 0 && !draggedPaneId && groupId?.startsWith('solo:')) idx = 1;
     dragOverIdxRef.current = idx;
     setDragOverIdx(idx);
     // Clear stale edge split zone — cursor is over a tab, not an edge
@@ -365,7 +383,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     if (!draggedPaneId && e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP)) {
       setCrossGroupDragActive(true);
     }
-  }, [draggedPaneId, dndScope]);
+  }, [draggedPaneId, dndScope, groupId]);
 
   // Single reset for every drag-end path (successful drop, cancel, foreign
   // drag, and the window-level `dragend` below). Clears both the state and the
@@ -953,6 +971,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               >
                 <ExternalLink size={14} />
                 <span>Detach</span>
+              </button>
+            </>
+          )}
+          {/* Inverse of Detach — a solo split cell's tab merging back into the
+              main pool. Distinct label + icon: the two directions used to share
+              one 'Detach' entry that meant the OPPOSITE thing per group kind. */}
+          {onReattach && (
+            <>
+              <div className="h-px bg-app-border my-1" />
+              <button
+                onClick={() => { onReattach(ctxMenu.paneId); setCtxMenu(null); }}
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                title="Chiude lo split e riporta la tab nel gruppo principale"
+              >
+                <Combine size={14} />
+                <span>Riporta nel gruppo</span>
               </button>
             </>
           )}

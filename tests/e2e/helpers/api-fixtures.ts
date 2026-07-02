@@ -143,6 +143,125 @@ async function seedTopicIntoSidebar(request: APIRequestContext, topicId: string)
   } catch { /* ignore */ }
 }
 
+/** Minimal sanitizer-safe Pane record for a pane id, inferring the type the
+ *  same way the client's adapters do (chat for bare topic UUIDs). */
+function paneRecordForId(id: string): Record<string, unknown> {
+  if (id.startsWith("terminal:")) {
+    return { id, type: "terminal", title: "Terminal", terminalSessionId: id.slice("terminal:".length) };
+  }
+  if (id.startsWith("browser:")) {
+    return { id, type: "browser", title: "Browser" };
+  }
+  if (id.startsWith("project:")) {
+    const path = decodeURIComponent(id.slice("project:".length));
+    return { id, type: "project", title: path.split("/").pop() || path, projectPath: path };
+  }
+  if (id.startsWith("__") && id.endsWith("__")) {
+    // Utility panel id (`__<type>__`, see UtilityPanel.utilityPanelId).
+    return { id, type: id.slice(2, -2), title: "" };
+  }
+  return { id, type: "chat", title: "", topicId: id };
+}
+
+/**
+ * Reset the AUTHORITATIVE pane channel (pane-store-v2 `group:default`) to
+ * EXACTLY `paneIds`, clearing the closedStack.
+ *
+ * Why: seeding only the legacy `/api/ui-state/panels` endpoint is not enough
+ * since Phase 30 — the client hydrates tabs from the pane-store snapshot and
+ * UNIONS it with openPanels, so stale panes accumulated in the shared test DB
+ * (terminals, project panes from other spec files / previous runs) leak into
+ * every "seed N topics" test as extra tabs. Call this alongside the legacy
+ * PUTs whenever a test needs a deterministic tab set.
+ */
+export async function resetPaneStore(
+  request: APIRequestContext,
+  paneIds: string[],
+): Promise<void> {
+  let lastSeq = 0;
+  try {
+    const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+    if (cur.ok()) {
+      const body = (await cur.json()) as { value?: { lastSeq?: number } };
+      lastSeq = body?.value?.lastSeq ?? 0;
+    }
+  } catch { /* fresh store */ }
+  const snapshot = {
+    panes: Object.fromEntries(paneIds.map((id) => [id, paneRecordForId(id)])),
+    groups: {
+      "group:default": { id: "group:default", paneIds: [...paneIds], splitRatio: 1, splitAxis: "horizontal" },
+    },
+    projects: {},
+    groupOrder: ["group:default"],
+    closedStack: [],
+    lastSeq: lastSeq + 1,
+  };
+  await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
+    data: snapshot,
+    ignoreHTTPSErrors: true,
+  });
+}
+
+/**
+ * Open a PROJECT WINDOW tab for `projectPath` by seeding the `project:<path>`
+ * pane into openPanels + pane-store-v2.
+ *
+ * Why: seeding a project-linked TOPIC id into openPanels no longer surfaces
+ * anything — usePanelLifecycle's validation effect purges project-topic ids
+ * from openPanels (they belong INSIDE a project window), and the tab-driven
+ * sidebar only shows a project row while its pane is open (`hasProjectTab`)
+ * or a child has an open tab. Tests that need the project visible in the
+ * sidebar must open the project PANE, exactly like the UI does.
+ */
+export async function seedProjectPane(
+  request: APIRequestContext,
+  projectPath: string,
+): Promise<string> {
+  const paneId = `project:${encodeURIComponent(projectPath)}`;
+  // Legacy openPanels — append.
+  try {
+    const cur = await request.get(`${BASE}/api/ui-state/panels`, { ignoreHTTPSErrors: true });
+    let openPanels: string[] = [];
+    if (cur.ok()) {
+      const body = (await cur.json()) as { value?: { openPanels?: string[] }; openPanels?: string[] };
+      openPanels = body?.value?.openPanels ?? body?.openPanels ?? [];
+    }
+    if (!openPanels.includes(paneId)) {
+      await request.put(`${BASE}/api/ui-state/panels`, {
+        data: { openPanels: [...openPanels, paneId] },
+        ignoreHTTPSErrors: true,
+      });
+    }
+  } catch { /* ignore */ }
+  // Authoritative pane-store — append.
+  try {
+    const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+    let snapshot: any = null;
+    if (cur.ok()) {
+      const body = (await cur.json()) as { value?: any };
+      if (body?.value && typeof body.value === "object" && "groups" in body.value) snapshot = body.value;
+    }
+    if (!snapshot) {
+      snapshot = {
+        panes: {}, groups: {}, projects: {}, groupOrder: ["group:default"], closedStack: [], lastSeq: 0,
+      };
+    }
+    if (!snapshot.groups["group:default"]) {
+      snapshot.groups["group:default"] = { id: "group:default", paneIds: [], splitRatio: 1, splitAxis: "horizontal" };
+    }
+    if (!snapshot.groups["group:default"].paneIds.includes(paneId)) {
+      snapshot.groups["group:default"].paneIds.push(paneId);
+    }
+    snapshot.panes[paneId] = snapshot.panes[paneId] || paneRecordForId(paneId);
+    snapshot.lastSeq = (snapshot.lastSeq ?? 0) + 1;
+    await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
+      data: snapshot,
+      ignoreHTTPSErrors: true,
+    });
+  } catch { /* ignore */ }
+  return paneId;
+}
+
 export async function patchTopic(
   request: APIRequestContext,
   id: string,

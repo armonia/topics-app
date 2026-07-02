@@ -1283,6 +1283,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
     }
     setOpenPanels(prev => prev.map(id => id === draftId ? topic.id : id));
+    // Split-layout remap: PanelGrid keys its solo split cells (and their grid
+    // slots) by pane id. Announce the promotion so a draft living in a split
+    // cell is renamed IN PLACE instead of being pruned on the next render —
+    // without this, the first message visibly teleported the tab back to the
+    // main pool and collapsed a single-tab draft cell. Dispatched in the same
+    // task as the setOpenPanels remap above, so React batches both and the
+    // grid never sees an intermediate state.
+    window.dispatchEvent(new CustomEvent('topics:pane-id-remap', {
+      detail: { from: draftId, to: topic.id },
+    }));
     if (focusedPanelIdRef.current === draftId) {
       setFocusedPanelId(topic.id);
     }

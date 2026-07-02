@@ -34,6 +34,7 @@ import { useActivePaneState } from './hooks/useActivePaneState';
 import { usePaneLifecycle } from './hooks/usePaneLifecycle';
 import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
+import { canSplitPane, standaloneSplitSurface } from './splitRules';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -507,6 +508,14 @@ export function StandaloneChatGroup({
     return getAddableTypesForScope('standalone', present);
   })();
 
+  // Shared split gating (splitRules.ts) — the ONE predicate this group's
+  // menu entries, usePaneLifecycle's handlers and the project surface all
+  // agree on, so "Split Right/Down" is offered exactly when it works.
+  const groupCanSplit = canSplitPane({
+    surface: standaloneSplitSurface(gridItemKey),
+    groupSize: validatedOrderedIds.length,
+  });
+
   // Tab bar rendered inline in header
   const tabBar = (
     <PaneTabBar
@@ -546,17 +555,23 @@ export function StandaloneChatGroup({
       onCrossGroupDrop={onAcceptSoloDrop ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}
-      // Single-tab splits are allowed: usePaneLifecycle's `isSplittable`
-      // gates the actual call. Hiding the menu items only when this group
-      // is already a solo cell (where there's nothing left to split out)
-      // and when we lack a split callback at all.
-      onSplitRight={onSplitPane && !gridItemKey.startsWith('solo:') ? handleSplitRight : undefined}
-      onSplitDown={onSplitPane && !gridItemKey.startsWith('solo:') ? handleSplitDown : undefined}
+      // Gated by the SHARED canSplitPane rule (splitRules.ts) — the same
+      // predicate usePaneLifecycle's isSplittable guards the handlers with,
+      // so an offered entry always works: the pool always splits (single-tab
+      // auto-spawns a draft companion), a solo cell splits only when it
+      // holds MORE than one tab (a member splits out into its own cell,
+      // exactly like the drag path's extractToOwnCell).
+      onSplitRight={onSplitPane && groupCanSplit ? handleSplitRight : undefined}
+      onSplitDown={onSplitPane && groupCanSplit ? handleSplitDown : undefined}
       onResetLayout={onResetLayout}
       onCloseOthers={handleCloseOthers}
       onSettings={handleSettings}
       onPopOut={handlePopOut}
-      onDetach={handleUnsolo || (onSplitPane ? handleDetach : undefined)}
+      // 'Detach' = split OUT into an own cell (pool tabs). A solo cell's tab
+      // instead offers 'Riporta nel gruppo' (onReattach → unsolo) — the two
+      // used to share one 'Detach' label with opposite semantics.
+      onDetach={handleUnsolo ? undefined : (onSplitPane && groupCanSplit ? handleDetach : undefined)}
+      onReattach={handleUnsolo}
       onStopStreaming={handleStopStreaming}
       onPinPane={handlePinPane}
       projectStatus={projectStatus}
