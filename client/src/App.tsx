@@ -51,6 +51,7 @@ import { useAgentActivityCounts } from './state/signals';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { RESTING_SURFACE, ROW_INSET } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
+import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
@@ -1285,6 +1286,14 @@ function App() {
           onAssignAgents={(topicId, topicName) => setAssignAgentsTarget({ topicId, topicName })}
           isPinned={sidebar.pinnedIds.has(contextMenu.topic.id)}
           onTogglePin={() => handleTogglePin(contextMenu.topic.id)}
+          onPopOut={() => {
+            // Same contract as the pane-menu pop-out: drop the source pane only
+            // when a window actually opened (popOutTopic returns false when it
+            // just focused an existing window or the popup was blocked).
+            void popOutTopic(contextMenu.topic.id).then((opened) => {
+              if (opened) handleClosePanel(contextMenu.topic.id);
+            });
+          }}
         />
       )}
 
