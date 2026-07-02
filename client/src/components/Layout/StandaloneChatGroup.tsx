@@ -564,6 +564,9 @@ export function StandaloneChatGroup({
       onSplitRight={onSplitPane && groupCanSplit ? handleSplitRight : undefined}
       onSplitDown={onSplitPane && groupCanSplit ? handleSplitDown : undefined}
       onResetLayout={onResetLayout}
+      // Spazi: every top-level (app-level) group offers "Sposta nello
+      // Spazio →" — project-inner tab bars never pass this.
+      canMoveToSpace
       onCloseOthers={handleCloseOthers}
       onSettings={handleSettings}
       onPopOut={handlePopOut}

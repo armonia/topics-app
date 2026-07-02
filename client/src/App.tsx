@@ -373,7 +373,8 @@ function App() {
     removeClosedTab,
   });
   const {
-    openPanels, focusedPanelId, previewPanelId, nextPanelMode, draftMeta,
+    openPanels, visiblePanels, activeSpaceId,
+    focusedPanelId, previewPanelId, nextPanelMode, draftMeta,
     pendingProjectFocus, projectActiveTopics, projectOpenPanes,
     pendingProjectPane, panelInitialTab, contextMenu, expandedProjects,
     externalDragTopicId, pendingBrowserPane, pendingSoloPanelId,
@@ -497,10 +498,12 @@ function App() {
     // looking. Same-index (clamped) matches the project groups' rule: focus
     // the tab that slides into the closed tab's slot, not the last pane in
     // openPanels — which can be an unrelated split cell appended later.
+    // Spazi: the pre-shift runs on the VISIBLE set — pre-focusing a pane
+    // hidden in another space would switch the whole window mid-countdown.
     let focusBeforeClose: string | null = null;
     if (focusedPanelId === topicId) {
-      const idx = openPanels.indexOf(topicId);
-      const remaining = openPanels.filter(id => id !== topicId);
+      const idx = visiblePanels.indexOf(topicId);
+      const remaining = visiblePanels.filter(id => id !== topicId);
       const nextFocus = remaining.length > 0 ? remaining[Math.min(idx, remaining.length - 1)] : null;
       if (nextFocus) {
         focusBeforeClose = topicId;
@@ -526,7 +529,7 @@ function App() {
         ? () => handleFocusPanel(focusBeforeClose!)
         : undefined,
     });
-  }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, openPanels, handleFocusPanel]);
+  }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, visiblePanels, handleFocusPanel]);
 
   const handleArchiveTopicDeferred = useCallback((topicId: string, archive: boolean): Promise<boolean> => {
     // Unarchive (archive=false) is restorative — commit immediately.
@@ -618,7 +621,9 @@ function App() {
   useKeyboardShortcuts({
     isElectron,
     focusedPanelId,
-    openPanels,
+    // Spazi: ⌘1-9 / ⌘W and the tab-cycling chords target what the user can
+    // SEE — the visible subset, not the full cross-space set.
+    openPanels: visiblePanels,
     projectOpenPanes,
     topics,
     focusedProjectPath,
@@ -987,7 +992,7 @@ function App() {
       )}
 
       {/* Collapsed sidebar expand button - only when no panels are open (panels have inline button in their header) */}
-      {sidebarCollapsed && openPanels.length === 0 && (
+      {sidebarCollapsed && visiblePanels.length === 0 && (
         <div
           className="absolute left-2 z-30 flex items-center gap-1"
           style={{ top: isMobile ? 'calc(0.5rem + env(safe-area-inset-top, 0px))' : '0.5rem' }}
@@ -997,7 +1002,7 @@ function App() {
       )}
 
       {/* Window close button (top-right) - only in Electron and when no panels open */}
-      {isElectron && openPanels.length === 0 && (
+      {isElectron && visiblePanels.length === 0 && (
         <button
           onClick={() => {
             // Use native bridge if available (macOS app), fallback to window.close()
@@ -1036,8 +1041,15 @@ function App() {
             flex column so PanelGrid sizes exactly as before. */}
         <div ref={contentFlipRef} className="content-flip-layer flex-1 flex flex-col min-h-0 min-w-0">
         <ErrorBoundary fallbackMessage="Panel error">
+        {/* Spazi: the grid gets the VISIBLE subset (openPanels stays the full
+            store-backed set — see usePanelLifecycle.visiblePanels) and
+            remounts per space (key) so per-space grid layouts stay isolated:
+            PanelGrid prunes soloCells/gridRows against its openPanels prop,
+            and a filtered set against a SHARED layout would erase the other
+            spaces' geometry on every switch. */}
         <PanelGrid
-          openPanels={openPanels}
+          key={activeSpaceId}
+          openPanels={visiblePanels}
           focusedPanelId={focusedPanelId}
           onFocusPanel={handleFocusPanel}
           onClosePanel={handleClosePanelDeferred}

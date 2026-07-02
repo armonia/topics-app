@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState } from 'react';
 import type { PanelGridRow, PanelGridCellStack } from '../../types';
+import { DEFAULT_SPACE_ID } from '../../state/pane/types';
 import { soloCellsFromFlat, flattenSoloCells } from './soloCells';
 
 /**
@@ -83,15 +84,30 @@ export function sanitizeRow(raw: unknown): PanelGridRow | null {
  * PanelGrid owns a non-legacy, device-local row/column overlay that survives
  * reload but does NOT cross devices — that's the pane-store's job via
  * syncServer middleware. This hook owns the three fields stored under
- * `topics-panel-grid-layout` so the component file stays focused on layout
- * math and DnD, not JSON serialization.
+ * `topics-panel-grid-layout:<spaceId>` so the component file stays focused on
+ * layout math and DnD, not JSON serialization.
+ *
+ * Spazi: the layout is PER-SPACE — PanelGrid prunes soloCells/gridRows against
+ * its (visible) openPanels prop, so a shared key would be destroyed on every
+ * space switch by the pruning pass of whichever space is mounted. Each space
+ * writes its own suffixed key and PanelGrid remounts via key={activeSpaceId},
+ * so the initializers re-read on switch. The DEFAULT space falls back to the
+ * legacy unsuffixed key on first read (zero-loss migration) and keeps
+ * MIRRORING it on write so a rollback to pre-Spazi code still finds the
+ * layout (same precedent as the flat `soloTopicIds` mirror below).
  *
  * Initial state is read once per mount via each useState initializer; the
- * single persist `useEffect` writes all three keys together so they stay
+ * single persist `useEffect` writes all three fields together so they stay
  * consistent in storage.
  */
 
-const STORAGE_KEY = 'topics-panel-grid-layout';
+const STORAGE_KEY_BASE = 'topics-panel-grid-layout';
+
+/** Per-space storage key. The legacy unsuffixed key remains the default
+ *  space's read-fallback + write-mirror. */
+export function panelGridStorageKey(spaceId: string): string {
+  return `${STORAGE_KEY_BASE}:${spaceId}`;
+}
 
 interface PanelGridPersistedData {
   gridRows?: PanelGridRow[];
@@ -135,9 +151,14 @@ function sanitizeRowHeights(raw: unknown): number[] | undefined {
   return heights.map(h => h / sum);
 }
 
-function readPersisted(): PanelGridPersistedData {
+function readPersisted(spaceId: string): PanelGridPersistedData {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    // Per-space key first; the DEFAULT space additionally falls back to the
+    // legacy unsuffixed key (pre-Spazi layouts migrate losslessly on first
+    // load — the next write lands on the suffixed key).
+    const raw =
+      localStorage.getItem(panelGridStorageKey(spaceId)) ??
+      (spaceId === DEFAULT_SPACE_ID ? localStorage.getItem(STORAGE_KEY_BASE) : null);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return {};
@@ -171,13 +192,15 @@ export interface PanelGridPersistence {
   setSoloCells: React.Dispatch<React.SetStateAction<string[][]>>;
 }
 
-export function usePanelGridPersistence(): PanelGridPersistence {
+export function usePanelGridPersistence(spaceId: string): PanelGridPersistence {
   // Read localStorage once per mount instead of three times (one per useState
   // initializer). JSON.parse on a non-trivial payload isn't free, and the
   // three reads are always consistent anyway — they write together. Holding it
   // in lazy `useState` (not a ref) keeps the read out of render on re-renders
   // while staying readable inside the sibling state initializers.
-  const [initial] = useState<PanelGridPersistedData>(readPersisted);
+  // `spaceId` is mount-stable by contract: PanelGrid remounts via
+  // key={activeSpaceId}, so the lazy initializers re-read on a space switch.
+  const [initial] = useState<PanelGridPersistedData>(() => readPersisted(spaceId));
   const [gridRows, setGridRows] = useState<PanelGridRow[]>(
     () => initial.gridRows ?? [],
   );
@@ -205,21 +228,22 @@ export function usePanelGridPersistence(): PanelGridPersistence {
   // "split layout doesn't survive reload".
   useLayoutEffect(() => {
     try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          gridRows,
-          gridRowHeights,
-          soloCells: soloCellsRaw,
-          // Keep a flat mirror so a rollback to pre-multi-tab code still finds
-          // the user's split topics (it ignores `soloCells`).
-          soloTopicIds: flattenSoloCells(soloCellsRaw),
-        }),
-      );
+      const payload = JSON.stringify({
+        gridRows,
+        gridRowHeights,
+        soloCells: soloCellsRaw,
+        // Keep a flat mirror so a rollback to pre-multi-tab code still finds
+        // the user's split topics (it ignores `soloCells`).
+        soloTopicIds: flattenSoloCells(soloCellsRaw),
+      });
+      localStorage.setItem(panelGridStorageKey(spaceId), payload);
+      // Rollback mirror: pre-Spazi builds read only the unsuffixed key. The
+      // default space keeps it in lockstep (same rationale as soloTopicIds).
+      if (spaceId === DEFAULT_SPACE_ID) localStorage.setItem(STORAGE_KEY_BASE, payload);
     } catch {
       /* quota exceeded / private mode — silent */
     }
-  }, [gridRows, gridRowHeights, soloCellsRaw]);
+  }, [gridRows, gridRowHeights, soloCellsRaw, spaceId]);
 
   return {
     gridRows,
@@ -231,4 +255,4 @@ export function usePanelGridPersistence(): PanelGridPersistence {
   };
 }
 
-export const PANEL_GRID_STORAGE_KEY = STORAGE_KEY;
+export const PANEL_GRID_STORAGE_KEY = STORAGE_KEY_BASE;

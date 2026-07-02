@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { sanitizeSnapshot, KNOWN_PANE_TYPES } from "./sanitizeSnapshot";
 import type { ClosedPaneRecord } from "../types";
-import { CLOSED_STACK_MAX } from "../types";
+import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, SPACES_MAX } from "../types";
 
 describe("sanitizeSnapshot (audit fixes)", () => {
   test("KNOWN_PANE_TYPES includes the full PaneType union", () => {
@@ -291,5 +291,86 @@ describe("sanitizeSnapshot (audit fixes)", () => {
     // 'terminal:dup' would otherwise render its window twice — kept in g1, stripped from g2.
     expect(out!.groups!.g1.paneIds).toEqual(["terminal:dup", "chat:a"]);
     expect(out!.groups!.g2.paneIds).toEqual(["chat:b"]);
+  });
+});
+
+describe("sanitizeSnapshot (Spazi)", () => {
+  test("spaceId ROUND-TRIPS sanitizePane (the B1/B2 silent-erase regression lock)", () => {
+    // A field missing from the sanitizePane whitelist is erased on EVERY
+    // hydrate — membership would silently flatten back to the default space
+    // on the first server round-trip. This test pins the whitelist entry.
+    const out = sanitizeSnapshot({
+      panes: {
+        "chat:t1": { id: "chat:t1", type: "chat", title: "A", spaceId: "space:work" },
+      },
+    });
+    expect(out!.panes!["chat:t1"].spaceId).toBe("space:work");
+  });
+
+  test("a default-space spaceId is normalised to ABSENT (canonical encoding)", () => {
+    const out = sanitizeSnapshot({
+      panes: {
+        "chat:t1": { id: "chat:t1", type: "chat", title: "A", spaceId: DEFAULT_SPACE_ID },
+      },
+    });
+    expect(out!.panes!["chat:t1"].spaceId).toBeUndefined();
+  });
+
+  test("non-string / empty spaceId is dropped, the pane survives", () => {
+    const out = sanitizeSnapshot({
+      panes: {
+        a: { id: "a", type: "chat", title: "", spaceId: 42 },
+        b: { id: "b", type: "chat", title: "", spaceId: "" },
+      },
+    });
+    expect(out!.panes!.a.spaceId).toBeUndefined();
+    expect(out!.panes!.b.spaceId).toBeUndefined();
+    expect(Object.keys(out!.panes!).sort()).toEqual(["a", "b"]);
+  });
+
+  test("valid spaces registry passes through; garbage records are dropped", () => {
+    const out = sanitizeSnapshot({
+      spaces: {
+        "space:a": { id: "space:a", name: "Lavoro", order: 1, updatedAt: 123 },
+        "space:tomb": { id: "space:tomb", name: "", order: 2, updatedAt: 456, deleted: true },
+        "space:mismatch": { id: "space:other", name: "x", order: 0, updatedAt: 1 }, // id ≠ key
+        "space:garbage": "not-an-object",
+        [DEFAULT_SPACE_ID]: { id: DEFAULT_SPACE_ID, name: "Hijack", order: 0, updatedAt: 9e15 },
+      },
+    });
+    expect(out!.spaces!["space:a"]).toEqual({ id: "space:a", name: "Lavoro", order: 1, updatedAt: 123 });
+    expect(out!.spaces!["space:tomb"].deleted).toBe(true);
+    expect(out!.spaces!["space:mismatch"]).toBeUndefined();
+    expect(out!.spaces!["space:garbage"]).toBeUndefined();
+    // The default space is implicit — a remote record must not rename/delete it.
+    expect(out!.spaces![DEFAULT_SPACE_ID]).toBeUndefined();
+  });
+
+  test("spaces scalars are coerced (NaN order / non-number updatedAt)", () => {
+    const out = sanitizeSnapshot({
+      spaces: {
+        "space:a": { id: "space:a", name: 42, order: NaN, updatedAt: "yesterday", deleted: "yes" },
+      },
+    });
+    expect(out!.spaces!["space:a"]).toEqual({ id: "space:a", name: "", order: 0, updatedAt: 0 });
+  });
+
+  test("spaces registry capped at SPACES_MAX keeping the most-recently-updated", () => {
+    const spaces: Record<string, unknown> = {};
+    for (let i = 0; i < SPACES_MAX + 5; i++) {
+      spaces[`space:${i}`] = { id: `space:${i}`, name: `s${i}`, order: i, updatedAt: i };
+    }
+    const out = sanitizeSnapshot({ spaces });
+    expect(Object.keys(out!.spaces!)).toHaveLength(SPACES_MAX);
+    expect(out!.spaces!["space:0"]).toBeUndefined();
+    expect(out!.spaces![`space:${SPACES_MAX + 4}`]).toBeDefined();
+  });
+
+  test("inbound activeSpaceId is STRIPPED (device-local contract, focusedPaneId pattern)", () => {
+    const out = sanitizeSnapshot({
+      panes: {},
+      activeSpaceId: "space:hijack",
+    });
+    expect((out as Record<string, unknown>).activeSpaceId).toBeUndefined();
   });
 });

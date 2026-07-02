@@ -9,6 +9,8 @@ import { getProjectGridWeight, subscribeProjectGridWeights, type ProjectGridWeig
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
+import { SpaceSwitcher } from './SpaceSwitcher';
+import { usePaneStore } from '../../state/pane/store';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
@@ -326,6 +328,11 @@ export function PanelGrid({
   // for the rationale.
   const isServerHydrated = useServerHydrated();
 
+  // Active Spazio — the grid layout is PER-SPACE (App remounts this component
+  // via key={activeSpaceId}, so the value is mount-stable and the persistence
+  // initializers re-read the per-space key on every switch).
+  const activeSpaceId = usePaneStore((s) => s.activeSpaceId);
+
   const {
     gridRows,
     setGridRows,
@@ -333,7 +340,7 @@ export function PanelGrid({
     setGridRowHeights,
     soloCellsRaw,
     setSoloCells,
-  } = usePanelGridPersistence();
+  } = usePanelGridPersistence(activeSpaceId);
 
   // Effective split cells, pruned to currently-open panels (drops closed topics
   // and any emptied cell) so naturalGridItems never references a gone pane.
@@ -2238,7 +2245,12 @@ export function PanelGrid({
 
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
+    // The switcher stays reachable when the ACTIVE space is empty (its tabs
+    // may all live in other Spazi) — on mobile too, or hidden panes become
+    // unreachable. It renders null while no user space exists.
     return (
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+      <SpaceSwitcher />
       <div
         ref={containerRef}
         className={`flex-1 flex items-center justify-center bg-surface transition-colors ${
@@ -2287,6 +2299,7 @@ export function PanelGrid({
           )}
         </div>
       </div>
+      </div>
     );
   }
 
@@ -2296,7 +2309,14 @@ export function PanelGrid({
   // it — would render the same window twice. Skip any key already painted. Reset
   // per render; purely subtractive by exact key.
   const seenGridKeys = new Set<string>();
+  // The SpaceSwitcher mounts OUTSIDE the grid container: the container's
+  // absolute overlays (drop zones, row-gap strips) compute percentages
+  // against ITS height, so the strip must not sit inside it. Renders null
+  // until a user space exists; renders on mobile too (the legacy <768px
+  // branch shares this wrapper).
   return (
+    <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+    <SpaceSwitcher />
     <div
       ref={containerRef}
       data-split-surface
@@ -2511,6 +2531,7 @@ export function PanelGrid({
           )}
         </div>
       )}
+    </div>
     </div>
   );
 }

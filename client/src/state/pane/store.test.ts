@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { usePaneStore } from "./store";
+import { DEFAULT_SPACE_ID } from "./types";
 
 // Reset the singleton store between tests — it's a module-level Zustand
 // instance, so its state leaks across assertions without an explicit reset.
@@ -11,7 +12,10 @@ function resetStore(): void {
     closedStack: [],
     focusedPaneId: null,
     groupOrder: [],
+    spaces: {},
+    activeSpaceId: DEFAULT_SPACE_ID,
     lastSeq: 0,
+    lastServerSeq: 0,
   });
 }
 
@@ -94,5 +98,50 @@ describe("usePaneStore.dispatch (lastSeq monotonicity)", () => {
     // The ClosedPaneRecord seq should match the new lastSeq.
     const rec = usePaneStore.getState().closedStack[0];
     expect(rec.seq).toBe(afterClose);
+  });
+
+  test("HYDRATE carrying a spaces registry stays server-authoritative (I1: no dispatcher lastSeq bump)", () => {
+    // Enlarging the snapshot with `spaces` must not change HYDRATE's
+    // classification: the reducer installs the payload's lastSeq verbatim
+    // and the dispatcher must NOT increment past it, or the next WS
+    // broadcast at the same server_seq is dropped by the LWW gate.
+    // Far above anything the module-level `_seq` counter could have reached
+    // in this file — the assertion below must observe the INSTALLED value.
+    const serverSeq = 1_000_000;
+    usePaneStore.getState().dispatch({
+      type: "HYDRATE_FROM_SNAPSHOT",
+      payload: {
+        snapshot: {
+          seq: serverSeq,
+          server_seq: serverSeq,
+          lastSeq: serverSeq,
+          panes: {},
+          groups: {},
+          closedStack: [],
+          spaces: {
+            "space:a": { id: "space:a", name: "Lavoro", order: 0, updatedAt: 10 },
+          },
+        },
+      },
+    });
+    const s = usePaneStore.getState();
+    expect(s.spaces["space:a"]).toBeDefined();
+    // Server-authoritative: lastSeq === the installed value, NOT value + 1.
+    expect(s.lastSeq).toBe(serverSeq);
+    expect(s.lastServerSeq).toBe(serverSeq);
+  });
+
+  test("SET_ACTIVE_SPACE is a plain local dispatch (bumps lastSeq — FOCUS_PANE precedent)", () => {
+    usePaneStore.setState({
+      spaces: { "space:a": { id: "space:a", name: "A", order: 0, updatedAt: 1 } },
+    });
+    // Align the store's lastSeq with the module-level `_seq` counter (it is
+    // never reset between tests) so the +1 assertion is exact.
+    usePaneStore.getState().dispatch({ type: "FOCUS_PANE", payload: { id: null } });
+    const before = usePaneStore.getState().lastSeq;
+    usePaneStore.getState().dispatch({ type: "SET_ACTIVE_SPACE", payload: { id: "space:a" } });
+    const s = usePaneStore.getState();
+    expect(s.activeSpaceId).toBe("space:a");
+    expect(s.lastSeq).toBe(before + 1);
   });
 });

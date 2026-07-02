@@ -1,4 +1,5 @@
 import type { PaneState, PaneAction } from '../types';
+import { isLiveSpaceId } from './spaces';
 
 export function undoReducer(state: PaneState, action: PaneAction): void {
   if (action.type !== 'UNDO_CLOSE') return;
@@ -18,6 +19,12 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   // record lingering from a pre-fix build could still carry one. Re-inserting
   // it here would re-introduce the cross-device leak.
   const { scrollOffset: _staleScroll, ...paneWithoutScroll } = record.pane;
+  // Spazio membership: an undo into a DELETED (or unknown) space resolves to
+  // the default space — otherwise the restored tab would be invisible in
+  // every switcher chip while still occupying the store.
+  if (paneWithoutScroll.spaceId && !isLiveSpaceId(paneWithoutScroll.spaceId, state.spaces)) {
+    delete paneWithoutScroll.spaceId;
+  }
   state.panes[record.id] = { ...paneWithoutScroll };
 
   // Ensure the target group still exists; if not, recreate it
