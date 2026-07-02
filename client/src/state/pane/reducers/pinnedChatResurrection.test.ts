@@ -40,6 +40,7 @@ const blank = (): PaneState => ({
   groups: {},
   projects: {},
   closedStack: [],
+  tombstones: {},
   focusedPaneId: null,
   groupOrder: [],
   spaces: {},

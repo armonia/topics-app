@@ -27,6 +27,10 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   }
   state.panes[record.id] = { ...paneWithoutScroll };
 
+  // Undo re-opens the pane — retract its durable tombstone so the restored tab
+  // isn't stripped on the next union hydrate (mirrors OPEN_PANE's clear).
+  if (state.tombstones) delete state.tombstones[record.id];
+
   // Ensure the target group still exists; if not, recreate it
   if (!state.groups[record.groupId]) {
     state.groups[record.groupId] = {

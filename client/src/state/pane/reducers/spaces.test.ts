@@ -9,6 +9,7 @@ const blankState = (): PaneState => ({
   groups: {},
   projects: {},
   closedStack: [],
+  tombstones: {},
   focusedPaneId: null,
   groupOrder: [],
   spaces: {},

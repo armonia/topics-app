@@ -50,6 +50,10 @@ function buildSnapshot(s: PaneState, opts: SnapshotOptions) {
     groups: groupsOut,
     groupOrder: s.groupOrder,
     closedStack: closedStackOut,
+    // Durable close markers ride BOTH snapshot variants (server + local) so a
+    // durable pane stays closed across a reload and cross-device even after its
+    // closedStack record fell out of the FIFO-50. Merged per-id on hydrate.
+    tombstones: s.tombstones,
     // Spazi registry rides the snapshot in BOTH variants (server + local) so
     // membership survives reloads and syncs cross-device; the reducer merges
     // it per-id on hydrate (mergeSpaces), never wholesale.

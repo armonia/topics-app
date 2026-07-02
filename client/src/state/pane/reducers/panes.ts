@@ -1,10 +1,40 @@
 import type { PaneState, PaneAction, ClosedPaneRecord, PaneType } from '../types';
-import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID } from '../types';
+import { CLOSED_STACK_MAX, TOMBSTONES_MAX, DEFAULT_SPACE_ID } from '../types';
 import { groupsReducer } from './groups';
 import { projectsReducer } from './projects';
 import { undoReducer } from './undo';
 import { spacesReducer, mergeSpaces } from './spaces';
 import { sanitizeSnapshot, KNOWN_PANE_TYPES } from './sanitizeSnapshot';
+
+/**
+ * Record a durable close marker for `id`. Kept SEPARATE from the FIFO-bounded
+ * closedStack so it survives >50 subsequent closes — see PaneState.tombstones.
+ * Older-write guard: only advance closedAt (a stale re-close must not shadow a
+ * newer reopen that already cleared it in the same merge window).
+ */
+function recordTombstone(state: PaneState, id: string, closedAt: number): void {
+  if (!state.tombstones) state.tombstones = {};
+  const prev = state.tombstones[id];
+  if (prev === undefined || closedAt > prev) state.tombstones[id] = closedAt;
+  capTombstones(state);
+}
+
+/** Bound the tombstone map, keeping the most-recently-closed ids. */
+function capTombstones(state: PaneState): void {
+  const ids = Object.keys(state.tombstones);
+  if (ids.length <= TOMBSTONES_MAX) return;
+  const kept = ids
+    .sort((a, b) => (state.tombstones[b] ?? 0) - (state.tombstones[a] ?? 0))
+    .slice(0, TOMBSTONES_MAX);
+  const next: Record<string, number> = {};
+  for (const id of kept) next[id] = state.tombstones[id];
+  state.tombstones = next;
+}
+
+/** Retract a close marker (reopen / undo / explicit clear / remap). */
+function clearTombstone(state: PaneState, id: string): void {
+  if (state.tombstones && id in state.tombstones) delete state.tombstones[id];
+}
 
 export function paneReducer(state: PaneState, action: PaneAction): void {
   switch (action.type) {
@@ -22,6 +52,10 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       {
         const idx = state.closedStack.findIndex((r) => r.id === pane.id);
         if (idx >= 0) state.closedStack.splice(idx, 1);
+        // Also retract the durable tombstone (the FIFO-independent marker the
+        // HYDRATE strip consults) — otherwise a re-opened durable pane would be
+        // stripped on the next union even though its closedStack record is gone.
+        clearTombstone(state, pane.id);
       }
       // Seed stableKey on first insert so PANE_ID_REMAP has something to
       // preserve. For panes that come back through hydration (sanitizeSnapshot
@@ -158,6 +192,8 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       };
       state.closedStack.push(record);
       while (state.closedStack.length > CLOSED_STACK_MAX) state.closedStack.shift(); // FIFO
+      // Durable tombstone (survives the FIFO eviction above).
+      recordTombstone(state, id, record.closedAt);
       // Remove pane from group
       const idx = group.paneIds.indexOf(id);
       if (idx >= 0) group.paneIds.splice(idx, 1);
@@ -187,6 +223,8 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         seq: state.lastSeq + 1,
       });
       while (state.closedStack.length > CLOSED_STACK_MAX) state.closedStack.shift(); // FIFO
+      // Durable tombstone for the project-inner close (same as CLOSE_PANE).
+      recordTombstone(state, record.id, record.closedAt ?? Date.now());
       break;
     }
     case 'UNDO_CLOSE': {
@@ -247,6 +285,9 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       break;
     }
     case 'HYDRATE_FROM_SNAPSHOT': {
+      // Legacy/pre-tombstones fixtures and old persisted snapshots may lack the
+      // field; the merge + strip below read it unconditionally.
+      if (!state.tombstones) state.tombstones = {};
       // Validate + strip device-local fields (B3). Payload may arrive from
       // server WS, cross-tab storage, or the 500ms GET fallback — all
       // untrusted. `sanitizeSnapshot` returns null if the root shape is
@@ -301,7 +342,14 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // Drafts (device-local scratch) are preserved separately just below; this
       // block subsumes the old boot-window special case (the first hydrate is
       // simply the first union).
-      const remoteClosedIds = new Set((clean.closedStack ?? []).map((r) => r.id));
+      // A remote close arrives as a closedStack record AND/OR a durable
+      // tombstone. Consult BOTH so a durable pane whose remote closedStack
+      // record already aged out of the FIFO-50 (but is still in the remote
+      // tombstone map) is dropped from the union, not kept as local-only.
+      const remoteClosedIds = new Set([
+        ...(clean.closedStack ?? []).map((r) => r.id),
+        ...Object.keys(clean.tombstones ?? {}),
+      ]);
       const localKeptPanes: PaneState['panes'] = {};
       const localKeptByGroup: Record<string, string[]> = {};
       {
@@ -356,6 +404,20 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         merged.sort((a, b) => (a.closedAt ?? 0) - (b.closedAt ?? 0));
         state.closedStack = merged;
       }
+      // Durable tombstone map — per-id union keeping the newest closedAt. Same
+      // "MERGE, never replace" reasoning as closedStack above, but WITHOUT the
+      // FIFO-50 bound: this is the marker the strip below actually consults, so
+      // a durable pane closed 50+ tabs ago stays closed across a stale union.
+      // A local reopen (OPEN_PANE) already deleted the id here, so the merge
+      // only re-adds ids the local client hasn't retracted.
+      if (clean.tombstones) {
+        for (const [id, closedAt] of Object.entries(clean.tombstones)) {
+          if (typeof closedAt !== 'number') continue;
+          const prev = state.tombstones[id];
+          if (prev === undefined || closedAt > prev) state.tombstones[id] = closedAt;
+        }
+        capTombstones(state);
+      }
       // Bidirectional tombstone strip. The `remoteClosedIds` filter above only
       // drops a LOCAL pane the REMOTE closed; it does nothing about the reverse
       // — a stale snapshot (older cross-tab write, a warm-boot localStorage
@@ -363,20 +425,23 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // `clean.panes` STILL lists a pane this client already tombstoned.
       // `state.panes = clean.panes` applied it verbatim, resurrecting the
       // just-closed tab (the browser/terminal-tab reappears-after-reload bug:
-      // durable pane + one-directional union). Now that closedStack holds the
-      // MERGED tombstone set, evict every applied pane whose id is tombstoned.
+      // durable pane + one-directional union). We evict every applied pane whose
+      // id is tombstoned — using the DURABLE `tombstones` map, not closedStack:
+      // closedStack is FIFO-bounded at 50, so after 50 further closes a durable
+      // pane's record fell out and a stale peer resurrected it. `tombstones` is
+      // the FIFO-independent marker and is a superset of closedStack's ids.
       //
       // A live tombstone means "closed, do not resurrect": OPEN_PANE (and every
       // reopen-history path — CLEAR_CLOSED_RECORD / UNDO_CLOSE / PANE_ID_REMAP)
       // clears it, so re-opening the SAME id on this client retracts the strip.
       // The one residual case — another client re-opens the exact same id within
-      // the tombstone's lifetime while this client still holds the record —
-      // self-heals: this client's next local OPEN of that id (or the record
-      // ageing out of the FIFO) clears it, and until then a stale resurrection
-      // is the worse failure. Local drafts / local-kept panes are re-injected
-      // below and are never in closedStack, so they're untouched.
+      // the tombstone's lifetime while this client still holds the marker —
+      // self-heals: this client's next local OPEN of that id clears it, and
+      // until then a stale resurrection is the worse failure. Local drafts /
+      // local-kept panes are re-injected below and are never tombstoned, so
+      // they're untouched.
       {
-        const tombstonedIds = new Set(state.closedStack.map((r) => r.id));
+        const tombstonedIds = new Set(Object.keys(state.tombstones));
         if (tombstonedIds.size > 0) {
           for (const id of tombstonedIds) {
             if (state.panes[id]) delete state.panes[id];
@@ -465,11 +530,17 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       const { id } = action.payload;
       const idx = state.closedStack.findIndex((r) => r.id === id);
       if (idx >= 0) state.closedStack.splice(idx, 1);
+      // removeClosedTab fires on REOPEN (the record is consumed as the tab
+      // comes back), so retract the durable tombstone too — else the reopened
+      // pane would be stripped on the next union.
+      clearTombstone(state, id);
       break;
     }
     case 'CLEAR_CLOSED_STACK': {
-      // Empty the stack. Timers for terminal records are cancelled by the
-      // adapter pre-dispatch; the reducer only owns the data.
+      // Empty the "recently closed" (⇧⌘T) list. Timers for terminal records are
+      // cancelled by the adapter pre-dispatch; the reducer only owns the data.
+      // Durable `tombstones` are DELIBERATELY kept: clearing the undo history
+      // must not un-close those panes (a stale peer would resurrect them).
       state.closedStack = [];
       break;
     }
@@ -542,6 +613,11 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         if (rec.id === from) rec.id = to;
         rec.tabOrderSnapshot = rec.tabOrderSnapshot.map((x) => (x === from ? to : x));
       }
+      // `to` is now a LIVE pane — it must not be tombstoned (a terminal reopen
+      // remaps the dead id to a fresh live one). Drop `from`'s marker and make
+      // sure `to` carries none.
+      clearTombstone(state, from);
+      clearTombstone(state, to);
       break;
     }
   }

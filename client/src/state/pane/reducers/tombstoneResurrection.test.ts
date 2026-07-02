@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
 import { selectLocalSnapshot } from "../selectors";
+import { DEFAULT_SPACE_ID } from "../types";
 import type { PaneState, Pane } from "../types";
 
 /**
@@ -24,6 +25,9 @@ const blank = (): PaneState => ({
   groups: {},
   projects: {},
   closedStack: [],
+  tombstones: {},
+  spaces: {},
+  activeSpaceId: DEFAULT_SPACE_ID,
   focusedPaneId: null,
   groupOrder: [],
   lastSeq: 0,
