@@ -1115,8 +1115,20 @@ input[type="range"]::-webkit-slider-thumb {
  *
  * Host: the pane root (`position: relative; overflow: hidden`); border-radius
  * inherit follows the rounded floating-splits cards too. */
+/* IRREGULAR sweep — not a metronome rotation (Attilio: "deve essere tipo a
+ * caso come quella di Claude e Siri"). Multi-stop keyframes with ease-in-out
+ * between stops: the wheel surges, dwells, swings BACK a little, surges again,
+ * and its scale pulses so the colored lobes drift closer/farther from the
+ * edge. Paired with the counter-wheel below (co-prime 13s vs 21s periods) the
+ * combined phase never visibly repeats — it reads as organic, random light. */
 @keyframes chat-working-spin {
-  to { transform: rotate(360deg); }
+  0%   { transform: rotate(0deg)    scale(1); }
+  16%  { transform: rotate(118deg)  scale(1.14); }
+  31%  { transform: rotate(87deg)   scale(1.03); }
+  52%  { transform: rotate(238deg)  scale(1.2); }
+  70%  { transform: rotate(205deg)  scale(1.05); }
+  86%  { transform: rotate(322deg)  scale(1.12); }
+  100% { transform: rotate(360deg)  scale(1); }
 }
 .chat-working-aura {
   position: absolute;
@@ -1170,7 +1182,7 @@ input[type="range"]::-webkit-slider-thumb {
     rgba(255, 55, 175, 0.8)  280deg,
     rgba(50, 200, 255, 0.85) 360deg
   );
-  animation: chat-working-spin 6s linear infinite;
+  animation: chat-working-spin 13s ease-in-out infinite;
   will-change: transform;
 }
 /* SECOND WHEEL — counter-rotating, slower, with an eased (non-linear) cycle so
@@ -1180,7 +1192,12 @@ input[type="range"]::-webkit-slider-thumb {
  * and pool instead of rotating as one rigid disc. Same perf model (transform
  * only, compositor). */
 @keyframes chat-working-spin-rev {
-  to { transform: rotate(-360deg); }
+  0%   { transform: rotate(0deg)     scale(1.08); }
+  22%  { transform: rotate(-96deg)   scale(1); }
+  38%  { transform: rotate(-71deg)   scale(1.16); }
+  61%  { transform: rotate(-224deg)  scale(1.02); }
+  79%  { transform: rotate(-198deg)  scale(1.18); }
+  100% { transform: rotate(-360deg)  scale(1.08); }
 }
 .chat-working-aura-band::after {
   content: '';
@@ -1197,7 +1214,7 @@ input[type="range"]::-webkit-slider-thumb {
     rgba(255, 55, 175, 0.55) 300deg,
     rgba(10, 132, 255, 0)   360deg
   );
-  animation: chat-working-spin-rev 9.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: chat-working-spin-rev 21s ease-in-out infinite;
   will-change: transform;
 }
 /* Irregular breathe — a multi-stop loop (not a symmetric alternate) so the
