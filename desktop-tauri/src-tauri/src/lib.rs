@@ -302,15 +302,26 @@ fn sidecar_data_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
 /// panicking.
 async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     // 1) Prefer an external server on :3333 (Attilio's launchd, or a dev server).
-    if probe_topics_server(DEFAULT_UPSTREAM_PORT, true).await {
-        eprintln!("[sidecar] external TLS server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
-        let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
-        return;
-    }
-    if probe_topics_server(DEFAULT_UPSTREAM_PORT, false).await {
-        eprintln!("[sidecar] external plain-HTTP server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
-        let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: false });
-        return;
+    // RETRY for a few seconds before falling back: a single instant probe raced a
+    // `launchctl kickstart -k` restart once — the external server was down for the
+    // ~2s the app booted in, so the shell silently forked an EMPTY standalone
+    // sidecar universe and every real topic/terminal "disappeared". A machine that
+    // has an external server usually gets it back within seconds; a truly virgin
+    // machine only pays this wait ONCE on first launch (then the sidecar spawns).
+    for attempt in 0..8u32 {
+        if probe_topics_server(DEFAULT_UPSTREAM_PORT, true).await {
+            eprintln!("[sidecar] external TLS server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+            return;
+        }
+        if probe_topics_server(DEFAULT_UPSTREAM_PORT, false).await {
+            eprintln!("[sidecar] external plain-HTTP server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: false });
+            return;
+        }
+        if attempt < 7 {
+            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        }
     }
 
     // 2) Nothing external — spawn the bundled sidecar (plain HTTP, isolated data).
