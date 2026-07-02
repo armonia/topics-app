@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   decideTerminalBanner,
   isBannerPhase,
+  isTabActivelyVisible,
   terminalDedupeKey,
   terminalPanelId,
   type TerminalNotifyInput,
@@ -32,6 +33,25 @@ describe("isBannerPhase — actionable/terminal set only", () => {
     for (const p of ["starting", "running", "tool-running", "paused", "dormant"] as const) {
       expect(isBannerPhase(p)).toBe(false);
     }
+  });
+});
+
+describe("isTabActivelyVisible — tab AND window focus", () => {
+  test("active tab + focused window → actively visible (suppress)", () => {
+    expect(isTabActivelyVisible(true, true)).toBe(true);
+  });
+  test("active tab + BACKGROUNDED window → NOT visible (banner must fire)", () => {
+    // The regression this guards: a backgrounded Topics window whose last-active
+    // tab is this session used to suppress the very banner the user needs.
+    expect(isTabActivelyVisible(true, false)).toBe(false);
+  });
+  test("inactive tab → never visible, regardless of window focus", () => {
+    expect(isTabActivelyVisible(false, true)).toBe(false);
+    expect(isTabActivelyVisible(false, false)).toBe(false);
+  });
+  test("windowHasFocus defaults to true (DOM-less callers keep tab-only behaviour)", () => {
+    expect(isTabActivelyVisible(true)).toBe(true);
+    expect(isTabActivelyVisible(false)).toBe(false);
   });
 });
 
