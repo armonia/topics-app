@@ -82,8 +82,10 @@ describe('parseChatWsInbound — malformed', () => {
 });
 
 describe('schema completeness', () => {
-  test('exactly 8 variants (6 chat/topic + hello WS-02 + subscribe P6)', () => {
-    expect(chatWsInboundSchema.options.length).toBe(8);
+  // presence:announce landed in 724284d3 (cross-window presence protocol),
+  // taking the union from 8 → 9 variants.
+  test('exactly 9 variants (6 chat/topic + hello WS-02 + subscribe P6 + presence:announce)', () => {
+    expect(chatWsInboundSchema.options.length).toBe(9);
   });
 
   test('variants cover the documented client emit sites', () => {
@@ -92,8 +94,21 @@ describe('schema completeness', () => {
       const shape: any = (opt as any).shape;
       return shape.type.value;
     });
+    // presence:announce is emitted from client/src/hooks/usePanelLifecycle.ts
+    // (window declares its open-set/focus/detach state; server re-broadcasts
+    // the full window list as presence:windows).
     expect(new Set(literals)).toEqual(
-      new Set(['focus', 'typing', 'ping', 'subscribe', 'drag:start', 'drag:end', 'drag:drop', 'hello']),
+      new Set([
+        'focus',
+        'typing',
+        'ping',
+        'subscribe',
+        'drag:start',
+        'drag:end',
+        'drag:drop',
+        'hello',
+        'presence:announce',
+      ]),
     );
   });
 });

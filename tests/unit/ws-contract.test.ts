@@ -210,8 +210,10 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
 // ----- Contract: chat-ws-inbound (main /ws inbound + handshake hello) -------
 
 describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
-  test('exactly 8 variants in the v3 set', () => {
-    expect(chatWsInboundSchema.options.length).toBe(8);
+  // presence:announce landed in 724284d3 (cross-window presence protocol),
+  // taking the union from 8 → 9 variants.
+  test('exactly 9 variants in the v3 set', () => {
+    expect(chatWsInboundSchema.options.length).toBe(9);
   });
 
   test('discriminator literals are frozen', () => {
@@ -225,6 +227,7 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
       'focus',
       'hello',
       'ping',
+      'presence:announce',
       'subscribe',
       'typing',
     ]);
@@ -236,8 +239,19 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
     );
     if (!hello) throw new Error('hello variant missing');
     const sig = objectSignature(hello);
+    // The REQUIRED set is unchanged — 724284d3 added only OPTIONAL presence
+    // fields (windowId/windowLabel/detached/topicIds/focusedTopicId) so old
+    // clients keep parsing. topicIds is an optional array; hence arrayKeys now
+    // includes it alongside the still-required capabilities.
     expect(sig.requiredKeys).toEqual(['capabilities', 'clientVersion', 'protocolVersion', 'type']);
-    expect(sig.arrayKeys).toEqual(['capabilities']);
+    expect([...sig.optionalKeys].sort()).toEqual([
+      'detached',
+      'focusedTopicId',
+      'topicIds',
+      'windowId',
+      'windowLabel',
+    ]);
+    expect([...sig.arrayKeys].sort()).toEqual(['capabilities', 'topicIds']);
     expect(sig.numberKeys).toEqual(['protocolVersion']);
   });
 });

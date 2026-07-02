@@ -187,6 +187,7 @@ describe('outbound registry contract', () => {
       'message:plan-status',
       'open-project',
       'pong',
+      'presence:windows',
       'project:archived',
       'project:deleted',
       'project:new',
