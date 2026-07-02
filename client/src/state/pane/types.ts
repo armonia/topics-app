@@ -77,9 +77,43 @@ export interface Pane {
   processId?: string;
   sessionKey?: string;
   terminalType?: 'shell' | 'claude-code' | 'codex';
+  /**
+   * Spazio (workspace) membership. Absent ⟺ the default space
+   * (DEFAULT_SPACE_ID) — old snapshots hydrate unchanged. SYNCED per-pane and
+   * rides the UNION hydrate like every other Pane field, so it MUST be
+   * whitelisted in sanitizePane (reducers/sanitizeSnapshot.ts) — a missing
+   * whitelist entry silently erases membership on every server round-trip
+   * (the review-round-12 B1/B2 failure class). Stamped centrally by the
+   * OPEN_PANE reducer from `state.activeSpaceId`.
+   */
+  spaceId?: string;
   // Device-local fields (never serialized to server snapshot):
   scrollOffset?: number;
 }
+
+/**
+ * A Spazio (workspace): a named group of app-level tabs. The registry syncs
+ * inside the pane snapshot and is merged PER-ID by `updatedAt` LWW on hydrate
+ * (never wholesale-replaced — two devices creating different spaces inside the
+ * debounce window must both survive). Deletion is a soft-delete tombstone IN
+ * the record (`deleted: true` + newer updatedAt wins) so a cross-client delete
+ * propagates without a new tombstone channel.
+ */
+export interface SpaceMeta {
+  id: string;
+  name: string;
+  order: number;
+  updatedAt: number;
+  deleted?: true;
+}
+
+/** The implicit default space. Never stored in the registry (absent
+ *  `pane.spaceId` ⟺ default) and never deletable — mirrors the
+ *  `group:default` carve-out. */
+export const DEFAULT_SPACE_ID = 'space:default';
+
+/** Runaway backstop for the spaces registry (mirrors MAX_COLS_PER_ROW). */
+export const SPACES_MAX = 32;
 
 export interface Group {
   id: string;
@@ -140,6 +174,22 @@ export interface PaneState {
   closedStack: ClosedPaneRecord[]; // bounded at 50, FIFO
   focusedPaneId: string | null; // DEVICE-LOCAL — never in server snapshot
   groupOrder: string[];
+  /**
+   * Spazi registry, keyed by space id. SYNCED inside the pane snapshot;
+   * merged per-id LWW by `updatedAt` on HYDRATE (mergeSpaces in
+   * reducers/spaces.ts), NEVER wholesale-replaced. The default space is
+   * implicit and never appears here.
+   */
+  spaces: Record<string, SpaceMeta>;
+  /**
+   * The Spazio this window is currently showing. DEVICE-LOCAL, exactly the
+   * focusedPaneId pattern: excluded from buildSnapshot outbound
+   * (selectors.ts), stripped by sanitizeSnapshot inbound, persisted
+   * synchronously to its own localStorage key (`pane-store-active-space`,
+   * persistLocal.ts) and boot-read only — device A switching spaces must
+   * never yank device B's view.
+   */
+  activeSpaceId: string;
   lastSeq: number;
   /**
    * Highest server-allocated LWW seq applied this session (0 = none yet).
@@ -215,6 +265,26 @@ export type PaneAction =
    *
    * Idempotent: if the id is unknown, the reducer is a no-op.
    */
-  | { type: 'PURGE_ORPHAN_PANE'; payload: { id: string } };
+  | { type: 'PURGE_ORPHAN_PANE'; payload: { id: string } }
+  /**
+   * Create / rename / reorder a Spazio. The reducer stamps
+   * `updatedAt = Date.now()` (the per-id LWW key) — callers never set it.
+   * Refuses DEFAULT_SPACE_ID (the default space is implicit, not a record).
+   */
+  | { type: 'SPACE_UPSERT'; payload: { space: { id: string; name?: string; order?: number } } }
+  /**
+   * Soft-delete a Spazio: sets `deleted: true` + a fresh updatedAt (the
+   * tombstone-in-record that propagates the delete cross-client) and
+   * reassigns member panes to the default space. Refuses DEFAULT_SPACE_ID.
+   */
+  | { type: 'SPACE_DELETE'; payload: { id: string } }
+  /**
+   * Switch this window's visible Spazio. DEVICE-LOCAL effect (activeSpaceId
+   * never crosses the network) — a plain dispatch on the FOCUS_PANE
+   * precedent: it bumps lastSeq (harmless debounced PUT whose synced content
+   * is unchanged). Hands focus off to the first visible pane when the
+   * currently-focused pane is not in the target space.
+   */
+  | { type: 'SET_ACTIVE_SPACE'; payload: { id: string } };
 
 export const CLOSED_STACK_MAX = 50;

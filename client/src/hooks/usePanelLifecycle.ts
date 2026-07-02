@@ -56,6 +56,9 @@ import {
   projectLayoutLocalKey,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
+import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors';
+import { isLiveSpaceId } from '../state/pane/reducers/spaces';
+import { DEFAULT_SPACE_ID } from '../state/pane/types';
 import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
 import {
   buildTerminalSessionBody,
@@ -175,6 +178,16 @@ export interface UsePanelLifecycleArgs {
 export interface UsePanelLifecycleReturn {
   state: {
     openPanels: string[];
+    /**
+     * `openPanels` filtered to the active Spazio — what the visible surfaces
+     * (PanelGrid, tab strips, next-focus math) render. `openPanels` stays the
+     * FULL unfiltered set: the React→store REORDER_PANES bridge (Effect B)
+     * runs on it, and filtering THAT would evict hidden panes from the store.
+     */
+    visiblePanels: string[];
+    /** The Spazio this window is showing (device-local; PanelGrid remounts
+     *  via key={activeSpaceId} so per-space grid layouts stay isolated). */
+    activeSpaceId: string;
     focusedPanelId: string | null;
     previewPanelId: string | null;
     nextPanelMode: 'side' | 'below';
@@ -281,6 +294,57 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // openPanel const directly in the effects reads it before declaration.
   const openPanelRef = useRef<(topicId: string, mode: 'preview' | 'permanent' | 'below', autoFocus?: boolean) => void>(() => {});
 
+  // ---- Spazi: visiblePanels derivation (derive, never mutate) ----
+  // openPanels stays the FULL set (Effect B's REORDER_PANES bridge depends on
+  // it); the render surfaces get this filtered view. Subscribed slices are
+  // structurally shared by Immer, so `panes`/`spaces` only change identity
+  // when a pane/space actually changes.
+  const activeSpaceId = usePaneStore((s) => s.activeSpaceId);
+  const storePanes = usePaneStore((s) => s.panes);
+  const storeSpaces = usePaneStore((s) => s.spaces);
+  const visiblePanels = useMemo(
+    () =>
+      isDetached
+        ? openPanels
+        : filterVisiblePaneIds(openPanels, storePanes, storeSpaces, activeSpaceId),
+    [isDetached, openPanels, storePanes, storeSpaces, activeSpaceId],
+  );
+
+  // Space died remotely (a hydrate brought its deleted:true tombstone) while
+  // this window was looking at it → fall back to the default space. Read-time
+  // resolution (resolvePaneSpace) already reassigned the panes; this just
+  // moves the viewport. SET_ACTIVE_SPACE resolves dead ids itself, so the
+  // dispatch is safe even if the registry changes again in flight.
+  useEffect(() => {
+    if (isDetached) return;
+    if (isLiveSpaceId(activeSpaceId, storeSpaces)) return;
+    usePaneStore.getState().dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: DEFAULT_SPACE_ID } });
+  }, [isDetached, activeSpaceId, storeSpaces]);
+
+  // Focus follows across Spazi: any path that focuses an OPEN pane living in
+  // another space (sidebar click, ⌘K, WS topic:switch / focus-suggest, tray
+  // navigation) switches the window to that pane's space — the one central
+  // hook instead of per-call-site SET_ACTIVE_SPACE sprinkles. The inverse
+  // (space switch away from the focused pane) is handled synchronously by the
+  // SET_ACTIVE_SPACE reducer's focus handoff, so the two rules can't fight.
+  useEffect(() => {
+    if (isDetached) return;
+    if (!focusedPanelId) return;
+    if (!openPanels.includes(focusedPanelId)) return;
+    if (visiblePanels.includes(focusedPanelId)) return;
+    const s = usePaneStore.getState();
+    const target = resolvePaneSpace(s.panes[focusedPanelId], s.spaces);
+    if (target !== s.activeSpaceId) {
+      // Push the focus into the STORE first: Effect C (React→store focus) is
+      // gated by storeSyncInternalRef and may not have run yet, so the
+      // SET_ACTIVE_SPACE reducer would otherwise read a STALE store focus and
+      // hand off to the space's first pane instead of the one just clicked.
+      // With the store focus current, the reducer sees it already lives in
+      // the target space and leaves it alone.
+      s.dispatch({ type: 'FOCUS_PANE', payload: { id: focusedPanelId } });
+      s.dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: target } });
+    }
+  }, [isDetached, focusedPanelId, openPanels, visiblePanels]);
 
   // ---- 4-6. Pane-store <-> React three-effect bridge (CRITIQUE C3) ----
   const storeSyncInternalRef = useRef(false);
@@ -308,7 +372,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (prev === storeFocus) return prev;
         if (storeFocus && storeOrder.includes(storeFocus)) return storeFocus;
         if (prev && storeOrder.includes(prev)) return prev;
-        return storeOrder[0] ?? storeFocus ?? null;
+        // Fallback prefers a pane VISIBLE in the active Spazio — landing on a
+        // hidden pane would make the focus-follow effect yank the window to
+        // another space on the next tick.
+        const visibleOrder = filterVisiblePaneIds(storeOrder, s.panes, s.spaces, s.activeSpaceId);
+        return visibleOrder[0] ?? storeFocus ?? null;
       });
       queueMicrotask(() => { storeSyncInternalRef.current = false; });
     };
@@ -1042,7 +1110,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // slot inherits focus, matching the project groups' rule and the
         // pre-shift in App.handleClosePanelDeferred. `next[next.length - 1]`
         // could snap focus to an unrelated split cell appended last.
-        setFocusedPanelId(next.length > 0 ? next[Math.min(panelIndex, next.length - 1)] : null);
+        //
+        // Spazi: the math runs on the VISIBLE subset — `next` still contains
+        // panes hidden in other spaces, and focusing one of those would make
+        // the focus-follow effect switch the whole window. Closing the last
+        // visible tab focuses null (the space stays, rendered empty).
+        const s = usePaneStore.getState();
+        const visNext = filterVisiblePaneIds(next, s.panes, s.spaces, s.activeSpaceId);
+        const visIndex = prev
+          .slice(0, panelIndex)
+          .filter(id => visNext.includes(id)).length;
+        setFocusedPanelId(visNext.length > 0 ? visNext[Math.min(visIndex, visNext.length - 1)] : null);
       }
       return next;
     });
@@ -1104,7 +1182,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     setOpenPanels(prev => {
       const next = prev.filter(id => id !== paneId);
       if (focusedPanelIdRef.current === paneId) {
-        setFocusedPanelId(next.length > 0 ? next[next.length - 1] : null);
+        // Spazi: hand focus to the last VISIBLE pane, not a hidden one (which
+        // would drag the window to another space via focus-follow).
+        const s = usePaneStore.getState();
+        const visNext = filterVisiblePaneIds(next, s.panes, s.spaces, s.activeSpaceId);
+        setFocusedPanelId(visNext.length > 0 ? visNext[visNext.length - 1] : null);
       }
       return next;
     });
@@ -1187,8 +1269,26 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: topicId } });
   }, [openPanel, openPanelsRef, terminalSessionsRef, topicsRef, workspaceProjectsRef]);
 
+  // Reorders arrive from the VISIBLE surface (PanelGrid gets visiblePanels),
+  // so `panels` may be a SUBSET of openPanels — panes hidden in other Spazi
+  // are absent. MERGE instead of replace: reordered members take their new
+  // relative order, hidden panes keep their slots (replacing outright would
+  // evict them from React state and reset their order via Effect B's
+  // permutation-guard re-append). Same merge shape as PanelGrid's
+  // handlePersistPoolReorder. A full-set reorder degenerates to the identity
+  // merge, so legacy callers are unaffected.
   const handleReorderPanels = useCallback((panels: string[]) => {
-    setOpenPanels(panels);
+    setOpenPanels(prev => {
+      const prevSet = new Set(prev);
+      const orderable = panels.filter(id => prevSet.has(id));
+      const orderSet = new Set(orderable);
+      let i = 0;
+      const merged = prev.map(id => (orderSet.has(id) ? orderable[i++] : id));
+      for (const id of panels) {
+        if (!prevSet.has(id)) merged.push(id); // defensive: brand-new id
+      }
+      return merged;
+    });
   }, []);
 
   const handleOpenPanelAt = useCallback((topicId: string, index: number) => {
@@ -1559,6 +1659,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   return {
     state: {
       openPanels,
+      visiblePanels,
+      activeSpaceId,
       focusedPanelId,
       previewPanelId,
       nextPanelMode,

@@ -19,8 +19,8 @@
  *     casting.
  */
 
-import type { Pane, PaneType, Group, ProjectLayout, ClosedPaneRecord } from '../types';
-import { CLOSED_STACK_MAX } from '../types';
+import type { Pane, PaneType, Group, ProjectLayout, ClosedPaneRecord, SpaceMeta } from '../types';
+import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, SPACES_MAX } from '../types';
 
 export interface SanitizedSnapshot {
   panes?: Record<string, Pane>;
@@ -28,6 +28,9 @@ export interface SanitizedSnapshot {
   projects?: Record<string, ProjectLayout>;
   groupOrder?: string[];
   closedStack?: ClosedPaneRecord[];
+  /** Spazi registry — merged per-id by the reducer (mergeSpaces), never
+   *  wholesale-applied. */
+  spaces?: Record<string, SpaceMeta>;
   lastSeq?: number;
   /** Server-allocated LWW key — the reducer's HYDRATE gate compares this
    *  against state.lastServerSeq (server-vs-server, never the local dispatch
@@ -123,7 +126,49 @@ function sanitizePane(raw: unknown): Pane | null {
   if (raw.terminalType === 'shell' || raw.terminalType === 'claude-code' || raw.terminalType === 'codex') {
     pane.terminalType = raw.terminalType;
   }
+  // Spazio membership — SYNCED per-pane (absent ⟺ default space). MANDATORY
+  // whitelist entry: dropping it here would erase membership on every server
+  // round-trip (the B1/B2 silent-erase class). The default id is normalised
+  // to absent so the wire encoding stays canonical.
+  if (typeof raw.spaceId === 'string' && raw.spaceId && raw.spaceId !== DEFAULT_SPACE_ID) {
+    pane.spaceId = raw.spaceId;
+  }
   return pane;
+}
+
+/**
+ * Validate a Spazi registry from an untrusted snapshot. Pattern:
+ * sanitizeProjects — structural per-record check, coerce the scalars, drop
+ * garbage. The DEFAULT space is implicit (never a record), so an entry
+ * claiming its id is dropped — a remote payload must not rename/delete the
+ * default. Capped at SPACES_MAX keeping the most-recently-updated records
+ * (matches mergeSpaces' backstop).
+ */
+function sanitizeSpaces(raw: unknown): Record<string, SpaceMeta> | null {
+  if (!isPlainObject(raw)) return null;
+  const out: Record<string, SpaceMeta> = {};
+  for (const [key, v] of Object.entries(raw)) {
+    if (!isPlainObject(v)) continue;
+    if (typeof v.id !== 'string' || !v.id || v.id !== key) continue;
+    if (v.id === DEFAULT_SPACE_ID) continue;
+    const meta: SpaceMeta = {
+      id: v.id,
+      name: typeof v.name === 'string' ? v.name : '',
+      order: typeof v.order === 'number' && Number.isFinite(v.order) ? v.order : 0,
+      updatedAt:
+        typeof v.updatedAt === 'number' && Number.isFinite(v.updatedAt) ? v.updatedAt : 0,
+    };
+    if (v.deleted === true) meta.deleted = true;
+    out[key] = meta;
+  }
+  const ids = Object.keys(out);
+  if (ids.length <= SPACES_MAX) return out;
+  const kept = ids
+    .sort((a, b) => out[b].updatedAt - out[a].updatedAt)
+    .slice(0, SPACES_MAX);
+  const capped: Record<string, SpaceMeta> = {};
+  for (const id of kept) capped[id] = out[id];
+  return capped;
 }
 
 function sanitizeGroup(raw: unknown): Group | null {
@@ -324,6 +369,10 @@ export function sanitizeSnapshot(raw: unknown): SanitizedSnapshot | null {
     const cs = sanitizeClosedStack(raw.closedStack);
     if (cs) out.closedStack = cs;
   }
+  if (raw.spaces !== undefined) {
+    const sp = sanitizeSpaces(raw.spaces);
+    if (sp) out.spaces = sp;
+  }
   if (typeof raw.lastSeq === 'number' && Number.isFinite(raw.lastSeq)) {
     out.lastSeq = raw.lastSeq;
   }
@@ -332,5 +381,8 @@ export function sanitizeSnapshot(raw: unknown): SanitizedSnapshot | null {
   }
   // Top-level `focusedPaneId` is DEVICE-LOCAL — intentionally ignored, not
   // propagated from the server side. Drop it silently.
+  // Top-level `activeSpaceId` is likewise DEVICE-LOCAL (the focusedPaneId
+  // pattern): device A switching Spazi must never yank device B's view.
+  // Symmetric with the outbound exclusion in selectors.ts — drop it silently.
   return out;
 }
