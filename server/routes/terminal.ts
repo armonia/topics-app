@@ -217,7 +217,30 @@ function getSocketPath(): string {
 
 const SOCKET_PATH = getSocketPath();
 
+/**
+ * Self-contained / standalone mode: the app runs from a compiled sidecar bundle
+ * with no external PTY bridge (set by the Tauri shell — desktop-tauri lib.rs
+ * decide_upstream_and_spawn). When set, the server NEVER connects to or spawns the
+ * bridge: on a virgin machine there is none, the compiled binary can't spawn one
+ * (pty-bridge.mjs resolves to a virtualized path), and — critically — a sidecar that
+ * accidentally shares a checkout's cwd must be STRUCTURALLY unable to reconcile-kill
+ * a real server's live PTYs (the 2026-07-02 incident). Terminal endpoints answer 503.
+ */
+const PTY_BRIDGE_DISABLED = process.env.TOPICS_DISABLE_PTY_BRIDGE === "1";
+
+/** 503 body for terminal endpoints when the PTY bridge is disabled (standalone). */
+function ptyBridgeUnavailable(): Response {
+  return new Response(
+    JSON.stringify({ error: "terminals not available in standalone mode" }),
+    { status: 503, headers: { "content-type": "application/json" } },
+  );
+}
+
 async function ensureBridge(): Promise<void> {
+  // Standalone bundle: no external bridge, ever. Returning here makes every call
+  // site inert (startup reconcile, reconnect handlers, per-request ensures), so no
+  // socket is ever opened and reconcileSessions can never send a `kill`.
+  if (PTY_BRIDGE_DISABLED) return;
   if (bridgeReady && bridgeSocket && !bridgeSocket.destroyed) return;
   if (bridgeConnecting) {
     // Wait for the in-flight connection attempt
@@ -612,6 +635,9 @@ function restoreDbSessionsOptimistically(): void {
 }
 
 async function reconcileSessions(attempt = 0): Promise<void> {
+  // Standalone bundle: no bridge to reconcile against. Short-circuit so we don't
+  // burn the 8× reconnect-retry cycle against a socket that will never answer.
+  if (PTY_BRIDGE_DISABLED) return;
   // Ask the bridge which PTYs are still alive. CRITICAL: distinguish a real
   // answer (even an empty list) from NO answer (a timeout). The old code
   // resolved a timed-out `list` to `[]` and then ran the destructive branch
@@ -1261,6 +1287,21 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
     .catch((err) => console.error("[Terminal] Bridge init failed:", err.message));
 
   return async function terminalRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+
+    // Standalone bundle (no PTY bridge): the terminal endpoints answer 503 with a
+    // clear reason rather than trying to reach a bridge that isn't there. Scoped
+    // TIGHTLY to the routes THIS router owns — the terminal API and the sub-agent
+    // orchestrator (/api/sessions/:key/agents/*). NOT the whole /api/sessions/
+    // prefix: processes.ts owns /api/sessions/:key/scripts/* (the process registry),
+    // which is bridge-independent and must keep working standalone. Returning null
+    // for anything else preserves the dispatcher's fall-through.
+    if (PTY_BRIDGE_DISABLED && (
+      pathname === "/api/terminal" ||
+      pathname.startsWith("/api/terminal/") ||
+      /^\/api\/sessions\/[^/]+\/agents(\/|$)/.test(pathname)
+    )) {
+      return ptyBridgeUnavailable();
+    }
 
     if (method === "GET" && pathname === "/api/terminal/sessions") {
       // Lazy cleanup: delete dormant SHELL sessions older than 1 hour.
