@@ -83,6 +83,9 @@ if [ "$OS" = "smoke" ]; then
   echo "[smoke] /api/terminal/sessions (expect 503 standalone): $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/terminal/sessions)"
   echo "[smoke] migrations line:"; grep -E "embedded migration|All migrations" "$WORK/smoke.log" | head -1
   echo "[smoke] bridge touched? (must be EMPTY):"; grep -i "PTY bridge daemon" "$WORK/smoke.log" || echo "  (none — good)"
+  echo "[smoke] journal sync (expect disabled, no ConnectionRefused spam):"
+  grep -i "gateway journal sync disabled" "$WORK/smoke.log" | head -1 || echo "  (gate line not found)"
+  if grep -qi "Collection failed" "$WORK/smoke.log"; then echo "  WARN: journal Collection failed spam present"; fi
   echo "[smoke] OK"
   exit 0
 fi

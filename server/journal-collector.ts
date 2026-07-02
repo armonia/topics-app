@@ -40,6 +40,15 @@ export class JournalCollector {
   }
 
   start(intervalMs = 300_000) {
+    // Standalone / self-contained bundle: there is no OpenClaw gateway to sync the
+    // journal to, so every collect() would spam "Collection failed: Unable to
+    // connect" (ConnectionRefused) into the field logs. Skip entirely — same flag
+    // the shell sets for the sidecar (TOPICS_EMBEDDED, or the precise
+    // TOPICS_DISABLE_PTY_BRIDGE). No gateway integration runs in standalone mode.
+    if (process.env.TOPICS_EMBEDDED === "1" || process.env.TOPICS_DISABLE_PTY_BRIDGE === "1") {
+      console.log("[JournalCollector] standalone mode — gateway journal sync disabled");
+      return;
+    }
     this.collect(); // initial collection
     this.timer = setInterval(() => this.collect(), intervalMs);
   }
