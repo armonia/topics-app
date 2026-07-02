@@ -116,6 +116,22 @@ describe('applyHook — phase transitions', () => {
     expect(s1.lastTool?.name).toBe('Bash');
   });
 
+  it('a non-human PreToolUse after a DENIED permission clears the stale approval', () => {
+    // Deny path: a Notification parked us at awaiting-approval, the user denied,
+    // and Claude moved straight to a DIFFERENT tool (no PostToolUse cleared the
+    // approval). The tool-running transition must drop the now-dead pendingApproval
+    // so it can't ride along as stale state into the working phase.
+    const s0 = freshState({
+      phase: 'awaiting-approval',
+      rev: 5,
+      pendingApproval: { kind: 'bash', prompt: 'Run `rm -rf build`?', requestedAt: T0 },
+    });
+    const s1 = applyHook(s0, hook('PreToolUse', { tool_name: 'Read', tool_input: { path: 'x' } }), T0 + TICK);
+    expect(s1.phase).toBe('tool-running');
+    expect(s1.lastTool?.name).toBe('Read');
+    expect(s1.pendingApproval).toBeUndefined();
+  });
+
   it('PostToolUse for AskUserQuestion (user answered) returns awaiting-approval → running', () => {
     const s0 = freshState({
       phase: 'awaiting-approval',
