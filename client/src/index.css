@@ -1135,23 +1135,34 @@ input[type="range"]::-webkit-slider-thumb {
     linear-gradient(to left, #fff, transparent 76px);
   mask-composite: add;
 }
-/* band disc: oversized so rotation always covers the corners; uneven stops =
- * bright crests with dim troughs that chase each other around the edge */
+/* band disc: rasterized at PANE size (cheap texture + cheap blur), then
+ * GPU-scaled 2.4× in the same animated transform so rotation always covers
+ * the corners — a real -60%-inset disc costs a ~5× bigger texture and a
+ * one-time ~200ms rasterization hitch on mount for zero visual gain (it's
+ * blurred anyway; blur scales up with the transform). Uneven stops = bright
+ * crests with dim troughs that chase each other around the edge. */
 .chat-working-aura > s::before {
   content: '';
   position: absolute;
-  inset: -60%;
+  inset: 0;
   background: conic-gradient(from 20deg,
     rgba(50, 200, 255, 0.85), rgba(94, 92, 230, 0.30) 12%,
     rgba(191, 90, 242, 0.9) 26%, rgba(255, 55, 175, 0.35) 37%,
     rgba(10, 132, 255, 0.8) 52%, rgba(60, 220, 210, 0.28) 63%,
     rgba(255, 100, 130, 0.85) 78%, rgba(94, 92, 230, 0.32) 90%,
     rgba(50, 200, 255, 0.85));
-  filter: blur(18px) saturate(160%);
+  filter: blur(8px) saturate(160%);
+  /* static fallback: with `animation: none` (prefers-reduced-motion) the
+   * keyframes' scale never applies — without this the disc stays pane-sized
+   * and the corners go uncovered */
+  transform: scale(2.4);
   animation: aura-band-spin 9s linear infinite;
   will-change: transform;
 }
-@keyframes aura-band-spin { to { transform: rotate(360deg); } }
+@keyframes aura-band-spin {
+  from { transform: scale(2.4) rotate(0deg); }
+  to   { transform: scale(2.4) rotate(360deg); }
+}
 .chat-working-aura > i {
   position: absolute;
   width: 40%;
