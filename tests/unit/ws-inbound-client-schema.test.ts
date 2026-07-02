@@ -122,6 +122,8 @@ describe('client inbound registry contract', () => {
     // presence:windows joined the client inbound registry in 724284d3
     // (cross-window presence protocol) — the server's full window-list
     // snapshot the client projects into "open elsewhere" affordances.
+    // ui:bundle-updated joined in 258e9cce (dev bundle hot-delivery) — the
+    // server's "built client changed on disk" signal that reloads windows.
     expect(REGISTERED_INBOUND_TYPES).toEqual([
       'connected',
       'dashboard:updated',
@@ -141,6 +143,7 @@ describe('client inbound registry contract', () => {
       'typing',
       'ui-state:init',
       'ui-state:updated',
+      'ui:bundle-updated',
       'unread:init',
       'unread:updated',
       'welcome',
