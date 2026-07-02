@@ -713,6 +713,11 @@ function App() {
       case 'onReopenClosedTab':
         handleReopenClosedTab(args[0] as Parameters<typeof handleReopenClosedTab>[0]);
         break;
+      case 'onResetPanels':
+        // Relayed from the overlay-host palette (Electron) — same per-window
+        // event the inline palette dispatches; runs in THIS (main) renderer.
+        window.dispatchEvent(new CustomEvent('topics:reset-split-layout'));
+        break;
     }
   };
 
@@ -1259,6 +1264,10 @@ function App() {
             onNewTerminal={() => handleQuickCreateTerminal('shell')}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => { setShowSearch(false); setShowSettings(true); }}
+            // "Reimposta pannelli al primo livello" — per-window CustomEvent bus
+            // (same pattern as topics:open-project-picker); the FOCUSED surface's
+            // listener (GroupLayout / PanelGrid) performs the flatten.
+            onResetPanels={() => window.dispatchEvent(new CustomEvent('topics:reset-split-layout'))}
             onOpenFileSearch={() => {
               setShowSearch(false);
               // Resolve projectPath the same way as Cmd+Shift+F
