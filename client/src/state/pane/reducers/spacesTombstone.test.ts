@@ -15,6 +15,7 @@ const blank = (activeSpaceId = "space:default"): PaneState => ({
   groups: {},
   projects: {},
   closedStack: [],
+  tombstones: {},
   focusedPaneId: null,
   groupOrder: [],
   spaces: {},

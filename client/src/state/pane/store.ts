@@ -44,6 +44,7 @@ const initialState: PaneState = {
   groups: {},
   projects: {},
   closedStack: [],
+  tombstones: {},
   focusedPaneId: null,
   groupOrder: [],
   spaces: {},
