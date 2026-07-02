@@ -1115,58 +1115,63 @@ input[type="range"]::-webkit-slider-thumb {
  *
  * Host: the pane root (`position: relative; overflow: hidden`); border-radius
  * inherit follows the rounded floating-splits cards too. */
-/* IRREGULAR sweep — not a metronome rotation (Attilio: "deve essere tipo a
- * caso come quella di Claude e Siri"). Multi-stop keyframes with ease-in-out
- * between stops: the wheel surges, dwells, swings BACK a little, surges again,
- * and its scale pulses so the colored lobes drift closer/farther from the
- * edge. Paired with the counter-wheel below (co-prime 13s vs 21s periods) the
- * combined phase never visibly repeats — it reads as organic, random light. */
+/* WAVES — the real Apple-Intelligence/AI-glow motion is not a rotating wheel:
+ * it's peaks of colored light that are BORN, swell, travel a stretch of the
+ * edge, and dissolve while others overtake them (the known SwiftUI recreation
+ * regenerates gradient stops on a timer; Siri's bezel glow works the same).
+ * CSS translation with zero main-thread cost: FOUR independent "wave" layers,
+ * each a narrow conic ARC of one hue family, each animating rotation (position
+ * along the perimeter, with backswings), scale (swell → local reach varies)
+ * and opacity (birth/dissolve) on co-prime periods — two clockwise, two
+ * counter. Their interference reads as waves washing around the pane. A faint
+ * continuous base wheel underneath keeps the edge from ever going dark.
+ * Transform/opacity only → compositor; the parent blur melts the arcs into
+ * soft moving light. */
 @keyframes chat-working-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes aura-roll-a {
   0%   { transform: rotate(0deg)    scale(1); }
-  16%  { transform: rotate(118deg)  scale(1.14); }
-  31%  { transform: rotate(87deg)   scale(1.03); }
-  52%  { transform: rotate(238deg)  scale(1.2); }
-  70%  { transform: rotate(205deg)  scale(1.05); }
-  86%  { transform: rotate(322deg)  scale(1.12); }
+  22%  { transform: rotate(160deg)  scale(1.22); }
+  38%  { transform: rotate(128deg)  scale(1.05); }
+  64%  { transform: rotate(295deg)  scale(1.25); }
+  82%  { transform: rotate(268deg)  scale(1.02); }
   100% { transform: rotate(360deg)  scale(1); }
 }
-.chat-working-aura {
-  position: absolute;
-  inset: 0;
-  /* Above the opaque pane content so the edge bloom is visible. Safe: only the
-   * outer ~24px (14px band + blur spread) ever shows color, at low alpha, and
-   * pointer-events:none — never the text body, never clicks. */
-  z-index: 30;
-  pointer-events: none;
-  border-radius: inherit;
-  overflow: hidden;
-  filter: blur(10px) saturate(140%);
-  animation:
-    chat-working-ring-in 300ms ease-out,
-    chat-working-breathe 7s ease-in-out 300ms infinite;
+@keyframes aura-roll-b {
+  0%   { transform: rotate(210deg)  scale(1.1); }
+  27%  { transform: rotate(88deg)   scale(1.28); }
+  46%  { transform: rotate(122deg)  scale(1); }
+  71%  { transform: rotate(-45deg)  scale(1.2); }
+  100% { transform: rotate(-150deg) scale(1.1); }
 }
-/* STATIC band mask — paints only the `padding` perimeter strip between the
- * border-box and the content-box (opaque fill over the whole box XOR the same
- * fill clipped to the content-box). The parent's blur then feathers this hard
- * strip into the soft inner shadow. */
-.chat-working-aura-band {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  overflow: hidden;
-  padding: 14px;                        /* aura reach before the blur feathers it */
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  mask-composite: exclude;
+@keyframes aura-roll-c {
+  0%   { transform: rotate(90deg)   scale(1.15); }
+  33%  { transform: rotate(275deg)  scale(1); }
+  55%  { transform: rotate(240deg)  scale(1.3); }
+  78%  { transform: rotate(390deg)  scale(1.06); }
+  100% { transform: rotate(450deg)  scale(1.15); }
 }
-/* SPINNER — oversized conic disc (the seam never sweeps into view) rotating on
- * the compositor. Continuous cool wheel, no transparent gaps: with the blur a
- * gap would read as a dead dark patch drifting around the pane. */
+@keyframes aura-roll-d {
+  0%   { transform: rotate(-30deg)  scale(1.2); }
+  30%  { transform: rotate(-170deg) scale(1); }
+  52%  { transform: rotate(-135deg) scale(1.26); }
+  80%  { transform: rotate(-310deg) scale(1.04); }
+  100% { transform: rotate(-390deg) scale(1.2); }
+}
+/* birth/dissolve — deep troughs so a wave really DISAPPEARS and is re-born */
+@keyframes aura-breathe-a { 0%,100% { opacity: 1; }   45% { opacity: 0.15; } 70% { opacity: 0.8; } }
+@keyframes aura-breathe-b { 0%,100% { opacity: 0.25; } 35% { opacity: 1; }   75% { opacity: 0.4; } }
+@keyframes aura-breathe-c { 0%,100% { opacity: 0.7; }  25% { opacity: 0.2; } 60% { opacity: 1; } }
+@keyframes aura-breathe-d { 0%,100% { opacity: 0.4; }  40% { opacity: 0.95; } 85% { opacity: 0.2; } }
+.chat-working-aura-band > i {
+  position: absolute;
+  inset: -50%;
+  min-width: 200%;
+  min-height: 200%;
+  will-change: transform, opacity;
+}
+/* base wheel — faint, slow, continuous: the floor the waves ride on */
 .chat-working-aura-band::before {
   content: '';
   position: absolute;
@@ -1175,68 +1180,46 @@ input[type="range"]::-webkit-slider-thumb {
   min-height: 200%;
   background: conic-gradient(
     from 0deg,
-    rgba(50, 200, 255, 0.85)   0deg,
-    rgba(10, 132, 255, 0.9)   70deg,
-    rgba(94, 92, 230, 0.9)   140deg,
-    rgba(191, 90, 242, 0.9)  210deg,
-    rgba(255, 55, 175, 0.8)  280deg,
-    rgba(50, 200, 255, 0.85) 360deg
+    rgba(50, 200, 255, 0.3)   0deg,
+    rgba(10, 132, 255, 0.32) 70deg,
+    rgba(94, 92, 230, 0.32) 140deg,
+    rgba(191, 90, 242, 0.32) 210deg,
+    rgba(255, 55, 175, 0.28) 280deg,
+    rgba(50, 200, 255, 0.3) 360deg
   );
-  animation: chat-working-spin 13s ease-in-out infinite;
+  animation: chat-working-spin 31s linear infinite;
   will-change: transform;
 }
-/* SECOND WHEEL — counter-rotating, slower, with an eased (non-linear) cycle so
- * its bright lobes accelerate and linger instead of gliding at metronome speed.
- * Layered over the continuous wheel (which guarantees no dead patches), its
- * moving highlights make the aura visibly NON-uniform: colors chase, overtake
- * and pool instead of rotating as one rigid disc. Same perf model (transform
- * only, compositor). */
-@keyframes chat-working-spin-rev {
-  0%   { transform: rotate(0deg)     scale(1.08); }
-  22%  { transform: rotate(-96deg)   scale(1); }
-  38%  { transform: rotate(-71deg)   scale(1.16); }
-  61%  { transform: rotate(-224deg)  scale(1.02); }
-  79%  { transform: rotate(-198deg)  scale(1.18); }
-  100% { transform: rotate(-360deg)  scale(1.08); }
+.chat-working-aura-band > .aura-w1 {
+  background: conic-gradient(from 0deg,
+    rgba(50, 200, 255, 0) 0deg, rgba(50, 200, 255, 0.95) 32deg,
+    rgba(10, 132, 255, 0.9) 72deg, rgba(10, 132, 255, 0) 112deg, transparent 360deg);
+  animation: aura-roll-a 11s ease-in-out infinite, aura-breathe-a 6.1s ease-in-out infinite;
 }
-.chat-working-aura-band::after {
-  content: '';
-  position: absolute;
-  inset: -50%;
-  min-width: 200%;
-  min-height: 200%;
-  background: conic-gradient(
-    from 180deg,
-    rgba(10, 132, 255, 0)     0deg,
-    rgba(120, 90, 255, 0.75) 80deg,
-    rgba(50, 200, 255, 0.6) 160deg,
-    rgba(10, 132, 255, 0)   230deg,
-    rgba(255, 55, 175, 0.55) 300deg,
-    rgba(10, 132, 255, 0)   360deg
-  );
-  animation: chat-working-spin-rev 21s ease-in-out infinite;
-  will-change: transform;
+.chat-working-aura-band > .aura-w2 {
+  background: conic-gradient(from 0deg,
+    rgba(94, 92, 230, 0) 0deg, rgba(94, 92, 230, 0.92) 40deg,
+    rgba(140, 100, 255, 0.9) 88deg, rgba(94, 92, 230, 0) 132deg, transparent 360deg);
+  animation: aura-roll-b 17s ease-in-out infinite, aura-breathe-b 7.9s ease-in-out infinite;
 }
-/* Irregular breathe — a multi-stop loop (not a symmetric alternate) so the
- * inhale/exhale never feels like a metronome. */
-@keyframes chat-working-breathe {
-  0%   { opacity: 0.5; }
-  30%  { opacity: 0.95; }
-  55%  { opacity: 0.65; }
-  80%  { opacity: 1; }
-  100% { opacity: 0.5; }
+.chat-working-aura-band > .aura-w3 {
+  background: conic-gradient(from 0deg,
+    rgba(255, 55, 175, 0) 0deg, rgba(255, 55, 175, 0.88) 36deg,
+    rgba(191, 90, 242, 0.85) 82deg, rgba(255, 55, 175, 0) 124deg, transparent 360deg);
+  animation: aura-roll-c 23s ease-in-out infinite, aura-breathe-c 9.7s ease-in-out infinite;
 }
-@keyframes chat-working-ring-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+.chat-working-aura-band > .aura-w4 {
+  background: conic-gradient(from 0deg,
+    rgba(60, 220, 210, 0) 0deg, rgba(60, 220, 210, 0.85) 42deg,
+    rgba(50, 160, 255, 0.85) 90deg, rgba(60, 220, 210, 0) 134deg, transparent 360deg);
+  animation: aura-roll-d 29s ease-in-out infinite, aura-breathe-d 8.3s ease-in-out infinite;
 }
-
 /* prefers-reduced-motion: keep the aura as a STATIC soft gradient (still a cue)
  * but stop the sweep, the breathing and the fade-in. */
 @media (prefers-reduced-motion: reduce) {
   .chat-working-aura,
   .chat-working-aura-band::before,
-  .chat-working-aura-band::after { animation: none; }
+  .chat-working-aura-band > i { animation: none; }
 }
 
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
