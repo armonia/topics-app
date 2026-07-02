@@ -1,8 +1,9 @@
 import type { PaneState, PaneAction, ClosedPaneRecord, PaneType } from '../types';
-import { CLOSED_STACK_MAX } from '../types';
+import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID } from '../types';
 import { groupsReducer } from './groups';
 import { projectsReducer } from './projects';
 import { undoReducer } from './undo';
+import { spacesReducer, mergeSpaces } from './spaces';
 import { sanitizeSnapshot, KNOWN_PANE_TYPES } from './sanitizeSnapshot';
 
 export function paneReducer(state: PaneState, action: PaneAction): void {
@@ -25,7 +26,28 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // Seed stableKey on first insert so PANE_ID_REMAP has something to
       // preserve. For panes that come back through hydration (sanitizeSnapshot
       // already stripped/preserved the field), we leave the existing value.
-      state.panes[pane.id] = { ...pane, stableKey: pane.stableKey ?? pane.id };
+      //
+      // Spazio stamping — the ONE central place that assigns membership, so
+      // every call site (usePanelLifecycle.openPanel, force-open, cross-window
+      // drag arrival, terminal/browser opens) lands in the window's active
+      // space by construction. Precedence: an explicit payload spaceId wins;
+      // else a RE-open of an already-known pane keeps its membership (e.g.
+      // persistBrowserPane re-OPEN_PANEs the same id — that must not teleport
+      // the tab into whatever space happens to be active); else stamp the
+      // active space. The default space is stored as ABSENT (undefined), the
+      // canonical "absent ⟺ default" encoding — which is why the re-open
+      // branch gates on the PANE's existence, not on its spaceId: a known
+      // pane with an absent spaceId lives in the DEFAULT space and must stay
+      // there, not fall through to the active space.
+      const knownPane = state.panes[pane.id];
+      const inheritedSpaceId =
+        pane.spaceId ??
+        (knownPane ? knownPane.spaceId ?? DEFAULT_SPACE_ID : state.activeSpaceId);
+      const spaceId =
+        inheritedSpaceId === DEFAULT_SPACE_ID || inheritedSpaceId === undefined
+          ? undefined
+          : inheritedSpaceId;
+      state.panes[pane.id] = { ...pane, stableKey: pane.stableKey ?? pane.id, spaceId };
       if (!state.groups[groupId]) {
         state.groups[groupId] = {
           id: groupId,
@@ -186,6 +208,12 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       projectsReducer(state, action);
       break;
     }
+    case 'SPACE_UPSERT':
+    case 'SPACE_DELETE':
+    case 'SET_ACTIVE_SPACE': {
+      spacesReducer(state, action);
+      break;
+    }
     case 'HYDRATE_FROM_LEGACY': {
       // Minimal hydration: import open panels into a single default group.
       // Full migration lives in migration/importLegacy.ts — this reducer path is the atomic commit.
@@ -305,6 +333,14 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // full reasoning. The field is no longer in outbound snapshots; any
       // legacy server snapshot still carrying it is dead data.
       if (clean.groupOrder) state.groupOrder = clean.groupOrder;
+      // Spazi registry: per-id LWW merge (updatedAt; deleted-tombstone wins
+      // when newer) — NEVER `state.spaces = clean.spaces`, which would be the
+      // exact wholesale-replace clobber the pane union above exists to
+      // prevent (a space created locally inside the debounce window must
+      // survive a concurrent remote PUT that doesn't know it yet).
+      // `state.activeSpaceId` is untouched: device-local, and sanitizeSnapshot
+      // strips any inbound value anyway.
+      if (clean.spaces) state.spaces = mergeSpaces(state.spaces, clean.spaces);
       // closedStack is a TOMBSTONE log — MERGE (union by id+closedAt), never
       // replace: a close that happened on THIS client but hasn't been PUT yet
       // must not be dropped by an older incoming snapshot (which would let the

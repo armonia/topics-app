@@ -11,6 +11,12 @@
  *   - `pane-store-focused-id`: just the focused pane id. Written synchronously
  *                              on every change so a reload inside the 100 ms
  *                              debounce window still finds the latest value.
+ *   - `pane-store-active-space`: the window's active Spazio — the twin of the
+ *                              focused-id key (DEVICE-LOCAL: excluded from the
+ *                              outbound snapshot, stripped inbound). Written
+ *                              synchronously on change, boot-read only — no
+ *                              live cross-tab application, so each window
+ *                              keeps its own active space.
  *
  * Bootstrap calls `hydrateFromLocalSnapshot()` to warm-hydrate both before
  * React renders — eliminates the ~500 ms gap between mount and the server
@@ -20,10 +26,12 @@
  */
 import { usePaneStore, type PaneStore } from '../store';
 import { selectLocalSnapshot } from '../selectors';
+import { DEFAULT_SPACE_ID } from '../types';
 import { getTabId } from './syncCrossTab';
 
 const LOCAL_KEY = 'pane-store-v2';
 const LOCAL_FOCUS_KEY = 'pane-store-focused-id';
+const LOCAL_ACTIVE_SPACE_KEY = 'pane-store-active-space';
 const DEBOUNCE_MS = 100;
 
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -54,6 +62,18 @@ function writeFocusNow(focused: string | null): void {
   try {
     if (focused) localStorage.setItem(LOCAL_FOCUS_KEY, focused);
     else localStorage.removeItem(LOCAL_FOCUS_KEY);
+  } catch { /* silent */ }
+}
+
+function writeActiveSpaceNow(activeSpaceId: string): void {
+  try {
+    // Absent key ⟺ default space — the same canonical encoding the pane's
+    // `spaceId` field uses (and the focus key's remove-on-null precedent).
+    if (activeSpaceId && activeSpaceId !== DEFAULT_SPACE_ID) {
+      localStorage.setItem(LOCAL_ACTIVE_SPACE_KEY, activeSpaceId);
+    } else {
+      localStorage.removeItem(LOCAL_ACTIVE_SPACE_KEY);
+    }
   } catch { /* silent */ }
 }
 
@@ -90,6 +110,15 @@ export function hydrateFromLocalSnapshot(): void {
           },
         },
       });
+    }
+    // Active Spazio lives in its own device-local key (twin of the focus key
+    // below). Applied AFTER the snapshot hydrate so the spaces registry is
+    // already in the store — SET_ACTIVE_SPACE resolves a dead/unknown id to
+    // the default space against that registry. Applied BEFORE the focus
+    // restore so the reducer's focus handoff can't override the saved focus.
+    const activeSpace = localStorage.getItem(LOCAL_ACTIVE_SPACE_KEY);
+    if (activeSpace) {
+      usePaneStore.getState().dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id: activeSpace } });
     }
     // Focus lives in its own key (sanitizeSnapshot strips it from the main
     // snapshot). Apply it after the panes hydrate — FOCUS_PANE has no
@@ -141,6 +170,13 @@ export function initLocalPersistence(): void {
   usePaneStore.subscribe(
     (s: PaneStore) => s.focusedPaneId,
     (focused) => writeFocusNow(focused),
+  );
+
+  // Active Spazio: synchronous, same rationale as focus (a reload inside the
+  // 100 ms snapshot debounce must reopen on the space the user was viewing).
+  usePaneStore.subscribe(
+    (s: PaneStore) => s.activeSpaceId,
+    (activeSpaceId) => writeActiveSpaceNow(activeSpaceId),
   );
 
   // Tab close / hide: flush the pending snapshot debounce so other tabs

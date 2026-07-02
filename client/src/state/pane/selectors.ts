@@ -1,4 +1,7 @@
-import type { Pane, Group, PaneState, ClosedPaneRecord } from './types';
+import type { Pane, Group, PaneState, ClosedPaneRecord, SpaceMeta } from './types';
+import { resolvePaneSpace } from './reducers/spaces';
+
+export { resolvePaneSpace };
 
 function isDraftId(id: string): boolean {
   return id.startsWith('draft:');
@@ -47,8 +50,45 @@ function buildSnapshot(s: PaneState, opts: SnapshotOptions) {
     groups: groupsOut,
     groupOrder: s.groupOrder,
     closedStack: closedStackOut,
+    // Spazi registry rides the snapshot in BOTH variants (server + local) so
+    // membership survives reloads and syncs cross-device; the reducer merges
+    // it per-id on hydrate (mergeSpaces), never wholesale.
+    // `activeSpaceId` is deliberately NOT here — DEVICE-LOCAL (focusedPaneId
+    // pattern): it persists via its own localStorage key (persistLocal) and
+    // never crosses the network.
+    spaces: s.spaces,
     lastSeq: s.lastSeq,
   };
+}
+
+/**
+ * Filter a list of app-level pane ids down to the ones visible in
+ * `activeSpaceId`. Pure — the single derivation usePanelLifecycle's
+ * `visiblePanels` and the store-side selectVisiblePaneIds share, so the two
+ * surfaces can't drift. A pane whose entity is missing from `panes` (a
+ * transient id mid-registration) counts as the default space, consistent
+ * with "absent spaceId ⟺ default".
+ *
+ * NOTE: this filters the DERIVED render prop only — `openPanels` itself must
+ * stay the FULL unfiltered set (the React→store REORDER_PANES bridge would
+ * otherwise evict hidden panes from the store).
+ */
+export function filterVisiblePaneIds(
+  paneIds: readonly string[],
+  panes: Record<string, Pane>,
+  spaces: Record<string, SpaceMeta> | undefined,
+  activeSpaceId: string,
+): string[] {
+  return paneIds.filter((id) => resolvePaneSpace(panes[id], spaces) === activeSpaceId);
+}
+
+/**
+ * App-level pane ids (the `group:default` tab order) visible in the store's
+ * current active space.
+ */
+export function selectVisiblePaneIds(s: PaneState): string[] {
+  const order = s.groups['group:default']?.paneIds ?? [];
+  return filterVisiblePaneIds(order, s.panes, s.spaces, s.activeSpaceId);
 }
 
 /**

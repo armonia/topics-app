@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { paneReducer } from './reducers';
 import type { PaneState, PaneAction } from './types';
+import { DEFAULT_SPACE_ID } from './types';
 
 // Monotonic per-dispatch sequence. Kept as a *lower bound*: after HYDRATE_FROM_SNAPSHOT
 // applies a higher server_seq to state.lastSeq, the next dispatch clamps `_seq`
@@ -45,6 +46,8 @@ const initialState: PaneState = {
   closedStack: [],
   focusedPaneId: null,
   groupOrder: [],
+  spaces: {},
+  activeSpaceId: DEFAULT_SPACE_ID,
   lastSeq: 0,
   lastServerSeq: 0,
 };

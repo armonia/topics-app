@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -20,6 +20,17 @@ import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE } from '@/lib/popoverStyles';
+import { usePaneStore } from '../../state/pane/store';
+import { resolvePaneSpace } from '../../state/pane/reducers/spaces';
+import { DEFAULT_SPACE_ID, SPACES_MAX } from '../../state/pane/types';
+import {
+  DEFAULT_SPACE_LABEL,
+  createSpaceId,
+  isDetachedWindow,
+  liveSpacesOrdered,
+  movePaneToSpace,
+  nextSpaceName,
+} from './SpaceSwitcher';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
@@ -91,6 +102,13 @@ interface PaneTabBarProps {
    * `undefined` when the layout is already flat, so the menu entry hides.
    */
   onResetLayout?: () => void;
+  /**
+   * Offer "Sposta nello Spazio →" in the tab context menu. Passed ONLY by
+   * app-level hosts (StandaloneChatGroup) — Spazi group app-level tabs, so
+   * project-inner tab bars never see the entry. The move itself is handled
+   * in-place via the pane store (movePaneToSpace).
+   */
+  canMoveToSpace?: boolean;
   onRename?: (paneId: string) => void;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
@@ -131,7 +149,7 @@ interface PaneTabBarProps {
   splitMap?: SplitMapDescriptor;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -197,6 +215,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ paneId: string; x: number; y: number } | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
+  // "Sposta nello Spazio →" inline submenu (expanded space list inside the
+  // context menu). Collapses whenever the menu re-opens on another tab.
+  const [spaceSubmenuOpen, setSpaceSubmenuOpen] = useState(false);
+  useEffect(() => { setSpaceSubmenuOpen(false); }, [ctxMenu]);
+  // Registry read is cheap (identity-stable slice); only consulted when the
+  // context menu offers the move entry.
+  const spacesRegistry = usePaneStore((s) => s.spaces);
+  const showMoveToSpace = !!canMoveToSpace && !isDetachedWindow();
 
   // Auto-scroll the active tab into view when it changes. The FIRST positioning
   // (mount / reload) must be INSTANT — a tab bar that was already scrolled
@@ -947,19 +973,86 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             </>
           )}
           {/* Layout-actions section (divider owned here): "Reimposta pannelli"
-              first; future entries ("Sposta nello Spazio →", "Sposta in una
-              nuova finestra") append INSIDE this section, after it. */}
-          {onResetLayout && (
+              first, then "Sposta nello Spazio →" (Spazi); future entries
+              ("Sposta in una nuova finestra") append INSIDE this section,
+              after them — coherence ruling 3.2. */}
+          {(onResetLayout || showMoveToSpace) && (
             <>
               <div className="h-px bg-app-border my-1" />
-              <button
-                onClick={() => { onResetLayout(); setCtxMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                title="Appiattisce gli split su un solo livello (le schede restano aperte)"
-              >
-                <LayoutGrid size={14} />
-                <span className="flex-1 text-left">Reimposta pannelli</span>
-              </button>
+              {onResetLayout && (
+                <button
+                  onClick={() => { onResetLayout(); setCtxMenu(null); }}
+                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  title="Appiattisce gli split su un solo livello (le schede restano aperte)"
+                >
+                  <LayoutGrid size={14} />
+                  <span className="flex-1 text-left">Reimposta pannelli</span>
+                </button>
+              )}
+              {showMoveToSpace && (() => {
+                const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
+                const currentSpace = resolvePaneSpace(ctxPane, spacesRegistry);
+                const targets: { id: string; name: string }[] = [
+                  { id: DEFAULT_SPACE_ID, name: DEFAULT_SPACE_LABEL },
+                  ...liveSpacesOrdered(spacesRegistry).map(s => ({ id: s.id, name: s.name || 'Spazio' })),
+                ];
+                return (
+                  <>
+                    <button
+                      onClick={() => setSpaceSubmenuOpen(open => !open)}
+                      className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                      title="Sposta la scheda in un altro Spazio"
+                      aria-expanded={spaceSubmenuOpen}
+                    >
+                      <Layers size={14} />
+                      <span className="flex-1 text-left">Sposta nello Spazio</span>
+                      <ChevronRight size={12} className={`text-app-text-muted transition-transform ${spaceSubmenuOpen ? 'rotate-90' : ''}`} />
+                    </button>
+                    {spaceSubmenuOpen && (
+                      <>
+                        {targets.map(target => {
+                          const isCurrent = target.id === currentSpace;
+                          return (
+                            <button
+                              key={target.id}
+                              disabled={isCurrent}
+                              onClick={() => {
+                                movePaneToSpace(ctxMenu.paneId, target.id);
+                                setCtxMenu(null);
+                              }}
+                              className={`w-full flex items-center gap-2 pl-8 pr-3 py-3 md:py-1.5 text-[14px] md:text-[12px] transition-colors ${
+                                isCurrent
+                                  ? 'text-app-text-muted cursor-default'
+                                  : 'text-app-text hover:bg-app-hover'
+                              }`}
+                            >
+                              <span className="flex-1 text-left truncate">{target.name}</span>
+                              {isCurrent && <Check size={12} className="text-app-text-muted" />}
+                            </button>
+                          );
+                        })}
+                        {Object.keys(spacesRegistry).length < SPACES_MAX && (
+                          <button
+                            onClick={() => {
+                              const id = createSpaceId();
+                              usePaneStore.getState().dispatch({
+                                type: 'SPACE_UPSERT',
+                                payload: { space: { id, name: nextSpaceName(spacesRegistry) } },
+                              });
+                              movePaneToSpace(ctxMenu.paneId, id);
+                              setCtxMenu(null);
+                            }}
+                            className="w-full flex items-center gap-2 pl-8 pr-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                          >
+                            <Plus size={12} />
+                            <span className="flex-1 text-left">Nuovo Spazio</span>
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
           {onDetach && (

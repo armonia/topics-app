@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { selectSyncableSnapshot } from "./selectors";
+import { selectSyncableSnapshot, selectLocalSnapshot, filterVisiblePaneIds, selectVisiblePaneIds } from "./selectors";
 import type { PaneState, Pane, ClosedPaneRecord } from "./types";
 
 const blankState = (): PaneState => ({
@@ -103,5 +103,87 @@ describe("selectSyncableSnapshot (PANE-02)", () => {
 
     expect(snapshot.panes["file:a"].scrollOffset).toBeUndefined();
     expect(snapshot.panes["file:a"].id).toBe("file:a");
+  });
+});
+
+describe("Spazi: snapshot shape (both persist variants)", () => {
+  const stateWithSpaces = (): PaneState => {
+    const state = blankState();
+    state.spaces = {
+      "space:a": { id: "space:a", name: "Lavoro", order: 1, updatedAt: 10 },
+    };
+    state.activeSpaceId = "space:a";
+    return state;
+  };
+
+  test("selectSyncableSnapshot INCLUDES spaces and EXCLUDES activeSpaceId", () => {
+    const snapshot = selectSyncableSnapshot(stateWithSpaces());
+    expect(snapshot.spaces).toEqual({
+      "space:a": { id: "space:a", name: "Lavoro", order: 1, updatedAt: 10 },
+    });
+    // Device-local (focusedPaneId pattern): activeSpaceId never leaves the
+    // device via the snapshot — it lives in its own localStorage key.
+    expect((snapshot as Record<string, unknown>).activeSpaceId).toBeUndefined();
+  });
+
+  test("selectLocalSnapshot INCLUDES spaces and EXCLUDES activeSpaceId too", () => {
+    const snapshot = selectLocalSnapshot(stateWithSpaces());
+    expect(snapshot.spaces!["space:a"].name).toBe("Lavoro");
+    expect((snapshot as Record<string, unknown>).activeSpaceId).toBeUndefined();
+  });
+
+  test("pane spaceId rides the outbound snapshot (membership syncs)", () => {
+    const state = stateWithSpaces();
+    state.panes["chat:t1"] = { id: "chat:t1", type: "chat", title: "A", spaceId: "space:a" };
+    const snapshot = selectSyncableSnapshot(state);
+    expect(snapshot.panes["chat:t1"].spaceId).toBe("space:a");
+  });
+});
+
+describe("Spazi: filterVisiblePaneIds / selectVisiblePaneIds (the visiblePanels derivation)", () => {
+  const spaces = {
+    "space:a": { id: "space:a", name: "A", order: 0, updatedAt: 1 },
+    "space:dead": { id: "space:dead", name: "D", order: 1, updatedAt: 1, deleted: true as const },
+  };
+  const panes: Record<string, Pane> = {
+    "chat:default": { id: "chat:default", type: "chat" },
+    "chat:a": { id: "chat:a", type: "chat", spaceId: "space:a" },
+    "chat:dead": { id: "chat:dead", type: "chat", spaceId: "space:dead" },
+    "chat:ghost": { id: "chat:ghost", type: "chat", spaceId: "space:ghost" },
+  };
+  const order = ["chat:default", "chat:a", "chat:dead", "chat:ghost", "chat:unregistered"];
+
+  test("default space shows default + deleted-space + unknown-space + unregistered panes", () => {
+    expect(filterVisiblePaneIds(order, panes, spaces, "space:default")).toEqual([
+      "chat:default",
+      "chat:dead",
+      "chat:ghost",
+      "chat:unregistered",
+    ]);
+  });
+
+  test("a user space shows only its members, preserving order", () => {
+    expect(filterVisiblePaneIds(order, panes, spaces, "space:a")).toEqual(["chat:a"]);
+  });
+
+  test("selectVisiblePaneIds reads group:default through the store's active space", () => {
+    const state = blankState();
+    state.spaces = spaces;
+    state.panes = panes;
+    state.groups["group:default"] = {
+      id: "group:default",
+      paneIds: order,
+      splitRatio: 0.5,
+      splitAxis: "horizontal",
+    };
+    state.activeSpaceId = "space:a";
+    expect(selectVisiblePaneIds(state)).toEqual(["chat:a"]);
+    state.activeSpaceId = "space:default";
+    expect(selectVisiblePaneIds(state)).toEqual([
+      "chat:default",
+      "chat:dead",
+      "chat:ghost",
+      "chat:unregistered",
+    ]);
   });
 });
