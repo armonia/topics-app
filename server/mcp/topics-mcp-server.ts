@@ -148,7 +148,7 @@ const TOOLS = [
   {
     name: "move_session_to_project",
     description:
-      "Move THIS Claude Code tab into a project window, de-duplicated (one tool call, not manual ui_state edits). Adds the tab to the project's membership AND removes it from the standalone app-level store, so it ends up inside the project only — never duplicated inside-and-outside. Opens/focuses the project window. Pass an absolute project path.",
+      "Low-level: move THIS Claude Code terminal tab into a project window by ABSOLUTE PATH, de-duplicated (one tool call, not manual ui_state edits). Adds the tab to the project's membership AND removes it from the standalone app-level store, so it ends up inside the project only — never duplicated inside-and-outside. Opens/focuses the project window. Prefer open_project (resolves a project by name/slug) or create_project (scaffolds a new one) — reach for this only when you already have the exact absolute path.",
     inputSchema: {
       type: "object",
       properties: {
@@ -222,7 +222,7 @@ const TOOLS = [
   {
     name: "switch_topic",
     description:
-      "Switch the user's view to an EXISTING topic (conversation thread) by id. Use when the user asks to go to / open another topic. UI-only: it does not move the current message.",
+      "Switch the user's view to an EXISTING chat topic (conversation thread) by id. Use when the user asks to go to / open another topic. UI-only: it does not move the current message. Acts on CHAT topics only — from a terminal Claude tab it returns a clear error (there's no conversation to switch); use open_project to move a terminal tab into a project instead.",
     inputSchema: {
       type: "object",
       properties: { topic_id: { type: "string", description: "Target topic id." } },
@@ -232,7 +232,7 @@ const TOOLS = [
   {
     name: "new_topic",
     description:
-      "Create a NEW topic (conversation thread) with the given title and switch the user to it. It inherits the current topic's project binding. Use when the user starts a clearly new subject.",
+      "Create a NEW chat topic (conversation thread) with the given title and switch the user to it. It inherits the current topic's project binding. Use when the user starts a clearly new subject. Acts on CHAT topics only — from a terminal Claude tab it returns a clear error (there's no conversation to fork); use open_project or create_project to move a terminal tab into a project instead.",
     inputSchema: {
       type: "object",
       properties: { title: { type: "string", description: "Title for the new topic." } },
@@ -242,7 +242,7 @@ const TOOLS = [
   {
     name: "create_project",
     description:
-      "Scaffold a new project workspace (a folder + CLAUDE.md under the workspace dir) and nest the current session inside its project window. Use when the user asks to start a new project. Name is sanitized to [A-Za-z0-9_-].",
+      "Scaffold a new project workspace (a folder + CLAUDE.md under the workspace dir) and nest THIS session inside its project window. Works from BOTH a chat topic AND a terminal Claude tab — in either case the current session/tab moves into the new project. Use when the user asks to start a new project. Name is sanitized to [A-Za-z0-9_-]; a name that already exists is rejected (use open_project to open the existing one).",
     inputSchema: {
       type: "object",
       properties: { name: { type: "string", description: "Project name (alphanumeric / -_)." } },
@@ -252,7 +252,7 @@ const TOOLS = [
   {
     name: "open_project",
     description:
-      "Open an EXISTING project the user already has in Topics (by name, slug, or a path Topics knows) and nest the current session inside its window. Unknown / arbitrary paths are rejected.",
+      "Open an EXISTING project the user already has in Topics (by name, slug, or a path Topics knows) and nest THIS session inside its window. Works from BOTH a chat topic AND a terminal Claude tab — in either case the current session/tab moves into the project window. Unknown / arbitrary paths are rejected.",
     inputSchema: {
       type: "object",
       properties: { ref: { type: "string", description: "Project name, slug, or a known path." } },

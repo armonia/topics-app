@@ -728,6 +728,111 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     } catch { return []; }
   }
 
+  /**
+   * Relocate a Claude Code TERMINAL tab into a project window, server-side and
+   * de-duplicated. This is the shared core of POST
+   * /api/sessions/:sessionKey/move-to-project AND the terminal-tab fallback of
+   * the open-project / create-project handlers (a terminal tab has no chat
+   * topic, so bindTopicToProject can't move it — the pane lives in the app-level
+   * `pane-store-v2`, not in a topic).
+   *
+   * `projectDir` MUST already be a resolved, existing directory (callers resolve
+   * it with resolveProjectRef before calling). Steps:
+   *   1. splice the pane out of the app-level standalone store (`pane-store-v2`:
+   *      its `panes` entry + every `groups.*.paneIds` ref), capturing its full
+   *      pane object so the project membership carries the same shape;
+   *   2. add it to the project's server-synced membership
+   *      (`topics-project-panes-<projectHash(dir)>` → `nonChatPanes`), idempotent;
+   *   3. persist both ui_state writes with a fresh monotonic server_seq (BEGIN
+   *      IMMEDIATE so two writers can't collide on seq) and broadcast each so
+   *      live clients converge to exactly ONE instance.
+   *
+   * Does NOT broadcast `open-project` — the caller owns focus semantics (the
+   * move-to-project route and the open/create fallbacks all want it, but keeping
+   * it out of the helper lets a caller relocate without stealing focus if ever
+   * needed). Device-local split geometry (`project-layout-<hash>`) is untouched.
+   */
+  function moveTerminalPaneToProject(
+    term: { id: string; name?: string },
+    projectDir: string,
+  ): { paneId: string; membershipKey: string } {
+    const paneId = `terminal:${term.id}`;
+
+    // djb2 — MUST match client projectHash() in
+    // client/src/state/pane/adapters/projectLayoutSync.ts so the membership key
+    // lines up with what the renderer reads.
+    const projectHash = (p: string): string => {
+      let h = 0;
+      for (let i = 0; i < p.length; i++) { h = p.charCodeAt(i) + ((h << 5) - h); h = h & h; }
+      return Math.abs(h).toString(36);
+    };
+    const membershipKey = `topics-project-panes-${projectHash(projectDir)}`;
+    const APP_KEY = "pane-store-v2";
+
+    const readUi = (key: string): Record<string, unknown> | null => {
+      const row = db.query("SELECT value FROM ui_state WHERE key = ?").get(key) as { value?: string } | undefined;
+      if (!row?.value) return null;
+      try { return JSON.parse(row.value) as Record<string, unknown>; } catch { return null; }
+    };
+    const writes: Array<{ key: string; value: unknown }> = [];
+
+    // 1. Splice the pane out of the app-level standalone store, capturing its
+    //    full pane object so the project membership carries the same shape.
+    let paneObj: Record<string, unknown> | null = null;
+    const app = readUi(APP_KEY);
+    if (app) {
+      const panes = app.panes as Record<string, Record<string, unknown>> | undefined;
+      if (panes && panes[paneId]) {
+        const { scrollOffset: _drop, ...rest } = panes[paneId];
+        paneObj = rest;
+        delete panes[paneId];
+      }
+      const groups = app.groups as Record<string, { paneIds?: string[] }> | undefined;
+      if (groups) {
+        for (const g of Object.values(groups)) {
+          if (g && Array.isArray(g.paneIds)) g.paneIds = g.paneIds.filter((x) => x !== paneId);
+        }
+      }
+      writes.push({ key: APP_KEY, value: app });
+    }
+
+    // 2. Add the pane to the project's server-synced membership (idempotent).
+    const mem = (readUi(membershipKey) as { nonChatPanes?: unknown[]; openChatTopicIds?: unknown[] } | null)
+      || { nonChatPanes: [], openChatTopicIds: [] };
+    if (!Array.isArray(mem.nonChatPanes)) mem.nonChatPanes = [];
+    if (!Array.isArray(mem.openChatTopicIds)) mem.openChatTopicIds = [];
+    if (!mem.nonChatPanes.some((p) => (p as { id?: string })?.id === paneId)) {
+      mem.nonChatPanes.push(paneObj || { id: paneId, type: "terminal", title: term.name || "Claude Code", preview: false, terminalType: "claude-code" });
+    }
+    writes.push({ key: membershipKey, value: mem });
+
+    // 3. Persist with fresh monotonic server_seq each (BEGIN IMMEDIATE so two
+    //    writers can't collide on seq — same rule as the ui-state PUT route),
+    //    then broadcast each so live clients converge.
+    const stamped = db.transaction(() => {
+      const out: Array<{ key: string; value: unknown; seq: number }> = [];
+      for (const w of writes) {
+        const { maxSeq } = db.query("SELECT COALESCE(MAX(server_seq), 0) AS maxSeq FROM ui_state").get() as { maxSeq: number };
+        const seq = maxSeq + 1;
+        db.run(
+          `INSERT INTO ui_state (key, value, payload_version, server_seq, updated_at)
+           VALUES (?, ?, 2, ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET
+             value = excluded.value, payload_version = 2,
+             server_seq = excluded.server_seq, updated_at = datetime('now')`,
+          [w.key, JSON.stringify(w.value), seq],
+        );
+        out.push({ key: w.key, value: w.value, seq });
+      }
+      return out;
+    }).immediate() as Array<{ key: string; value: unknown; seq: number }>;
+
+    for (const s of stamped) {
+      broadcastToAll({ type: "ui-state:updated", key: s.key, value: s.value, payload_version: 2, server_seq: s.seq });
+    }
+    return { paneId, membershipKey };
+  }
+
   // Auto-naming endpoint extracted to its own router; it needs two closure
   // helpers injected (they close over this scope), so it's instantiated here.
   const autoNameRouter = createAutoNameRouter(ctx, { resolveProvider, detectProjectPathFromMessages });
@@ -1322,80 +1427,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (!term) {
           return json({ error: "move-to-project supports terminal tabs only; use bind-project for chat topics" }, 400);
         }
-        const paneId = `terminal:${term.id}`;
 
-        // djb2 — MUST match client projectHash() in
-        // client/src/state/pane/adapters/projectLayoutSync.ts so the membership
-        // key lines up with what the renderer reads.
-        const projectHash = (p: string): string => {
-          let h = 0;
-          for (let i = 0; i < p.length; i++) { h = p.charCodeAt(i) + ((h << 5) - h); h = h & h; }
-          return Math.abs(h).toString(36);
-        };
-        const membershipKey = `topics-project-panes-${projectHash(dir)}`;
-        const APP_KEY = "pane-store-v2";
-
-        const readUi = (key: string): Record<string, unknown> | null => {
-          const row = db.query("SELECT value FROM ui_state WHERE key = ?").get(key) as { value?: string } | undefined;
-          if (!row?.value) return null;
-          try { return JSON.parse(row.value) as Record<string, unknown>; } catch { return null; }
-        };
-        const writes: Array<{ key: string; value: unknown }> = [];
-
-        // 1. Splice the pane out of the app-level standalone store, capturing its
-        //    full pane object so the project membership carries the same shape.
-        let paneObj: Record<string, unknown> | null = null;
-        const app = readUi(APP_KEY);
-        if (app) {
-          const panes = app.panes as Record<string, Record<string, unknown>> | undefined;
-          if (panes && panes[paneId]) {
-            const { scrollOffset: _drop, ...rest } = panes[paneId];
-            paneObj = rest;
-            delete panes[paneId];
-          }
-          const groups = app.groups as Record<string, { paneIds?: string[] }> | undefined;
-          if (groups) {
-            for (const g of Object.values(groups)) {
-              if (g && Array.isArray(g.paneIds)) g.paneIds = g.paneIds.filter((x) => x !== paneId);
-            }
-          }
-          writes.push({ key: APP_KEY, value: app });
-        }
-
-        // 2. Add the pane to the project's server-synced membership (idempotent).
-        const mem = (readUi(membershipKey) as { nonChatPanes?: unknown[]; openChatTopicIds?: unknown[] } | null)
-          || { nonChatPanes: [], openChatTopicIds: [] };
-        if (!Array.isArray(mem.nonChatPanes)) mem.nonChatPanes = [];
-        if (!Array.isArray(mem.openChatTopicIds)) mem.openChatTopicIds = [];
-        if (!mem.nonChatPanes.some((p) => (p as { id?: string })?.id === paneId)) {
-          mem.nonChatPanes.push(paneObj || { id: paneId, type: "terminal", title: term.name || "Claude Code", preview: false, terminalType: "claude-code" });
-        }
-        writes.push({ key: membershipKey, value: mem });
-
-        // 3. Persist with fresh monotonic server_seq each (BEGIN IMMEDIATE so two
-        //    writers can't collide on seq — same rule as the ui-state PUT route),
-        //    then broadcast each so live clients converge.
-        const stamped = db.transaction(() => {
-          const out: Array<{ key: string; value: unknown; seq: number }> = [];
-          for (const w of writes) {
-            const { maxSeq } = db.query("SELECT COALESCE(MAX(server_seq), 0) AS maxSeq FROM ui_state").get() as { maxSeq: number };
-            const seq = maxSeq + 1;
-            db.run(
-              `INSERT INTO ui_state (key, value, payload_version, server_seq, updated_at)
-               VALUES (?, ?, 2, ?, datetime('now'))
-               ON CONFLICT(key) DO UPDATE SET
-                 value = excluded.value, payload_version = 2,
-                 server_seq = excluded.server_seq, updated_at = datetime('now')`,
-              [w.key, JSON.stringify(w.value), seq],
-            );
-            out.push({ key: w.key, value: w.value, seq });
-          }
-          return out;
-        }).immediate() as Array<{ key: string; value: unknown; seq: number }>;
-
-        for (const s of stamped) {
-          broadcastToAll({ type: "ui-state:updated", key: s.key, value: s.value, payload_version: 2, server_seq: s.seq });
-        }
+        const { paneId, membershipKey } = moveTerminalPaneToProject(term, dir);
         broadcastToAll({ type: "open-project", projectPath: dir });
         return json({ ok: true, paneId, projectPath: dir, membershipKey });
       }
@@ -1406,13 +1439,27 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // Tool-shaped successors to the {{TOPIC_SWITCH/TOPIC_NEW/PROJECT_CREATE/
     // PROJECT_OPEN}} markers (the MCP `switch_topic`/`new_topic`/`create_project`/
     // `open_project` tools + the SDK-passthrough dispatcher both hit these).
-    // Resolve the CALLER's chat topic from its sessionKey — a terminal tab has no
-    // chat topic, so it 404s (use move-to-project there). AI-driven: project refs
-    // go through resolveProjectRef(trustRawPaths:false), so a model (or prompt
-    // injection) can't open a pane rooted at /etc or ~/.ssh. switch/new reproduce
-    // the UI `topic:switch` broadcast but do NOT migrate already-streamed messages
-    // (that was marker-only mid-turn surgery, not reproducible by a tool call) —
-    // tool-driven switch is UI-only by design.
+    // AI-driven: project refs go through resolveProjectRef(trustRawPaths:false),
+    // so a model (or prompt injection) can't open a pane rooted at /etc or ~/.ssh.
+    //
+    // The CALLER is resolved from its sessionKey, which is EITHER a chat topic OR
+    // a Claude Code terminal tab:
+    //   - open-project / create-project work from BOTH surfaces. A chat topic
+    //     binds via bindTopicToProject; a terminal tab (no chat topic) falls back
+    //     to moveTerminalPaneToProject — the tab pane is spliced out of the
+    //     app-level store and into the project's membership (same as
+    //     move-to-project, but resolving the ref by name/slug like the chat
+    //     branch, not an absolute path). create-project scaffolds the dir first
+    //     (409 on collision) either way, then routes by surface.
+    //   - switch-topic / new-topic act on chat topics only (they migrate/split a
+    //     conversation; a terminal tab has no conversation to switch). A terminal
+    //     session gets a structured 400 naming open_project/move_session_to_project,
+    //     not a bare 404 — so the caller knows the RIGHT tool, not just that this
+    //     one didn't apply.
+    //
+    // switch/new reproduce the UI `topic:switch` broadcast but do NOT migrate
+    // already-streamed messages (that was marker-only mid-turn surgery, not
+    // reproducible by a tool call) — tool-driven switch is UI-only by design.
     {
       const switchM = matchRoute(pathname, "/api/sessions/:sessionKey/switch-topic");
       const newM = matchRoute(pathname, "/api/sessions/:sessionKey/new-topic");
@@ -1420,8 +1467,20 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const openM = matchRoute(pathname, "/api/sessions/:sessionKey/open-project");
 
       if (switchM && method === "POST") {
-        const cur = getTopicBySessionKey(decodeURIComponent(switchM.sessionKey));
-        if (!cur) return json({ error: "no chat topic bound to this session" }, 404);
+        const skRaw = decodeURIComponent(switchM.sessionKey);
+        const cur = getTopicBySessionKey(skRaw);
+        if (!cur) {
+          // A terminal Claude tab has no chat topic to switch — tell it the right
+          // tool instead of a bare 404 (which reads like "session doesn't exist").
+          if (getTerminalSessionById(skRaw)) {
+            return json({
+              error: "switch_topic acts on chat topics; this is a terminal Claude tab with no conversation to switch. To move this tab into a project use open_project (or move_session_to_project with an absolute path).",
+              code: "not_a_chat_topic",
+              tool: "switch_topic",
+            }, 400);
+          }
+          return json({ error: "no chat topic bound to this session" }, 404);
+        }
         const body = (await readJSON(req)) as { topicId?: unknown } | null;
         const targetId = typeof body?.topicId === "string" ? body.topicId : "";
         if (!targetId) return json({ error: "topicId (string) is required" }, 400);
@@ -1435,8 +1494,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
 
       if (newM && method === "POST") {
-        const cur = getTopicBySessionKey(decodeURIComponent(newM.sessionKey));
-        if (!cur) return json({ error: "no chat topic bound to this session" }, 404);
+        const skRaw = decodeURIComponent(newM.sessionKey);
+        const cur = getTopicBySessionKey(skRaw);
+        if (!cur) {
+          // A terminal Claude tab has no chat topic to fork a new one from.
+          if (getTerminalSessionById(skRaw)) {
+            return json({
+              error: "new_topic forks a new chat topic from the current one; this is a terminal Claude tab with no conversation. To move this tab into a project use open_project (or move_session_to_project with an absolute path).",
+              code: "not_a_chat_topic",
+              tool: "new_topic",
+            }, 400);
+          }
+          return json({ error: "no chat topic bound to this session" }, 404);
+        }
         const body = (await readJSON(req)) as { title?: unknown } | null;
         const title = typeof body?.title === "string" ? body.title.trim() : "";
         if (!title) return json({ error: "title (string) is required" }, 400);
@@ -1457,8 +1527,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
 
       if (createM && method === "POST") {
-        const cur = getTopicBySessionKey(decodeURIComponent(createM.sessionKey));
-        if (!cur) return json({ error: "no chat topic bound to this session" }, 404);
+        const skRaw = decodeURIComponent(createM.sessionKey);
+        const cur = getTopicBySessionKey(skRaw);
+        // Chat topic OR terminal Claude tab — both can create a project. Resolve
+        // the terminal fallback up front so we only scaffold when a caller exists.
+        const term = cur ? null : getTerminalSessionById(skRaw);
+        if (!cur && !term) return json({ error: "no chat topic bound to this session" }, 404);
         const body = (await readJSON(req)) as { name?: unknown } | null;
         const rawName = typeof body?.name === "string" ? body.name.trim() : "";
         const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, "");
@@ -1474,19 +1548,39 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         }
         mkdirSync(targetDir, { recursive: true });
         writeFileSync(join(targetDir, "CLAUDE.md"), `# ${safeName}\n`);
-        bindTopicToProject(cur.id, targetDir, { focus: true });
+        if (cur) {
+          bindTopicToProject(cur.id, targetDir, { focus: true });
+        } else if (term) {
+          // Terminal tab: move the pane into the freshly-scaffolded project and
+          // focus it (same focus semantics as the chat bind, via open-project).
+          moveTerminalPaneToProject(term, targetDir);
+          broadcastToAll({ type: "open-project", projectPath: targetDir });
+        }
         return json({ ok: true, projectPath: targetDir });
       }
 
       if (openM && method === "POST") {
-        const cur = getTopicBySessionKey(decodeURIComponent(openM.sessionKey));
-        if (!cur) return json({ error: "no chat topic bound to this session" }, 404);
+        const skRaw = decodeURIComponent(openM.sessionKey);
+        const cur = getTopicBySessionKey(skRaw);
+        // Chat topic OR terminal Claude tab — both can open a project.
+        const term = cur ? null : getTerminalSessionById(skRaw);
+        if (!cur && !term) return json({ error: "no chat topic bound to this session" }, 404);
         const body = (await readJSON(req)) as { ref?: unknown } | null;
         const ref = typeof body?.ref === "string" ? body.ref : "";
         if (!ref) return json({ error: "ref (string) is required" }, 400);
+        // Same resolver as the chat branch (trustRawPaths:false): "apri il
+        // progetto yup" resolves by name/slug against known projects, and a model
+        // still can't reach /etc or ~/.ssh from a terminal tab either.
         const dir = resolveProjectRef(ref, { trustRawPaths: false });
         if (!dir) return json({ error: "project not found (must be a project Topics already knows)" }, 404);
-        bindTopicToProject(cur.id, dir, { focus: true });
+        if (cur) {
+          bindTopicToProject(cur.id, dir, { focus: true });
+        } else if (term) {
+          // Terminal tab: move the pane into the project and focus it (the
+          // open-project broadcast gives the same focus semantics as the bind).
+          moveTerminalPaneToProject(term, dir);
+          broadcastToAll({ type: "open-project", projectPath: dir });
+        }
         return json({ ok: true, projectPath: dir });
       }
     }
