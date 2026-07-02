@@ -321,6 +321,9 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         "[sidecar] no external server; spawning bundled sidecar on :{port} (data: {})",
         data_dir.display()
     );
+    // Per-instance PTY-bridge socket, under the isolated data dir. See the env
+    // block below for why this is CRITICAL and not just tidy.
+    let pty_socket = data_dir.join("pty-bridge-standalone.sock");
     let cmd = match app.shell().sidecar("topics-server") {
         Ok(c) => c
             .env("NO_TLS", "1")
@@ -328,7 +331,29 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
             // Bind IPv4 loopback explicitly: the proxy connects to 127.0.0.1 and a
             // bare "::" bind is IPv6-only on some Bun/macOS combos (see server.ts).
             .env("SERVER_HOST", "127.0.0.1")
-            .env("TOPICS_DATA_DIR", data_dir.to_string_lossy().to_string()),
+            // ── ISOLATION (all partition keys, not just one) ─────────────────────
+            // The server partitions its mutable state across SEPARATE env vars, and
+            // setting only TOPICS_DATA_DIR is NOT enough — this is the 2026-07-02
+            // incident: the PTY-bridge socket path is md5(cwd) when `DATA_DIR` is
+            // unset (server/routes/terminal.ts getSocketPath). A sidecar sharing a
+            // checkout's cwd hashed to the SAME socket as the live launchd server
+            // and, with its own empty DB, reconciled the live PTYs as "orphans" and
+            // KILLED them. So isolate EVERY key:
+            //   • TOPICS_DISABLE_PTY_BRIDGE=1 — structural kill-switch: the server
+            //     treats this as a self-contained bundle and NEVER connects to /
+            //     spawns the external PTY bridge; terminal endpoints answer 503. A
+            //     virgin machine has no bridge, and the compiled binary can't spawn
+            //     one anyway (pty-bridge.mjs resolves to a virtualized path). This
+            //     alone makes touching a real bridge impossible.
+            //   • TOPICS_PTY_SOCKET — belt: even if the gate were bypassed, the
+            //     override (terminal.ts:203) pins the socket to our own path.
+            //   • DATA_DIR / TOPICS_HOME — the other two state roots (browser-state,
+            //     db data path; daemon lock, ui-state backups, events), isolated too.
+            .env("TOPICS_DATA_DIR", data_dir.to_string_lossy().to_string())
+            .env("DATA_DIR", data_dir.join("data").to_string_lossy().to_string())
+            .env("TOPICS_HOME", data_dir.join("home").to_string_lossy().to_string())
+            .env("TOPICS_PTY_SOCKET", pty_socket.to_string_lossy().to_string())
+            .env("TOPICS_DISABLE_PTY_BRIDGE", "1"),
         Err(e) => {
             eprintln!("[sidecar] sidecar() resolve failed: {e} — falling back to external target");
             let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });

@@ -48,6 +48,45 @@ compile() {
   bun build --compile --target="$1" "${EXTERNALS[@]}" "$ENTRY" --outfile "$2"
 }
 
+# ── smoke: build a HOST binary and run it in FULL isolation, then verify + clean up.
+#
+# DANGER the isolation guards against: the PTY-bridge socket is md5(cwd) when
+# DATA_DIR is unset (server/routes/terminal.ts). Running a sidecar from the repo
+# root with a bare cwd hashes to the SAME socket as a live launchd/dev server and
+# reconcile-kills its live PTYs (the 2026-07-02 incident). So EVERY manual smoke
+# MUST run through this path — it sets a private socket, DATA_DIR, HOME, a high port,
+# AND the standalone kill-switch, and never runs from the repo cwd's default socket.
+if [ "$OS" = "smoke" ]; then
+  HOST_TARGET="$(uname -s | grep -qi darwin && echo bun-darwin-arm64 || echo bun-linux-x64)"
+  WORK="$(mktemp -d)"
+  BIN="$WORK/topics-server-smoke"
+  PORT="${SMOKE_PORT:-13460}"
+  SOCK="/tmp/sidecar-smoke-$$-$RANDOM.sock"
+  echo "[smoke] compiling host binary ($HOST_TARGET) -> $BIN"
+  bun build --compile --target="$HOST_TARGET" "${EXTERNALS[@]}" "$ENTRY" --outfile "$BIN"
+  echo "[smoke] launching ISOLATED: port=$PORT socket=$SOCK data=$WORK/data home=$WORK/home (bridge DISABLED)"
+  NO_TLS=1 BUN_PORT="$PORT" SERVER_HOST=127.0.0.1 \
+    TOPICS_DATA_DIR="$WORK/data" DATA_DIR="$WORK/data/data" TOPICS_HOME="$WORK/home" \
+    TOPICS_PTY_SOCKET="$SOCK" TOPICS_DISABLE_PTY_BRIDGE=1 HOME="$WORK/fakehome" \
+    "$BIN" > "$WORK/smoke.log" 2>&1 &
+  SMOKE_PID=$!
+  cleanup_smoke() { kill "$SMOKE_PID" 2>/dev/null; rm -rf "$WORK"; rm -f "$SOCK"; }
+  trap cleanup_smoke EXIT
+  # Wait for the API.
+  ok=""
+  for _ in $(seq 1 60); do
+    if curl -s -o /dev/null "http://127.0.0.1:$PORT/api/topics" 2>/dev/null; then ok=1; break; fi
+    sleep 0.25
+  done
+  if [ -z "$ok" ]; then echo "[smoke] FAIL: server never answered"; tail -30 "$WORK/smoke.log"; exit 1; fi
+  echo "[smoke] /api/topics: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/topics)"
+  echo "[smoke] /api/terminal/sessions (expect 503 standalone): $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/api/terminal/sessions)"
+  echo "[smoke] migrations line:"; grep -E "embedded migration|All migrations" "$WORK/smoke.log" | head -1
+  echo "[smoke] bridge touched? (must be EMPTY):"; grep -i "PTY bridge daemon" "$WORK/smoke.log" || echo "  (none — good)"
+  echo "[smoke] OK"
+  exit 0
+fi
+
 case "$OS" in
   macos)
     # Universal (arm64 + x86_64), matching the universal .app. lipo the two slices.

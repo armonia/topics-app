@@ -133,6 +133,27 @@ launch:
   `NO_TLS=1` + an isolated `TOPICS_DATA_DIR` (Tauri app-data `data-standalone/`), then
   points its loopback proxy at it. The sidecar is killed on app exit.
 
+**⚠️ Isolation when testing the sidecar (never skip this).** The PTY-bridge socket
+is derived from `md5(cwd)` when `DATA_DIR` is unset
+(`server/routes/terminal.ts` `getSocketPath`). A sidecar run from the repo root with
+a bare cwd hashes to the **same socket as a live dev/launchd server** and, with its
+own empty DB, reconcile-kills that server's live PTYs — this actually happened
+(2026-07-02, 25 live sessions killed). So **every manual sidecar run MUST** set an
+explicit private socket + data dir + the standalone kill-switch. Use the codified
+path — it does exactly this and cleans up after itself:
+
+```bash
+scripts/build-server-sidecar.sh smoke
+# sets: NO_TLS=1 BUN_PORT>=13460 SERVER_HOST=127.0.0.1
+#       TOPICS_DATA_DIR/DATA_DIR/TOPICS_HOME (isolated tempdir)
+#       TOPICS_PTY_SOCKET=/tmp/sidecar-smoke-$$.sock  TOPICS_DISABLE_PTY_BRIDGE=1
+```
+
+Never launch the compiled binary by hand from the repo root. The shipped sidecar is
+spawned with the same isolation + `TOPICS_DISABLE_PTY_BRIDGE=1` by the shell
+(`desktop-tauri/src-tauri/src/lib.rs`), so terminal endpoints answer `503`
+("terminals not available in standalone mode") instead of touching a bridge.
+
 Two things the sidecar needs that a naïve `--compile` drops, both handled:
 
 - **DB migrations** — in a compiled binary `import.meta.dir` is virtual, so the
@@ -146,10 +167,13 @@ Two things the sidecar needs that a naïve `--compile` drops, both handled:
   (optional server-side CDP fallback with unresolvable optional deps; the native
   WKWebView pane is the primary browser).
 
-**Known limitation (not blocking the "try it" build):** in-app **terminals** shell out
-to a PTY-bridge (`pty-bridge.mjs`) resolved by disk path + the Claude CLI, neither of
-which the sidecar ships — so terminals need a full local dev/OpenClaw setup. Chat, topics,
-projects, browser pane, and the dashboards work standalone.
+**Known limitation (not blocking the "try it" build):** in-app **terminals** rely on a
+PTY-bridge (`pty-bridge.mjs`) resolved by disk path + the Claude CLI, neither of which
+the sidecar ships — so in standalone mode they are **explicitly disabled**: the shell
+spawns the sidecar with `TOPICS_DISABLE_PTY_BRIDGE=1` and terminal endpoints answer
+`503 "terminals not available in standalone mode"` (an honest failure, not a hang or a
+crash). Chat, topics, projects, browser pane, and the dashboards work standalone.
+Terminals need a full local dev/OpenClaw setup.
 
 **Gatekeeper on macOS:** if the Apple signing secrets are absent the build is *unsigned*
 — testers double-clicking the download get "Topics can't be opened because Apple cannot
