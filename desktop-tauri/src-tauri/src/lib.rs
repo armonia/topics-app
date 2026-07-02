@@ -162,6 +162,48 @@ fn apply_traffic_lights(window: &tauri::WebviewWindow, visible: bool) {
                 hit += 1;
             }
         }
+        // Electron parity: trafficLightPosition { x: 12, y: 12 } (from the
+        // window's top-left). AppKit resets the standard buttons' frames on
+        // every titlebar relayout, which is why the Resized/Focused window
+        // events re-run apply_traffic_lights (see on_window_event). Skipped in
+        // fullscreen: there the buttons live in the auto-managed toolbar and
+        // moving them fights AppKit.
+        if visible && !window.is_fullscreen().unwrap_or(false) {
+            use cocoa::foundation::NSRect;
+            let close: id = ptr.standardWindowButton_(NSWindowButton::NSWindowCloseButton);
+            if close != nil {
+                let first: NSRect = msg_send![close, frame];
+                let dx = 12.0 - first.origin.x;
+                for button in [
+                    NSWindowButton::NSWindowCloseButton,
+                    NSWindowButton::NSWindowMiniaturizeButton,
+                    NSWindowButton::NSWindowZoomButton,
+                ] {
+                    let b: id = ptr.standardWindowButton_(button);
+                    if b == nil {
+                        continue;
+                    }
+                    let sv: id = msg_send![b, superview];
+                    if sv == nil {
+                        continue;
+                    }
+                    let mut f: NSRect = msg_send![b, frame];
+                    let svb: NSRect = msg_send![sv, bounds];
+                    // Shift the whole group so the close button sits at x=12,
+                    // preserving AppKit's natural inter-button spacing.
+                    f.origin.x += dx;
+                    // y=12 from the TOP of the titlebar container, in whichever
+                    // coordinate orientation the superview uses.
+                    let flipped: bool = msg_send![sv, isFlipped];
+                    f.origin.y = if flipped {
+                        12.0
+                    } else {
+                        svb.size.height - 12.0 - f.size.height
+                    };
+                    let _: () = msg_send![b, setFrame: f];
+                }
+            }
+        }
     }
     let _ = hit;
 }
@@ -2885,6 +2927,15 @@ pub fn run() {
             // would double-fire and cancel the toggle when the window is focused.
             let always_on_top =
                 MenuItem::with_id(handle, "always-on-top", "Always on Top", true, None::<&str>)?;
+            // Reset the focused window's split layout — flattens the panel tree
+            // back to a single pane. The client already listens on the per-window
+            // `topics:reset-split-layout` CustomEvent bus (GroupLayout / PanelGrid),
+            // gated on which surface is App-focused, so we just dispatch it on the
+            // focused window's webview (see the "reset-split-layout" menu handler).
+            // No accelerator: the Command Palette already exposes this action, and a
+            // menu chord risks colliding with a future pane shortcut.
+            let reset_panels =
+                MenuItem::with_id(handle, "reset-split-layout", "Reimposta pannelli", true, None::<&str>)?;
             // "Open at Login" (Electron parity). Toggling registers/removes the
             // LaunchAgent immediately. NOTE: we cannot read the current enabled state
             // here — the .menu() closure runs BEFORE the autostart plugin's setup
@@ -2922,6 +2973,8 @@ pub fn run() {
                 .item(&zoom_out)
                 .item(&zoom_reset)
                 .separator()
+                .item(&reset_panels)
+                .separator()
                 .item(&always_on_top)
                 .item(&open_at_login)
                 .separator()
@@ -2954,6 +3007,25 @@ pub fn run() {
                 "app-quit" => {
                     QUITTING.store(true, Ordering::Relaxed);
                     app.exit(0);
+                }
+                "reset-split-layout" => {
+                    // Dispatch the per-window reset bus on the FOCUSED window's webview
+                    // (not always "main" — detached project windows may exist). The
+                    // client's GroupLayout / PanelGrid listen for this and flatten the
+                    // App-focused surface. Resolve the focused window by label, map it
+                    // to its webview_window (eval lives on the webview), fall back to
+                    // "main" if none reports focus (e.g. menu click stole key status).
+                    let label = app
+                        .get_focused_window()
+                        .map(|w| w.label().to_string())
+                        .unwrap_or_else(|| "main".to_string());
+                    let win = app
+                        .get_webview_window(&label)
+                        .or_else(|| app.get_webview_window("main"));
+                    if let Some(win) = win {
+                        let _ = win
+                            .eval("window.dispatchEvent(new CustomEvent('topics:reset-split-layout'))");
+                    }
                 }
                 "always-on-top" => toggle_always_on_top(app),
                 "open-at-login" => {
