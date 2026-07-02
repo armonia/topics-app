@@ -1,5 +1,7 @@
 import { test, expect } from 'bun:test';
-import { slotIntersectsRects, type OverlayRect } from './browserOcclusion';
+import { slotIntersectsRects, OVERLAY_SELECTOR, type OverlayRect } from './browserOcclusion';
+import { MODAL_PANEL } from '../modalStyles';
+import { POPOVER_SURFACE } from '../popoverStyles';
 
 const slot = { x: 100, y: 100, width: 200, height: 200 }; // covers 100..300 × 100..300
 
@@ -36,4 +38,47 @@ test('a zero-area slot is never occluded', () => {
 
 test('no overlays → not occluded', () => {
   expect(slotIntersectsRects(slot, [])).toBe(false);
+});
+
+// ── Structural invariant for checklist point 11: modals render ABOVE the
+// native browser pane. The pane composites over the DOM, so a modal is only
+// lifted above it when the occlusion tracker recognises the modal CARD as an
+// overlay (freeze-frame path in useTauriBrowser). That recognition hinges on
+// the modal's class string matching OVERLAY_SELECTOR. These tests lock that
+// link so a refactor that drops `native-occlude` from MODAL_PANEL — or the
+// `.glass-surface` marker from popovers — fails HERE instead of silently
+// leaving Settings & co. hidden behind a browser pane on Tauri.
+
+/** Does a space-separated className match a class-token selector list?
+ *  OVERLAY_SELECTOR is only class tokens (`.foo`) + attribute selectors — for
+ *  a plain class string the class tokens are what matter. */
+function classStringMatchesSelector(className: string, selector: string): boolean {
+  const classTokens = selector
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith('.'))
+    .map((s) => s.slice(1));
+  const have = new Set(className.split(/\s+/).filter(Boolean));
+  return classTokens.some((t) => have.has(t));
+}
+
+test('MODAL_PANEL (Settings & every full-screen dialog) is recognised as an overlay', () => {
+  // MODAL_PANEL must carry a class in OVERLAY_SELECTOR (currently `native-occlude`),
+  // otherwise a Settings modal would NOT freeze the native pane and would render
+  // BEHIND it on Tauri.
+  expect(MODAL_PANEL).toContain('native-occlude');
+  expect(classStringMatchesSelector(MODAL_PANEL, OVERLAY_SELECTOR)).toBe(true);
+});
+
+test('POPOVER_SURFACE (context menus / dropdowns) is recognised as an overlay', () => {
+  // Menus use `.glass-surface` (in OVERLAY_SELECTOR), so a right-click menu over
+  // a browser pane also lifts above it.
+  expect(classStringMatchesSelector(POPOVER_SURFACE, OVERLAY_SELECTOR)).toBe(true);
+});
+
+test('a modal card overlapping a browser-pane slot is detected as occluding it', () => {
+  // End-to-end of the two halves: a modal-sized rect centred over the pane slot
+  // intersects → freeze fires → the modal composites over the still.
+  const modalOverPane: OverlayRect = { left: 120, top: 120, right: 280, bottom: 280 };
+  expect(slotIntersectsRects(slot, [modalOverPane])).toBe(true);
 });
