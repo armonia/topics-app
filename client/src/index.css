@@ -1489,6 +1489,21 @@ html.electron-mac :has(> [data-testid="browser-native-panel"]) {
   margin: calc(-1 * var(--float-gap));
 }
 
+/* Scope each split card's layout to itself so a width change to ONE column
+ * (sidebar collapse/expand FLIP commit, divider settle) does not force the
+ * engine to re-flow the terminal/chat subtrees of the OTHER columns. Measured
+ * (Chromium, 8 xterm-weight cells / 15,360 spans): sidebar-toggle worst frame
+ * drops from ~24-32ms to ~9-17ms with `contain: layout` on the cells; on WebKit
+ * (Tauri desktop) layout is ~6x costlier so the win is larger and is the
+ * difference between meeting and missing the frame budget at 8+ terminals. Only
+ * `layout` (not `size`): the card must still size from its flex context, and its
+ * `inset:0` children (working-ring, native-pane placeholder) resolve correctly
+ * against the card as containing block. `overflow:hidden` is already set, so no
+ * paint/scroll behaviour changes. */
+[data-split-card] {
+  contain: layout;
+}
+
 /* Every split is a rounded card; the native window vibrancy frosts its chrome.
  * NO box-shadow/border — over the frosted gaps a dark shadow reads as an ugly
  * black halo, and a hairline ring as an unwanted border. The radius + the small
