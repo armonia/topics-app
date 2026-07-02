@@ -18,6 +18,17 @@ interface SidebarState {
   expandedNodes: string[];
   viewMode: SidebarViewMode;
   showArchived: boolean;
+  /** Pinned ("Fissati") sidebar items, in user pin order (append-on-pin).
+   *  Keys use the SidebarItem id conventions: chats = raw topic id, projects
+   *  = `project:<rawPath>` (the sidebar-item form, NOT the encoded pane id).
+   *  Rides the whole sidebar-state pipeline (localStorage + server ui-state
+   *  + WS + cross-tab) for free; the `{...DEFAULT_STATE, ...parsed}` spread
+   *  IS the migration (old payloads deserialize with `[]`).
+   *  KNOWN LWW CAVEAT (accepted, ruling 2.4): sidebar-state syncs as a
+   *  whole-object last-write-wins — two clients pinning different items
+   *  within the debounce window clobber each other, and a pre-feature
+   *  client's next PUT drops the field entirely. Single release train. */
+  pinnedItems: string[];
   // Legacy fields — kept for backward compat during migration, not used in new UI
   showProjects: boolean;
   showChats: boolean;
@@ -35,6 +46,7 @@ const DEFAULT_STATE: SidebarState = {
   expandedNodes: [],
   viewMode: 'timeline',
   showArchived: false,
+  pinnedItems: [],
   // Legacy defaults
   showProjects: true,
   showChats: true,
@@ -189,6 +201,25 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     });
   }, []);
 
+  // Pinning ("Fissati") — pure pin-state ops. The unpin-while-closed archive
+  // semantics live in the App-level wrapper (it needs openPanels/topics);
+  // this hook only owns the persisted list.
+  const pinnedIds = useMemo(() => new Set(state.pinnedItems), [state.pinnedItems]);
+
+  const togglePin = useCallback((id: string) => {
+    lastLocalChangeRef.current = Date.now();
+    setStateRaw(prev => ({
+      ...prev,
+      pinnedItems: prev.pinnedItems.includes(id)
+        ? prev.pinnedItems.filter(p => p !== id)
+        : [...prev.pinnedItems, id],
+    }));
+  }, []);
+
+  // Stable predicate (reads through stateRef) so ref-backed consumers — the
+  // usePanelLifecycle archive guards — never re-bind on pin changes.
+  const isPinned = useCallback((id: string) => stateRef.current.pinnedItems.includes(id), []);
+
   // New view mode controls
   const setViewMode = useCallback((v: SidebarViewMode) => updateField('viewMode', v), [updateField]);
   const toggleViewMode = useCallback(() => {
@@ -218,6 +249,11 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
   return {
     expandedNodes,
     toggleNode,
+    // Pinning (Fissati)
+    pinnedItems: state.pinnedItems,
+    pinnedIds,
+    togglePin,
+    isPinned,
     // New
     viewMode: state.viewMode,
     setViewMode,
