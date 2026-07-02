@@ -61,6 +61,7 @@ import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
+import { startDevBundleReload } from "./server/lib/dev-bundle-reload";
 
 // Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
 if (!process.env.GATEWAY_TOKEN) {
@@ -373,6 +374,13 @@ const stopUiStateBackup = startUiStateBackupTicker(ctx.db);
 initVapid();
 // Start agent heartbeat checker
 const stopHeartbeatChecker = startHeartbeatChecker(db, broadcastToAll);
+// Dev bundle hot-delivery: rebuilt /public → open windows self-reload.
+// Inert unless STATE_DIR/topics-dev.json exists (never in standalone installs).
+const stopDevBundleReload = startDevBundleReload({
+  publicDir: PUBLIC_DIR,
+  stateDir: ctx.STATE_DIR,
+  broadcastToAll,
+});
 
 // NOTE: the session attention monitor is NOT auto-started. It runs only when
 // the user enables it from Topics (POST /api/master/monitor) — nothing runs

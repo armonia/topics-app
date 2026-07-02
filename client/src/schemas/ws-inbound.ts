@@ -92,6 +92,13 @@ const typingBroadcastSchema = z.looseObject({
   text: z.string(),
 });
 
+// Dev bundle hot-delivery (server/lib/dev-bundle-reload.ts): the built client
+// changed on disk; devBundleReload.ts reloads the window to pick it up.
+const uiBundleUpdatedSchema = z.looseObject({
+  type: z.literal('ui:bundle-updated'),
+  at: z.number(),
+});
+
 const presenceWindowsSchema = z.looseObject({
   type: z.literal('presence:windows'),
   windows: z.array(
@@ -185,6 +192,7 @@ const INBOUND_SCHEMAS = {
   'stream:content_chunk': streamContentChunkSchema,
   'stream:error': streamErrorSchema,
   'typing': typingBroadcastSchema,
+  'ui:bundle-updated': uiBundleUpdatedSchema,
   'presence:windows': presenceWindowsSchema,
   'topic:created': topicCreatedSchema,
   'topic:updated': topicUpdatedSchema,
