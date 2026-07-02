@@ -1472,9 +1472,38 @@ fn browser_bounds_cache() -> &'static std::sync::Mutex<std::collections::HashMap
     B.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// The window's own corner radius (points) — the WKWebView pane must round its
+/// window-flush corners to EXACTLY this, or the opaque webview corner pokes past
+/// the window's rounded frame and reads as "no border radius". This is NOT a
+/// constant: macOS 26 (Tahoe) enlarged the default window corner radius to ~16pt
+/// (Liquid Glass), up from 10pt on Sequoia and earlier — a 10pt webview arc sits
+/// INSIDE Tahoe's rounder window corner, leaving a visible square notch (the
+/// regression Attilio saw after the OS upgrade — nothing in our code changed).
+/// Read the live OS major version so a machine-independent binary matches its host.
+#[cfg(target_os = "macos")]
+fn window_corner_radius() -> f64 {
+    use objc::{class, msg_send, sel, sel_impl};
+    // NSProcessInfo.operatingSystemVersion → NSOperatingSystemVersion { major, minor, patch }.
+    #[repr(C)]
+    struct NSOperatingSystemVersion {
+        major: i64,
+        minor: i64,
+        patch: i64,
+    }
+    let major = unsafe {
+        let pi: cocoa::base::id = msg_send![class!(NSProcessInfo), processInfo];
+        let v: NSOperatingSystemVersion = msg_send![pi, operatingSystemVersion];
+        v.major
+    };
+    // Tahoe (macOS 26) and later use the larger Liquid-Glass window radius; earlier
+    // macOS keeps the classic 10pt. (Windows-with-toolbars can be rounder still, but
+    // 16pt matches the titlebar-only default our overlay-titlebar window presents.)
+    if major >= 26 { 16.0 } else { 10.0 }
+}
+
 #[cfg(target_os = "macos")]
 fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f64, h: f64, win_w: f64, win_h: f64) {
-    const RADIUS: f64 = 10.0; // standard macOS window corner radius
+    let radius = window_corner_radius(); // matches the host OS window corner radius
     const EPS: f64 = 2.0;
     let flush_left = x <= EPS;
     let flush_top = y <= EPS;
@@ -1543,7 +1572,7 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
         if br {
             mask |= br_bit;
         }
-        let _: () = msg_send![layer, setCornerRadius: RADIUS];
+        let _: () = msg_send![layer, setCornerRadius: radius];
         let _: () = msg_send![layer, setMaskedCorners: mask];
         let _: () = msg_send![layer, setMasksToBounds: YES];
         if std::env::var("TOPICS_CORNER_DEMO").is_ok() {
