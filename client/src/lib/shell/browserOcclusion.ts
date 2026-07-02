@@ -22,8 +22,10 @@ import { isTauri } from './index';
 /** Selector matching any HTML overlay that can float over a browser pane.
  *  `.native-occlude` is the class MODAL_PANEL carries: marking the opaque modal
  *  CARD (not the semi-transparent backdrop, which the pane shows through anyway)
- *  makes the freeze scope exactly the region the dialog actually covers. */
-const OVERLAY_SELECTOR =
+ *  makes the freeze scope exactly the region the dialog actually covers.
+ *  Exported so a unit test can assert real modal/popover class strings still
+ *  match it — the structural link that keeps modals above the native pane. */
+export const OVERLAY_SELECTOR =
   '.glass-surface, .native-occlude, [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]';
 
 /** Viewport-relative rect of an open overlay. */
