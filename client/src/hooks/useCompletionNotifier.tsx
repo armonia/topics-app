@@ -4,6 +4,7 @@ import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
 import { useSignalsStore } from '../state/signals';
 import { notifyNative } from '../lib/shell/app';
+import { decideTerminalBanner, terminalPanelId } from '../lib/notify/terminalNotify';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -169,6 +170,19 @@ export function useCompletionNotifier({
     if (sound) playCompletionTone();
   }, []);
 
+  // Title/body-explicit fan-out for the terminal path. The chat path packs
+  // "Label: status" into one string and `emitSystemNotification` splits on the
+  // first ": " — fine for a fixed status word, but a terminal APPROVAL banner
+  // carries the raw question/plan text as its body, which routinely contains
+  // ": " and would be mis-split. So the terminal path passes title + body
+  // pre-separated and we route straight to `notifyNative`. Same silent+sound
+  // contract as `fire` (WebAudio tone when the sound toggle is on, quiet OS
+  // banner to avoid a double chime).
+  const fireBanner = useCallback((title: string, body: string, sound: boolean) => {
+    notifyNative(title, body, { silent: true });
+    if (sound) playCompletionTone();
+  }, []);
+
   // Per-session previous status, keyed by `session.key`. We diff frames
   // here — the server publishes the full session list on every frame, so
   // detecting an `active → idle` transition is "what changed since last
@@ -272,9 +286,87 @@ export function useCompletionNotifier({
   // The phase comes from claude-session-tracker (server/lib). Without this
   // bridge the WS event was being received but ignored on the client.
   const prevPhaseRef = useRef<Map<string, ClaudeSessionPhase>>(new Map());
+  // Terminal-session phase tracking (sessionKey is null for these — the chat
+  // handler below early-returns on them). Keyed by claudeSessionId, which is
+  // STABLE across WS reconnect / roster churn (the terminal id can be reused).
+  const prevTermPhaseRef = useRef<Map<string, ClaudeSessionPhase>>(new Map());
+  // Fired-banner ledger for terminals, keyed by `<terminalId>:<phase>:<rev>`.
+  // The dedupe guard so a reconnect bootstrap re-broadcasting the same state
+  // (session:state is transition-only, but the bootstrap replays the snapshot)
+  // never re-banners an event we already showed. Bounded below on each event.
+  const firedTermBannersRef = useRef<Set<string>>(new Set());
   useWSSubscription(onWSMessage, 'session:state', (msg) => {
       const state = msg.state;
-      if (!state || !msg.sessionKey) return;
+      if (!state) return;
+
+      // ── Terminal Claude Code sessions (sessionKey === null) ──────────────
+      // These publish state keyed off claudeSessionId; the chat resolution
+      // below can't find them (it scans topics by sessionKey). Route them
+      // through the terminal notifier so they get the SAME OS-banner semantics
+      // as chats: "your turn"/approval/completed/error, with the tab name as
+      // title and the approval question as body. All the suppression/dedupe
+      // lives in the pure `decideTerminalBanner` + the ledger below.
+      if (!msg.sessionKey) {
+        const csid = state.claudeSessionId;
+        if (!csid) return;
+        const cfg = settingsRef.current;
+        if (!cfg.notificationsEnabled) {
+          // Keep the baseline current so re-enabling mid-session doesn't burst.
+          prevTermPhaseRef.current.set(csid, state.phase);
+          return;
+        }
+
+        // Resolve the roster entry for this claude session → terminal id, name,
+        // owning topic. Without a roster row we can't attribute the banner (no
+        // id to key focus/dedupe on, no name) — skip; the pty fallback still
+        // covers a genuinely hook-less session.
+        const ts = terminalSessionsRef.current.find((t) => t.claudeSessionId === csid);
+        if (!ts) {
+          prevTermPhaseRef.current.set(csid, state.phase);
+          return;
+        }
+
+        const prevPhase = prevTermPhaseRef.current.get(csid);
+        prevTermPhaseRef.current.set(csid, state.phase);
+
+        // Focus suppression: the terminal's panel id is `terminal:<id>`. Only
+        // suppress on an EXACT active-panel match (not a loose substring) so an
+        // unrelated pane whose id happens to contain this id can't mute it.
+        const focused = focusedRef.current;
+        const isFocusedAndVisible = focused === terminalPanelId(ts.id);
+
+        const topicName = ts.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
+        const decision = decideTerminalBanner({
+          terminalId: ts.id,
+          phase: state.phase,
+          prevPhase,
+          rev: state.rev,
+          pendingApproval: state.pendingApproval,
+          name: ts.name,
+          fallbackTitle: topicName,
+          isFocusedAndVisible,
+          notifyEvenWhenFocused: cfg.notifyEvenWhenFocused,
+        });
+        if (!decision) return;
+
+        // Dedupe ledger — the last guard against a reconnect replay re-firing an
+        // event we already showed (decideTerminalBanner suppresses same-phase
+        // repeats, but a bootstrap can present the same transition afresh with a
+        // reset prevPhase). Bound the set so it can't grow unboundedly on a
+        // long-lived always-mounted hook.
+        const ledger = firedTermBannersRef.current;
+        if (ledger.has(decision.dedupeKey)) return;
+        ledger.add(decision.dedupeKey);
+        if (ledger.size > 500) {
+          // Evict oldest ~half (insertion order) — cheap and rare.
+          const keep = Array.from(ledger).slice(-250);
+          ledger.clear();
+          for (const k of keep) ledger.add(k);
+        }
+
+        fireBanner(decision.title, decision.body, cfg.notificationsSound);
+        return;
+      }
 
       const sessionKey = msg.sessionKey;
       const phase = state.phase;
