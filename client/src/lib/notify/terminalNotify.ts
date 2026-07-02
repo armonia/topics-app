@@ -34,6 +34,30 @@ export function isBannerPhase(phase: ClaudeSessionPhase): boolean {
   return BANNER_PHASES.has(phase);
 }
 
+/**
+ * Is the user ACTIVELY looking at this pane right now — i.e. its tab is the
+ * active one AND the Topics window itself has OS focus?
+ *
+ * The banner is suppressed only when this is true (unless notifyEvenWhenFocused).
+ * The window-focus half is load-bearing: `focusedPanelId` is just "which tab is
+ * selected" and never clears when the window goes to the background, so on its
+ * own it wrongly muted the banner whenever the matching tab happened to be the
+ * last-active one while the whole app sat in the background — precisely the case
+ * an OS banner exists for. Gating on `windowHasFocus` (document.hasFocus() at the
+ * call site) fixes that: a backgrounded window is never "actively visible", so a
+ * legitimate awaiting/approval/error/completed banner always surfaces.
+ *
+ * Pure so it's unit-testable; the caller passes the two booleans it reads from
+ * the DOM. `windowHasFocus` defaults to true so an env without a DOM (tests that
+ * don't care about it) keeps the tab-only behaviour.
+ */
+export function isTabActivelyVisible(
+  isActivePanel: boolean,
+  windowHasFocus: boolean = true,
+): boolean {
+  return isActivePanel && windowHasFocus;
+}
+
 /** Minimal roster view the decision needs — resolves a terminal id → its
  *  friendly name (the auto-name / user rename) and owning topic. */
 export interface TerminalNotifyRosterEntry {

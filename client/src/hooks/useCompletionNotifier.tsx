@@ -4,7 +4,7 @@ import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
 import { useSignalsStore } from '../state/signals';
 import { notifyNative } from '../lib/shell/app';
-import { decideTerminalBanner, terminalPanelId } from '../lib/notify/terminalNotify';
+import { decideTerminalBanner, terminalPanelId, isTabActivelyVisible } from '../lib/notify/terminalNotify';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -244,7 +244,12 @@ export function useCompletionNotifier({
 
         if (!isFirstFrame && (justCompleted || justErrored)) {
           const topicId = session.topicId ?? null;
-          const isFocused = topicId !== null && topicId === focusedTopicId;
+          // Actively-visible = this topic's tab selected AND window focused; a
+          // backgrounded window must still banner (see isTabActivelyVisible).
+          const isFocused = isTabActivelyVisible(
+            topicId !== null && topicId === focusedTopicId,
+            typeof document !== 'undefined' ? document.hasFocus() : true,
+          );
           const shouldShow = !isFocused || cfg.notifyEvenWhenFocused;
 
           if (shouldShow && topicId) {
@@ -331,9 +336,17 @@ export function useCompletionNotifier({
 
         // Focus suppression: the terminal's panel id is `terminal:<id>`. Only
         // suppress on an EXACT active-panel match (not a loose substring) so an
-        // unrelated pane whose id happens to contain this id can't mute it.
+        // unrelated pane whose id happens to contain this id can't mute it — AND
+        // only when the Topics window actually has OS focus. `focusedPanelId` is
+        // just "which tab is selected" and never clears when the app goes to the
+        // background, so without the hasFocus() gate a backgrounded window whose
+        // active tab happened to be this terminal would swallow the very banner
+        // the user needs. A backgrounded window is never "actively visible".
         const focused = focusedRef.current;
-        const isFocusedAndVisible = focused === terminalPanelId(ts.id);
+        const isFocusedAndVisible = isTabActivelyVisible(
+          focused === terminalPanelId(ts.id),
+          typeof document !== 'undefined' ? document.hasFocus() : true,
+        );
 
         const topicName = ts.topicId ? topicsRef.current[ts.topicId]?.name : undefined;
         const decision = decideTerminalBanner({
@@ -398,7 +411,14 @@ export function useCompletionNotifier({
       }
 
       const focusedTopicId = topicIdFromPanel(focusedRef.current);
-      const isFocused = topicId !== null && topicId === focusedTopicId;
+      // Only suppress when the user is ACTIVELY looking at this chat — its tab is
+      // selected AND the window has OS focus. focusedPanelId doesn't clear on
+      // window blur, so gate on document.hasFocus() (same fix as the terminal
+      // path) or a backgrounded window with this tab active would eat the banner.
+      const isFocused = isTabActivelyVisible(
+        topicId !== null && topicId === focusedTopicId,
+        typeof document !== 'undefined' ? document.hasFocus() : true,
+      );
       if (isFocused && !cfg.notifyEvenWhenFocused) return;
 
       // 10s cooldown. Key by topicId FIRST so this phase notification and the
@@ -469,9 +489,14 @@ export function useCompletionNotifier({
 
       const ts = terminalSessionsRef.current.find((t) => t.id === msg.id);
       // Focus suppression: the focused panel id for a terminal contains its id
-      // (`terminal:<id>`); skip the toast if the user is staring at it already.
+      // (`terminal:<id>`); skip the toast if the user is staring at it already —
+      // but only when the window has OS focus, so a backgrounded window whose
+      // active tab is this terminal still surfaces the banner (isTabActivelyVisible).
       const focused = focusedRef.current;
-      const isFocused = !!focused && focused.includes(msg.id);
+      const isFocused = isTabActivelyVisible(
+        !!focused && focused.includes(msg.id),
+        typeof document !== 'undefined' ? document.hasFocus() : true,
+      );
       if (isFocused && !cfg.notifyEvenWhenFocused) return;
 
       const cooldownKey = ts?.claudeSessionId || `terminal:${msg.id}`;

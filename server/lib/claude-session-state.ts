@@ -232,6 +232,12 @@ export function applyHook(
       return transition(base, {
         phase: 'tool-running',
         lastTool: tool,
+        // Clear any lingering approval: if we were parked at awaiting-approval
+        // (a permission was DENIED and Claude moved straight on to a different
+        // tool, so no PostToolUse cleared it) the old pendingApproval would
+        // otherwise ride along into tool-running as dead state. No surface reads
+        // it while tool-running, but keeping it stale is a latent trap.
+        pendingApproval: undefined,
       }, now);
     }
 
