@@ -67,7 +67,7 @@ if [ "$OS" = "smoke" ]; then
   echo "[smoke] launching ISOLATED: port=$PORT socket=$SOCK data=$WORK/data home=$WORK/home (bridge DISABLED)"
   NO_TLS=1 BUN_PORT="$PORT" SERVER_HOST=127.0.0.1 \
     TOPICS_DATA_DIR="$WORK/data" DATA_DIR="$WORK/data/data" TOPICS_HOME="$WORK/home" \
-    TOPICS_PTY_SOCKET="$SOCK" TOPICS_DISABLE_PTY_BRIDGE=1 HOME="$WORK/fakehome" \
+    TOPICS_PTY_SOCKET="$SOCK" TOPICS_DISABLE_PTY_BRIDGE=1 TOPICS_EMBEDDED=1 HOME="$WORK/fakehome" \
     "$BIN" > "$WORK/smoke.log" 2>&1 &
   SMOKE_PID=$!
   cleanup_smoke() { kill "$SMOKE_PID" 2>/dev/null; rm -rf "$WORK"; rm -f "$SOCK"; }

@@ -353,7 +353,11 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
             .env("DATA_DIR", data_dir.join("data").to_string_lossy().to_string())
             .env("TOPICS_HOME", data_dir.join("home").to_string_lossy().to_string())
             .env("TOPICS_PTY_SOCKET", pty_socket.to_string_lossy().to_string())
-            .env("TOPICS_DISABLE_PTY_BRIDGE", "1"),
+            // Both spellings of the standalone kill-switch (the server honors either):
+            // TOPICS_DISABLE_PTY_BRIDGE is the precise name, TOPICS_EMBEDDED the broader
+            // self-contained-bundle flag.
+            .env("TOPICS_DISABLE_PTY_BRIDGE", "1")
+            .env("TOPICS_EMBEDDED", "1"),
         Err(e) => {
             eprintln!("[sidecar] sidecar() resolve failed: {e} — falling back to external target");
             let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
