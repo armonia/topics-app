@@ -57,13 +57,18 @@ interface BeaconCall { url: string; body: string }
 let fetchCalls: FetchCall[];
 let beaconCalls: BeaconCall[];
 let fetchOk: boolean;
-let originalFetch: unknown;
-let originalNavigator: unknown;
+
+// The REAL globals, captured ONCE at module load. Capturing inside
+// installFetch poisoned the whole bun-test process: a test that installed
+// twice (down → up) re-captured the FIRST STUB as "original", afterEach then
+// restored the stub, and every later test file in the suite saw a fake fetch
+// answering { server_seq: N } (broke browser-native-delegate.socket.test.ts).
+const REAL_FETCH: unknown = (globalThis as unknown as { fetch?: unknown }).fetch;
+const REAL_NAVIGATOR: unknown = (globalThis as unknown as { navigator?: unknown }).navigator;
 
 function installFetch(ok: boolean): void {
   fetchOk = ok;
   fetchCalls = [];
-  originalFetch = (globalThis as unknown as { fetch?: unknown }).fetch;
   (globalThis as unknown as { fetch: unknown }).fetch = async (
     url: string,
     init?: { body?: string; keepalive?: boolean },
@@ -79,7 +84,6 @@ function installFetch(ok: boolean): void {
 
 function installBeacon(): void {
   beaconCalls = [];
-  originalNavigator = (globalThis as unknown as { navigator?: unknown }).navigator;
   (globalThis as unknown as { navigator: unknown }).navigator = {
     sendBeacon: (url: string, blob: { text?: () => Promise<string> } & Blob) => {
       // bun's Blob has .text(); we only need the url + a best-effort body marker.
@@ -105,10 +109,10 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetProjectSyncForTests();
-  if (originalFetch === undefined) delete (globalThis as unknown as { fetch?: unknown }).fetch;
-  else (globalThis as unknown as { fetch: unknown }).fetch = originalFetch;
-  if (originalNavigator === undefined) delete (globalThis as unknown as { navigator?: unknown }).navigator;
-  else (globalThis as unknown as { navigator: unknown }).navigator = originalNavigator;
+  if (REAL_FETCH === undefined) delete (globalThis as unknown as { fetch?: unknown }).fetch;
+  else (globalThis as unknown as { fetch: unknown }).fetch = REAL_FETCH;
+  if (REAL_NAVIGATOR === undefined) delete (globalThis as unknown as { navigator?: unknown }).navigator;
+  else (globalThis as unknown as { navigator: unknown }).navigator = REAL_NAVIGATOR;
 });
 
 describe("project channel PUT durability", () => {
