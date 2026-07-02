@@ -177,7 +177,72 @@ function ensureWsWired(): void {
     // both maps, so echo-suppression stays intact.
     lastAppliedSeqByKey.clear();
     lastSyncedJsonByKey.clear();
+    // Retry any write that never got acked before the socket dropped — a PUT
+    // that raced the server restart (16:23) would otherwise stay lost, leaving
+    // the project channel pointed at a dead terminal id. We snapshot first
+    // because putWithRetry mutates the map on success.
+    if (unackedJsonByKey.size > 0) {
+      for (const [key, json] of [...unackedJsonByKey]) void putWithRetry(key, json);
+    }
   });
+}
+
+// Retry budget for a project-channel PUT. A repoint (a terminal tab whose
+// session id changed after a revive / reopen) MUST reach the server, else the
+// channel keeps pointing at the dead id and its live successor is orphaned
+// ("[Warn 404] Terminal session not found", tab "lost"). The old code fired
+// once and swallowed failure — a PUT that raced a server restart (the exact
+// 16:23 window) was lost for good. Mirrors syncServer.ts' backoff.
+const MAX_RETRIES = 3;
+const BASE_BACKOFF_MS = 200;
+
+// Last JSON we FAILED to persist, per key. Survives across queueSync calls so a
+// teardown/reconnect flush can retry the not-yet-durable value even when the
+// debounce already drained pendingValues.
+const unackedJsonByKey = new Map<string, string>();
+
+function backoff(attempt: number): Promise<void> {
+  const ms = BASE_BACKOFF_MS * Math.pow(2, attempt) * (0.8 + Math.random() * 0.4);
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * PUT `json` for `key` with bounded retry. On success commits the echo/seq
+ * guards; on definitive failure leaves the value in `unackedJsonByKey` so a
+ * later teardown/reconnect flush retries it. `keepalive` lets the teardown
+ * path's fetch survive page unload (best-effort; beacon is the primary
+ * unload channel, see flushAllPending).
+ */
+async function putWithRetry(key: string, json: string, keepalive = false): Promise<void> {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`/api/ui-state/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
+        body: json,
+        keepalive,
+      });
+      if (res.ok) {
+        // Commit the dedupe guard only AFTER the server accepted the write.
+        // Setting it before the fetch poisoned the guard on a failed PUT:
+        // every later save of the same state dedupe-skipped its PUT, so the
+        // server (and peers) never converged until reload or WS reconnect.
+        lastSyncedJsonByKey.set(key, json);
+        unackedJsonByKey.delete(key);
+        const body = (await res.json().catch(() => null)) as { server_seq?: number } | null;
+        if (body && typeof body.server_seq === 'number') {
+          lastAppliedSeqByKey.set(key, Math.max(lastAppliedSeqByKey.get(key) ?? 0, body.server_seq));
+        }
+        return;
+      }
+    } catch {
+      /* network error — fall through to retry / give up */
+    }
+    if (attempt < MAX_RETRIES) await backoff(attempt);
+  }
+  // Exhausted: remember the value so a teardown/reconnect flush retries it.
+  // localStorage already holds the same-device truth in the meantime.
+  unackedJsonByKey.set(key, json);
 }
 
 function flushSync(key: string): void {
@@ -197,28 +262,10 @@ function flushSync(key: string): void {
   // all the dead panes on the next reload (GET hydrate union-adds them back).
   const json = JSON.stringify(value);
   if (json === lastSyncedJsonByKey.get(key)) return; // unchanged / echo guard
-  void fetch(`/api/ui-state/${encodeURIComponent(key)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
-    body: json,
-  })
-    .then((res) => {
-      if (!res.ok) return null;
-      // Commit the dedupe guard only AFTER the server accepted the write.
-      // Setting it before the fetch poisoned the guard on a failed PUT:
-      // every later save of the same state dedupe-skipped its PUT, so the
-      // server (and peers) never converged until reload or WS reconnect.
-      lastSyncedJsonByKey.set(key, json);
-      return res.json().catch(() => null);
-    })
-    .then((body: { server_seq?: number } | null) => {
-      if (body && typeof body.server_seq === 'number') {
-        lastAppliedSeqByKey.set(key, Math.max(lastAppliedSeqByKey.get(key) ?? 0, body.server_seq));
-      }
-    })
-    .catch(() => {
-      /* offline — localStorage already holds the same-device truth */
-    });
+  // Track as un-acked until putWithRetry confirms it landed, so a teardown
+  // flush racing the debounce still persists this value.
+  unackedJsonByKey.set(key, json);
+  void putWithRetry(key, json);
 }
 
 function queueSync(key: string, state: unknown): void {
@@ -229,6 +276,91 @@ function queueSync(key: string, state: unknown): void {
   const existing = debounceTimers.get(key);
   if (existing) clearTimeout(existing);
   debounceTimers.set(key, setTimeout(() => flushSync(key), SYNC_DEBOUNCE_MS));
+  ensureTeardownFlush();
+}
+
+// ─── Teardown / reconnect durability ──────────────────────────────────────
+//
+// The debounced PUT above (500 ms) is not enough on its own: a window close or
+// a server restart INSIDE the debounce window dropped the write, so the project
+// channel kept pointing at a now-dead terminal id (the "revive → repoint lost →
+// PTY orphaned, tab lost" bug). Every OTHER synced channel already flushes on
+// unload (syncServer.ts, PendingActionContext); this one didn't. We add the
+// same guarantee: on pagehide / tab-hide, synchronously beacon every pending
+// AND every not-yet-acked value; on WS reconnect, retry the un-acked set.
+
+/** Beacon a single value out synchronously (survives page teardown; can't read
+ *  the response, so the echo/seq guards are updated optimistically — the server
+ *  re-broadcasts our own write, which repopulates them). Returns true if queued. */
+function beaconValue(key: string, json: string): boolean {
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      // sendBeacon can't set headers — pass the client id as a query param, the
+      // same fallback syncServer.ts uses. Server reads header first, then ?cid=.
+      const url = `/api/ui-state/${encodeURIComponent(key)}?cid=${encodeURIComponent(getTabId())}`;
+      const blob = new Blob([json], { type: 'application/json' });
+      if (navigator.sendBeacon(url, blob)) {
+        lastSyncedJsonByKey.set(key, json);
+        return true;
+      }
+    }
+  } catch {
+    /* fall through to keepalive fetch */
+  }
+  // Beacon unavailable/failed — keepalive fetch is the last resort (response
+  // may not be read during teardown, but the write can still land).
+  void putWithRetry(key, json, true);
+  return false;
+}
+
+/** Flush every pending debounce AND every un-acked value NOW, synchronously via
+ *  beacon. Idempotent and cheap; safe to call from both pagehide and the
+ *  tab-hide path (the dedupe guard skips values already durable). */
+function flushAllPending(): void {
+  // Drain the debounce buffer first (values that never hit their 500 ms timer).
+  for (const [key, value] of pendingValues) {
+    const timer = debounceTimers.get(key);
+    if (timer) { clearTimeout(timer); debounceTimers.delete(key); }
+    const json = JSON.stringify(value);
+    if (json !== lastSyncedJsonByKey.get(key)) { unackedJsonByKey.set(key, json); }
+  }
+  pendingValues.clear();
+  // Beacon out everything not yet confirmed durable.
+  for (const [key, json] of unackedJsonByKey) {
+    if (json === lastSyncedJsonByKey.get(key)) continue;
+    beaconValue(key, json);
+  }
+}
+
+let teardownWired = false;
+function ensureTeardownFlush(): void {
+  if (teardownWired || typeof window === 'undefined') return;
+  teardownWired = true;
+  // pagehide covers real navigations/close; visibilitychange(hidden) covers the
+  // mobile/PWA background transition where pagehide may not fire.
+  window.addEventListener('pagehide', flushAllPending);
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushAllPending();
+  });
+}
+
+/** Test-only: expose the un-acked set so unit tests can assert a failed PUT is
+ *  retained for a later teardown/reconnect flush. */
+export function __getUnackedProjectSyncKeys(): string[] {
+  return [...unackedJsonByKey.keys()];
+}
+/** Test-only: force a teardown flush (as pagehide would). */
+export function __flushAllProjectSyncForTests(): void {
+  flushAllPending();
+}
+/** Test-only: reset module state between cases. */
+export function __resetProjectSyncForTests(): void {
+  for (const t of debounceTimers.values()) clearTimeout(t);
+  debounceTimers.clear();
+  pendingValues.clear();
+  unackedJsonByKey.clear();
+  lastSyncedJsonByKey.clear();
+  lastAppliedSeqByKey.clear();
 }
 
 /**
