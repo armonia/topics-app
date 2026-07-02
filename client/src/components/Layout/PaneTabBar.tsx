@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -114,6 +114,16 @@ interface PaneTabBarProps {
   onPopOut?: (paneId: string) => void;
   onStopStreaming?: (paneId: string) => void;
   onPinPane?: (paneId: string) => void;
+  /**
+   * Sidebar "Fissati" pin toggle for a tab's underlying subject — DISTINCT from
+   * `onPinPane` (which promotes a preview tab to a permanent one). `pinKey` is
+   * the sidebar-item id: a chat's bare topicId, or `terminal:<sessionId>` for a
+   * terminal. Passed only by app-level hosts (StandaloneChatGroup); project
+   * tab bars leave it undefined and the entry hides. Paired with `isFissato`
+   * so the entry can render "Fissa" vs "Rimuovi dai Fissati".
+   */
+  onToggleFissato?: (pinKey: string) => void;
+  isFissato?: (pinKey: string) => boolean;
   projectStatus?: Record<string, ProjectTabStatus>;
   /** Notification badge counts per pane ID */
   tabNotifications?: Map<string, number>;
@@ -149,7 +159,7 @@ interface PaneTabBarProps {
   splitMap?: SplitMapDescriptor;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -915,6 +925,29 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           className={`fixed ${POPOVER_SURFACE} z-[9999] min-w-[150px]`}
           style={{ top: ctxMenu.y, left: ctxMenu.x }}
         >
+          {/* "Fissa" / "Rimuovi dai Fissati" — sidebar pinning parity for tabs.
+              Pin key is the sidebar-item id: a chat's bare topicId, or the
+              terminal pane id `terminal:<sessionId>` (which is the pane id).
+              Only chat + terminal tabs have a pinnable sidebar row. Hidden when
+              the host doesn't wire onToggleFissato (project tab bars). */}
+          {onToggleFissato && (() => {
+            const pane = panes.find(p => p.id === ctxMenu.paneId);
+            if (!pane) return null;
+            const pinKey = pane.type === 'chat'
+              ? pane.topicId
+              : isTerminalPaneId(pane.id) ? pane.id : undefined;
+            if (!pinKey) return null;
+            const pinned = isFissato?.(pinKey) ?? false;
+            return (
+              <button
+                onClick={() => { onToggleFissato(pinKey); setCtxMenu(null); }}
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              >
+                {pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                <span className="flex-1 text-left">{pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
+              </button>
+            );
+          })()}
           {/* "Ricarica" — terminal panes only (pane id `terminal:<sessionId>`).
               Restarts the session in place via POST /reload: claude/codex resume
               via --resume (conversation preserved, same tab id), shell gets a fresh
