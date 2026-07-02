@@ -172,6 +172,21 @@ export interface PaneState {
   groups: Record<string, Group>;
   projects: Record<string, ProjectLayout>;
   closedStack: ClosedPaneRecord[]; // bounded at 50, FIFO
+  /**
+   * Durable close markers: paneId → closedAt (ms). SEPARATE from `closedStack`
+   * on purpose. `closedStack` is the "recently closed" (⇧⌘T) UI list and is
+   * FIFO-bounded at 50 — so after 50 further closes the oldest record (and its
+   * tombstone) fell out, and a stale peer that still listed that durable
+   * (browser/terminal/utility) pane could resurrect it on the next union
+   * hydrate. Chats are immune (they carry the server-authoritative `archived`
+   * flag), but durable panes had ONLY the closedStack tombstone. This map is
+   * the tombstone the HYDRATE strip actually consults: unbounded-ish (capped at
+   * TOMBSTONES_MAX, far above 50), merged per-id keeping the newest closedAt,
+   * cleared on reopen (OPEN_PANE / UNDO_CLOSE / CLEAR_CLOSED_* / remap). SYNCED
+   * inside the pane snapshot; a fresh id never carries a tombstone, so the wire
+   * cost is just the ids the user actually closed.
+   */
+  tombstones: Record<string, number>;
   focusedPaneId: string | null; // DEVICE-LOCAL — never in server snapshot
   groupOrder: string[];
   /**
@@ -288,3 +303,12 @@ export type PaneAction =
   | { type: 'SET_ACTIVE_SPACE'; payload: { id: string } };
 
 export const CLOSED_STACK_MAX = 50;
+
+/**
+ * Cap for the durable `tombstones` map. Far above CLOSED_STACK_MAX so a normal
+ * session of closing durable tabs never evicts a still-relevant tombstone (the
+ * FIFO-50 resurrection this map exists to prevent), while still bounding the
+ * synced payload against an adversarial/runaway client. When exceeded we keep
+ * the most-recently-closed ids (mirrors closedStack's keep-the-tail rule).
+ */
+export const TOMBSTONES_MAX = 500;

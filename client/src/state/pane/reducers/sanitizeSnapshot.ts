@@ -20,7 +20,7 @@
  */
 
 import type { Pane, PaneType, Group, ProjectLayout, ClosedPaneRecord, SpaceMeta } from '../types';
-import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, SPACES_MAX } from '../types';
+import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, SPACES_MAX, TOMBSTONES_MAX } from '../types';
 
 export interface SanitizedSnapshot {
   panes?: Record<string, Pane>;
@@ -28,6 +28,10 @@ export interface SanitizedSnapshot {
   projects?: Record<string, ProjectLayout>;
   groupOrder?: string[];
   closedStack?: ClosedPaneRecord[];
+  /** Durable close markers (paneId → closedAt ms) — merged per-id by the
+   *  reducer, keeping the newest closedAt. See PaneState.tombstones: the
+   *  FIFO-independent tombstone the HYDRATE strip consults. */
+  tombstones?: Record<string, number>;
   /** Spazi registry — merged per-id by the reducer (mergeSpaces), never
    *  wholesale-applied. */
   spaces?: Record<string, SpaceMeta>;
@@ -167,6 +171,28 @@ function sanitizeSpaces(raw: unknown): Record<string, SpaceMeta> | null {
     .sort((a, b) => out[b].updatedAt - out[a].updatedAt)
     .slice(0, SPACES_MAX);
   const capped: Record<string, SpaceMeta> = {};
+  for (const id of kept) capped[id] = out[id];
+  return capped;
+}
+
+/**
+ * Validate the durable tombstone map (paneId → closedAt ms) from an untrusted
+ * snapshot: keep string→finite-number pairs, drop garbage, cap at TOMBSTONES_MAX
+ * keeping the most-recently-closed ids (mirrors the reducer's capTombstones and
+ * sanitizeClosedStack's keep-the-tail rule).
+ */
+function sanitizeTombstones(raw: unknown): Record<string, number> | null {
+  if (!isPlainObject(raw)) return null;
+  const out: Record<string, number> = {};
+  for (const [id, v] of Object.entries(raw)) {
+    if (typeof id === 'string' && id && typeof v === 'number' && Number.isFinite(v)) {
+      out[id] = v;
+    }
+  }
+  const ids = Object.keys(out);
+  if (ids.length <= TOMBSTONES_MAX) return out;
+  const kept = ids.sort((a, b) => out[b] - out[a]).slice(0, TOMBSTONES_MAX);
+  const capped: Record<string, number> = {};
   for (const id of kept) capped[id] = out[id];
   return capped;
 }
@@ -368,6 +394,10 @@ export function sanitizeSnapshot(raw: unknown): SanitizedSnapshot | null {
   if (raw.closedStack !== undefined) {
     const cs = sanitizeClosedStack(raw.closedStack);
     if (cs) out.closedStack = cs;
+  }
+  if (raw.tombstones !== undefined) {
+    const tb = sanitizeTombstones(raw.tombstones);
+    if (tb) out.tombstones = tb;
   }
   if (raw.spaces !== undefined) {
     const sp = sanitizeSpaces(raw.spaces);

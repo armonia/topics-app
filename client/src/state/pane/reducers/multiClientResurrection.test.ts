@@ -16,6 +16,7 @@ const blank = (): PaneState => ({
   groups: {},
   projects: {},
   closedStack: [],
+  tombstones: {},
   focusedPaneId: null,
   groupOrder: [],
   spaces: {},
@@ -118,18 +119,13 @@ describe("multi-client: reopen on one client, close on the other", () => {
   });
 });
 
-describe("multi-client: tombstone FIFO overflow lets a stale peer resurrect", () => {
-  // KNOWN PRE-EXISTING LIMITATION (not today's regression). The closedStack is
-  // both the "recently closed" (⌘⇧T) UI list AND the durable tombstone, and it
-  // is FIFO-bounded at CLOSED_STACK_MAX (50). A DURABLE (browser/terminal/
-  // utility) pane whose tombstone is evicted after 50 other closes can be
-  // resurrected by a stale peer that still lists it. Chats are NOT affected —
-  // they carry the durable server-authoritative `archived` flag (this is the
-  // defence the Fissati bug removed from pinned chats; restored by making
-  // pinned chats archive on close). Fixing this class for durable panes means
-  // separating the unbounded per-id closed-marker from the bounded recently-
-  // closed list — deferred as out of scope for the pinned-chat regression.
-  test.skip("after 50+ closes the oldest tombstone is evicted; a stale peer that still lists it resurrects the pane", () => {
+describe("multi-client: durable tombstone survives closedStack FIFO overflow", () => {
+  // Regression lock for the FIFO-overflow resurrection. The closedStack is the
+  // "recently closed" (⇧⌘T) UI list, FIFO-bounded at CLOSED_STACK_MAX (50). The
+  // DURABLE tombstone lives in the SEPARATE, FIFO-independent `state.tombstones`
+  // map, so a durable (browser/terminal/utility) pane closed 50+ tabs ago stays
+  // closed across a stale union. (Chats were always immune via `archived`.)
+  test("after 50+ closes the closedStack record is evicted but the durable tombstone keeps the pane closed", () => {
     serverSeq = 0;
     const A = blank();
     const B = blank();
@@ -139,21 +135,68 @@ describe("multi-client: tombstone FIFO overflow lets a stale peer resurrect", ()
     sync(A, B);
     expect(hasPane(B, "browser:X")).toBe(true);
 
-    // B closes X — tombstone recorded on B.
+    // B closes X — closedStack record AND durable tombstone recorded on B.
     close(B, "browser:X");
     expect(B.closedStack.some((r) => r.id === "browser:X")).toBe(true);
+    expect(B.tombstones["browser:X"]).toBeGreaterThan(0);
 
-    // The user then closes 50 OTHER tabs on B, pushing X's tombstone out of the
-    // FIFO-bounded (CLOSED_STACK_MAX = 50) closedStack.
+    // The user then closes 55 OTHER tabs on B, pushing X out of the FIFO-bounded
+    // (CLOSED_STACK_MAX = 50) closedStack.
     for (let i = 0; i < 55; i++) {
       open(B, `browser:filler-${i}`);
       close(B, `browser:filler-${i}`);
     }
-    // X's tombstone has been evicted by the FIFO bound.
+    // X's closedStack RECORD is gone (evicted by the FIFO bound)…
     expect(B.closedStack.some((r) => r.id === "browser:X")).toBe(false);
+    // …but its DURABLE tombstone remains (TOMBSTONES_MAX = 500 >> 55).
+    expect(B.tombstones["browser:X"]).toBeGreaterThan(0);
 
-    // A (stale) still lists X and PUTs at a higher seq. With the tombstone gone,
-    // the union resurrects X on B.
+    // A (stale) still lists X and PUTs at a higher seq. The durable tombstone
+    // beats the stale union — X must NOT resurrect.
+    sync(A, B);
+    expect(hasPane(B, "browser:X")).toBe(false);
+  });
+
+  test("a durable pane REOPENED after the closedStack record aged out survives the next stale union", () => {
+    serverSeq = 0;
+    const A = blank();
+    const B = blank();
+    open(A, "browser:X");
+    sync(A, B);
+
+    close(B, "browser:X");
+    for (let i = 0; i < 55; i++) {
+      open(B, `browser:filler-${i}`);
+      close(B, `browser:filler-${i}`);
+    }
+    // Reopen X on B — OPEN_PANE clears the durable tombstone even though the
+    // closedStack record is long gone.
+    open(B, "browser:X");
+    expect(B.tombstones["browser:X"]).toBeUndefined();
+    // A (stale, still lists X) syncs; the reopen must survive (no false strip).
+    sync(A, B);
+    expect(hasPane(B, "browser:X")).toBe(true);
+  });
+
+  test("the durable tombstone rides the snapshot so a peer that never saw the close still drops the pane", () => {
+    serverSeq = 0;
+    const A = blank();
+    const B = blank();
+    // A opens X, closes it, then overflows its own closedStack. A now holds X
+    // ONLY as a durable tombstone (no closedStack record).
+    open(A, "browser:X");
+    close(A, "browser:X");
+    for (let i = 0; i < 55; i++) {
+      open(A, `browser:filler-${i}`);
+      close(A, `browser:filler-${i}`);
+    }
+    expect(A.closedStack.some((r) => r.id === "browser:X")).toBe(false);
+    expect(A.tombstones["browser:X"]).toBeGreaterThan(0);
+
+    // A FRESH peer B (never saw X) holds X open locally and hydrates A's
+    // snapshot. A's tombstone map (in the snapshot) must drop X on B even though
+    // A's closedStack no longer mentions it.
+    open(B, "browser:X");
     sync(A, B);
     expect(hasPane(B, "browser:X")).toBe(false);
   });
