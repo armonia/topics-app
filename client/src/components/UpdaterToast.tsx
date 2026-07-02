@@ -32,12 +32,32 @@ export function UpdaterToast() {
     const api = getUpdaterApi();
     if (!api) return;
     api.status().then(setStatus).catch(() => {});
-    return api.onStatus((s) => {
+    const off = api.onStatus((s) => {
       setStatus(s);
       // Re-show on every state change so a previously-dismissed error
       // can re-surface when a new check runs.
       setDismissed(false);
     });
+
+    // Auto-check for updates shortly after launch so "riceve aggiornamenti
+    // successivi" is real — nothing else calls check() on boot, so an available
+    // update would otherwise never surface until the user opened the version
+    // popover. Delayed a few seconds to let first paint + the sidecar settle.
+    // The updater endpoint 404s until a signed release exists, which surfaces as
+    // a silently-dismissable error, not a crash. (Both Electron and Tauri hosts.)
+    const bootCheck = window.setTimeout(() => {
+      api.checkForUpdates().catch(() => {});
+    }, 4000);
+
+    // Native menu "Controlla aggiornamenti…" (Tauri) dispatches this DOM event.
+    const onMenuCheck = () => { api.checkForUpdates().catch(() => {}); };
+    window.addEventListener('topics:check-for-updates', onMenuCheck);
+
+    return () => {
+      off?.();
+      window.clearTimeout(bootCheck);
+      window.removeEventListener('topics:check-for-updates', onMenuCheck);
+    };
   }, []);
 
   if (status.state === 'idle' || dismissed) return null;

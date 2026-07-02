@@ -104,17 +104,88 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
 }
 
 /// Loopback port the WKWebView reaches the data server through (plain HTTP/WS).
+/// FIXED — the client hardcodes this (client/src/lib/shell/net.ts DESKTOP_SERVER_HOST),
+/// so a SINGLE webview target works whether the upstream is the external launchd
+/// server (TLS :3333) or our own bundled sidecar (plain HTTP on an ephemeral port).
 const PROXY_PORT: u16 = 13333;
-/// The real (TLS) data server.
-const UPSTREAM: &str = "127.0.0.1:3333";
+/// The external (launchd / dev) data server. When one is already listening here
+/// the shell defers to it and never spawns the sidecar (Attilio's box).
+const DEFAULT_UPSTREAM_PORT: u16 = 3333;
 
-/// TLS-origination proxy: accept plain TCP on 127.0.0.1:PROXY_PORT and pipe it,
-/// byte-for-byte, over a TLS connection to the data server. WKWebView won't trust
-/// the server's local-CA certificate, but it happily speaks plain HTTP/WS to
-/// loopback — so the shell connects to http://127.0.0.1:PROXY_PORT and this task
-/// adds the TLS the server requires. Transparent: HTTP, WebSocket upgrades and
-/// SSE streams all pass through untouched (no L7 parsing), and the client's
-/// `Origin: tauri://localhost` is preserved so the server's CORS still matches.
+/// Where the loopback proxy pipes to, decided ONCE at boot by `decide_upstream`:
+/// either the external server on :3333 (TLS) or the sidecar we spawned (plain HTTP
+/// on `port`). The proxy reads this after it's set; `tls=false` skips the TLS
+/// origination and pipes raw TCP straight through.
+#[derive(Clone, Copy)]
+struct Upstream {
+    port: u16,
+    tls: bool,
+}
+static UPSTREAM: std::sync::OnceLock<Upstream> = std::sync::OnceLock::new();
+
+/// Probe 127.0.0.1:port for a live Topics server. Sends a minimal HTTP/1.0 GET to
+/// the unauthenticated-shape `/__daemon/healthz` route; ANY HTTP status line back
+/// (even 401 — the server is up, just rejecting our tokenless probe) proves a
+/// server is listening and speaking HTTP, which is all we need to defer to it.
+/// `tls` picks plain vs TLS-originated origination (the external server serves TLS).
+/// Returns true on a readable HTTP response within a short timeout.
+async fn probe_topics_server(port: u16, tls: bool) -> bool {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    let connect = TcpStream::connect(("127.0.0.1", port));
+    let stream = match tokio::time::timeout(std::time::Duration::from_millis(800), connect).await {
+        Ok(Ok(s)) => s,
+        _ => return false,
+    };
+    let req = b"GET /__daemon/healthz HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    // Read just enough to see a status line.
+    async fn round_trip<S>(mut s: S, req: &[u8]) -> bool
+    where
+        S: AsyncReadExt + AsyncWriteExt + Unpin,
+    {
+        if s.write_all(req).await.is_err() {
+            return false;
+        }
+        let mut buf = [0u8; 64];
+        match s.read(&mut buf).await {
+            Ok(n) if n > 0 => buf.get(..5) == Some(b"HTTP/"),
+            _ => false,
+        }
+    }
+    let fut = async {
+        if tls {
+            let connector = match native_tls::TlsConnector::builder()
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .build()
+            {
+                Ok(c) => tokio_native_tls::TlsConnector::from(c),
+                Err(_) => return false,
+            };
+            match connector.connect("127.0.0.1", stream).await {
+                Ok(tls_stream) => round_trip(tls_stream, req).await,
+                Err(_) => false,
+            }
+        } else {
+            round_trip(stream, req).await
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_millis(1500), fut)
+        .await
+        .unwrap_or(false)
+}
+
+/// Loopback origination proxy: accept plain TCP on 127.0.0.1:PROXY_PORT and pipe it,
+/// byte-for-byte, to the chosen upstream. When the upstream is the external server
+/// (`tls=true`) we ADD TLS — WKWebView won't trust the server's local-CA cert but
+/// happily speaks plain HTTP/WS to loopback, so the shell connects to
+/// http://127.0.0.1:PROXY_PORT and this task adds the TLS. When the upstream is our
+/// own sidecar (`tls=false`, plain HTTP via NO_TLS) we pipe raw TCP through. Either
+/// way it's transparent: HTTP, WebSocket upgrades and SSE streams pass untouched (no
+/// L7 parsing), and the client's `Origin: tauri://localhost` is preserved so the
+/// server's CORS still matches. Reads the boot-decided `UPSTREAM` (defaults to the
+/// external TLS server if `decide_upstream` never ran, e.g. probe race).
 async fn run_tls_proxy() {
     use tokio::io::copy_bidirectional;
     use tokio::net::{TcpListener, TcpStream};
@@ -126,10 +197,11 @@ async fn run_tls_proxy() {
             return;
         }
     };
+    let up = *UPSTREAM.get().unwrap_or(&Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
     let tls = match native_tls::TlsConnector::builder()
         // The server presents a local-CA cert for 127.0.0.1; we originate the TLS
         // ourselves to a hard-coded loopback address, so cert/hostname validation
-        // adds nothing here — the trust boundary is "is it really 127.0.0.1:3333".
+        // adds nothing here — the trust boundary is "is it really loopback".
         .danger_accept_invalid_certs(true)
         .danger_accept_invalid_hostnames(true)
         .build()
@@ -140,7 +212,11 @@ async fn run_tls_proxy() {
             return;
         }
     };
-    println!("[proxy] loopback TLS proxy 127.0.0.1:{PROXY_PORT} -> https://{UPSTREAM}");
+    println!(
+        "[proxy] loopback proxy 127.0.0.1:{PROXY_PORT} -> {}127.0.0.1:{}",
+        if up.tls { "https://" } else { "http://" },
+        up.port
+    );
 
     loop {
         let (mut inbound, _) = match listener.accept().await {
@@ -149,22 +225,185 @@ async fn run_tls_proxy() {
         };
         let tls = tls.clone();
         tauri::async_runtime::spawn(async move {
-            let upstream = match TcpStream::connect(UPSTREAM).await {
+            let upstream = match TcpStream::connect(("127.0.0.1", up.port)).await {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[proxy] upstream connect failed: {e}");
                     return;
                 }
             };
-            let mut tls_stream = match tls.connect("127.0.0.1", upstream).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("[proxy] upstream TLS handshake failed: {e}");
-                    return;
-                }
-            };
-            let _ = copy_bidirectional(&mut inbound, &mut tls_stream).await;
+            if up.tls {
+                let mut tls_stream = match tls.connect("127.0.0.1", upstream).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("[proxy] upstream TLS handshake failed: {e}");
+                        return;
+                    }
+                };
+                let _ = copy_bidirectional(&mut inbound, &mut tls_stream).await;
+            } else {
+                let mut plain = upstream;
+                let _ = copy_bidirectional(&mut inbound, &mut plain).await;
+            }
         });
+    }
+}
+
+// ─────────────────────── Bundled server sidecar ───────────────────────
+//
+// SELF-CONTAINED release path. On Attilio's box an external launchd server owns
+// :3333 (TLS) and the shell defers to it — nothing here runs. On a VIRGIN machine
+// (the download the "ragazzi" try) nothing is on :3333, so the app would show a
+// blank "connecting" screen. To be truly standalone, the shell instead spawns a
+// bundled server sidecar (`topics-server`, a `bun build --compile` binary declared
+// in tauri.conf bundle.externalBin) on a free loopback port with plain HTTP
+// (NO_TLS) and an isolated per-user data dir, then points the loopback proxy at it.
+// The sidecar is killed when the app exits (RunEvent::Exit), and survives webview
+// reloads (it's a separate process, not tied to the webview).
+
+/// The spawned sidecar's process handle, kept for a clean kill on app exit. `None`
+/// when we deferred to an external server (no sidecar spawned).
+static SIDECAR_CHILD: std::sync::Mutex<Option<tauri_plugin_shell::process::CommandChild>> =
+    std::sync::Mutex::new(None);
+
+/// Ask the OS for a free loopback TCP port by binding :0 and reading it back, then
+/// dropping the listener so the sidecar can bind it. A tiny TOCTOU window exists
+/// (another process could grab it between drop and the sidecar's bind) but on a
+/// quiet loopback that's negligible, and the health-wait below surfaces a failure
+/// rather than hanging. Falls back to a fixed high port if the probe fails.
+fn pick_free_port() -> u16 {
+    std::net::TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|l| l.local_addr())
+        .map(|a| a.port())
+        .unwrap_or(13337)
+}
+
+/// Resolve the sidecar's writable data dir: Tauri's per-user app-data dir with a
+/// `data-standalone` subdir (kept SEPARATE from any dev/launchd `~/.topics` state so
+/// a self-contained run never collides with a full install on the same machine).
+fn sidecar_data_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
+    use tauri::Manager;
+    let base = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("io.armonia.topics.tauri"));
+    let dir = base.join("data-standalone");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Boot decision: if a Topics server already answers on :3333 (external launchd /
+/// dev — try TLS first, then plain), defer to it. Otherwise spawn the bundled
+/// sidecar on a free plain-HTTP port with an isolated data dir, wait until it's
+/// healthy, and record the child for kill-on-exit. Sets `UPSTREAM` either way so the
+/// loopback proxy pipes to the right place. Never blocks the UI beyond the short
+/// probe + (cold-start only) health wait; on total failure it leaves UPSTREAM at the
+/// default external target so the app degrades to today's "connecting" rather than
+/// panicking.
+async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
+    // 1) Prefer an external server on :3333 (Attilio's launchd, or a dev server).
+    if probe_topics_server(DEFAULT_UPSTREAM_PORT, true).await {
+        eprintln!("[sidecar] external TLS server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+        let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+        return;
+    }
+    if probe_topics_server(DEFAULT_UPSTREAM_PORT, false).await {
+        eprintln!("[sidecar] external plain-HTTP server on :{DEFAULT_UPSTREAM_PORT} — deferring, no sidecar");
+        let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: false });
+        return;
+    }
+
+    // 2) Nothing external — spawn the bundled sidecar (plain HTTP, isolated data).
+    use tauri_plugin_shell::ShellExt;
+    let port = pick_free_port();
+    let data_dir = sidecar_data_dir(&app);
+    eprintln!(
+        "[sidecar] no external server; spawning bundled sidecar on :{port} (data: {})",
+        data_dir.display()
+    );
+    let cmd = match app.shell().sidecar("topics-server") {
+        Ok(c) => c
+            .env("NO_TLS", "1")
+            .env("BUN_PORT", port.to_string())
+            // Bind IPv4 loopback explicitly: the proxy connects to 127.0.0.1 and a
+            // bare "::" bind is IPv6-only on some Bun/macOS combos (see server.ts).
+            .env("SERVER_HOST", "127.0.0.1")
+            .env("TOPICS_DATA_DIR", data_dir.to_string_lossy().to_string()),
+        Err(e) => {
+            eprintln!("[sidecar] sidecar() resolve failed: {e} — falling back to external target");
+            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+            return;
+        }
+    };
+    match cmd.spawn() {
+        Ok((mut rx, child)) => {
+            if let Ok(mut slot) = SIDECAR_CHILD.lock() {
+                *slot = Some(child);
+            }
+            // Point the proxy at the sidecar NOW (before the health wait) so it can
+            // start piping the moment the server binds; a connection before then just
+            // fails and the client retries.
+            let _ = UPSTREAM.set(Upstream { port, tls: false });
+            // Drain the sidecar's stdout/stderr so its pipe never fills (which would
+            // block the child); log lines to our stderr for field diagnosis.
+            tauri::async_runtime::spawn(async move {
+                use tauri_plugin_shell::process::CommandEvent;
+                while let Some(ev) = rx.recv().await {
+                    match ev {
+                        CommandEvent::Stdout(line) => {
+                            eprintln!("[sidecar] {}", String::from_utf8_lossy(&line).trim_end());
+                        }
+                        CommandEvent::Stderr(line) => {
+                            eprintln!("[sidecar!] {}", String::from_utf8_lossy(&line).trim_end());
+                        }
+                        CommandEvent::Terminated(payload) => {
+                            eprintln!("[sidecar] terminated: code={:?} signal={:?}", payload.code, payload.signal);
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+        Err(e) => {
+            eprintln!("[sidecar] spawn failed: {e} — falling back to external target");
+            let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
+            return;
+        }
+    }
+
+    // 3) Wait for the sidecar to become healthy (cold DB init + migrations take a
+    // moment), up to ~20s. The proxy is already up but a connection before the
+    // server binds just fails and the client retries, so this only tightens the
+    // first-paint latency.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut healthy = false;
+    while std::time::Instant::now() < deadline {
+        if probe_topics_server(port, false).await {
+            healthy = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    }
+    eprintln!("[sidecar] health after wait: {healthy} (:{port})");
+    // Nudge the webview to reload now that the upstream is live, so a client that
+    // connected during the cold start (and cached a failed fetch) re-fetches.
+    if healthy {
+        use tauri::Manager;
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.eval("window.location.reload()");
+        }
+    }
+}
+
+/// Kill the sidecar if we spawned one. Called on app exit so no orphan server
+/// process survives the shell. Idempotent (the slot is taken).
+fn kill_sidecar() {
+    if let Ok(mut slot) = SIDECAR_CHILD.lock() {
+        if let Some(child) = slot.take() {
+            eprintln!("[sidecar] killing on exit");
+            let _ = child.kill();
+        }
     }
 }
 
@@ -3420,6 +3659,8 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
+        // Sidecar (bundled server) management on machines with no external server.
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
         // "Open at Login" (Electron parity: app.setLoginItemSettings). A LaunchAgent
@@ -3476,8 +3717,21 @@ pub fn run() {
             // swallow the quit and trap the app in the tray.
             let app_quit =
                 MenuItem::with_id(handle, "app-quit", "Quit Topics", true, Some("CmdOrCtrl+Q"))?;
+            // "Check for Updates…" — drives the same client-side updater flow as the
+            // sidebar Version popover (dispatches a DOM event the client listens for,
+            // which calls updater_check → UpdaterToast). Without a manual entry point
+            // the only trigger was the version popover; this makes it discoverable.
+            let check_updates = MenuItem::with_id(
+                handle,
+                "check-updates",
+                "Controlla aggiornamenti…",
+                true,
+                None::<&str>,
+            )?;
             let app_menu = SubmenuBuilder::new(handle, "Topics")
                 .about(None)
+                .separator()
+                .item(&check_updates)
                 .separator()
                 .hide()
                 .hide_others()
@@ -3583,6 +3837,18 @@ pub fn run() {
                     let _ = app
                         .opener()
                         .open_url("https://github.com/armonia/topics-app", None::<&str>);
+                }
+                "check-updates" => {
+                    // Hand off to the client's updater flow (reuses updater_check +
+                    // UpdaterToast). A DOM CustomEvent keeps the shell free of the
+                    // @tauri-apps/event dependency — same bridge the tray uses.
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                        let _ = w.eval(
+                            "window.dispatchEvent(new CustomEvent('topics:check-for-updates'))",
+                        );
+                    }
                 }
                 _ => {}
             }
@@ -3941,9 +4207,20 @@ pub fn run() {
                 });
             }
 
-            // Start the loopback TLS-origination proxy so the shell can reach the
-            // data server (whose cert WKWebView rejects) over plain HTTP/WS.
-            tauri::async_runtime::spawn(run_tls_proxy());
+            // Decide the data-server upstream, THEN start the loopback proxy. On a
+            // machine with an external server on :3333 we defer to it (TLS proxy, as
+            // before); on a virgin machine we spawn the bundled sidecar (plain HTTP,
+            // isolated data dir) and point the proxy there. `decide_upstream_and_spawn`
+            // sets `UPSTREAM` before the proxy reads it, so the ordering is: probe /
+            // spawn → set UPSTREAM → run_tls_proxy. The (up-to-20s) sidecar health wait
+            // runs AFTER UPSTREAM is set, so it never delays the proxy or first paint.
+            {
+                let app_for_boot = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    decide_upstream_and_spawn(app_for_boot).await;
+                    run_tls_proxy().await;
+                });
+            }
 
             // Traffic lights hidden by default — revealed on demand when the
             // Topics menu opens (parity with the Electron shell).
@@ -4165,6 +4442,13 @@ pub fn run() {
                     let _ = w.unminimize();
                     let _ = w.set_focus();
                 }
+            }
+            // Kill the bundled server sidecar (if we spawned one) as the app exits,
+            // so no orphan server process outlives the shell. Exit fires on the real
+            // quit paths (tray "Esci", ⌘Q → app.exit(0)); no-op when we deferred to
+            // an external server (SIDECAR_CHILD is None). `_app_handle` unused here.
+            if let tauri::RunEvent::Exit = event {
+                kill_sidecar();
             }
         });
 }
