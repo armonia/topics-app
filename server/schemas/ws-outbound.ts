@@ -94,6 +94,25 @@ const dragAcceptedBroadcastSchema = z.object({
   sourceWindowId: z.string().optional(),
 });
 
+// ---- Cross-window presence -------------------------------------------------
+
+// Full-list snapshot of every window that has declared presence, plus the
+// topics each holds. Broadcast to all sockets on hello / presence:announce /
+// socket-close; the client projects it into "open in another window" markers.
+const presenceWindowsBroadcastSchema = z.object({
+  type: z.literal('presence:windows'),
+  windows: z.array(
+    z.object({
+      windowId: z.string(),
+      clientId: z.string(),
+      windowLabel: z.string().optional(),
+      detached: z.boolean().optional(),
+      topicIds: z.array(z.string()),
+      focusedTopicId: z.string().optional(),
+    }),
+  ),
+});
+
 // ---- Topic lifecycle -------------------------------------------------------
 
 const topicSwitchSchema = z.object({
@@ -587,6 +606,7 @@ const OUTBOUND_SCHEMAS = {
   'drag:start': dragStartBroadcastSchema,
   'drag:end': dragEndBroadcastSchema,
   'drag:accepted': dragAcceptedBroadcastSchema,
+  'presence:windows': presenceWindowsBroadcastSchema,
   // Topic lifecycle
   'topic:switch': topicSwitchSchema,
   'topic:created': topicCreatedSchema,

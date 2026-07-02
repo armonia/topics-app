@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, memo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal, Cloud, Pin, PinOff } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal, Cloud, Pin, PinOff, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { TopicIcon } from '@/lib/topicIcons';
@@ -60,6 +60,9 @@ interface TopicItemProps {
   /** Pin/unpin this topic ("Fissa" / "Rimuovi dai Fissati") — surfaced in the
    *  touch overflow menu; desktop uses the App-level context menu. */
   onTogglePin?: () => void;
+  /** Set when this topic is open in ANOTHER window (pop-out presence). Renders
+   *  the trailing AppWindow glyph; the row click focuses that window. */
+  detachedWindowLabel?: string;
   sortable?: boolean;
   hideIcon?: boolean;
 }
@@ -84,6 +87,7 @@ export const TopicItem = memo(function TopicItem({
   onStopStreaming,
   pinned,
   onTogglePin,
+  detachedWindowLabel,
   sortable,
   hideIcon,
 }: TopicItemProps) {
@@ -405,6 +409,15 @@ export const TopicItem = memo(function TopicItem({
           aria-label="Fissato"
         >
           <Pin size={12} />
+        </span>
+      )}
+      {detachedWindowLabel !== undefined && (
+        <span
+          className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
+          title="Aperto in un'altra finestra"
+          aria-label="Aperto in un'altra finestra"
+        >
+          <AppWindow size={12} />
         </span>
       )}
       {/* Notification badge — hidden when focused so the user doesn't see a

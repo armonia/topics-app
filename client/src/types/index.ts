@@ -454,6 +454,31 @@ export interface WSDragMessage {
   topicId?: string;
 }
 
+/** Cross-window presence — this window declaring the topics it holds (outbound
+ *  client → server). Server rebroadcasts the full window list as
+ *  `presence:windows`. WS-ephemeral; never persisted. */
+export interface WSPresenceAnnounceMessage {
+  type: 'presence:announce';
+  windowId: string;
+  windowLabel?: string;
+  detached?: boolean;
+  topicIds: string[];
+  focusedTopicId?: string;
+}
+
+/** Full-list presence snapshot (inbound server → client). */
+export interface WSPresenceWindowsMessage {
+  type: 'presence:windows';
+  windows: Array<{
+    windowId: string;
+    clientId: string;
+    windowLabel?: string;
+    detached?: boolean;
+    topicIds: string[];
+    focusedTopicId?: string;
+  }>;
+}
+
 // --- Streaming / chat --------------------------------------------------------
 export interface WSStreamStartMessage {
   type: 'stream:start';
@@ -948,6 +973,8 @@ export type WSMessage =
   | WSTopicSwitchMessage
   | WSOpenProjectMessage
   | WSDragMessage
+  | WSPresenceAnnounceMessage
+  | WSPresenceWindowsMessage
   | WSStreamStartMessage
   | WSStreamEndMessage
   | WSStreamThinkingStartMessage

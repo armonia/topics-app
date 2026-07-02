@@ -973,10 +973,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             </>
           )}
           {/* Layout-actions section (divider owned here): "Reimposta pannelli"
-              first, then "Sposta nello Spazio →" (Spazi); future entries
-              ("Sposta in una nuova finestra") append INSIDE this section,
-              after them — coherence ruling 3.2. */}
-          {(onResetLayout || showMoveToSpace) && (
+              first, then "Sposta nello Spazio →" (Spazi), then "Sposta in una
+              nuova finestra" (pop-out) — coherence ruling 3.2 order. */}
+          {(() => {
+            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
+            const showPopOutHere = ctxPane?.type === 'chat' && !!onPopOut;
+            return (onResetLayout || showMoveToSpace || showPopOutHere);
+          })() && (
             <>
               <div className="h-px bg-app-border my-1" />
               {onResetLayout && (
@@ -1053,6 +1056,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   </>
                 );
               })()}
+              {(() => {
+                const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
+                if (ctxPane?.type !== 'chat' || !onPopOut) return null;
+                return (
+                  <button
+                    onClick={() => { onPopOut!(ctxMenu!.paneId); setCtxMenu(null); }}
+                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    title="Apre la scheda in una finestra separata"
+                  >
+                    <ExternalLink size={14} />
+                    <span className="flex-1 text-left">Sposta in una nuova finestra</span>
+                  </button>
+                );
+              })()}
             </>
           )}
           {onDetach && (
@@ -1096,29 +1113,20 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
             const isChat = ctxPane?.type === 'chat';
             const showSettings = isChat && onSettings;
-            const showPopOut = isChat && onPopOut;
-            if (!showSettings && !showPopOut) return null;
+            // Pop-out moved into the layout-actions section as "Sposta in una
+            // nuova finestra" (ruling 3.2) — this trailing section is now
+            // Settings only.
+            if (!showSettings) return null;
             return (
               <>
                 <div className="h-px bg-app-border my-1" />
-                {showSettings && (
-                  <button
-                    onClick={() => { onSettings!(ctxMenu!.paneId); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                  >
-                    <Settings size={14} />
-                    <span>Settings</span>
-                  </button>
-                )}
-                {showPopOut && (
-                  <button
-                    onClick={() => { onPopOut!(ctxMenu!.paneId); setCtxMenu(null); }}
-                    className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                  >
-                    <ExternalLink size={14} />
-                    <span>Pop Out</span>
-                  </button>
-                )}
+                <button
+                  onClick={() => { onSettings!(ctxMenu!.paneId); setCtxMenu(null); }}
+                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                >
+                  <Settings size={14} />
+                  <span>Settings</span>
+                </button>
               </>
             );
           })()}

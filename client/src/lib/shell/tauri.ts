@@ -5,11 +5,20 @@
 
 interface TauriInternals {
   invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T>;
+  metadata?: { currentWindow?: { label?: string } };
 }
 
 function internals(): TauriInternals | null {
   const w = window as unknown as { __TAURI_INTERNALS__?: TauriInternals };
   return w.__TAURI_INTERNALS__ ?? null;
+}
+
+/** The current Tauri window's label ("main" or "detach-…"), or null off Tauri.
+ *  Tauri v2 injects it on `__TAURI_INTERNALS__.metadata.currentWindow`. Used by
+ *  the cross-window presence channel so a detached window can advertise the
+ *  label peers pass to `window_focus_label`. */
+export function currentWindowLabel(): string | null {
+  return internals()?.metadata?.currentWindow?.label ?? null;
 }
 
 /** Invoke a Tauri command. Throws if not running under Tauri. */

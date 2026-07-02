@@ -1835,8 +1835,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     (paneId: string) => {
       const pane = panes.find(p => p.id === paneId);
       if (!pane?.topicId) return;
+      const topicId = pane.topicId;
       // Remove the source pane only if a window actually opened — see popOutTopic.
-      if (popOutTopic(pane.topicId)) setPanes(prev => prev.filter(p => p.id !== paneId));
+      void popOutTopic(topicId).then((opened) => {
+        if (opened) setPanes(prev => prev.filter(p => p.id !== paneId));
+      });
     },
     [panes],
   );

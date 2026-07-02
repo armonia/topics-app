@@ -92,6 +92,20 @@ const typingBroadcastSchema = z.looseObject({
   text: z.string(),
 });
 
+const presenceWindowsSchema = z.looseObject({
+  type: z.literal('presence:windows'),
+  windows: z.array(
+    z.looseObject({
+      windowId: z.string(),
+      clientId: z.string(),
+      windowLabel: z.optional(z.string()),
+      detached: z.optional(z.boolean()),
+      topicIds: z.array(z.string()),
+      focusedTopicId: z.optional(z.string()),
+    }),
+  ),
+});
+
 const topicCreatedSchema = z.looseObject({
   type: z.literal('topic:created'),
   topic: z.looseObject({ id: z.string() }),
@@ -171,6 +185,7 @@ const INBOUND_SCHEMAS = {
   'stream:content_chunk': streamContentChunkSchema,
   'stream:error': streamErrorSchema,
   'typing': typingBroadcastSchema,
+  'presence:windows': presenceWindowsSchema,
   'topic:created': topicCreatedSchema,
   'topic:updated': topicUpdatedSchema,
   'topic:archived': topicArchivedSchema,

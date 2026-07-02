@@ -48,6 +48,8 @@ import {
   isDraftPaneId,
   isKnownPanePrefix,
   isProjectPaneId,
+  isTerminalPaneId,
+  isSessionViewerPaneId,
   isUUIDLike,
   reopenClosedTab,
   type ClosedTabRecord,
@@ -70,6 +72,8 @@ import {
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
 import { notifyNative } from '../lib/shell/app';
+import { isTauri } from '../lib/shell';
+import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { markTabRestored } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
@@ -145,6 +149,9 @@ interface ContextMenuState { x: number; y: number; topic: Topic }
 export interface UsePanelLifecycleArgs {
   isDetached: boolean;
   detachedTopicId: string | null;
+  /** All topics this detached window hosts (`?topics=a,b,c`). Seeds openPanels
+   *  in detach mode. `detachedTopicId` is kept as the first element / focus. */
+  detachedTopicIds?: string[];
   isMobile: boolean;
   // Topics
   topics: Record<string, Topic>;
@@ -258,7 +265,7 @@ export interface UsePanelLifecycleReturn {
 
 export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycleReturn {
   const {
-    isDetached, detachedTopicId, isMobile,
+    isDetached, detachedTopicId, detachedTopicIds, isMobile,
     topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic,
     workspaceProjects,
     terminalSessions, pruneStaleTerminalPanes, terminalOps,
@@ -268,6 +275,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     setSidebarCollapsed, removeClosedTab,
   } = args;
 
+  // The full detached set — seeds openPanels; empty off-detach. `detachedTopicId`
+  // stays the focused/first id for back-compat with the singular guards below.
+  const detachedIds = detachedTopicIds && detachedTopicIds.length > 0
+    ? detachedTopicIds
+    : (detachedTopicId ? [detachedTopicId] : []);
+
   const {
     isOwnStream, getSessionMessages, addMessageFromWS, clearSession,
     loadHistory, appendMediaToLastAssistant, sendMessage, drainQueue,
@@ -275,11 +288,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   // ---- 1. State ----
   const [openPanels, setOpenPanels] = useState<string[]>(() => {
-    if (isDetached && detachedTopicId) return [detachedTopicId];
+    if (isDetached && detachedIds.length > 0) return detachedIds;
     return loadSavedPanels();
   });
   const [focusedPanelId, setFocusedPanelId] = useState<string | null>(() => {
-    if (isDetached && detachedTopicId) return detachedTopicId;
+    if (isDetached && detachedIds.length > 0) return detachedIds[0];
     return loadSavedFocused();
   });
 
@@ -1662,12 +1675,60 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // ---- 20. Detached auto-close ----
   useEffect(() => {
     if (isDetached && openPanels.length === 0) {
+      // On Tauri, WKWebView's window.close() is a no-op — ask the shell to close
+      // THIS NSWindow. The old location.href fallback would silently reload a
+      // full app instance that double-syncs pane-store, so it must not run here.
+      if (isTauri) {
+        void tauriInvoke('window_close_self').catch(() => {});
+        return;
+      }
       window.close();
       setTimeout(() => {
         window.location.href = window.location.origin;
       }, 200);
     }
   }, [isDetached, openPanels.length]);
+
+  // ---- 21. Cross-window presence announce ----
+  // Every window advertises the chat topics it currently holds so peers can
+  // render "open in another window" markers/glyphs and route a sidebar click to
+  // the right OS window. WS-ephemeral (server never persists it). The chat set
+  // is openPanels minus the non-topic pane kinds (project/terminal/browser/
+  // draft/session-viewer ids are not topics). Re-announced on every set/focus
+  // change and on WS reconnect (the connection carries no presence until we do).
+  const presenceTopicIds = useMemo(
+    () =>
+      openPanels.filter(
+        (id) =>
+          !isProjectPaneId(id) &&
+          !isTerminalPaneId(id) &&
+          !isBrowserPaneId(id) &&
+          !isDraftPaneId(id) &&
+          !isSessionViewerPaneId(id),
+      ),
+    [openPanels],
+  );
+  const focusedTopicForPresence =
+    focusedPanelId && presenceTopicIds.includes(focusedPanelId) ? focusedPanelId : undefined;
+  const prevPresenceWsStatus = useRef(wsStatus);
+  useEffect(() => {
+    const reconnected =
+      prevPresenceWsStatus.current !== 'connected' && wsStatus === 'connected';
+    prevPresenceWsStatus.current = wsStatus;
+    if (wsStatus !== 'connected') return;
+    // `reconnected` is referenced only to make the reconnect edge a real dep
+    // trigger; the announce below is identical whether it's a set change or a
+    // fresh connection (full-snapshot semantics make it idempotent).
+    void reconnected;
+    sendWS({
+      type: 'presence:announce',
+      windowId,
+      windowLabel: currentWindowLabel() ?? undefined,
+      detached: isDetached,
+      topicIds: presenceTopicIds,
+      focusedTopicId: focusedTopicForPresence,
+    });
+  }, [wsStatus, windowId, isDetached, presenceTopicIds, focusedTopicForPresence, sendWS]);
 
   return {
     state: {
