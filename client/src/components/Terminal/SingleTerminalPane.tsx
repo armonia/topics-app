@@ -714,10 +714,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             pointer-events:none, z-30, border-radius inherit). Absolutely
             positioned over the xterm container, so it never touches xterm's
             layout or fit. Rendered only when working → zero idle cost. */}
-        {showWorkingRing && <>
-          <div className="chat-working-halo" aria-hidden="true" />
-          <div className="chat-working-ring" aria-hidden="true" />
-        </>}
+        {showWorkingRing && (
+          <div className="chat-working-aura" aria-hidden="true">
+            <div className="chat-working-aura-band" />
+          </div>
+        )}
         {/* Copy button for non-touch */}
         {!isTouchDevice && !stale && (
           <button
