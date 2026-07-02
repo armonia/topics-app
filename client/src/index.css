@@ -1166,22 +1166,15 @@ input[type="range"]::-webkit-slider-thumb {
   from { transform: scale(2.4) rotate(0deg); }
   to   { transform: scale(2.4) rotate(360deg); }
 }
-.chat-working-aura > i {
-  position: absolute;
-  width: 30%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  filter: blur(10px) saturate(150%);
-  will-change: transform, opacity;
-}
-/* ORBITERS (<b>) — the unmistakable "travels along the perimeter" element.
- * A rotating conic can't deliver it: constant ANGULAR speed maps to a crest
- * that crawls at edge midpoints and teleports past corners (x = cy·tanθ).
- * CSS Motion Path solves it exactly: offset-path: inset(0) IS the pane's
- * border rectangle, and animating offset-distance 0→100% moves the crest
- * along it at constant PATH speed. Negative delays spread the crests around
- * the loop; one runs reverse. Hidden where Motion Path is unsupported (the
- * band+swells still carry the effect). */
+/* v12 CONTINUOUS WAVE — Attilio: "non pallini singoli ma tutta un'onda che
+ * varia". The v11 orbiters were right about the MOTION (constant path speed
+ * via Motion Path) but wrong about the SHAPE: 3 small crests read as dots.
+ * Now SIX large, heavily-blurred crests travel the same direction at nearby
+ * (but distinct) speeds: adjacent crests overlap into one continuous ribbon
+ * whose thickness and brightness undulate as they drift — a single traveling
+ * wave, no isolated dots. The static swells are gone (they read as parked
+ * dots); the rotating band stays as the base coat filling the troughs.
+ * Hidden where Motion Path is unsupported (band still carries the effect). */
 .chat-working-aura > b {
   display: none;
 }
@@ -1189,116 +1182,46 @@ input[type="range"]::-webkit-slider-thumb {
   .chat-working-aura > b {
     display: block;
     position: absolute;
-    width: 24%;
+    width: 36%;
     aspect-ratio: 1;
     border-radius: 50%;
-    filter: blur(10px) saturate(160%);
+    filter: blur(16px) saturate(160%);
     offset-path: inset(0 round 16px);
     offset-rotate: 0deg;
     will-change: transform, opacity;
-    animation: aura-orbit 8s linear infinite;
+    animation: aura-orbit 10s linear infinite;
   }
+  /* one direction (a wave has a heading); near-but-distinct periods let the
+   * crests drift apart and re-merge, so the ribbon's depth varies in time */
   .chat-working-aura > .aura-o1 {
-    background: radial-gradient(circle, rgba(50, 200, 255, 0.8) 0%, rgba(50, 200, 255, 0) 62%);
-    animation-duration: 7.5s;
+    background: radial-gradient(circle, rgba(50, 200, 255, 0.7) 0%, rgba(50, 200, 255, 0) 60%);
+    animation-duration: 9.5s;
   }
   .chat-working-aura > .aura-o2 {
-    background: radial-gradient(circle, rgba(191, 90, 242, 0.75) 0%, rgba(191, 90, 242, 0) 62%);
-    animation-duration: 10.5s;
-    animation-delay: -3.5s;
+    background: radial-gradient(circle, rgba(94, 92, 230, 0.68) 0%, rgba(94, 92, 230, 0) 60%);
+    animation-duration: 11s; animation-delay: -1.8s;
   }
   .chat-working-aura > .aura-o3 {
-    background: radial-gradient(circle, rgba(255, 55, 175, 0.7) 0%, rgba(255, 55, 175, 0) 62%);
-    animation-duration: 8.5s;
-    animation-delay: -6s;
-    animation-direction: reverse;
+    background: radial-gradient(circle, rgba(191, 90, 242, 0.68) 0%, rgba(191, 90, 242, 0) 60%);
+    animation-duration: 10s; animation-delay: -3.4s;
+  }
+  .chat-working-aura > .aura-o4 {
+    background: radial-gradient(circle, rgba(255, 55, 175, 0.62) 0%, rgba(255, 55, 175, 0) 60%);
+    animation-duration: 12.5s; animation-delay: -5.2s;
+  }
+  .chat-working-aura > .aura-o5 {
+    background: radial-gradient(circle, rgba(60, 220, 210, 0.62) 0%, rgba(60, 220, 210, 0) 60%);
+    animation-duration: 9s; animation-delay: -6.7s;
+  }
+  .chat-working-aura > .aura-o6 {
+    background: radial-gradient(circle, rgba(10, 132, 255, 0.7) 0%, rgba(10, 132, 255, 0) 60%);
+    animation-duration: 11.5s; animation-delay: -8.4s;
   }
 }
 @keyframes aura-orbit {
   from { offset-distance: 0%; }
   to   { offset-distance: 100%; }
 }
-/* swell keyframes — scale IS the wave: the blob's bulge into the pane grows
- * and retreats; translate slides the swell along its edge. Fast + irregular;
- * the band below guarantees the perimeter, so troughs may dip low. */
-@keyframes aura-swell-1 {
-  0%   { transform: translate(0, 0)      scale(0.6);  opacity: 0.4; }
-  24%  { transform: translate(12%, 4%)   scale(1.35); opacity: 1; }
-  43%  { transform: translate(7%, 1%)    scale(0.8);  opacity: 0.55; }
-  68%  { transform: translate(24%, 3%)   scale(1.5);  opacity: 1; }
-  100% { transform: translate(0, 0)      scale(0.6);  opacity: 0.4; }
-}
-@keyframes aura-swell-2 {
-  0%   { transform: translate(0, 0)      scale(1.3);  opacity: 0.95; }
-  31%  { transform: translate(-14%, 5%)  scale(0.65); opacity: 0.4; }
-  57%  { transform: translate(-5%, 2%)   scale(1.45); opacity: 1; }
-  81%  { transform: translate(-20%, 0)   scale(0.9);  opacity: 0.55; }
-  100% { transform: translate(0, 0)      scale(1.3);  opacity: 0.95; }
-}
-@keyframes aura-swell-3 {
-  0%   { transform: translate(0, 0)      scale(0.95); opacity: 0.6; }
-  22%  { transform: translate(3%, 18%)   scale(1.5);  opacity: 1; }
-  49%  { transform: translate(1%, 7%)    scale(0.7);  opacity: 0.4; }
-  76%  { transform: translate(4%, 24%)   scale(1.35); opacity: 0.95; }
-  100% { transform: translate(0, 0)      scale(0.95); opacity: 0.6; }
-}
-@keyframes aura-swell-4 {
-  0%   { transform: translate(0, 0)      scale(1.4);  opacity: 1; }
-  27%  { transform: translate(-4%, -13%) scale(0.72); opacity: 0.45; }
-  52%  { transform: translate(-1%, -22%) scale(1.3);  opacity: 0.95; }
-  79%  { transform: translate(-5%, -6%)  scale(0.62); opacity: 0.38; }
-  100% { transform: translate(0, 0)      scale(1.4);  opacity: 1; }
-}
-@keyframes aura-swell-5 {
-  0%   { transform: translate(0, 0)      scale(0.7);  opacity: 0.45; }
-  35%  { transform: translate(16%, -6%)  scale(1.42); opacity: 1; }
-  61%  { transform: translate(27%, -2%)  scale(0.85); opacity: 0.5; }
-  100% { transform: translate(0, 0)      scale(0.7);  opacity: 0.45; }
-}
-@keyframes aura-swell-6 {
-  0%   { transform: translate(0, 0)      scale(1.2);  opacity: 0.9; }
-  29%  { transform: translate(-18%, -4%) scale(0.68); opacity: 0.42; }
-  55%  { transform: translate(-8%, 2%)   scale(1.5);  opacity: 1; }
-  100% { transform: translate(0, 0)      scale(1.2);  opacity: 0.9; }
-}
-@keyframes aura-swell-7 {
-  0%   { transform: translate(0, 0)      scale(1.35); opacity: 0.95; }
-  26%  { transform: translate(10%, 5%)   scale(0.7);  opacity: 0.42; }
-  58%  { transform: translate(22%, 1%)   scale(1.45); opacity: 1; }
-  83%  { transform: translate(6%, 3%)    scale(0.9);  opacity: 0.55; }
-  100% { transform: translate(0, 0)      scale(1.35); opacity: 0.95; }
-}
-@keyframes aura-swell-8 {
-  0%   { transform: translate(0, 0)      scale(0.75); opacity: 0.5; }
-  33%  { transform: translate(-3%, -18%) scale(1.45); opacity: 1; }
-  62%  { transform: translate(-1%, -7%)  scale(0.8);  opacity: 0.45; }
-  100% { transform: translate(0, 0)      scale(0.75); opacity: 0.5; }
-}
-/* eight blobs: 4 corners + 4 edge midpoints (mostly outside; the pane clips) */
-.chat-working-aura > .aura-b1 { top: -28%; left: -14%;
-  background: radial-gradient(circle, rgba(50, 200, 255, 0.7) 0%, rgba(50, 200, 255, 0) 65%);
-  animation: aura-swell-1 4.9s ease-in-out infinite; }
-.chat-working-aura > .aura-b2 { top: -32%; left: 29%;
-  background: radial-gradient(circle, rgba(94, 92, 230, 0.7) 0%, rgba(94, 92, 230, 0) 65%);
-  animation: aura-swell-2 6.4s ease-in-out infinite; }
-.chat-working-aura > .aura-b3 { top: -28%; right: -14%;
-  background: radial-gradient(circle, rgba(191, 90, 242, 0.68) 0%, rgba(191, 90, 242, 0) 65%);
-  animation: aura-swell-3 4.1s ease-in-out infinite; }
-.chat-working-aura > .aura-b4 { top: 26%; right: -26%;
-  background: radial-gradient(circle, rgba(255, 55, 175, 0.64) 0%, rgba(255, 55, 175, 0) 65%);
-  animation: aura-swell-4 5.6s ease-in-out infinite; }
-.chat-working-aura > .aura-b5 { bottom: -28%; right: -14%;
-  background: radial-gradient(circle, rgba(255, 100, 130, 0.62) 0%, rgba(255, 100, 130, 0) 65%);
-  animation: aura-swell-5 3.7s ease-in-out infinite; }
-.chat-working-aura > .aura-b6 { bottom: -32%; left: 30%;
-  background: radial-gradient(circle, rgba(60, 220, 210, 0.64) 0%, rgba(60, 220, 210, 0) 65%);
-  animation: aura-swell-6 6.1s ease-in-out infinite; }
-.chat-working-aura > .aura-b7 { bottom: -28%; left: -14%;
-  background: radial-gradient(circle, rgba(10, 132, 255, 0.7) 0%, rgba(10, 132, 255, 0) 65%);
-  animation: aura-swell-7 4.6s ease-in-out infinite; }
-.chat-working-aura > .aura-b8 { top: 26%; left: -26%;
-  background: radial-gradient(circle, rgba(100, 210, 255, 0.66) 0%, rgba(100, 210, 255, 0) 65%);
-  animation: aura-swell-8 5.2s ease-in-out infinite; }
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
   to   { opacity: 1; }
@@ -1308,8 +1231,7 @@ input[type="range"]::-webkit-slider-thumb {
  * Orbiters are hidden outright — static, they'd read as three random dots. */
 @media (prefers-reduced-motion: reduce) {
   .chat-working-aura,
-  .chat-working-aura > s::before,
-  .chat-working-aura > i { animation: none; }
+  .chat-working-aura > s::before { animation: none; }
   .chat-working-aura > b { display: none; }
 }
 
