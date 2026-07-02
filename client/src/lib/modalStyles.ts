@@ -33,6 +33,13 @@ export const MODAL_BACKDROP = 'fixed inset-0 bg-black/30 dark:bg-black/50 backdr
  * shadow, hairline border, clipped corners, and the shared fade/slide-in
  * entrance animation (`command-palette-enter`, defined in index.css). Add sizing
  * (max-w-*, w-*, max-h-*) and layout (flex flex-col) per dialog.
+ *
+ * `native-occlude` is a no-op marker class (no style — see OVERLAY_SELECTOR in
+ * lib/shell/browserOcclusion). Because every full-screen dialog composes its card
+ * from MODAL_PANEL, this makes the Tauri native browser pane freeze-frame under
+ * ANY modal automatically — no per-modal `role="dialog"` to remember. A native
+ * WKWebView composites above the DOM, so without this the modal would render
+ * UNDER the browser pane.
  */
 export const MODAL_PANEL =
-  'bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter';
+  'native-occlude bg-surface rounded-xl shadow-2xl border border-app-border overflow-hidden command-palette-enter';
