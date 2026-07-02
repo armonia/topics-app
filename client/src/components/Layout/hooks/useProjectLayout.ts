@@ -379,6 +379,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const sessionIds = new Set(sessions.map(s => s.id));
       const seen = seenTerminalSessionIdsRef.current;
       for (const id of sessionIds) seen.add(id);
+      // A NON-EMPTY roster proves the server is up and reconcile has populated
+      // its session map — so a restored terminal pane whose id is absent from it
+      // (and never seen) is a genuine corpse from a previous run, not a
+      // still-loading tab. An EMPTY roster (server mid hot-reload / a reconnect
+      // that raced reconcile) is NOT authoritative: keep never-seen panes then,
+      // preserving the original refresh/reconnect protection. This is what stops
+      // an app restart from resurrecting dead "sessioni morte" project tabs.
+      const rosterAuthoritative = sessionIds.size > 0;
       // Tombstoned session ids are sessions the user just closed in
       // this or another window (persisted in localStorage). Don't
       // auto-add panes for them — otherwise close-then-reload
@@ -402,10 +410,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         let updated = prev.filter(p => {
           if (p.type !== 'terminal') return true;
           const sid = getTerminalSessionFromPaneId(p.id) || '';
-          // Only prune a seen-then-gone session (e.g. closed in another window);
-          // keep restored panes whose session the roster hasn't caught up to yet
-          // — see terminalReconcile for why this stops refresh from losing tabs.
-          return shouldKeepRestoredTerminalPane(sid, sessionIds, seen);
+          // Prune a seen-then-gone session (closed in another window) OR a
+          // never-seen id that an authoritative (non-empty) roster doesn't list
+          // (a dead session restored from a previous run). Keep never-seen ids
+          // while the roster is empty/unproven — see terminalReconcile for why
+          // this stops a refresh from losing live tabs.
+          return shouldKeepRestoredTerminalPane(sid, sessionIds, seen, rosterAuthoritative);
         });
         const existingTermIds = new Set(
           updated.filter(p => p.type === 'terminal').map(p => getTerminalSessionFromPaneId(p.id)),
