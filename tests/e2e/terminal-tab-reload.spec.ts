@@ -128,6 +128,52 @@ test.describe.serial("Terminal tab reload", () => {
     await expect(page.getByText("Close now")).toBeVisible();
     await expect(page.getByTitle(/^Riavvia la sessione/)).toHaveCount(0);
   });
+
+  // Checklist point 10: rinomina tab terminale — the terminal tab context menu
+  // offers "Rinomina", which expands an inline editor in place and PATCHes the
+  // session name (name_source='user'). Terminal-scoped: chat tabs rename from
+  // the sidebar (covered in checklist-ui-verify.spec.ts CHK10-01).
+  test("tab right-click 'Rinomina' opens an inline editor and PATCHes the session name", async ({
+    page,
+    terminalPage,
+  }) => {
+    await navigateAndOpenTerminal(page, terminalPage);
+
+    const tab = page.locator('[data-testid^="pane-tab-terminal:"]').first();
+    await tab.waitFor({ state: "visible", timeout: 15_000 });
+    const testId = await tab.getAttribute("data-testid");
+    const sessionId = (testId ?? "").replace("pane-tab-terminal:", "");
+    expect(sessionId.length).toBeGreaterThan(0);
+
+    // Right-click → "Rinomina" is present for terminal tabs. Disambiguate via
+    // its unique title (the sidebar chat rename uses the English "Rename").
+    await tab.click({ button: "right" });
+    const rinomina = page.getByTitle("Rinomina questa sessione");
+    await expect(rinomina, "terminal tab menu must offer Rinomina").toBeVisible({
+      timeout: 3_000,
+    });
+    await rinomina.click();
+
+    // The inline editor expands in place inside the portaled menu.
+    const editor = page.locator('input[placeholder="Nome sessione"]');
+    await expect(editor, "inline rename editor must appear").toBeVisible({
+      timeout: 2_000,
+    });
+
+    // Type a new name + Enter → a PATCH to this session fires (the save path).
+    const newName = `renamed-${Date.now()}`;
+    await editor.fill(newName);
+    const [req] = await Promise.all([
+      page.waitForRequest(
+        (r) =>
+          r.url().includes(`/api/terminal/sessions/${sessionId}`) &&
+          r.method() === "PATCH",
+        { timeout: 5_000 }
+      ),
+      editor.press("Enter"),
+    ]);
+    expect(req.method()).toBe("PATCH");
+  });
 });
 
 /**
