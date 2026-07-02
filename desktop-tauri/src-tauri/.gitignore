@@ -2,3 +2,7 @@
 # will have compiled files and executables
 /target/
 /gen/schemas
+
+# Bundled server sidecar — compiled per-target by CI (bun build --compile) and
+# named binaries/topics-server-<triple>. A build artifact, never committed.
+/binaries/

@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.0.0"
+version = "2.1.0"
 description = "Topics — low-footprint desktop shell (Tauri)"
 authors = ["Armonia <hi@armonia.io>"]
 license = "MIT"
@@ -28,6 +28,12 @@ tauri = { version = "2.11.3", features = ["macos-private-api", "unstable", "tray
 tauri-plugin-log = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
+# Sidecar management: on a machine with no external launchd server, the shell
+# spawns the bundled `topics-server` sidecar (a `bun build --compile` binary,
+# registered in tauri.conf bundle.externalBin) and owns its lifecycle — spawn on
+# boot, kill on app exit. The plugin resolves the platform-triple-suffixed binary
+# next to the app executable and gives a killable CommandChild.
+tauri-plugin-shell = "2"
 tauri-plugin-os = "2"
 # Native file dialogs (the project folder picker — `selectDirectory` was Electron-only).
 tauri-plugin-dialog = "2"

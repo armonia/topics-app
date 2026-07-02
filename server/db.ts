@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { readFileSync, readdirSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
+import { EMBEDDED_MIGRATIONS } from "./db/migrations-embedded";
 
 let _db: Database | null = null;
 
@@ -69,16 +70,53 @@ export function closeDatabase(): void {
   }
 }
 
+/** One migration to apply, from disk or the embedded manifest. */
+interface MigrationEntry {
+  version: number;
+  name: string;
+  /** SQL text; loaded lazily on disk (only read when about to run). */
+  read: () => string;
+}
+
 /**
- * Run all pending SQL migrations in order.
- * Migrations are .sql files in server/db/migrations/ named NNN-description.sql
+ * Resolve the ordered migration list from whichever source is available:
+ *   • DISK (dev / launchd / bundled-with-source): read server/db/migrations/*.sql.
+ *     Byte-identical to the historical behaviour.
+ *   • EMBEDDED (the `bun build --compile` server sidecar): `import.meta.dir` is a
+ *     virtual path there and the migrations dir isn't on disk, so fall back to
+ *     EMBEDDED_MIGRATIONS (migrations-embedded.ts, statically imported → baked into
+ *     the binary). Regenerate that manifest with scripts/gen-migrations-manifest.ts.
+ * Returns [] only if BOTH are empty (genuinely misconfigured).
+ */
+function resolveMigrations(migrationsDir: string): MigrationEntry[] {
+  if (existsSync(migrationsDir)) {
+    return readdirSync(migrationsDir)
+      .filter(f => /^\d+-.+\.sql$/.test(f))
+      .sort()
+      .map(file => {
+        const version = parseInt(file.match(/^(\d+)-/)![1], 10);
+        return { version, name: file, read: () => readFileSync(join(migrationsDir, file), "utf-8") };
+      });
+  }
+  if (EMBEDDED_MIGRATIONS.length > 0) {
+    console.log(`[DB] Migrations dir absent — using ${EMBEDDED_MIGRATIONS.length} embedded migration(s) (compiled binary)`);
+    return EMBEDDED_MIGRATIONS
+      .slice()
+      .sort((a, b) => a.version - b.version)
+      .map(m => ({ version: m.version, name: m.name, read: () => m.sql }));
+  }
+  console.warn(`[DB] Migrations directory not found and no embedded migrations: ${migrationsDir}`);
+  return [];
+}
+
+/**
+ * Run all pending SQL migrations in order. Source is disk (dev/launchd) or the
+ * embedded manifest (compiled sidecar) — see resolveMigrations.
  */
 function runMigrations(db: Database, baseDir: string): void {
   const migrationsDir = join(baseDir, "server", "db", "migrations");
-  if (!existsSync(migrationsDir)) {
-    console.warn(`[DB] Migrations directory not found: ${migrationsDir}`);
-    return;
-  }
+  const migrations = resolveMigrations(migrationsDir);
+  if (migrations.length === 0) return;
 
   // Get applied versions
   const applied = new Set(
@@ -95,34 +133,23 @@ function runMigrations(db: Database, baseDir: string): void {
           .map(t => t.name)
       );
       if (tables.has("messages")) {
-        for (const file of readdirSync(migrationsDir).filter(f => f.endsWith(".sql")).sort()) {
-          const m = file.match(/^(\d+)-(.+)\.sql$/);
-          if (!m) continue;
-          const v = parseInt(m[1], 10);
-          if (v > 8) break; // only backfill pre-fix migrations
+        for (const mig of migrations) {
+          if (mig.version > 8) break; // only backfill pre-fix migrations
           db.run("INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
-            [v, file, new Date().toISOString()]);
-          applied.add(v);
+            [mig.version, mig.name, new Date().toISOString()]);
+          applied.add(mig.version);
         }
         console.log(`[DB] Backfilled schema_migrations for ${applied.size} previously-applied migration(s)`);
       }
     } catch {}
   }
 
-  // Find migration files
-  const files = readdirSync(migrationsDir)
-    .filter(f => f.endsWith(".sql"))
-    .sort();
-
   let ranCount = 0;
-  for (const file of files) {
-    const match = file.match(/^(\d+)-(.+)\.sql$/);
-    if (!match) continue;
-
-    const version = parseInt(match[1], 10);
+  for (const mig of migrations) {
+    const { version, name: file } = mig;
     if (applied.has(version)) continue;
 
-    const sql = readFileSync(join(migrationsDir, file), "utf-8");
+    const sql = mig.read();
 
     console.log(`[DB] Running migration ${file}...`);
     try {
