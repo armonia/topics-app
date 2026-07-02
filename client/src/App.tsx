@@ -23,6 +23,7 @@ import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
 import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
+import { initDevBundleReload } from './lib/devBundleReload';
 
 // Tauri-on-macOS chrome parity: like Electron, the traffic lights are HIDDEN by
 // default and revealed only while the Topics menu is open (the Rust shell hides
@@ -117,6 +118,11 @@ function App() {
   // mirroring `.app-drag-region`/`.app-no-drag` onto Tauri's drag attributes.
   // No-op off Tauri; safe to run once on mount.
   useEffect(() => { wireTauriDragRegions(); }, []);
+
+  // Dev bundle hot-delivery: reload when the server says /public was rebuilt.
+  // The server only broadcasts this behind its dev flag file — see
+  // server/lib/dev-bundle-reload.ts.
+  useEffect(() => initDevBundleReload(), []);
 
   // Warm the ⌘K command-palette chunk on idle so its FIRST open is composited
   // from an already-parsed module (no fetch+eval on the opening frame). Idle-
