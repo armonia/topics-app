@@ -1087,58 +1087,62 @@ input[type="range"]::-webkit-slider-thumb {
   will-change: opacity;
 }
 
-/* ─── "Working" glow ring (Apple-Intelligence style) ─────────────────────────
- * A thin, cool, slowly-rotating conic-gradient ring drawn AROUND a chat pane
- * while its session is actively working (streaming / an agent running). It's a
- * cue, not a fill: it sits behind nothing readable and never tints the content,
- * so chat legibility is untouched.
+/* ─── "Working" aura (Apple-Intelligence style) ──────────────────────────────
+ * A soft, colorful INNER glow that seeps in from the pane's edges while the
+ * session works — an animated colored inner shadow, not a border (Attilio: the
+ * ring "non dovrebbe essere un bordo ma un'ombra interna animata colorata").
+ * The colors sweep slowly around the perimeter; the whole aura breathes.
  *
- * PERFORMANCE — why it's built this exact way (this app is FPS-sensitive and has
- * regressed before from per-frame main-thread work):
- *   - The ONLY animated property is `transform: rotate()`. Transform animates on
- *     the compositor thread → zero per-frame style-recalc/layout/paint. We do NOT
- *     animate an @property <angle> conic-gradient (that repaints the gradient
- *     every frame on the main thread) nor a box-shadow (also main-thread paint).
- *   - The rotating layer is a single oversized absolutely-positioned child
- *     (`.chat-working-ring`) whose conic-gradient background is spun. The parent
- *     is `overflow: hidden`, so the oversize is clipped for free.
- *   - It's masked to a ~1.5px RING (not a disc) with a padding-box mask composite:
- *     an opaque fill clipped to the border-box XORed against the same clipped to
- *     the content-box, leaving only the `padding` band painted. `padding` sets
- *     the ring thickness; the gradient shows only through that band.
- *   - The element is CONDITIONALLY RENDERED by React only while the session is
- *     working (see ChatPanel) — so when a chat is idle there is NOTHING in the
- *     DOM and nothing to animate. Zero idle cost, by construction.
- *   - `.anims-paused` (window backgrounded) freezes the rotation like every other
- *     keyframe animation here, so a hidden window costs nothing either.
+ * STRUCTURE (three layers, each with one job — none is optional):
+ *   .chat-working-aura        blur + saturate filter, clips to the pane, breathes
+ *     └ .chat-working-aura-band   STATIC mask → a ~14px perimeter band
+ *         └ ::before              oversized conic gradient, transform-spins
+ * The mask must sit on a static element (rotating a mask peels it off the
+ * rounded corners) and the blur must sit on an ANCESTOR of the mask (filters
+ * apply before masks on the same element, which would leave a hard inner edge).
+ * The blur turns the hard band into a soft bloom bleeding inward.
  *
- * The host is the ChatPanel root (already `position: relative; overflow: hidden`).
- * `border-radius: inherit` makes the ring follow the pane's corners — including
- * the rounded `--float-radius` cards in floating-splits mode. */
+ * PERFORMANCE — this app is FPS-sensitive; the budget here is ZERO main-thread
+ * work per frame:
+ *   - The only animated properties are transform (spin) and opacity (breathe) —
+ *     both compositor-thread. No @property angle gradients, no animated
+ *     box-shadow (both would repaint per frame on main).
+ *   - The blur is a constant filter on a composited layer; Chromium (cc render
+ *     pass) and WebKit (CAFilter) both apply it on the GPU each frame with no
+ *     main-thread involvement. Rendered only while working → zero idle cost.
+ *   - `.anims-paused` (window backgrounded) freezes spin + breathe like every
+ *     other keyframe animation here.
+ *
+ * Host: the pane root (`position: relative; overflow: hidden`); border-radius
+ * inherit follows the rounded floating-splits cards too. */
 @keyframes chat-working-spin {
   to { transform: rotate(360deg); }
 }
-/* WRAPPER — matches the PANE box exactly (inset:0) so the ring hugs the pane's
- * rounded border precisely. It is masked to a thin ring and clips its spinning
- * child. It does NOT rotate (rotating the mask would peel the ring off the
- * corners); only the child inside spins. */
-.chat-working-ring {
+.chat-working-aura {
   position: absolute;
   inset: 0;
-  /* Above the opaque pane content so the thin edge band is actually visible
-   * (content is `bg-surface` edge-to-edge and would otherwise cover it). Safe:
-   * masked to a ~1.5px perimeter ring and pointer-events:none, so it overlays
-   * only the border band — never text, never clicks. */
+  /* Above the opaque pane content so the edge bloom is visible. Safe: only the
+   * outer ~24px (14px band + blur spread) ever shows color, at low alpha, and
+   * pointer-events:none — never the text body, never clicks. */
   z-index: 30;
   pointer-events: none;
   border-radius: inherit;
   overflow: hidden;
-  /* Mask the wrapper down to a thin ring: paint only the `padding` band between
-   * the border-box and the content-box. An opaque fill clipped to the
-   * content-box is EXCLUDED from the same fill over the whole box, leaving just
-   * the outer `padding` band. `padding` = ring thickness; the spinning child
-   * shows only through that band. */
-  padding: 2.5px;                       /* = ring thickness */
+  filter: blur(10px) saturate(140%);
+  animation:
+    chat-working-ring-in 300ms ease-out,
+    chat-working-breathe 3.2s ease-in-out 300ms infinite alternate;
+}
+/* STATIC band mask — paints only the `padding` perimeter strip between the
+ * border-box and the content-box (opaque fill over the whole box XOR the same
+ * fill clipped to the content-box). The parent's blur then feathers this hard
+ * strip into the soft inner shadow. */
+.chat-working-aura-band {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  padding: 14px;                        /* aura reach before the blur feathers it */
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
@@ -1147,65 +1151,30 @@ input[type="range"]::-webkit-slider-thumb {
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
   mask-composite: exclude;
-  /* One-shot fade-in when the ring mounts as the session flips to working.
-   * There's no fade-OUT — a conditionally rendered node just unmounts — but the
-   * appear-in softens the onset. */
-  animation: chat-working-ring-in 300ms ease-out;
 }
-/* SPINNER — an oversized conic-gradient disc that fills past the wrapper (so the
- * gradient seam never sweeps into the visible band) and rotates. Transform-only
- * → compositor thread, zero per-frame main-thread cost. */
-.chat-working-ring::before {
+/* SPINNER — oversized conic disc (the seam never sweeps into view) rotating on
+ * the compositor. Continuous cool wheel, no transparent gaps: with the blur a
+ * gap would read as a dead dark patch drifting around the pane. */
+.chat-working-aura-band::before {
   content: '';
   position: absolute;
-  /* Oversize so the disc always covers the wrapper at any rotation; the wrapper
-   * clips (overflow:hidden) + masks it to the ring. Use the larger side so a
-   * very wide/tall pane is still fully covered. */
   inset: -50%;
   min-width: 200%;
   min-height: 200%;
-  /* Cool Apple-Intelligence palette, TWO chasing comets: a cyan→blue arc and an
-   * indigo→magenta arc separated by transparent gaps, so the rotation reads as
-   * two glints orbiting the pane instead of one faint smear. Alphas are high on
-   * purpose — the band is only ~2.5px, it has to be luminous to be seen — and
-   * the palette stays cool (no warm/amber). */
   background: conic-gradient(
     from 0deg,
-    rgba(50, 200, 255, 0)     0deg,
-    rgba(50, 200, 255, 0.95) 45deg,
-    rgba(10, 132, 255, 0.9)  100deg,
-    rgba(10, 132, 255, 0)    150deg,
-    rgba(94, 92, 230, 0)     175deg,
-    rgba(94, 92, 230, 0.9)   225deg,
-    rgba(191, 90, 242, 0.95) 275deg,
-    rgba(255, 55, 175, 0.7)  315deg,
-    rgba(50, 200, 255, 0)    360deg
+    rgba(50, 200, 255, 0.85)   0deg,
+    rgba(10, 132, 255, 0.9)   70deg,
+    rgba(94, 92, 230, 0.9)   140deg,
+    rgba(191, 90, 242, 0.9)  210deg,
+    rgba(255, 55, 175, 0.8)  280deg,
+    rgba(50, 200, 255, 0.85) 360deg
   );
-  animation: chat-working-spin 4.5s linear infinite;
+  animation: chat-working-spin 6s linear infinite;
   will-change: transform;
 }
-/* HALO — a soft inward bloom hugging the pane edge, breathing slowly under the
- * crisp ring. Separate SIBLING node (the ring wrapper's mask would clip any
- * pseudo-element of its own down to the 2.5px band, so the bloom can't live
- * inside it). Static inset box-shadows painted ONCE — the only animated
- * property is layer opacity (compositor thread), so per-frame cost stays zero.
- * Alphas are low and the falloff quick: it kisses the outer ~14px of the pane,
- * never the text body. */
-.chat-working-halo {
-  position: absolute;
-  inset: 0;
-  z-index: 29;                          /* just under the ring */
-  pointer-events: none;
-  border-radius: inherit;
-  box-shadow:
-    inset 0 0 14px rgba(10, 132, 255, 0.22),
-    inset 0 0 3px  rgba(94, 92, 230, 0.30);
-  animation:
-    chat-working-ring-in 300ms ease-out,
-    chat-working-breathe 2.8s ease-in-out 300ms infinite alternate;
-}
 @keyframes chat-working-breathe {
-  from { opacity: 0.45; }
+  from { opacity: 0.55; }
   to   { opacity: 1; }
 }
 @keyframes chat-working-ring-in {
@@ -1213,12 +1182,11 @@ input[type="range"]::-webkit-slider-thumb {
   to   { opacity: 1; }
 }
 
-/* prefers-reduced-motion: keep the ring as a STATIC soft gradient (still a cue)
- * but stop all rotation and the fade-in. */
+/* prefers-reduced-motion: keep the aura as a STATIC soft gradient (still a cue)
+ * but stop the sweep, the breathing and the fade-in. */
 @media (prefers-reduced-motion: reduce) {
-  .chat-working-ring,
-  .chat-working-ring::before,
-  .chat-working-halo { animation: none; }
+  .chat-working-aura,
+  .chat-working-aura-band::before { animation: none; }
 }
 
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
