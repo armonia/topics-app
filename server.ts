@@ -38,6 +38,7 @@ import { resetMoondreamCounter } from "./server/integrations/moondream-client";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./server/browser-ws-messages";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
+import { buildPresenceSnapshot } from "./server/presence";
 import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
 import { ActivityMonitor } from "./server/activity-monitor";
 import { createActivityRouter } from "./server/routes/activity";
@@ -92,6 +93,21 @@ const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast
 // (UI plus E2E spies); the broadcast iterates the whole set. Populated by the
 // websocket.open browser branch and cleaned by websocket.close.
 const browserWsClients = new Map<string, Set<ServerWebSocket<WSData>>>();
+
+// Cross-window presence: broadcast the FULL list of windows that have declared
+// their presence (via `hello`/`presence:announce`) plus the topics each holds.
+// A full-snapshot (not deltas) is trivially idempotent across reconnects; the
+// list self-heals because a dead socket drops out of `wsClients` before its
+// close handler re-broadcasts. Purely WS-ephemeral — nothing is persisted.
+// The dedup/build logic is pure in server/presence.ts (unit-tested).
+function broadcastPresence() {
+  const windows = buildPresenceSnapshot(
+    (function* () {
+      for (const client of wsClients) yield client.data;
+    })(),
+  );
+  broadcastToAll({ type: 'presence:windows', windows });
+}
 
 function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage): void {
   const set = browserWsClients.get(contextId);
@@ -946,6 +962,26 @@ const server = Bun.serve<WSData>({
             // for observability. Future protocol versions may use this to emit
             // an `upgrade-required` frame when clientProtocolVersion < SERVER_PROTOCOL_VERSION.
             console.log(`[WS][handshake] hello from ${ws.data.id}: client v${data.clientVersion} (proto ${data.protocolVersion}), caps=[${data.capabilities.join(', ')}]`);
+            // Presence: a window may carry its identity + open topics on hello
+            // (reconnect-safe — the client re-sends hello on every WS 'open').
+            if (data.windowId) {
+              ws.data.windowId = data.windowId;
+              ws.data.windowLabel = data.windowLabel;
+              ws.data.detached = data.detached;
+              ws.data.presenceTopicIds = data.topicIds ?? [];
+              ws.data.presenceFocusedTopicId = data.focusedTopicId;
+              broadcastPresence();
+            }
+            break;
+          case 'presence:announce':
+            // Presence update after hello (tab opened/closed/focused inside the
+            // window, or detach state changed). Restamp this socket + re-snapshot.
+            ws.data.windowId = data.windowId;
+            ws.data.windowLabel = data.windowLabel;
+            ws.data.detached = data.detached;
+            ws.data.presenceTopicIds = data.topicIds;
+            ws.data.presenceFocusedTopicId = data.focusedTopicId;
+            broadcastPresence();
             break;
         }
       } catch (err) { console.warn(`[WS] Failed to parse message from ${ws.data.id}:`, err); }
@@ -979,6 +1015,10 @@ const server = Bun.serve<WSData>({
       wsClients.delete(ws);
       ws.data.focusedTopicId = null;
       console.log(`[WS] Client disconnected: ${ws.data.id} (total: ${wsClients.size})`);
+      // Presence self-heal: if this socket had declared a window, re-broadcast
+      // so peers drop its "open elsewhere" markers the instant it dies. Removed
+      // from wsClients first, so the fresh snapshot no longer includes it.
+      if (ws.data.windowId) broadcastPresence();
     },
   },
 });

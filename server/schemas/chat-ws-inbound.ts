@@ -63,11 +63,34 @@ const dragDropSchema = z.object({
 // WS-02 handshake: client → server hello after connection.open.
 // Defined here (rather than imported from ws-handshake.ts) so the main
 // inbound dispatch can validate it with the same parser as the other types.
+//
+// The presence fields (windowId/windowLabel/detached/topicIds) are OPTIONAL
+// additions for the cross-window presence channel: a window declares its
+// identity + the topics it holds on connect so every other window can render
+// "open elsewhere" affordances. Old clients omit them (no behavior change);
+// the whole channel is WS-ephemeral (never persisted).
 const helloSchema = z.object({
   type: z.literal('hello'),
   clientVersion: z.string(),
   protocolVersion: z.number().int(),
   capabilities: z.array(z.string()),
+  windowId: z.string().optional(),
+  windowLabel: z.string().optional(),
+  detached: z.boolean().optional(),
+  topicIds: z.array(z.string()).optional(),
+  focusedTopicId: z.string().optional(),
+});
+
+// Presence update after hello: sent when the window's open set / focus / detach
+// state changes (tab opened/closed/focused). Server re-broadcasts the full
+// window list snapshot on each one.
+const presenceAnnounceSchema = z.object({
+  type: z.literal('presence:announce'),
+  windowId: z.string(),
+  windowLabel: z.string().optional(),
+  detached: z.boolean().optional(),
+  topicIds: z.array(z.string()),
+  focusedTopicId: z.string().optional(),
 });
 
 export const chatWsInboundSchema = z.discriminatedUnion('type', [
@@ -79,6 +102,7 @@ export const chatWsInboundSchema = z.discriminatedUnion('type', [
   dragEndSchema,
   dragDropSchema,
   helloSchema,
+  presenceAnnounceSchema,
 ]);
 
 export type ChatWsInbound = z.infer<typeof chatWsInboundSchema>;

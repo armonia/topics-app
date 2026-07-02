@@ -8,6 +8,7 @@ import { OverlayHostApp } from './OverlayHost'
 // persistence transports, and the 500 ms GET fallback) lives inside
 // client/src/state/pane/. main.tsx is intentionally a thin shell.
 import { bootstrapPaneStore } from './state/pane/bootstrap';
+import { initWindowPresence } from './state/windowPresence';
 import { installDesktopFetchShim } from './lib/shell/net';
 
 // Desktop shell (Tauri) serves the UI locally; rewrite relative API fetches to
@@ -41,6 +42,9 @@ if (isOverlay) {
   document.addEventListener('drop', (e) => e.preventDefault());
 
   bootstrapPaneStore();
+  // Cross-window presence: subscribe the store to the WS frame bus so "open in
+  // another window" markers work from the first `presence:windows` snapshot.
+  initWindowPresence();
 
   createRoot(container).render(
     <StrictMode>

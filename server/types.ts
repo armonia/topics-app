@@ -24,6 +24,16 @@ export interface WSData {
   browserContextId?: string;
   /** Phase 30 BROWSER-CHAT-02 — per-WS cleanup for screencast + CDP session. Called from websocket.close. */
   _browserCleanup?: () => Promise<void>;
+  /** Cross-window presence (WS-ephemeral, never persisted). Populated from the
+   *  `hello` / `presence:announce` frames so the server can broadcast a full
+   *  list of open windows + the topics each holds. `windowId` is the client's
+   *  own stable id for this browser context; `windowLabel` is the Tauri window
+   *  label (`detach-*`) when detached so peers can call `window_focus_label`. */
+  windowId?: string;
+  windowLabel?: string;
+  detached?: boolean;
+  presenceTopicIds?: string[];
+  presenceFocusedTopicId?: string;
 }
 
 /**
