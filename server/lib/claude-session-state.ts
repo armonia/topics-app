@@ -119,6 +119,52 @@ export function isKnownHookEvent(name: string): name is HookEventName {
 }
 
 /**
+ * Built-in tools whose PreToolUse means "Claude is now BLOCKED on a human
+ * answer", not "Claude is doing work". They must drive the amber act-now tier
+ * (awaiting-approval), never the working spinner (tool-running):
+ *
+ *   - AskUserQuestion — the model is asking the user a multiple-choice question
+ *     and cannot continue until it's answered. Claude Code fires ONLY a
+ *     PreToolUse for this (no Notification hook, unlike a Bash/Edit permission
+ *     prompt), so this PreToolUse is our sole signal — if we let it fall through
+ *     to tool-running the tab shows a spinner while Claude actually waits on you.
+ *   - ExitPlanMode — the model finished planning and is requesting approval of
+ *     the plan before it may act. Same "waiting on you" semantics.
+ *
+ * PostToolUse for either arrives once the user has answered/approved and takes
+ * us back to running (see the PostToolUse case).
+ */
+const HUMAN_INPUT_TOOLS = new Set<string>(['AskUserQuestion', 'ExitPlanMode']);
+
+export function isHumanInputTool(toolName: string | undefined): boolean {
+  return !!toolName && HUMAN_INPUT_TOOLS.has(toolName);
+}
+
+/**
+ * Map a human-input tool to the PendingApproval it represents, extracting a
+ * best-effort prompt string from its tool_input so the UI can echo what's being
+ * asked. Tolerant of missing/odd shapes — we only ever read strings we find.
+ */
+function humanInputApproval(hook: HookPayload, now: number): PendingApproval {
+  if (hook.tool_name === 'ExitPlanMode') {
+    const plan = (hook.tool_input as { plan?: unknown } | undefined)?.plan;
+    return {
+      kind: 'plan',
+      prompt: typeof plan === 'string' && plan.trim() ? plan : 'Approve plan?',
+      requestedAt: now,
+    };
+  }
+  // AskUserQuestion — surface the first question's text when present.
+  const questions = (hook.tool_input as { questions?: unknown } | undefined)?.questions;
+  let prompt = 'Claude is asking a question';
+  if (Array.isArray(questions) && questions.length > 0) {
+    const q = questions[0] as { question?: unknown } | undefined;
+    if (q && typeof q.question === 'string' && q.question.trim()) prompt = q.question;
+  }
+  return { kind: 'other', prompt, requestedAt: now };
+}
+
+/**
  * Apply a hook event to a session state. Returns a *new* state object with
  * `rev` bumped on every accepted transition. If the hook is a no-op for the
  * current phase, returns the input reference unchanged (cheap dedup signal).
@@ -166,6 +212,20 @@ export function applyHook(
       }, now);
 
     case 'PreToolUse': {
+      // A tool that asks the human (AskUserQuestion / ExitPlanMode) is NOT work
+      // in progress — Claude is blocked on your answer. Route it to the amber
+      // act-now tier (awaiting-approval) instead of the working spinner. This is
+      // our only signal for these (Claude Code fires no Notification hook for
+      // them), so getting it right here is what flips the tab from "sta
+      // lavorando" to "tocca a te".
+      if (isHumanInputTool(hook.tool_name)) {
+        return transition(base, {
+          phase: 'awaiting-approval',
+          pendingApproval: humanInputApproval(hook, now),
+          // Clear any lingering tool — we're waiting on the user, not running.
+          lastTool: undefined,
+        }, now);
+      }
       const tool: ActiveTool | undefined = hook.tool_name
         ? { name: hook.tool_name, input: hook.tool_input, startedAt: now }
         : undefined;
@@ -176,10 +236,21 @@ export function applyHook(
     }
 
     case 'PostToolUse':
-      // Only meaningful if we were tool-running. If we missed the PreToolUse
-      // (script timed out / network blip) just clear the field defensively.
+      // The user answered / the tool finished → back to work. Handles both the
+      // normal tool-running→running return AND the human-input case where the
+      // PreToolUse parked us at awaiting-approval (the user just answered
+      // AskUserQuestion / approved the plan): clear the pending approval and
+      // resume running. If we somehow missed the PreToolUse, leave the phase as
+      // it was but still clear the transient tool/approval fields defensively.
+      if (prev.phase === 'tool-running' || prev.phase === 'awaiting-approval') {
+        return transition(base, {
+          phase: 'running',
+          lastTool: undefined,
+          pendingApproval: undefined,
+        }, now);
+      }
       return transition(base, {
-        phase: prev.phase === 'tool-running' ? 'running' : prev.phase,
+        phase: prev.phase,
         lastTool: undefined,
       }, now);
 
