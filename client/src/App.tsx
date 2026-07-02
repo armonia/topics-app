@@ -1020,18 +1020,25 @@ function App() {
         </ErrorBoundary>
       </div>
 
-      {/* Sidebar resize handle - hide on mobile. z-50 + wide grab band:
-          adjacent pane content must not steal the grab (same lesson as the
-          SplitTree dividers). The inner bands paint a visible affordance on
-          hover so the resize is discoverable. */}
-      {!isMobile && (
+      {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a
+          flex divider here would collapse to x=0 under the sidebar's LEFT edge —
+          nothing to grab at the real sidebar/content boundary (the bug: "resize
+          non va"). The handle must therefore be fixed at the sidebar's RIGHT
+          edge (left = sidebarWidth). Grab band biased INTO the sidebar: native
+          WKWebView panes trail the sidebar flush on the content side and would
+          eat any hover/click past the edge. z-50 + wide band: same lesson as
+          the SplitTree dividers. Hidden while collapsed — the edge is gone. */}
+      {!isMobile && !sidebarCollapsed && (
         <div
-          className="group w-[1px] flex-shrink-0 cursor-col-resize relative bg-app-border transition-colors z-50"
+          className="group fixed inset-y-0 z-50 cursor-col-resize"
+          style={{ left: sidebarWidth - 8, width: 10 }}
           onMouseDown={handleSidebarResizeStart}
           onDoubleClick={handleSidebarDoubleClick}
         >
-          <div className="absolute inset-y-0 -left-[5px] -right-[5px] group-hover:bg-primary/25" />
-          <div className="absolute inset-y-0 -left-[1px] -right-[1px] group-hover:bg-primary" />
+          {/* crisp 1px boundary line, always visible at the true edge */}
+          <div className="absolute inset-y-0 right-[2px] w-[1px] bg-app-border" />
+          <div className="absolute inset-0 group-hover:bg-primary/25" />
+          <div className="absolute inset-y-0 right-[1px] w-[3px] group-hover:bg-primary" />
         </div>
       )}
 
