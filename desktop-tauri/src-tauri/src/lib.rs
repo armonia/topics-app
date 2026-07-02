@@ -2837,9 +2837,304 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
     std::mem::forget(block);
 }
 
+// ───────────────────────── Dev hot-reload (disk-serve) ─────────────────────────
+//
+// Electron-prod parity: the packaged Electron shell "auto-reloads all windows when
+// /public assets change (500ms debounce)". Tauri EMBEDS /public via include_bytes!
+// at cargo-build (frontendDist), served from tauri://localhost — so a `vite build`
+// that rewrites /public does nothing for an already-running binary (only a fresh
+// `cargo run`/`tauri build` re-embeds). That killed the client dogfood loop.
+//
+// This opt-in dev mode restores it WITHOUT touching the release default:
+//   • A dev marker (env TOPICS_PUBLIC_DIR, or <app_config_dir>/topics-dev.json →
+//     {"publicDir":"/abs/path"}) is read ONCE at startup. ABSENT ⇒ byte-identical
+//     embedded behavior, no per-request disk probes.
+//   • When present, the custom `tauri` URI-scheme handler serves matching files
+//     from disk (canonicalized, traversal-guarded) and FALLS BACK to the embedded
+//     asset for anything not on disk — so a partial /public still boots.
+//   • A polling watcher (dep-free: recursive max-mtime scan, no `notify` crate)
+//     reloads every app-shell webview 500ms after the writes go quiet — one reload
+//     per `vite build` burst.
+
+/// Resolved dev-mode state, read once at startup. `None` ⇒ pure embedded serving.
+#[derive(Clone)]
+struct DevServe {
+    /// Canonicalized absolute path of the on-disk /public to serve + watch.
+    public_dir: std::path::PathBuf,
+}
+
+/// Resolve the dev marker ONCE. Priority: env `TOPICS_PUBLIC_DIR`, then
+/// `<app_config_dir>/topics-dev.json` (`{"publicDir":"/abs"}`). The directory must
+/// exist and canonicalize, else dev mode stays OFF (embedded serving unchanged).
+fn resolve_dev_serve(app: &tauri::AppHandle) -> Option<DevServe> {
+    use tauri::Manager;
+    let raw = std::env::var("TOPICS_PUBLIC_DIR").ok().filter(|s| !s.trim().is_empty());
+    let raw = raw.or_else(|| {
+        let marker = app.path().app_config_dir().ok()?.join("topics-dev.json");
+        let text = std::fs::read_to_string(&marker).ok()?;
+        let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+        v.get("publicDir")?.as_str().map(|s| s.to_string())
+    })?;
+    // Canonicalize so the traversal guard (below) compares real, symlink-resolved
+    // prefixes — the scheme-guard LFI lesson: never trust a joined path's shape.
+    let public_dir = std::fs::canonicalize(&raw).ok()?;
+    if !public_dir.is_dir() {
+        eprintln!("[hot-reload] TOPICS publicDir {public_dir:?} is not a directory; embedded serving");
+        return None;
+    }
+    eprintln!("[hot-reload] disk-serving /public from {public_dir:?}");
+    Some(DevServe { public_dir })
+}
+
+/// Minimal, dep-free percent-decode (`%XX` → byte), UTF-8 lossy. Enough for asset
+/// URLs (mirrors what Tauri does with the `percent_encoding` crate) without adding
+/// a direct dependency; unknown/short escapes are passed through verbatim.
+fn percent_decode_lossy(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Parse a `tauri://localhost/...` request URI into the normalized relative asset
+/// path Tauri's own resolver uses: strip query/fragment + the origin prefix,
+/// percent-decode, drop a trailing '/', empty ⇒ "index.html", else strip a leading
+/// '/'. Mirrors AppManager::get_asset's front half so disk + embedded agree on keys.
+fn asset_request_path(uri: &str) -> String {
+    let no_qf = uri.split(['?', '#']).next().unwrap_or(uri);
+    let mut p = no_qf
+        .strip_prefix("tauri://localhost")
+        .unwrap_or(no_qf)
+        .to_string();
+    if p.ends_with('/') {
+        p.pop();
+    }
+    let p = percent_decode_lossy(&p);
+    if p.is_empty() {
+        "index.html".to_string()
+    } else {
+        p.strip_prefix('/').unwrap_or(&p).to_string()
+    }
+}
+
+/// Read `rel` from the on-disk publicDir with a traversal guard: the candidate must
+/// canonicalize to a path INSIDE `public_dir` (rejects `../`, symlink escapes — the
+/// LFI lesson). Returns the bytes on a real hit; `None` for miss/escape/dir → the
+/// caller then falls back to the embedded asset.
+fn read_disk_asset(public_dir: &std::path::Path, rel: &str) -> Option<Vec<u8>> {
+    let candidate = public_dir.join(rel);
+    let real = std::fs::canonicalize(&candidate).ok()?;
+    if !real.starts_with(public_dir) {
+        eprintln!("[hot-reload] blocked traversal outside publicDir: {rel:?}");
+        return None;
+    }
+    if !real.is_file() {
+        return None;
+    }
+    std::fs::read(&real).ok()
+}
+
+/// Try to satisfy a request from disk using the SAME fallback chain the embedded
+/// resolver uses: `path`, then `path.html`, then `path/index.html`, then the SPA
+/// `index.html`. Returns `(bytes, mime)` on a disk hit; `None` ⇒ fall back to
+/// embedded. MIME comes from `tauri::utils::mime_type::MimeType::parse` — the exact
+/// function the embedded resolver calls — so `.js`/`.mjs` get `text/javascript`
+/// (module MIME) identically, no divergence.
+fn disk_asset_response(public_dir: &std::path::Path, path: &str) -> Option<(Vec<u8>, String)> {
+    let candidates = [
+        path.to_string(),
+        format!("{path}.html"),
+        format!("{path}/index.html"),
+        "index.html".to_string(),
+    ];
+    for (i, cand) in candidates.iter().enumerate() {
+        if let Some(bytes) = read_disk_asset(public_dir, cand) {
+            // Name the served file (not the request) so MIME keys off the real
+            // extension — matches how the embedded resolver names its asset_path.
+            let mime = tauri::utils::mime_type::MimeType::parse(&bytes, cand);
+            if i > 0 {
+                eprintln!("[hot-reload] disk fallback {path:?} -> {cand:?}");
+            }
+            return Some((bytes, mime));
+        }
+    }
+    None
+}
+
+/// Recursively compute the newest mtime under `dir` (as nanos since epoch) and a
+/// crude entry count. A tuple change between polls = a write burst landed. Dir
+/// disappearance / permission errors collapse to `(0, 0)` — the watcher treats
+/// that as "no change" and keeps polling (resilient, never panics).
+fn public_dir_signature(dir: &std::path::Path) -> (u128, u64) {
+    fn walk(dir: &std::path::Path, newest: &mut u128, count: &mut u64) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if meta.is_dir() {
+                walk(&path, newest, count);
+            } else {
+                *count += 1;
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(dur) = modified.duration_since(std::time::UNIX_EPOCH) {
+                        let n = dur.as_nanos();
+                        if n > *newest {
+                            *newest = n;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let (mut newest, mut count) = (0u128, 0u64);
+    walk(dir, &mut newest, &mut count);
+    (newest, count)
+}
+
+/// Reload every APP-SHELL webview (`main` + any future `detach-*`), skipping the
+/// `browserpane-*` child webviews — those load the open web and must not be
+/// yanked back to the app. Runs on the main thread (the webview registry is only
+/// reliably reachable there).
+fn reload_app_shell_webviews(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    for (label, wv) in app.webviews() {
+        if label.starts_with("browserpane-") {
+            continue;
+        }
+        let _ = wv.eval("window.location.reload()");
+    }
+}
+
+/// Dep-free polling watcher (the `notify` crate was dropped when assets went
+/// embed-only; a 1s recursive mtime scan is plenty for a manual dogfood loop and
+/// adds no dependency). Blocks off-thread; on a signature change it waits for the
+/// writes to go quiet (500ms), then reloads the app-shell webviews once per burst.
+fn spawn_public_watcher(app: tauri::AppHandle, public_dir: std::path::PathBuf) {
+    std::thread::spawn(move || {
+        let mut last = public_dir_signature(&public_dir);
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let now = public_dir_signature(&public_dir);
+            if now == last || now == (0, 0) {
+                // No change, or the dir momentarily vanished mid-build — keep polling.
+                if now != (0, 0) {
+                    last = now;
+                }
+                continue;
+            }
+            // A burst started. Debounce: keep sampling until the tree stops moving
+            // for 500ms, so a vite build (many files) triggers exactly ONE reload.
+            let mut settled = now;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let again = public_dir_signature(&public_dir);
+                if again == settled {
+                    break;
+                }
+                settled = again;
+            }
+            last = settled;
+            eprintln!("[hot-reload] /public changed — reloading app-shell webviews");
+            let app_for_reload = app.clone();
+            let _ = app.run_on_main_thread(move || reload_app_shell_webviews(&app_for_reload));
+        }
+    });
+}
+
+/// Serve a `tauri://localhost/...` request. In dev (disk) mode, try the on-disk
+/// /public first (traversal-guarded, same fallback chain as embedded) and fall
+/// back to the embedded asset for anything not on disk; otherwise serve embedded —
+/// byte-identical to Tauri's own handler. Replicates the non-mobile production path
+/// of `crate::protocol::tauri::get_response`: strip origin/query, resolve, set
+/// Content-Type (+ CSP when present) and the app-origin CORS header.
+fn serve_tauri_asset(
+    ctx: &tauri::UriSchemeContext<'_, tauri::Wry>,
+    request: &tauri::http::Request<Vec<u8>>,
+    dev: Option<&DevServe>,
+) -> tauri::http::Response<std::borrow::Cow<'static, [u8]>> {
+    use tauri::http::{header::CONTENT_TYPE, StatusCode};
+    // The app origin for CORS. This non-isolation macOS shell serves from
+    // tauri://localhost (window_origin in the built-in handler), matching what the
+    // embedded protocol emits.
+    const WINDOW_ORIGIN: &str = "tauri://localhost";
+
+    let uri = request.uri().to_string();
+    let path = asset_request_path(&uri);
+
+    // Dev disk hit (opt-in): serve from /public, MIME via the same parser the
+    // embedded resolver uses. Misses fall through to embedded so a partial dist boots.
+    if let Some(dev) = dev {
+        if let Some((bytes, mime)) = disk_asset_response(&dev.public_dir, &path) {
+            return tauri::http::Response::builder()
+                .header(CONTENT_TYPE, mime)
+                .header("Access-Control-Allow-Origin", WINDOW_ORIGIN)
+                .body(std::borrow::Cow::Owned(bytes))
+                .unwrap();
+        }
+    }
+
+    // Embedded fallback (and the default when dev mode is off). `asset_resolver`
+    // runs the full path→.html→/index.html→index.html chain + CSP injection, so this
+    // is exactly the built-in behavior.
+    match ctx.app_handle().asset_resolver().get(path) {
+        Some(asset) => {
+            let mut builder = tauri::http::Response::builder()
+                .header(CONTENT_TYPE, &asset.mime_type)
+                .header("Access-Control-Allow-Origin", WINDOW_ORIGIN);
+            if let Some(csp) = &asset.csp_header {
+                builder = builder.header("Content-Security-Policy", csp);
+            }
+            builder.body(std::borrow::Cow::Owned(asset.bytes)).unwrap()
+        }
+        None => tauri::http::Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(CONTENT_TYPE, "text/plain")
+            .header("Access-Control-Allow-Origin", WINDOW_ORIGIN)
+            .body(std::borrow::Cow::Borrowed(&b"asset not found"[..]))
+            .unwrap(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Dev-serve state resolved ONCE, lazily, on the first asset request (the config
+    // dir needs an AppHandle, only available inside the protocol/setup — and
+    // config-defined windows build BEFORE the setup closure runs, so we can't
+    // pre-populate it there). Absent marker ⇒ None ⇒ pure embedded serving.
+    let dev_serve: std::sync::Arc<std::sync::OnceLock<Option<DevServe>>> =
+        std::sync::Arc::new(std::sync::OnceLock::new());
+    let dev_serve_for_proto = dev_serve.clone();
+
     tauri::Builder::default()
+        // Custom `tauri` asset protocol (overrides Tauri's built-in: when a user
+        // registers "tauri", the internal one is skipped — see manager/webview.rs).
+        // In dev mode it disk-serves /public with embedded fallback; otherwise it's
+        // byte-identical to the built-in. Registered before the window builds.
+        .register_uri_scheme_protocol("tauri", move |ctx, request| {
+            let dev = dev_serve_for_proto
+                .get_or_init(|| resolve_dev_serve(ctx.app_handle()))
+                .as_ref();
+            serve_tauri_asset(&ctx, &request, dev)
+        })
         // Single-instance FIRST (plugin requirement): a duplicate launch focuses
         // the running window instead of spawning a process that can't bind :13333.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -3058,7 +3353,7 @@ pub fn run() {
                 _ => {}
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -3094,20 +3389,24 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             install_shortcut_forwarder(app.handle());
 
-            // NO dev hot-reload for /public. This config has no `devUrl`, so the
-            // frontend is EMBEDDED into the binary at compile time (tauri-codegen
-            // `include_bytes!` over frontendDist), served from the `tauri://localhost`
-            // origin — NOT read from disk, in `cargo run`/`tauri dev` OR release.
-            // Consequence: a `vite build` that rewrites /public does NOTHING for an
-            // already-running binary — `window.location.reload()` just re-serves the
-            // frozen embedded bytes, and restarting the same binary re-serves them
-            // too. The ONLY way to pick up new /public is a fresh `cargo run` (the
-            // include_bytes! compile-dependency makes cargo re-embed on rebuild).
-            // (We can't use a remote http devUrl for HMR either: Tauri injects native
-            // IPC ONLY on the tauri:// origin, so an http origin kills vibrancy/IPC.)
-            // A previous notify-watcher here reloaded the webview on /public changes;
-            // it was a no-op for the embed model and only masked stale-frontend bugs,
-            // so it was removed. To dogfood client changes: rebuild then `cargo run`.
+            // Dev hot-reload (Electron-prod parity). By default the frontend is
+            // EMBEDDED (include_bytes! over frontendDist) and served from
+            // tauri://localhost — a `vite build` does nothing for a running binary.
+            // The custom `tauri` protocol (see run() head) opts INTO disk-serving
+            // /public when a dev marker is set; here we start the watcher that
+            // reloads the app-shell webviews when that on-disk /public changes, one
+            // reload per build burst. OFF (no watcher) when the marker is absent, so
+            // release behavior is unchanged. Resolve the marker via the same OnceLock
+            // the protocol uses (first asset request already populated it; get_or_init
+            // is a no-op then).
+            {
+                let dev = dev_serve
+                    .get_or_init(|| resolve_dev_serve(app.handle()))
+                    .clone();
+                if let Some(dev) = dev {
+                    spawn_public_watcher(app.handle().clone(), dev.public_dir);
+                }
+            }
 
             // Env-gated sidebar FPS self-test: drive real collapse/expands and sample
             // rAF frame timing, writing the summary to /tmp/topics-fps-selftest.json.
