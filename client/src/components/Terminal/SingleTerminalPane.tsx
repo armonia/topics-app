@@ -716,7 +716,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             layout or fit. Rendered only when working → zero idle cost. */}
         {showWorkingRing && (
           <div className="chat-working-aura" aria-hidden="true">
-            <i className="aura-b1" /><i className="aura-b2" /><i className="aura-b3" /><i className="aura-b4" /><i className="aura-b5" /><i className="aura-b6" /><i className="aura-b7" /><i className="aura-b8" />
+            <s /><i className="aura-b1" /><i className="aura-b2" /><i className="aura-b3" /><i className="aura-b4" /><i className="aura-b5" /><i className="aura-b6" /><i className="aura-b7" /><i className="aura-b8" />
           </div>
         )}
         {/* Copy button for non-touch */}
