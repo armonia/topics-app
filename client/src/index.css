@@ -1131,7 +1131,7 @@ input[type="range"]::-webkit-slider-thumb {
   filter: blur(10px) saturate(140%);
   animation:
     chat-working-ring-in 300ms ease-out,
-    chat-working-breathe 3.2s ease-in-out 300ms infinite alternate;
+    chat-working-breathe 7s ease-in-out 300ms infinite;
 }
 /* STATIC band mask — paints only the `padding` perimeter strip between the
  * border-box and the content-box (opaque fill over the whole box XOR the same
@@ -1173,9 +1173,41 @@ input[type="range"]::-webkit-slider-thumb {
   animation: chat-working-spin 6s linear infinite;
   will-change: transform;
 }
+/* SECOND WHEEL — counter-rotating, slower, with an eased (non-linear) cycle so
+ * its bright lobes accelerate and linger instead of gliding at metronome speed.
+ * Layered over the continuous wheel (which guarantees no dead patches), its
+ * moving highlights make the aura visibly NON-uniform: colors chase, overtake
+ * and pool instead of rotating as one rigid disc. Same perf model (transform
+ * only, compositor). */
+@keyframes chat-working-spin-rev {
+  to { transform: rotate(-360deg); }
+}
+.chat-working-aura-band::after {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  min-width: 200%;
+  min-height: 200%;
+  background: conic-gradient(
+    from 180deg,
+    rgba(10, 132, 255, 0)     0deg,
+    rgba(120, 90, 255, 0.75) 80deg,
+    rgba(50, 200, 255, 0.6) 160deg,
+    rgba(10, 132, 255, 0)   230deg,
+    rgba(255, 55, 175, 0.55) 300deg,
+    rgba(10, 132, 255, 0)   360deg
+  );
+  animation: chat-working-spin-rev 9.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform;
+}
+/* Irregular breathe — a multi-stop loop (not a symmetric alternate) so the
+ * inhale/exhale never feels like a metronome. */
 @keyframes chat-working-breathe {
-  from { opacity: 0.55; }
-  to   { opacity: 1; }
+  0%   { opacity: 0.5; }
+  30%  { opacity: 0.95; }
+  55%  { opacity: 0.65; }
+  80%  { opacity: 1; }
+  100% { opacity: 0.5; }
 }
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
@@ -1186,7 +1218,8 @@ input[type="range"]::-webkit-slider-thumb {
  * but stop the sweep, the breathing and the fade-in. */
 @media (prefers-reduced-motion: reduce) {
   .chat-working-aura,
-  .chat-working-aura-band::before { animation: none; }
+  .chat-working-aura-band::before,
+  .chat-working-aura-band::after { animation: none; }
 }
 
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
