@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { PenLine, Smile, Palette, Bot, Trash2, type LucideIcon } from 'lucide-react';
+import { PenLine, Smile, Palette, Bot, Trash2, Pin, PinOff, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { TOPIC_ICONS, getTopicIcon } from '@/lib/topicIcons';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
@@ -12,6 +12,10 @@ interface ContextMenuProps {
   onUpdate: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   onDelete: (id: string) => Promise<boolean>;
   onAssignAgents?: (topicId: string, topicName: string) => void;
+  /** Pinning (Fissati) — current pin state + toggle ("Fissa" / "Rimuovi dai
+   *  Fissati"). Optional so legacy hosts render without the entry. */
+  isPinned?: boolean;
+  onTogglePin?: () => void;
 }
 
 const COLOR_OPTIONS = [
@@ -22,7 +26,7 @@ const COLOR_OPTIONS = [
 
 type SubMenu = 'none' | 'rename' | 'icon' | 'color' | 'confirm-delete';
 
-export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents }: ContextMenuProps) {
+export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents, isPinned, onTogglePin }: ContextMenuProps) {
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
   const [renameValue, setRenameValue] = useState(topic.name);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -86,6 +90,13 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
           <MenuItem icon={PenLine} label="Rename" onClick={() => setSubMenu('rename')} />
           <MenuItem icon={Smile} label="Change icon" onClick={() => setSubMenu('icon')} />
           <MenuItem icon={Palette} label="Change color" onClick={() => setSubMenu('color')} />
+          {onTogglePin && (
+            <MenuItem
+              icon={isPinned ? PinOff : Pin}
+              label={isPinned ? 'Rimuovi dai Fissati' : 'Fissa'}
+              onClick={() => { onTogglePin(); onClose(); }}
+            />
+          )}
           {onAssignAgents && (
             <>
               <div className="border-t border-app-border my-1" />

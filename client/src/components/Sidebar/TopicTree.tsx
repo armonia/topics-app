@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -51,6 +51,13 @@ const TYPE_ICONS = {
   project: FolderOpen,
 } as const;
 
+const TYPE_LABELS: Record<SidebarItem['type'], string> = {
+  project: 'Projects',
+  chat: 'Chats',
+  terminal: 'Terminals',
+  browser: 'Browsers',
+};
+
 // ── Props ──────────────────────────────────────────────────────────────────────
 
 export interface TopicTreeProps {
@@ -91,6 +98,13 @@ export interface TopicTreeProps {
   onToggleProject: React.Dispatch<React.SetStateAction<string[]>>;
   // Open pane IDs inside each project (from ProjectWindow callback)
   projectOpenPanes?: Record<string, string[]>;
+  /** Pinned ("Fissati") item ids in USER PIN ORDER (useSidebarState.pinnedItems).
+   *  The pinned block renders in this order, exempt from the notification-first
+   *  sort. Chats pin by raw topic id, projects by `project:<rawPath>`. */
+  pinnedItems?: string[];
+  /** Pin/unpin an item ("Fissa" / "Rimuovi dai Fissati") — App-level wrapper
+   *  owns the unpin-while-closed archive semantics. */
+  onTogglePin?: (id: string) => void;
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
@@ -130,13 +144,15 @@ export function TopicTree({
   expandedProjects: expandedProjectsProp,
   onToggleProject,
   projectOpenPanes = {},
+  pinnedItems = [],
+  onTogglePin,
 }: TopicTreeProps) {
   // Claude "yolo" toggle state lives inside <PaneAddMenu> now (via
   // useClaudeSkipPermissions in PaneAddMenuItems). No longer threaded
   // through here. The legacy `projectAddMenu` / `addBtnRef` state is
   // also gone — the canonical <PaneAddMenu> component owns its own
   // button ref and open/close state.
-  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[] } | null>(null);
+  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean } | null>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
   const { isTouch } = useMobile();
   // Awaiting-feedback sets, read once here so the (non-component) renderProjectItem
@@ -188,6 +204,9 @@ export function TopicTree({
     if (focusedTopicId !== createPaneId('project', projectPath)) return false;
     return activePaneByProject[projectPath] === innerPaneId;
   }, [focusedTopicId, activePaneByProject]);
+  // Pinned ids as React state through props (NOT a localStorage read inside
+  // the builder) so pin toggles repaint — pinnedIds joins the memo deps.
+  const pinnedIds = useMemo(() => new Set(pinnedItems), [pinnedItems]);
   const allItems = useMemo(() => buildSidebarItems({
     topics,
     workspaceProjects,
@@ -200,7 +219,8 @@ export function TopicTree({
     lastNotifiedAt,
     claudeAttentionTopics,
     terminalFinishedIds,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds]);
+    pinnedIds,
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -220,9 +240,28 @@ export function TopicTree({
     [allItems, searchQuery]
   );
 
+  // ── Fissati partition (render-side; the builder's sort stays untouched) ──
+  // Top-level pinned rows (standalone chats + projects — pinned project
+  // CHILDREN stay nested under their project, they only get the glyph) move
+  // into a dedicated block ordered by pin order (pinnedItems index), NOT the
+  // notification-first activity sort. Search still applies: an item filtered
+  // out by the query drops from the block too.
+  const pinnedBlock = useMemo(() => {
+    if (pinnedItems.length === 0) return [];
+    const byId = new Map(filteredItems.filter(i => i.pinned).map(i => [i.id, i] as const));
+    return pinnedItems.flatMap(id => {
+      const item = byId.get(id);
+      return item ? [item] : [];
+    });
+  }, [filteredItems, pinnedItems]);
+  const unpinnedItems = useMemo(
+    () => filteredItems.filter(i => !i.pinned),
+    [filteredItems]
+  );
+
   const groupedItems = useMemo(
-    () => viewMode === 'grouped' ? groupSidebarItems(filteredItems) : null,
-    [filteredItems, viewMode]
+    () => viewMode === 'grouped' ? groupSidebarItems(unpinnedItems) : null,
+    [unpinnedItems, viewMode]
   );
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -282,6 +321,8 @@ export function TopicTree({
           if (isFirst) handleArchive(topic.id, true).catch(() => {});
         } : undefined}
         isArchived={item.archived}
+        pinned={!!item.pinned}
+        onTogglePin={onTogglePin ? () => onTogglePin(item.id) : undefined}
         hideIcon={depth > 0}
       />
     );
@@ -387,10 +428,11 @@ export function TopicTree({
           className={`group/proj flex items-center h-11 md:h-8 pl-1 pr-2 select-none ${
             sidebarRowCard({ focused: folderFilled, attention: projTier })
           }`}
+          data-pinned={item.pinned ? 'true' : undefined}
           onContextMenu={(e) => {
             e.preventDefault();
             const unreadTopicIds = allChats.filter(t => (unreadData[t.id]?.unreadCount || 0) > 0).map(t => t.id);
-            setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unreadTopicIds });
+            setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unreadTopicIds, pinned: !!item.pinned });
           }}
         >
           <ProjectRowPendingOverlay projectPath={pp} />
@@ -441,6 +483,19 @@ export function TopicTree({
                 window has nothing to orient against. Lives on the sidebar row
                 only (user preference), never on the top tab bar. */}
             <ProjectSplitMiniMap projectPath={pp} />
+            {/* Pin glyph — trailing rail, before the loader/badge (same fixed
+                Pin → … → NotificationBadge order as the chat rows). Inherits
+                the on-fill treatment on attention fills, never a hardcoded
+                colour. */}
+            {item.pinned && (
+              <span
+                className={`flex-shrink-0 flex items-center ml-0.5 ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+                title="Fissato"
+                aria-label="Fissato"
+              >
+                <Pin size={12} />
+              </span>
+            )}
             {/* Project loading indicator — same component the project tab uses
                 (PaneTabBar): a spinner while any child is producing output.
                 "Needs you" (Claude awaiting, finished turns) is NOT a separate
@@ -541,30 +596,27 @@ export function TopicTree({
     });
   }, []);
 
-  const renderGroupSection = (type: SidebarItem['type'], items: SidebarItem[]) => {
-    const Icon = TYPE_ICONS[type];
-    const labels: Record<SidebarItem['type'], string> = {
-      project: 'Projects',
-      chat: 'Chats',
-      terminal: 'Terminals',
-      browser: 'Browsers',
-    };
-    const isCollapsed = collapsedSections.has(type);
+  // Generic collapsible section — shared by the per-type groups AND the
+  // Fissati pseudo-section. 'pinned' is a SECTION KEY only, never a
+  // SidebarItemType (pinning is orthogonal to type; groupSidebarItems and
+  // filterSidebarItems must never see it).
+  const renderSection = (sectionKey: string, Icon: LucideIcon, label: string, items: SidebarItem[]) => {
+    const isCollapsed = collapsedSections.has(sectionKey);
     const totalUnread = items.reduce((sum, item) => sum + item.notificationCount, 0);
 
     return (
-      <div key={type} className="flex-shrink-0 border-t border-app-border first:border-t-0">
+      <div key={sectionKey} className="flex-shrink-0 border-t border-app-border first:border-t-0">
         {/* Section header — collapsible, matches old sidebar design */}
         <div className="group flex items-center h-11 md:h-8 hover:bg-app-hover transition-colors">
           <button
-            onClick={() => toggleSection(type)}
+            onClick={() => toggleSection(sectionKey)}
             aria-expanded={!isCollapsed}
-            aria-label={`${labels[type]} section`}
+            aria-label={`${label} section`}
             className="flex items-center gap-2 flex-1 h-full text-left"
             style={{ paddingLeft: 12 }}
           >
             <Icon size={14} className="text-app-text-secondary flex-shrink-0" />
-            <span className="text-[13px] text-app-text">{labels[type]}</span>
+            <span className="text-[13px] text-app-text">{label}</span>
             {items.length > 0 && (
               <span className="text-[11px] text-app-text-tertiary">{items.length}</span>
             )}
@@ -588,6 +640,9 @@ export function TopicTree({
     );
   };
 
+  const renderGroupSection = (type: SidebarItem['type'], items: SidebarItem[]) =>
+    renderSection(type, TYPE_ICONS[type], TYPE_LABELS[type], items);
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -601,15 +656,41 @@ export function TopicTree({
         style={{ paddingBlock: ROW_INSET - 1 }}
       >
         {viewMode === 'timeline' ? (
-          // Timeline: flat list sorted by activity
-          filteredItems.map(item => renderItem(item))
+          // Timeline: the Fissati block first (user pin order), then the flat
+          // list sorted by activity. Pinned rows keep badges/attention fills —
+          // they just don't jump position with the notification-first sort.
+          <>
+            {pinnedBlock.length > 0 && (
+              <div data-testid="sidebar-pinned-section">
+                <div className="flex items-center gap-1.5 px-3 h-6 select-none">
+                  <Pin size={10} className="text-app-text-tertiary flex-shrink-0" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-app-text-tertiary">Fissati</span>
+                </div>
+                {pinnedBlock.map(item => renderItem(item))}
+                {/* Hairline divider between the pinned block and the timeline
+                    (same grammar as POPOVER_DIVIDER). */}
+                {unpinnedItems.length > 0 && <div className="h-px bg-app-border mx-3 my-1" />}
+              </div>
+            )}
+            {unpinnedItems.map(item => renderItem(item))}
+          </>
         ) : (
-          // Grouped: collapsible sections by type (mirrors old sidebar layout)
-          groupedItems && (['project', 'chat', 'terminal', 'browser'] as const).map(type => {
-            const items = groupedItems[type];
-            if (items.length === 0) return null;
-            return renderGroupSection(type, items);
-          })
+          // Grouped: the Fissati pseudo-section first, then the collapsible
+          // per-type sections (fed the UNpinned items so nothing double-renders).
+          groupedItems && (
+            <>
+              {pinnedBlock.length > 0 && (
+                <div data-testid="sidebar-pinned-section">
+                  {renderSection('pinned', Pin, 'Fissati', pinnedBlock)}
+                </div>
+              )}
+              {(['project', 'chat', 'terminal', 'browser'] as const).map(type => {
+                const items = groupedItems[type];
+                if (items.length === 0) return null;
+                return renderGroupSection(type, items);
+              })}
+            </>
+          )
         )}
 
         {filteredItems.length === 0 && (
@@ -626,7 +707,7 @@ export function TopicTree({
         // min-w (160px); height is estimated from the visible item count
         // (~34px/row desktop + the py-1 wrapper) since we have no ref to measure.
         const MENU_W = 160;
-        const itemCount = (projectContextMenu.unreadTopicIds.length > 0 ? 1 : 0) + (onArchiveProject ? 1 : 0);
+        const itemCount = (projectContextMenu.unreadTopicIds.length > 0 ? 1 : 0) + (onTogglePin ? 1 : 0) + (onArchiveProject ? 1 : 0);
         const menuH = itemCount * 34 + 8;
         const left = Math.max(8, Math.min(projectContextMenu.x, window.innerWidth - MENU_W - 8));
         const top = Math.max(8, Math.min(projectContextMenu.y, window.innerHeight - menuH - 8));
@@ -648,6 +729,20 @@ export function TopicTree({
             >
               <CheckCheck size={14} />
               <span>Mark all as read</span>
+            </button>
+          )}
+          {onTogglePin && (
+            <button
+              onClick={() => {
+                // Pin key = the sidebar item id form (`project:<rawPath>`),
+                // NOT the encodeURIComponent pane id.
+                onTogglePin(`project:${projectContextMenu.projectPath}`);
+                setProjectContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            >
+              {projectContextMenu.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+              <span>{projectContextMenu.pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
             </button>
           )}
           {onArchiveProject && (

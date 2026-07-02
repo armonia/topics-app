@@ -270,3 +270,174 @@ test.describe("Sidebar — Unified Timeline", () => {
     await expect(textarea).toBeVisible({ timeout: 10000 });
   });
 });
+
+// ── Fissati (pinning) — Arc/Dia-style pinned rows ──────────────────────────────
+//
+// A pinned row survives tab close (NO archive-on-close — the pinnedIds gate
+// escape keeps the row), renders in the dedicated "Fissati" block at the top
+// of the sidebar with a pin glyph, and one click reopens. Unpinning a CLOSED
+// chat archives it (back to the 2-state model: closed ⟺ archived).
+test.describe("Sidebar — Fissati (pinning)", () => {
+  const BASE = "http://localhost:13334";
+  const pinCreated: string[] = [];
+
+  const resetSidebarState = async (request: import("@playwright/test").APIRequestContext) => {
+    await request.put(`${BASE}/api/ui-state/sidebar-state`, {
+      data: {
+        viewMode: "timeline",
+        showArchived: false,
+        expandedNodes: [],
+        pinnedItems: [],
+      },
+    });
+  };
+
+  /** Poll the server copy of sidebar-state until `id` is (or isn't) pinned —
+   *  proves the debounced PUT landed, so a reload can't lose the pin. */
+  const expectServerPin = async (
+    request: import("@playwright/test").APIRequestContext,
+    id: string,
+    present: boolean,
+  ) => {
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`${BASE}/api/ui-state/sidebar-state`);
+          if (!res.ok()) return !present;
+          const data = await res.json();
+          const pins: string[] = data?.value?.pinnedItems ?? data?.pinnedItems ?? [];
+          return pins.includes(id);
+        },
+        { timeout: 10000 }
+      )
+      .toBe(present);
+  };
+
+  test.beforeAll(async ({ request }) => {
+    await resetSidebarState(request);
+  });
+
+  test.afterAll(async ({ request }) => {
+    // Reset pins AFTER the pages closed so a late debounced PUT from the app
+    // can't resurrect them into other spec files.
+    await resetSidebarState(request);
+    for (const id of pinCreated) await deleteTopic(request, id);
+  });
+
+  // PIN-1: full chat lifecycle — pin, close (no archive), reopen, unpin (archive)
+  test("PIN-1: pin a chat → close its tab keeps the row un-archived → click reopens → unpin while closed archives", async ({
+    page,
+    request,
+  }) => {
+    const name = `E2E-PinChat-${Date.now()}`;
+    const t = await createTopic(request, name);
+    pinCreated.push(t.id);
+
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    const row = page.getByRole("treeitem", { name: new RegExp(name) });
+    await expect(row).toBeVisible({ timeout: 10000 });
+
+    // Pin via the topic context menu ("Fissa"). exact: true — "Fissa" is a
+    // substring of "Rimuovi dai Fissati".
+    await row.click({ button: "right" });
+    const menu = page.getByRole("menu");
+    await menu.waitFor({ state: "visible" });
+    await menu.getByRole("menuitem", { name: "Fissa", exact: true }).click();
+
+    // Row moves into the Fissati block and carries the pinned marker.
+    const pinnedSection = page.getByTestId("sidebar-pinned-section");
+    await expect(pinnedSection.getByRole("treeitem", { name: new RegExp(name) })).toBeVisible({ timeout: 5000 });
+    await expect(row).toHaveAttribute("data-pinned", "true");
+    await expectServerPin(request, t.id, true);
+
+    // Close the tab through the SAME user-close funnel Cmd+W reaches
+    // (right-click → "Close now" bypasses the 3s countdown deterministically).
+    const paneTab = page.getByTestId(`pane-tab-${t.id}`);
+    await expect(paneTab).toBeVisible({ timeout: 5000 });
+    await paneTab.click({ button: "right" });
+    await page.getByRole("button", { name: /Close now/ }).click();
+    await expect(paneTab).toBeHidden({ timeout: 5000 });
+
+    // Pinned ⇒ the row PERSISTS and the topic is NOT archived.
+    await expect(pinnedSection.getByRole("treeitem", { name: new RegExp(name) })).toBeVisible({ timeout: 5000 });
+    const res = await request.get(`${BASE}/api/topics`);
+    const data = await res.json();
+    expect(data?.topics?.[t.id]?.archived).toBe(false);
+
+    // One click reopens the tab.
+    await row.click();
+    await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeVisible({ timeout: 10000 });
+
+    // Close again, then UNPIN while closed → row disappears AND the topic
+    // archives (2-state fallback: no phantom non-archived tab-less topic).
+    await page.getByTestId(`pane-tab-${t.id}`).click({ button: "right" });
+    await page.getByRole("button", { name: /Close now/ }).click();
+    await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeHidden({ timeout: 5000 });
+
+    await row.click({ button: "right" });
+    const menu2 = page.getByRole("menu");
+    await menu2.waitFor({ state: "visible" });
+    await menu2.getByRole("menuitem", { name: "Rimuovi dai Fissati" }).click();
+
+    await expect(row).toBeHidden({ timeout: 5000 });
+    await expect
+      .poll(
+        async () => {
+          const res2 = await request.get(`${BASE}/api/topics`);
+          const data2 = await res2.json();
+          return data2?.topics?.[t.id]?.archived;
+        },
+        { timeout: 10000 }
+      )
+      .toBe(true);
+  });
+
+  // PIN-2: projects are pinnable too; pins survive a reload
+  test("PIN-2: pin a project → close its tab keeps the row → pins survive reload → click reopens", async ({
+    page,
+    request,
+  }) => {
+    const projectPath = "/tmp/e2e-pin-project";
+    const name = `E2E-PinProjChat-${Date.now()}`;
+    const t = await createTopic(request, name, { projectPath });
+    pinCreated.push(t.id);
+
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    // The seeded project-scoped topic surfaces the project row + project tab.
+    const projectBtn = page.getByTestId("project-toggle-e2e-pin-project");
+    await expect(projectBtn).toBeVisible({ timeout: 10000 });
+
+    // Pin via the project header context menu ("Fissa").
+    await projectBtn.click({ button: "right" });
+    await page.getByRole("button", { name: "Fissa", exact: true }).click();
+
+    const pinnedSection = page.getByTestId("sidebar-pinned-section");
+    await expect(pinnedSection.getByTestId("project-toggle-e2e-pin-project")).toBeVisible({ timeout: 5000 });
+    // Pin key = the sidebar item id form (`project:<rawPath>`).
+    await expectServerPin(request, `project:${projectPath}`, true);
+
+    // Close the project tab — the pinned row must persist.
+    const projectPaneTab = page.getByTestId(`pane-tab-project:${encodeURIComponent(projectPath)}`);
+    await expect(projectPaneTab).toBeVisible({ timeout: 5000 });
+    await projectPaneTab.click({ button: "right" });
+    await page.getByRole("button", { name: /Close now/ }).click();
+    await expect(projectPaneTab).toBeHidden({ timeout: 5000 });
+    await expect(pinnedSection.getByTestId("project-toggle-e2e-pin-project")).toBeVisible({ timeout: 5000 });
+
+    // Reload — pins survive (localStorage warm-load + server hydrate).
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    await expect(
+      page.getByTestId("sidebar-pinned-section").getByTestId("project-toggle-e2e-pin-project")
+    ).toBeVisible({ timeout: 10000 });
+
+    // One click reopens the project tab.
+    await page.getByTestId("project-toggle-e2e-pin-project").click();
+    await expect(
+      page.getByTestId(`pane-tab-project:${encodeURIComponent(projectPath)}`)
+    ).toBeVisible({ timeout: 10000 });
+  });
+});

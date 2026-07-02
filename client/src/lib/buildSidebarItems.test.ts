@@ -9,8 +9,8 @@
  * the tab removes the row.
  */
 import { describe, test, expect } from "bun:test";
-import { buildSidebarItems } from "./buildSidebarItems";
-import type { TerminalSessionInfo } from "../types";
+import { buildSidebarItems, groupSidebarItems } from "./buildSidebarItems";
+import type { TerminalSessionInfo, Topic } from "../types";
 
 const PP = "/work/app";
 const projectPaneId = `project:${encodeURIComponent(PP)}`;
@@ -130,5 +130,160 @@ describe("buildSidebarItems — sub-agent nesting", () => {
     });
     // Falls through to the flat standalone path; visible because it's a sub-agent.
     expect(items.some((i) => i.id === "terminal:kid")).toBe(true);
+  });
+});
+
+// ── Pinning (Fissati) — pinnedIds gate escapes ────────────────────────────────
+//
+// Pinned rows survive tab close: `pinnedIds` acts as an `||` escape at every
+// tab-driven visibility gate (mirrors the orchestratorManaged precedent).
+// The builder only MARKS pinned items (`pinned: true`); the sidebar partitions
+// at render time, so the notification-first sort contract stays intact for the
+// unpinned body.
+
+const topic = (id: string, name: string, extra: Partial<Topic> = {}): Topic => ({
+  id,
+  name,
+  slug: name.toLowerCase(),
+  parentId: null,
+  links: [],
+  sessionKey: `topic:${id}`,
+  color: "#0066cc",
+  icon: "",
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString(),
+  archived: false,
+  ...extra,
+});
+
+describe("buildSidebarItems — pinning (Fissati)", () => {
+  test("a pinned CLOSED non-archived standalone chat renders with pinned:true (no tab, zero notifications)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      topics: { a1: topic("a1", "Alpha") },
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["a1"]),
+    });
+    const row = items.find((i) => i.id === "a1");
+    expect(row).toBeTruthy();
+    expect(row!.pinned).toBe(true);
+  });
+
+  test("a pinned ARCHIVED standalone chat renders with showArchived=false", () => {
+    const items = buildSidebarItems({
+      ...base,
+      topics: { a1: topic("a1", "Alpha", { archived: true }) },
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["a1"]),
+    });
+    const row = items.find((i) => i.id === "a1");
+    expect(row).toBeTruthy();
+    expect(row!.pinned).toBe(true);
+    expect(row!.archived).toBe(true);
+  });
+
+  test("a pinned CLOSED project-child chat renders (archived or not) and keeps the parent project row alive", () => {
+    // Neither the project pane nor any child tab is open — without the pin the
+    // whole project row would be gated out.
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {
+        c1: topic("c1", "Closed child", { projectPath: PP }),
+        c2: topic("c2", "Archived child", { projectPath: PP, archived: true }),
+      },
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["c1", "c2"]),
+    });
+    const project = items.find((i) => i.id === `project:${PP}`);
+    expect(project).toBeTruthy();
+    // The project row itself is NOT pinned — it lives via children.length > 0.
+    expect(project!.pinned).toBeUndefined();
+    const childIds = (project!.children ?? []).map((c) => c.id);
+    expect(childIds).toContain("c1");
+    expect(childIds).toContain("c2");
+    expect(project!.children!.find((c) => c.id === "c1")!.pinned).toBe(true);
+    expect(project!.children!.find((c) => c.id === "c2")!.pinned).toBe(true);
+  });
+
+  test("a pinned project with zero children, no tab and no workspace entry still renders (projectPaths seeding)", () => {
+    const lonely = "/work/lonely";
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set([`project:${lonely}`]),
+    });
+    const project = items.find((i) => i.id === `project:${lonely}`);
+    expect(project).toBeTruthy();
+    expect(project!.pinned).toBe(true);
+    expect(project!.children).toEqual([]);
+  });
+
+  test("regression lock: unpinned items keep the exact gate behaviour (all four gates)", () => {
+    const opts = {
+      ...base,
+      workspaceProjects: [],
+      topics: {
+        s1: topic("s1", "Standalone closed"),
+        s2: topic("s2", "Standalone archived", { archived: true }),
+        p1: topic("p1", "Project closed", { projectPath: PP }),
+        p2: topic("p2", "Project archived", { projectPath: PP, archived: true }),
+      },
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+    };
+    const without = buildSidebarItems(opts);
+    const withEmpty = buildSidebarItems({ ...opts, pinnedIds: new Set<string>() });
+    // Nothing shows: no tabs, no notifications, nothing pinned…
+    expect(without).toEqual([]);
+    // …and an EMPTY pinnedIds is byte-identical to not passing it.
+    expect(withEmpty).toEqual(without);
+  });
+
+  test("builder output order is unchanged by pinning (partition is render-side)", () => {
+    const opts = {
+      ...base,
+      workspaceProjects: [],
+      topics: {
+        a1: topic("a1", "Alpha", { updatedAt: new Date(1000).toISOString() }),
+        b1: topic("b1", "Beta", { updatedAt: new Date(2000).toISOString() }),
+      },
+      terminalSessions: [],
+      openPanels: ["a1", "b1"],
+      projectOpenPanes: {},
+    };
+    const unpinnedOrder = buildSidebarItems(opts).map((i) => i.id);
+    const pinnedOrder = buildSidebarItems({ ...opts, pinnedIds: new Set(["a1"]) }).map((i) => i.id);
+    expect(pinnedOrder).toEqual(unpinnedOrder);
+  });
+
+  test("groupSidebarItems never sees a 'pinned' type — pinned items bucket by their REAL type", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: { a1: topic("a1", "Alpha") },
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["a1", `project:${PP}`]),
+    });
+    const groups = groupSidebarItems(items);
+    // Only the four canonical buckets exist…
+    expect(Object.keys(groups).sort()).toEqual(["browser", "chat", "project", "terminal"]);
+    // …and pinned items land in their real-type bucket, flagged pinned.
+    expect(groups.chat.map((i) => i.id)).toEqual(["a1"]);
+    expect(groups.chat[0].pinned).toBe(true);
+    expect(groups.project.map((i) => i.id)).toEqual([`project:${PP}`]);
   });
 });

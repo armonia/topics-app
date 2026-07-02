@@ -371,3 +371,90 @@ test.describe("Topic Management", () => {
     if (templateTopic) topicIds.push(templateTopic.id);
   });
 });
+
+// ── Fissati (pinning) × archive interplay ──────────────────────────────────────
+//
+// Closing a pinned chat's tab does NOT archive it (covered in sidebar.spec.ts
+// PIN-1 — the "Close now" path exercises the same handleClosePanel funnel
+// Cmd+W reaches). Here: the EXPLICIT archive action still archives a pinned
+// chat, but the row stays listed (the pinnedIds escape bypasses the archived
+// filter), and reopening self-heals the archived flag.
+test.describe("Topic Management — Fissati archive interplay", () => {
+  const BASE = "http://localhost:13334";
+  const pinIds: string[] = [];
+
+  test.beforeAll(async ({ request }) => {
+    // Clean pin slate — pins ride the server ui-state `sidebar-state` key.
+    await request.put(`${BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [] },
+    });
+  });
+
+  test.afterAll(async ({ request }) => {
+    await request.put(`${BASE}/api/ui-state/sidebar-state`, {
+      data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [] },
+    });
+    await cleanupAll(request, { topics: pinIds });
+  });
+
+  test("PIN-ARCHIVE: explicit Archive on a pinned chat still archives, but its row stays; reopening self-heals", async ({
+    topicPage,
+    page,
+    request,
+  }) => {
+    const name = `E2E-PinArchive-${Date.now()}`;
+    const disp = await createTopic(request, name);
+    pinIds.push(disp.id);
+
+    await topicPage.goto();
+    const row = topicPage.findTopic(new RegExp(name));
+    await expect(row).toBeVisible({ timeout: 10000 });
+
+    // Pin it ("Fissa" — exact regex: "Fissa" is a substring of "Rimuovi dai
+    // Fissati").
+    const pinMenu = await topicPage.openContextMenu(new RegExp(name));
+    await topicPage.clickMenuItem(pinMenu, /^Fissa$/);
+    await expect(row).toHaveAttribute("data-pinned", "true", { timeout: 5000 });
+
+    // Explicit archive via the context menu (Archive / Delete → confirm).
+    const menu = await topicPage.openContextMenu(new RegExp(name));
+    await topicPage.clickMenuItem(menu, /Archive/);
+    await expect(menu.getByText(/Delete topic/)).toBeVisible({ timeout: 3000 });
+    await menu.locator("button", { hasText: "Delete" }).click();
+
+    // The topic IS archived server-side (explicit archive is not blocked by
+    // the pin — only the close-tab funnel is)…
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+          const data = await res.json();
+          return data?.topics?.[disp.id]?.archived;
+        },
+        { timeout: 10000 }
+      )
+      .toBe(true);
+
+    // …but the pinned row STAYS listed with showArchived=false (pinnedIds
+    // escape bypasses the archived filter).
+    await expect(row).toBeVisible({ timeout: 5000 });
+    await expect(row).toHaveAttribute("data-pinned", "true");
+
+    // Reopening from the pinned row self-heals: tab opens + archived:false
+    // (openPanel's de-archive-on-open).
+    await row.click();
+    await expect(
+      page.locator('[data-testid="panel-tab-bar"]').getByText(new RegExp(name)).first()
+    ).toBeVisible({ timeout: 10000 });
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`${BASE}/api/topics`, { ignoreHTTPSErrors: true });
+          const data = await res.json();
+          return data?.topics?.[disp.id]?.archived;
+        },
+        { timeout: 10000 }
+      )
+      .toBe(false);
+  });
+});
