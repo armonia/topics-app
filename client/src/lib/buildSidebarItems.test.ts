@@ -268,6 +268,51 @@ describe("buildSidebarItems — pinning (Fissati)", () => {
     expect(pinnedOrder).toEqual(unpinnedOrder);
   });
 
+  test("a pinned standalone terminal survives its tab closing (no open tab, pinned:true)", () => {
+    // cwd outside PP → standalone terminal (§4 gate). Without the pin it would
+    // be gated out (no open pane); the `terminal:<id>` pin key is the escape.
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [term("s1", "/elsewhere")],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set(["terminal:s1"]),
+    });
+    const row = items.find((i) => i.id === "terminal:s1");
+    expect(row).toBeTruthy();
+    expect(row!.type).toBe("terminal");
+    expect(row!.pinned).toBe(true);
+  });
+
+  test("a pinned project terminal survives its tab closing as a project child (pinned:true)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      terminalSessions: [term("s1", PP)],
+      openPanels: [projectPaneId], // project pane open, but NO terminal pane
+      projectOpenPanes: {},
+      pinnedIds: new Set(["terminal:s1"]),
+    });
+    const project = items.find((i) => i.id === `project:${PP}`);
+    expect(project).toBeTruthy();
+    const term1 = project!.children!.find((c) => c.id === "terminal:s1");
+    expect(term1).toBeTruthy();
+    expect(term1!.pinned).toBe(true);
+  });
+
+  test("an UNpinned standalone terminal with no open tab stays hidden (escape is pin-gated)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [term("s1", "/elsewhere")],
+      openPanels: [],
+      projectOpenPanes: {},
+    });
+    expect(items.find((i) => i.id === "terminal:s1")).toBeUndefined();
+  });
+
   test("groupSidebarItems never sees a 'pinned' type — pinned items bucket by their REAL type", () => {
     const items = buildSidebarItems({
       ...base,

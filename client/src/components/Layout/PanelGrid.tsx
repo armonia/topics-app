@@ -255,6 +255,10 @@ interface PanelGridProps {
   // Draft chat support
   promoteDraft?: (draftId: string, firstMessage: string, options?: { planMode?: boolean }) => Promise<void>;
   draftMeta?: Record<string, { projectPath?: string }>;
+  // Sidebar "Fissati" pin toggle + state for a tab's subject (chat topicId or
+  // `terminal:<sessionId>`), forwarded to each StandaloneChatGroup → PaneTabBar.
+  onToggleFissato?: (pinKey: string) => void;
+  isFissato?: (pinKey: string) => boolean;
 }
 
 /* ================================================================== */
@@ -265,6 +269,8 @@ export function PanelGrid({
   onFocusPanel,
   onClosePanel,
   onClosePanelImmediate,
+  onToggleFissato,
+  isFissato,
   onReorderPanels,
   onOpenPanelAt,
   nextPanelMode: _nextPanelMode = 'side',
@@ -2102,6 +2108,8 @@ export function PanelGrid({
         onUnsolo={key.startsWith('solo:') ? handleUnsoloTopic : undefined}
         onAcceptSoloDrop={handleUnsoloTopic}
         onMergeIntoCell={handleMergeIntoCell}
+        onToggleFissato={onToggleFissato}
+        isFissato={isFissato}
         // Pool reorders merge back into App.openPanels; a SOLO cell's reorder
         // rewrites its cell in soloCells (its persisted tab order) — without
         // this only solo cells silently lost the reorder on reload.
@@ -2129,7 +2137,7 @@ export function PanelGrid({
       canFlattenGrid, handleResetGridLayout,
       hasGridSplit, splitRowWidths, gridRowHeights,
       handleMergeIntoCell, handlePersistPoolReorder, handlePersistCellOrder,
-      onClosePanelImmediate,
+      onClosePanelImmediate, onToggleFissato, isFissato,
     ],
   );
 

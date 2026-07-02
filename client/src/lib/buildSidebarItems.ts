@@ -339,7 +339,10 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // itself a sub-agent, or that has spawned sub-agents, stays visible so the
       // tree can be monitored regardless of its own open tab.
       const orchestratorManaged = !!ts.parentSessionKey || projSubAgents.length > 0;
-      if (!internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId) && !orchestratorManaged) continue;
+      // Pinned escape (same `||` pattern as chats/projects): a pinned terminal
+      // keeps its row inside the project even with the tab closed. Pin keys use
+      // the pane-id form `terminal:<sessionId>`.
+      if (!internalPaneIds.has(termPaneId) && !openPanelSet.has(termPaneId) && !orchestratorManaged && !pinnedIds.has(termPaneId)) continue;
       children.push({
         id: termPaneId,
         type: 'terminal',
@@ -350,6 +353,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         archived: false,
         projectPath: pp,
         terminal: ts,
+        ...(pinnedIds.has(termPaneId) ? { pinned: true } : {}),
         ...(projSubAgents.length ? { subAgents: projSubAgents } : {}),
       });
     }
@@ -431,7 +435,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // managed row (one that has spawned sub-agents, or is itself a sub-agent)
     // stays visible so the tree can be monitored even with its pane closed.
     const orchestratorManaged = !!ts.parentSessionKey || subAgents.length > 0;
-    if (!openPanelSet.has(paneId) && !orchestratorManaged) continue;
+    // Pinned escape: a pinned standalone terminal survives its tab closing,
+    // same as pinned chats. Pin key is the pane-id form `terminal:<sessionId>`.
+    if (!openPanelSet.has(paneId) && !orchestratorManaged && !pinnedIds.has(paneId)) continue;
     items.push({
       id: paneId,
       type: 'terminal',
@@ -441,6 +447,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
       archived: false,
       terminal: ts,
+      ...(pinnedIds.has(paneId) ? { pinned: true } : {}),
       ...(subAgents.length ? { subAgents } : {}),
     });
   }
