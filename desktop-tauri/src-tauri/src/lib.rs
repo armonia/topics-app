@@ -4463,7 +4463,10 @@ pub fn run() {
             // window back (Electron parity: app.on('activate')). Without this the
             // dock icon is DEAD once the red button / ⌘W parks the app in the tray
             // — the only way back was the tray menu. RunEvent::Reopen fires on the
-            // dock click (and on `open` with no windows).
+            // dock click (and on `open` with no windows). The variant only EXISTS
+            // on macOS — an unguarded match arm breaks the Windows/Linux compile
+            // (first cross-platform CI build caught it).
+            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 use tauri::Manager;
                 if let Some(w) = app_handle.get_webview_window("main") {

@@ -91,18 +91,17 @@ jobs:
           # unsigned, non-auto-updating (but runnable) build.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS code signing + notarization. REUSES the Electron Apple secrets:
-          # APPLE_CERTIFICATE/_PASSWORD are the same exported .p12 as the Electron
-          # MAC_CSC_LINK/_PASSWORD. APPLE_SIGNING_IDENTITY (e.g.
-          # "Developer ID Application: <name> (<TEAMID>)") is the one new secret to
-          # add. tauri-action skips signing when these are empty (Gatekeeper-warned
-          # but runnable artifacts).
-          APPLE_CERTIFICATE: ${{ secrets.MAC_CSC_LINK }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # macOS code signing + notarization: DISABLED for now. The tauri-v2.1.0
+          # run proved the inherited MAC_CSC_LINK org secret is NOT an importable
+          # .p12 for tauri-action (`security import: failed to import keychain
+          # certificate` — it was electron-builder's CSC_LINK format), and passing
+          # a broken value fails the whole macOS job instead of skipping signing.
+          # Ship unsigned (Gatekeeper: right-click → Open on first launch; the
+          # Tauri updater still verifies bundles via TAURI_SIGNING_* above, which
+          # is independent of Apple signing). To re-enable: export a Developer ID
+          # Application cert as base64 .p12 into APPLE_CERTIFICATE(+_PASSWORD),
+          # set APPLE_SIGNING_IDENTITY/APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID, and
+          # restore the env lines here.
         with:
           projectPath: desktop-tauri
           tagName: ${{ github.ref_name }}
