@@ -176,7 +176,9 @@ export function ChatPanel({
             aria-hidden: purely decorative. */}
         {showWorkingRing && (
           <div className="chat-working-aura" aria-hidden="true">
-            <div className="chat-working-aura-band" />
+            <div className="chat-working-aura-band">
+              <i className="aura-w1" /><i className="aura-w2" /><i className="aura-w3" /><i className="aura-w4" />
+            </div>
           </div>
         )}
         {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
