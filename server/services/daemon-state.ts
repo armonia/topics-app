@@ -8,9 +8,11 @@
  *   ~/.topics/daemon-state.json     { pid, port, token, startedAt }
  *
  * Both files are written via atomic .tmp + rename so a crashed write
- * never leaves a half-file. The lock detects stale pids via
- * `process.kill(pid, 0)`, mirroring the daemon implementation in the
- * reference desktop client we studied.
+ * never leaves a half-file. The lock detects a stale holder two ways:
+ * its recorded pid is dead (`process.kill(pid, 0)` → ESRCH), or its
+ * `acquiredAt` predates the last boot (`os.uptime()`) — after a reboot
+ * the OS is free to recycle the old pid onto an unrelated live process,
+ * which would otherwise read as a false "already running".
  *
  * The token is the only secret; it's 32 random bytes hex-encoded and
  * lives in the (mode 0600) state file. Electron reads it to make
@@ -19,7 +21,7 @@
  *
  * No `child_process` here — this is pure fs + crypto.
  */
-import { homedir } from "node:os";
+import { homedir, uptime } from "node:os";
 import { join } from "node:path";
 import {
   existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync,
@@ -119,6 +121,29 @@ function pidAlive(pid: number): boolean {
 }
 
 /**
+ * Small allowance (ms) for clock skew around the boot instant, so a lock
+ * written in the first moments after boot is never mistaken for a pre-boot
+ * one. We err toward *keeping* a lock (conservative): better to ask the user
+ * to clear a genuinely stale lock than to risk starting a second server.
+ */
+const BOOT_SKEW_MS = 2_000;
+
+/**
+ * True if `acquiredAt` is from before the machine last booted. Such a lock
+ * cannot belong to a live process — every process from the previous boot is
+ * gone, and the OS may have handed its pid to something unrelated. Computed
+ * from `os.uptime()` (seconds since boot), so no native deps and it works on
+ * macOS/Linux/Windows alike. Unparseable timestamps are *not* treated as
+ * pre-boot (we fall back to the pid check alone).
+ */
+function lockPredatesBoot(acquiredAt: string): boolean {
+  const acquired = Date.parse(acquiredAt);
+  if (Number.isNaN(acquired)) return false;
+  const bootMs = Date.now() - uptime() * 1000;
+  return acquired < bootMs - BOOT_SKEW_MS;
+}
+
+/**
  * Acquire the singleton lock. Returns the freshly-written lock object.
  *
  * @throws LiveLockError if another live process holds the lock.
@@ -129,11 +154,15 @@ export function acquireLock(): LockFile {
   ensureHomeDir();
   const existing = readLock();
   if (existing && existing.pid !== process.pid) {
-    if (pidAlive(existing.pid)) {
+    const alive = pidAlive(existing.pid);
+    if (alive && !lockPredatesBoot(existing.acquiredAt)) {
       throw new LiveLockError(existing.pid);
     }
+    const reason = alive
+      ? `pid ${existing.pid} reused across reboot`
+      : `dead pid ${existing.pid}`;
     console.log(
-      `[Daemon] stale lock recovered (dead pid ${existing.pid}, acquiredAt ${existing.acquiredAt})`,
+      `[Daemon] stale lock recovered (${reason}, acquiredAt ${existing.acquiredAt})`,
     );
   }
   const lock: LockFile = { pid: process.pid, acquiredAt: new Date().toISOString() };

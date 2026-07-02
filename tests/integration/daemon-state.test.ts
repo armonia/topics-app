@@ -93,6 +93,21 @@ describe("daemon-state — lock lifecycle (DAEMON-01)", () => {
     expect(lock.pid).toBe(process.pid);
   });
 
+  test("recovers a stale lock whose pid is alive but predates the last boot (reboot pid-reuse)", async () => {
+    const { acquireLock } = await import("../../server/services/daemon-state");
+    fs.mkdirSync(TEST_HOME, { recursive: true });
+    // pid 1 (launchd/init) is always alive, but a lock "acquired" in 2020
+    // necessarily predates this boot — i.e. the recorded pid was recycled by
+    // the OS after a reboot. Must recover, not throw LiveLockError.
+    fs.writeFileSync(
+      join(TEST_HOME, "daemon-process.lock"),
+      JSON.stringify({ pid: 1, acquiredAt: "2020-01-01T00:00:00.000Z" }),
+    );
+    expect(() => acquireLock()).not.toThrow();
+    const lock = JSON.parse(fs.readFileSync(join(TEST_HOME, "daemon-process.lock"), "utf-8"));
+    expect(lock.pid).toBe(process.pid);
+  });
+
   test("releaseLock removes both files; idempotent when files are missing", async () => {
     const { acquireLock, writeState, releaseLock } = await import("../../server/services/daemon-state");
     acquireLock();
