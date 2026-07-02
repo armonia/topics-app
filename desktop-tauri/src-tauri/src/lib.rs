@@ -205,39 +205,78 @@ fn apply_traffic_lights(window: &tauri::WebviewWindow, visible: bool) {
         // events re-run apply_traffic_lights (see on_window_event). Skipped in
         // fullscreen: there the buttons live in the auto-managed toolbar and
         // moving them fights AppKit.
+        //
+        // DEFENSIVE — this is a "make it prettier" nicety, NEVER a correctness
+        // requirement, so it must fail SAFE: if anything about the container
+        // looks off, we leave the buttons at AppKit's default frames (visible,
+        // just not at x=12). The failure it guards against is the buttons
+        // vanishing entirely (the reported "semafori GONE"):
+        //   • On a titleBarStyle:Overlay + hidden-title transparent window the
+        //     buttons' superview can be the full-height theme frame, not a ~28px
+        //     titlebar strip. Its bounds.height is then the WHOLE window height,
+        //     and the non-flipped y = height - 12 - h places the buttons hundreds
+        //     of px down — off the visible titlebar band → invisible.
+        //   • The y coordinate orientation (flipped vs not) is only meaningful
+        //     relative to a titlebar-sized container; on a full-height frame the
+        //     two branches disagree about which end "12 from the top" is.
+        // So we only reposition when the superview reads like a titlebar
+        // (bounds.height < 60) and clamp every final origin back inside those
+        // bounds. Anything else: no-op, keep AppKit defaults.
         if visible && !window.is_fullscreen().unwrap_or(false) {
             use cocoa::foundation::NSRect;
             let close: id = ptr.standardWindowButton_(NSWindowButton::NSWindowCloseButton);
             if close != nil {
-                let first: NSRect = msg_send![close, frame];
-                let dx = 12.0 - first.origin.x;
-                for button in [
-                    NSWindowButton::NSWindowCloseButton,
-                    NSWindowButton::NSWindowMiniaturizeButton,
-                    NSWindowButton::NSWindowZoomButton,
-                ] {
-                    let b: id = ptr.standardWindowButton_(button);
-                    if b == nil {
-                        continue;
+                let sv0: id = msg_send![close, superview];
+                let svb: NSRect = if sv0 != nil { msg_send![sv0, bounds] } else { NSRect::new(cocoa::foundation::NSPoint::new(0.0, 0.0), cocoa::foundation::NSSize::new(0.0, 0.0)) };
+                // Container must look like a titlebar strip. A full-height theme
+                // frame (Overlay + hidden title) fails this, so we bail and keep
+                // AppKit's own (visible) positions rather than fling the buttons
+                // off-screen.
+                let looks_like_titlebar = sv0 != nil && svb.size.height > 0.0 && svb.size.height < 60.0;
+                if looks_like_titlebar {
+                    let first: NSRect = msg_send![close, frame];
+                    let dx = 12.0 - first.origin.x;
+                    let flipped: bool = msg_send![sv0, isFlipped];
+                    for button in [
+                        NSWindowButton::NSWindowCloseButton,
+                        NSWindowButton::NSWindowMiniaturizeButton,
+                        NSWindowButton::NSWindowZoomButton,
+                    ] {
+                        let b: id = ptr.standardWindowButton_(button);
+                        if b == nil {
+                            continue;
+                        }
+                        let sv: id = msg_send![b, superview];
+                        if sv == nil {
+                            continue;
+                        }
+                        let mut f: NSRect = msg_send![b, frame];
+                        // Shift the whole group so the close button sits at x=12,
+                        // preserving AppKit's natural inter-button spacing.
+                        f.origin.x += dx;
+                        // y=12 from the TOP of the titlebar container, in whichever
+                        // coordinate orientation the superview uses.
+                        f.origin.y = if flipped {
+                            12.0
+                        } else {
+                            svb.size.height - 12.0 - f.size.height
+                        };
+                        // Clamp inside the container so a surprising bounds/frame
+                        // can never push a button out of view. Worst case the
+                        // group crowds an edge — still on screen, still clickable.
+                        let max_x = (svb.size.width - f.size.width).max(0.0);
+                        let max_y = (svb.size.height - f.size.height).max(0.0);
+                        if f.origin.x < 0.0 { f.origin.x = 0.0; }
+                        if f.origin.x > max_x { f.origin.x = max_x; }
+                        if f.origin.y < 0.0 { f.origin.y = 0.0; }
+                        if f.origin.y > max_y { f.origin.y = max_y; }
+                        let _: () = msg_send![b, setFrame: f];
                     }
-                    let sv: id = msg_send![b, superview];
-                    if sv == nil {
-                        continue;
-                    }
-                    let mut f: NSRect = msg_send![b, frame];
-                    let svb: NSRect = msg_send![sv, bounds];
-                    // Shift the whole group so the close button sits at x=12,
-                    // preserving AppKit's natural inter-button spacing.
-                    f.origin.x += dx;
-                    // y=12 from the TOP of the titlebar container, in whichever
-                    // coordinate orientation the superview uses.
-                    let flipped: bool = msg_send![sv, isFlipped];
-                    f.origin.y = if flipped {
-                        12.0
-                    } else {
-                        svb.size.height - 12.0 - f.size.height
-                    };
-                    let _: () = msg_send![b, setFrame: f];
+                } else {
+                    eprintln!(
+                        "[chrome] traffic-light reposition skipped: superview not titlebar-like (h={}) — keeping AppKit defaults",
+                        svb.size.height
+                    );
                 }
             }
         }
@@ -258,8 +297,12 @@ fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
-        if let Some(win) = app.get_webview_window("main") {
-            apply_traffic_lights(&win, visible);
+        match app.get_webview_window("main") {
+            Some(win) => {
+                eprintln!("[chrome] set_traffic_lights(visible={visible}) — applying to main window");
+                apply_traffic_lights(&win, visible);
+            }
+            None => eprintln!("[chrome] set_traffic_lights(visible={visible}) — main window NOT found, no-op"),
         }
     }
     #[cfg(not(target_os = "macos"))]
