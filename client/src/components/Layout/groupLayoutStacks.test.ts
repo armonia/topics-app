@@ -81,16 +81,21 @@ describe('addGroupToColumnStack — bottom', () => {
     expect(next[0].cellStacks?.A.heights.length).toBe(2);
     expect(sum(next[0].cellStacks!.A.heights)).toBeCloseTo(1, 6);
   });
-  it('appends to an existing stack at the bottom', () => {
+  it('inserts directly UNDER the target primary (adjacent, not at the column bottom)', () => {
     const rows = [row(['A'], { A: { groupIds: ['A2'], heights: [0.5, 0.5] } })];
     const next = addGroupToColumnStack(rows, 'A', 'A3', 'bottom');
-    expect(next[0].cellStacks?.A.groupIds).toEqual(['A2', 'A3']);
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['A3', 'A2']);
     expect(next[0].cellStacks?.A.heights.length).toBe(3);
   });
-  it('appends when dropping on a stacked member (resolves to its column)', () => {
+  it('appends after the LAST stacked member when it is the target', () => {
     const rows = [row(['A'], { A: { groupIds: ['A2'], heights: [0.5, 0.5] } })];
     const next = addGroupToColumnStack(rows, 'A2', 'A3', 'bottom');
     expect(next[0].cellStacks?.A.groupIds).toEqual(['A2', 'A3']);
+  });
+  it('inserts directly BELOW a middle member of a deep stack (the preview promise)', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.34, 0.33, 0.33] } })];
+    const next = addGroupToColumnStack(rows, 'A2', 'NEW', 'bottom');
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['A2', 'NEW', 'A3']);
   });
   it('does not mutate the input', () => {
     const rows = [row(['A'])];
@@ -108,20 +113,24 @@ describe('addGroupToColumnStack — bottom', () => {
   });
 });
 
-describe('addGroupToColumnStack — top (promotes new group to primary)', () => {
-  it('makes the new group the primary and slides the old one down', () => {
+describe('addGroupToColumnStack — top', () => {
+  it('on the primary: promotes the new group and slides the old one down', () => {
     const rows = [row(['A', 'B'])];
     const next = addGroupToColumnStack(rows, 'A', 'NEW', 'top');
     expect(next[0].groupIds).toEqual(['NEW', 'B']);
     expect(next[0].cellStacks?.NEW.groupIds).toEqual(['A']);
     expect(next[0].cellStacks?.A).toBeUndefined();
   });
-  it('re-keys an existing stack onto the new primary', () => {
+  it('on a stacked member: inserts directly ABOVE it, primary unchanged', () => {
     const rows = [row(['A'], { A: { groupIds: ['A2'], heights: [0.5, 0.5] } })];
     const next = addGroupToColumnStack(rows, 'A2', 'NEW', 'top');
-    expect(next[0].groupIds).toEqual(['NEW']);
-    expect(next[0].cellStacks?.NEW.groupIds).toEqual(['A', 'A2']);
-    expect(next[0].cellStacks?.A).toBeUndefined();
+    expect(next[0].groupIds).toEqual(['A']);
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['NEW', 'A2']);
+  });
+  it('above a middle member of a deep stack lands adjacent', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.34, 0.33, 0.33] } })];
+    const next = addGroupToColumnStack(rows, 'A3', 'NEW', 'top');
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['A2', 'NEW', 'A3']);
   });
 });
 

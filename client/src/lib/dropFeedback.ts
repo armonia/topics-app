@@ -128,3 +128,27 @@ export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean): CSSPr
     transition: 'background 140ms ease, opacity 140ms ease',
   };
 }
+
+/**
+ * An INTERIOR row-gap drop band, centered on the boundary between two rows
+ * (`topPct` = the boundary's cumulative height, in % of the container).
+ * Same visual language as the top/bottom `fullRowZoneStyle` strips — it IS
+ * the same intent (insert a full-width row), just BETWEEN two existing rows
+ * instead of at the container's extremes. Drag-only, like the extreme strips.
+ */
+export function rowGapZoneStyle(topPct: number, active: boolean): CSSProperties {
+  return {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: `calc(${topPct}% - ${FULL_ROW_GUTTER_PX / 2}px)`,
+    height: FULL_ROW_GUTTER_PX,
+    zIndex: Z_DROP_FULLROW,
+    background: active ? DROP_REGION_FILL : DROP_GUTTER_FILL_IDLE,
+    // Seam on BOTH edges — the band sits between two rows, so both edges face
+    // content; a single seam would read as belonging to one row only.
+    boxShadow: `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}, inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`,
+    opacity: active ? 1 : 0.92,
+    transition: 'background 140ms ease, opacity 140ms ease',
+  };
+}
