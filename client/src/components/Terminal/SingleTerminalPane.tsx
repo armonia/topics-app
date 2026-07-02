@@ -7,7 +7,7 @@ import { attachTerminalTouchScroll } from './touchScroll';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
-import { signalsActions, useTerminalFinished, useTerminalReloading, useTerminalLoading } from '../../state/signals';
+import { signalsActions, useTerminalFinished, useTerminalReloading, useTerminalWorkingRing } from '../../state/signals';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 
@@ -143,13 +143,17 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   }, [isActive, finished, sessionId]);
 
   // "Working" glow — the Apple-Intelligence ring, the terminal twin of the one
-  // in ChatPanel. `useTerminalLoading` is the SAME signal the sidebar green
-  // terminal row reads (claude phase active, OR pty busy when not resting), so
-  // the ring and the sidebar dot can never disagree. Gated behind the same
-  // `workingGlow` setting via the same SETTINGS_CHANGED_EVENT pattern, so the
-  // one Appearance toggle governs chats and terminals alike. The ring node is
-  // rendered ONLY while working (conditional, not display:none) → zero idle cost.
-  const isWorking = useTerminalLoading(sessionId);
+  // in ChatPanel. Uses `useTerminalWorkingRing`, a STRICTER signal than the
+  // sidebar dot's `useTerminalLoading`: for a claude-code session the ring lights
+  // ONLY on a confidently-active phase (running/tool-running), never on the
+  // pty-busy fallback — so the STARTUP BANNER of a freshly-created session (real
+  // visible text → pty busy while phase is still `starting`) and random idle pty
+  // blips can't flash the ring "appena creo la sessione". A plain shell has no
+  // phase machine so it still glows on pty activity. Gated behind the same
+  // `workingGlow` setting; rendered ONLY while working → zero idle cost.
+  const sessionType = sessionInfo?.type ?? lastInfoRef.current?.type;
+  const isClaudeCode = sessionType === 'claude-code' || sessionType === 'claude-code-team';
+  const isWorking = useTerminalWorkingRing(sessionId, isClaudeCode);
   const [workingGlowEnabled, setWorkingGlowEnabled] = useState(() => loadSettings().workingGlow);
   useEffect(() => {
     const reload = () => setWorkingGlowEnabled(loadSettings().workingGlow);
