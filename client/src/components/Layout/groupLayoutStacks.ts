@@ -87,12 +87,17 @@ export function isColumnStackFull(
 }
 
 /**
- * Append `newGroupId` to the vertical stack of the column hosting
- * `targetGroupId`. `edge: 'bottom'` lands it at the column's bottom (below
- * every existing member); `edge: 'top'` lands it at the very top, PROMOTING it
- * to the column primary (the previous primary + members slide down). Slot
- * heights are reset to equal. No-op (returns the same array reference) when the
- * target can't be located or the column is already at MAX_STACK_DEPTH.
+ * Insert `newGroupId` into the vertical stack of the column hosting
+ * `targetGroupId`, ADJACENT to the target member: `edge: 'bottom'` lands it
+ * directly BELOW the target, `edge: 'top'` directly ABOVE it. The split
+ * preview is painted on the target member's own cell, so adjacency is what
+ * the gesture promises — inserting at the column's absolute ends (the old
+ * behavior) landed the pane cells away when the target was a middle member
+ * of a deep stack. Landing at visual slot 0 (top of the primary) PROMOTES
+ * the new group to column primary (the previous primary + members slide
+ * down). Slot heights are reset to equal. No-op (returns the same array
+ * reference) when the target can't be located or the column is already at
+ * MAX_STACK_DEPTH.
  */
 export function addGroupToColumnStack(
   rows: readonly GroupLayoutRow[],
@@ -108,17 +113,15 @@ export function addGroupToColumnStack(
   const existing = row.cellStacks?.[loc.primaryId];
   const belowPrimary = existing?.groupIds ?? [];
 
-  // Members below the (possibly new) primary, in visual order.
-  let primaryId: string;
-  let members: string[];
-  if (edge === 'bottom') {
-    primaryId = loc.primaryId;
-    members = [...belowPrimary, newGroupId];
-  } else {
-    // 'top' — the dropped group becomes the column primary.
-    primaryId = newGroupId;
-    members = [loc.primaryId, ...belowPrimary];
-  }
+  // The column in visual order, with the new group spliced in next to the
+  // located target. Slot 0 heads the column → whoever ends up there is the
+  // (possibly new) primary.
+  const visual = [loc.primaryId, ...belowPrimary];
+  const targetIdx = visual.indexOf(targetGroupId); // ≥ 0 — locateGroup found it
+  const insertAt = edge === 'bottom' ? targetIdx + 1 : targetIdx;
+  visual.splice(insertAt, 0, newGroupId);
+  const primaryId = visual[0];
+  const members = visual.slice(1);
 
   const slots = members.length + 1; // primary + members
   const nextStack: GroupCellStack = {

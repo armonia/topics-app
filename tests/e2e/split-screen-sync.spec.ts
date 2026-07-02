@@ -1,6 +1,7 @@
+import { mkdirSync, rmSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -69,6 +70,10 @@ async function openTwoTopics(page: Page, topicIds: string[]) {
       })
       .catch(() => {}),
   ]);
+  // Reset the authoritative pane channel too — legacy openPanels is UNIONED
+  // with pane-store-v2 on hydrate, so stale panes from the shared test DB
+  // otherwise leak in as extra tabs.
+  await resetPaneStore(page.request, [idA, idB]).catch(() => {});
   await page.goto("/");
   await page.waitForSelector('[aria-label="Topics sidebar"]', {
     state: "visible",
@@ -110,12 +115,16 @@ async function openProjectInSidebar(page: Page, name: string | RegExp) {
 
 let topicIds: string[] = [];
 let projectTopicId: string | null = null;
-const PROJECT_PATH = `/Users/e2e-split-sync-${Date.now()}`;
+// A REAL directory (created in beforeAll): project panes probe the path
+// (file tree, shell cwd) — a phantom `/Users/...` path left the window in
+// "directory not found" and pane adds misbehaving.
+const PROJECT_PATH = `/tmp/e2e-split-sync-${Date.now()}`;
 
 // ─── Test Suite ───────────────────────────────────────────────────────────
 
 test.describe("Split Screen Sync & Correctness", () => {
   test.beforeAll(async ({ request }) => {
+    mkdirSync(PROJECT_PATH, { recursive: true });
     const t1 = await createTopic(request, "E2E-SplitSync-A");
     const t2 = await createTopic(request, "E2E-SplitSync-B");
     const t3 = await createTopic(request, "E2E-SplitSync-C");
@@ -131,6 +140,7 @@ test.describe("Split Screen Sync & Correctness", () => {
       await deleteTopic(request, id);
     }
     if (projectTopicId) await deleteTopic(request, projectTopicId);
+    rmSync(PROJECT_PATH, { recursive: true, force: true });
   });
 
   // ── 2.1: Split Right creates side-by-side panels ──
@@ -184,13 +194,18 @@ test.describe("Split Screen Sync & Correctness", () => {
     const preDividers = await countColDividers(page);
     expect(preDividers).toBeGreaterThanOrEqual(1);
 
-    // Wait for the debounced server save (2s debounce + margin)
-    await page.waitForResponse(
-      (r) =>
-        r.url().includes("/api/ui-state/grid-layout") &&
-        r.request().method() === "PUT",
-      { timeout: 10000 }
-    );
+    // Wait for the layout write. Grid geometry is DEVICE-LOCAL now: it
+    // persists to localStorage only (usePanelGridPersistence) — the old
+    // `PUT /api/ui-state/grid-layout` never fires anymore.
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(
+            () => localStorage.getItem("topics-panel-grid-layout") || ""
+          ),
+        { timeout: 10000 }
+      )
+      .toContain("solo:");
 
     await page.reload({ waitUntil: "networkidle" });
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
@@ -213,41 +228,52 @@ test.describe("Split Screen Sync & Correctness", () => {
 
   test("Project-internal split persists across reload", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
+    // Open the project WINDOW pane server-side: the tab-driven sidebar only
+    // shows a project row while its `project:<path>` pane is open (seeding
+    // the project-linked topic id alone is purged by the client).
+    await seedProjectPane(page.request, PROJECT_PATH);
     await goToApp(page);
     await openProjectInSidebar(page, /e2e-split-sync/i);
 
-    const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
-    const tabs = tabBar.locator('[draggable="true"]');
-    await expect(tabs.first()).toBeVisible({ timeout: 10000 });
-
-    // Add a second pane if needed
-    if ((await tabs.count()) < 2) {
-      const addPaneBtn = page.getByTitle("Add pane");
-      if ((await addPaneBtn.count()) > 0) {
-        await addPaneBtn.first().click();
-        const addMenu = page.locator(".fixed.z-\\[9999\\]");
-        await expect(addMenu).toBeVisible({ timeout: 5000 });
-        const menuButtons = addMenu.locator("button");
-        for (let i = 0; i < (await menuButtons.count()); i++) {
-          const text = ((await menuButtons.nth(i).textContent()) || "").trim();
-          if (!/Chat/i.test(text)) {
-            await menuButtons.nth(i).click();
-            break;
-          }
+    // Scope to the project window's INNER tab bars (data-group-id `group:*`,
+    // set by GroupLayout). Bar 0 in the page is the standalone POOL bar —
+    // right-clicking ITS first tab split the project PANE in the top-level
+    // grid instead of splitting inside the project window.
+    const projectBars = page.locator('[data-testid="panel-tab-bar"][data-group-id^="group:"]');
+    const projectTabs = projectBars.locator('[draggable="true"]');
+    // A fresh project opens with an EMPTY placeholder group whose bar has NO
+    // group id yet ("No chats open", zero tabs) — populated `group:*` bars
+    // only appear once panes exist. Build up to 2 panes via the project
+    // window's "+" (any add button NOT on the pool / solo bars).
+    const projectAdd = page
+      .locator('[data-testid="panel-tab-bar"]:not([data-group-id="standalone"]):not([data-group-id^="solo:"])')
+      .getByTitle("Add pane");
+    for (let n = await projectTabs.count(); n < 2; n++) {
+      if ((await projectAdd.count()) === 0) break;
+      await projectAdd.last().click();
+      const addMenu = page.locator(".fixed.z-\\[9999\\]");
+      await expect(addMenu).toBeVisible({ timeout: 5000 });
+      // Same pane type twice (first non-Chat entry, e.g. Shell) so both land
+      // in ONE group — Split Right needs a 2-tab group to split out of.
+      const menuButtons = addMenu.locator("button");
+      let clicked = false;
+      for (let i = 0; i < (await menuButtons.count()); i++) {
+        const text = ((await menuButtons.nth(i).textContent()) || "").trim();
+        if (!/Chat/i.test(text)) {
+          await menuButtons.nth(i).click();
+          clicked = true;
+          break;
         }
       }
+      if (!clicked) {
+        await page.keyboard.press("Escape");
+        break;
+      }
+      await expect.poll(() => projectTabs.count(), { timeout: 5000 }).toBeGreaterThan(n);
     }
 
+    const tabs = projectBars.first().locator('[draggable="true"]');
     if ((await tabs.count()) >= 2) {
-      // Set up save listener before split
-      const savePromise = page.waitForResponse(
-        (resp) =>
-          resp.url().includes("/api/ui-state/project-layout") &&
-          resp.request().method() === "PUT" &&
-          resp.status() === 200,
-        { timeout: 15000 }
-      );
-
       // Split Right within project
       await tabs.first().click({ button: "right" });
       const menu = page.locator(".fixed.z-\\[9999\\]");
@@ -260,16 +286,41 @@ test.describe("Split Screen Sync & Correctness", () => {
       if ((await splitBtn.count()) > 0) {
         await splitBtn.click();
 
-        // Wait for split to render
-        const splitRendered = await page
-          .locator('[data-testid="panel-tab-bar"]')
+        // Wait for split to render — a SECOND project-internal bar
+        const splitRendered = await projectBars
           .nth(1)
           .waitFor({ state: "visible", timeout: 5000 })
           .then(() => true)
           .catch(() => false);
 
         if (splitRendered) {
-          await savePromise;
+          // Wait for the layout write. Project split GEOMETRY is
+          // device-local now: savePersistedLayoutState writes it to
+          // localStorage (`topics-project-layout-<hash>`) synchronously —
+          // the old `PUT /api/ui-state/project-layout` never fires.
+          await expect
+            .poll(
+              async () =>
+                await page.evaluate(() => {
+                  for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i)!;
+                    if (!k.startsWith("topics-project-layout-")) continue;
+                    try {
+                      const v = JSON.parse(localStorage.getItem(k) || "{}");
+                      const rows = Array.isArray(v?.rows) ? v.rows : [];
+                      const groups = rows.flatMap(
+                        (r: { groupIds?: string[] }) => r.groupIds ?? []
+                      );
+                      if (groups.length >= 2) return true;
+                    } catch {
+                      /* not JSON */
+                    }
+                  }
+                  return false;
+                }),
+              { timeout: 10000 }
+            )
+            .toBe(true);
 
           // Reload
           await page.reload({ waitUntil: "networkidle" });
@@ -280,9 +331,9 @@ test.describe("Split Screen Sync & Correctness", () => {
 
           await openProjectInSidebar(page, /e2e-split-sync/i);
 
-          await expect(
-            page.locator('[data-testid="panel-tab-bar"]').first()
-          ).toBeVisible({ timeout: 10000 });
+          // The split (two project-internal groups) is restored from the
+          // device-local layout key.
+          await expect(projectBars.nth(1)).toBeVisible({ timeout: 10000 });
         }
       }
     }
@@ -310,6 +361,11 @@ test.describe("Split Screen Sync & Correctness", () => {
         data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
       })
       .catch(() => {});
+    // Deterministic tab set (see openTwoTopics), then the project pane on
+    // top — the tab-driven sidebar needs the `project:<path>` pane open to
+    // show the project row this test clicks.
+    await resetPaneStore(page.request, [topicIds[0]]).catch(() => {});
+    await seedProjectPane(page.request, PROJECT_PATH);
 
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
@@ -340,6 +396,7 @@ test.describe("Split Screen Sync & Correctness", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
+    await seedProjectPane(page.request, PROJECT_PATH);
     await goToApp(page);
     await openProjectInSidebar(page, /e2e-split-sync/i);
 
@@ -426,6 +483,8 @@ test.describe("Split Screen Sync & Correctness", () => {
         data: { order: [topicIds[0]], pinned: [topicIds[0]] },
       })
       .catch(() => {});
+    await resetPaneStore(page.request, [topicIds[0]]).catch(() => {});
+    await seedProjectPane(page.request, PROJECT_PATH);
 
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', {

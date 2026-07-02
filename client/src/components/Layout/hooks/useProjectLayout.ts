@@ -61,7 +61,9 @@ import { basename } from '../../../lib/path-utils';
 import { splitColumnWidths, appendColumnWidths, keepColumnWidths, chooseSplitOrientation } from '../gridWidths';
 import {
   addGroupToColumnStack,
+  allGroupIdsInRows,
   isColumnStackFull,
+  locateGroup,
   reconcileCellStacks,
   pickCellStacks,
   rowGroupIds,
@@ -1086,6 +1088,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         }
 
         const capturedRecord = record;
+        // Where the closed pane's GROUP sat in the grid at close time — lets
+        // undo recreate a dissolved split cell at its old location instead of
+        // dumping the restored tab into the arbitrary first group.
+        const capturedLoc = locateGroup(rowsRef.current, groupId);
         pushUndo({
           description: `Close ${pane.title || pane.type}`,
           undo: async () => {
@@ -1104,14 +1110,44 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             setPanes(prev => (prev.some(p => p.id === restored.id) ? prev : [...prev, restored]));
             setGroups(prev => {
               if (prev.some(g => g.paneIds.includes(restored.id))) return prev;
-              const target = prev.find(g => g.id === capturedRecord.groupId) || prev[0];
-              if (!target) return prev;
-              const idx = Math.min(capturedRecord.groupIndex, target.paneIds.length);
-              const newIds = [...target.paneIds];
-              newIds.splice(idx, 0, restored.id);
-              return prev.map(g =>
-                g.id === target.id ? { ...g, paneIds: newIds, activePaneId: restored.id } : g,
-              );
+              const target = prev.find(g => g.id === capturedRecord.groupId);
+              if (target) {
+                const idx = Math.min(capturedRecord.groupIndex, target.paneIds.length);
+                const newIds = [...target.paneIds];
+                newIds.splice(idx, 0, restored.id);
+                return prev.map(g =>
+                  g.id === target.id ? { ...g, paneIds: newIds, activePaneId: restored.id } : g,
+                );
+              }
+              // The group dissolved (the restored pane was its last tab):
+              // recreate it under its ORIGINAL id — the setRows below re-seats
+              // it at the captured grid location, so ⌘Z restores the split
+              // cell instead of splicing the tab into `prev[0]`.
+              return [...prev, {
+                id: capturedRecord.groupId,
+                paneIds: [restored.id],
+                activePaneId: restored.id,
+                type: paneTypeToGroupType(restored.type),
+              }];
+            });
+            setRows(prev => {
+              const gid = capturedRecord.groupId;
+              if (allGroupIdsInRows(prev).includes(gid)) return prev; // still placed
+              if (!capturedLoc) return prev; // unknown location — sync effect appends
+              // Stacked member whose host primary survives → back into that stack.
+              if (!capturedLoc.isPrimary && capturedLoc.primaryId !== gid && locateGroup(prev, capturedLoc.primaryId)) {
+                return addGroupToColumnStack(prev, capturedLoc.primaryId, gid, 'bottom');
+              }
+              if (prev.length === 0) return [{ groupIds: [gid], widths: [1] }];
+              const rowIdx = Math.min(capturedLoc.rowIdx, prev.length - 1);
+              return prev.map((row, i) => {
+                if (i !== rowIdx) return row;
+                const insertAt = Math.min(capturedLoc.colIdx, row.groupIds.length);
+                const donorIdx = Math.max(0, Math.min(insertAt, row.widths.length - 1));
+                const groupIds = [...row.groupIds];
+                groupIds.splice(insertAt, 0, gid);
+                return { ...row, groupIds, widths: splitColumnWidths(row.widths, donorIdx, insertAt) };
+              });
             });
             removeClosedTab(capturedRecord.id);
             // Undo of a chat close also restores open == non-archived.
@@ -1864,17 +1900,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const fullRow = isVertical && !!opts?.fullRow;
       const columnSplit = isVertical && !fullRow;
 
-      if (sourceGroupId === targetGroupId) {
+      // Defensive only: the menu entries and the edge-drop preview are gated
+      // by the shared canSplitPane rule (GroupLayout), so a split-into-self
+      // on a single-pane group is normally unreachable. A fullRow move IS
+      // meaningful for a solo group (its pane moves to a new spanning row),
+      // so only the non-fullRow no-op is refused.
+      if (sourceGroupId === targetGroupId && !fullRow) {
         const sourceGroup = groups.find(g => g.id === sourceGroupId);
-        if (sourceGroup && sourceGroup.paneIds.length <= 1) {
-          if (typeof console !== 'undefined') {
-            console.warn(
-              '[ProjectWindow] split-into-self with single-pane source is a no-op; ' +
-                'use the "+" menu to add a new pane, then drag-drop on edge to split.',
-            );
-          }
-          return;
-        }
+        if (sourceGroup && sourceGroup.paneIds.length <= 1) return;
       }
 
       // Enforce the grid limits before any state mutation (setGroups below) so
@@ -1884,12 +1917,39 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       //  - full-width row: cap total rows (MAX_ROWS)
       const curRowsForLimit = rowsRef.current;
       if (edge === 'left' || edge === 'right') {
-        const targetRow = curRowsForLimit.find(r => r.groupIds.includes(targetGroupId));
+        // Resolve through locateGroup so a STACKED target counts its HOST
+        // row — a plain `groupIds.includes` walk misses cellStacks members
+        // and skipped the cap entirely for them.
+        const targetLoc = locateGroup(curRowsForLimit, targetGroupId);
+        const targetRow = targetLoc ? curRowsForLimit[targetLoc.rowIdx] : undefined;
         if (targetRow && targetRow.groupIds.length >= MAX_COLS_PER_ROW) return;
       } else if (columnSplit) {
         if (isColumnStackFull(curRowsForLimit, targetGroupId)) return;
       } else if (curRowsForLimit.length >= MAX_ROWS) {
         return;
+      }
+
+      // Split is undoable: snapshot the layout slices (plain data) — ⌘Z
+      // after a split used to silently undo the previous CLOSE instead. The
+      // orphan-pane / [groups] sync effects re-home anything that changed
+      // between split and undo, so a wholesale restore is safe.
+      {
+        const prevGroupsSnap = groupsRef.current;
+        const prevRowsSnap = rowsRef.current;
+        const prevHeightsSnap = rowHeightsRef.current;
+        const prevFocusedSnap = focusedGroupIdRef.current;
+        pushUndo({
+          description: 'Split pane',
+          undo: () => {
+            setGroups(prevGroupsSnap);
+            setRows(prevRowsSnap);
+            setRowHeights(prevHeightsSnap);
+            setFocusedGroupId(prevFocusedSnap);
+          },
+          redo: () => {
+            handleSplitGroupRef.current?.(sourceGroupId, paneId, targetGroupId, edge, opts);
+          },
+        });
       }
 
       // Native browser panes are OS-level WebContentsViews that don't follow the
@@ -1931,18 +1991,29 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       });
 
       if (edge === 'left' || edge === 'right') {
-        setRows(prev => prev.map(row => {
-          const targetIdx = row.groupIds.indexOf(targetGroupId);
-          if (targetIdx === -1) return row;
-          const newGroupIds = [...row.groupIds];
-          const insertAt = edge === 'left' ? targetIdx : targetIdx + 1;
-          newGroupIds.splice(insertAt, 0, newGroupId);
-          // Split the TARGET column's width with the new group; leave every
-          // other column's width untouched. (Was `1/n` — flattened a manual
-          // resize on every split. See gridWidths.ts.)
-          const newWidths = splitColumnWidths(row.widths, targetIdx, insertAt);
-          return { ...row, groupIds: newGroupIds, widths: newWidths };
-        }));
+        setRows(prev => {
+          // Locate the target through locateGroup — a group STACKED inside a
+          // column's cellStacks is never in row.groupIds, so the old
+          // `row.groupIds.indexOf(targetGroupId)` walk touched no row and
+          // stranded the new group (the [groups] sync effect then appended
+          // it to the END of row 0: "Split Right from a stacked group lands
+          // in a far-away corner"). The new column is inserted beside the
+          // target's HOST column, mirroring how the columnSplit branch
+          // already resolves stacked targets via addGroupToColumnStack.
+          const loc = locateGroup(prev, targetGroupId);
+          if (!loc) return prev; // sync effect places the orphan (legacy fallback)
+          return prev.map((row, i) => {
+            if (i !== loc.rowIdx) return row;
+            const newGroupIds = [...row.groupIds];
+            const insertAt = edge === 'left' ? loc.colIdx : loc.colIdx + 1;
+            newGroupIds.splice(insertAt, 0, newGroupId);
+            // Split the TARGET column's width with the new group; leave every
+            // other column's width untouched. (Was `1/n` — flattened a manual
+            // resize on every split. See gridWidths.ts.)
+            const newWidths = splitColumnWidths(row.widths, loc.colIdx, insertAt);
+            return { ...row, groupIds: newGroupIds, widths: newWidths };
+          });
+        });
       } else if (columnSplit) {
         // SINGLE-COLUMN vertical split: stack the soloed group under (bottom)
         // or over (top) just the target's column via cellStacks. No new row,
@@ -1982,7 +2053,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
       setFocusedGroupId(newGroupId);
     },
-    [panes, groups, rowsRef],
+    [panes, groups, rowsRef, groupsRef, rowHeightsRef, focusedGroupIdRef],
   );
 
   // Pin the latest handleSplitGroup so the early-mounted browser-split effect

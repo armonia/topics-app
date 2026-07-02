@@ -6,7 +6,7 @@
  * doesn't trigger DnD in Playwright.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -56,6 +56,11 @@ async function setupPanels(page: Page, topicIds: string[]) {
       data: { order: topicIds, pinned: topicIds },
     }).catch(() => {}),
   ]);
+  // The legacy endpoints above are UNIONED with pane-store-v2 on hydrate —
+  // stale panes from other spec files / prior runs otherwise leak in as
+  // extra tabs (the `expect(allBefore.length).toBe(2)` failures). Reset the
+  // authoritative channel to exactly the requested set.
+  await resetPaneStore(page.request, topicIds).catch(() => {});
   await page.goto("/");
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
   await page.locator('[role="main"] [draggable="true"]').first().waitFor({ state: "visible", timeout: 10000 });
@@ -268,11 +273,13 @@ test.describe("Tab Drag — Real DnD", () => {
     const barsBeforeReload = await countTabBars(page);
     expect(barsBeforeReload).toBeGreaterThanOrEqual(2);
 
-    // Wait for debounced save
-    await page.waitForResponse(
-      r => r.url().includes("/api/ui-state/grid-layout") && r.request().method() === "PUT",
+    // Wait for the layout write. Grid geometry is DEVICE-LOCAL now: it
+    // persists to localStorage only (usePanelGridPersistence) — the old
+    // `PUT /api/ui-state/grid-layout` never fires anymore.
+    await expect.poll(async () =>
+      await page.evaluate(() => localStorage.getItem("topics-panel-grid-layout") || ""),
       { timeout: 10000 }
-    );
+    ).toContain("solo:");
 
     await page.reload({ waitUntil: "networkidle" });
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
@@ -305,17 +312,19 @@ test.describe("Tab Drag — Real DnD", () => {
     await splitViaContextMenu(page, "Split Right");
     expect(await countTabBars(page)).toBeGreaterThanOrEqual(2);
 
-    // Close the tab in the solo cell (second tab bar)
+    // Close the tab in the solo cell (second tab bar) via the context
+    // menu's "Close now" — the tab X goes through the 3s soft-close
+    // countdown (PendingAction), so an X-click + 1s wait raced it.
     const secondBar = page.locator('[data-testid="panel-tab-bar"]').nth(1);
-    const closeBtn = secondBar.locator('[draggable="true"]').first().locator('button').last();
-    if (await closeBtn.isVisible()) {
-      await closeBtn.click();
-      await page.waitForTimeout(1000);
-    }
+    const soloTab = secondBar.locator('[draggable="true"]').first();
+    await expect(soloTab).toBeVisible({ timeout: 3000 });
+    await soloTab.click({ button: "right" });
+    const menu = page.locator(".fixed.z-\\[9999\\]");
+    await expect(menu).toBeVisible({ timeout: 3000 });
+    await menu.getByText("Close now", { exact: true }).click();
 
     // Split should collapse: back to 1 tab bar, no dividers
-    const barsAfter = await countTabBars(page);
-    expect(barsAfter).toBe(1);
+    await expect.poll(() => countTabBars(page), { timeout: 8000 }).toBe(1);
     expect(await countColDividers(page)).toBe(0);
   });
 

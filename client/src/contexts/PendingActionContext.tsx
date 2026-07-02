@@ -116,26 +116,33 @@ export function PendingActionProvider({
 
   const cancel = useCallback((key: string) => {
     clearTimer(key);
-    setEntries((prev) => {
-      const entry = prev.find((e) => e.key === key);
-      if (entry?.onCancel) {
-        try {
-          entry.onCancel();
-        } catch {
-          /* user-supplied — never throw out */
-        }
+    // Same live-ref lookup as __completeForCommit below: resolving the entry
+    // inside the setEntries updater both relied on React's eager evaluation
+    // (onCancel silently dropped when the queue wasn't empty) and made the
+    // updater impure (StrictMode double-invoke = onCancel fired twice).
+    const entry = entriesRef.current.find((e) => e.key === key);
+    setEntries((prev) => prev.filter((e) => e.key !== key));
+    if (entry?.onCancel) {
+      try {
+        entry.onCancel();
+      } catch {
+        /* user-supplied — never throw out */
       }
-      return prev.filter((e) => e.key !== key);
-    });
+    }
   }, [clearTimer]);
 
   const __completeForCommit = useCallback((key: string) => {
     clearTimer(key);
-    let committed: PendingActionEntry | undefined;
-    setEntries((prev) => {
-      committed = prev.find((e) => e.key === key);
-      return prev.filter((e) => e.key !== key);
-    });
+    // Resolve the entry from the live ref, NOT from inside the setEntries
+    // updater: React only runs an updater eagerly (synchronously) when the
+    // hook's queue is empty. When SEVERAL commit timers fire in the same
+    // batch window — "Close Others" queues one pending close per tab, all
+    // ticked together — only the FIRST updater ran eagerly; the rest were
+    // deferred to the next render, so their `committed` was still undefined
+    // at the check below and every close after the first silently no-oped
+    // ("Close Others closes only one tab"). Same ref `flushAll` reads.
+    const committed = entriesRef.current.find((e) => e.key === key);
+    setEntries((prev) => prev.filter((e) => e.key !== key));
     if (committed) {
       // Run async commit outside the render cycle.
       Promise.resolve()

@@ -8,7 +8,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic, createTerminalSession, deleteTerminalSession } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, createTerminalSession, deleteTerminalSession, resetPaneStore } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -46,6 +46,11 @@ async function seedAndLoad(page: Page, panelIds: string[], opts?: { gridRows?: u
       },
     }).catch(() => {}),
   ]);
+  // Reset the AUTHORITATIVE pane channel too: the legacy endpoints above are
+  // UNIONED with pane-store-v2 on hydrate, so stale panes accumulated in the
+  // shared test DB (terminals / project panes from other spec files) leak in
+  // as extra tabs and break every exact-count assertion.
+  await resetPaneStore(page.request, panelIds).catch(() => {});
 
   // 2. Set localStorage BEFORE the app loads so the client's initial state
   //    matches the server. The client reads openPanels and grid layout from
@@ -266,10 +271,10 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     expect(await countTabBars(page)).toBe(4);
   });
 
-  test("B5: splitting to 5th column is blocked by MAX_COLS_PER_ROW", async ({ page }) => {
+  test("B5: splitting to a 5th column is allowed (pane-count cap removed)", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC, idD, idE] = topicIds;
-    // Seed 4 columns (at the limit): standalone + 3 solo items in a single row
+    // Seed 4 columns: standalone + 3 solo items in a single row
     await seedAndLoad(page, [idA, idB, idC, idD, idE], {
       soloTopicIds: [idB, idC, idD],
       gridRows: [
@@ -280,10 +285,13 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     await waitForTabs(page);
     expect(await countTabBars(page)).toBe(4);
 
-    // Try to split a 5th topic right via context menu on standalone's tab
+    // Split a 5th topic right via context menu on standalone's tab.
+    // The artificial 4-pane cap was removed (`2582ce0e`: MAX_COLS_PER_ROW is
+    // now a 32-col runaway backstop, not a UX limit) — the split SUCCEEDS.
     await rightClickTabAndSelect(page, 0, "Split Right");
-    // Should still have 4 tab bars (5th column blocked)
-    expect(await countTabBars(page)).toBe(4);
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(5);
+    // No pane lost in the move.
+    expect((await getVisibleTabLabels(page)).length).toBe(5);
   });
 
   test("B6: 4 rows seeded render correctly", async ({ page }) => {
@@ -307,10 +315,10 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     expect(await countTabBars(page)).toBe(4);
   });
 
-  test("B7: splitting to 5th row is blocked by MAX_ROWS", async ({ page }) => {
+  test("B7: splitting down in a 4-row grid is allowed (row cap removed)", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA, idB, idC, idD, idE] = topicIds;
-    // Seed 4 rows (at the limit): standalone + 3 solo items each in their own row
+    // Seed 4 rows: standalone + 3 solo items each in their own row
     await seedAndLoad(page, [idA, idB, idC, idD, idE], {
       soloTopicIds: [idB, idC, idD],
       gridRows: [
@@ -324,10 +332,14 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     await waitForTabs(page);
     expect(await countTabBars(page)).toBe(4);
 
-    // Try to split a 5th topic down via context menu on standalone's tab
+    // Split a 5th topic down via context menu on standalone's tab. The
+    // artificial 4-row cap was removed (`2582ce0e`: MAX_ROWS/MAX_STACK_DEPTH
+    // are 32-slot runaway backstops now) — and Split Down stacks the new
+    // cell UNDER the source cell's column (cellStacks), it doesn't add a
+    // top-level row. The split SUCCEEDS: one more tab bar, no pane lost.
     await rightClickTabAndSelect(page, 0, "Split Down");
-    // Should still have 4 tab bars (5th row blocked)
-    expect(await countTabBars(page)).toBe(4);
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(5);
+    expect((await getVisibleTabLabels(page)).length).toBe(5);
   });
 });
 
@@ -435,54 +447,53 @@ test.describe("D: Split Type Guards", () => {
     }
   });
 
-  test("D11: terminal pane — Split Right click is a no-op (pane not splittable)", async ({ page, request }) => {
+  test("D11: terminal pane — Split Right moves it to its own cell (pool is always splittable)", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-    // The context menu shows Split Right/Down for ALL panes (UI doesn't filter),
-    // but clicking it on a terminal pane is a no-op (handler checks isSplittable).
+    // splitRules.ts (shared canSplitPane): the standalone POOL is always
+    // splittable — terminal and utility panes included (they render fine as
+    // solo cells; the drag path always allowed them).
     const session = await createTerminalSession(request, { name: "EC-Terminal-Guard" });
     terminalSessionId = session.id;
 
     const termPaneId = `terminal:${session.id}`;
-    // Open ONLY the terminal pane (no topic) to guarantee tab index 0 is terminal
-    await seedAndLoad(page, [termPaneId]);
-    await waitForTabs(page, 1);
+    // Seed a topic ALONGSIDE the terminal: with `enableNewChat` off (the
+    // default) a single-pane pool split falls back to the legacy "silent
+    // solo" (no companion spawns, nothing visibly changes) — H22 pins that.
+    // Here the pool keeps the topic, so the terminal split is VISIBLE.
+    const [idA] = topicIds;
+    await seedAndLoad(page, [idA, termPaneId]);
+    await waitForTabs(page, 2);
 
     const barsBefore = await countTabBars(page);
     expect(barsBefore).toBe(1);
 
-    // Right-click the only tab (terminal) and click Split Right
-    await rightClickTabAndSelect(page, 0, "Split Right");
+    // Right-click the TERMINAL tab (index 1) and click Split Right
+    await rightClickTabAndSelect(page, 1, "Split Right");
 
-    // Should be a no-op — terminal is not splittable
-    await expect.poll(() => countTabBars(page), { timeout: 3000 }).toBe(barsBefore);
+    // The terminal lands in its own cell beside the pool
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(2);
+    expect(await countColDividers(page)).toBeGreaterThanOrEqual(1);
+    expect(await countTabs(page)).toBe(2);
   });
 
-  test("D12: activity/utility pane — split is a no-op", async ({ page }) => {
+  test("D12: activity/utility pane — Split Right moves it to its own cell", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const [idA] = topicIds;
-    const utilityPaneId = "activity:main";
+    // Real utility pane id: `__<type>__` (UtilityPanel.utilityPanelId) — the
+    // old 'activity:main' isn't a known pane prefix and never rendered.
+    const utilityPaneId = "__activity__";
     await seedAndLoad(page, [idA, utilityPaneId]);
-    await waitForTabs(page);
+    await waitForTabs(page, 2);
 
-    // If utility pane rendered as a tab, click Split Right — should be no-op
-    const tabCount = await countTabs(page);
-    if (tabCount >= 2) {
-      const barsBefore = await countTabBars(page);
-      // Try to split the second tab (utility)
-      const tab = page.locator('[role="main"] [draggable="true"]').nth(1);
-      await tab.click({ button: "right" });
-      const menu = page.locator(".fixed.z-\\[9999\\]");
-      if (await menu.isVisible().catch(() => false)) {
-        const splitRight = menu.getByText("Split Right", { exact: true });
-        if (await splitRight.isVisible().catch(() => false)) {
-          await splitRight.click();
-          await expect.poll(() => countTabBars(page), { timeout: 3000 }).toBe(barsBefore);
-        } else {
-          await page.keyboard.press("Escape");
-        }
-      }
-    }
-    await expect(page.locator('[role="main"]')).toBeVisible();
+    const barsBefore = await countTabBars(page);
+    expect(barsBefore).toBe(1);
+
+    // Split the utility tab (index 1) — utility panes are splittable now
+    // (splitRules.ts: pool surface, no per-type carve-outs).
+    await rightClickTabAndSelect(page, 1, "Split Right");
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(2);
+    // Both panes still present.
+    expect(await countTabs(page)).toBe(2);
   });
 
   test("D13: regular topic pane shows Split Right / Split Down", async ({ page }) => {
@@ -744,7 +755,7 @@ test.describe("H: Mixed Pane Types in Split", () => {
     }
   });
 
-  test("H22: topic shows split, terminal split-right is a no-op", async ({ page, request }) => {
+  test("H22: topic offers Split Right; lone-pane split is the silent-solo fallback", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     const session = await createTerminalSession(request, { name: "EC-Mixed-Term" });
     termSessionId = session.id;
@@ -757,15 +768,19 @@ test.describe("H: Mixed Pane Types in Split", () => {
     const topicHasSplit = await rightClickTabHasOption(page, 0, "Split Right");
     expect(topicHasSplit, "Topic tab should have Split Right").toBe(true);
 
-    // Second: verify terminal-only pane split is a no-op
+    // Second: splitting the ONLY pane of the pool (a lone terminal) is the
+    // legacy "silent solo" fallback when `enableNewChat` is off (default):
+    // no companion pane spawns, so nothing visibly changes — the pane must
+    // survive unharmed with its single tab bar (no empty pool cell, no
+    // lost tab). PanelGrid.handleSplitPane documents this fallback.
     const termPaneId = `terminal:${session.id}`;
     await seedAndLoad(page, [termPaneId]);
     await waitForTabs(page, 1);
 
-    const barsBefore = await countTabBars(page);
     await rightClickTabAndSelect(page, 0, "Split Right");
-    // Should be a no-op — terminal is not splittable
-    await expect.poll(() => countTabBars(page), { timeout: 3000 }).toBe(barsBefore);
+    await page.waitForTimeout(1000);
+    expect(await countTabBars(page)).toBe(1);
+    expect(await countTabs(page)).toBe(1);
   });
 
   test("H23: split a topic while terminal tabs exist — terminal stays in standalone", async ({ page, request }) => {
@@ -823,19 +838,20 @@ test.describe("I: Full Lifecycle Regression", () => {
       }
     }
 
-    // Close one split panel (if there are multiple tab bars)
+    // Close one split panel (if there are multiple tab bars). The X-click
+    // goes through the 3s soft-close countdown (PendingAction), so the poll
+    // must be strict (the count really drops) AND outlast the countdown.
     const currentBars = await countTabBars(page);
     if (currentBars > 1) {
       const lastBar = page.locator('[data-testid="panel-tab-bar"]').last();
       const lastTabClose = lastBar.locator('[draggable="true"]').first().locator("button").last();
       if (await lastTabClose.isVisible().catch(() => false)) {
         await lastTabClose.click();
-        // Wait for bar count to decrease or stabilize
-        await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBeLessThanOrEqual(currentBars);
+        await expect.poll(() => countTabBars(page), { timeout: 8000 }).toBeLessThan(currentBars);
       }
     }
 
-    // Close tabs until only 1 remains using Close Others
+    // Close tabs until only 1 per group remains using Close Others
     const firstTab = page.locator('[role="main"] [draggable="true"]').first();
     if (await firstTab.isVisible().catch(() => false)) {
       await firstTab.click({ button: "right" });
@@ -844,7 +860,10 @@ test.describe("I: Full Lifecycle Regression", () => {
         const closeOthers = menu.getByText("Close Others", { exact: true });
         if (await closeOthers.isVisible().catch(() => false)) {
           await closeOthers.click();
-          await expect.poll(() => countTabs(page), { timeout: 5000 }).toBeLessThanOrEqual(2);
+          // Close Others drains the FOCUSED GROUP to one tab; a split cell
+          // that survived above keeps its own tab — allow for it. 10s: the
+          // batch close may ride the soft-close countdown.
+          await expect.poll(() => countTabs(page), { timeout: 10000 }).toBeLessThanOrEqual(2);
         } else {
           await page.keyboard.press("Escape");
         }

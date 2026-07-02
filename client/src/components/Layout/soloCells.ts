@@ -95,6 +95,48 @@ export function moveTopicToCell(cells: SoloCells, topicId: string, targetPrimary
   return next;
 }
 
+/**
+ * Rename a topic id in place, wherever it appears (cell member OR primary).
+ * Used when a draft pane promotes to a real topic (`topics:pane-id-remap`):
+ * without this, the promoted id looks like a brand-new topic and the draft's
+ * cell membership is pruned — the tab visibly teleports back to the pool and
+ * a single-tab draft cell collapses on the first message. Returns the SAME
+ * ref when the id isn't in any cell.
+ */
+export function remapTopicInCells(cells: SoloCells, from: string, to: string): SoloCells {
+  if (from === to) return cells;
+  let changed = false;
+  const next = cells.map((cell) => {
+    if (!cell.includes(from)) return cell;
+    changed = true;
+    return cell.map((id) => (id === from ? to : id));
+  });
+  return changed ? next : cells;
+}
+
+/**
+ * Persist a tab-bar reorder of a multi-tab cell. The cell's PRIMARY stays
+ * pinned at slot 0 — it is the cell's grid key (`solo:<primary>`), and
+ * re-keying the cell on every reorder would remount the whole column. The
+ * remaining members take their order from `newOrder`; members the caller's
+ * order dropped (races with a concurrent close) are appended in their old
+ * order. Returns the SAME ref when nothing changes.
+ */
+export function reorderCellPreservingPrimary(
+  cell: readonly string[],
+  newOrder: readonly string[],
+): readonly string[] {
+  if (cell.length <= 1) return cell;
+  const primary = cell[0];
+  const members = new Set(cell);
+  const rest = newOrder.filter((id) => id !== primary && members.has(id));
+  for (const id of cell) {
+    if (id !== primary && !rest.includes(id)) rest.push(id);
+  }
+  const next = [primary, ...rest];
+  return next.every((id, i) => id === cell[i]) ? cell : next;
+}
+
 /** Drop closed topics and any emptied cells. Returns the SAME ref when nothing
  *  changed so callers can skip a redundant state update. */
 export function pruneSoloCells(cells: SoloCells, openIds: ReadonlySet<string>): SoloCells {
