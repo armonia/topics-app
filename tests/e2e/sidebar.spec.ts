@@ -324,8 +324,9 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     for (const id of pinCreated) await deleteTopic(request, id);
   });
 
-  // PIN-1: full chat lifecycle — pin, close (no archive), reopen, unpin (archive)
-  test("PIN-1: pin a chat → close its tab keeps the row un-archived → click reopens → unpin while closed archives", async ({
+  // PIN-1: full chat lifecycle — pin, close (archives; row persists via the
+  // pinnedIds escape), reopen (unarchives), unpin while closed (archives).
+  test("PIN-1: pin a chat → close its tab keeps the pinned row (topic archives) → click reopens → unpin while closed archives", async ({
     page,
     request,
   }) => {
@@ -359,15 +360,39 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     await page.getByRole("button", { name: /Close now/ }).click();
     await expect(paneTab).toBeHidden({ timeout: 5000 });
 
-    // Pinned ⇒ the row PERSISTS and the topic is NOT archived.
+    // Pinned ⇒ the row PERSISTS, but the topic DOES archive on close. The
+    // archived flag is the durable, server-authoritative, cross-client "closed"
+    // signal (2-state model); exempting pinned chats from it left the closure
+    // represented only by the device-local closedStack tombstone, which a stale
+    // second client / mobile PWA / the server's own stored snapshot out-raced,
+    // resurrecting the tab ("closed pinned chat reappears"). The sidebar's
+    // pinnedIds escape keeps the row visible even when archived, and the click
+    // below unarchives on reopen — so Arc "one click reopens" is preserved.
     await expect(pinnedSection.getByRole("treeitem", { name: new RegExp(name) })).toBeVisible({ timeout: 5000 });
-    const res = await request.get(`${BASE}/api/topics`);
-    const data = await res.json();
-    expect(data?.topics?.[t.id]?.archived).toBe(false);
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`${BASE}/api/topics`);
+          const data = await res.json();
+          return data?.topics?.[t.id]?.archived;
+        },
+        { timeout: 10000 }
+      )
+      .toBe(true);
 
-    // One click reopens the tab.
+    // One click reopens the tab (openPanel unarchives an archived chat).
     await row.click();
     await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeVisible({ timeout: 10000 });
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`${BASE}/api/topics`);
+          const data = await res.json();
+          return data?.topics?.[t.id]?.archived;
+        },
+        { timeout: 10000 }
+      )
+      .toBe(false);
 
     // Close again, then UNPIN while closed → row disappears AND the topic
     // archives (2-state fallback: no phantom non-archived tab-less topic).
@@ -391,6 +416,64 @@ test.describe("Sidebar — Fissati (pinning)", () => {
         { timeout: 10000 }
       )
       .toBe(true);
+  });
+
+  // PIN-3: regression — a closed pinned chat must NOT reappear as a tab after a
+  // reload. Before the fix, closing a pinned chat left it non-archived, so its
+  // closure was represented only by the device-local closedStack tombstone; a
+  // stale peer / the server's stored snapshot then resurrected the tab. Now the
+  // chat archives on close (durable cross-client closed signal) while the
+  // pinned sidebar row persists via the pinnedIds escape.
+  test("PIN-3: a pinned chat closed then reloaded does NOT resurrect its tab (row persists)", async ({
+    page,
+    request,
+  }) => {
+    const name = `E2E-PinReload-${Date.now()}`;
+    const t = await createTopic(request, name);
+    pinCreated.push(t.id);
+
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    const row = page.getByRole("treeitem", { name: new RegExp(name) });
+    await expect(row).toBeVisible({ timeout: 10000 });
+
+    // Pin, then confirm the tab is open.
+    await row.click({ button: "right" });
+    const menu = page.getByRole("menu");
+    await menu.waitFor({ state: "visible" });
+    await menu.getByRole("menuitem", { name: "Fissa", exact: true }).click();
+    const paneTab = page.getByTestId(`pane-tab-${t.id}`);
+    await expect(paneTab).toBeVisible({ timeout: 10000 });
+    await expectServerPin(request, t.id, true);
+
+    // Close the tab (Close now → deterministic, bypasses the countdown).
+    await paneTab.click({ button: "right" });
+    await page.getByRole("button", { name: /Close now/ }).click();
+    await expect(paneTab).toBeHidden({ timeout: 5000 });
+
+    // Let the archive + pane-store PUT settle before reloading.
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`${BASE}/api/topics`);
+          const data = await res.json();
+          return data?.topics?.[t.id]?.archived;
+        },
+        { timeout: 10000 }
+      )
+      .toBe(true);
+
+    // Reload — the closed pinned chat's tab must stay closed…
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+    await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeHidden({ timeout: 10000 });
+    // …while the pinned sidebar row survives (one click still reopens it). The
+    // row renders once BOTH the topic list and the pinned-state sync have
+    // hydrated, so wait on the row itself (its data-pinned marker) rather than
+    // racing the pinned-section grouping's first paint.
+    const reloadedRow = page.getByRole("treeitem", { name: new RegExp(name) });
+    await expect(reloadedRow).toBeVisible({ timeout: 15000 });
+    await expect(reloadedRow).toHaveAttribute("data-pinned", "true", { timeout: 10000 });
   });
 
   // PIN-2: projects are pinnable too; pins survive a reload
