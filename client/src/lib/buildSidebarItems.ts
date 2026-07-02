@@ -26,6 +26,10 @@ export interface SidebarItem {
    *  the unread-first sort. */
   notificationCount: number;
   archived: boolean;
+  /** Pinned ("Fissati") — the row survives tab close (visibility gates get a
+   *  pinnedIds escape) and renders in the dedicated pinned block. Set when
+   *  the item's id ∈ opts.pinnedIds; render-side partitioning keys off it. */
+  pinned?: boolean;
   projectPath?: string;      // for project items: the path; for children: their parent project
   children?: SidebarItem[];  // only for project items (accordion content)
   /** Sub-agents this terminal spawned (orchestrator → children). Rendered
@@ -120,10 +124,16 @@ interface BuildSidebarItemsOpts {
    *  them (sort/render then falls back to plain unread). */
   claudeAttentionTopics?: Set<string>;
   terminalFinishedIds?: Set<string>;
+  /** Pinned ("Fissati") item ids — chats by raw topic id, projects by
+   *  `project:<rawPath>` (the sidebar-item id form, NOT the encoded pane id).
+   *  Acts as an `||` escape at every tab-driven visibility gate (mirrors the
+   *  orchestratorManaged precedent) so a pinned row survives with zero open
+   *  tabs — and, for chats, even archived with showArchived off. */
+  pinnedIds?: Set<string>;
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set() } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>() } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -166,6 +176,13 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       const pp = getProjectPathFromPaneId(id);
       if (pp) projectPaths.add(pp);
     }
+  }
+  // Seed pinned projects: a pinned project with no topics, no workspace entry
+  // and no open pane still needs a row — the gate escape below can't emit a
+  // path nobody collected. Pin keys carry the RAW path (`project:<rawPath>`),
+  // and chat pins are bare topic ids, so the prefix check can't misfire.
+  for (const key of pinnedIds) {
+    if (key.startsWith('project:')) projectPaths.add(key.slice('project:'.length));
   }
 
   // Group topics by project path
@@ -263,7 +280,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     const projectPaneId = `project:${encodeURIComponent(pp)}`;
     const hasProjectTab = openPanelSet.has(projectPaneId);
 
-    const visibleTopics = showArchived ? projectTopics : projectTopics.filter(t => !t.archived);
+    // Pinned escape: a pinned chat stays listed even archived (a pre-feature
+    // close archived it; reopen self-heals via openPanel's unarchive).
+    const visibleTopics = showArchived ? projectTopics : projectTopics.filter(t => !t.archived || pinnedIds.has(t.id));
 
     // Build children — only those with an open internal tab or unread
     const children: SidebarItem[] = [];
@@ -276,7 +295,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       const hasInternalTab = internalPaneIds.has(chatPaneId) || internalPaneIds.has(t.id);
       const hasTopLevelTab = openPanelSet.has(t.id);
       const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
-      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0) continue;
+      // Pinned escape (fourth explicit exception, after archived/tab/notification):
+      // a pinned chat keeps its row with the tab closed.
+      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id)) continue;
       children.push({
         id: t.id,
         type: 'chat',
@@ -287,6 +308,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         archived: t.archived,
         projectPath: pp,
         topic: t,
+        ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
       });
     }
 
@@ -331,8 +353,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       children.push(buildBrowserItem(paneId, pp));
     }
 
-    // Project shows if: has project tab, or has visible children
-    if (!hasProjectTab && children.length === 0) continue;
+    // Project shows if: has project tab, or has visible children — or is
+    // pinned (Fissati escape; pin keys use the raw-path item id form).
+    if (!hasProjectTab && children.length === 0 && !pinnedIds.has(`project:${pp}`)) continue;
 
     children.sort((a, b) => b.lastActivity - a.lastActivity);
 
@@ -355,6 +378,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       archived: false,
       projectPath: pp,
       children,
+      ...(pinnedIds.has(`project:${pp}`) ? { pinned: true } : {}),
     });
   }
 
@@ -362,13 +386,14 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // Show only if: tab is open OR has unread messages
 
   for (const t of standaloneChats) {
-    if (t.archived && !showArchived) continue;
+    // Pinned escape: a pinned chat shows even archived (pre-feature close).
+    if (t.archived && !showArchived && !pinnedIds.has(t.id)) continue;
     const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
     // Archived items shown when showArchived is on; active items need an open
-    // tab or a pending notification (unread / Claude needs-you).
+    // tab, a pending notification (unread / Claude needs-you) — or a pin.
     if (!t.archived) {
       const hasTab = openPanelSet.has(t.id);
-      if (!hasTab && notificationCount === 0) continue;
+      if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id)) continue;
     }
     items.push({
       id: t.id,
@@ -379,6 +404,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       notificationCount,
       archived: t.archived,
       topic: t,
+      ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
     });
   }
 

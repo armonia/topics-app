@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, memo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal, Cloud } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal, Cloud, Pin, PinOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
 import { TopicIcon } from '@/lib/topicIcons';
@@ -54,6 +54,12 @@ interface TopicItemProps {
   onContextMenu: (e: React.MouseEvent) => void;
   onArchive?: (topicId: string, archive: boolean) => void;
   onStopStreaming?: () => void;
+  /** Pinned ("Fissati") — renders the Pin glyph in the trailing rail and the
+   *  row survives tab close (see buildSidebarItems pinnedIds gates). */
+  pinned?: boolean;
+  /** Pin/unpin this topic ("Fissa" / "Rimuovi dai Fissati") — surfaced in the
+   *  touch overflow menu; desktop uses the App-level context menu. */
+  onTogglePin?: () => void;
   sortable?: boolean;
   hideIcon?: boolean;
 }
@@ -76,6 +82,8 @@ export const TopicItem = memo(function TopicItem({
   onContextMenu,
   onArchive,
   onStopStreaming,
+  pinned,
+  onTogglePin,
   sortable,
   hideIcon,
 }: TopicItemProps) {
@@ -144,6 +152,7 @@ export const TopicItem = memo(function TopicItem({
       aria-expanded={hasChildren ? isExpanded : undefined}
       aria-label={topic.name}
       tabIndex={isFocused ? 0 : -1}
+      data-pinned={pinned ? 'true' : undefined}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
@@ -308,6 +317,17 @@ export const TopicItem = memo(function TopicItem({
                   <MoreHorizontal size={12} />
                 </button>
                 <DropdownPortal open={overflowOpen} anchorRef={overflowRef} onClose={() => setOverflowOpen(false)}>
+                  {/* Pin entry first — touch has no right-click context menu,
+                      so this overflow menu is the only pin affordance <768px. */}
+                  {onTogglePin && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onTogglePin(); setOverflowOpen(false); }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                    >
+                      {pinned ? <PinOff size={14} className="flex-shrink-0" /> : <Pin size={14} className="flex-shrink-0" />}
+                      <span>{pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
+                    </button>
+                  )}
                   <button
                     onClick={(e) => { e.stopPropagation(); handleArchiveClick(e); setOverflowOpen(false); }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-app-text hover:bg-app-hover transition-colors"
@@ -373,9 +393,23 @@ export const TopicItem = memo(function TopicItem({
         )
       )}
 
+      {/* Trailing-glyph RAIL — fixed order: Pin → AppWindow (detached, future
+          pop-out slice inserts here) → NotificationBadge. New trailing glyphs
+          join THIS rail, they don't invent a new slot (ruling 3.1). Glyphs
+          inherit the on-fill treatment via ON_FILL_TEXT_SOFT — never a
+          hardcoded colour on an attention fill. */}
+      {pinned && (
+        <span
+          className={cn('flex-shrink-0 flex items-center', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
+          title="Fissato"
+          aria-label="Fissato"
+        >
+          <Pin size={12} />
+        </span>
+      )}
       {/* Notification badge — hidden when focused so the user doesn't see a
-          count for the topic they're actively looking at. The only element
-          after the spinner/timestamp slot, so "working" reads at the row end. */}
+          count for the topic they're actively looking at. The last element of
+          the trailing rail, so "working" reads at the row end. */}
       {!isFocused && <NotificationBadge count={notificationCount} variant={onFill ? 'onFill' : 'default'} />}
     </div>
   );

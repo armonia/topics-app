@@ -162,6 +162,12 @@ export interface UsePanelLifecycleArgs {
   terminalSessions: TerminalSessionInfo[];
   pruneStaleTerminalPanes: (currentPaneIds: string[]) => string[];
   terminalOps: TerminalOps;
+  // Pinning (Fissati): closing a pinned item's tab must NOT archive it — the
+  // pinned sidebar row survives the close (Arc semantics) and one click
+  // reopens. Ref-backed (App wires it from useSidebarState.isPinned) so the
+  // stable handleClosePanel closure reads the latest predicate without
+  // re-binding. Optional: absent ⇒ nothing is pinned, guards are no-ops.
+  isPinnedRef?: React.MutableRefObject<(id: string) => boolean>;
   // WS
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   sendWS: (msg: WSMessage) => void;
@@ -256,6 +262,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     topics, topicsLoading, loadTopics, createTopic, applyTopicFromWS, archiveProject, archiveTopic,
     workspaceProjects,
     terminalSessions, pruneStaleTerminalPanes, terminalOps,
+    isPinnedRef,
     onWSMessage, sendWS, wsStatus, windowId,
     chatStreamHandlers,
     setSidebarCollapsed, removeClosedTab,
@@ -1030,7 +1037,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     const onArchive = (e: Event) => {
       const id = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
       const t = id ? topicsRef.current[id] : undefined;
-      if (id && t) void archiveTopic(id, true);
+      // Pinned (Fissati) chats survive a project-window tab close un-archived
+      // — same guard as handleClosePanel, so BOTH archive funnels share one
+      // contract (a pinned chat must never archive via either path).
+      if (id && t && !isPinnedRef?.current(id)) void archiveTopic(id, true);
     };
     const onUnarchive = (e: Event) => {
       const id = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
@@ -1042,7 +1052,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       window.removeEventListener('topic-archive-on-close', onArchive);
       window.removeEventListener('topic-unarchive-on-open', onUnarchive);
     };
-  }, [archiveTopic, topicsRef]);
+  }, [archiveTopic, topicsRef, isPinnedRef]);
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     const topic = topics[topicId];
@@ -1090,7 +1100,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // This sits in the single user-close funnel (X / right-click Close-now /
     // Cmd+W / deferred-commit all reach here); incidental closes go through the
     // reducer / setOpenPanels and never call this, so they won't archive.
-    const archivesOnClose = !!closingTopic && !isDraftPaneId(topicId);
+    // Pinned (Fissati) chats are exempt: the close drops the tab but the topic
+    // stays non-archived, so the pinnedIds sidebar gate keeps its row and one
+    // click reopens it (Arc semantics).
+    const archivesOnClose = !!closingTopic && !isDraftPaneId(topicId) && !isPinnedRef?.current(topicId);
     let panelIndex = 0;
     {
       const s = usePaneStore.getState();

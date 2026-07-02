@@ -33,6 +33,7 @@ const isTauriMac = isTauri && typeof navigator !== 'undefined' && /Mac/i.test(na
 import { useAnimationPause } from './hooks/useAnimationPause';
 import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
 import { usePanelLifecycle } from './hooks/usePanelLifecycle';
+import { useRefMirror } from './hooks/useRefMirror';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId } from './state/pane/adapters';
@@ -354,6 +355,12 @@ function App() {
 
   const sidebarContentRef = useRef<HTMLDivElement>(null);
 
+  // Sidebar state (view mode, expanded nodes, pinned "Fissati" items) —
+  // declared BEFORE usePanelLifecycle so the pin predicate can feed its
+  // archive-on-close guards (ref-backed, stays a stable identity).
+  const sidebar = useSidebarState(onWSMessage);
+  const isPinnedRef = useRefMirror(sidebar.isPinned);
+
   // Phase 3 hook 3 — full panel-state cluster (state, store-sync,
   // validation, per-cluster WS subs, handlers). See usePanelLifecycle.ts
   // for the full effect-declaration-order contract.
@@ -364,6 +371,7 @@ function App() {
     terminalSessions,
     pruneStaleTerminalPanes: terminals.pruneStaleTerminalPanes,
     terminalOps: terminals.ops,
+    isPinnedRef,
     onWSMessage, sendWS, wsStatus, windowId,
     chatStreamHandlers: {
       isOwnStream, getSessionMessages, addMessageFromWS, clearSession,
@@ -558,9 +566,36 @@ function App() {
     return Promise.resolve(true);
   }, [handleArchiveProject, enqueueAndTick]);
 
-  // Sidebar / browser-context state (App-level — sidebar UI consumers).
-  const sidebar = useSidebarState(onWSMessage);
+  // Browser-context state (App-level — sidebar UI consumers). `sidebar`
+  // (useSidebarState) is declared above, before usePanelLifecycle.
   const browserCtx = useBrowserContexts(true, onWSMessage);
+
+  // Pin/unpin (Fissati). Unpinning a CLOSED chat archives it so it falls back
+  // to the 2-state model (closed ⟺ archived) instead of becoming a phantom
+  // non-archived tab-less topic; unpinning an OPEN one just drops the glyph.
+  // Projects are pure pin removal (their row visibility is gate-driven).
+  // RULING 2.2 (binding): the liveness check runs on the FULL openPanels set —
+  // NEVER visiblePanels — so unpinning a chat living in a hidden Spazio must
+  // not archive an open tab. Project-internal opens count only through a LIVE
+  // project tab (owningRenderedProject pattern): projectOpenPanes is
+  // upsert-only, and a stale entry from a closed project must not make the
+  // unpin skip the archive.
+  const { isPinned: sidebarIsPinned, togglePin: sidebarTogglePin } = sidebar;
+  const handleTogglePin = useCallback((id: string) => {
+    if (sidebarIsPinned(id) && !id.startsWith('project:')) {
+      const topic = topics[id];
+      if (topic && !topic.archived) {
+        const chatPaneId = createPaneId('chat', id);
+        const openTopLevel = openPanels.includes(id);
+        const openInLiveProject = Object.entries(projectOpenPanes).some(([pp, ids]) =>
+          (ids.includes(chatPaneId) || ids.includes(id)) &&
+          openPanels.includes(createPaneId('project', pp)),
+        );
+        if (!openTopLevel && !openInLiveProject) void archiveTopic(id, true);
+      }
+    }
+    sidebarTogglePin(id);
+  }, [sidebarIsPinned, sidebarTogglePin, topics, openPanels, projectOpenPanes, archiveTopic]);
 
   // Sidebar close handlers — same Things3 pattern. The raw close function
   // is server-touching (DELETE on terminal sessions / browser contexts) so
@@ -965,6 +1000,8 @@ function App() {
             expandedProjects={expandedProjects}
             onToggleProject={setExpandedProjects}
             projectOpenPanes={projectOpenPanes}
+            pinnedItems={sidebar.pinnedItems}
+            onTogglePin={handleTogglePin}
           />
           )}
           </ErrorBoundary>
@@ -1213,6 +1250,8 @@ function App() {
           onUpdate={updateTopic}
           onDelete={archiveTopic}
           onAssignAgents={(topicId, topicName) => setAssignAgentsTarget({ topicId, topicName })}
+          isPinned={sidebar.pinnedIds.has(contextMenu.topic.id)}
+          onTogglePin={() => handleTogglePin(contextMenu.topic.id)}
         />
       )}
 
