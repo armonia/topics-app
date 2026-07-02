@@ -56,6 +56,8 @@ import {
   getProjectPathFromPaneId,
   projectPanesLocalKey,
   projectLayoutLocalKey,
+  locateTerminalPane,
+  browserProjectPanesStore,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
 import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors';
@@ -1241,36 +1243,64 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (topicId.startsWith('terminal:')) {
       const sessionId = topicId.slice('terminal:'.length);
       const session = terminalSessionsRef.current.find(s => s.id === sessionId);
-      if (session) {
-        // Inline routing — duplicates the body of handleTerminalClick but
-        // avoids reaching into it here (avoids a deps cycle).
-        if (session.cwd) {
-          // Same broad-path guard as handleTerminalClick: a cwd that is an
-          // ANCESTOR of a known project (e.g. the home dir, parent of all
-          // your projects) is too broad to be a project — its window would
-          // adopt every terminal/chat underneath it. Open such a session as
-          // a standalone terminal instead of a catch-all home project tab.
-          const knownProjectPaths = new Set<string>();
-          for (const t of Object.values(topicsRef.current)) {
-            if (t.projectPath) knownProjectPaths.add(t.projectPath);
-          }
-          for (const p of workspaceProjectsRef.current) knownProjectPaths.add(p);
-          // Open project panes count as known projects too (see handleTerminalClick).
-          for (const id of openPanelsRef.current) {
-            const pp = getProjectPathFromPaneId(id);
-            if (pp) knownProjectPaths.add(pp);
-          }
-          const cwd = session.cwd;
-          const isBroad = [...knownProjectPaths].some(p => p !== cwd && p.startsWith(cwd + '/'));
-          if (knownProjectPaths.has(cwd) && !isBroad) {
-            const projectPaneId = createPaneId('project', session.cwd);
-            ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: session.cwd });
-            setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
-            setFocusedPanelId(projectPaneId);
-            usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: projectPaneId } });
-            setPendingProjectPane({ projectPath: session.cwd, type: 'terminal' as PaneType, terminalSessionId: sessionId });
-            return;
-          }
+      // Inline routing — duplicates the body of handleTerminalClick but
+      // avoids reaching into it here (avoids a deps cycle). Build the known-
+      // project set first so both the locator (dedup) and the broad-path
+      // routing guard share it.
+      const knownProjectPaths = new Set<string>();
+      for (const t of Object.values(topicsRef.current)) {
+        if (t.projectPath) knownProjectPaths.add(t.projectPath);
+      }
+      for (const p of workspaceProjectsRef.current) knownProjectPaths.add(p);
+      // Open project panes count as known projects too (see handleTerminalClick).
+      for (const id of openPanelsRef.current) {
+        const pp = getProjectPathFromPaneId(id);
+        if (pp) knownProjectPaths.add(pp);
+      }
+
+      // STRUCTURAL DEDUP (mirrors handleTerminalClick): focus the session where
+      // it already lives instead of duplicating it. Without this, a focus-signal
+      // (awaiting-feedback / Master session surfacing) for a session already
+      // open standalone — or in another project — spawned a second tab.
+      const existing = locateTerminalPane(
+        sessionId,
+        openPanelsRef.current,
+        [...knownProjectPaths],
+        browserProjectPanesStore(),
+      );
+      if (existing.kind === 'standalone') {
+        setOpenPanels((prev) => prev.includes(topicId) ? prev : [...prev, topicId]);
+        setFocusedPanelId(topicId);
+        usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: topicId } });
+        return;
+      }
+      if (existing.kind === 'project') {
+        const projectPaneId = createPaneId('project', existing.projectPath);
+        ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: existing.projectPath });
+        setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+        setFocusedPanelId(projectPaneId);
+        usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: projectPaneId } });
+        setPendingProjectPane({ projectPath: existing.projectPath, type: 'terminal' as PaneType, terminalSessionId: sessionId });
+        return;
+      }
+      // 'project-unknown' / 'none' → fall through to routing below.
+
+      if (session?.cwd) {
+        // Same broad-path guard as handleTerminalClick: a cwd that is an
+        // ANCESTOR of a known project (e.g. the home dir, parent of all
+        // your projects) is too broad to be a project — its window would
+        // adopt every terminal/chat underneath it. Open such a session as
+        // a standalone terminal instead of a catch-all home project tab.
+        const cwd = session.cwd;
+        const isBroad = [...knownProjectPaths].some(p => p !== cwd && p.startsWith(cwd + '/'));
+        if (knownProjectPaths.has(cwd) && !isBroad) {
+          const projectPaneId = createPaneId('project', session.cwd);
+          ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: session.cwd });
+          setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+          setFocusedPanelId(projectPaneId);
+          usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: projectPaneId } });
+          setPendingProjectPane({ projectPath: session.cwd, type: 'terminal' as PaneType, terminalSessionId: sessionId });
+          return;
         }
       }
       // Fall through: open as a standalone terminal pane.
@@ -1524,24 +1554,68 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleTerminalClick = useCallback((sessionId: string, _sessionName: string) => {
     const session = terminalSessions.find(s => s.id === sessionId);
+    // Collect every path we consider a "project" for this session (topics,
+    // workspace, and any currently-open project pane). Used BOTH to decide
+    // routing AND, more importantly, to let the locator attribute an existing
+    // in-project tab to a named window.
+    const knownProjectPaths = new Set<string>();
+    for (const t of Object.values(topics)) {
+      if (t.projectPath) knownProjectPaths.add(t.projectPath);
+    }
+    for (const p of workspaceProjects) knownProjectPaths.add(p);
+    // Also treat any CURRENTLY-OPEN project pane as a known project. A
+    // project window can be open while having no chat topics and not being
+    // in `workspaceProjects` (e.g. opened purely to host Claude Code
+    // terminals). Without this, clicking such a project's terminal sub-tab
+    // in the sidebar fell through to the standalone branch below and never
+    // selected the tab inside the project — the sidebar groups the terminal
+    // under the project (by cwd) but this routing didn't, so the two
+    // disagreed. Including open project panes keeps them consistent.
+    for (const id of openPanels) {
+      const pp = getProjectPathFromPaneId(id);
+      if (pp) knownProjectPaths.add(pp);
+    }
+
+    // STRUCTURAL DEDUP: a terminal session's pane id (`terminal:<sessionId>`) is
+    // a global identity — it may legitimately be shown in exactly ONE place.
+    // Before routing, ask the single locator where (if anywhere) it already
+    // lives, scanning BOTH the app-level tab set and every project's persisted
+    // inner layout. If it's already open, FOCUS that surface instead of minting
+    // a second tab (the bug: the same session appearing standalone AND inside a
+    // project, because each open path only checked its own surface).
+    const existing = locateTerminalPane(
+      sessionId,
+      openPanels,
+      [...knownProjectPaths],
+      browserProjectPanesStore(),
+    );
+    if (existing.kind === 'standalone') {
+      const paneId = createPaneId('terminal', sessionId);
+      setFocusedPanelId(paneId);
+      if (isMobile) setSidebarCollapsed(true);
+      return;
+    }
+    if (existing.kind === 'project') {
+      const projectPaneId = createPaneId('project', existing.projectPath);
+      if (isMobile) {
+        setOpenPanels([projectPaneId]);
+        setSidebarCollapsed(true);
+      } else if (!openPanels.includes(projectPaneId)) {
+        setOpenPanels(prev => [...prev, projectPaneId]);
+      }
+      setFocusedPanelId(projectPaneId);
+      // Ask the project window to focus (not add) its existing terminal tab —
+      // the pendingPane consumer's own dedup guard reuses it by id.
+      setPendingProjectPane({ projectPath: existing.projectPath, type: 'terminal' as PaneType, terminalSessionId: sessionId });
+      if (isMobile) setSidebarCollapsed(true);
+      return;
+    }
+    // 'project-unknown': it's open in a project window whose path we can't name
+    // from here. Fall through to the normal routing below — the destination's
+    // pendingPane guard (keyed on the same pane id) still reuses the tab rather
+    // than duplicating, and we avoid creating a competing standalone tab.
+
     if (session?.cwd) {
-      const knownProjectPaths = new Set<string>();
-      for (const t of Object.values(topics)) {
-        if (t.projectPath) knownProjectPaths.add(t.projectPath);
-      }
-      for (const p of workspaceProjects) knownProjectPaths.add(p);
-      // Also treat any CURRENTLY-OPEN project pane as a known project. A
-      // project window can be open while having no chat topics and not being
-      // in `workspaceProjects` (e.g. opened purely to host Claude Code
-      // terminals). Without this, clicking such a project's terminal sub-tab
-      // in the sidebar fell through to the standalone branch below and never
-      // selected the tab inside the project — the sidebar groups the terminal
-      // under the project (by cwd) but this routing didn't, so the two
-      // disagreed. Including open project panes keeps them consistent.
-      for (const id of openPanels) {
-        const pp = getProjectPathFromPaneId(id);
-        if (pp) knownProjectPaths.add(pp);
-      }
       // A path that is an ANCESTOR of another known project (e.g. the home
       // dir, parent of all your projects) is too broad to be a project: its
       // window would adopt every terminal/chat underneath it. Treat such a
