@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "f
 import { randomBytes } from "crypto";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { type HookPayload } from "../lib/claude-session-state";
+import { autoNameClaudeSession } from "./terminal";
 
 const TOKEN_DIR = join(homedir(), ".claude", "topics-app");
 const TOKEN_PATH = join(TOKEN_DIR, "hook-token");
@@ -113,6 +114,19 @@ export function createClaudeHooksRouter(
         }
 
         const result = tracker.ingestHook(payload);
+
+        // Keep a Claude Code chat's tab label tracking its topic: on the first
+        // prompt and at each turn boundary, re-derive the auto-name from the
+        // session transcript. Best-effort — never blocks or breaks the response.
+        if (payload.hook_event_name === "UserPromptSubmit" || payload.hook_event_name === "Stop") {
+          try {
+            autoNameClaudeSession(
+              payload.session_id,
+              typeof payload.transcript_path === "string" ? payload.transcript_path : undefined,
+            );
+          } catch { /* best-effort */ }
+        }
+
         // Hook callers should never crash because we returned 4xx — we
         // always answer 200 unless the request was malformed at the
         // protocol level. The result kind tells us what happened.
