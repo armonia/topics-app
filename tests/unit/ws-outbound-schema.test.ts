@@ -240,8 +240,10 @@ describe('outbound registry contract', () => {
     expect(isRegisteredOutboundType('not-yet-modeled')).toBe(false);
   });
 
-  test('all 81 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(81);
+  // presence:windows joined the outbound registry in 724284d3 (cross-window
+  // presence protocol), taking the count from 81 → 82.
+  test('all 82 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(82);
   });
 });
 
