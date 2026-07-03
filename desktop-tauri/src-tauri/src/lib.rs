@@ -1506,11 +1506,14 @@ fn window_corner_radius() -> f64 {
 #[cfg(target_os = "macos")]
 fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f64, h: f64, win_w: f64, win_h: f64, card_radius: f64) {
     // Attilio's final ruling (2026-07-03): the webview rounds ONLY where it
-    // meets a WINDOW corner — never its own card corners mid-screen. Floating
-    // cards keep a margin (~12px) from the window edge, so "meets the window
-    // corner" needs a wider tolerance there; `card_radius > 0` is the client's
-    // "we are in floating mode" signal (its value is otherwise unused now).
-    let eps: f64 = if card_radius > 0.0 { 18.0 } else { 2.0 };
+    // meets a WINDOW corner — never its own card corners mid-screen. "Meets"
+    // must be tolerant: dividers/insets leave panes a few px short of the
+    // edge, floating cards keep a ~12px margin, and ANY pane closer to the
+    // corner than the window radius still pokes past the window's arc (the
+    // native view is NOT clipped by the window shape). 2px missed real
+    // corners in the tiled layout (square overhang at the window corner).
+    let _ = card_radius; // kept in the invoke contract; eps no longer keys on it
+    let eps: f64 = window_corner_radius() + 2.0;
     let flush_left = x <= eps;
     let flush_top = y <= eps;
     let flush_right = win_w > 0.0 && (x + w) >= (win_w - eps);
@@ -1601,6 +1604,18 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
 fn main_window_logical_size(app: &tauri::AppHandle) -> Option<(f64, f64)> {
     use tauri::Manager;
     let win = app.get_window("main")?;
+    let sf = win.scale_factor().ok()?;
+    let is = win.inner_size().ok()?;
+    Some((is.width as f64 / sf, is.height as f64 / sf))
+}
+
+/// Logical size of the window that actually HOSTS this webview — a pane in a
+/// detached/pop-out window must do its corner-flush math against ITS window,
+/// not "main" (against main, a full-bleed pop-out pane never looks flush and
+/// stays square over the pop-out window's rounded corners). macOS only.
+#[cfg(target_os = "macos")]
+fn webview_window_logical_size(wv: &tauri::Webview) -> Option<(f64, f64)> {
+    let win = wv.window();
     let sf = win.scale_factor().ok()?;
     let is = win.inner_size().ok()?;
     Some((is.width as f64 / sf, is.height as f64 / sf))
@@ -1778,7 +1793,7 @@ fn browser_open(
     #[cfg(target_os = "macos")]
     if let Some(wv) = app.get_webview(&label) {
         disable_layer_implicit_animations(&wv);
-        if let Some((win_w, win_h)) = main_window_logical_size(&app) {
+        if let Some((win_w, win_h)) = webview_window_logical_size(&wv) {
             // Card radius unknown at create; the client's first bounds push carries it.
             apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, 0.0);
         }
@@ -1839,7 +1854,7 @@ fn browser_set_bounds(
     // pane moves/resizes) and round only those — cached, so the objc work runs only
     // when the flush state actually changes (not every drag frame). See apply_browser_corner_mask.
     #[cfg(target_os = "macos")]
-    if let Some((win_w, win_h)) = main_window_logical_size(&app) {
+    if let Some((win_w, win_h)) = webview_window_logical_size(&wv) {
         apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, radius.unwrap_or(0.0));
     }
     #[cfg(not(target_os = "macos"))]
