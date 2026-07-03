@@ -424,6 +424,29 @@ describe("terminal Claude tab (session-key = terminal id, no chat topic)", () =>
     } finally { h.cleanup(); }
   });
 
+  test("open-project: idempotent — a second move of the SAME tab into the SAME project leaves exactly one membership entry", async () => {
+    const h = makeHarness();
+    try {
+      registerTerminalSession("term-idem");
+      const paneId = seedTerminalPane(h, "term-idem");
+      const dir = join(h.workspaceDir, "idemproj");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "CLAUDE.md"), "# idemproj\n");
+
+      // First move.
+      expect((await h.call("POST", "/api/sessions/term-idem/open-project", { ref: "idemproj" }))!.status).toBe(200);
+      const memKey = `topics-project-panes-${h.projectHash(dir)}`;
+      let mem = h.readUi(memKey) as { nonChatPanes: Array<{ id: string }> };
+      expect(mem.nonChatPanes.map((p) => p.id)).toEqual([paneId]);
+
+      // Re-register the tab (a live tab still exists) and move again → no dup.
+      registerTerminalSession("term-idem");
+      expect((await h.call("POST", "/api/sessions/term-idem/open-project", { ref: "idemproj" }))!.status).toBe(200);
+      mem = h.readUi(memKey) as { nonChatPanes: Array<{ id: string }> };
+      expect(mem.nonChatPanes.map((p) => p.id)).toEqual([paneId]); // still exactly one
+    } finally { h.cleanup(); }
+  });
+
   test("create-project: scaffolds the dir + moves the terminal pane in + broadcasts open-project", async () => {
     const h = makeHarness();
     try {
