@@ -2958,15 +2958,25 @@ fn win_size_file(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         .map(|d| d.join("topics-win-size.json"))
 }
 
-/// Write `{ "w": <logical>, "h": <logical> }`. Ignores bogus/minimized sizes.
-fn save_win_size_logical(path: &std::path::Path, w: f64, h: f64) {
+/// Write `{ "w": <logical>, "h": <logical>, "x": <physical>, "y": <physical> }`.
+/// SIZE is logical (scale-independent — see the module note on why); POSITION is
+/// the PHYSICAL outer-position (top-left) so the multi-monitor validation on
+/// restore can compare it directly against physical monitor bounds without any
+/// per-display scale-factor juggling. Ignores bogus/minimized sizes. `x`/`y` may
+/// be absent (older stores, or when the position can't be read) — the JSON keys
+/// are simply omitted so `read` falls back to centering.
+fn save_win_size_logical(path: &std::path::Path, w: f64, h: f64, pos: Option<(i32, i32)>) {
     if !(w >= 200.0 && h >= 200.0 && w.is_finite() && h.is_finite()) {
         return;
     }
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(path, format!("{{\"w\":{:.0},\"h\":{:.0}}}", w, h));
+    let body = match pos {
+        Some((x, y)) => format!("{{\"w\":{:.0},\"h\":{:.0},\"x\":{},\"y\":{}}}", w, h, x, y),
+        None => format!("{{\"w\":{:.0},\"h\":{:.0}}}", w, h),
+    };
+    let _ = std::fs::write(path, body);
 }
 
 /// Read back the saved logical size, validated.
@@ -2980,6 +2990,82 @@ fn read_win_size_logical(path: &std::path::Path) -> Option<(f64, f64)> {
     } else {
         None
     }
+}
+
+/// Read back the saved PHYSICAL outer-position, if the store carries one.
+/// Returns `None` for older size-only stores so the caller centers instead.
+fn read_win_position_physical(path: &std::path::Path) -> Option<(i32, i32)> {
+    let s = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&s).ok()?;
+    let x = v.get("x")?.as_i64()? as i32;
+    let y = v.get("y")?.as_i64()? as i32;
+    Some((x, y))
+}
+
+/// Validate a saved PHYSICAL window rect against the currently-attached monitors
+/// and return a physical top-left that is guaranteed on-screen.
+///
+/// Why this exists: the old `tauri-plugin-window-state` restored position blindly,
+/// so a window last seen on a now-disconnected/narrower display would be placed
+/// off-screen (or get its width clamped, ratcheting smaller every launch — see the
+/// module note). We keep position persistence but only honor it when the window's
+/// top edge still lands on a live monitor; otherwise we re-anchor onto the nearest
+/// monitor (by center distance), falling back to the first, keeping the window
+/// fully inside that monitor's bounds.
+///
+/// All math is in PHYSICAL pixels: monitor `position()`/`size()` and window
+/// `outer_position()`/`outer_size()` are all physical, so there is no scale-factor
+/// mixing here (the one lesson from the plugin's DPI bug).
+///
+/// `monitors` is `(pos_x, pos_y, width, height)` per attached monitor, physical.
+fn clamp_position_to_monitors(
+    saved: (i32, i32),
+    win: (u32, u32),
+    monitors: &[(i32, i32, u32, u32)],
+) -> Option<(i32, i32)> {
+    if monitors.is_empty() {
+        return None; // no displays enumerated — let the caller center
+    }
+    let (sx, sy) = saved;
+    let (ww, wh) = (win.0 as i32, win.1 as i32);
+
+    // As long as a grabbable slice of the title-bar (top edge) still falls on some
+    // monitor, the window is reachable — honor the saved position verbatim. We
+    // require ~80px of horizontal overlap of the top edge, with the top edge y
+    // inside the monitor vertically.
+    let visible_slice = 80.min(ww);
+    let top_on_a_monitor = monitors.iter().any(|&(mx, my, mw, mh)| {
+        let (mx2, my2) = (mx + mw as i32, my + mh as i32);
+        let overlap_x = (sx + ww).min(mx2) - sx.max(mx);
+        overlap_x >= visible_slice && sy >= my && sy < my2
+    });
+    if top_on_a_monitor {
+        return Some(saved);
+    }
+
+    // Off-screen: pick the monitor whose center is nearest the saved window center,
+    // then place the window fully inside it (clamped, top-left biased if it's larger
+    // than the monitor).
+    let (wcx, wcy) = (sx + ww / 2, sy + wh / 2);
+    let target = monitors
+        .iter()
+        .min_by_key(|&&(mx, my, mw, mh)| {
+            let (mcx, mcy) = (mx + mw as i32 / 2, my + mh as i32 / 2);
+            let (dx, dy) = ((mcx - wcx) as i64, (mcy - wcy) as i64);
+            dx * dx + dy * dy
+        })
+        .copied()
+        .unwrap_or(monitors[0]);
+
+    let (mx, my, mw, mh) = target;
+    let (mw, mh) = (mw as i32, mh as i32);
+    // Clamp so the whole window fits; if the window is bigger than the monitor,
+    // pin to the monitor's top-left (a resize/center pass elsewhere handles size).
+    let max_x = (mx + mw - ww).max(mx);
+    let max_y = (my + mh - wh).max(my);
+    let nx = sx.clamp(mx, max_x);
+    let ny = sy.clamp(my, max_y);
+    Some((nx, ny))
 }
 
 /// Override the pane's User-Agent (device emulation). WKWebView
@@ -4377,23 +4463,67 @@ pub fn run() {
                     // is only drained at gesture end), so we swap to an autoresizing frost
                     // cover for the duration of the drag.
                     wire_live_resize_cover(&win);
-                    // RESTORE the saved LOGICAL size ourselves (see win_size_file): the
-                    // tauri-plugin-window-state plugin mis-handled scale on this mixed-DPI
-                    // multi-monitor setup — it saved PHYSICAL pixels as logical (a 2x display
-                    // wrote 2800x1800) and failed to restore 1656x896. We store size only, in
-                    // logical units, and re-apply it here. Position stays centered.
+                    // RESTORE the saved LOGICAL size + PHYSICAL position ourselves (see
+                    // win_size_file): the tauri-plugin-window-state plugin mis-handled scale on
+                    // this mixed-DPI multi-monitor setup — it saved PHYSICAL pixels as logical (a
+                    // 2x display wrote 2800x1800), failed to restore 1656x896, AND restored
+                    // position blindly (a disconnected display left the window off-screen or
+                    // ratcheted the width smaller). We store size in logical units and position in
+                    // physical pixels, re-apply size here, then validate the position against the
+                    // LIVE monitors (clamp_position_to_monitors) so it always lands on-screen; when
+                    // no position is stored (older store / read failure) we center.
                     if _label == "main" {
-                        if let Some((lw, lh)) = win_size_file(app.handle()).and_then(|p| read_win_size_logical(&p)) {
+                        let store = win_size_file(app.handle());
+                        if let Some((lw, lh)) = store.as_ref().and_then(|p| read_win_size_logical(p)) {
                             let _ = win.set_size(tauri::LogicalSize::new(lw, lh));
-                            // set_size grows from the top-left, so re-center to keep the
-                            // restored-size window centered on its display.
-                            let _ = win.center();
                             eprintln!("[window-restore] applied logical {lw}x{lh}");
                         }
-                        if let (Ok(os), Ok(sf)) = (win.outer_size(), win.scale_factor()) {
+                        // Position: honor the saved physical top-left only if it (still) intersects
+                        // a live monitor; otherwise re-anchor onto the nearest one. Fall back to
+                        // centering when there is no saved position at all.
+                        let saved_pos = store.as_ref().and_then(|p| read_win_position_physical(p));
+                        let placed = if let Some(saved) = saved_pos {
+                            let win_size = win
+                                .outer_size()
+                                .map(|s| (s.width, s.height))
+                                .unwrap_or((1200, 800));
+                            let monitors: Vec<(i32, i32, u32, u32)> = win
+                                .available_monitors()
+                                .unwrap_or_default()
+                                .iter()
+                                .map(|m| {
+                                    let p = m.position();
+                                    let s = m.size();
+                                    (p.x, p.y, s.width, s.height)
+                                })
+                                .collect();
+                            if let Some((nx, ny)) =
+                                clamp_position_to_monitors(saved, win_size, &monitors)
+                            {
+                                let _ = win.set_position(tauri::PhysicalPosition::new(nx, ny));
+                                eprintln!(
+                                    "[window-restore] applied physical position {nx},{ny} (saved {},{})",
+                                    saved.0, saved.1
+                                );
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        if !placed {
+                            // No usable saved position — set_size grows from the top-left, so
+                            // center to keep the restored-size window on its display.
+                            let _ = win.center();
+                            eprintln!("[window-restore] no saved position — centered");
+                        }
+                        if let (Ok(os), Ok(op), Ok(sf)) =
+                            (win.outer_size(), win.outer_position(), win.scale_factor())
+                        {
                             eprintln!(
-                                "[window-restore] main now outer={}x{} scale={} logical={}x{}",
-                                os.width, os.height, sf,
+                                "[window-restore] main now outer={}x{} @ {},{} scale={} logical={}x{}",
+                                os.width, os.height, op.x, op.y, sf,
                                 (os.width as f64 / sf).round(),
                                 (os.height as f64 / sf).round()
                             );
@@ -4418,7 +4548,16 @@ pub fn run() {
                             if let (Some(p), Ok(os), Ok(sf)) =
                                 (size_file.as_ref(), w.outer_size(), w.scale_factor())
                             {
-                                save_win_size_logical(p, os.width as f64 / sf, os.height as f64 / sf);
+                                // Persist SIZE (logical) + POSITION (physical outer top-left) so a
+                                // restart lands the window back on the same display/spot. Position
+                                // is best-effort — omit it if unreadable rather than clobber size.
+                                let pos = w.outer_position().ok().map(|p| (p.x, p.y));
+                                save_win_size_logical(
+                                    p,
+                                    os.width as f64 / sf,
+                                    os.height as f64 / sf,
+                                    pos,
+                                );
                             }
                         }
                     };
