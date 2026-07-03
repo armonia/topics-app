@@ -13,15 +13,21 @@ the same WebSocket broadcasts as before.
 
 #### Scenario: Bind the current session's topic to a project
 - **GIVEN** a session whose `sessionKey` maps to an existing topic
-- **WHEN** a client calls `POST /api/sessions/:sessionKey/bind-project` with `{ "projectPath": "/abs/path" }`
-- **THEN** the system SHALL resolve the path with raw-path trust, set the topic's `projectPath`, and persist it
+- **WHEN** a client calls `POST /api/sessions/:sessionKey/open-project` with `{ "ref": "project-name-or-slug" }`
+- **THEN** the system SHALL resolve the ref against known projects (name/slug, `trustRawPaths:false` — an arbitrary absolute path is refused for the AI path), set the topic's `projectPath`, and persist it
 - **AND** SHALL broadcast `topic:updated` and `pane:focus-suggest` so every client nests the session under the project window
 - **AND** SHALL return HTTP 200 with the bound project path
 
-#### Scenario: Reject bind to a non-existent path
+> Shipped as `open-project` (not `bind-project`) with a name/slug `ref` rather
+> than a raw `projectPath`: the AI path resolves projects Topics already knows
+> and refuses arbitrary paths, so an untrusted model can't nest a session under
+> `/etc` or `~/.ssh`. A terminal Claude tab (no chat topic) falls back to
+> `moveTerminalPaneToProject` on the same endpoint.
+
+#### Scenario: Reject bind to an unknown project
 - **GIVEN** a valid session
-- **WHEN** `POST .../bind-project` is called with a `projectPath` that does not exist
-- **THEN** the system SHALL return HTTP 400 and SHALL NOT change the topic
+- **WHEN** `POST .../open-project` is called with a `ref` that resolves to no known project (unknown name, or a raw absolute path under `trustRawPaths:false`)
+- **THEN** the system SHALL return HTTP 404 and SHALL NOT change the topic
 
 #### Scenario: Create a project and bind it
 - **WHEN** `POST /api/sessions/:sessionKey/create-project` is called with `{ "name": "Foo" }`
@@ -34,9 +40,12 @@ the same WebSocket broadcasts as before.
 - **AND** SHALL return HTTP 404 if the target topic does not exist, 400 if it is archived
 
 #### Scenario: Create a new topic and switch to it
-- **WHEN** `POST /api/sessions/:sessionKey/create-topic` is called with `{ "title": "..." }`
+- **WHEN** `POST /api/sessions/:sessionKey/new-topic` is called with `{ "title": "..." }`
 - **THEN** the system SHALL create the topic (inheriting the current `projectPath` if set), broadcast `topic:created` then `topic:switch`
 - **AND** SHALL return the new topic id
+
+> Shipped as `new-topic` (not `create-topic`). Endpoint names shipped as
+> `open-project` / `create-project` / `switch-topic` / `new-topic`.
 
 #### Scenario: Unknown session
 - **WHEN** any control endpoint is called with a `sessionKey` that maps to no topic
@@ -49,9 +58,14 @@ provider tier.
 
 #### Scenario: CLI provider invokes a control tool via MCP
 - **GIVEN** a claude-code session whose MCP bridge is loaded
-- **WHEN** the assistant calls the `bind_project` tool with a project path
-- **THEN** the MCP bridge SHALL call `POST /api/sessions/:sessionKey/bind-project`
+- **WHEN** the assistant calls the `open_project` tool with a project name/slug ref
+- **THEN** the MCP bridge SHALL call `POST /api/sessions/:sessionKey/open-project`
 - **AND** the tool SHALL return a short confirmation as its result
+
+> Shipped MCP tools: `open_project` / `create_project` / `switch_topic` /
+> `new_topic` / `move_session_to_project` (not `bind_project`). SDK passthrough
+> registers the same four topic/project tools via `sendOptions.tools`
+> (server/control-tools.ts).
 
 #### Scenario: SDK provider invokes a control tool via passthrough
 - **GIVEN** a claude or openai session with control tools registered in `sendOptions.tools`

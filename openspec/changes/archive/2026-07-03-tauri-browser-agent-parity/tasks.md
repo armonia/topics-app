@@ -1,5 +1,29 @@
 # Tasks — tauri-browser-agent-parity
 
+## Status 2026-07-03 — ARCHIVED with DEFERRED tail (deliberate)
+
+Phases 1-2 + navigation/scheme-guard hardening are SHIPPED and load-bearing
+(observe/act/extract/get_text/read_screen/point native, per-pane scheme-guard LFI
+fix, nav history). The remaining unchecked tasks are DEFERRED ON PURPOSE — none are
+forgotten:
+
+- **4.1-4.3 Phase 3 cookie bridge (Rust `WKHTTPCookieStore`)** — the SET path is an
+  objc write with `NSHTTPCookie*` property dicts + async completion handler:
+  `cargo check` verifies compilation but NOT runtime (a wrong selector compiles and
+  crashes live), and there's no device to smoke-test on here. Needs an on-binary
+  smoke test to land "solid and stable".
+- **5.2 WKWebView permission delegate (camera/mic/geo)** — requires a `WKUIDelegate`
+  subclass registered via objc `ClassDecl`; not runtime-testable in this env.
+- **5.3 window.open/close (OAuth popups)** — correct popup semantics need the
+  `createWebViewWith` UI-delegate; a JS `window.open`/`close` override is a footgun
+  (would close the whole pane on an in-place OAuth).
+- **6.2 / 7.3 / 7.4** — Playwright E2E on the debug Tauri binary, on-device smoke,
+  and the adversarial diff review: all require the built desktop binary / device,
+  out of scope for a headless session.
+
+These are recorded here so the archive preserves the rationale; picking them up
+means an on-device pass, not a code gap.
+
 ## 1. Core snapshot condiviso (fondazione Phase 1)
 - [x] 1.1 Estrarre il core dependency-free in `shared/browser-snapshot-core.ts` (importabile da client+server): `SNAPSHOT_FN`, `serialize`, `diff`, `sig`, `line`, tipi `SnapElement`/`Snapshot`/`SnapshotDiff`/`RefAction`/`ExtractFields` + `ACT_FN`/`EXTRACT_FN`. Nessun import `playwright-core` nel core.
 - [x] 1.2 `server/browser-snapshot.ts` re-esporta dal core e tiene solo gli helper render-specifici (`snapshotPage`/`actByRefOnPage`/`getTextOnPage`/`extractFieldsOnPage`/`evalOnPage`). `typecheck:server` verde (0 errori), nessun chiamante rotto.
