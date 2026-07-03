@@ -15,7 +15,7 @@
  * handler once.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClaudeSessionState, WSMessage } from '../types';
 import { subscribeLifecycle } from '../lib/wsFrameBus';
 import { useRefMirror } from './useRefMirror';
@@ -38,11 +38,67 @@ export interface UseClaudeSessionStateResult {
   hydrated: boolean;
 }
 
+/**
+ * Merge one incoming session state into `prev`, honoring the rev/phase
+ * monotonicity guard: a frame whose rev is not newer AND whose phase is
+ * unchanged is stale and ignored. Returns the SAME map reference on a no-op so
+ * callers can skip a re-render; otherwise a new Map with `key` updated. Pure —
+ * unit-tested in useClaudeSessionState.test.ts.
+ */
+export function mergeSessionState(
+  prev: Map<string, ClaudeSessionState>,
+  key: string,
+  incoming: ClaudeSessionState,
+): Map<string, ClaudeSessionState> {
+  const existing = prev.get(key);
+  if (existing && incoming.rev <= existing.rev && existing.phase === incoming.phase) {
+    return prev;
+  }
+  const next = new Map(prev);
+  next.set(key, incoming);
+  return next;
+}
+
 export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseClaudeSessionStateResult {
   const [sessions, setSessions] = useState<Map<string, ClaudeSessionState>>(() => new Map());
   const [hydrated, setHydrated] = useState(false);
   // Ref mirror so the WS handler reads the freshest map without re-binding.
   const sessionsRef = useRefMirror(sessions);
+
+  // session:state frames arrive per hook-phase transition — several per second
+  // while a claude-code session runs through tools, × concurrent sessions. Each
+  // one used to setState the map directly, re-rendering the App root (which
+  // consumes this map → feeds the signals store) on EVERY frame. Coalesce a
+  // burst into ONE commit per animation frame: buffer the freshest state per
+  // key, then apply them together on the next rAF. The rev/phase guard still
+  // runs at commit time (mergeSessionState), so ordering/staleness semantics
+  // are unchanged; the only observable difference is a ≤1-frame (~16 ms) batch
+  // delay. The completion notifier keeps its OWN session:state subscription, so
+  // it still sees every frame — coalescing here never drops an edge it needs.
+  const pendingRef = useRef<Map<string, ClaudeSessionState>>(new Map());
+  const flushRafRef = useRef<number | null>(null);
+
+  const flushSessions = useCallback(() => {
+    flushRafRef.current = null;
+    const pending = pendingRef.current;
+    if (pending.size === 0) return;
+    pendingRef.current = new Map();
+    setSessions((prev) => {
+      let next = prev;
+      for (const [key, incoming] of pending) next = mergeSessionState(next, key, incoming);
+      return next;
+    });
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushRafRef.current != null) return;
+    flushRafRef.current = requestAnimationFrame(flushSessions);
+  }, [flushSessions]);
+
+  // Cancel any pending coalesced flush on unmount.
+  useEffect(() => () => {
+    if (flushRafRef.current != null) cancelAnimationFrame(flushRafRef.current);
+  }, []);
 
   const fetchUrl = opts.fetchUrl ?? '/api/claude-sessions';
 
@@ -96,26 +152,22 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
     return () => { unsub(); cancelInFlight?.(); };
   }, [bootstrap]);
 
-  // Live updates — `useWSSubscription` owns the subscribe/cleanup
-  // shape; we only define the per-message body.
+  // Live updates — `useWSSubscription` owns the subscribe/cleanup shape; we
+  // only define the per-message body. Frames are buffered per key and committed
+  // once per animation frame (see flushSessions above).
   useWSSubscription(opts.onWSMessage, 'session:state', (msg) => {
     const incoming = msg.state;
     // Topic sessions key off sessionKey; topic-less terminal sessions off
     // claudeSessionId (sessionKey is null for those).
     const key = msg.sessionKey ?? incoming?.claudeSessionId;
     if (!incoming || !key) return;
-    const cur = sessionsRef.current.get(key);
-    // Reject out-of-order revs.
-    if (cur && incoming.rev <= cur.rev && cur.phase === incoming.phase) return;
-    setSessions((prev) => {
-      const existing = prev.get(key);
-      if (existing && incoming.rev <= existing.rev && existing.phase === incoming.phase) {
-        return prev;
-      }
-      const next = new Map(prev);
-      next.set(key, incoming);
-      return next;
-    });
+    // Reject out-of-order revs against the freshest state we've seen this frame
+    // (buffered) or already committed (mirror). A buffered entry always passed
+    // this same guard vs. the committed map, so it dominates when present.
+    const ref = pendingRef.current.get(key) ?? sessionsRef.current.get(key);
+    if (ref && incoming.rev <= ref.rev && ref.phase === incoming.phase) return;
+    pendingRef.current.set(key, incoming);
+    scheduleFlush();
   });
 
   // Stale-attention TTL sweep. A session that DIES without a terminating event

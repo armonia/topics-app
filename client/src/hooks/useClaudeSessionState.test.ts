@@ -1,0 +1,62 @@
+import { describe, it, expect } from 'bun:test';
+import { mergeSessionState } from './useClaudeSessionState';
+import type { ClaudeSessionState, ClaudeSessionPhase } from '../types';
+
+// Fixture builder — only the fields the rev/phase guard reads matter.
+function st(rev: number, phase: ClaudeSessionPhase, key = 'k1'): ClaudeSessionState {
+  return {
+    sessionKey: key,
+    claudeSessionId: `cs-${key}`,
+    phase,
+    phaseUpdatedAt: rev,
+    rev,
+    updatedAt: rev,
+  };
+}
+
+describe('mergeSessionState — rev/phase monotonicity guard (coalescing correctness)', () => {
+  it('inserts a brand-new key', () => {
+    const prev = new Map<string, ClaudeSessionState>();
+    const next = mergeSessionState(prev, 'k1', st(1, 'running'));
+    expect(next).not.toBe(prev);
+    expect(next.get('k1')?.rev).toBe(1);
+  });
+
+  it('applies a newer rev with the same phase', () => {
+    const prev = new Map([['k1', st(1, 'running')]]);
+    const next = mergeSessionState(prev, 'k1', st(2, 'running'));
+    expect(next).not.toBe(prev);
+    expect(next.get('k1')?.rev).toBe(2);
+  });
+
+  it('rejects a lower rev with the same phase (no-op, same ref)', () => {
+    const prev = new Map([['k1', st(5, 'running')]]);
+    const next = mergeSessionState(prev, 'k1', st(3, 'running'));
+    expect(next).toBe(prev); // identity preserved → no re-render
+  });
+
+  it('rejects an equal rev with the same phase (no-op, same ref)', () => {
+    const prev = new Map([['k1', st(5, 'running')]]);
+    const next = mergeSessionState(prev, 'k1', st(5, 'running'));
+    expect(next).toBe(prev);
+  });
+
+  it('ACCEPTS an equal/lower rev when the phase CHANGED (phase transition wins)', () => {
+    const prev = new Map([['k1', st(5, 'running')]]);
+    const next = mergeSessionState(prev, 'k1', st(5, 'awaiting-user'));
+    expect(next).not.toBe(prev);
+    expect(next.get('k1')?.phase).toBe('awaiting-user');
+  });
+
+  it('folds a burst in order → last newer state wins, keys independent', () => {
+    // Simulates flushSessions applying a per-key-buffered batch sequentially.
+    let m = new Map<string, ClaudeSessionState>();
+    m = mergeSessionState(m, 'k1', st(1, 'starting', 'k1'));
+    m = mergeSessionState(m, 'k2', st(1, 'running', 'k2'));
+    m = mergeSessionState(m, 'k1', st(2, 'running', 'k1'));
+    m = mergeSessionState(m, 'k1', st(3, 'tool-running', 'k1'));
+    expect(m.get('k1')?.rev).toBe(3);
+    expect(m.get('k1')?.phase).toBe('tool-running');
+    expect(m.get('k2')?.rev).toBe(1);
+  });
+});
