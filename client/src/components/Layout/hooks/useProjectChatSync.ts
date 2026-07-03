@@ -32,7 +32,13 @@
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Pane, PaneGroup, PaneType, Topic } from '../../../types';
-import { createPaneId } from '../../../state/pane/adapters';
+import {
+  createPaneId,
+  getBrowserTombstones,
+  getTerminalTombstones,
+  getBrowserContextFromPaneId,
+  getTerminalSessionFromPaneId,
+} from '../../../state/pane/adapters';
 import { projectFocusActions } from '../../../state/projectFocus';
 import type {
   ChatReconciliation,
@@ -322,9 +328,32 @@ export function useProjectChatSync(
         const localSingletonTypes = new Set(
           panesRef.current.filter(p => !STABLE_MULTI_TYPES.has(p.type)).map(p => p.type),
         );
+        // Removal signal for the union. The project tab-identity channel syncs
+        // only the OPEN set ({nonChatPanes, openChatTopicIds}) with no tombstone
+        // on the wire, and this hydrate is additive — so a stale server value or
+        // a peer that still lists a pane the LOCAL user just closed would
+        // resurrect it (the "chiudo la tab e ritorna" bug, worst for
+        // browser/terminal which — unlike chats — carry no archived flag). The
+        // durable browser/terminal tombstones ARE the local removal record;
+        // consult them here exactly as the mount-time seed already does
+        // (useProjectLayout.ts). Chats stay shielded by their archived flag below.
+        const browserTombstones = getBrowserTombstones();
+        const terminalTombstones = getTerminalTombstones();
+        const isTombstoned = (p: Pane): boolean => {
+          if (p.type === 'browser') {
+            const ctx = getBrowserContextFromPaneId(p.id);
+            return !!ctx && browserTombstones.has(ctx);
+          }
+          if (p.type === 'terminal') {
+            const sid = getTerminalSessionFromPaneId(p.id);
+            return !!sid && terminalTombstones.has(sid);
+          }
+          return false;
+        };
         const add = fresh.nonChatPanes.filter(p => {
           if (curIds.has(p.id)) return false;
           if (!STABLE_MULTI_TYPES.has(p.type) && localSingletonTypes.has(p.type)) return false;
+          if (isTombstoned(p)) return false;
           return true;
         });
         if (add.length > 0) {
