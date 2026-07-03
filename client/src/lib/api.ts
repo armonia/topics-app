@@ -74,7 +74,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 // deliberately mixed about how that envelope is surfaced to callers:
 //
 //   • List methods that return the bare array (`agentProfilesApi.list`,
-//     `webhooksApi.list`, `dashboardApi.getTimeSeries/getAgentStats`,
+//     `dashboardApi.getTimeSeries/getAgentStats`,
 //     `boardMemoryApi.list`, `agentActionsApi.list`) `await request<{ key: T[] }>`
 //     and return `.key` — the caller never sees the envelope.
 //   • The remaining methods (`tasksApi.list`, `boardsApi.listTasks`,
@@ -1198,40 +1198,6 @@ export const agentProfilesApi = {
     if (params.offset) qs.set('offset', String(params.offset));
     const q = qs.toString();
     return request<SessionHistoryResponse>(`/agents/sessions/history${q ? `?${q}` : ''}`);
-  },
-};
-
-// ── Webhooks ────────────────────────────────────────────────────────────────
-
-export interface Webhook {
-  id: string;
-  name: string;
-  url: string;
-  secret: string;
-  events: string[];
-  active: boolean;
-  retryCount: number;
-  timeoutMs: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export const webhooksApi = {
-  async list(): Promise<Webhook[]> {
-    const data = await request<{ webhooks: Webhook[] }>('/webhooks');
-    return data.webhooks;
-  },
-  async create(body: Partial<Webhook>): Promise<Webhook> {
-    return request<Webhook>('/webhooks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  },
-  async update(id: string, body: Partial<Webhook>): Promise<Webhook> {
-    return request<Webhook>(`/webhooks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  },
-  async remove(id: string): Promise<void> {
-    await request(`/webhooks/${id}`, { method: 'DELETE' });
-  },
-  async test(id: string): Promise<{ deliveryId: string; status: string; httpStatus: number | null; error?: string }> {
-    return request(`/webhooks/${id}/test`, { method: 'POST' });
   },
 };
 

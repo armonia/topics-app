@@ -131,7 +131,6 @@ export const agentProfilesApi = mk({ list: async () => ([
   { id: "a1", name: "Lead", role: "lead", modelPreference: "opus", maxConcurrentTasks: 3, capabilities: [], avatarEmoji: "🧭", status: "online", createdAt: now(), updatedAt: now() },
   { id: "a2", name: "Worker", role: "worker", modelPreference: "sonnet", maxConcurrentTasks: 2, capabilities: [], avatarEmoji: "⚙️", status: "idle", createdAt: now(), updatedAt: now() },
 ]) });
-export const webhooksApi = mk({ list: async () => ({ webhooks: [] }) });
 export const dashboardApi = mk({
   getKPIs: async () => ({ throughputDay: 12, throughputWeek: 64, avgCycleTimeHours: 3.2, wipCount: 4, errorRate: 0.02, tokenSpendDay: 1.4, tokenSpendWeek: 9.1, agentUtilization: 0.62, approvalTurnaroundHours: 1.1, pendingApprovals: 0 }),
   getTimeSeries: async () => ([]), getAgentStats: async () => ([]),
