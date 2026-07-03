@@ -47,6 +47,20 @@ function lastChangePlugin(): Plugin {
 // App version is the source-of-truth root package version (kept in lockstep with
 // the Tauri conf + Cargo.toml) — surfaced in the status bar so you can tell at a
 // glance which build is running.
+// Git short-hash of the checkout at build time (+ '*' when the tree is dirty)
+// — the ONLY reliable freshness signal: the semver only changes on release
+// bumps, so locally-delivered builds all share it. Shown in the version popover.
+const __buildSha = (() => {
+  try {
+    const { execSync } = require('node:child_process');
+    const sha = execSync('git rev-parse --short HEAD', { cwd: __dirname }).toString().trim();
+    const dirty = execSync('git status --porcelain --untracked-files=no', { cwd: __dirname }).toString().trim() ? '*' : '';
+    return sha + dirty;
+  } catch {
+    return '';
+  }
+})();
+
 const __appVersion = (() => {
   try {
     return JSON.parse(
@@ -61,6 +75,7 @@ export default defineConfig({
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
     __APP_VERSION__: JSON.stringify(__appVersion),
+    __BUILD_SHA__: JSON.stringify(__buildSha),
   },
   plugins: [devIconPlugin(), lastChangePlugin(), react(), tailwindcss()],
   resolve: {

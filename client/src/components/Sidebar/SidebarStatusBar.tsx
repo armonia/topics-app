@@ -14,6 +14,7 @@ import { isDesktop } from '@/lib/shell';
 import { getVersion, relaunch } from '@/lib/shell/app';
 
 declare const __BUILD_TIME__: string;
+declare const __BUILD_SHA__: string;
 declare const __APP_VERSION__: string;
 
 // App version baked at build time (from electron-app/package.json). In the
@@ -27,6 +28,7 @@ const BUILD_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION
 // codice" is misleading. In prod we drop the relative chip and surface this as
 // an absolute build date in the version tooltip instead.
 const BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '';
+const BUILD_SHA = typeof __BUILD_SHA__ !== 'undefined' ? __BUILD_SHA__ : '';
 function formatBuildDate(iso: string): string {
   try {
     return new Date(iso).toLocaleString('it-IT', { dateStyle: 'medium', timeStyle: 'short' });
@@ -417,6 +419,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
           appVersion={appVersion}
           isDev={isDev}
           buildDate={BUILD_TIME ? formatBuildDate(BUILD_TIME) : ''}
+          buildSha={BUILD_SHA}
           onClose={() => setShowVersionPopover(false)}
         />
       )}
