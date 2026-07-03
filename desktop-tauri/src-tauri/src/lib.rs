@@ -1505,30 +1505,25 @@ fn window_corner_radius() -> f64 {
 
 #[cfg(target_os = "macos")]
 fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f64, h: f64, win_w: f64, win_h: f64, card_radius: f64) {
-    const EPS: f64 = 2.0;
-    let flush_left = x <= EPS;
-    let flush_top = y <= EPS;
-    let flush_right = win_w > 0.0 && (x + w) >= (win_w - EPS);
-    let flush_bottom = win_h > 0.0 && (y + h) >= (win_h - EPS);
+    // Attilio's final ruling (2026-07-03): the webview rounds ONLY where it
+    // meets a WINDOW corner — never its own card corners mid-screen. Floating
+    // cards keep a margin (~12px) from the window edge, so "meets the window
+    // corner" needs a wider tolerance there; `card_radius > 0` is the client's
+    // "we are in floating mode" signal (its value is otherwise unused now).
+    let eps: f64 = if card_radius > 0.0 { 18.0 } else { 2.0 };
+    let flush_left = x <= eps;
+    let flush_top = y <= eps;
+    let flush_right = win_w > 0.0 && (x + w) >= (win_w - eps);
+    let flush_bottom = win_h > 0.0 && (y + h) >= (win_h - eps);
     let tl = flush_left && flush_top;
     let tr = flush_right && flush_top;
     let bl = flush_left && flush_bottom;
     let br = flush_right && flush_bottom;
-    let any_flush = tl || tr || bl || br;
-    // Two regimes:
-    //  - FLUSH (tiled pane touching window corner(s)): round exactly those
-    //    corners to the OS window radius, or the webview pokes past the frame.
-    //  - FLOATING CARD (client sent its card radius; floating cards have
-    //    margins so they're never flush): round the BOTTOM corners to the card
-    //    radius — the webview's bottom corners coincide with the card's; its
-    //    TOP corners sit mid-card under the DOM BrowserToolbar, so rounding
-    //    them would carve notches into the middle of the card.
-    let round_card = !any_flush && card_radius > 0.0;
-    let radius = if round_card { card_radius } else { window_corner_radius() };
+    let radius = window_corner_radius();
     // Skip the (main-thread) objc round-trip when the corner state is unchanged
     // for this pane — the common case on every drag frame after the first.
     let visual: u8 = (tl as u8) | ((tr as u8) << 1) | ((bl as u8) << 2) | ((br as u8) << 3);
-    let radius_key: u16 = if round_card { (card_radius * 4.0) as u16 } else { 0 };
+    let radius_key: u16 = 0;
     {
         let mut g = match browser_corner_cache().lock() {
             Ok(g) => g,
@@ -1551,9 +1546,8 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
         if layer == nil {
             return;
         }
-        if !(tl || tr || bl || br) && !round_card {
-            // No corner coincides with a window corner and no floating card
-            // radius → keep it square.
+        if !(tl || tr || bl || br) {
+            // No corner coincides with a window corner → keep it square.
             let _: () = msg_send![layer, setMasksToBounds: NO];
             let _: () = msg_send![layer, setCornerRadius: 0.0_f64];
             return;
@@ -1574,22 +1568,17 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
             (MINX_MAXY, MAXX_MAXY, MINX_MINY, MAXX_MINY)
         };
         let mut mask: u64 = 0;
-        if round_card {
-            // Bottom corners only — the card's own corners at webview level.
-            mask = bl_bit | br_bit;
-        } else {
-            if tl {
-                mask |= tl_bit;
-            }
-            if tr {
-                mask |= tr_bit;
-            }
-            if bl {
-                mask |= bl_bit;
-            }
-            if br {
-                mask |= br_bit;
-            }
+        if tl {
+            mask |= tl_bit;
+        }
+        if tr {
+            mask |= tr_bit;
+        }
+        if bl {
+            mask |= bl_bit;
+        }
+        if br {
+            mask |= br_bit;
         }
         let _: () = msg_send![layer, setCornerRadius: radius];
         let _: () = msg_send![layer, setMaskedCorners: mask];
