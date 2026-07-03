@@ -118,10 +118,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     } else if (hide) {
       rect = OFFSCREEN;
     }
-    // Floating-splits panes are rounded CARDS with margins — never window-flush,
-    // so the shell's flush-corner mask alone leaves the native view square. Ship
-    // the card radius so the shell rounds ALL corners to match (10 = FLOAT_RADIUS,
-    // keep in sync with --float-radius in index.css / useFloatingVibrancy).
+    // Floating-mode signal for the shell's corner mask: floating cards keep a
+    // margin from the window edge, so the shell widens its "meets a window
+    // corner" tolerance when this is non-zero. Rounding happens ONLY at window
+    // corners (Attilio's ruling) — the value itself is not a corner radius.
     const radius = document.querySelector('.floating-splits') ? 10 : 0;
     void tauriInvoke('browser_set_bounds', {
       id,
