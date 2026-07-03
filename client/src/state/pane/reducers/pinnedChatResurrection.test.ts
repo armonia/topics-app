@@ -38,7 +38,6 @@ const CHAT = "11111111-1111-4111-8111-111111111111"; // UUID-like → a chat id
 const blank = (): PaneState => ({
   panes: {},
   groups: {},
-  projects: {},
   closedStack: [],
   tombstones: {},
   focusedPaneId: null,

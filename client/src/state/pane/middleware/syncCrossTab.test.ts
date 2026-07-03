@@ -65,7 +65,6 @@ function resetStore(): void {
   usePaneStore.setState({
     panes: {},
     groups: {},
-    projects: {},
     closedStack: [],
     focusedPaneId: null,
     groupOrder: [],
@@ -117,7 +116,6 @@ describe("syncCrossTab — self-suppression (bug #4)", () => {
     const selfPayload = JSON.stringify({
       panes: {},
       groups: {},
-      projects: {},
       groupOrder: [],
       closedStack: [],
       lastSeq: 99,
@@ -144,7 +142,6 @@ describe("syncCrossTab — self-suppression (bug #4)", () => {
     const foreignPayload = JSON.stringify({
       panes: {},
       groups: {},
-      projects: {},
       groupOrder: [],
       closedStack: [],
       lastSeq: 100,
@@ -171,7 +168,6 @@ describe("syncCrossTab — self-suppression (bug #4)", () => {
     const payload = JSON.stringify({
       panes: {},
       groups: {},
-      projects: {},
       groupOrder: [],
       closedStack: [],
       lastSeq: 50,
@@ -199,7 +195,6 @@ describe("syncCrossTab — self-suppression (bug #4)", () => {
     const payload = JSON.stringify({
       panes: {},
       groups: {},
-      projects: {},
       groupOrder: [],
       closedStack: [],
       lastSeq: 100,
@@ -224,7 +219,6 @@ describe("syncCrossTab — self-suppression (bug #4)", () => {
     const stalePayload = JSON.stringify({
       panes: {},
       groups: {},
-      projects: {},
       groupOrder: [],
       closedStack: [],
       lastSeq: 999, // inflated local counter — must NOT win LWW

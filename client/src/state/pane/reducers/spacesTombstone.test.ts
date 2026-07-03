@@ -13,7 +13,6 @@ import type { PaneState, Pane } from "../types";
 const blank = (activeSpaceId = "space:default"): PaneState => ({
   panes: {},
   groups: {},
-  projects: {},
   closedStack: [],
   tombstones: {},
   focusedPaneId: null,

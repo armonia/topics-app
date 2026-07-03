@@ -169,7 +169,6 @@ export interface ClosedPaneRecord {
 export interface PaneState {
   panes: Record<string, Pane>;
   groups: Record<string, Group>;
-  projects: Record<string, ProjectLayout>;
   closedStack: ClosedPaneRecord[]; // bounded at 50, FIFO
   /**
    * Durable close markers: paneId → closedAt (ms). SEPARATE from `closedStack`
@@ -228,8 +227,6 @@ export type PaneAction =
   | { type: 'SPLIT'; payload: { groupId: string; axis: 'horizontal' | 'vertical'; ratio: number } }
   | { type: 'RESIZE'; payload: { groupId: string; ratio: number } }
   | { type: 'REORDER_PANES'; payload: { groupId: string; paneIds: string[] } }
-  | { type: 'PROJECT_LAYOUT_RESTORE'; payload: { projectPath: string; layout: ProjectLayout } }
-  | { type: 'PROJECT_LAYOUT_SNAPSHOT'; payload: { projectPath: string } }
   | {
       type: 'HYDRATE_FROM_LEGACY';
       payload: {
