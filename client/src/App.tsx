@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List } from 'lucide-react';
+import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { SidebarTab } from './types';
@@ -1205,6 +1205,24 @@ function App() {
               ? <LayoutGrid size={isMobile ? 18 : 14} />
               : <List size={isMobile ? 18 : 14} />}
             <span className="flex-1 text-left">{sidebar.viewMode === 'timeline' ? 'Vista a gruppi' : 'Vista timeline'}</span>
+          </button>
+          {/* "Reimposta pannelli" — same per-window flatten the ⌘K palette and
+              the tab-bar context menu expose (the shared 'topics:reset-split-
+              layout' CustomEvent bus). The focused surface — a project window's
+              inner splits OR the standalone grid — collapses to a single row of
+              equal columns; tabs stay open and it's ⌘Z-undoable. Sidebar entry
+              is always offered (like the palette); it no-ops when already flat. */}
+          <button
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('topics:reset-split-layout'));
+              setShowTopicsMenu(false);
+              setExpandedTool(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            title="Appiattisce gli split su un solo livello (le schede restano aperte)"
+          >
+            <RotateCcw size={isMobile ? 18 : 14} />
+            <span className="flex-1 text-left">Reimposta pannelli</span>
           </button>
           <button
             onClick={() => { setShowTopicsMenu(false); setExpandedTool('remote'); }}
