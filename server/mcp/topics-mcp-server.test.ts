@@ -27,6 +27,11 @@ import {
   callReadAgent,
   callListAgents,
   callStopAgent,
+  callSwitchTopic,
+  callNewTopic,
+  callCreateProject,
+  callOpenProject,
+  callMoveToProject,
   handleMessage,
 } from "./topics-mcp-server";
 
@@ -617,5 +622,155 @@ describe("callListAgents / callStopAgent", () => {
     expect(seen.url).toBe("http://x/api/sessions/s/agents/kid1/stop");
     expect(seen.init?.method).toBe("POST");
     expect(text).toContain("stopped sub-agent kid1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Topic / project control bridge (successors to {{TOPIC_*}}/{{PROJECT_*}})
+// ---------------------------------------------------------------------------
+
+describe("callSwitchTopic", () => {
+  test("POSTs topicId to the session-keyed switch-topic endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ ok: true, toTopicId: "t2" }), { status: 200 });
+    });
+    const text = await callSwitchTopic({ baseUrl: "http://x", sessionKey: "topic:abc" }, { topic_id: "t2" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/switch-topic");
+    expect(seen.init?.method).toBe("POST");
+    expect(seen.init?.body).toBe(JSON.stringify({ topicId: "t2" }));
+    expect(text).toContain("switched to topic t2");
+  });
+
+  test("throws when topic_id missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callSwitchTopic({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/topic_id.*required/i);
+  });
+
+  test("surfaces the endpoint's 400 archived error", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ error: "target topic is archived", code: "topic_archived" }), { status: 400 }),
+    );
+    await expect(
+      callSwitchTopic({ baseUrl: "http://x", sessionKey: "s" }, { topic_id: "dead" }, fetchImpl),
+    ).rejects.toThrow(/archived/i);
+  });
+});
+
+describe("callNewTopic", () => {
+  test("POSTs title to the session-keyed new-topic endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ ok: true, topicId: "new1" }), { status: 200 });
+    });
+    const text = await callNewTopic({ baseUrl: "http://x", sessionKey: "s" }, { title: "My Findings" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/new-topic");
+    expect(seen.init?.body).toBe(JSON.stringify({ title: "My Findings" }));
+    expect(text).toContain('"My Findings"');
+    expect(text).toContain("id=new1");
+  });
+
+  test("throws when title missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callNewTopic({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/title.*required/i);
+  });
+});
+
+describe("callCreateProject", () => {
+  test("POSTs name to the session-keyed create-project endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ ok: true, projectPath: "/ws/Fresh" }), { status: 200 });
+    });
+    const text = await callCreateProject({ baseUrl: "http://x", sessionKey: "s" }, { name: "Fresh" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/create-project");
+    expect(seen.init?.body).toBe(JSON.stringify({ name: "Fresh" }));
+    expect(text).toContain("/ws/Fresh");
+  });
+
+  test("surfaces the endpoint's 409 collision error", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ error: 'project "Taken" already exists', code: "project_exists" }), { status: 409 }),
+    );
+    await expect(
+      callCreateProject({ baseUrl: "http://x", sessionKey: "s" }, { name: "Taken" }, fetchImpl),
+    ).rejects.toThrow(/already exists/i);
+  });
+
+  test("throws when name missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callCreateProject({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/name.*required/i);
+  });
+});
+
+describe("callOpenProject", () => {
+  test("POSTs ref to the session-keyed open-project endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ ok: true, projectPath: "/ws/known" }), { status: 200 });
+    });
+    const text = await callOpenProject({ baseUrl: "http://x", sessionKey: "s" }, { ref: "known" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/open-project");
+    expect(seen.init?.body).toBe(JSON.stringify({ ref: "known" }));
+    expect(text).toContain("/ws/known");
+  });
+
+  test("surfaces the endpoint's 404 unknown-ref error", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ error: "project not found (must be a project Topics already knows)" }), { status: 404 }),
+    );
+    await expect(
+      callOpenProject({ baseUrl: "http://x", sessionKey: "s" }, { ref: "ghost" }, fetchImpl),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  test("throws when ref missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callOpenProject({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/ref.*required/i);
+  });
+});
+
+describe("callMoveToProject", () => {
+  test("POSTs projectPath to the session-keyed move-to-project endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ ok: true, paneId: "terminal:t1", projectPath: "/Users/me/Projects/foo" }), { status: 200 });
+    });
+    const text = await callMoveToProject(
+      { baseUrl: "http://x", sessionKey: "term-1" },
+      { project_path: "/Users/me/Projects/foo" },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/term-1/move-to-project");
+    expect(seen.init?.method).toBe("POST");
+    expect(seen.init?.body).toBe(JSON.stringify({ projectPath: "/Users/me/Projects/foo" }));
+    expect(text).toContain("terminal:t1");
+    expect(text).toContain("/Users/me/Projects/foo");
+    expect(text).toContain("de-duplicated");
+  });
+
+  test("throws when project_path missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callMoveToProject({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl),
+    ).rejects.toThrow(/project_path.*required/i);
   });
 });
