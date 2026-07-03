@@ -29,6 +29,7 @@ import {
 } from './middleware/serverHydrated';
 import { usePaneStore } from './store';
 import { subscribeFrames } from '../../lib/wsFrameBus';
+import { initTombstoneSync } from './adapters/tombstoneSync';
 
 /**
  * Thin adapter: conform `subscribeFrames` (untyped frame) to the
@@ -135,6 +136,11 @@ export function bootstrapPaneStore(): void {
   // React later mounts and useWebSocket opens the socket, frames flow into
   // `dispatchFrame` and fan out to every subscriber registered here.
   initWSSync(subscribePaneStoreFrames);
+
+  // Cross-device mirroring of browser/terminal close-tombstones over the same
+  // ui_state channel (union-only, clobber-safe). Wired after the frame bus so
+  // its subscribeFrames registration is in place before the socket opens.
+  initTombstoneSync();
 
   // 500 ms WS-latency fallback to GET /api/ui-state.
   scheduleInitialLoadFallback();
