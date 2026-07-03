@@ -1549,10 +1549,31 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
         if layer == nil {
             return;
         }
+        // The webview's content is hosted in a REMOTE layer context under the
+        // first subview (WKFlippedView) — on macOS 26 it escapes an ANCESTOR's
+        // masksToBounds, so masking only the WKWebView layer reads back fine
+        // but never visually clips (TOPICS_CORNER_DEMO hierarchy dump). Apply
+        // the same rounding to every direct subview's layer as well: clipping
+        // at the layer that OWNS the remote content does bite.
+        let mut targets: Vec<id> = vec![layer];
+        let sv: id = msg_send![view, subviews];
+        if sv != nil {
+            let n: usize = msg_send![sv, count];
+            for i in 0..n {
+                let child: id = msg_send![sv, objectAtIndex: i];
+                let _: () = msg_send![child, setWantsLayer: YES];
+                let cl: id = msg_send![child, layer];
+                if cl != nil {
+                    targets.push(cl);
+                }
+            }
+        }
         if !(tl || tr || bl || br) {
             // No corner coincides with a window corner → keep it square.
-            let _: () = msg_send![layer, setMasksToBounds: NO];
-            let _: () = msg_send![layer, setCornerRadius: 0.0_f64];
+            for l in &targets {
+                let _: () = msg_send![*l, setMasksToBounds: NO];
+                let _: () = msg_send![*l, setCornerRadius: 0.0_f64];
+            }
             return;
         }
         // CACornerMask bits depend on whether the layer geometry is flipped (web
@@ -1583,9 +1604,11 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
         if br {
             mask |= br_bit;
         }
-        let _: () = msg_send![layer, setCornerRadius: radius];
-        let _: () = msg_send![layer, setMaskedCorners: mask];
-        let _: () = msg_send![layer, setMasksToBounds: YES];
+        for l in &targets {
+            let _: () = msg_send![*l, setCornerRadius: radius];
+            let _: () = msg_send![*l, setMaskedCorners: mask];
+            let _: () = msg_send![*l, setMasksToBounds: YES];
+        }
         if std::env::var("TOPICS_CORNER_DEMO").is_ok() {
             let rback: f64 = msg_send![layer, cornerRadius];
             let mback: u64 = msg_send![layer, maskedCorners];
@@ -1595,6 +1618,55 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
                 flush_left as u8, flush_top as u8, flush_right as u8, flush_bottom as u8,
                 tl as u8, tr as u8, bl as u8, br as u8, flipped as u8, mask, rback, mback, clips != NO
             );
+            // Hierarchy dump: WHERE does WKWebView's content actually render?
+            // (macOS 26 UI-side compositing hosts it in a remote layer that can
+            // escape an ancestor's masksToBounds — find the real clip target.)
+            unsafe fn dump_view(v: id, depth: usize) {
+                if v == nil || depth > 4 {
+                    return;
+                }
+                let cls: id = msg_send![v, className];
+                let cstr: *const std::os::raw::c_char = msg_send![cls, UTF8String];
+                let name = std::ffi::CStr::from_ptr(cstr).to_string_lossy().into_owned();
+                let lay: id = msg_send![v, layer];
+                let lname = if lay != nil {
+                    let lc: id = msg_send![lay, className];
+                    let lp: *const std::os::raw::c_char = msg_send![lc, UTF8String];
+                    std::ffi::CStr::from_ptr(lp).to_string_lossy().into_owned()
+                } else {
+                    "nil".to_string()
+                };
+                let nsub: usize = if lay != nil {
+                    let subs: id = msg_send![lay, sublayers];
+                    if subs != nil { msg_send![subs, count] } else { 0 }
+                } else {
+                    0
+                };
+                eprintln!("[corner-dump] {}view={} layer={} sublayers={}", "  ".repeat(depth), name, lname, nsub);
+                if lay != nil && nsub > 0 {
+                    let subs: id = msg_send![lay, sublayers];
+                    for i in 0..nsub.min(6) {
+                        let sl: id = msg_send![subs, objectAtIndex: i];
+                        let sc: id = msg_send![sl, className];
+                        let sp: *const std::os::raw::c_char = msg_send![sc, UTF8String];
+                        eprintln!(
+                            "[corner-dump] {}  L{} {}",
+                            "  ".repeat(depth),
+                            i,
+                            std::ffi::CStr::from_ptr(sp).to_string_lossy()
+                        );
+                    }
+                }
+                let sv: id = msg_send![v, subviews];
+                if sv != nil {
+                    let n: usize = msg_send![sv, count];
+                    for i in 0..n.min(6) {
+                        let child: id = msg_send![sv, objectAtIndex: i];
+                        dump_view(child, depth + 1);
+                    }
+                }
+            }
+            dump_view(view, 0);
         }
     });
 }
@@ -1619,30 +1691,6 @@ fn webview_window_logical_size(wv: &tauri::Webview) -> Option<(f64, f64)> {
     let sf = win.scale_factor().ok()?;
     let is = win.inner_size().ok()?;
     Some((is.width as f64 / sf, is.height as f64 / sf))
-}
-
-
-/// Clip every subview to the window's content bounds. Since macOS 14 NSView
-/// no longer clips subviews by default, so during a live window resize the
-/// native browser panes (which TRAIL the window via the client's rAF bounds
-/// poll) draw PAST the shrinking window edge for a few frames — a square
-/// overhang outside the rounded frame ("esce fuori bordo durante il drag").
-/// One flag on the contentView makes overflow physically impossible; the
-/// corner mask still handles the at-rest window-corner arc.
-#[cfg(target_os = "macos")]
-fn clip_ns_window_content(ns_window: *mut std::ffi::c_void) {
-    unsafe {
-        use cocoa::base::{id, nil, YES};
-        use objc::{msg_send, sel, sel_impl};
-        let w = ns_window as id;
-        if w == nil {
-            return;
-        }
-        let content_view: id = msg_send![w, contentView];
-        if content_view != nil {
-            let _: () = msg_send![content_view, setClipsToBounds: YES];
-        }
-    }
 }
 
 /// Deterministic 16-byte data-store identifier for a pane's contextId — feeds
@@ -3468,9 +3516,6 @@ async fn window_detach(
         apply_traffic_lights(&win, false);
         wire_live_resize_cover(&win);
         register_ui_webview(&win, &label);
-        if let Ok(ptr) = win.ns_window() {
-            clip_ns_window_content(ptr);
-        }
     }
     Ok(label)
 }
@@ -4099,19 +4144,6 @@ pub fn run() {
             // the keydown. macOS-only (NSEvent local monitor); see the fn doc.
             #[cfg(target_os = "macos")]
             install_shortcut_forwarder(app.handle());
-
-            // Native panes must never draw past the window frame during live
-            // resize (they trail the client's rAF bounds poll) — see
-            // clip_ns_window_content.
-            #[cfg(target_os = "macos")]
-            {
-                use tauri::Manager;
-                if let Some(win) = app.get_window("main") {
-                    if let Ok(ptr) = win.ns_window() {
-                        clip_ns_window_content(ptr);
-                    }
-                }
-            }
 
             // Dev hot-reload (Electron-prod parity). By default the frontend is
             // EMBEDDED (include_bytes! over frontendDist) and served from
