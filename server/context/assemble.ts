@@ -63,6 +63,35 @@ const CHAT_CONTEXT_PREFIX = "[Chat messages since your last reply";
 // (all 5 families incl. PROJECT_*). The local copy here covered only 3 and
 // leaked {{PROJECT_OPEN/CREATE:…}} into replayed history (audit #4).
 
+/**
+ * openclaw decision gate (spec: replace-markers-with-tools, step 4 / design
+ * open-question #1).
+ *
+ * The browser/project/topic control TOOLS reach the model on two tiers:
+ *   - claude-code / codex → the topics-app MCP bridge (--mcp-config), and
+ *   - claude / openai      → the SDK `sendOptions.tools` passthrough.
+ * The `openclaw` provider is different: its tool surface is owned by the gateway,
+ * not this app, so we cannot inject these tools into it. The gateway does not
+ * expose equivalent control tools either (verified — no open_project/switch_topic
+ * /create_project in the gateway surface). So openclaw keeps NO AI-initiated
+ * control after the marker removal; it degrades to the always-available user-
+ * driven path (sidebar drag / context-menu / `/project`).
+ *
+ * This returns whether a provider can actually reach the control tools. When it
+ * is false we (a) skip the tool-instruction blocks (instructing openclaw to call
+ * a tool it doesn't have would be misleading noise and could make it emit a call
+ * that silently no-ops), and (b) log a one-line warning so the degradation is
+ * visible, never a silent no-op.
+ */
+function providerHasControlTools(providerName: string): boolean {
+  // claude-code/codex via MCP; claude/openai via SDK passthrough. openclaw (and
+  // any future gateway-owned provider) does not.
+  return providerName !== "openclaw";
+}
+
+/** Warn ONCE per provider so the openclaw degradation is logged, not spammed. */
+const controlToolWarningLogged = new Set<string>();
+
 // ────────────────────────────────────────────────────────────────────────────
 // Public API
 // ────────────────────────────────────────────────────────────────────────────
@@ -161,9 +190,22 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     pushSystemPromptBlock(systemBlocks, topic, isEnabled);
     pushContextFileBlocks(systemBlocks, topic, isEnabled);
     pushProjectTemplateBlocks(systemBlocks, topic, ctx, isEnabled);
-    pushBrowserInstructionBlock(systemBlocks);
-    pushProjectMarkersBlock(systemBlocks);
-    pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx);
+    // Browser/project/topic control instructions steer the model to TOOLS. Only
+    // emit them for providers that can actually reach those tools (openclaw
+    // cannot — see providerHasControlTools). For openclaw, log the degradation
+    // to user-driven control once (never a silent no-op) and skip the blocks.
+    if (providerHasControlTools(providerName)) {
+      pushBrowserInstructionBlock(systemBlocks);
+      pushProjectMarkersBlock(systemBlocks);
+      pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx);
+    } else if (!controlToolWarningLogged.has(providerName)) {
+      controlToolWarningLogged.add(providerName);
+      console.warn(
+        `[assemble] provider "${providerName}" has no AI-initiated control-tool channel ` +
+        `(browser/project/topic tools are not injectable into the gateway); ` +
+        `these actions degrade to user-driven control (sidebar drag / context-menu / /project).`,
+      );
+    }
     pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
     pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled);
     if (planMode) pushPlanModeBlock(systemBlocks);
