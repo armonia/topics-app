@@ -31,6 +31,13 @@ import { browserTools } from "../browser-tools";
 import { isPassthroughProvider } from "../browser-tools-adapters";
 import { dispatchBrowserToolCall, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import {
+  controlTools,
+  isControlTool,
+  dispatchControlToolCall,
+  ControlToolError,
+  type ControlDispatchDeps,
+} from "../control-tools";
+import {
   adaptEnvelope,
   assembleTopicContext,
   composeSystemMessages,
@@ -82,6 +89,21 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
   } = deps;
+
+  // Deps for the SDK-passthrough control tools (open/create-project, switch/new-
+  // topic). Reuses the SAME closure-local project helpers + AppContext topic
+  // ops the Layer-1 endpoints use, so a claude/openai tool call and an MCP tool
+  // call land on identical side-effects + broadcasts.
+  const controlDispatchDeps: ControlDispatchDeps = {
+    getTopicById: ctx.getTopicById,
+    loadTopics: ctx.loadTopics,
+    saveSingleTopic: ctx.saveSingleTopic,
+    slugify: ctx.slugify,
+    broadcastToAll,
+    resolveProjectRef,
+    bindTopicToProject,
+    workspaceDir: WORKSPACE_DIR,
+  };
 
   return async function chatRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     if (method === "POST" && pathname === "/api/chat") {
@@ -1008,6 +1030,37 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   });
               }
 
+              // SDK-passthrough control tools (open/create-project, switch/new-topic
+              // — the tool-shaped successors to the {{PROJECT_*}}/{{TOPIC_*}} markers).
+              // Same in-turn flow as the browser dispatch above: run the side-effect
+              // in-process (reuses the closure-local project helpers + AppContext
+              // topic ops), then feed the confirmation (or error) back through the
+              // shared onToolResult update path so the chat UI shows the normal
+              // running→success/error lifecycle. Fire-and-forget: single-turn SDK
+              // providers don't need the result back to continue.
+              if (isControlTool(name) && matchedTopic) {
+                dispatchControlToolCall(name, args || {}, matchedTopic, controlDispatchDeps)
+                  .then((confirmation) => {
+                    updateToolCallResult(sessionKey, toolCallId, confirmation);
+                    updateBlockTool(toolCallId, { status: 'success', result: confirmation });
+                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation });
+                    writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: confirmation } } }] }));
+                    const idx = trackedToolCallIds.indexOf(toolCallId);
+                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                  })
+                  .catch((err: unknown) => {
+                    const msg = err instanceof ControlToolError ? err.message : (err instanceof Error ? err.message : String(err));
+                    console.warn(`[control-tool] ${name} failed: ${msg}`);
+                    const errResult = JSON.stringify({ error: msg });
+                    updateToolCallResult(sessionKey, toolCallId, errResult);
+                    updateBlockTool(toolCallId, { status: 'error', result: errResult });
+                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult });
+                    writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
+                    const idx = trackedToolCallIds.indexOf(toolCallId);
+                    if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+                  });
+              }
+
               // Phase 30 BROWSER-CHAT-03 — OpenClaw browser tool profile monitoring.
               // The bridge that injected targetId+profile system messages was removed;
               // this block remains as logging-only telemetry for OpenClaw browser tool
@@ -1236,8 +1289,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Phase 30 BROWSER-CHAT-04 — register browserTools for SDK-driven providers.
             // CLI/gateway providers (codex, claude-code, openclaw) ignore this field
             // (their tool surfaces are managed upstream).
-            if (isPassthroughProvider(topicProvider.name) && browserService) {
-              sendOptions.tools = browserTools;
+            //
+            // Also register the control tools (open/create-project, switch/new-topic
+            // — the tool-shaped successors to the {{PROJECT_*}}/{{TOPIC_*}} markers;
+            // spec: replace-markers-with-tools). Unlike browserTools these don't need
+            // browserService, so a passthrough provider always gets AI-initiated
+            // control even in a build without the browser pane.
+            if (isPassthroughProvider(topicProvider.name)) {
+              sendOptions.tools = [
+                ...(browserService ? browserTools : []),
+                ...controlTools,
+              ];
             }
             // Fire-and-forget: kick off sendChat WITHOUT awaiting so the
             // Response can be returned immediately. The provider's stream

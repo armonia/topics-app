@@ -15,6 +15,7 @@ import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { getTerminalSessionById } from "./terminal";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
+import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -1484,13 +1485,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const body = (await readJSON(req)) as { topicId?: unknown } | null;
         const targetId = typeof body?.topicId === "string" ? body.topicId : "";
         if (!targetId) return json({ error: "topicId (string) is required" }, 400);
-        const target = getTopicById(targetId);
-        if (!target) return json({ error: "target topic not found" }, 404);
-        // AC-01: archived is a client error distinct from "doesn't exist" — the
-        // topic IS there, it's just not switchable (unarchive/open it first).
-        if (target.archived) return json({ error: "target topic is archived", code: "topic_archived", topicId: target.id }, 400);
-        broadcastToAll({ type: "topic:switch", fromTopicId: cur.id, fromSessionKey: cur.sessionKey, toTopicId: target.id, toSessionKey: target.sessionKey });
-        return json({ ok: true, toTopicId: target.id });
+        const r = switchTopicCore(cur, targetId, { getTopicById, loadTopics, saveSingleTopic, slugify, broadcastToAll });
+        if (!r.ok) {
+          // AC-01: archived is a client error distinct from "doesn't exist" — the
+          // topic IS there, it's just not switchable (unarchive/open it first).
+          if (r.code === "archived") return json({ error: r.message, code: "topic_archived", topicId: targetId }, 400);
+          return json({ error: r.message }, 404);
+        }
+        return json({ ok: true, toTopicId: r.toTopicId });
       }
 
       if (newM && method === "POST") {
@@ -1510,19 +1512,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const body = (await readJSON(req)) as { title?: unknown } | null;
         const title = typeof body?.title === "string" ? body.title.trim() : "";
         if (!title) return json({ error: "title (string) is required" }, 400);
-        const data = loadTopics();
-        const id = crypto.randomUUID();
-        const newTopic: Topic = {
-          id, name: title, slug: slugify(title), parentId: null, links: [],
-          sessionKey: "topic:" + id.slice(0, 8), color: "#5865f2", icon: "MessageSquare",
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-          archived: false, systemPrompt: "", contextFiles: [], pinnedMessages: [],
-          sortOrder: Object.keys(data.topics).length,
-        };
-        if (cur.projectPath) newTopic.projectPath = cur.projectPath;
-        saveSingleTopic(newTopic);
-        broadcastToAll({ type: "topic:created", topic: newTopic });
-        broadcastToAll({ type: "topic:switch", fromTopicId: cur.id, fromSessionKey: cur.sessionKey, toTopicId: newTopic.id, toSessionKey: newTopic.sessionKey });
+        const { topic: newTopic } = createTopicCore(cur, title, { getTopicById, loadTopics, saveSingleTopic, slugify, broadcastToAll });
         return json({ ok: true, topicId: newTopic.id });
       }
 
