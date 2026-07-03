@@ -19,13 +19,12 @@
  *     casting.
  */
 
-import type { Pane, PaneType, Group, ProjectLayout, ClosedPaneRecord, SpaceMeta } from '../types';
+import type { Pane, PaneType, Group, ClosedPaneRecord, SpaceMeta } from '../types';
 import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, SPACES_MAX, TOMBSTONES_MAX } from '../types';
 
 export interface SanitizedSnapshot {
   panes?: Record<string, Pane>;
   groups?: Record<string, Group>;
-  projects?: Record<string, ProjectLayout>;
   groupOrder?: string[];
   closedStack?: ClosedPaneRecord[];
   /** Durable close markers (paneId → closedAt ms) — merged per-id by the
@@ -140,8 +139,8 @@ function sanitizePane(raw: unknown): Pane | null {
 }
 
 /**
- * Validate a Spazi registry from an untrusted snapshot. Pattern:
- * sanitizeProjects — structural per-record check, coerce the scalars, drop
+ * Validate a Spazi registry from an untrusted snapshot. Same shape as the
+ * other sanitizers: structural per-record check, coerce the scalars, drop
  * garbage. The DEFAULT space is implicit (never a record), so an entry
  * claiming its id is dropped — a remote payload must not rename/delete the
  * default. Capped at SPACES_MAX keeping the most-recently-updated records
@@ -268,28 +267,6 @@ function sanitizeGroups(raw: unknown): Record<string, Group> | null {
   return out;
 }
 
-function sanitizeProjects(raw: unknown): Record<string, ProjectLayout> | null {
-  if (!isPlainObject(raw)) return null;
-  // ProjectLayout is a complex nested shape; accept by structural check but
-  // strip device-local focusedPaneId and scrollOffsets inside panes.
-  const out: Record<string, ProjectLayout> = {};
-  for (const [key, v] of Object.entries(raw)) {
-    if (!isPlainObject(v)) continue;
-    if (typeof v.projectPath !== 'string') continue;
-    if (!Array.isArray(v.groups)) continue;
-    const groups = v.groups.map((g) => sanitizeGroup(g)).filter((g): g is Group => g !== null);
-    const panes = sanitizePanes(v.panes) ?? {};
-    const groupOrder = Array.isArray(v.groupOrder) ? v.groupOrder.filter((x): x is string => typeof x === 'string') : [];
-    const tabOrder = Array.isArray(v.tabOrder) ? v.tabOrder.filter((x): x is string => typeof x === 'string') : [];
-    const lastOpenedAt = typeof v.lastOpenedAt === 'number' ? v.lastOpenedAt : Date.now();
-    // focusedPaneId in projects IS part of the synced layout (CONTEXT.md
-    // §Undo-and-project-tab-reopen says layout includes focused-pane). Keep it.
-    const focusedPaneId = typeof v.focusedPaneId === 'string' ? v.focusedPaneId : null;
-    out[key] = { projectPath: v.projectPath, groups, panes, groupOrder, tabOrder, focusedPaneId, lastOpenedAt };
-  }
-  return out;
-}
-
 /**
  * Structural sanitizer for `ClosedPaneRecord.terminal`. Accepts only the
  * documented ClosedTerminalMeta fields (each individually validated) and
@@ -382,10 +359,6 @@ export function sanitizeSnapshot(raw: unknown): SanitizedSnapshot | null {
   if (raw.groups !== undefined) {
     const g = sanitizeGroups(raw.groups);
     if (g) out.groups = g;
-  }
-  if (raw.projects !== undefined) {
-    const pr = sanitizeProjects(raw.projects);
-    if (pr) out.projects = pr;
   }
   if (Array.isArray(raw.groupOrder)) {
     out.groupOrder = raw.groupOrder.filter((x): x is string => typeof x === 'string');

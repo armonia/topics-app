@@ -7,7 +7,6 @@ function resetStore(): void {
   usePaneStore.setState({
     panes: {},
     groups: {},
-    projects: {},
     closedStack: [],
     tombstones: {},
     focusedPaneId: null,

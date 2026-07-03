@@ -8,7 +8,6 @@ function resetStore(): void {
   usePaneStore.setState({
     panes: {},
     groups: {},
-    projects: {},
     closedStack: [],
     focusedPaneId: null,
     groupOrder: [],

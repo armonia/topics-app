@@ -19,7 +19,6 @@ import { CLOSED_STACK_MAX } from "../types";
 const blankState = (): PaneState => ({
   panes: {},
   groups: {},
-  projects: {},
   closedStack: [],
   focusedPaneId: null,
   groupOrder: [],

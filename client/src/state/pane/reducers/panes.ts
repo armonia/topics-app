@@ -1,7 +1,6 @@
 import type { PaneState, PaneAction, ClosedPaneRecord, PaneType } from '../types';
 import { CLOSED_STACK_MAX, TOMBSTONES_MAX, DEFAULT_SPACE_ID } from '../types';
 import { groupsReducer } from './groups';
-import { projectsReducer } from './projects';
 import { undoReducer } from './undo';
 import { spacesReducer, mergeSpaces } from './spaces';
 import { sanitizeSnapshot, KNOWN_PANE_TYPES } from './sanitizeSnapshot';
@@ -239,11 +238,6 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
     case 'RESIZE':
     case 'REORDER_PANES': {
       groupsReducer(state, action);
-      break;
-    }
-    case 'PROJECT_LAYOUT_RESTORE':
-    case 'PROJECT_LAYOUT_SNAPSHOT': {
-      projectsReducer(state, action);
       break;
     }
     case 'SPACE_UPSERT':
@@ -566,19 +560,6 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
           const orderIdx = state.groupOrder.indexOf(gid);
           if (orderIdx >= 0) state.groupOrder.splice(orderIdx, 1);
         }
-      }
-      // Also strip the orphan from any project layout that referenced it
-      // (project-layout-* persist `panes` + `groupOrder` + `tabOrder` +
-      // `focusedPaneId`, all of which can carry the orphan id).
-      for (const layout of Object.values(state.projects)) {
-        if (layout.panes[id]) delete layout.panes[id];
-        for (const g of layout.groups) {
-          const i = g.paneIds.indexOf(id);
-          if (i >= 0) g.paneIds.splice(i, 1);
-        }
-        const tabIdx = layout.tabOrder.indexOf(id);
-        if (tabIdx >= 0) layout.tabOrder.splice(tabIdx, 1);
-        if (layout.focusedPaneId === id) layout.focusedPaneId = null;
       }
       if (state.focusedPaneId === id) state.focusedPaneId = null;
       break;

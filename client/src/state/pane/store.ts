@@ -42,7 +42,6 @@ let _mutationLogPromise: Promise<typeof import('./middleware/mutationLog')> | nu
 const initialState: PaneState = {
   panes: {},
   groups: {},
-  projects: {},
   closedStack: [],
   tombstones: {},
   focusedPaneId: null,

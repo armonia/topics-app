@@ -7,7 +7,6 @@ import { DEFAULT_SPACE_ID, SPACES_MAX } from "../types";
 const blankState = (): PaneState => ({
   panes: {},
   groups: {},
-  projects: {},
   closedStack: [],
   tombstones: {},
   focusedPaneId: null,

@@ -6,7 +6,6 @@ import { CLOSED_STACK_MAX } from "../types";
 const blankState = (): PaneState => ({
   panes: {},
   groups: {},
-  projects: {},
   closedStack: [],
   focusedPaneId: null,
   groupOrder: [],
@@ -255,7 +254,6 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     usePaneStore.setState({
       panes: {},
       groups: {},
-      projects: {},
       closedStack: [],
       focusedPaneId: null,
       groupOrder: [],
@@ -400,7 +398,6 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     usePaneStore.setState({
       panes: {},
       groups: {},
-      projects: {},
       closedStack: [],
       focusedPaneId: null,
       groupOrder: [],
@@ -415,7 +412,6 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
         snapshot: {
           panes: {},
           groups: {},
-          projects: {},
           closedStack: [],
           groupOrder: [],
           lastSeq: SERVER_SEQ,
@@ -448,7 +444,6 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     usePaneStore.setState({
       panes: {},
       groups: {},
-      projects: {},
       closedStack: [],
       focusedPaneId: null,
       groupOrder: [],
@@ -510,7 +505,6 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     usePaneStore.setState({
       panes: {},
       groups: {},
-      projects: {},
       closedStack: [],
       focusedPaneId: null,
       groupOrder: [],
@@ -560,7 +554,6 @@ describe("paneReducer (PANE-01, PANE-03, PANE-04)", () => {
     usePaneStore.setState({
       panes: { "chat:keep": { id: "chat:keep", type: "chat", title: "K" } },
       groups: {},
-      projects: {},
       closedStack: [],
       focusedPaneId: null,
       groupOrder: [],
@@ -803,46 +796,6 @@ describe("paneReducer — audit fixes (empty-group cleanup, ratio clamp, reorder
     expect(state.groups["g1"]).toBeUndefined(); // emptied → cleaned
     expect(state.groups["g2"].paneIds).toEqual(["keep"]); // orphan removed
     expect(state.panes["orphan"]).toBeUndefined();
-  });
-
-  test("PURGE_ORPHAN_PANE strips the orphan from project-layout panes/tabOrder/focusedPaneId", () => {
-    const state = blankState();
-    state.projects["/proj"] = {
-      projectPath: "/proj",
-      groups: [
-        {
-          id: "pgroup1",
-          paneIds: ["orphan", "keep"],
-          splitRatio: 0.5,
-          splitAxis: "horizontal",
-        },
-      ],
-      panes: {
-        orphan: { id: "orphan", type: "chat", title: "" },
-        keep: { id: "keep", type: "chat", title: "" },
-      },
-      groupOrder: ["pgroup1"],
-      tabOrder: ["orphan", "keep"],
-      focusedPaneId: "orphan",
-      lastOpenedAt: 0,
-    };
-    // Also seed the top-level so the reducer doesn't bail at the wasInState guard.
-    paneReducer(state, {
-      type: "OPEN_PANE",
-      payload: { id: "orphan", type: "chat", groupId: "g1" },
-    });
-
-    paneReducer(state, {
-      type: "PURGE_ORPHAN_PANE",
-      payload: { id: "orphan" },
-    });
-
-    const layout = state.projects["/proj"];
-    expect(layout.panes["orphan"]).toBeUndefined();
-    expect(layout.panes["keep"]).toBeDefined();
-    expect(layout.groups[0].paneIds).toEqual(["keep"]);
-    expect(layout.tabOrder).toEqual(["keep"]);
-    expect(layout.focusedPaneId).toBeNull();
   });
 
   test("PURGE_ORPHAN_PANE on unknown id is a no-op (idempotent)", () => {
