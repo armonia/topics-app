@@ -866,6 +866,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     return onWSMessage((msg) => {
       if (msg.type === 'open-project') {
         const projectPaneId = createPaneId('project', msg.projectPath);
+        // Register the pane in the store FIRST (same as the pane:focus-suggest
+        // branch below). A bare setOpenPanels leaves the id in React openPanels
+        // but absent from state.panes, so Effect B's REORDER_PANES — which
+        // filters to ids WITH a pane entity (groups.ts orphan-ID guard) — drops
+        // it, and the next Effect A tick wipes it back out of openPanels. That's
+        // the "open_project says done but the project never appears" bug for a
+        // terminal-tab move: the server splices the terminal into the project's
+        // membership and broadcasts open-project, but the project pane was a
+        // ghost that the store→React bridge immediately reaped.
+        ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: msg.projectPath });
         setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
         setFocusedPanelId(projectPaneId);
       }
