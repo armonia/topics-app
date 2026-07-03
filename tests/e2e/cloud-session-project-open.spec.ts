@@ -1,13 +1,20 @@
 /**
  * Cloud session → Topics project (client render behaviour).
  *
- * When a cloud (gateway) session binds itself to a project — via the
- * {{PROJECT_OPEN:name}} marker, the /project command, or auto-detect — the
- * server runs `bindTopicToProject(topicId, dir, { focus: true })`, which
- * persists projectPath (topic:updated) AND emits `pane:focus-suggest` carrying
- * the projectPath inline. The client must then open that project's window and
- * nest the session inside it, so the cloud session appears scoped to its
- * project (à la Warp). This locks that client behaviour.
+ * When a session binds itself to a project — via the `open_project` /
+ * `create_project` control tool (MCP for claude-code/codex, SDK passthrough for
+ * claude/openai; both hit `POST /api/sessions/:sessionKey/{open,create}-project`),
+ * the `/project` command, or auto-detect — the server runs
+ * `bindTopicToProject(topicId, dir, { focus: true })`, which persists projectPath
+ * (topic:updated) AND emits `pane:focus-suggest` carrying the projectPath inline.
+ * The client must then open that project's window and nest the session inside it,
+ * so the session appears scoped to its project (à la Warp). This locks that
+ * client behaviour, independent of WHICH surface triggered the bind.
+ *
+ * (Historical note: the trigger used to be the `{{PROJECT_OPEN:name}}` text
+ * marker, retired in the replace-markers-with-tools change. The client contract
+ * asserted here — the two broadcasts below — is unchanged, so this test ports
+ * over verbatim: it drives the SAME frames the tool/endpoint now emits.)
  *
  * Real backend via interceptWebSocket passthrough; the two frames are injected
  * exactly as bindTopicToProject emits them. No waitForTimeout.
