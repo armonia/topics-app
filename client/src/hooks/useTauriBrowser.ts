@@ -37,6 +37,19 @@ import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
  *  while hidden, vs destroying it. Matches Electron's zero-bounds hide intent. */
 const OFFSCREEN = { x: -100000, y: 0, width: 1, height: 1 } as const;
 
+/** Idempotently install the self-focus pointerdown counter in the page. Only a
+ *  REAL user click into this pane should activate its tab, so we count a
+ *  pointerdown ONLY when `e.isTrusted` (excludes agent-driven synthetic ACT_FN
+ *  events, isTrusted=false) AND `document.hasFocus()` (true only when this
+ *  WKWebView is the app's key/first-responder view — so a pointerdown that
+ *  arrives while the user is working in another pane or app, or one WebKit emits
+ *  as the view re-attaches under the cursor on a non-key window, is not counted).
+ *  Injected by both the READ (800ms) and FAST (120ms) polls; shared verbatim so
+ *  whichever runs first installs the identical hook. */
+const INSTALL_FOCUS_HOOK =
+  "if(!window.__tFocusHook){window.__tFocusHook=1;window.__topicsFocusBump=0;" +
+  "addEventListener('pointerdown',function(e){if(e.isTrusted&&document.hasFocus())window.__topicsFocusBump++},true);}";
+
 /** Best-effort URL/search normalisation for the address bar. Full URLs pass
  *  through; a bare host gets https://; anything else becomes a web search. */
 function normalizeUrl(input: string): string {
@@ -72,6 +85,34 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const lastFocusBumpRef = useRef(-1);
   const onFocusedRef = useRef(onFocused);
   onFocusedRef.current = onFocused;
+  // Focus-theft guard. The self-focus signal must be a REAL click INTO this pane,
+  // not a side effect of the pane moving/appearing. Two independent gates:
+  //  1. in-page (READ/FAST): the pointerdown listener only counts `isTrusted`
+  //     events fired while `document.hasFocus()` — i.e. the user is genuinely
+  //     interacting with THIS WKWebView while it's the app's key view. A stray
+  //     activation press, an agent's synthetic (isTrusted=false) event, or a
+  //     pointerdown that lands while the user is typing in another pane/app all
+  //     fail this and never increment the counter.
+  //  2. client-side (this ref): a `browser_set_bounds` that slides the live view
+  //     UNDER a resting cursor, or a thaw/create re-attach, can make WebKit emit
+  //     a trusted pointerdown to the view even though the user didn't click into
+  //     it. After any such reflow we suppress the signal briefly — bumps observed
+  //     while suppressed are re-baselined (recorded, never fired), so the tab
+  //     doesn't yank itself active when a pane simply repositions beneath the mouse.
+  const focusSuppressUntilRef = useRef(0);
+  const suppressSelfFocus = useCallback(() => {
+    focusSuppressUntilRef.current = Date.now() + 400;
+  }, []);
+  // Shared bump→activate decision for BOTH polls (800ms READ + 120ms FAST). A
+  // growing counter means a trusted, in-focus click landed in this pane; fire
+  // onFocused unless we're inside the post-reflow suppression window. Always
+  // re-baseline so a suppressed or first-read bump is recorded (compare+set is
+  // synchronous — no await between — so the two polls never double-fire one click).
+  const maybeFireSelfFocus = useCallback((bump: number) => {
+    const grew = lastFocusBumpRef.current >= 0 && bump > lastFocusBumpRef.current;
+    lastFocusBumpRef.current = bump;
+    if (grew && Date.now() >= focusSuppressUntilRef.current) onFocusedRef.current?.();
+  }, []);
   // Device emulation: when set, the pane is letterboxed to these dims inside its
   // layout slot (centered) + a device UA is applied. null = desktop (full slot).
   const deviceDimsRef = useRef<{ width: number; height: number } | null>(null);
@@ -123,6 +164,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // corner" tolerance when this is non-zero. Rounding happens ONLY at window
     // corners (Attilio's ruling) — the value itself is not a corner radius.
     const radius = document.querySelector('.floating-splits') ? 10 : 0;
+    // Moving the live view can slide it under the cursor and make WebKit emit a
+    // trusted pointerdown that isn't a real click-in — suppress self-focus across
+    // the move (only when actually showing; a hide/park can't be misread).
+    if (!hide) suppressSelfFocus();
     void tauriInvoke('browser_set_bounds', {
       id,
       x: Math.round(rect.x),
@@ -131,7 +176,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       height: Math.round(rect.height),
       radius,
     }).catch(() => {});
-  }, [id]);
+  }, [id, suppressSelfFocus]);
 
   const setBounds = useCallback(
     (b: { x: number; y: number; width: number; height: number }) => {
@@ -174,12 +219,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     if (!frozenRef.current) return;
     frozenRef.current = false;
     const seq = ++freezeSeqRef.current;
+    // Re-attaching the live view can draw a trusted pointerdown that isn't a
+    // click-in — don't let the thaw steal the tab.
+    suppressSelfFocus();
     window.dispatchEvent(new CustomEvent('browser:reflow-request'));
     if (thawTimerRef.current) clearTimeout(thawTimerRef.current);
     thawTimerRef.current = setTimeout(() => {
       if (freezeSeqRef.current === seq) setFrozenImage(null);
     }, 240);
-  }, []);
+  }, [suppressSelfFocus]);
 
   // Overlay occlusion: freeze ONLY while an overlay actually intersects THIS pane's
   // slot (a menu elsewhere leaves it untouched), so the still shows through and the
@@ -280,8 +328,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     if (!ready || !isVisible) return;
     let stop = false;
     const READ =
-      "(function(){if(!window.__tFocusHook){window.__tFocusHook=1;window.__topicsFocusBump=0;" +
-      "addEventListener('pointerdown',function(){window.__topicsFocusBump++},true);}" +
+      "(function(){" + INSTALL_FOCUS_HOOK +
       "return JSON.stringify({u:location.href,t:document.title,r:document.readyState," +
       "f:(document.querySelector(\"link[rel~='icon']\")||{}).href||location.origin+'/favicon.ico'," +
       "k:window.__topicsFocusBump||0," +
@@ -301,12 +348,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         setLoading(s.r !== 'complete');
         // A growing pointerdown counter means the user clicked inside this native
         // pane — activate its tab (the click never reached React otherwise). First
-        // read just baselines; pointerdown-only avoids load-time autofocus firing.
-        const bump = typeof s.k === 'number' ? s.k : 0;
-        if (lastFocusBumpRef.current >= 0 && bump > lastFocusBumpRef.current) {
-          onFocusedRef.current?.();
-        }
-        lastFocusBumpRef.current = bump;
+        // read just baselines; the in-page hook only counts trusted+focused
+        // clicks; and a bump seen inside the post-reflow suppression window is
+        // re-baselined, never fired (a move/thaw drew the event, not the user).
+        maybeFireSelfFocus(typeof s.k === 'number' ? s.k : 0);
         // Drain any console entries buffered by the injected proxy (CONSOLE_PROXY_JS).
         if (s.c && s.c.length) {
           setConsoleEntries((prev) => {
@@ -325,7 +370,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       stop = true;
       window.clearInterval(iv);
     };
-  }, [id, ready, isVisible]);
+  }, [id, ready, isVisible, maybeFireSelfFocus]);
 
   // #3 instant focus-on-click. The 800ms data poll above ALSO detects clicks
   // into the native pane (the pointerdown bump → activate the tab), but at up to
@@ -340,24 +385,19 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     if (!ready || !isVisible) return;
     let stop = false;
     const FAST =
-      "(function(){if(!window.__tFocusHook){window.__tFocusHook=1;window.__topicsFocusBump=0;" +
-      "addEventListener('pointerdown',function(){window.__topicsFocusBump++},true);}" +
+      "(function(){" + INSTALL_FOCUS_HOOK +
       "return String(window.__topicsFocusBump||0)})()";
     const tick = async () => {
       if (stop) return;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: FAST });
         if (stop || raw == null) return;
-        const bump = parseInt(raw, 10) || 0;
-        if (lastFocusBumpRef.current >= 0 && bump > lastFocusBumpRef.current) {
-          onFocusedRef.current?.();
-        }
-        lastFocusBumpRef.current = bump;
+        maybeFireSelfFocus(parseInt(raw, 10) || 0);
       } catch { /* pane closing / eval timeout — next tick retries */ }
     };
     const iv = window.setInterval(tick, 120);
     return () => { stop = true; window.clearInterval(iv); };
-  }, [id, ready, isVisible]);
+  }, [id, ready, isVisible, maybeFireSelfFocus]);
 
   const toggleDevTools = useCallback(async () => {
     await tauriInvoke('browser_toggle_devtools', { id }).catch(() => {});
