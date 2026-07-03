@@ -1448,13 +1448,15 @@ fn disable_layer_implicit_animations(wv: &tauri::Webview) {
 /// pane) stay square. We round the CHILD webview's layer, NOT the window content view
 /// (that broke auto-resize + sidebar spacing). `win_w`/`win_h` are the window's
 /// LOGICAL content size; the pane rect is window-relative logical. macOS only.
-/// Per-pane cache of the last applied corner-flush state (flip-independent 4-bit
-/// visual code: tl|tr<<1|bl<<2|br<<3). browser_set_bounds runs every frame during a
-/// drag, but the pane stays flush to the SAME window corner(s) throughout — so this lets
-/// us skip the objc/with_webview work on every frame except the one where it changes.
+/// Per-pane cache of the last applied corner state (flip-independent 4-bit
+/// visual code: tl|tr<<1|bl<<2|br<<3, plus the card radius in quarter-points).
+/// browser_set_bounds runs every frame during a drag, but the pane stays flush
+/// to the SAME window corner(s) — and in the same floating-card radius —
+/// throughout, so this lets us skip the objc/with_webview work on every frame
+/// except the one where it changes.
 #[cfg(target_os = "macos")]
-fn browser_corner_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, u8>> {
-    static C: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u8>>> =
+fn browser_corner_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, (u8, u16)>> {
+    static C: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, (u8, u16)>>> =
         std::sync::OnceLock::new();
     C.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
@@ -1502,8 +1504,7 @@ fn window_corner_radius() -> f64 {
 }
 
 #[cfg(target_os = "macos")]
-fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f64, h: f64, win_w: f64, win_h: f64) {
-    let radius = window_corner_radius(); // matches the host OS window corner radius
+fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f64, h: f64, win_w: f64, win_h: f64, card_radius: f64) {
     const EPS: f64 = 2.0;
     let flush_left = x <= EPS;
     let flush_top = y <= EPS;
@@ -1513,18 +1514,28 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
     let tr = flush_right && flush_top;
     let bl = flush_left && flush_bottom;
     let br = flush_right && flush_bottom;
-    // Skip the (main-thread) objc round-trip when the flush state is unchanged for this
-    // pane — the common case on every drag frame after the first.
+    let any_flush = tl || tr || bl || br;
+    // Two regimes:
+    //  - FLUSH (tiled pane touching window corner(s)): round exactly those
+    //    corners to the OS window radius, or the webview pokes past the frame.
+    //  - FLOATING CARD (client sent its card radius; floating cards have
+    //    margins so they're never flush): round ALL FOUR corners to the card
+    //    radius, or the opaque webview pokes square past the rounded card.
+    let round_all = !any_flush && card_radius > 0.0;
+    let radius = if round_all { card_radius } else { window_corner_radius() };
+    // Skip the (main-thread) objc round-trip when the corner state is unchanged
+    // for this pane — the common case on every drag frame after the first.
     let visual: u8 = (tl as u8) | ((tr as u8) << 1) | ((bl as u8) << 2) | ((br as u8) << 3);
+    let radius_key: u16 = if round_all { (card_radius * 4.0) as u16 } else { 0 };
     {
         let mut g = match browser_corner_cache().lock() {
             Ok(g) => g,
             Err(_) => return,
         };
-        if g.get(id) == Some(&visual) {
+        if g.get(id) == Some(&(visual, radius_key)) {
             return;
         }
-        g.insert(id.to_string(), visual);
+        g.insert(id.to_string(), (visual, radius_key));
     }
     let _ = wv.with_webview(move |platform| unsafe {
         use cocoa::base::{id, nil, NO, YES};
@@ -1538,8 +1549,9 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
         if layer == nil {
             return;
         }
-        if !(tl || tr || bl || br) {
-            // No corner coincides with a window corner → keep it square.
+        if !(tl || tr || bl || br) && !round_all {
+            // No corner coincides with a window corner and no floating card
+            // radius → keep it square.
             let _: () = msg_send![layer, setMasksToBounds: NO];
             let _: () = msg_send![layer, setCornerRadius: 0.0_f64];
             return;
@@ -1560,17 +1572,21 @@ fn apply_browser_corner_mask(wv: &tauri::Webview, id: &str, x: f64, y: f64, w: f
             (MINX_MAXY, MAXX_MAXY, MINX_MINY, MAXX_MINY)
         };
         let mut mask: u64 = 0;
-        if tl {
-            mask |= tl_bit;
-        }
-        if tr {
-            mask |= tr_bit;
-        }
-        if bl {
-            mask |= bl_bit;
-        }
-        if br {
-            mask |= br_bit;
+        if round_all {
+            mask = tl_bit | tr_bit | bl_bit | br_bit;
+        } else {
+            if tl {
+                mask |= tl_bit;
+            }
+            if tr {
+                mask |= tr_bit;
+            }
+            if bl {
+                mask |= bl_bit;
+            }
+            if br {
+                mask |= br_bit;
+            }
         }
         let _: () = msg_send![layer, setCornerRadius: radius];
         let _: () = msg_send![layer, setMaskedCorners: mask];
@@ -1656,7 +1672,7 @@ fn browser_open(
     if app.get_webview(&label).is_some() {
         // Already open — treat as navigate + reposition (idempotent mount).
         let _ = browser_navigate(app.clone(), id.clone(), url);
-        return browser_set_bounds(app, id, x, y, width, height);
+        return browser_set_bounds(app, id, x, y, width, height, None);
     }
     let window = app.get_window("main").ok_or("no 'main' window")?;
     let parsed: tauri::Url = url.parse().map_err(|_| format!("bad url: {url}"))?;
@@ -1771,7 +1787,8 @@ fn browser_open(
     if let Some(wv) = app.get_webview(&label) {
         disable_layer_implicit_animations(&wv);
         if let Some((win_w, win_h)) = main_window_logical_size(&app) {
-            apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h);
+            // Card radius unknown at create; the client's first bounds push carries it.
+            apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, 0.0);
         }
     }
     Ok(())
@@ -1800,6 +1817,9 @@ fn browser_set_bounds(
     y: f64,
     width: f64,
     height: f64,
+    // Rounded-card radius of the HOST pane (floating-splits cards) — 0/absent =
+    // square unless window-flush. Optional so older bundles keep working.
+    radius: Option<f64>,
 ) -> Result<(), String> {
     use tauri::Manager;
     let wv = app
@@ -1828,8 +1848,10 @@ fn browser_set_bounds(
     // when the flush state actually changes (not every drag frame). See apply_browser_corner_mask.
     #[cfg(target_os = "macos")]
     if let Some((win_w, win_h)) = main_window_logical_size(&app) {
-        apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h);
+        apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, radius.unwrap_or(0.0));
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = radius;
     Ok(())
 }
 
