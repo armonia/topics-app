@@ -46,7 +46,6 @@ import { JournalCollector } from "./server/journal-collector";
 import { createJournalRouter } from "./server/routes/journal";
 import { createTagsRouter } from "./server/routes/tags";
 import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
-import { createWebhooksRouter } from "./server/routes/webhooks";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders } from "./server/providers";
@@ -298,7 +297,6 @@ const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawCon
 const contextPreviewRouter = createContextPreviewRouter(ctx);
 const tagsRouter = createTagsRouter(ctx);
 const agentProfilesRouter = createAgentProfilesRouter(ctx);
-const webhooksRouter = createWebhooksRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
@@ -732,7 +730,6 @@ const server = Bun.serve<WSData>({
         || await contextPreviewRouter(req, url, pathname, method)
         || await tagsRouter(req, url, pathname, method)
         || await agentProfilesRouter(req, url, pathname, method)
-        || await webhooksRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
         || await pushRouter(req, url, pathname, method)
