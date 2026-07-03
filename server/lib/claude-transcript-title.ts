@@ -36,6 +36,15 @@ function blankState(): TitleScanState {
   return { offset: 0, carry: Buffer.alloc(0), aiTitle: null, lastPrompt: null, firstUser: null };
 }
 
+/** Harness plumbing, not something the human typed: slash-command frames
+ *  (`<command-name>/compact</command-name>…`), local-command stdout, task
+ *  notifications, system reminders. Using one as a tab title yields literal
+ *  "<command-name>…" labels. A prompt that BEGINS with markup is plumbing —
+ *  skip the candidate and keep the previous meaningful one. */
+function isHarnessMarkup(text: string): boolean {
+  return text.startsWith("<");
+}
+
 /** Fold one batch of complete JSONL lines into the scan state. */
 function scanLines(st: TitleScanState, lines: string[]): void {
   for (const line of lines) {
@@ -48,9 +57,11 @@ function scanLines(st: TitleScanState, lines: string[]): void {
         // Keep the LAST one — Claude re-emits it as the topic evolves.
         if (typeof ev.aiTitle === "string" && ev.aiTitle.trim()) st.aiTitle = ev.aiTitle.trim();
         break;
-      case "last-prompt":
-        if (typeof ev.lastPrompt === "string" && ev.lastPrompt.trim()) st.lastPrompt = ev.lastPrompt.trim();
+      case "last-prompt": {
+        const p = typeof ev.lastPrompt === "string" ? ev.lastPrompt.trim() : "";
+        if (p && !isHarnessMarkup(p)) st.lastPrompt = p;
         break;
+      }
       case "user":
         if (!st.firstUser) {
           const c = ev?.message?.content;
@@ -59,7 +70,8 @@ function scanLines(st: TitleScanState, lines: string[]): void {
             : Array.isArray(c)
               ? c.map((b: any) => (typeof b?.text === "string" ? b.text : "")).join(" ")
               : "";
-          if (text.trim()) st.firstUser = text.trim();
+          const t = text.trim();
+          if (t && !isHarnessMarkup(t)) st.firstUser = t;
         }
         break;
     }
