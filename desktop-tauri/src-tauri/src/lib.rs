@@ -1621,6 +1621,30 @@ fn webview_window_logical_size(wv: &tauri::Webview) -> Option<(f64, f64)> {
     Some((is.width as f64 / sf, is.height as f64 / sf))
 }
 
+
+/// Clip every subview to the window's content bounds. Since macOS 14 NSView
+/// no longer clips subviews by default, so during a live window resize the
+/// native browser panes (which TRAIL the window via the client's rAF bounds
+/// poll) draw PAST the shrinking window edge for a few frames — a square
+/// overhang outside the rounded frame ("esce fuori bordo durante il drag").
+/// One flag on the contentView makes overflow physically impossible; the
+/// corner mask still handles the at-rest window-corner arc.
+#[cfg(target_os = "macos")]
+fn clip_ns_window_content(ns_window: *mut std::ffi::c_void) {
+    unsafe {
+        use cocoa::base::{id, nil, YES};
+        use objc::{msg_send, sel, sel_impl};
+        let w = ns_window as id;
+        if w == nil {
+            return;
+        }
+        let content_view: id = msg_send![w, contentView];
+        if content_view != nil {
+            let _: () = msg_send![content_view, setClipsToBounds: YES];
+        }
+    }
+}
+
 /// Deterministic 16-byte data-store identifier for a pane's contextId — feeds
 /// `WKWebsiteDataStore dataStoreForIdentifier:` (via tauri's
 /// `data_store_identifier`, plumbed to wry) so each isolated pane gets its OWN
@@ -3358,6 +3382,9 @@ async fn window_detach(
         apply_traffic_lights(&win, false);
         wire_live_resize_cover(&win);
         register_ui_webview(&win, &label);
+        if let Ok(ptr) = win.ns_window() {
+            clip_ns_window_content(ptr);
+        }
     }
     Ok(label)
 }
@@ -3986,6 +4013,19 @@ pub fn run() {
             // the keydown. macOS-only (NSEvent local monitor); see the fn doc.
             #[cfg(target_os = "macos")]
             install_shortcut_forwarder(app.handle());
+
+            // Native panes must never draw past the window frame during live
+            // resize (they trail the client's rAF bounds poll) — see
+            // clip_ns_window_content.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                if let Some(win) = app.get_window("main") {
+                    if let Ok(ptr) = win.ns_window() {
+                        clip_ns_window_content(ptr);
+                    }
+                }
+            }
 
             // Dev hot-reload (Electron-prod parity). By default the frontend is
             // EMBEDDED (include_bytes! over frontendDist) and served from
