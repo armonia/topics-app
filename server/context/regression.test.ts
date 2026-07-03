@@ -172,8 +172,14 @@ function buildLegacyHistoryAware(_providerName: string = "claude"): { systemMess
       finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content });
     }
   }
+  // Blocks 4-6 steer the model to the control TOOLS. They're emitted only for
+  // providers that can actually reach those tools — openclaw is gateway-owned
+  // and can't, so it degrades to user-driven control (spec:
+  // replace-markers-with-tools step 4). Mirrors providerHasControlTools() in
+  // assemble.ts.
+  const hasControlTools = _providerName !== "openclaw";
   // 4. browser — tool-only (markers removed). Mirrors browserInstructionContent().
-  {
+  if (hasControlTools) {
     const content = `When you need to open a URL or file in the user's embedded browser panel, use the \`open_browser_pane\` tool with the absolute URL. Examples:
 - After creating an HTML file: open_browser_pane({ url: "file:///path/to/file.html" })
 - After starting a dev server: open_browser_pane({ url: "http://localhost:3000" })
@@ -183,7 +189,7 @@ The tool returns the final URL + page title after navigation. Do not mention the
     finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content });
   }
   // 5. project tools — tool-only. Mirrors projectMarkersContent().
-  {
+  if (hasControlTools) {
     const content = `You can surface and scope this session to projects in the user's Topics app. The user's projects are referred to by name (for example "Pix" or "topics-app").
 - To OPEN/SCOPE an existing project, use the \`open_project\` tool: open_project({ ref: "project-name-or-path" }) — pass the user's Topics project NAME when you know it (Topics resolves the name), or a known workspace name / path. Topics opens that project window and places THIS session inside it.
 - To CREATE a new project, use the \`create_project\` tool: create_project({ name: "project-name" }) — scaffolds a workspace directory, binds it to this session, and opens it.
@@ -192,7 +198,7 @@ Call \`open_project\` whenever the user, in ANY phrasing or language, asks to op
     finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content });
   }
   // 6. topic switch directory (for fixture: no other topics → empty directory)
-  {
+  if (hasControlTools) {
     const directory = ""; // single topic in topicsData
     const currentTopicInfo = `You are currently in topic: "${topic.name}"${topic.projectPath ? ` (project: ${topic.projectPath.split("/").pop()})` : ""}.\n\n`;
     const directorySection = directory
@@ -281,7 +287,7 @@ describe("regression — canonical pipeline matches legacy", () => {
     expect(payload.history).toBeUndefined();
   });
 
-  it("gateway-stateful: payload shape matches history-aware (gateway just gets different notes)", () => {
+  it("gateway-stateful (openclaw): payload matches history-aware MINUS the control-tool blocks (openclaw can't reach those tools)", () => {
     const envelope = assembleTopicContext(ctx, {
       sessionKey: topic.sessionKey,
       providerName: "openclaw",
@@ -290,9 +296,18 @@ describe("regression — canonical pipeline matches legacy", () => {
       userMessageOverride: { content: "the new user turn (latest)", messageId: "u2" },
     });
     const payload = adaptEnvelope(envelope);
-    const legacy = buildLegacyHistoryAware();
+    // openclaw is gateway-owned: Topics can't inject the browser/project/topic
+    // control tools, so assemble.ts omits their instruction blocks (spec:
+    // replace-markers-with-tools step 4). The legacy baseline for "openclaw"
+    // omits the same three blocks; everything else is byte-identical.
+    const legacy = buildLegacyHistoryAware("openclaw");
     expect(payload.userContent).toBe(legacy.userContent);
     expect(payload.history).toEqual(legacy.payloadHistory);
+    // Guard the intent: none of the three control-tool blocks leaked in.
+    const systemText = (payload.history ?? []).filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    expect(systemText).not.toContain("open_browser_pane");
+    expect(systemText).not.toContain("open_project");
+    expect(systemText).not.toContain("switch_topic");
   });
 
   it("system blocks granularity: composing them back produces the same N system messages", () => {
