@@ -74,10 +74,12 @@ export function addTerminalTombstone(sessionId: string): void {
   const list = readTombstones().filter(t => t.sessionId !== sessionId);
   list.push({ sessionId, ts: Date.now() });
   writeTombstones(list);
+  notifyTombstoneChange('terminal');
 }
 
 export function clearTerminalTombstone(sessionId: string): void {
   writeTombstones(readTombstones().filter(t => t.sessionId !== sessionId));
+  notifyTombstoneChange('terminal');
 }
 
 export function getTerminalTombstones(): Set<string> {
@@ -116,14 +118,93 @@ export function addBrowserTombstone(contextId: string): void {
   const list = readBrowserTombstones().filter(t => t.contextId !== contextId);
   list.push({ contextId, ts: Date.now() });
   writeBrowserTombstones(list);
+  notifyTombstoneChange('browser');
 }
 
 export function clearBrowserTombstone(contextId: string): void {
   writeBrowserTombstones(readBrowserTombstones().filter(t => t.contextId !== contextId));
+  notifyTombstoneChange('browser');
 }
 
 export function getBrowserTombstones(): Set<string> {
   return new Set(readBrowserTombstones().map(t => t.contextId));
+}
+
+// ─── Cross-device sync surface ────────────────────────────────────────────
+//
+// The tombstone maps above are DEVICE-LOCAL by default. `tombstoneSync.ts`
+// mirrors them across devices through the generic `ui_state` channel so a tab
+// you close on one machine stays closed on another (the same resurrection the
+// single-device Fix B already blocks locally). Kept OUT of this file so the
+// pure localStorage store has no dependency on the WS/sync layer — this file
+// only exposes a change hook + generic import/export, and the sync module
+// wires itself in via `setTombstoneChangeListener`.
+//
+// The sync is ADD-ONLY on the receive side (see `importTombstones`): merging
+// two tombstone maps is a union, which is intrinsically clobber-safe — the
+// opposite of a last-write-wins overwrite. `clearTombstone` (undo/reopen) does
+// fire a publish of the shrunken local set, but a peer that already recorded
+// the id will NOT drop it (import never removes); it evicts on its own 5-min
+// TTL. Worst case: a tab reopened on device A stays suppressed on device B for
+// ≤5 min. That bounded, non-destructive lag is the deliberate trade for never
+// propagating a removal across the wire.
+export type TombstoneKind = 'terminal' | 'browser';
+
+/** One id + timestamp, field-name-agnostic — the shape crossing the wire. */
+export interface TombstoneEntry { id: string; ts: number }
+
+let tombstoneChangeListener: ((kind: TombstoneKind) => void) | null = null;
+
+/** Registered once by `tombstoneSync.initTombstoneSync()`. */
+export function setTombstoneChangeListener(
+  fn: ((kind: TombstoneKind) => void) | null,
+): void {
+  tombstoneChangeListener = fn;
+}
+
+function notifyTombstoneChange(kind: TombstoneKind): void {
+  try { tombstoneChangeListener?.(kind); } catch { /* sync layer must never break a close */ }
+}
+
+/** Current (TTL-filtered) local tombstones for a kind, normalised to `{id,ts}`. */
+export function exportTombstones(kind: TombstoneKind): TombstoneEntry[] {
+  return kind === 'terminal'
+    ? readTombstones().map(t => ({ id: t.sessionId, ts: t.ts }))
+    : readBrowserTombstones().map(t => ({ id: t.contextId, ts: t.ts }));
+}
+
+/**
+ * Merge remote tombstones into the local store. UNION semantics: adds ids we
+ * don't have (or bumps to a newer ts), never removes. Expired incoming entries
+ * are ignored. Writes via the low-level writer so it does NOT re-fire the change
+ * listener (the sync layer already guards against echo, but avoiding the
+ * notification entirely keeps the write off the publish path). Returns true if
+ * the local store changed.
+ */
+export function importTombstones(kind: TombstoneKind, incoming: TombstoneEntry[]): boolean {
+  const now = Date.now();
+  const fresh = incoming.filter(e => e && typeof e.id === 'string' && typeof e.ts === 'number' && now - e.ts < TOMBSTONE_TTL_MS);
+  if (fresh.length === 0) return false;
+
+  if (kind === 'terminal') {
+    const byId = new Map(readTombstones().map(t => [t.sessionId, t.ts] as const));
+    let changed = false;
+    for (const e of fresh) {
+      const prev = byId.get(e.id);
+      if (prev === undefined || e.ts > prev) { byId.set(e.id, e.ts); changed = true; }
+    }
+    if (changed) writeTombstones([...byId].map(([sessionId, ts]) => ({ sessionId, ts })));
+    return changed;
+  }
+
+  const byId = new Map(readBrowserTombstones().map(t => [t.contextId, t.ts] as const));
+  let changed = false;
+  for (const e of fresh) {
+    const prev = byId.get(e.id);
+    if (prev === undefined || e.ts > prev) { byId.set(e.id, e.ts); changed = true; }
+  }
+  if (changed) writeBrowserTombstones([...byId].map(([contextId, ts]) => ({ contextId, ts })));
+  return changed;
 }
 
 // Wire a one-shot beforeunload listener so any pending cleanup timers
