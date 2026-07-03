@@ -14,7 +14,6 @@ import type { PaneState, Pane } from "../types";
 const blank = (): PaneState => ({
   panes: {},
   groups: {},
-  projects: {},
   closedStack: [],
   tombstones: {},
   focusedPaneId: null,
