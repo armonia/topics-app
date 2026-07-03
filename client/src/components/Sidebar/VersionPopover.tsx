@@ -32,12 +32,16 @@ export function VersionPopover({
   appVersion,
   isDev,
   buildDate,
+  buildSha,
   onClose,
 }: {
   anchorEl: HTMLElement | null;
   appVersion: string;
   isDev: boolean;
   buildDate: string;
+  /** Git short-hash of the webapp build ('' when unavailable) — the freshness
+   *  signal: the semver only moves on release bumps. */
+  buildSha?: string;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -84,6 +88,7 @@ export function VersionPopover({
       </div>
       <div className="space-y-1 text-[11px] text-app-text-muted">
         <div className="flex justify-between"><span>Compilato</span><span className="text-app-text-secondary">{buildDate || '—'}</span></div>
+        <div className="flex justify-between"><span>Build</span><span className="text-app-text-secondary font-mono">{buildSha || '—'}</span></div>
         <div className="flex justify-between"><span>Piattaforma</span><span className="text-app-text-secondary">{platformLabel()}{isElectron ? ' · desktop' : ''}</span></div>
       </div>
 
