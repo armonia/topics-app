@@ -1317,7 +1317,17 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             //    client's RemoteBrowserPanel drives the load.
             try {
               let targetId = await awaitNativeCdpTarget(ctxId, 4000);
-              if (!targetId) {
+              // Gate force-open on a live Electron CDP endpoint, exactly like the
+              // chat-originated path below. On the Tauri shell (primary) there is
+              // no CDP (port 19333), so `awaitNativeCdpTarget` ALWAYS returns null
+              // instantly — an ungated force-open then fired on EVERY terminal
+              // browser open and raced the project window's async pane claim
+              // (open-near-pane → queueMicrotask), spawning a duplicate standalone
+              // `browser:<ctx>` in group:default that showed up both inside the
+              // project AND outside it. The client already surfaces the pane via
+              // `browser:open-near-pane`, so on Tauri force-open is pure dup-risk.
+              const electronUp = await isElectronCdpAvailable();
+              if (!targetId && electronUp) {
                 // No rendered cell claimed the open-near-pane (the terminal pane
                 // isn't a tab in any visible layout), so nothing mounted a native
                 // view. Force a VISIBLE pane open in the primary window — otherwise
