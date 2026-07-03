@@ -118,3 +118,26 @@ describe("deriveClaudeSessionTitle (incremental)", () => {
     expect(deriveClaudeSessionTitle(join(dir, "nope.jsonl"))).toBeNull();
   });
 });
+
+describe("harness markup never becomes a title", () => {
+  test("slash-command last-prompt is skipped, previous prompt kept", () => {
+    const raw = [
+      jline({ type: "last-prompt", lastPrompt: "fix the sidebar resize" }),
+      jline({ type: "last-prompt", lastPrompt: "<command-name>/compact</command-name>\n<command-message>compact</command-message>" }),
+    ].join("\n");
+    expect(extractTitleFromTranscript(raw)).toBe("fix the sidebar resize");
+  });
+
+  test("markup-only transcript yields null, not '<command-name>…'", () => {
+    const raw = jline({ type: "user", message: { role: "user", content: "<local-command-stdout>ok</local-command-stdout>" } });
+    expect(extractTitleFromTranscript(raw)).toBeNull();
+  });
+
+  test("first REAL user message wins over an earlier markup one", () => {
+    const raw = [
+      jline({ type: "user", message: { role: "user", content: "<command-name>/goal</command-name>" } }),
+      jline({ type: "user", message: { role: "user", content: "aiutami col deploy" } }),
+    ].join("\n");
+    expect(extractTitleFromTranscript(raw)).toBe("aiutami col deploy");
+  });
+});
