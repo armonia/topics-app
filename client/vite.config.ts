@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import fs from 'fs'
+import { execSync } from 'node:child_process'
 
 // Plugin: swap icons/manifest to dev versions in dev mode only
 function devIconPlugin(): Plugin {
@@ -52,7 +53,6 @@ function lastChangePlugin(): Plugin {
 // bumps, so locally-delivered builds all share it. Shown in the version popover.
 const __buildSha = (() => {
   try {
-    const { execSync } = require('node:child_process');
     const sha = execSync('git rev-parse --short HEAD', { cwd: __dirname }).toString().trim();
     const dirty = execSync('git status --porcelain --untracked-files=no', { cwd: __dirname }).toString().trim() ? '*' : '';
     return sha + dirty;
