@@ -490,13 +490,18 @@ function applyDesktopCors(req: Request, resp: Response): void {
   resp.headers.set("Access-Control-Allow-Origin", origin);
   resp.headers.set("Vary", "Origin");
 }
-function corsPreflightHeaders(origin: string): Record<string, string> {
+function corsPreflightHeaders(req: Request, origin: string): Record<string, string> {
+  // Reflect whatever headers the request wants to send: origin is already
+  // gated to the desktop-shell origins, and a fixed list rots — it silently
+  // blocked every PUT carrying X-Client-Id (pane/layout sync), so the desktop
+  // never persisted state except via the header-less sendBeacon teardown path.
+  const requested = req.headers.get("access-control-request-headers");
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": requested || "Content-Type, Authorization",
     "Access-Control-Max-Age": "86400",
-    "Vary": "Origin",
+    "Vary": "Origin, Access-Control-Request-Headers",
   };
 }
 
@@ -697,7 +702,7 @@ const server = Bun.serve<WSData>({
     // Desktop shell (Tauri) CORS preflight — no-op for non-desktop origins.
     if (isApiRequest && method === "OPTIONS") {
       const o = corsAllowOrigin(req);
-      if (o) return new Response(null, { status: 204, headers: corsPreflightHeaders(o) });
+      if (o) return new Response(null, { status: 204, headers: corsPreflightHeaders(req, o) });
     }
 
     // Route through handlers
