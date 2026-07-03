@@ -28,7 +28,6 @@ export type PaneType =
   | 'session'
   | 'context'
   | 'editor'
-  | 'webhooks'
   | 'cron'
   | 'remote-access'
   | 'system-status'

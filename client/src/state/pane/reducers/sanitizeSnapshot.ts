@@ -78,7 +78,6 @@ export const KNOWN_PANE_TYPES = [
   'session',
   'context',
   'editor',
-  'webhooks',
   'cron',
   'remote-access',
   'system-status',
