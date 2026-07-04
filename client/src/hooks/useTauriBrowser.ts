@@ -62,6 +62,22 @@ function normalizeUrl(input: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(s)}`;
 }
 
+/** Native browser views are durable across TRANSIENT React unmounts. A project
+ *  auto-split moves the browser pane into a NEW group; SplitTree keys its leaf by
+ *  group id, so the move remounts `RemoteBrowserPanel` — firing `browser_close(id)`
+ *  then `browser_open(id)` on the SAME webview label in one tick. `Webview::close()`
+ *  removes the label from Tauri's store SYNCHRONOUSLY but destroys the NSView
+ *  asynchronously, so the immediate `browser_open(id)` finds no label and spawns a
+ *  SECOND native WKWebView while the first is still tearing down. That orphan has no
+ *  React owner, so no later `browser_close` targets it — it stays painted after the
+ *  user closes the tab ("the browser won't close", project-only). Fix: defer the
+ *  native close by a short grace; a remount for the same contextId cancels it and
+ *  REUSES the still-alive view (open hits its idempotent branch). A real close (no
+ *  remount) tears down after the grace. Same reap-grace idiom the terminal/browser
+ *  self-heal paths already use. */
+const pendingBrowserCloses = new Map<string, ReturnType<typeof setTimeout>>();
+const BROWSER_CLOSE_GRACE_MS = 350;
+
 export function useTauriBrowser(contextId: string, initialUrl?: string, isVisible = true, onFocused?: () => void): NativeBrowserHandle {
   const id = contextId;
   const [ready, setReady] = useState(false);
@@ -286,6 +302,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // re-mount just re-opens. Revisit if tab-switch churn proves costly.)
   useEffect(() => {
     let cancelled = false;
+    // A remount within the grace window (project auto-split re-key) lands here
+    // while the previous cleanup's deferred close is still queued — cancel it so
+    // the still-alive native view is REUSED instead of destroyed-then-orphaned.
+    const queuedClose = pendingBrowserCloses.get(id);
+    if (queuedClose) { clearTimeout(queuedClose); pendingBrowserCloses.delete(id); }
     const startUrl = normalizeUrl(initialUrlRef.current ?? 'about:blank');
     // isolate: each pane gets its OWN persistent WKWebsiteDataStore keyed on the
     // contextId (stable across restarts) — per-topic cookie/localStorage
@@ -293,6 +314,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // time cost: panes that had been living in the shared default store lose that
     // login once on this switch (recoverable via browser_import_chrome /
     // browser_load_state). macOS 14+; degrades to the shared store on older.
+    // browser_open is idempotent on an existing label (lib.rs), so reusing a view
+    // whose close we just cancelled simply re-shows it.
     void tauriInvoke('browser_open', { id, url: startUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true })
       .then(() => {
         if (cancelled) return;
@@ -305,7 +328,16 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     return () => {
       cancelled = true;
       openedRef.current = false;
-      void tauriInvoke('browser_close', { id }).catch(() => {});
+      // Defer the native close: a real close fires it after the grace; a transient
+      // remount (auto-split) cancels it above. This decouples React unmount churn
+      // from Webview::close()'s two-phase (sync label-drop, async NSView destroy)
+      // teardown, which otherwise orphans a native view on close+open same tick.
+      const existing = pendingBrowserCloses.get(id);
+      if (existing) clearTimeout(existing);
+      pendingBrowserCloses.set(id, setTimeout(() => {
+        pendingBrowserCloses.delete(id);
+        void tauriInvoke('browser_close', { id }).catch(() => {});
+      }, BROWSER_CLOSE_GRACE_MS));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once per contextId; initialUrl is captured via ref so a persisted-url change never re-creates the view
   }, [id]);
