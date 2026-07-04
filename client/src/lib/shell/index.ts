@@ -20,12 +20,12 @@ declare global {
   }
 }
 
-/** Detect the host environment at runtime. Electron is detected first because
- *  the current production desktop is Electron; Tauri exposes `__TAURI_INTERNALS__`
- *  (v2) / `__TAURI__` (v1 compat); everything else is plain web/PWA. */
+/** Detect the host environment at runtime. Tauri exposes `__TAURI_INTERNALS__`
+ *  (v2) / `__TAURI__` (v1 compat); everything else is plain web/PWA. The
+ *  'electron' kind is retained in the type for legacy callsites but is never
+ *  produced — the archived Electron shell no longer ships (v2.0.0). */
 export function detectShell(): ShellKind {
   if (typeof window === 'undefined') return 'web';
-  if (window.electronAPI) return 'electron';
   if (window.__TAURI_INTERNALS__ || window.__TAURI__) return 'tauri';
   // Origin fallback (CRITICAL): Tauri injects its IPC globals at document-start,
   // but on the custom protocol that injection can land AFTER this module graph
@@ -54,24 +54,22 @@ export const isDesktop = shellKind !== 'web';
  *  branching on `shellKind`. Browser panes + native pty are desktop-only and
  *  degrade to a fallback UI on web/mobile (PORTING-PLAN.md §2 parity matrix). */
 export const capabilities = {
-  /** Embedded browser pane. Electron has a real WebContentsView per pane; Tauri
-   *  does NOT yet (the single-WKWebView shell renders a placeholder — see
-   *  RemoteBrowserPanel; the native CEF pane is the post-Tier-1 "D1" decision),
-   *  so it must report false here. */
+  /** Embedded browser pane — a real child WKWebView per pane on the Tauri shell
+   *  (see RemoteBrowserPanel's Tauri path); web falls back to screenshot streaming. */
   get nativeBrowser(): boolean {
-    return Boolean(window?.electronAPI?.browserNative?.isAvailable);
+    return isTauri;
   },
   /** Native pseudo-terminal (pty). Desktop only. */
   get nativeTerminal(): boolean {
     return isDesktop;
   },
-  /** Native overlay menus/modals (Electron transparent window / Tauri webview). */
+  /** Native overlay menus/modals (Tauri webview). */
   get nativeOverlay(): boolean {
-    return Boolean(window?.electronAPI?.overlay) || isTauri;
+    return isTauri;
   },
   /** Per-process perf metrics (CPU/GPU/memory). Desktop only. */
   get perfMetrics(): boolean {
-    return Boolean(window?.electronAPI?.perf) || isTauri;
+    return isTauri;
   },
   /** Auto-update channel. Desktop only (web is always-fresh). */
   get autoUpdate(): boolean {

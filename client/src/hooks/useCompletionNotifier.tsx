@@ -143,10 +143,10 @@ export function useCompletionNotifier({
     } catch { /* ignore — notifications simply won't show */ }
   }, []);
 
-  // Electron desktop? The MAIN process (electron-app/main.ts) is the established
-  // owner of native OS banners for the streams it already handles, so the
-  // renderer must not duplicate them there — see `fire` / the `osBanner` gate.
-  const isElectron = !!(window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron;
+  // The archived Electron main process used to own native OS banners; it no longer
+  // ships (Tauri is the only desktop shell), so this is permanently false and the
+  // renderer always posts its own banner via `fire` / the `osBanner` gate.
+  const isElectron = false;
 
   // Single fan-out for every completion/attention cue: a native OS banner (the
   // only surface — no in-app toast, per user preference) + an optional sound.

@@ -1,12 +1,10 @@
 /**
- * Phase 30.1 polish — Minimal download strip for the native browser pane.
+ * Minimal download strip for the native (Tauri) browser pane.
  *
  * Renders a horizontal list of active+recent downloads at the bottom of
  * the pane (same pattern as Chrome's bottom-of-window download shelf).
- * Subscribes to the IPC stream emitted by Electron's download manager
- * (will-download → updated → done) and keeps a per-pane in-memory list.
- *
- * Hidden in web mode (no electronAPI.browserNative).
+ * Polls the Rust download-event queue (browser_take_download_events) and
+ * keeps a per-pane in-memory list. Renders nothing when the list is empty.
  */
 import { useEffect, useState, useCallback } from 'react';
 import { Check, X as XIcon, FolderOpen, Loader2 } from 'lucide-react';
@@ -29,8 +27,8 @@ export function DownloadStrip() {
   const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
 
   // Tauri: poll the Rust download-event queue (browser_take_download_events) and
-  // apply start/done events to the same per-pane list the Electron path builds.
-  // wry gives no progress + (macOS) no final path, so it's a spinner→check, no %.
+  // apply start/done events to the per-pane list. wry gives no progress +
+  // (macOS) no final path, so it's a spinner→check, no %.
   useEffect(() => {
     if (!isTauri) return;
     let stop = false;
@@ -53,41 +51,9 @@ export function DownloadStrip() {
     return () => { stop = true; window.clearInterval(iv); };
   }, []);
 
-  useEffect(() => {
-    const api = window.electronAPI?.browserNative;
-    if (!api) return;
-    const unsubs: Array<() => void> = [];
-
-    unsubs.push(api.onDownloadStart((info) => {
-      setDownloads((prev) => [
-        ...prev,
-        { ...info, received: 0, state: 'progressing' as const },
-      ]);
-    }));
-    unsubs.push(api.onDownloadProgress((info) => {
-      setDownloads((prev) => prev.map((d) => d.id === info.id
-        ? { ...d, received: info.received, totalBytes: info.total, state: info.isPaused ? 'paused' as const : 'progressing' as const }
-        : d));
-    }));
-    unsubs.push(api.onDownloadDone((info) => {
-      setDownloads((prev) => prev.map((d) => d.id === info.id
-        ? { ...d, state: info.state as DownloadEntry['state'], savedPath: info.savedPath }
-        : d));
-      setTimeout(() => {
-        setDownloads((prev) => prev.filter((d) => d.id !== info.id));
-      }, RECENT_KEEP_MS);
-    }));
-
-    return () => { for (const u of unsubs) u(); };
-  }, []);
-
   const showInFolder = useCallback((path: string) => {
-    if (isTauri) {
-      // opener plugin: select the file in Finder.
-      void tauriInvoke('plugin:opener|reveal_item_in_dir', { path }).catch(() => {});
-      return;
-    }
-    void window.electronAPI?.browserNative?.showDownloadInFolder(path);
+    // opener plugin: select the file in Finder / file manager.
+    void tauriInvoke('plugin:opener|reveal_item_in_dir', { path }).catch(() => {});
   }, []);
   const dismiss = useCallback((id: string) => {
     setDownloads((prev) => prev.filter((d) => d.id !== id));
