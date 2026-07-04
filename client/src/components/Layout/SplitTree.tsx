@@ -16,8 +16,10 @@
  * `topics:pane-resize-start` / `-end` events so the per-region vibrancy freezes
  * and snaps exactly like it does for the legacy engines.
  *
- * ADDITIVE / behind the P2 flag — not wired into any surface yet. Integration
- * (swapping PanelGrid/GroupLayout to render via this) is the user-verified step.
+ * LIVE: this is the sole split renderer for BOTH surfaces — PanelGrid (standalone
+ * grid) and GroupLayout (project window) each build a shallow LayoutNode from
+ * their rows and render it through this component. It is NOT dead / behind a flag;
+ * deleting it breaks all tiling.
  */
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { type LayoutNode, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
