@@ -6,6 +6,8 @@ import { filesApi } from '../../lib/api';
 import { basename } from '../../lib/path-utils';
 import { getFileIconDef } from '../../lib/fileIcons';
 import { useGitStatus } from '../../hooks/useGitStatus';
+import { useDismissable } from '../../hooks/useDismissable';
+import { Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { useToast } from '../Shared/Toast';
 
 const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
@@ -952,24 +954,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     }
   }, [getTargetDir, loadFiles, toast]);
 
-  // Close context menu on outside click or Escape
-  useEffect(() => {
-    if (!contextMenuPos) return;
-    const handleClick = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        closeContextMenu();
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeContextMenu();
-    };
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [contextMenuPos, closeContextMenu]);
+  // Dismissal for the file context menu (right-click, positioned at the cursor).
+  useDismissable({
+    open: !!contextMenuPos,
+    onClose: closeContextMenu,
+    refs: [contextMenuRef],
+    restoreFocus: false,
+  });
 
   // Keyboard shortcuts for copy/cut/paste
   useEffect(() => {
@@ -1179,8 +1170,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     <div
       ref={contextMenuRef}
       role="menu"
-      className="fixed z-50 glass-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[200px]"
-      style={contextMenuStyle()}
+      className="fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 min-w-[200px]"
+      style={{ ...contextMenuStyle(), zIndex: Z_CONTEXT_MENU }}
     >
       {/* Header */}
       <div className="px-3 py-1.5 text-[11px] text-app-text-tertiary font-medium truncate border-b border-app-border mb-1">
