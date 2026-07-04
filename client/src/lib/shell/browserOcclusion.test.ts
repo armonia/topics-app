@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { slotIntersectsRects, OVERLAY_SELECTOR, type OverlayRect } from './browserOcclusion';
 import { MODAL_PANEL } from '../modalStyles';
-import { POPOVER_SURFACE } from '../popoverStyles';
+import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_SHEET } from '../popoverStyles';
 
 const slot = { x: 100, y: 100, width: 200, height: 200 }; // covers 100..300 × 100..300
 
@@ -81,4 +81,27 @@ test('a modal card overlapping a browser-pane slot is detected as occluding it',
   // intersects → freeze fires → the modal composites over the still.
   const modalOverPane: OverlayRect = { left: 120, top: 120, right: 280, bottom: 280 };
   expect(slotIntersectsRects(slot, [modalOverPane])).toBe(true);
+});
+
+// ── Guardrail for the unified `Menu` primitive (dropdown-unification). Every
+// menu built on `Menu` carries BOTH a `.glass-surface` (via POPOVER_*) and a
+// `role="menu"`/`"listbox"` container. Either alone is enough to match
+// OVERLAY_SELECTOR, so a menu can't accidentally render behind a native pane.
+// These lock the two halves of that marker so a refactor that drops the glass
+// token from a POPOVER_* surface, or the role from OVERLAY_SELECTOR, fails HERE.
+
+test('every POPOVER_* surface carries the glass-surface occlusion marker', () => {
+  // Menu uses POPOVER_SURFACE (desktop) and POPOVER_SHEET (mobile); POPOVER_PANEL
+  // backs the header/scroll pickers. All three must stay recognisable overlays.
+  for (const surface of [POPOVER_SURFACE, POPOVER_PANEL, POPOVER_SHEET]) {
+    expect(surface).toContain('glass-surface');
+    expect(classStringMatchesSelector(surface, OVERLAY_SELECTOR)).toBe(true);
+  }
+});
+
+test('OVERLAY_SELECTOR matches the Menu container roles', () => {
+  // Menu sets role="menu" (action menus) or role="listbox" (pickers) on its
+  // panel; both must be in the selector so the role alone lifts the menu.
+  expect(OVERLAY_SELECTOR).toContain('[role="menu"]');
+  expect(OVERLAY_SELECTOR).toContain('[role="listbox"]');
 });
