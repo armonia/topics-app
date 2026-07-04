@@ -12,6 +12,7 @@ const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').the
 const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
+import { AuraWave } from '../AuraWave';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
 import { useTopicLoading } from '@/state/signals';
@@ -174,11 +175,7 @@ export function ChatPanel({
             pane edge while the session streams. Rendered only when working so
             it costs nothing at rest; transform-only animation (see index.css).
             aria-hidden: purely decorative. */}
-        {showWorkingRing && (
-          <div className="chat-working-aura" aria-hidden="true">
-            <s /><b className="aura-o1" /><b className="aura-o2" /><b className="aura-o3" /><b className="aura-o4" /><b className="aura-o5" /><b className="aura-o6" />
-          </div>
-        )}
+        {showWorkingRing && <AuraWave activityId={topic.sessionKey} />}
         {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
             with tabs: floating overlay with blur for scroll-through effect. */}
         {!bodyOnly && <div className={`flex items-center ${headerLeft

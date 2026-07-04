@@ -1087,30 +1087,15 @@ input[type="range"]::-webkit-slider-thumb {
   will-change: opacity;
 }
 
-/* ─── "Working" aura (Apple-Intelligence style) ──────────────────────────────
- * Host: the pane root (`position: relative; overflow: hidden`); border-radius
- * inherit follows the rounded floating-splits cards. Rendered by React only
- * while the session works → zero idle cost. `.anims-paused` freezes it when
- * the window is backgrounded. Only transform/opacity animate (compositor);
- * blur lives on each blob's OWN layer (WebKit-safe). */
-/* v10 = v9 tuned per Attilio ("troppo grande, più animata/ruotare"): edge
- * mask 76→38px, swells 40%→30%, band spin 9s→5.5s, swell periods ~25% faster.
- */
-/* v9 TRAVELING WAVES — Attilio: "una roba tutto intorno ad onde", "l'ombra è
- * troppo omogenea", "si vedono solo due bagliori". Two layers:
- * 1. BAND (<s>): a conic gradient with UNEVEN color stops on a 220% disc that
- *    ROTATES (9s), clipped to the pane's edge by a feathered 4-edge union
- *    mask on the parent. This is the "all around" part: bright sectors travel
- *    visibly along the whole perimeter — never homogeneous, never spotty.
- *    Mask on parent + rotating blurred child is the WebKit-verified pattern
- *    (mask-composite: add / -webkit-mask-composite: source-over).
- * 2. SWELLS (<i>): eight radial blobs pinned around the perimeter animating
- *    scale/opacity on FAST co-prime periods (4.7–8.5s — v8's 9–19s read as
- *    static to the eye): local surges of depth riding on the band, out of
- *    phase, so the glow's reach undulates like a wave.
- * Transform/opacity only → compositor-thread; blur on each layer's OWN
- * element. Conditionally rendered while working → zero idle cost;
- * `.anims-paused *` / `*::before` freeze everything when backgrounded. */
+/* ─── "Working" aura ─────────────────────────────────────────────────────────
+ * A real, dynamic wave of iridescent smoke hugging the pane edge while a
+ * session works. Rendered by <AuraWave> (components/AuraWave.tsx): an SVG whose
+ * `fog` path is rebuilt every frame from ~140 border points displaced by a
+ * multi-harmonic sine sum; the ring between the border and that contour is
+ * filled and blurred → haze that fades 100→0 inward. Wave SPEED tracks session
+ * activity (see lib/auraActivity.ts). Host = this container (position:absolute,
+ * overflow:hidden, border-radius:inherit). Rendered only while working → zero
+ * idle cost; the shared rAF freezes when `.anims-paused` is set on <html>. */
 .chat-working-aura {
   position: absolute;
   inset: 0;
@@ -1120,119 +1105,41 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
   animation: chat-working-ring-in 300ms ease-out;
 }
-/* band host: feathered edge mask (union of the four edges) */
-.chat-working-aura > s {
+/* SVG overlay that carries the dynamic wave (positions written per frame by
+ * AuraWave via setAttribute — no React re-render). */
+.chat-working-aura .wave-svg {
   position: absolute;
   inset: 0;
-  display: block;
-  -webkit-mask-image:
-    linear-gradient(to bottom, #fff, transparent 38px),
-    linear-gradient(to top, #fff, transparent 38px),
-    linear-gradient(to right, #fff, transparent 38px),
-    linear-gradient(to left, #fff, transparent 38px);
-  -webkit-mask-composite: source-over;
-  mask-image:
-    linear-gradient(to bottom, #fff, transparent 38px),
-    linear-gradient(to top, #fff, transparent 38px),
-    linear-gradient(to right, #fff, transparent 38px),
-    linear-gradient(to left, #fff, transparent 38px);
-  mask-composite: add;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
-/* band disc: rasterized at PANE size (cheap texture + cheap blur), then
- * GPU-scaled 2.4× in the same animated transform so rotation always covers
- * the corners — a real -60%-inset disc costs a ~5× bigger texture and a
- * one-time ~200ms rasterization hitch on mount for zero visual gain (it's
- * blurred anyway; blur scales up with the transform). Uneven stops = bright
- * crests with dim troughs that chase each other around the edge. */
-.chat-working-aura > s::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: conic-gradient(from 20deg,
-    rgba(50, 200, 255, 0.85), rgba(94, 92, 230, 0.30) 12%,
-    rgba(191, 90, 242, 0.9) 26%, rgba(255, 55, 175, 0.35) 37%,
-    rgba(10, 132, 255, 0.8) 52%, rgba(60, 220, 210, 0.28) 63%,
-    rgba(255, 100, 130, 0.85) 78%, rgba(94, 92, 230, 0.32) 90%,
-    rgba(50, 200, 255, 0.85));
-  filter: blur(8px) saturate(160%);
-  /* static fallback: with `animation: none` (prefers-reduced-motion) the
-   * keyframes' scale never applies — without this the disc stays pane-sized
-   * and the corners go uncovered */
-  transform: scale(2.4);
-  animation: aura-band-spin 5.5s linear infinite;
-  will-change: transform;
+/* `base` is the invisible geometry path AuraWave samples for border positions +
+ * inward normals; never painted. */
+.chat-working-aura .wave-svg .base {
+  fill: none;
+  stroke: none;
 }
-@keyframes aura-band-spin {
-  from { transform: scale(2.4) rotate(0deg); }
-  to   { transform: scale(2.4) rotate(360deg); }
-}
-/* v12 CONTINUOUS WAVE — Attilio: "non pallini singoli ma tutta un'onda che
- * varia". The v11 orbiters were right about the MOTION (constant path speed
- * via Motion Path) but wrong about the SHAPE: 3 small crests read as dots.
- * Now SIX large, heavily-blurred crests travel the same direction at nearby
- * (but distinct) speeds: adjacent crests overlap into one continuous ribbon
- * whose thickness and brightness undulate as they drift — a single traveling
- * wave, no isolated dots. The static swells are gone (they read as parked
- * dots); the rotating band stays as the base coat filling the troughs.
- * Hidden where Motion Path is unsupported (band still carries the effect). */
-.chat-working-aura > b {
-  display: none;
-}
-@supports (offset-path: inset(0%)) {
-  .chat-working-aura > b {
-    display: block;
-    position: absolute;
-    width: 36%;
-    aspect-ratio: 1;
-    border-radius: 50%;
-    filter: blur(16px) saturate(160%);
-    offset-path: inset(0 round 16px);
-    offset-rotate: 0deg;
-    will-change: transform, opacity;
-    animation: aura-orbit 10s linear infinite;
-  }
-  /* one direction (a wave has a heading); near-but-distinct periods let the
-   * crests drift apart and re-merge, so the ribbon's depth varies in time */
-  .chat-working-aura > .aura-o1 {
-    background: radial-gradient(circle, rgba(50, 200, 255, 0.7) 0%, rgba(50, 200, 255, 0) 60%);
-    animation-duration: 9.5s;
-  }
-  .chat-working-aura > .aura-o2 {
-    background: radial-gradient(circle, rgba(94, 92, 230, 0.68) 0%, rgba(94, 92, 230, 0) 60%);
-    animation-duration: 11s; animation-delay: -1.8s;
-  }
-  .chat-working-aura > .aura-o3 {
-    background: radial-gradient(circle, rgba(191, 90, 242, 0.68) 0%, rgba(191, 90, 242, 0) 60%);
-    animation-duration: 10s; animation-delay: -3.4s;
-  }
-  .chat-working-aura > .aura-o4 {
-    background: radial-gradient(circle, rgba(255, 55, 175, 0.62) 0%, rgba(255, 55, 175, 0) 60%);
-    animation-duration: 12.5s; animation-delay: -5.2s;
-  }
-  .chat-working-aura > .aura-o5 {
-    background: radial-gradient(circle, rgba(60, 220, 210, 0.62) 0%, rgba(60, 220, 210, 0) 60%);
-    animation-duration: 9s; animation-delay: -6.7s;
-  }
-  .chat-working-aura > .aura-o6 {
-    background: radial-gradient(circle, rgba(10, 132, 255, 0.7) 0%, rgba(10, 132, 255, 0) 60%);
-    animation-duration: 11.5s; animation-delay: -8.4s;
-  }
-}
-@keyframes aura-orbit {
-  from { offset-distance: 0%; }
-  to   { offset-distance: 100%; }
+/* `fog` = a filled band between the window edge and the (invisible) wave
+ * contour, rendered with fill-rule:evenodd. A static blur dissolves its inner
+ * edge to 0 at the wave, so it reads as iridescent smoke fading 100→0 from the
+ * border inward. The host's overflow:hidden clips the outer side so the border
+ * stays full. Fill (the per-instance gradient) is set inline in AuraWave. */
+.chat-working-aura .wave-svg .fog {
+  fill-rule: evenodd;
+  stroke: none;
+  opacity: 0.9;
+  filter: blur(10px);
 }
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 
-/* prefers-reduced-motion: keep a static soft glow (still a cue), stop motion.
- * Orbiters are hidden outright — static, they'd read as three random dots. */
+/* prefers-reduced-motion: AuraWave draws a single static, shaped haze (no rAF
+ * loop) — still a cue, no motion. Only the container's fade-in is stopped. */
 @media (prefers-reduced-motion: reduce) {
-  .chat-working-aura,
-  .chat-working-aura > s::before { animation: none; }
-  .chat-working-aura > b { display: none; }
+  .chat-working-aura { animation: none; }
 }
 
 /* Pause EVERY keyframe animation while the window is backgrounded (driven by
