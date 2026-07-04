@@ -33,9 +33,10 @@ import { parseBrowserWsMessage } from '../types/browser-ws-messages';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
 
-/** Parking spot far outside any display — keeps the webview alive (no reload)
- *  while hidden, vs destroying it. Matches Electron's zero-bounds hide intent. */
-const OFFSCREEN = { x: -100000, y: 0, width: 1, height: 1 } as const;
+/** Off-screen X for parking a hidden native view far outside any display — keeps
+ *  the webview alive (no reload) while hidden. We park at the last REAL size (not
+ *  1×1) so the page keeps a sane layout and stays screenshot-able; see
+ *  `lastRealSizeRef` and `applyBounds`. */
 
 /** Idempotently install the self-focus pointerdown counter in the page. Only a
  *  REAL user click into this pane should activate its tab, so we count a
@@ -124,6 +125,14 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // Buffer the last requested SLOT rect (the layout cell), flushed once the
   // webview exists and re-used to recompute bounds on device-mode changes.
   const pendingRectRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  // Last size the view was actually SHOWN at. When we park the view off-screen
+  // (hidden pane, drag, overlay), we keep it at THIS size — NOT collapsed to 1×1
+  // — so the page retains a real layout (innerWidth/vh/vw) and stays screenshot-
+  // able. A background/agent-driven pane that's never been foregrounded is the
+  // reason for the default: without it the WKWebView renders at 1×1 and every
+  // vh/vw collapses, so browser_status/screenshot see a 1×1 page. Seeded to the
+  // same 800×600 the view is created at (see browser_open below).
+  const lastRealSizeRef = useRef<{ width: number; height: number }>({ width: 800, height: 600 });
   const initialUrlRef = useRef(initialUrl);
 
   // ── Freeze-frame ──────────────────────────────────────────────────────────
@@ -160,7 +169,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       const h = Math.min(dims.height, slot.height);
       rect = { x: slot.x + (slot.width - w) / 2, y: slot.y + (slot.height - h) / 2, width: w, height: h };
     } else if (hide) {
-      rect = OFFSCREEN;
+      // Park off-screen but KEEP the last shown size (not 1×1), so the page's
+      // layout survives while hidden and the agent can still screenshot/read it.
+      rect = { x: -100000, y: 0, width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height };
+    }
+    // Remember the real on-screen size so a later park preserves the page layout.
+    // Floor at 64px so a transient tiny rect mid-animation can't poison the park
+    // size (which would re-collapse the page layout when the pane next hides).
+    if (!hide && rect.width >= 64 && rect.height >= 64) {
+      lastRealSizeRef.current = { width: Math.round(rect.width), height: Math.round(rect.height) };
     }
     // Floating-mode signal for the shell's corner mask: floating cards keep a
     // margin from the window edge, so the shell widens its "meets a window
@@ -188,9 +205,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         applyBounds(); // show (letterboxed if emulating; off-screen if occluded)
       } else if (openedRef.current) {
         // Explicit zero-rect = hide (drag/resize in flight, pane inactive, or an
-        // HTML overlay over it — native views composite above the DOM). Park it,
-        // keeping the stored slot so the next real rect restores it.
-        void tauriInvoke('browser_set_bounds', { id, ...OFFSCREEN }).catch(() => {});
+        // HTML overlay over it — native views composite above the DOM). Park it
+        // off-screen at the last real size (NOT 1×1) so the page keeps its layout
+        // and stays screenshot-able; the next real rect restores it on-screen.
+        void tauriInvoke('browser_set_bounds', {
+          id, x: -100000, y: 0,
+          width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height,
+        }).catch(() => {});
       }
     },
     [applyBounds, id],
@@ -210,8 +231,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       .catch(() => {})
       .finally(() => {
         // Park regardless (even if the shot failed, the overlay must show through);
-        // skip if a thaw already superseded this freeze.
-        if (freezeSeqRef.current === seq) void tauriInvoke('browser_set_bounds', { id, ...OFFSCREEN }).catch(() => {});
+        // skip if a thaw already superseded this freeze. Park at the last real size
+        // (off-screen), not 1×1, so the page layout survives behind the still.
+        if (freezeSeqRef.current === seq) void tauriInvoke('browser_set_bounds', {
+          id, x: -100000, y: 0,
+          width: lastRealSizeRef.current.width, height: lastRealSizeRef.current.height,
+        }).catch(() => {});
       });
   }, [id]);
 
