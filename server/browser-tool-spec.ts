@@ -81,11 +81,17 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
         element_id: { type: "number", description: "Deprecated alias for ref." },
         action: {
           type: "string",
+          // MUST mirror ACT_ACTIONS in shared/browser-snapshot-core.ts (kept in
+          // sync by hand — this module stays import-free for MCP cold-start).
+          // The handler accepts all of these; omitting any here makes strict
+          // clients (MCP/OpenAI) unable to emit a capability that actually works.
           enum: [
             "click",
             "dblclick",
+            "triple_click",
             "hover",
             "fill",
+            "clear",
             "type",
             "select",
             "check",

@@ -58,6 +58,7 @@ import { pushUndo } from '../../../contexts/UndoContext';
 import { enqueuePendingAction, tickPendingAction, cancelPendingAction } from '../../../contexts/PendingActionContext';
 import { useRefMirror } from '../../../hooks/useRefMirror';
 import { basename } from '../../../lib/path-utils';
+import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import { splitColumnWidths, appendColumnWidths, keepColumnWidths, chooseSplitOrientation } from '../gridWidths';
 import {
   addGroupToColumnStack,
@@ -488,8 +489,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // panel consumes it via `onNavigateConsumed`. If the broadcast races the
   // pane mount, the navigateUrl prop will be honoured on first render.
   useEffect(() => {
-    const ensureBrowserPaneAndNavigate = (url: string, targetGroupId?: string, spawnerKey?: string, contextId?: string) => {
-      if (!url) return;
+    const ensureBrowserPaneAndNavigate = (rawUrl: string, targetGroupId?: string, spawnerKey?: string, contextId?: string) => {
+      if (!rawUrl) return;
+      // Rewrite localhost/127.0.0.1/*.local → the LAN https host for remote/mobile
+      // clients, exactly as the standalone path does (usePaneOrdering). Without it
+      // a project browser opened from another device gets a raw localhost URL it
+      // can't reach (white pane) — and seedPaneUrl would persist that dead URL.
+      // On Tauri/local this is a passthrough, so desktop behaviour is unchanged.
+      const url = resolveBrowserNavigateUrl(rawUrl);
       // Default to the focused group (chat-driven navigation), but allow an
       // explicit target so a terminal-originated open lands beside the SAME
       // group as the terminal pane rather than wherever focus happens to be.

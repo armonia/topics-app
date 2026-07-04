@@ -42,7 +42,10 @@ export interface BrowserOps {
   extractIndexedElements(opts: { maxElements?: number }): Promise<IndexedElement[]>;
   captureAnnotatedScreenshot(elements: IndexedElement[]): Promise<string>;
   accessibilitySnapshot(): Promise<{ url: string; title: string; ariaSnapshot: string }>;
-  viewport(): { width: number; height: number };
+  /** The pane's REAL viewport (px). Used to de-normalize Moondream point coords
+   *  and to report the screenshot frame — must reflect the live pane size, not a
+   *  fixed default, or a resized/restored pane clicks the wrong spot. */
+  viewport(): Promise<{ width: number; height: number }>;
 
   // --- Ref-based parity surface (vendored Jarvis snapshot model) ---
   /** Compact ref-based a11y snapshot; stamps `data-topics-ref` on the page. */
@@ -73,11 +76,17 @@ export function playwrightOps(service: BrowserService, contextId: string): Brows
     extractIndexedElements: (opts) => service.extractIndexedElements(contextId, opts),
     captureAnnotatedScreenshot: (els) => service.captureAnnotatedScreenshot(contextId, els),
     accessibilitySnapshot: () => service.accessibilitySnapshot(contextId),
-    viewport: () => {
-      // BrowserService doesn't expose a sync viewport — wrap getOrCreate.
-      // Callers use this only for screenshot return shape; default to 1280x720
-      // and let the actual call upgrade if needed. The handler does its own
-      // viewport read via service.getOrCreate, so this is a safe default.
+    viewport: async () => {
+      // Read the REAL pane size: the configured Playwright viewport if set,
+      // else the live layout (innerWidth/Height). A fixed default would mis-scale
+      // Moondream point coords on any resized/restored pane → off-target clicks.
+      const p = await page();
+      const vs = p.viewportSize();
+      if (vs && vs.width > 0 && vs.height > 0) return vs;
+      try {
+        const r = await p.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+        if (r && r.width > 0 && r.height > 0) return r;
+      } catch { /* page gone — fall through to default */ }
       return { width: 1280, height: 720 };
     },
     // Ref-based parity surface — page-portable helpers run on the server page.
@@ -173,7 +182,15 @@ export function cdpOps(
         ariaSnapshot: await page.locator('body').ariaSnapshot().catch(() => ''),
       };
     },
-    viewport: () => ({ width: 1280, height: 720 }), // Electron uses native size; renderer-bound
+    viewport: async () => {
+      // Read the REAL WebContentsView size (renderer-bound), not a fixed default.
+      const p = await dispatcher.getPage(contextId);
+      try {
+        const r = await p.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+        if (r && r.width > 0 && r.height > 0) return r;
+      } catch { /* page gone — fall through */ }
+      return { width: 1280, height: 720 };
+    },
     // Ref-based parity surface — same helpers, run on the REAL WebContentsView.
     snapshot: async (opts) => snapshotPage(await dispatcher.getPage(contextId), opts),
     actByRef: async (ref, action, payload) =>
