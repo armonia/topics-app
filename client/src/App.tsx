@@ -185,7 +185,6 @@ function App() {
     sidebarCollapsed,
     isMobile,
     viewportHeight,
-    isElectron,
     windowId,
   } = layout.state;
   const { sidebarRef } = layout.refs;
@@ -690,7 +689,6 @@ function App() {
   // CRITIQUE C2 listener churn). Snapshot args mirrored into refs
   // inside the hook so the keydown listener registers ONCE on mount.
   useKeyboardShortcuts({
-    isElectron,
     focusedPanelId,
     // Spazi: ⌘1-9 / ⌘W and the tab-cycling chords target what the user can
     // SEE — the visible subset, not the full cross-space set.
@@ -766,7 +764,7 @@ function App() {
       case 'onOpenTopic': handleTopicClick(args[0] as string); break;
       case 'onOpenProject': handleProjectClick(args[0] as string); break;
       case 'onNewTopic': handleQuickCreateTopic(); break;
-      case 'onNewProject': if (isElectron) handleOpenProjectPicker(); break;
+      case 'onNewProject': break;
       case 'onNewClaude': handleQuickCreateTerminal('claude-code', claudeSkipPermissions); break;
       case 'onNewCodex': handleQuickCreateTerminal('codex'); break;
       case 'onNewTerminal': handleQuickCreateTerminal('shell'); break;
@@ -926,13 +924,13 @@ function App() {
                   }
                   setShowTopicsMenu(!showTopicsMenu);
                 }}
-                className={`flex items-center ${isElectron || isTauriMac ? 'gap-2' : 'gap-1'} px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
+                className={`flex items-center ${isTauriMac ? 'gap-2' : 'gap-1'} px-1.5 py-0.5 rounded-md transition-colors cursor-pointer ${
                   showTopicsMenu ? 'bg-app-hover' : 'hover:bg-app-hover'
                 }`}
                 style={{ pointerEvents: 'auto' }}
                 title="Settings & Tools"
               >
-                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${(isElectron || isTauriMac) && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
+                <span className={`font-semibold text-app-text tracking-[-0.01em] ${isMobile ? 'text-[17px]' : 'text-[15px]'} ${isTauriMac && showTopicsMenu ? 'invisible' : ''}`}>Topics</span>
                 <ChevronDown size={12} className={`text-app-text-muted transition-transform ${showTopicsMenu ? 'rotate-180' : ''}`} />
               </button>
             </div>
@@ -1080,28 +1078,6 @@ function App() {
         >
           <SidebarToggleButton onClick={toggleSidebar} title="Expand sidebar (⌘B)" className="bg-surface border border-app-border-light rounded-lg shadow-sm" />
         </div>
-      )}
-
-      {/* Window close button (top-right) - only in Electron and when no panels open */}
-      {isElectron && visiblePanels.length === 0 && (
-        <button
-          onClick={() => {
-            // Use native bridge if available (macOS app), fallback to window.close()
-            const webkit = (window as Window & {
-              webkit?: { messageHandlers?: { closeWindow?: { postMessage: (msg: unknown) => void } } };
-            }).webkit;
-            if (webkit?.messageHandlers?.closeWindow) {
-              webkit.messageHandlers.closeWindow.postMessage(null);
-            } else {
-              window.close();
-            }
-          }}
-          className="absolute right-2 z-30 w-7 h-7 bg-transparent hover:bg-red-500/10 dark:hover:bg-red-500/20 rounded-md flex items-center justify-center text-app-text-secondary hover:text-red-500 transition-colors"
-          style={{ top: '0.5rem' }}
-          title="Close window (⌘W)"
-        >
-          <X size={16} />
-        </button>
       )}
 
       {/* Main Content */}
@@ -1350,7 +1326,6 @@ function App() {
             onSettingsChange={setAppSettings}
             themeMode={themeMode}
             onThemeChange={setTheme}
-            isElectron={isElectron}
           />
         </Suspense>
       )}
@@ -1381,7 +1356,6 @@ function App() {
             onOpenProject={handleProjectClick}
             onNewTopic={handleQuickCreateTopic}
             enableNewChat={appSettings.enableNewChat}
-            onNewProject={isElectron ? handleOpenProjectPicker : undefined}
             onNewClaude={() => handleQuickCreateTerminal('claude-code', claudeSkipPermissions)}
             onNewCodex={() => handleQuickCreateTerminal('codex')}
             onNewTerminal={() => handleQuickCreateTerminal('shell')}
@@ -1408,7 +1382,6 @@ function App() {
               window.dispatchEvent(new CustomEvent('open-file', { detail: { path, topicId } }));
               setShowSearch(false);
             }}
-            isElectron={isElectron}
             closedTabs={closedTabs}
             onReopenClosedTab={handleReopenClosedTab}
           />
@@ -1421,7 +1394,6 @@ function App() {
           <KeyboardShortcuts
             isOpen={showShortcuts}
             onClose={() => setShowShortcuts(false)}
-            isElectron={isElectron}
           />
         </Suspense>
       )}
