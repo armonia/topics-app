@@ -61,12 +61,6 @@ export function getTopicIcon(name: string): LucideIcon {
   return ICON_MAP[name] || ICON_MAP[DEFAULT_TOPIC_ICON];
 }
 
-/** Get a random icon name for new topics. */
-// eslint-disable-next-line react-refresh/only-export-components -- helper colocated with TopicIcon's icon set (reads TOPIC_ICONS); dev-only HMR hint, keeping it with the icon module is idiomatic
-export function getRandomTopicIcon(): string {
-  return TOPIC_ICONS[Math.floor(Math.random() * TOPIC_ICONS.length)];
-}
-
 /** Render a topic icon by name. Memoized for performance in lists. */
 export const TopicIcon = memo(function TopicIcon({
   name,

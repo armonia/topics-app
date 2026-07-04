@@ -254,5 +254,3 @@ export function usePanelGridPersistence(spaceId: string): PanelGridPersistence {
     setSoloCells,
   };
 }
-
-export const PANEL_GRID_STORAGE_KEY = STORAGE_KEY_BASE;

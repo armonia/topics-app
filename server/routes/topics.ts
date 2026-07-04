@@ -175,17 +175,16 @@ function purgeTopicFromUiState(
 
 export function createTopicsRouter(ctx: AppContext, browserService?: BrowserService): RouteHandler {
   const {
-    GATEWAY_URL, GATEWAY_TOKEN, MESSAGES_DIR, OPENCLAW_DIR,
-    broadcastToAll, broadcast, isTopicFocused,
-    loadTopics, saveTopics, saveSingleTopic, deleteTopicById,
+    GATEWAY_URL, GATEWAY_TOKEN, OPENCLAW_DIR,
+    broadcastToAll, isTopicFocused,
+    loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
-    createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
-    startStream, updateStreamActivity, updateStreamContent, endStream, isStreaming,
+    updateLastMessage, updateToolCallFields,
+    endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
-    resolveProjectPath, resolveTopicCwd, findNewMediaFiles, updateLastMessageWithMedia,
-    searchTranscripts, getMessagesPath,
+    searchTranscripts,
     getMessageById,
     activeStreams,
     worktreeStore,
@@ -513,17 +512,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
     return content;
-  }
-
-  function buildTopicDirectory(currentTopicId: string): string {
-    const data = loadTopics();
-    const lines: string[] = [];
-    for (const t of Object.values(data.topics)) {
-      if (t.id === currentTopicId || t.archived) continue;
-      const project = t.projectPath ? ` (project: ${t.projectPath.split('/').pop()})` : '';
-      lines.push(`- [id:${t.id}] ${t.name}${project}`);
-    }
-    return lines.join('\n');
   }
 
   function isExistingDir(p: string): boolean {

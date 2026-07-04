@@ -18,7 +18,6 @@ export {
 } from './selfEcho';
 export {
   recordAction,
-  subscribe as subscribeMutationLog,
   getRing,
   clearRing,
   RING_BUFFER_SIZE,

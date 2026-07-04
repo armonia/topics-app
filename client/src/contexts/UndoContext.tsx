@@ -39,9 +39,6 @@ export async function redo(): Promise<boolean> {
   return true;
 }
 
-export function canUndo(): boolean { return undoStack.length > 0; }
-export function canRedo(): boolean { return redoStack.length > 0; }
-
 /**
  * Check if an element is a text input where typing-adjacent shortcuts
  * (Cmd+Z undo, Cmd+F find, …) should be handled by the browser/component,
