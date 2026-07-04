@@ -307,6 +307,20 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       ],
     });
     console.log(`[BrowserService] Chromium launched (CDP port: ${cdpPort})`);
+    // Recovery: if Chromium dies (crash/OOM/GPU), every context+page it owns is
+    // dead. Purge the maps so getOrCreate() recreates on the relaunched browser
+    // (ensureBrowser is lazy — it checks isConnected()) instead of handing back
+    // corpses, and so their autosave timers stop. Without this, dead entries
+    // linger AND touchActivity() keeps refreshing them, starving the idle reaper.
+    browser.on("disconnected", () => {
+      if (contexts.size) {
+        console.warn(`[BrowserService] Chromium disconnected — purging ${contexts.size} stale context(s)`);
+      }
+      for (const e of contexts.values()) { try { e.autoSaveCleanup?.(); } catch { /* ignore */ } }
+      contexts.clear();
+      targetIds.clear();
+      screencastSessions.clear();
+    });
     return browser;
   }
 
@@ -512,7 +526,11 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         }
         console.log(`[BrowserService] Context created: ${id} (total: ${contexts.size}, persisted=${persistedState ? "yes" : "no"})`);
       } catch (err) {
-        // Cleanup on failure: drop targetId entry, close the context.
+        // Cleanup on failure: drop the (possibly already-set) context entry +
+        // targetId, close the context. A throw after contexts.set() (setupPage,
+        // loadCookies, …) would otherwise leave a ghost entry pointing at a
+        // closed context that getOrCreate would later hand back.
+        contexts.delete(id);
         targetIds.delete(id);
         await context.close().catch(() => {});
         throw err;
@@ -549,6 +567,16 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
 
     async getOrCreate(id) {
       let entry = contexts.get(id);
+      // Discard a dead entry (its page/context closed — Chromium crash, or the
+      // page was closed out from under us) so we recreate on the live browser
+      // rather than returning a corpse. Also stops touchActivity() below from
+      // perpetually refreshing a dead context and starving the idle reaper.
+      if (entry && entry.page.isClosed()) {
+        try { entry.autoSaveCleanup?.(); } catch { /* ignore */ }
+        contexts.delete(id);
+        targetIds.delete(id);
+        entry = undefined;
+      }
       if (!entry) {
         await service.createContext(id);
         entry = contexts.get(id)!;
@@ -743,7 +771,8 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       const entry = contexts.get(id);
       if (!entry) return null;
       try {
-        const resp = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+        // Bounded: a wedged CDP endpoint must not hang the tool dispatch forever.
+        const resp = await fetch(`http://127.0.0.1:${cdpPort}/json/list`, { signal: AbortSignal.timeout(3000) });
         const targets = await resp.json() as any[];
         const pageUrl = entry.page.url();
         if (pageUrl !== "about:blank") {
