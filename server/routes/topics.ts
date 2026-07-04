@@ -763,42 +763,48 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (!row?.value) return null;
       try { return JSON.parse(row.value) as Record<string, unknown>; } catch { return null; }
     };
-    const writes: Array<{ key: string; value: unknown }> = [];
-
-    // 1. Splice the pane out of the app-level standalone store, capturing its
-    //    full pane object so the project membership carries the same shape.
-    let paneObj: Record<string, unknown> | null = null;
-    const app = readUi(APP_KEY);
-    if (app) {
-      const panes = app.panes as Record<string, Record<string, unknown>> | undefined;
-      if (panes && panes[paneId]) {
-        const { scrollOffset: _drop, ...rest } = panes[paneId];
-        paneObj = rest;
-        delete panes[paneId];
-      }
-      const groups = app.groups as Record<string, { paneIds?: string[] }> | undefined;
-      if (groups) {
-        for (const g of Object.values(groups)) {
-          if (g && Array.isArray(g.paneIds)) g.paneIds = g.paneIds.filter((x) => x !== paneId);
-        }
-      }
-      writes.push({ key: APP_KEY, value: app });
-    }
-
-    // 2. Add the pane to the project's server-synced membership (idempotent).
-    const mem = (readUi(membershipKey) as { nonChatPanes?: unknown[]; openChatTopicIds?: unknown[] } | null)
-      || { nonChatPanes: [], openChatTopicIds: [] };
-    if (!Array.isArray(mem.nonChatPanes)) mem.nonChatPanes = [];
-    if (!Array.isArray(mem.openChatTopicIds)) mem.openChatTopicIds = [];
-    if (!mem.nonChatPanes.some((p) => (p as { id?: string })?.id === paneId)) {
-      mem.nonChatPanes.push(paneObj || { id: paneId, type: "terminal", title: term.name || "Claude Code", preview: false, terminalType: "claude-code" });
-    }
-    writes.push({ key: membershipKey, value: mem });
-
-    // 3. Persist with fresh monotonic server_seq each (BEGIN IMMEDIATE so two
-    //    writers can't collide on seq — same rule as the ui-state PUT route),
-    //    then broadcast each so live clients converge.
+    // Read-modify-write MUST be atomic: the reads below (APP_KEY, membershipKey)
+    // and the writes run inside ONE `BEGIN IMMEDIATE` txn so a concurrent
+    // ui-state PUT can't land between the read and the commit and get silently
+    // reverted (this write always wins on server_seq regardless of when it
+    // read). IMMEDIATE takes a RESERVED lock at txn start, so a second writer
+    // blocks until we commit and then reads our updated rows. Mirrors the
+    // single-transaction pattern in purgeTopicFromUiState.
     const stamped = db.transaction(() => {
+      const writes: Array<{ key: string; value: unknown }> = [];
+
+      // 1. Splice the pane out of the app-level standalone store, capturing its
+      //    full pane object so the project membership carries the same shape.
+      let paneObj: Record<string, unknown> | null = null;
+      const app = readUi(APP_KEY);
+      if (app) {
+        const panes = app.panes as Record<string, Record<string, unknown>> | undefined;
+        if (panes && panes[paneId]) {
+          const { scrollOffset: _drop, ...rest } = panes[paneId];
+          paneObj = rest;
+          delete panes[paneId];
+        }
+        const groups = app.groups as Record<string, { paneIds?: string[] }> | undefined;
+        if (groups) {
+          for (const g of Object.values(groups)) {
+            if (g && Array.isArray(g.paneIds)) g.paneIds = g.paneIds.filter((x) => x !== paneId);
+          }
+        }
+        writes.push({ key: APP_KEY, value: app });
+      }
+
+      // 2. Add the pane to the project's server-synced membership (idempotent).
+      const mem = (readUi(membershipKey) as { nonChatPanes?: unknown[]; openChatTopicIds?: unknown[] } | null)
+        || { nonChatPanes: [], openChatTopicIds: [] };
+      if (!Array.isArray(mem.nonChatPanes)) mem.nonChatPanes = [];
+      if (!Array.isArray(mem.openChatTopicIds)) mem.openChatTopicIds = [];
+      if (!mem.nonChatPanes.some((p) => (p as { id?: string })?.id === paneId)) {
+        mem.nonChatPanes.push(paneObj || { id: paneId, type: "terminal", title: term.name || "Claude Code", preview: false, terminalType: "claude-code" });
+      }
+      writes.push({ key: membershipKey, value: mem });
+
+      // 3. Persist with fresh monotonic server_seq each, then return them for
+      //    broadcast after the txn commits.
       const out: Array<{ key: string; value: unknown; seq: number }> = [];
       for (const w of writes) {
         const { maxSeq } = db.query("SELECT COALESCE(MAX(server_seq), 0) AS maxSeq FROM ui_state").get() as { maxSeq: number };
