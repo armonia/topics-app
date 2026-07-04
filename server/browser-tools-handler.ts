@@ -12,9 +12,8 @@
  *
  * Cache: the latest browser_observe IndexedElement[] is kept in-process
  * per contextId. browser_act resolves element_id against this cache.
- * clearObserveCache() is invoked on browser_open (page changed -> indices
- * stale) and is exported so external callers (e.g. context destroy hooks)
- * can flush.
+ * clearBrowserCaches() flushes it (+ the ref snapshot cache) on browser_open
+ * (page changed -> indices stale) and on context destroy.
  */
 import type { BrowserService } from "./browser-service";
 import type {
@@ -124,11 +123,6 @@ async function resolveOps(service: BrowserService, contextId: string): Promise<B
 export function clearBrowserCaches(contextId: string): void {
   observeCache.delete(contextId);
   prevSnapshotCache.delete(contextId);
-}
-
-/** @deprecated kept as an alias — use clearBrowserCaches. */
-export function clearObserveCache(contextId: string): void {
-  clearBrowserCaches(contextId);
 }
 
 /**
