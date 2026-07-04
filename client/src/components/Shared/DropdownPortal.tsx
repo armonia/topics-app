@@ -1,7 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
-import { useMobile } from '../../hooks/useMobile';
-import { POPOVER_SURFACE, POPOVER_SHEET } from '@/lib/popoverStyles';
+import { Menu } from './Menu';
 
 interface DropdownPortalProps {
   open: boolean;
@@ -11,47 +8,19 @@ interface DropdownPortalProps {
   align?: 'left' | 'right';
 }
 
+/**
+ * DropdownPortal — retained as a thin, API-compatible wrapper over the `Menu`
+ * primitive. Its five call-sites (TopicTree, TopicItem, BrowserToolbar,
+ * BreadcrumbNav) keep the exact same props but now inherit, for free, the flip/
+ * clamp placement, Escape + capture-phase outside-close, roving keyboard nav,
+ * `role="menu"`, focus-restore and the `Z_POPOVER` token that `Menu` provides.
+ * New code should import `Menu` directly; this shim exists so the migration
+ * needs no changes at those call-sites.
+ */
 export function DropdownPortal({ open, anchorRef, onClose, children, align = 'right' }: DropdownPortalProps) {
-  const { isMobile } = useMobile();
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const stableClose = useCallback(() => onClose(), [onClose]);
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: Event) => {
-      const t = e.target as Node;
-      if (anchorRef.current?.contains(t) || menuRef.current?.contains(t)) return;
-      stableClose();
-    };
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { stableClose(); e.stopPropagation(); } };
-    document.addEventListener('mousedown', h);
-    document.addEventListener('touchstart', h, { passive: true });
-    document.addEventListener('keydown', k);
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); document.removeEventListener('keydown', k); };
-  }, [open, stableClose, anchorRef]);
-
-  // eslint-disable-next-line react-hooks/refs -- positioning a fixed portal requires the anchor's live geometry read at render time; the portal re-renders with its parent so the rect stays fresh
-  if (!open || !anchorRef.current) return null;
-
-  // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read: getBoundingClientRect must run against the current DOM node to place the dropdown next to it
-  const rect = anchorRef.current.getBoundingClientRect();
-
-  return createPortal(
-    <>
-      {isMobile && <div className="fixed inset-0 z-[9998]" onClick={stableClose} />}
-      <div
-        ref={menuRef}
-        className={isMobile
-          ? `fixed bottom-0 left-0 right-0 ${POPOVER_SHEET} z-[9999]`
-          : `${POPOVER_SURFACE} min-w-[150px]`}
-        style={isMobile
-          ? { paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }
-          : { position: 'fixed', top: rect.bottom + 4, ...(align === 'left' ? { left: rect.left } : { right: window.innerWidth - rect.right }), zIndex: 9999 }}
-      >
-        {children}
-      </div>
-    </>,
-    document.body
+  return (
+    <Menu open={open} anchorRef={anchorRef} onClose={onClose} align={align} minWidth={150}>
+      {children}
+    </Menu>
   );
 }

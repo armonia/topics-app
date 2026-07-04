@@ -25,6 +25,21 @@
  */
 
 /**
+ * Stacking scale for floating surfaces. Tokenised so no call-site writes a
+ * literal `z-[9999]` for a popover again, and so the ordering is stated in ONE
+ * place: context-menus and dropdowns share a plane (they never coexist over the
+ * same spot), and modals/palettes sit above them. The mobile bottom-sheet scrim
+ * sits just under its sheet.
+ *
+ * Values are deliberately high (9998–10000) to clear the app's ad-hoc `z-[100]`
+ * / `z-[60]` chrome; a popover must float over everything except a modal.
+ */
+export const Z_POPOVER = 9999;
+export const Z_CONTEXT_MENU = 9999; // same plane as popovers, by design
+export const Z_MODAL = 10000; // dialogs / command palette — above popovers
+export const Z_POPOVER_SCRIM = 9998; // mobile bottom-sheet backdrop, just under the sheet
+
+/**
  * The floating panel itself, for menus whose container ALSO provides its own
  * `py-1` vertical rhythm around a list of items (dropdowns, context menus).
  * Add positioning (absolute/fixed + coords), `min-w-*` and `z-*` per call site.
