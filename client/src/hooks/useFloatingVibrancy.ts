@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { isElectron, isTauri } from '../lib/shell';
+import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
 
 /**
@@ -90,10 +90,6 @@ function predictSidebarEnd(start: Rect[], sbStartW: number, sbTargetW: number): 
  *  Detecting here makes the hook self-sufficient and re-asserts the transparency
  *  classes the CSS needs so the native frost behind the (clear) webview shows. */
 function resolveVibrancy(): VibrancyApi | null {
-  if (isElectron) {
-    const api = (window as unknown as { electronAPI?: { vibrancy?: VibrancyApi } }).electronAPI?.vibrancy;
-    return api ?? null;
-  }
   const isMac = typeof navigator !== 'undefined'
     && (/Mac/i.test(navigator.platform || '') || /Mac OS X/i.test(navigator.userAgent || ''));
   if (isTauri && isMac) {
@@ -340,5 +336,5 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       cancelAnimationFrame(liveRaf);
       api.clear();
     };
-  }, [isElectron, floatingSplits]);
+  }, [floatingSplits]);
 }
