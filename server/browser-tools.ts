@@ -52,23 +52,6 @@ export interface IndexedElement {
   tagName: string;
 }
 
-export interface AgentObserveResponse {
-  /** Result of page.accessibility.snapshot() (string-formatted). */
-  a11y_tree: string;
-  /** Base64 JPEG with bbox overlay + numbered labels. */
-  screenshot_annotated: string;
-  /** Up to max_elements indexed elements (default 50, range 1-100). */
-  elements: IndexedElement[];
-  /** page.url() at observe time. */
-  url: string;
-  /** page.title() at observe time. */
-  title: string;
-}
-
-export interface BrowserPointInput {
-  description: string;
-}
-
 /**
  * Anthropic Tool[] for passthrough (claude/openai SDK) chat. Projected from the
  * single source of truth in browser-tool-spec.ts so the passthrough, MCP, and
@@ -81,7 +64,3 @@ export const browserTools: Tool[] = BROWSER_TOOL_SPECS.filter(
   description: s.description,
   input_schema: s.schema as Tool["input_schema"],
 }));
-
-export function getBrowserToolByName(name: string): Tool | undefined {
-  return browserTools.find((t) => t.name === name);
-}

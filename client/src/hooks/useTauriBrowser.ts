@@ -330,6 +330,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // (CONSOLE_PROXY_JS) while unobserved, so nothing is lost.
     if (!ready || !isVisible) return;
     let stop = false;
+    let inFlight = false;
     const READ =
       "(function(){" + INSTALL_FOCUS_HOOK +
       "return JSON.stringify({u:location.href,t:document.title,r:document.readyState," +
@@ -337,7 +338,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       "k:window.__topicsFocusBump||0," +
       "c:(window.__topicsConsole?window.__topicsConsole.splice(0,window.__topicsConsole.length):[])})})()";
     const tick = async () => {
-      if (stop) return;
+      // Skip if the previous eval hasn't resolved — on a hung page browser_eval_js
+      // can take up to its 8s timeout, and ungated ticks would pile up blocked
+      // spawn_blocking workers behind it.
+      if (stop || inFlight) return;
+      inFlight = true;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: READ });
         if (stop || !raw) return;
@@ -365,6 +370,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         }
       } catch {
         /* pane closing / eval timeout — ignore, next tick retries */
+      } finally {
+        inFlight = false;
       }
     };
     const iv = window.setInterval(tick, 800);
@@ -387,16 +394,19 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   useEffect(() => {
     if (!ready || !isVisible) return;
     let stop = false;
+    let inFlight = false;
     const FAST =
       "(function(){" + INSTALL_FOCUS_HOOK +
       "return String(window.__topicsFocusBump||0)})()";
     const tick = async () => {
-      if (stop) return;
+      if (stop || inFlight) return;
+      inFlight = true;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: FAST });
         if (stop || raw == null) return;
         maybeFireSelfFocus(parseInt(raw, 10) || 0);
       } catch { /* pane closing / eval timeout — next tick retries */ }
+      finally { inFlight = false; }
     };
     const iv = window.setInterval(tick, 120);
     return () => { stop = true; window.clearInterval(iv); };
