@@ -1032,27 +1032,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // current closure without referencing openPanel before its declaration.
   useEffect(() => { openPanelRef.current = openPanel; }, [openPanel]);
 
-  // ---- 19. Electron navigate-to-topic + report focused ----
-  // Register the IPC listener exactly ONCE. The preload's onNavigateToTopic is
-  // purely additive (ipcRenderer.on), so an effect keyed on the frequently-
-  // changing openPanel identity stacked a fresh native listener on every layout
-  // change → MaxListenersExceeded + N-fire + an unbounded leak with no remover.
-  // Read openPanel through openPanelRef (kept current above) and tear the
-  // listener down on unmount.
-  useEffect(() => {
-    const api = (window as unknown as { electronAPI?: { onNavigateToTopic?: (cb: (id: string) => void) => void; removeNavigateToTopicListener?: () => void } }).electronAPI;
-    if (!api?.onNavigateToTopic) return;
-    api.onNavigateToTopic((topicId: string) => {
-      if (topicId) openPanelRef.current(topicId, 'permanent');
-    });
-    return () => { api.removeNavigateToTopicListener?.(); };
-  }, []);
-  useEffect(() => {
-    const api = (window as unknown as { electronAPI?: { reportFocusedTopic?: (id: string | null) => void } }).electronAPI;
-    if (!api?.reportFocusedTopic) return;
-    api.reportFocusedTopic(focusedPanelId || null);
-  }, [focusedPanelId]);
-
   // ---- 2-state model: project-window chat close/reopen events ----
   // useProjectLayout can't reach archiveTopic (TopicsContext omits actions),
   // so it emits window events; translate them into the same archive/unarchive

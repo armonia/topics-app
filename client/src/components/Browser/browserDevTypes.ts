@@ -47,3 +47,79 @@ export interface NavHistoryEntry {
   title: string;
   index: number;
 }
+
+/**
+ * Handle returned by the native browser hook (`useTauriBrowser`) and consumed by
+ * `NativeBrowserPlaceholder` + `RemoteBrowserPanel`'s Tauri path. Kept here (a
+ * neutral, host-agnostic types module) so it survives the removal of the archived
+ * Electron `useNativeBrowser` hook that originally declared it.
+ */
+export interface NativeBrowserHandle {
+  url: string;
+  title: string;
+  loading: boolean;
+  agentActive: boolean;
+  /** Human-readable label of the agent's current action ("Clicca", "Naviga su
+   *  example.com", …). Last value seen on agent_active=true; persists through the
+   *  brief idle linger so a burst of tool calls shows steady text. */
+  agentAction: string | null;
+  ready: boolean;             // viewId resolved + cdpTargetId registered
+  viewId: string | null;
+  /** Optional — Tauri only. A base64 PNG data-URL still of the page, shown in the
+   *  placeholder while the native WKWebView is parked off-screen (a dropdown/menu
+   *  overlaps it, or a sidebar/divider animation is in flight). A native child
+   *  webview always composites ABOVE the DOM, so it can't be z-ordered under an
+   *  HTML overlay nor cheaply moved per-frame; freezing to a DOM <img> lets
+   *  overlays render over a pixel-perfect still and lets animations move the image,
+   *  not the native view. */
+  frozenImage?: string | null;
+  /** Favicon URL emitted by the page. Empty during navigation. */
+  faviconUrl: string;
+  navigate(url: string): Promise<void>;
+  goBack(): Promise<void>;
+  goForward(): Promise<void>;
+  reload(): Promise<void>;
+  goHome(): Promise<void>;
+  setBounds(bounds: { x: number; y: number; width: number; height: number }): void;
+  toggleDevTools(): Promise<void>;
+  /** Find in page (Cmd+F). Pass empty string + findNext=false to clear. */
+  findInPage(text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }): Promise<void>;
+  stopFind(): Promise<void>;
+  onFindResult(cb: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
+  /** Optional — count case-insensitive matches of `text` in the page (Tauri pane,
+   *  where window.find gives no count). */
+  countMatches?(text: string): Promise<number>;
+  /** Optional — inspect the element at page CSS coords (Tauri select-element). */
+  inspectAt?(x: number, y: number): Promise<{
+    cssPath: string;
+    domPath: string;
+    bbox: { x: number; y: number; w: number; h: number };
+    text: string;
+  } | null>;
+  /** Optional — Cmd+Shift+E select-element. On the Tauri pane the picking runs
+   *  IN-PAGE (the native view sits above the DOM, so a React overlay can't catch
+   *  the click); the hook dispatches `chat:insert-text` with the picked node. */
+  selectMode?: boolean;
+  enterSelectMode?(): void;
+  exitSelectMode?(): void;
+  /** Zoom (Cmd+/-/0). delta=+1 zooms in, -1 out, 'reset' to 100%. Returns new zoom level. */
+  setZoom(delta: number | 'reset'): Promise<number>;
+  /** Current device-emulation mode (default 'desktop'). */
+  deviceMode: DeviceMode;
+  /** Apply a device preset. 'mobile'/'tablet' emulate; 'custom' = responsive
+   *  resize (real view sized to width/height, no emulation); 'desktop'/'auto'
+   *  fill the pane. */
+  setDevice(mode: DeviceMode, custom?: { width: number; height: number; deviceScaleFactor?: number }): void;
+  /** Responsive-resize viewport (px) when deviceMode==='custom'; null otherwise. */
+  responsiveSize: { width: number; height: number } | null;
+  /** Live-set the responsive viewport (called continuously while dragging a handle). */
+  setResponsiveSize(width: number, height: number): void;
+  /** Recent page console messages (ring buffer) for the toolbar quick-console. */
+  consoleEntries: BrowserConsoleEntry[];
+  /** Counts for the toolbar badge. */
+  consoleSummary: { errors: number; warnings: number };
+  clearConsole(): void;
+  /** Fetch the back/forward navigation history for the Chrome-style menu. */
+  getNavEntries(): Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
+  goToNavIndex(index: number): Promise<void>;
+}

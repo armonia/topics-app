@@ -16,7 +16,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import type { NativeBrowserHandle } from '../../hooks/useNativeBrowser';
+import type { NativeBrowserHandle } from './browserDevTypes';
 
 /** Inset (px) of each native WebContentsView vs its placeholder. 0 = the page
  *  fills the pane edge-to-edge (no visible "padding" frame), so the browser
@@ -233,15 +233,6 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     window.addEventListener('resize', updateBounds);
     window.addEventListener('scroll', updateBounds, { passive: true, capture: true });
 
-    // Phase 30.1 polish — main process emits 'reflow' on window move /
-    // minimize / restore / display change. Re-issue setBounds so the
-    // WebContentsView follows correctly across these transitions.
-    const offReflow = window.electronAPI?.browserNative?.onReflow?.(() => {
-      // Two-frame delay so the layout has settled (e.g. fullscreen
-      // transition animation) before we re-measure.
-      requestAnimationFrame(() => requestAnimationFrame(updateBounds));
-    });
-
     // MutationObserver on body: catches className toggles (theme, sidebar
     // open/close) that re-flow without firing RO.
     const mo = new MutationObserver(updateBounds);
@@ -325,9 +316,8 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       window.removeEventListener('scroll', updateBounds, { capture: true });
       window.removeEventListener('transitionend', onTransitionEnd, true);
       window.removeEventListener('browser:reflow-request', onReflowRequest as EventListener);
-      offReflow?.();
-      // On unmount, hide the view (the destroy in useNativeBrowser will
-      // remove it shortly after).
+      // On unmount, hide the view (the native pane's own teardown removes it
+      // shortly after).
       browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: depend on the specific fields the effect reads (viewId/setBounds — grep-verified the only browser.* uses), NOT the whole `browser` object. useNativeBrowser rebuilds that object every render, so depending on it re-ran this ResizeObserver/MutationObserver/rAF-poll/listener effect on EVERY render. setBounds is useCallback([viewId]) so its identity only changes with viewId (already a dep). The rule can't see the member coverage and asks for the parent object.
