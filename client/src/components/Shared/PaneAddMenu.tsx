@@ -59,7 +59,9 @@ import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
 import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
 import { RESTING_SURFACE } from '../../lib/selectionStyles';
+import { useDismissable } from '../../hooks/useDismissable';
 import { isDesktop } from '../../lib/shell';
 import type { PaneType } from '../../types';
 
@@ -379,27 +381,9 @@ export function PaneAddMenu({
 
   const close = useCallback(() => setOpen(false), []);
 
-  // Outside-click + Escape close.
-  useEffect(() => {
-    if (!open) return;
-    const onMouseDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (buttonRef.current?.contains(t) || menuRef.current?.contains(t)) return;
-      close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        close();
-        e.stopPropagation();
-      }
-    };
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open, close]);
+  // Unified dismissal: capture-phase outside-pointer + Escape, focus-restore to
+  // the trigger button. Replaces the old mousedown-only handler.
+  useDismissable({ open, onClose: close, refs: [buttonRef, menuRef] });
 
   // Re-anchor on viewport resize while open (dropdown presentation only —
   // the palette is centered by flexbox and needs no anchor math).
@@ -480,11 +464,11 @@ export function PaneAddMenu({
            safe-area-aware padding. Used by BOTH presentations: a centered
            palette is a desktop idiom; the sheet is the mobile one. */
         <>
-          <div className="fixed inset-0 z-[9998]" onClick={close} />
+          <div className="fixed inset-0" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={close} />
           <div
             ref={menuRef}
-            className="fixed bottom-0 left-0 right-0 glass-surface border-t border-app-border rounded-t-xl shadow-lg py-2 z-[9999] bottom-sheet"
-            style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
+            className={`fixed bottom-0 left-0 right-0 ${POPOVER_SHEET}`}
+            style={{ zIndex: Z_POPOVER, paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 8px)' }}
             data-testid="pane-add-menu"
           >
             {menuItems}
@@ -523,8 +507,8 @@ export function PaneAddMenu({
       {open && !isMobile && presentation === 'dropdown' && anchorRect && createPortal(
         <div
           ref={menuRef}
-          className="fixed glass-surface border border-app-border rounded-lg shadow-lg py-1 z-[9999] min-w-[150px]"
-          style={{ top: anchorRect.top, left: anchorRect.left }}
+          className={`fixed ${POPOVER_SURFACE} min-w-[150px]`}
+          style={{ top: anchorRect.top, left: anchorRect.left, zIndex: Z_POPOVER }}
           data-testid="pane-add-menu"
         >
           {menuItems}

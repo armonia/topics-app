@@ -49,14 +49,9 @@ function OverflowMenu({
 
   const anyActive = isCallActive || isRecording || isListening || isSpeaking || autoTTS;
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  // Unified dismissal (adds Escape + capture-phase over the old mousedown-only
+  // handler). Inline-positioned, so menuRef wraps both trigger and panel.
+  useDismissable({ open, onClose: () => setOpen(false), refs: [menuRef], restoreFocus: false });
 
   return (
     <div className="relative" ref={menuRef}>
