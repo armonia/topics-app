@@ -7,11 +7,13 @@ import { readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
 //
 // The wave is a filled band between the window edge and an INVISIBLE contour:
 // per frame we displace ~140 points sampled along the rounded-rect border by a
-// small multi-harmonic sum `Σ Aₖ·sin(kₖ·s − ωₖ·t)`, then fill the ring between
-// the border and that contour (evenodd) and blur it — so it reads as haze that
-// fades 100→0 from the border inward to the wave. Three ~coprime integer
-// harmonics make the crests all different (and morph over time); a slow
-// envelope breathes the amplitude and band height.
+// small multi-harmonic sum `Σ Aₖ·sin(kₖ·s − ωₖ·t)`. Softness comes from drawing
+// LAYERS nested contours from the border to fractions of that depth, with graded
+// opacity, so their overlap ramps the alpha 100→0 from the border to the wave —
+// smoke, but with zero per-frame blur (blurring changing geometry is far too
+// costly at many panes, and CSS blur on an inner SVG path doesn't render in
+// WKWebView). Three ~coprime integer harmonics make the crests all different
+// (and morph over time); a slow envelope breathes the amplitude and band height.
 //
 // Speed is driven by activity: readAuraEnergy(activityId) rises with how fast
 // things are streaming and the wave travels faster; it decays and the wave
@@ -35,6 +37,7 @@ const W_INSET = 0.5;    // band-breathing rate
 const ENV_DEPTH = 0.6;  // amplitude-breathing depth
 const ENV_CYCLES = 1.5; // spatial envelope cycles around the loop
 const W_ENV = 0.45;     // envelope drift rate
+const LAYERS = 5;       // nested fog contours whose overlap makes the soft 100→0 falloff
 
 interface AuraWaveProps {
   /** Activity key (chat: topic.sessionKey, terminal: sessionId). Drives speed. */
@@ -44,18 +47,23 @@ interface AuraWaveProps {
 }
 
 export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps) {
-  const gradId = 'aura-grad-' + useId().replace(/:/g, '');
+  const uid = useId().replace(/:/g, '');
+  const gradId = 'aura-grad-' + uid;
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const baseRef = useRef<SVGPathElement>(null);
-  const fogRef = useRef<SVGPathElement>(null);
 
   useEffect(() => {
     const host = hostRef.current;
     const svg = svgRef.current;
     const base = baseRef.current;
-    const fog = fogRef.current;
-    if (!host || !svg || !base || !fog) return;
+    if (!host || !svg || !base) return;
+    // Graded opacity across the nested contours: outer/thin layers most opaque,
+    // the layer reaching the wave faintest → their overlap ramps alpha 100→0
+    // from the border to the wave.
+    const fogs = Array.from(svg.querySelectorAll<SVGPathElement>('.fog'));
+    if (!fogs.length) return;
+    fogs.forEach((f, i) => { f.style.opacity = (0.5 * (fogs.length - i) / fogs.length).toFixed(3); });
 
     let P: { x: number; y: number }[] = [];
     let N: { x: number; y: number }[] = [];
@@ -103,7 +111,8 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
     let energy = 0;  // eased activity level 0..1
     const TWO = Math.PI * 2;
 
-    // Build and commit the fog path from the current phases + energy.
+    let dispArr: Float64Array | null = null;
+    // Build and commit the fog contours from the current phases + energy.
     const draw = (): void => {
       const NS = P.length;
       if (!NS) return;
@@ -119,22 +128,33 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
       const p2 = 0.5 * ph + 1.7;
       const p3 = -1.3 * ph + 3.1;
       const we = W_ENV * phSlow;
-      let d = '';
-      for (let i = 0; i <= NS; i++) {
-        const j = i % NS;
-        const envF = 1 + ENV_DEPTH * Math.sin(ke * j - we);
+      // 1) wave depth from the border, per sampled point
+      let disp = dispArr;
+      if (!disp || disp.length !== NS) disp = dispArr = new Float64Array(NS);
+      for (let i = 0; i < NS; i++) {
+        const envF = 1 + ENV_DEPTH * Math.sin(ke * i - we);
         const wave =
-          0.68 * Math.sin(k1 * j + p1) +
-          0.24 * Math.sin(k2 * j + p2) +
-          0.08 * Math.sin(k3 * j + p3);
-        let disp = inset + A * envF * wave;
-        if (disp < 1.5) disp = 1.5; // keep the contour just inside the border
-        const x = P[j].x + N[j].x * disp;
-        const y = P[j].y + N[j].y * disp;
-        d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+          0.68 * Math.sin(k1 * i + p1) +
+          0.24 * Math.sin(k2 * i + p2) +
+          0.08 * Math.sin(k3 * i + p3);
+        const dd = inset + A * envF * wave;
+        disp[i] = dd < 1.5 ? 1.5 : dd; // keep the contour just inside the border
       }
-      d += 'Z';
-      fog.setAttribute('d', rectPath + ' ' + d); // evenodd ring: border → contour
+      // 2) LAYERS nested rings [border → disp·f], f = (L+1)/K — evenodd fills, no
+      //    blur; their graded-opacity overlap is the soft haze.
+      const K = fogs.length;
+      for (let L = 0; L < K; L++) {
+        const f = (L + 1) / K;
+        let d = '';
+        for (let q = 0; q <= NS; q++) {
+          const j = q % NS;
+          const dep = disp[j] * f;
+          const x = P[j].x + N[j].x * dep;
+          const y = P[j].y + N[j].y * dep;
+          d += (q === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+        }
+        fogs[L].setAttribute('d', rectPath + ' ' + d + 'Z');
+      }
     };
 
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -180,7 +200,9 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
           </linearGradient>
         </defs>
         <path ref={baseRef} className="base" />
-        <path ref={fogRef} className="fog" style={{ fill: `url(#${gradId})` }} />
+        {Array.from({ length: LAYERS }, (_, i) => (
+          <path key={i} className="fog" style={{ fill: `url(#${gradId})` }} />
+        ))}
       </svg>
     </div>
   );
