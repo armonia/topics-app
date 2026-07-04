@@ -31,7 +31,7 @@ import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createSpacesRouter } from "./server/routes/spaces";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
-import { createBrowserService, type BrowserService } from "./server/browser-service";
+import { createBrowserService } from "./server/browser-service";
 import { createCdpDispatcher } from "./server/browser-cdp-dispatcher";
 import { setBrowserCdpDispatcher, clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
@@ -86,8 +86,8 @@ if (!process.env.GATEWAY_TOKEN) {
 // Create app context (initializes SQLite database)
 const ctx = createAppContext(import.meta.dir);
 const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast,
-  loadTopics, saveTopics, loadUnread, saveUnread, loadLocalMessages, saveLocalMessages,
-  isStreaming, activeStreams, getMessageById, getMimeType, logRequest, db } = ctx;
+  loadTopics, loadUnread, saveUnread,
+  activeStreams, getMessageById, getMimeType, logRequest, db } = ctx;
 
 // Phase 30 BROWSER-CHAT-03 — registry of active /ws/browser/:contextId
 // connections keyed by contextId. Multiple panels may watch the same context
@@ -315,7 +315,7 @@ const claudeHooksRouter = createClaudeHooksRouter(ctx, claudeSessionTracker);
 claudeSessionTracker.recoverFromJsonl().catch((err) => {
   console.error("[claude-session-tracker] Boot recovery failed", err);
 });
-const stopClaudeReaper = claudeSessionTracker.startReaper();
+claudeSessionTracker.startReaper();
 const projectsRouter = createProjectsRouter(ctx);
 const worktreesRouter = createWorktreesRouter(ctx);
 const machinesRouter = createMachinesRouter(ctx);
@@ -376,7 +376,7 @@ initVapid();
 const stopHeartbeatChecker = startHeartbeatChecker(db, broadcastToAll);
 // Dev bundle hot-delivery: rebuilt /public → open windows self-reload.
 // Inert unless STATE_DIR/topics-dev.json exists (never in standalone installs).
-const stopDevBundleReload = startDevBundleReload({
+startDevBundleReload({
   publicDir: PUBLIC_DIR,
   stateDir: ctx.STATE_DIR,
   broadcastToAll,

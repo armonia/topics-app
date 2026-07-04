@@ -12,19 +12,6 @@
 // Parse methods (`.safeParse`) are identical across full zod and zod/mini.
 import { z } from 'zod/mini';
 
-// ----- Server -> Client: welcome --------------------------------------------
-
-export const welcomeMessageSchema = z.object({
-  type: z.literal('welcome'),
-  serverVersion: z.string(),
-  protocolVersion: z.int(),
-  capabilities: z.array(z.string()),
-  serverTime: z.number(),
-  clientId: z.string(),
-});
-
-export type WelcomeMessage = z.infer<typeof welcomeMessageSchema>;
-
 // ----- Client -> Server: hello ----------------------------------------------
 
 export const helloMessageSchema = z.object({
@@ -46,23 +33,6 @@ export const upgradeRequiredSchema = z.object({
 });
 
 export type UpgradeRequiredMessage = z.infer<typeof upgradeRequiredSchema>;
-
-// ----- Public API -----------------------------------------------------------
-
-export type WelcomeParseResult =
-  | { ok: true; data: WelcomeMessage }
-  | { ok: false; error: string };
-
-export function parseWelcomeMessage(value: unknown): WelcomeParseResult {
-  const result = welcomeMessageSchema.safeParse(value);
-  if (result.success) return { ok: true, data: result.data };
-  return {
-    ok: false,
-    error: result.error.issues
-      .map((iss) => `${iss.path.length ? iss.path.join('.') : '<root>'}: ${iss.message}`)
-      .join('; '),
-  };
-}
 
 // ----- Client capabilities advertised in hello ------------------------------
 

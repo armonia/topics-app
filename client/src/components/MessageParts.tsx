@@ -1,42 +1,6 @@
 import { useState, memo } from 'react';
-import { ChevronDown, ChevronRight, Brain, Wrench, Check, X, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Wrench, Check, X, Loader2 } from 'lucide-react';
 import type { ToolCall } from '../types';
-
-// Thinking block - collapsible by default
-interface ThinkingBlockProps {
-  content: string;
-  defaultCollapsed?: boolean;
-}
-
-export const ThinkingBlock = memo(function ThinkingBlock({ content, defaultCollapsed = true }: ThinkingBlockProps) {
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
-
-  if (!content) return null;
-
-  return (
-    <div data-testid="thinking-block" className="mb-2 border border-app-border-light rounded-lg overflow-hidden bg-elevated">
-      <button
-        data-testid="thinking-toggle"
-        onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-app-text-secondary hover:bg-app-hover transition-colors"
-      >
-        {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-        <Brain size={14} className="text-purple-500" />
-        <span className="font-medium">Thinking</span>
-        {collapsed && (
-          <span className="text-[11px] text-app-text-muted ml-2 truncate max-w-[200px]">
-            {content.slice(0, 50)}...
-          </span>
-        )}
-      </button>
-      {!collapsed && (
-        <div className="px-3 py-2 border-t border-app-border-light text-[12px] text-app-text-secondary whitespace-pre-wrap font-mono leading-relaxed">
-          {content}
-        </div>
-      )}
-    </div>
-  );
-});
 
 // Tool call badge/card
 interface ToolCallBadgeProps {
@@ -185,34 +149,6 @@ export function PartialIndicator() {
     <div data-testid="chat-streaming-indicator" className="flex items-center gap-1.5 text-[11px] text-app-text-muted mt-1">
       <Loader2 size={12} className="animate-spin" />
       <span>Streaming...</span>
-    </div>
-  );
-}
-
-// Tool calls list
-interface ToolCallsListProps {
-  toolCalls: ToolCall[];
-  compact?: boolean;
-}
-
-export function ToolCallsList({ toolCalls, compact = false }: ToolCallsListProps) {
-  if (!toolCalls || toolCalls.length === 0) return null;
-
-  if (compact) {
-    return (
-      <div data-testid="tool-calls-list" className="flex flex-wrap gap-1 mb-2">
-        {toolCalls.map((tc, i) => (
-          <ToolCallBadge key={tc.id || i} toolCall={tc} compact />
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div data-testid="tool-calls-list" className="space-y-1">
-      {toolCalls.map((tc, i) => (
-        <ToolCallBadge key={tc.id || i} toolCall={tc} />
-      ))}
     </div>
   );
 }
