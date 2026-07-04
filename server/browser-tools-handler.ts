@@ -186,6 +186,10 @@ export async function handleBrowserOpen(
     const result = await ops.navigate(args.url);
     // Page navigated -> any cached element refs/bboxes are stale.
     clearBrowserCaches(contextId);
+    // navigate() resolves at domcontentloaded; give an SPA a bounded moment to
+    // render its first view so the snapshot isn't empty (agent would think the
+    // page has no elements). ~0 cost once the page is idle; best-effort.
+    await ops.settle?.().catch(() => {});
     // Return a fresh ref-based snapshot so the agent can act immediately.
     let snapshot = "";
     try {
@@ -325,13 +329,24 @@ export async function handleBrowserAct(
         key: args.key,
       });
     }
+    // Let a click-triggered navigation / async re-render settle before we read
+    // the result, so the diff reflects the RESULT rather than the pre-effect DOM
+    // (bounded, and ~0 cost when the page is already idle); best-effort.
+    await ops.settle?.().catch(() => {});
     // Return what changed so the agent doesn't need a separate observe.
     let snapshot: string | undefined;
     try {
       const prev = prevSnapshotCache.get(contextId);
       const next = await ops.snapshot({ max: 200 });
       prevSnapshotCache.set(contextId, next);
-      snapshot = diff(prev, next).text;
+      const d = diff(prev, next);
+      // When the structure shifted, refs from the agent's last observe may now
+      // point at DIFFERENT elements (SNAPSHOT_FN renumbers in DOM order). Tell the
+      // agent to re-observe rather than act on a stale ref that would silently hit
+      // the wrong element.
+      snapshot = d.changed > 0
+        ? `${d.text}\n(elements changed — call browser_observe before acting on a ref again)`
+        : d.text;
     } catch {
       /* diff best-effort */
     }

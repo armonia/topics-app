@@ -58,6 +58,11 @@ export interface BrowserOps {
   extractFields(fields: ExtractFields): Promise<Record<string, unknown>>;
   /** Run JS in the page sandbox (page context only). */
   evalExpression(expression: string): Promise<{ result: unknown }>;
+  /** Best-effort settle: wait (bounded) for the page to go network-idle after a
+   *  mutating action, so the post-action snapshot reflects the RESULT (a nav or
+   *  async re-render) rather than the pre-effect DOM. Resolves immediately when
+   *  already idle, so it only costs time when something is actually in flight. */
+  settle?(opts?: { timeout?: number }): Promise<void>;
 
   // --- Login-state sharing (Jarvis-interop via Playwright storageState) ---
   /** Export the live context's cookies + visited-origin localStorage. */
@@ -95,6 +100,10 @@ export function playwrightOps(service: BrowserService, contextId: string): Brows
     getText: async (opts) => getTextOnPage(await page(), opts?.ref, opts?.max),
     extractFields: async (fields) => extractFieldsOnPage(await page(), fields),
     evalExpression: async (expression) => evalOnPage(await page(), expression),
+    settle: async ({ timeout = 800 } = {}) => {
+      const p = await page();
+      await p.waitForLoadState('networkidle', { timeout }).catch(() => { /* still busy — bounded */ });
+    },
     exportStorageState: async () => exportStateFromContext((await service.getOrCreate(contextId)).context),
     importStorageState: async (state) => applyStateToPage(await page(), state),
   };
@@ -198,6 +207,10 @@ export function cdpOps(
     getText: async (opts) => getTextOnPage(await dispatcher.getPage(contextId), opts?.ref, opts?.max),
     extractFields: async (fields) => extractFieldsOnPage(await dispatcher.getPage(contextId), fields),
     evalExpression: async (expression) => evalOnPage(await dispatcher.getPage(contextId), expression),
+    settle: async ({ timeout = 800 } = {}) => {
+      const p = await dispatcher.getPage(contextId);
+      await p.waitForLoadState('networkidle', { timeout }).catch(() => { /* still busy — bounded */ });
+    },
     exportStorageState: async () => exportStateFromContext((await dispatcher.getPage(contextId)).context()),
     importStorageState: async (state) => applyStateToPage(await dispatcher.getPage(contextId), state),
   };
