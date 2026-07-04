@@ -1027,17 +1027,23 @@ export function PanelGrid({
             (effectivePrimary && effectivePrimary !== soloKey ? effectivePrimary : null) ||
             (remainderKey && remainderKey !== soloKey ? remainderKey : null) ||
             (liveItems.find(i => i.key === 'standalone')?.key ?? null);
-          if (hostKey) {
-            rows = [{
-              itemKeys: [hostKey],
-              widths: [1],
-              cellStacks: {
-                [hostKey]: { items: [soloKey], heights: [0.5, 0.5] },
-              },
-            }];
-          } else {
-            rows = [{ itemKeys: [soloKey], widths: [1] }];
-          }
+          const bootstrapRow = hostKey
+            ? {
+                itemKeys: [hostKey],
+                widths: [1],
+                cellStacks: {
+                  [hostKey]: { items: [soloKey], heights: [0.5, 0.5] },
+                },
+              }
+            : { itemKeys: [soloKey], widths: [1] };
+          // Only a TRULY empty grid is a full replace. When rows already exist
+          // (sourceRowIdx === -1 because the source group just isn't
+          // materialized yet), APPEND the bootstrap row — the old `rows =
+          // [bootstrapRow]` wiped every existing split (e.g. two side-by-side
+          // project windows) whenever the source wasn't in gridRows. Mirrors the
+          // 'right' branch, which never wipes existing rows. Worst case is a
+          // cosmetically extra bottom row, never lost layout.
+          rows = rows.length === 0 ? [bootstrapRow] : [...rows, bootstrapRow];
           return rows;
         }
         const targetRow = rows[Math.min(sourceRowIdx, rows.length - 1)];
