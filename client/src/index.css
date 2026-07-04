@@ -1089,13 +1089,14 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ─── "Working" aura ─────────────────────────────────────────────────────────
  * A real, dynamic wave of iridescent smoke hugging the pane edge while a
- * session works. Rendered by <AuraWave> (components/AuraWave.tsx): an SVG whose
- * `fog` contours are rebuilt every frame from ~140 border points displaced by a
- * multi-harmonic sine sum; nested graded-opacity fills between the border and
- * the wave ramp the alpha 100→0 inward → soft smoke, no blur. SPEED tracks session
- * activity (see lib/auraActivity.ts). Host = this container (position:absolute,
- * overflow:hidden, border-radius:inherit). Rendered only while working → zero
- * idle cost; the shared rAF freezes when `.anims-paused` is set on <html>. */
+ * session works. Rendered by <AuraWave> (components/AuraWave.tsx) into a low-res
+ * <canvas> that is upscaled to the pane: the wave (multi-harmonic border
+ * displacement) is filled and blurred cheaply at 1/3 resolution, so the haze is
+ * genuinely soft with no hard edges, at 60fps even with many panes. SPEED tracks
+ * session activity (token throughput; see lib/auraActivity.ts). Host = this
+ * container (position:absolute, overflow:hidden, border-radius:inherit).
+ * Rendered only while working → zero idle cost; the shared rAF pauses when the
+ * document is hidden. */
 .chat-working-aura {
   position: absolute;
   inset: 0;
@@ -1105,53 +1106,14 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
   animation: chat-working-ring-in 300ms ease-out;
 }
-/* SVG overlay that carries the dynamic wave (positions written per frame by
- * AuraWave via setAttribute — no React re-render).
- *
- * The static mask feathers the OUTER ~11px of every edge to transparent (four
- * edge gradients INTERSECTED, so corners fade doubly and softly). Without it the
- * smoke is opaque right at the window border and reads as a hard, cut edge —
- * most visible at the rounded corners. With it the haze fades to nothing on the
- * border side too, so there are no crisp edges anywhere. The mask is static
- * (only the masked content animates) so it stays cheap. */
-.chat-working-aura .wave-svg {
+/* The low-res canvas AuraWave draws the blurred wave into, upscaled by CSS to
+ * fill the pane. All the softness is real blur done cheaply at 1/DOWNSCALE
+ * resolution (see AuraWave.tsx) — no CSS filter needed here. */
+.chat-working-aura canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  overflow: visible;
-  -webkit-mask-image:
-    linear-gradient(to bottom, transparent, #fff 11px),
-    linear-gradient(to top, transparent, #fff 11px),
-    linear-gradient(to right, transparent, #fff 11px),
-    linear-gradient(to left, transparent, #fff 11px);
-  -webkit-mask-composite: source-in, source-in, source-in;
-  mask-image:
-    linear-gradient(to bottom, transparent, #fff 11px),
-    linear-gradient(to top, transparent, #fff 11px),
-    linear-gradient(to right, transparent, #fff 11px),
-    linear-gradient(to left, transparent, #fff 11px);
-  mask-composite: intersect;
-}
-/* `base` is the invisible geometry path AuraWave samples for border positions +
- * inward normals; never painted. */
-.chat-working-aura .wave-svg .base {
-  fill: none;
-  stroke: none;
-}
-/* `fog` = a filled band between the window edge and the (invisible) wave
- * contour, rendered with fill-rule:evenodd. A static blur dissolves its inner
- * edge to 0 at the wave, so it reads as iridescent smoke fading 100→0 from the
- * border inward. The host's overflow:hidden clips the outer side so the border
- * stays full. Fill (the per-instance gradient) is set inline in AuraWave. */
-/* Each of the nested fog contours. Opacity is set per-layer in AuraWave: their
- * graded-opacity overlap ramps alpha 100→0 from the border to the wave, giving
- * soft smoke WITHOUT a per-frame blur (blurring changing geometry is far too
- * costly at many panes, and CSS `filter: blur()` on an inner SVG <path> does not
- * even render in WKWebView). */
-.chat-working-aura .wave-svg .fog {
-  fill-rule: evenodd;
-  stroke: none;
 }
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
