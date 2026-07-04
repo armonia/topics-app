@@ -254,6 +254,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         agentActive={browser.agentActive}
         agentAction={browser.agentAction}
         onZoom={browser.setZoom}
+        zoom={browser.zoom}
         deviceMode={browser.deviceMode}
         onSetDevice={browser.setDevice}
         consoleEntries={browser.consoleEntries}

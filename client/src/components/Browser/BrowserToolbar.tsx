@@ -57,6 +57,9 @@ interface BrowserToolbarProps {
   // --- Native dev controls (Electron only; omitted in web/screenshot mode) ---
   /** Zoom (returns the new zoom level). When present, renders the zoom control. */
   onZoom?: (delta: number | 'reset') => Promise<number>;
+  /** Current zoom percentage (source of truth for the label; keeps button and
+   *  keyboard zoom in sync). Defaults to 100 when the host doesn't track it. */
+  zoom?: number;
   /** Device-emulation mode + setter. When both present, renders the switcher. */
   deviceMode?: DeviceMode;
   onSetDevice?: (mode: DeviceMode, custom?: { width: number; height: number }) => void;
@@ -87,6 +90,7 @@ export function BrowserToolbar({
   agentActive,
   agentAction,
   onZoom,
+  zoom,
   deviceMode,
   onSetDevice,
   consoleEntries,
@@ -378,7 +382,7 @@ export function BrowserToolbar({
       {deviceMode && onSetDevice && (
         <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
       )}
-      {onZoom && <ZoomControl onZoom={onZoom} />}
+      {onZoom && <ZoomControl zoom={zoom} onZoom={onZoom} />}
 
       {compact ? (
         /* Narrow pane — only the SECONDARY actions (history / DevTools / open
