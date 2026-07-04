@@ -75,6 +75,13 @@ function loop(now: number): void {
   for (const fn of subscribers) fn(now);
 }
 
+/** Number of auras currently mounted (subscribed to the shared tick). Auras use
+ *  this to scale their layer count so total per-frame work stays bounded: full
+ *  smoothness with one or two panes working, fewer layers when many do at once. */
+export function auraCount(): number {
+  return subscribers.size;
+}
+
 /** Register a per-frame callback. The rAF loop runs only while ≥1 aura is
  *  mounted. Returns an unsubscribe that stops the loop when the last one goes. */
 export function subscribeAuraTick(fn: Tick): () => void {
