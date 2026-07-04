@@ -14,26 +14,16 @@
 //      so no chrome markup needs per-host edits and tab drag-reorder (the
 //      `.app-no-drag` tabs) keeps working.
 
-import { isElectron, isTauri } from './index';
+import { isTauri } from './index';
 import { tauriInvoke } from './tauri';
-
-interface ElectronWindowApi {
-  showTrafficLights?(): void;
-  hideTrafficLights?(): void;
-}
-function electronWindow(): ElectronWindowApi | undefined {
-  return (window as unknown as { electronAPI?: { window?: ElectronWindowApi } }).electronAPI?.window;
-}
 
 /** Reveal the macOS traffic lights (close/min/zoom). No-op on web / non-mac. */
 export function showTrafficLights(): void {
-  if (isElectron) { electronWindow()?.showTrafficLights?.(); return; }
   if (isTauri) { void tauriInvoke('set_traffic_lights', { visible: true }); }
 }
 
 /** Hide the macOS traffic lights. No-op on web / non-mac. */
 export function hideTrafficLights(): void {
-  if (isElectron) { electronWindow()?.hideTrafficLights?.(); return; }
   if (isTauri) { void tauriInvoke('set_traffic_lights', { visible: false }); }
 }
 
