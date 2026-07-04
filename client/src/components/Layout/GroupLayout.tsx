@@ -72,6 +72,10 @@ interface GroupLayoutProps {
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
   onPinPane?: (groupId: string, paneId: string) => void;
+  /** Tab-level rename for a project's chat tabs (routes to the host's topic
+   *  update) and browser tabs (pins pane.title). Forwarded to each PaneTabBar. */
+  onRenameChat?: (topicId: string, name: string) => void;
+  onRenameBrowser?: (paneId: string, name: string) => void;
 }
 
 
@@ -81,7 +85,7 @@ export function GroupLayout({
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
   renderPane, availableTypesForGroup, contextPercent, onContextRingClick, onStopStreaming,
-  onSettings, onPopOut, onPinPane,
+  onSettings, onPopOut, onPinPane, onRenameChat, onRenameBrowser,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -784,6 +788,8 @@ export function GroupLayout({
             onStopStreaming={onStopStreaming}
             onSettings={onSettings}
             onPopOut={onPopOut}
+            onRenameChat={onRenameChat}
+            onRenameBrowser={onRenameBrowser}
             onPinPane={onPinPane ? (paneId) => onPinPane(gid, paneId) : undefined}
             tabNotifications={groupNotifications}
           />
