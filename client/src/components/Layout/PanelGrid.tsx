@@ -942,9 +942,10 @@ export function PanelGrid({
       });
     }
 
-    // Mark as solo (only after limit checks pass). extractToOwnCell — NOT
-    // addSoloCell, which no-ops for a topic already inside ANY cell and
-    // silently broke splitting a member out of a multi-tab solo cell.
+    // Mark as solo (only after limit checks pass). extractToOwnCell REMOVES the
+    // topic from any cell it currently shares before giving it its own — the
+    // right primitive for "split a member out of a multi-tab solo cell" (a naive
+    // add-if-absent would no-op there and silently drop the split).
     setSoloCells(prev => extractToOwnCell(prev, topicId));
 
     // Native browser panes are OS-level WebContentsViews that don't follow the
