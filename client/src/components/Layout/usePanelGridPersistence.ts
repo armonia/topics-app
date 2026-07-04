@@ -109,6 +109,19 @@ export function panelGridStorageKey(spaceId: string): string {
   return `${STORAGE_KEY_BASE}:${spaceId}`;
 }
 
+/** Drop a deleted space's persisted grid overlay. Called at the SPACE_DELETE
+ *  dispatch site so the suffixed key doesn't leak in localStorage forever once
+ *  the space (and its remount key) is gone. The default space is never
+ *  deletable, so we never touch the legacy unsuffixed key here. */
+export function clearPanelGridStorage(spaceId: string): void {
+  if (spaceId === DEFAULT_SPACE_ID) return;
+  try {
+    localStorage.removeItem(panelGridStorageKey(spaceId));
+  } catch {
+    /* storage disabled / quota — nothing to clean up */
+  }
+}
+
 interface PanelGridPersistedData {
   gridRows?: PanelGridRow[];
   gridRowHeights?: number[];

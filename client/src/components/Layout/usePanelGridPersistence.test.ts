@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { sanitizeRow } from "./usePanelGridPersistence";
+import { sanitizeRow, panelGridStorageKey, clearPanelGridStorage } from "./usePanelGridPersistence";
+import { DEFAULT_SPACE_ID } from "../../state/pane/types";
 
 describe("sanitizeRow", () => {
   test("accepts the simple legacy shape unchanged", () => {
@@ -100,5 +101,43 @@ describe("sanitizeRow", () => {
       },
     });
     expect(out!.cellStacks).toBeUndefined();
+  });
+});
+
+describe("clearPanelGridStorage (no localStorage leak on space delete)", () => {
+  // Minimal in-memory localStorage shim (bun:test has no DOM). Save/restore any
+  // pre-existing global so we don't perturb sibling tests.
+  const withStorage = (fn: (store: Map<string, string>) => void) => {
+    const store = new Map<string, string>();
+    const prev = (globalThis as { localStorage?: Storage }).localStorage;
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, String(v)),
+      removeItem: (k: string) => void store.delete(k),
+      clear: () => store.clear(),
+      key: (i: number) => [...store.keys()][i] ?? null,
+      get length() { return store.size; },
+    };
+    try { fn(store); } finally { (globalThis as { localStorage?: unknown }).localStorage = prev; }
+  };
+
+  test("removes the deleted space's suffixed key", () => {
+    withStorage((store) => {
+      const spaceId = "space:doomed";
+      store.set(panelGridStorageKey(spaceId), JSON.stringify({ gridRows: [] }));
+      expect(store.has(panelGridStorageKey(spaceId))).toBe(true);
+      clearPanelGridStorage(spaceId);
+      expect(store.has(panelGridStorageKey(spaceId))).toBe(false);
+    });
+  });
+
+  test("never touches the default space's legacy unsuffixed key", () => {
+    withStorage((store) => {
+      store.set("topics-panel-grid-layout", JSON.stringify({ gridRows: [] }));
+      store.set(panelGridStorageKey(DEFAULT_SPACE_ID), JSON.stringify({ gridRows: [] }));
+      clearPanelGridStorage(DEFAULT_SPACE_ID); // guarded no-op
+      expect(store.has("topics-panel-grid-layout")).toBe(true);
+      expect(store.has(panelGridStorageKey(DEFAULT_SPACE_ID))).toBe(true);
+    });
   });
 });
