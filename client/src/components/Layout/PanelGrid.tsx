@@ -1989,7 +1989,10 @@ export function PanelGrid({
   // usePanelGridPersistence setters only — never the storage key directly.
   const canFlattenGrid = useMemo(() => flattenGridRows(gridRows) !== null, [gridRows]);
   const handleResetGridLayout = useCallback(() => {
-    const flat = flattenGridRows(gridRowsRef.current);
+    // Pass the live grid cells (naturalGridItems) so the additive-sync effect
+    // can't "heal" a row-missed key back in with an unequal width right after
+    // the reset — mirrors GroupLayout passing [...groupMap.keys()].
+    const flat = flattenGridRows(gridRowsRef.current, naturalGridItemsRef.current.map(i => i.key));
     if (!flat) return;
     // Flatten is undoable — it irreversibly discarded manual widths/heights/
     // stacks before, and ⌘Z silently undid the previous CLOSE instead.

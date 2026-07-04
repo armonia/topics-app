@@ -115,6 +115,16 @@ describe('flattenGridRows', () => {
     expect(res!.rowHeights).toEqual([1]);
   });
 
+  it('appends liveItemKeys missing from rows (defensive union against the sync-effect heal)', () => {
+    // Twin of flattenGroupRows' liveGroupIds test: a live grid cell the rows
+    // missed must be included with an equal width, not "healed" back in later.
+    const rows = [gridRow(['standalone']), gridRow(['solo:a'])];
+    const res = flattenGridRows(rows, ['standalone', 'solo:a', 'solo:ghost']);
+    expect(res).not.toBeNull();
+    expect(res!.rows[0].itemKeys).toEqual(['standalone', 'solo:a', 'solo:ghost']);
+    expect(res!.rows[0].widths).toEqual(equalizeWidths(3));
+  });
+
   it('returns null when already flat (single row, no stacks)', () => {
     expect(flattenGridRows([gridRow(['standalone', 'solo:a'])])).toBeNull();
     expect(flattenGridRows([])).toBeNull();

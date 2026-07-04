@@ -103,10 +103,19 @@ export function flattenGroupRows(
  * promotes them to top-level cells — no re-keying, and the first-occurrence
  * dedup in usePanelGridPersistence.sanitizeRow stays satisfied.
  *
+ * `liveItemKeys` (defensive) is the grid twin of `flattenGroupRows`'
+ * `liveGroupIds`: it unions in any live grid cell the rows missed — otherwise
+ * PanelGrid's additive-sync effect (the `naturalGridItems` diff) would "heal"
+ * the missed key by appending it to row 0 with a default width right after the
+ * reset, skewing the equal widths. The already-flat null check deliberately
+ * ignores it (healing a missed key is the sync effect's job, not a reason to
+ * offer the reset).
+ *
  * Returns `null` when there is nothing to flatten.
  */
 export function flattenGridRows(
   rows: readonly PanelGridRow[],
+  liveItemKeys?: readonly string[],
 ): { rows: PanelGridRow[]; rowHeights: number[] } | null {
   const walked = dedupFirst(
     rows.flatMap((r) =>
@@ -117,9 +126,11 @@ export function flattenGridRows(
     (r) => !!r.cellStacks && Object.values(r.cellStacks).some((s) => s.items.length > 0),
   );
   if (isAlreadyFlat(rows.length, hasStackMembers, walked.length)) return null;
-  if (walked.length === 0) return null;
 
-  const chunks = chunkKeys(walked);
+  const keys = liveItemKeys ? dedupFirst([...walked, ...liveItemKeys]) : walked;
+  if (keys.length === 0) return null;
+
+  const chunks = chunkKeys(keys);
   return {
     rows: chunks.map((itemKeys) => ({ itemKeys, widths: equalizeWidths(itemKeys.length) })),
     rowHeights: equalizeWidths(chunks.length),
