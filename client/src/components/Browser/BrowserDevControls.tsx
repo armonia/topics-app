@@ -25,10 +25,11 @@ function useOutsideClose(open: boolean, onClose: () => void) {
 
 /* ---------------------------------------------------------------- Zoom ---- */
 
-export function ZoomControl({ onZoom }: { onZoom: (delta: number | 'reset') => Promise<number> }) {
-  const [level, setLevel] = useState(0);
-  const pct = Math.round(Math.pow(1.2, level) * 100);
-  const apply = async (d: number | 'reset') => { setLevel(await onZoom(d)); };
+export function ZoomControl({ zoom = 100, onZoom }: { zoom?: number; onZoom: (delta: number | 'reset') => Promise<number> }) {
+  // `zoom` is the reactive source of truth (a clean integer percent from the
+  // ZOOM_STEPS ladder), so button AND keyboard changes show the same value.
+  const pct = Math.round(zoom);
+  const apply = (d: number | 'reset') => { void onZoom(d); };
   return (
     <div className="flex items-center rounded-md border border-app-border-input overflow-hidden" data-testid="browser-zoom">
       <button type="button" onClick={() => apply(-1)} title="Riduci zoom"
