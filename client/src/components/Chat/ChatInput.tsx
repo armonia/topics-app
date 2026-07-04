@@ -12,7 +12,8 @@ import { MentionAutocomplete } from './MentionAutocomplete';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { ContextRing } from '../Shared/ContextRing';
 import { useContextInspector } from '../../hooks/useContextInspector';
-import { POPOVER_PANEL } from '@/lib/popoverStyles';
+import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
+import { useDismissable } from '@/hooks/useDismissable';
 
 // Available slash commands
 const SLASH_COMMANDS = [
@@ -175,14 +176,14 @@ function MessageQueueBadge({
     if (count === 0 && open) setOpen(false);
   }, [count, open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  // Unified dismissal: capture-phase outside-pointer + Escape close. The
+  // wrapper holds BOTH the toggle badge and the popover panel, so clicks on
+  // either stay "inside" and don't self-dismiss.
+  useDismissable({
+    open,
+    onClose: () => setOpen(false),
+    refs: [popoverRef],
+  });
 
   return (
     <div className="relative px-3 pb-1.5" ref={popoverRef}>
@@ -199,7 +200,7 @@ function MessageQueueBadge({
       </button>
 
       {open && (
-        <div className={`absolute bottom-full left-3 right-3 mb-1 ${POPOVER_PANEL} z-50 max-h-[60vh] overflow-y-auto`}>
+        <div className={`absolute bottom-full left-3 right-3 mb-1 ${POPOVER_PANEL} max-h-[60vh] overflow-y-auto`} style={{ zIndex: Z_POPOVER }}>
           <div className="sticky top-0 bg-surface dark:bg-app-panel border-b border-app-border px-3 py-2 flex items-center justify-between">
             <span className="text-[11px] font-medium text-app-text">
               Queued message{count > 1 ? 's' : ''} ({count})
@@ -424,6 +425,7 @@ export function ChatInput({
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashMenuIndex, setSlashMenuIndex] = useState(0);
   const [slashFilter, setSlashFilter] = useState('');
+  const slashMenuRef = useRef<HTMLDivElement>(null);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [mentionMenuIndex, setMentionMenuIndex] = useState(0);
@@ -529,9 +531,19 @@ export function ChatInput({
     return () => window.removeEventListener('chat:insert-text', handler as EventListener);
   }, [message, setMessage, textareaRef]);
 
-  const filteredSlashCommands = SLASH_COMMANDS.filter(c => 
+  const filteredSlashCommands = SLASH_COMMANDS.filter(c =>
     c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())
   );
+
+  // Unified dismissal for the slash-command menu: capture-phase outside-pointer
+  // + Escape close. The textarea stays "inside" (arrow/Enter selection is
+  // handled by handleKeyDown) and the caret is left untouched.
+  useDismissable({
+    open: showSlashMenu && filteredSlashCommands.length > 0,
+    onClose: () => { setShowSlashMenu(false); setSlashFilter(''); },
+    refs: [textareaRef, slashMenuRef],
+    restoreFocus: false,
+  });
 
   const handleMentionSelect = useCallback((file: MentionedFile) => {
     if (mentionStartPos >= 0) {
@@ -1036,11 +1048,13 @@ export function ChatInput({
 
             {/* Popover menus (anchored to form) */}
             {showSlashMenu && filteredSlashCommands.length > 0 && (
-              <div className={`absolute bottom-full left-0 right-0 mb-1 ${POPOVER_PANEL} z-50 py-1.5 max-h-48 overflow-y-auto`}>
+              <div ref={slashMenuRef} role="listbox" className={`absolute bottom-full left-0 right-0 mb-1 ${POPOVER_PANEL} z-50 py-1.5 max-h-48 overflow-y-auto`}>
                 {filteredSlashCommands.map((cmd, idx) => (
                   <button
                     key={cmd.cmd}
                     type="button"
+                    role="option"
+                    aria-selected={idx === slashMenuIndex}
                     onClick={() => {
                       setMessage(cmd.cmd + ' ');
                       setShowSlashMenu(false);
@@ -1068,6 +1082,8 @@ export function ChatInput({
                 onSelect={handleMentionSelect}
                 selectedIndex={mentionMenuIndex}
                 onIndexChange={setMentionMenuIndex}
+                onClose={() => { setShowMentionMenu(false); setMentionStartPos(-1); }}
+                inputRef={textareaRef}
               />
             )}
 
@@ -1077,6 +1093,7 @@ export function ChatInput({
                 onSelect={handleAgentMentionSelect}
                 onClose={() => { setShowAgentMention(false); setAgentMentionStartPos(-1); }}
                 position={agentMentionPos}
+                inputRef={textareaRef}
               />
             )}
 

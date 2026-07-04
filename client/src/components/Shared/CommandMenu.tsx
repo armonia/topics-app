@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Terminal, Trash2, Cpu, Brain, ChevronDown, Check, Loader } from 'lucide-react';
 import { POPOVER_SURFACE } from '@/lib/popoverStyles';
+import { useDismissable } from '@/hooks/useDismissable';
 
 interface CommandMenuProps {
   onStatus: () => void;
@@ -31,33 +32,17 @@ export function CommandMenu({
   const [showModelPicker, setShowModelPicker] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-        setShowModelPicker(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen]);
-
-  // Close on escape
-  useEffect(() => {
-    function handleEscape(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setIsOpen(false);
-        setShowModelPicker(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      return () => document.removeEventListener('keydown', handleEscape);
-    }
-  }, [isOpen]);
+  // Outside-pointer + Escape close via the shared useDismissable contract
+  // (capture-phase pointerdown/touch + Escape, focus-restore to the trigger),
+  // replacing the two hand-rolled mousedown/keydown effects. Closing also
+  // collapses the nested model sub-picker, exactly as the old handlers did.
+  // The dropdown is anchored inside menuRef (not portaled), so one ref covers
+  // both the trigger button and the panel.
+  useDismissable({
+    open: isOpen,
+    onClose: () => { setIsOpen(false); setShowModelPicker(false); },
+    refs: [menuRef],
+  });
 
   const handleAction = (action: () => void) => {
     action();
