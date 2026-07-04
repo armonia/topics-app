@@ -30,11 +30,6 @@ export function resetCdpProbeCache(): void {
   cache = null;
 }
 
-/** Returns the CDP base URL (single source of truth for callers). */
-export function getElectronCdpEndpoint(): string {
-  return CDP_BASE;
-}
-
 /**
  * Returns true if Electron is exposing CDP on 19333. Cached 30s.
  *

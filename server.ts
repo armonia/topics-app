@@ -416,6 +416,11 @@ const wsHeartbeatTimer = setInterval(() => {
     for (const ws of set) {
       if (now - ws.data.lastPong > WS_TIMEOUT_MS) {
         console.log(`[WS][browser] Reaping stale browser client for ctx ${ctxId} (no pong for ${Math.round((now - ws.data.lastPong) / 1000)}s)`);
+        // De-register the native executor explicitly (idempotent): a server-side
+        // close on an already-half-dead socket may not fire the `close` handler,
+        // which would otherwise leave a Tauri pane's delegation pointing at a dead
+        // socket so isDelegated() keeps routing agent ops into the void.
+        nativeDelegateRegistry.unregister(ctxId);
         void ws.data._browserCleanup?.();
         set.delete(ws);
         try { ws.close(1001, "Connection timeout"); } catch {}

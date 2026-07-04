@@ -139,9 +139,10 @@ function useBackToSpawner(
  * keyboard shortcuts. Real WKWebView history (browser_back/forward/reload) + a
  * live state poll in useTauriBrowser (url/title/favicon/loading off the page's
  * own readyState) keep the chrome in sync with IN-PAGE navigation too. DevTools,
- * console capture and device emulation stay hidden — their WKWebView bridges
- * aren't wired yet and BrowserToolbar self-hides a control whose handler is
- * absent, so there are no dead buttons.
+ * quick-console (poll-drained CONSOLE_PROXY buffer), zoom and device/UA emulation
+ * (browser_set_user_agent + letterbox + reload) are all wired to their WKWebView
+ * bridges now; BrowserToolbar still self-hides any control whose handler is
+ * absent, so there are never dead buttons.
  */
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);

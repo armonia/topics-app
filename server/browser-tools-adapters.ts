@@ -39,14 +39,6 @@ export function toOpenAIFunctions(tools: Tool[]): BrowserToolForOpenAI[] {
 }
 
 /**
- * Codex CLI does not accept inline tool definitions. Reserved for future use
- * if/when the CLI exposes tool injection -- currently a no-op alias.
- */
-export function toCodexFunctions(_tools: Tool[]): never[] {
-  return [];
-}
-
-/**
  * Returns true ONLY for providers whose sendChat() implementation supports
  * inline browserTools registration (i.e. the SDK-driven providers, not the
  * CLI/gateway providers that manage their own tool surface).
