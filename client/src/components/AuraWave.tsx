@@ -1,45 +1,49 @@
-import { useEffect, useId, useRef } from 'react';
-import { auraCount, readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
+import { useEffect, useRef } from 'react';
+import { readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
 
-// The "working" aura: a real, dynamic wave of iridescent smoke that hugs the
-// pane's edge while a session works. It replaces the old rotating-band +
-// orbiter CSS.
+// The "working" aura: a soft, blurred wave of iridescent smoke hugging the
+// pane's edge while a session works. It replaces the old rotating-band + orbiter
+// CSS.
 //
-// The wave is a filled band between the window edge and an INVISIBLE contour:
-// per frame we displace ~140 points sampled along the rounded-rect border by a
-// small multi-harmonic sum `Σ Aₖ·sin(kₖ·s − ωₖ·t)`. Softness comes from drawing
-// LAYERS nested contours from the border to fractions of that depth, with graded
-// opacity, so their overlap ramps the alpha 100→0 from the border to the wave —
-// smoke, but with zero per-frame blur (blurring changing geometry is far too
-// costly at many panes, and CSS blur on an inner SVG path doesn't render in
-// WKWebView). Three ~coprime integer harmonics make the crests all different
-// (and morph over time); a slow envelope breathes the amplitude and band height.
+// Rendering: a low-resolution <canvas> (1/DOWNSCALE of the pane) redrawn every
+// frame, then upscaled by CSS to fill the pane. Real blur — a genuinely soft,
+// edgeless haze — is the whole point, but blurring pane-sized content every
+// frame is far too costly (CSS/SVG blur of changing geometry collapses to
+// ~15fps at a few panes). Drawing at 1/3 resolution and blurring only those few
+// pixels with ctx.filter, then letting the bilinear upscale blur further, gives
+// the same soft look for ~1/9 the cost — 60fps even at 9 panes.
 //
-// Speed is driven by activity: readAuraEnergy(activityId) rises with how fast
-// things are streaming and the wave travels faster; it decays and the wave
-// eases back. The phase is INTEGRATED (ph += speed·dt) so speed changes never
-// teleport the wave. All DOM writes go through refs + setAttribute — no React
-// state per frame — and every mounted aura shares one rAF (see auraActivity).
+// Shape: per frame we displace ~120 points sampled along the rounded-rect border
+// by a small multi-harmonic sum `Σ Aₖ·sin(kₖ·s − ωₖ·t)` and fill LAYERS nested
+// rings (border → fractions of that depth) so the density ramps inward; the blur
+// dissolves every edge (outer border included) so nothing reads as a hard line.
+// Three ~coprime integer harmonics make the crests all different (and morph over
+// time); a slow envelope breathes the amplitude and band height.
+//
+// Speed tracks activity: readAuraEnergy(activityId) rises with token/output
+// throughput so the wave travels faster mid-stream and eases back on a lull; the
+// phase is INTEGRATED (ph += speed·dt) so speed changes never teleport it. A
+// single shared rAF drives every mounted aura (see auraActivity).
 
-const SAMPLES = 140;
+const SAMPLES = 120;
 const DEFAULT_RADIUS = 16;
-const BASE_SPEED = 1.6; // travel rate at energy 0.5-ish; scaled by activity
+const DOWNSCALE = 3;    // canvas backing store = pane / DOWNSCALE (cheap blur, upscaled)
+const BLUR_BACKING = 4; // ctx blur in backing px (≈ DOWNSCALE× in screen px, + upscale)
+const LAYERS = 6;       // nested contours for the inward density ramp (blur smooths them)
+const BASE_SPEED = 1.6;
 
 // wave shape (tuned live with Attilio: long, harmonious base + gentle overtones)
 const CYCLES = 4;
 const H1 = CYCLES;
 const H2 = Math.max(2, Math.round(CYCLES * 1.7)); // 7
 const H3 = Math.max(3, Math.round(CYCLES * 2.6)); // 10
-const AMP = 9;          // base amplitude gain
-const INSET = 13;       // mean band depth (px)
-const INSET_SWELL = 5;  // band-height breathing (px)
-const W_INSET = 0.5;    // band-breathing rate
-const ENV_DEPTH = 0.6;  // amplitude-breathing depth
-const ENV_CYCLES = 1.5; // spatial envelope cycles around the loop
-const W_ENV = 0.45;     // envelope drift rate
-const MAX_LAYERS = 16;  // fog contours rendered; how many are DRAWN each frame is
-                        // adaptive (fewer when many auras animate at once — see draw)
-const LAYER_BUDGET = 45; // ~ contour-updates/frame across all auras for 60fps
+const AMP = 9;
+const INSET = 13;
+const INSET_SWELL = 5;
+const W_INSET = 0.5;
+const ENV_DEPTH = 0.6;
+const ENV_CYCLES = 1.5;
+const W_ENV = 0.45;
 
 interface AuraWaveProps {
   /** Activity key (chat: topic.sessionKey, terminal: sessionId). Drives speed. */
@@ -49,45 +53,62 @@ interface AuraWaveProps {
 }
 
 export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps) {
-  const uid = useId().replace(/:/g, '');
-  const gradId = 'aura-grad-' + uid;
   const hostRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const baseRef = useRef<SVGPathElement>(null);
 
   useEffect(() => {
     const host = hostRef.current;
-    const svg = svgRef.current;
+    const canvas = canvasRef.current;
     const base = baseRef.current;
-    if (!host || !svg || !base) return;
-    const fogs = Array.from(svg.querySelectorAll<SVGPathElement>('.fog'));
-    if (!fogs.length) return;
-    let activeLayers = -1; // recomputed in draw when the mounted-aura count changes
+    if (!host || !canvas || !base) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
     let P: { x: number; y: number }[] = [];
     let N: { x: number; y: number }[] = [];
-    let rectPath = '';
+    let bw = 0;
+    let bh = 0;
+    let grad: CanvasGradient | null = null;
 
-    const roundRect = (w: number, h: number, r: number): string => {
+    const roundRectPath = (w: number, h: number, r: number): string => {
       r = Math.min(r, w / 2, h / 2);
       return `M${r},0 H${w - r} A${r},${r} 0 0 1 ${w},${r} V${h - r} A${r},${r} 0 0 1 ${w - r},${h} H${r} A${r},${r} 0 0 1 0,${h - r} V${r} A${r},${r} 0 0 1 ${r},0 Z`;
     };
+    const roundRectTrace = (r: number): void => {
+      r = Math.min(r, bw / 2, bh / 2);
+      ctx.moveTo(r, 0);
+      ctx.lineTo(bw - r, 0);
+      ctx.arcTo(bw, 0, bw, r, r);
+      ctx.lineTo(bw, bh - r);
+      ctx.arcTo(bw, bh, bw - r, bh, r);
+      ctx.lineTo(r, bh);
+      ctx.arcTo(0, bh, 0, bh - r, r);
+      ctx.lineTo(0, r);
+      ctx.arcTo(0, 0, r, 0, r);
+      ctx.closePath();
+    };
 
-    // Re-sample the border geometry (positions + inward normals) on mount and
-    // whenever the pane resizes. Uses the browser's own path measurement.
+    // Re-sample the border geometry (in backing-store pixels) on mount and on
+    // resize. Uses the hidden <path>'s own measurement.
     const sample = (): void => {
-      const w = host.clientWidth;
-      const h = host.clientHeight;
-      if (w < 8 || h < 8) return;
-      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-      rectPath = roundRect(w, h, radius);
-      base.setAttribute('d', rectPath);
+      const cw = host.clientWidth;
+      const ch = host.clientHeight;
+      if (cw < 8 || ch < 8) return;
+      bw = Math.max(1, Math.round(cw / DOWNSCALE));
+      bh = Math.max(1, Math.round(ch / DOWNSCALE));
+      if (canvas.width !== bw || canvas.height !== bh) {
+        canvas.width = bw;
+        canvas.height = bh;
+      }
+      const r = Math.min(radius / DOWNSCALE, bw / 2, bh / 2);
+      base.setAttribute('d', roundRectPath(bw, bh, r));
       const L = base.getTotalLength();
       if (!L) return;
       P = [];
       N = [];
-      const cx = w / 2;
-      const cy = h / 2;
+      const cx = bw / 2;
+      const cy = bh / 2;
       for (let i = 0; i < SAMPLES; i++) {
         const s = (i / SAMPLES) * L;
         const a = base.getPointAtLength(s);
@@ -103,22 +124,30 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
         P.push({ x: a.x, y: a.y });
         N.push({ x: nx, y: ny });
       }
+      grad = ctx.createLinearGradient(0, 0, bw, bh);
+      grad.addColorStop(0, '#32c8ff');
+      grad.addColorStop(0.28, '#5e5ce6');
+      grad.addColorStop(0.52, '#bf5af2');
+      grad.addColorStop(0.74, '#ff6482');
+      grad.addColorStop(1, '#32c8ff');
     };
 
-    let ph = 0;      // integrated travel phase
-    let phSlow = 0;  // integrated real-time phase (breathing, activity-independent)
-    let energy = 0;  // eased activity level 0..1
-    const TWO = Math.PI * 2;
-
+    let ph = 0;
+    let phSlow = 0;
+    let energy = 0;
     let dispArr: Float64Array | null = null;
-    // Build and commit the fog contours from the current phases + energy.
+    const TWO = Math.PI * 2;
+    const cornerR = radius / DOWNSCALE;
+    const layerAlpha = 1 - Math.pow(0.2, 1 / LAYERS); // per-layer, ~0.8 cumulative
+
     const draw = (): void => {
       const NS = P.length;
-      if (!NS) return;
-      const eased = energy * energy * (3 - 2 * energy); // smoothstep
+      if (!NS || !grad) return;
+      ctx.clearRect(0, 0, bw, bh);
+      const eased = energy * energy * (3 - 2 * energy);
       const ampMul = 0.85 + 0.35 * eased;
-      const A = AMP * 1.35 * ampMul;
-      const inset = INSET + INSET_SWELL * Math.sin(W_INSET * phSlow);
+      const A = (AMP * 1.35 * ampMul) / DOWNSCALE;
+      const inset = (INSET + INSET_SWELL * Math.sin(W_INSET * phSlow)) / DOWNSCALE;
       const k1 = (TWO * H1) / NS;
       const k2 = (TWO * H2) / NS;
       const k3 = (TWO * H3) / NS;
@@ -127,7 +156,6 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
       const p2 = 0.5 * ph + 1.7;
       const p3 = -1.3 * ph + 3.1;
       const we = W_ENV * phSlow;
-      // 1) wave depth from the border, per sampled point
       let disp = dispArr;
       if (!disp || disp.length !== NS) disp = dispArr = new Float64Array(NS);
       for (let i = 0; i < NS; i++) {
@@ -137,48 +165,32 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
           0.24 * Math.sin(k2 * i + p2) +
           0.08 * Math.sin(k3 * i + p3);
         const dd = inset + A * envF * wave;
-        disp[i] = dd < 1.5 ? 1.5 : dd; // keep the contour just inside the border
+        disp[i] = dd < 1 ? 1 : dd;
       }
-      // 2) nested rings [border → disp·f], f = (L+1)/active — evenodd fills, NO
-      //    blur; their constant-opacity overlap is the soft 100→0 haze.
-      //    `active` adapts to how many auras animate at once so total per-frame
-      //    contour work stays ~LAYER_BUDGET (smooth when few, coarser when many);
-      //    opacity is retuned on change to hold the same cumulative falloff.
-      const count = auraCount() || 1;
-      const active = Math.max(5, Math.min(fogs.length, Math.round(LAYER_BUDGET / count)));
-      if (active !== activeLayers) {
-        activeLayers = active;
-        const op = (1 - Math.pow(0.15, 1 / active)).toFixed(3); // ~0.85 cumulative at the border
-        for (let L = 0; L < fogs.length; L++) {
-          if (L < active) {
-            fogs[L].style.opacity = op;
-          } else {
-            fogs[L].style.opacity = '0';
-            fogs[L].setAttribute('d', ''); // park the unused contours
-          }
+      ctx.fillStyle = grad;
+      ctx.filter = `blur(${BLUR_BACKING}px)`;
+      ctx.globalAlpha = layerAlpha;
+      for (let Lr = 0; Lr < LAYERS; Lr++) {
+        const f = (Lr + 1) / LAYERS;
+        ctx.beginPath();
+        roundRectTrace(cornerR); // outer boundary
+        ctx.moveTo(P[0].x + N[0].x * disp[0] * f, P[0].y + N[0].y * disp[0] * f);
+        for (let q = 1; q < NS; q++) {
+          ctx.lineTo(P[q].x + N[q].x * disp[q] * f, P[q].y + N[q].y * disp[q] * f);
         }
+        ctx.closePath();
+        ctx.fill('evenodd'); // ring between the border and the wave contour
       }
-      for (let L = 0; L < active; L++) {
-        const f = (L + 1) / active;
-        let d = '';
-        for (let q = 0; q <= NS; q++) {
-          const j = q % NS;
-          const dep = disp[j] * f;
-          const x = P[j].x + N[j].x * dep;
-          const y = P[j].y + N[j].y * dep;
-          d += (q === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
-        }
-        fogs[L].setAttribute('d', rectPath + ' ' + d + 'Z');
-      }
+      ctx.globalAlpha = 1;
+      ctx.filter = 'none';
     };
 
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const ro = new ResizeObserver(() => { sample(); if (reduce) draw(); });
     ro.observe(host);
     sample();
-
     if (reduce) {
-      draw(); // one static, shaped haze — still a cue, no motion
+      draw();
       return () => ro.disconnect();
     }
 
@@ -186,9 +198,9 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
     const tick = (now: number): void => {
       let dt = (now - last) / 1000;
       last = now;
-      if (dt > 0.05) dt = 0.05; // clamp (tab throttling / resume) → no phase jump
+      if (dt > 0.05) dt = 0.05; // clamp on resume → no phase jump
       const target = readAuraEnergy(activityId);
-      energy += (target - energy) * Math.min(1, dt / 0.6); // low-pass ease
+      energy += (target - energy) * Math.min(1, dt / 0.6);
       const speedMul = 0.45 + 1.9 * (energy * energy * (3 - 2 * energy));
       ph += BASE_SPEED * speedMul * dt;
       phSlow += dt;
@@ -203,22 +215,11 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
   }, [activityId, radius]);
 
   return (
-    <div ref={hostRef} className="chat-working-aura aura-wave" aria-hidden="true">
-      <svg ref={svgRef} className="wave-svg" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#32c8ff" />
-            <stop offset="28%" stopColor="#5e5ce6" />
-            <stop offset="52%" stopColor="#bf5af2" />
-            <stop offset="74%" stopColor="#ff6482" />
-            <stop offset="100%" stopColor="#32c8ff" />
-          </linearGradient>
-        </defs>
-        <path ref={baseRef} className="base" />
-        {Array.from({ length: MAX_LAYERS }, (_, i) => (
-          <path key={i} className="fog" style={{ fill: `url(#${gradId})` }} />
-        ))}
+    <div ref={hostRef} className="chat-working-aura aura-canvas" aria-hidden="true">
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
+        <path ref={baseRef} />
       </svg>
+      <canvas ref={canvasRef} />
     </div>
   );
 }
