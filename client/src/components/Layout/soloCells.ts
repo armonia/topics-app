@@ -53,13 +53,6 @@ export function removeTopicFromCells(cells: SoloCells, topicId: string): SoloCel
   return changed ? next : cells;
 }
 
-/** Add a topic as its OWN new single-topic cell (the classic "split out").
- *  No-op if the topic is already solo somewhere. */
-export function addSoloCell(cells: SoloCells, topicId: string): SoloCells {
-  if (cells.some((c) => c.includes(topicId))) return cells;
-  return [...cells, [topicId]];
-}
-
 /** Extract a topic into its OWN new single-topic cell, removing it from any
  *  cell it currently shares (so dragging a member tab out of a multi-tab cell
  *  to an edge gives it a fresh column instead of no-oping). */
