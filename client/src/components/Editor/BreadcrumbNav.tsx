@@ -59,10 +59,10 @@ function BreadcrumbSegment({ segment, parentDir, currentChild, isLast, isOpen, o
               <button
                 key={node.path}
                 onClick={() => {
+                  // Files open in the editor; directory segments just close the
+                  // dropdown (no explorer-navigation listener exists to target).
                   if (node.type === 'file') {
                     openFile(node.path, node.name);
-                  } else {
-                    window.dispatchEvent(new CustomEvent('navigate-explorer', { detail: { path: node.path } }));
                   }
                   onToggle();
                 }}

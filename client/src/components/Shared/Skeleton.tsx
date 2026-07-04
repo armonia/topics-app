@@ -23,27 +23,3 @@ export function SkeletonTopicList({ count = 5 }: { count?: number }) {
     </div>
   );
 }
-
-export function SkeletonMessageList({ count = 3 }: { count?: number }) {
-  return (
-    <div className="space-y-2">
-      {Array.from({ length: count }).map((_, i) => (
-        <div
-          key={i}
-          className={`flex gap-1.5 ${i % 2 === 0 ? 'justify-start' : 'justify-end'} animate-pulse`}
-        >
-          <div
-            className={`rounded-lg px-3 py-2 max-w-[85%] ${
-              i % 2 === 0
-                ? 'bg-app-hover'
-                : 'bg-primary/20'
-            }`}
-          >
-            <div className="h-3 rounded w-32 mb-1.5 bg-black/10 dark:bg-white/10" />
-            <div className="h-3 rounded w-20 bg-black/5 dark:bg-white/5" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
