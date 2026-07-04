@@ -1141,17 +1141,3 @@ export function ImageThumbnail({ file, onRemove }: { file: File; onRemove: () =>
     </div>
   );
 }
-
-export function UploadedImagePreview({ path }: { path: string }) {
-  const [lightbox, setLightbox] = useState(false);
-  const src = getMediaUrl(path);
-
-  if (!isImage(path)) return null;
-
-  return (
-    <>
-      <img src={src} alt={getFileName(path)} className="max-w-48 max-h-32 rounded-lg cursor-pointer hover:opacity-90 transition-opacity my-1" onClick={() => setLightbox(true)} loading="lazy" />
-      {lightbox && <ImageLightbox src={src} alt={getFileName(path)} onClose={() => setLightbox(false)} />}
-    </>
-  );
-}
