@@ -2,7 +2,6 @@ import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from 'react
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
-import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { ChatPanel } from './ChatPanel';
 import { LazyPane } from './LazyPane';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
@@ -124,10 +123,6 @@ interface StandaloneChatGroupProps {
   // Persist a tab reorder upstream (main pool only — PanelGrid merges the
   // pool's order back into App.openPanels so it survives reload).
   onPersistReorder?: (newPaneIds: string[]) => void;
-  // Schematic of the surrounding grid (one square per top-level cell), with
-  // this cell lit — forwarded straight to the tab bar. Omitted for single-cell
-  // grids where there's nothing to orient against.
-  splitMap?: SplitMapDescriptor;
   // Sidebar "Fissati" pin toggle + state for a tab's subject (chat topicId or
   // `terminal:<sessionId>`). Forwarded to PaneTabBar's context menu so a tab
   // can be pinned/unpinned like its sidebar row. App-level only.
@@ -155,7 +150,6 @@ export function StandaloneChatGroup({
   persistOrder = true,
   gridItemKey = 'standalone',
   onUnsolo, onAcceptSoloDrop, onMergeIntoCell, onPersistReorder,
-  splitMap,
   onToggleFissato, isFissato,
 }: StandaloneChatGroupProps) {
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
@@ -557,7 +551,6 @@ export function StandaloneChatGroup({
         }
       } : undefined}
       onReorderPanes={handleReorderPanes}
-      splitMap={splitMap}
       onCrossGroupDrop={onAcceptSoloDrop ? handleCrossGroupDrop : undefined}
       contextPercent={contextPercent}
       onContextRingClick={handleToggleContext}
