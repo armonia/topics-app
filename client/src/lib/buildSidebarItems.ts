@@ -87,26 +87,38 @@ function topicTimestamp(t: Topic): number {
  * explicitly — this function only fills the initial-render gap before the
  * first `projectOpenPanes` update lands.
  */
-function readProjectPaneIds(projectPath: string): string[] {
+function readProjectPaneEntries(projectPath: string): { ids: string[]; browserTitles: Map<string, string> } {
+  const browserTitles = new Map<string, string>();
   try {
     const raw = localStorage.getItem(projectPanesLocalKey(projectPath));
-    if (!raw) return [];
+    if (!raw) return { ids: [], browserTitles };
     const parsed = JSON.parse(raw) as {
-      nonChatPanes?: { id: string }[];
+      nonChatPanes?: { id: string; title?: string }[];
       openChatTopicIds?: string[];
     };
     const ids: string[] = [];
     if (Array.isArray(parsed.nonChatPanes)) {
-      for (const p of parsed.nonChatPanes) if (p && typeof p.id === 'string') ids.push(p.id);
+      for (const p of parsed.nonChatPanes) {
+        if (!p || typeof p.id !== 'string') continue;
+        ids.push(p.id);
+        // A project-internal browser persists its whole Pane (incl. the page
+        // title) into this localStorage blob — the global pane store never sees
+        // it (see projectPersistence.ts:91-99). Lift the title so the sidebar
+        // row matches the tab label, same as the store path does for top-level
+        // browsers. Only browser panes carry a page title worth surfacing.
+        if (p.id.startsWith('browser:') && typeof p.title === 'string' && p.title.trim()) {
+          browserTitles.set(p.id, p.title.trim());
+        }
+      }
     }
     if (Array.isArray(parsed.openChatTopicIds)) {
       for (const tid of parsed.openChatTopicIds) {
         if (typeof tid === 'string') ids.push(`chat:${tid}`);
       }
     }
-    return ids;
+    return { ids, browserTitles };
   } catch {
-    return [];
+    return { ids: [], browserTitles };
   }
 }
 
@@ -139,10 +151,18 @@ interface BuildSidebarItemsOpts {
    *  detached elsewhere keeps its sidebar row (with an AppWindow glyph) even
    *  with no local tab. Chats only — terminals/browsers can't detach in v1. */
   detachedTopicIds?: Map<string, { windowId: string; windowLabel?: string }>;
+  /** Live browser-pane titles from the GLOBAL pane store (`pane.title`), keyed by
+   *  browser paneId. The server's `/api/browser/status` doesn't track the page
+   *  title of native WKWebView panes, so the tab bar reads it from the store —
+   *  passing it here keeps the sidebar row in lockstep with the tab. Reactive:
+   *  the caller selects it with `useShallow` so a nav/scroll that leaves titles
+   *  unchanged doesn't repaint the tree. Covers top-level panes; project-internal
+   *  ones are lifted from localStorage inside the builder. */
+  paneTitleById?: Map<string, string>;
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>() } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>() } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -155,15 +175,22 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // children so §5 doesn't list them again at the top level.
   const browserContextById = new Map(browserContexts.map((bc) => [bc.id, bc]));
   const projectInternalBrowserIds = new Set<string>();
+  // Project-internal browser titles, filled from each project's localStorage as
+  // the loop visits it (populated before buildBrowserItem runs for that project).
+  const projectBrowserTitles = new Map<string, string>();
   const buildBrowserItem = (paneId: string, projectPath?: string): SidebarItem => {
     const contextId = paneId.slice('browser:'.length);
     const bc = browserContextById.get(contextId);
-    // Resolution order: live page title → hostname of real URL → "Browser".
+    // Resolution order: persisted page title (store for top-level panes, else the
+    // project-localStorage lift) → server context title → hostname → "Browser".
+    // The persisted title is what the tab bar shows, so leading with it keeps the
+    // sidebar row and the tab in sync for native panes the server can't title.
+    const persistedTitle = paneTitleById.get(paneId) || projectBrowserTitles.get(paneId) || '';
     const hostname = bc?.url && bc.url !== 'about:blank' ? tryHostname(bc.url) : '';
     return {
       id: paneId,
       type: 'browser',
-      name: bc?.title || hostname || 'Browser',
+      name: persistedTitle || bc?.title || hostname || 'Browser',
       icon: 'globe',
       lastActivity: bc?.lastActivity || 0,
       notificationCount: 0,
@@ -282,7 +309,8 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // Collect the set of pane IDs open inside this project's ProjectWindow
     // Merge callback data (live) with persisted localStorage (for initial load)
     const callbackPanes = projectOpenPanes[pp] || [];
-    const persistedPanes = readProjectPaneIds(pp);
+    const { ids: persistedPanes, browserTitles: persistedBrowserTitles } = readProjectPaneEntries(pp);
+    for (const [pid, title] of persistedBrowserTitles) projectBrowserTitles.set(pid, title);
     const internalPaneIds = new Set([...callbackPanes, ...persistedPanes]);
 
     // Project pane open as a top-level tab?
