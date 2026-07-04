@@ -1,12 +1,11 @@
 /**
- * layoutTree — the pure layout engine for the split system (P2 rewrite).
+ * layoutTree — the pure layout model for the split system (P2 rewrite).
  *
  * Today the app runs TWO divergent layout engines: the standalone `PanelGrid`
  * (layout derived from `openPanels` + `soloCells` via a racy reconciliation) and
  * the project `GroupLayout`/`useProjectLayout` (authoritative `GroupLayoutRow[]`).
  * Both encode the SAME shape — a vertical stack of rows, each row a horizontal
- * band of columns sized by `widths`, each column optionally a vertical sub-stack
- * — but with duplicated, subtly-different resize / equalize / split / close math.
+ * band of columns sized by `widths`, each column optionally a vertical sub-stack.
  *
  * The model is an n-ary *weighted* split tree. A node is either a `leaf` (one
  * pane, identified by an opaque id) or a `split` that lays its `children` out
@@ -16,30 +15,29 @@
  * geometry is identical to today's, but expressible at ARBITRARY depth (no
  * MAX_COLS / MAX_ROWS / single-level-substack caps).
  *
- * STATUS — what actually shipped vs. what is staged. The RENDER half is live:
- * the legacy `PanelGridRow[]` / `GroupLayoutRow[]` are adapted into this tree
- * (`legacyAdapters`) and `<SplitTree>` is now the sole desktop renderer, with
- * `computeRects` + golden-geometry tests pinning byte-identical geometry. The
- * EDIT half — the pure mutation ops below (`splitLeaf` / `moveLeaf` / `closeLeaf`
- * / `resizeAt` / `equalizeAt` / `setWeightAt` / …) — is a COMPLETE, unit-tested,
- * but NOT-YET-WIRED canonical edit-engine: today's resize/split/close gestures
- * still mutate the legacy row models in place. The ops are kept (not deleted) as
- * the migration target for that second half; until then they have no production
- * caller. Do not mistake their presence for "edits run on the tree" — they don't.
+ * SCOPE — what this module IS. The RENDER half is live: the legacy
+ * `PanelGridRow[]` / `GroupLayoutRow[]` are adapted into this tree
+ * (`legacyAdapters`) and `<SplitTree>` renders it as nested flex containers.
+ * `computeRects` is the geometry ORACLE the golden-geometry tests use to pin the
+ * adapters' output byte-for-byte against the legacy rect math — it is not a
+ * production render path (SplitTree lays out via flex-grow, not absolute rects).
+ *
+ * The pure EDIT half — an unwired canonical mutation engine (splitLeaf /
+ * closeLeaf / moveLeaf / resizeAt / setWeightAt / equalizeAt / …) — used to live
+ * here as a staged migration target. It had ZERO production callers (the live
+ * resize/split/close gestures still mutate the legacy row models in place, and
+ * the live 2-child divider math lives in `splitController.resizeWeights`), so it
+ * was removed to keep the shipping surface honest. Recover it from git history
+ * if/when that second migration half is actually wired.
  *
  * Why n-ary (children[]) and not the binary {a,b} the roadmap sketched: a row of
  * N columns IS one split node with N weighted children — a 1:1 image of the
- * current `{ groupIds, widths }` row. Binary nesting would re-encode that as a
- * right-leaning chain of 2-splits with awkward compound ratios, making resize /
- * equalize (which operate on a whole band) needlessly recursive. N-ary keeps the
- * weight math line-for-line equivalent to gridWidths.ts.
+ * current `{ groupIds, widths }` row. N-ary keeps the weight math line-for-line
+ * equivalent to gridWidths.ts.
  *
- * Everything here is PURE and side-effect-free: each operation returns a NEW tree
- * (structural sharing where possible) and never mutates its input. Adapters from
- * the legacy `PanelGridRow[]` / `GroupLayoutRow[]` shapes live in `legacyAdapters`;
- * the React renderer (`<SplitTree>`) consumes the geometry but holds none of it.
- * (The premature `useSplitController` gesture hook that consumed the edit-engine
- * was removed — see the STATUS note above; reintroduce it when the ops are wired.)
+ * Everything here is PURE and side-effect-free. Adapters from the legacy
+ * `PanelGridRow[]` / `GroupLayoutRow[]` shapes live in `legacyAdapters`; the
+ * React renderer (`<SplitTree>`) consumes the geometry but holds none of it.
  */
 
 export type LeafId = string;
@@ -67,19 +65,10 @@ export interface SplitNode {
 
 export type LayoutNode = LeafNode | SplitNode;
 
-/** Which edge of a target leaf a moved/created pane lands on. */
+/** Which edge of a target leaf a moved/created pane lands on. Consumed by
+ *  `splitController` (pointer→edge hit-testing) even though the tree-side
+ *  drop-split op that once used it lives only in git history now. */
 export type DropEdge = 'left' | 'right' | 'top' | 'bottom';
-
-/** Minimum weight a divider drag may shrink a child to (relative fraction).
- *  Equalize/normalize deliberately ignore this — a heavily-split neighbour can
- *  legitimately push a sibling below it (mirrors gridWidths.ts).
- *
- *  Canonical floor = MIN_PANE_FRACTION (components/Layout/constants.ts), the 0.1
- *  the live PanelGrid already floors divider drags at — so the tree path lets a
- *  pane shrink no further than the legacy path users already feel. (The project
- *  group `splitRatio` keeps its own 0.05 RATIO_MIN until that surface moves onto
- *  the tree; it's a different, still-legacy mechanism.) */
-export const MIN_CHILD_WEIGHT = 0.1;
 
 const EPSILON = 1e-9;
 
@@ -124,10 +113,6 @@ export function normalizeWeights(weights: readonly number[]): number[] {
   return total > EPSILON ? clean.map((x) => x / total) : weights.map(() => 1 / weights.length);
 }
 
-function equalWeights(count: number): number[] {
-  return count <= 0 ? [] : new Array(count).fill(1 / count);
-}
-
 // ───────────────────────────────── queries ─────────────────────────────────
 
 /** All leaf ids in left-to-right / top-to-bottom (document) order. */
@@ -138,26 +123,6 @@ export function leafIds(node: LayoutNode): LeafId[] {
   return out;
 }
 
-export function leafCount(node: LayoutNode): number {
-  return isLeaf(node) ? 1 : node.children.reduce((s, c) => s + leafCount(c.node), 0);
-}
-
-export function hasLeaf(node: LayoutNode, id: LeafId): boolean {
-  if (isLeaf(node)) return node.id === id;
-  return node.children.some((c) => hasLeaf(c.node, id));
-}
-
-/** Path of child indices from the root to the leaf with `id`, or null if absent.
- *  `[]` means the root itself is that leaf. */
-export function pathToLeaf(node: LayoutNode, id: LeafId): number[] | null {
-  if (isLeaf(node)) return node.id === id ? [] : null;
-  for (let i = 0; i < node.children.length; i++) {
-    const sub = pathToLeaf(node.children[i].node, id);
-    if (sub) return [i, ...sub];
-  }
-  return null;
-}
-
 // ──────────────────────────────── normalize ────────────────────────────────
 
 /**
@@ -165,7 +130,7 @@ export function pathToLeaf(node: LayoutNode, id: LeafId): number[] | null {
  *   - normalize children recursively, dropping any that collapse to nothing;
  *   - FLATTEN a child split that shares the parent's axis into the parent,
  *     scaling the grandchildren by the child's weight (so a row inside a row
- *     becomes one row — this is what makes `splitLeaf` preserve sibling widths);
+ *     becomes one row — this keeps adapter output flat where the legacy rows are);
  *   - collapse a split with a single child to that child (weight absorbed);
  *   - renormalise the surviving children's weights to sum 1.
  * Leaves pass through unchanged.
@@ -187,197 +152,12 @@ export function normalize(node: LayoutNode): LayoutNode {
     }
   }
 
-  // Unreachable via the public API (constructors guarantee ≥1 child, removal
-  // goes through rewriteLeaf which returns null instead of an empty split).
+  // Unreachable via the public API (constructors guarantee ≥1 child).
   if (flattened.length === 0) throw new Error('normalize: split with no children');
   if (flattened.length === 1) return flattened[0].node;
 
   const w = normalizeWeights(flattened.map((c) => c.weight));
   return { kind: 'split', dir: node.dir, children: flattened.map((c, i) => ({ weight: w[i], node: c.node })) };
-}
-
-// ──────────────────────────── structural editing ────────────────────────────
-
-/** Replace the leaf `targetId` with `replacement` (or, if `replacement` is null,
- *  REMOVE it), returning the rewritten node — or null if the whole node vanished.
- *  Splits left with one child collapse; weights of survivors renormalise. */
-function rewriteLeaf(
-  node: LayoutNode,
-  targetId: LeafId,
-  replacement: LayoutNode | null,
-): LayoutNode | null {
-  if (isLeaf(node)) {
-    if (node.id !== targetId) return node;
-    return replacement; // may be null (removal) or a new subtree (split-in-place)
-  }
-  const kids: SplitChild[] = [];
-  for (const c of node.children) {
-    const next = rewriteLeaf(c.node, targetId, replacement);
-    if (next) kids.push({ weight: c.weight, node: next });
-  }
-  if (kids.length === 0) return null;
-  if (kids.length === 1) return kids[0].node; // collapse single survivor (weight absorbed)
-  return { kind: 'split', dir: node.dir, children: kids };
-}
-
-/**
- * Split the leaf `targetId` along `dir`, inserting `newId` on `edge`'s side with
- * `ratio` of the slot (default 0.5). Works for a fresh pane OR an existing id
- * being relocated. The new 2-child split is `normalize`d into its parent when
- * the axes match, so an insert into a row keeps every OTHER column's width
- * exactly (the donor column simply halves) — identical to gridWidths
- * `splitColumnWidths`.
- */
-export function splitLeaf(
-  tree: LayoutNode,
-  targetId: LeafId,
-  edge: DropEdge,
-  newId: LeafId,
-  ratio = 0.5,
-): LayoutNode {
-  const dir: SplitDir = edge === 'left' || edge === 'right' ? 'row' : 'col';
-  const before = edge === 'left' || edge === 'top';
-  const r = Math.min(Math.max(ratio, EPSILON), 1 - EPSILON);
-  const target = leaf(targetId);
-  const inserted = leaf(newId);
-  const pair: SplitNode = before
-    ? { kind: 'split', dir, children: [{ weight: r, node: inserted }, { weight: 1 - r, node: target }] }
-    : { kind: 'split', dir, children: [{ weight: 1 - r, node: target }, { weight: r, node: inserted }] };
-  const next = rewriteLeaf(tree, targetId, pair);
-  if (!next) return tree; // target not found → unchanged
-  return normalize(next);
-}
-
-/** Remove the leaf `id`. Returns the rewritten tree, or null if it was the last
- *  leaf (caller decides what an empty layout means). Survivors keep their
- *  relative proportions (gridWidths `keepColumnWidths`). */
-export function closeLeaf(tree: LayoutNode, id: LeafId): LayoutNode | null {
-  if (isLeaf(tree)) return tree.id === id ? null : tree;
-  const next = rewriteLeaf(tree, id, null);
-  return next ? normalize(next) : null;
-}
-
-/**
- * Move the leaf `sourceId` to land on `edge` of `targetId` (drag-tab-to-edge
- * drop-split). Removing then re-inserting the SAME id is fine — leaves are
- * opaque ids; the pane's content lives elsewhere keyed by id. No-op if source ==
- * target, or either is missing.
- */
-export function moveLeaf(
-  tree: LayoutNode,
-  sourceId: LeafId,
-  targetId: LeafId,
-  edge: DropEdge,
-  ratio = 0.5,
-): LayoutNode {
-  if (sourceId === targetId) return tree;
-  if (!hasLeaf(tree, sourceId) || !hasLeaf(tree, targetId)) return tree;
-  const without = closeLeaf(tree, sourceId);
-  if (!without) return tree;
-  // The target may have been collapsed away by the removal only if source was
-  // its sole sibling chain — but target is a distinct leaf, so it survives.
-  if (!hasLeaf(without, targetId)) return tree;
-  return splitLeaf(without, targetId, edge, sourceId, ratio);
-}
-
-// ───────────────────────────────── resize ─────────────────────────────────
-
-/**
- * Drag the divider between children `idx` and `idx+1` of the split at `path`,
- * shifting `delta` (a fraction of the whole band, signed) from the right child
- * to the left. Clamped so neither falls below `MIN_CHILD_WEIGHT`. Other children
- * are untouched. Returns a new tree (or the same if the path is invalid).
- */
-export function resizeAt(
-  tree: LayoutNode,
-  path: readonly number[],
-  idx: number,
-  delta: number,
-): LayoutNode {
-  const target = nodeAt(tree, path);
-  if (!target || !isSplit(target)) return tree;
-  if (idx < 0 || idx + 1 >= target.children.length) return tree;
-  const a = target.children[idx].weight;
-  const b = target.children[idx + 1].weight;
-  const sum = a + b;
-  let na = a + delta;
-  na = Math.min(Math.max(na, MIN_CHILD_WEIGHT), sum - MIN_CHILD_WEIGHT);
-  const nb = sum - na;
-  const children = target.children.map((c, i) =>
-    i === idx ? { ...c, weight: na } : i === idx + 1 ? { ...c, weight: nb } : c,
-  );
-  const replaced: SplitNode = { kind: 'split', dir: target.dir, children };
-  return replaceNodeAt(tree, path, replaced);
-}
-
-/** Set `weight` directly on the child at `path`/`idx` (used by keyboard resize),
- *  rebalancing the band to keep sum 1. */
-export function setWeightAt(
-  tree: LayoutNode,
-  path: readonly number[],
-  idx: number,
-  weight: number,
-): LayoutNode {
-  const target = nodeAt(tree, path);
-  if (!target || !isSplit(target)) return tree;
-  if (idx < 0 || idx >= target.children.length) return tree;
-  const raw = target.children.map((c, i) => (i === idx ? Math.max(weight, MIN_CHILD_WEIGHT) : c.weight));
-  const w = normalizeWeights(raw);
-  const children = target.children.map((c, i) => ({ ...c, weight: w[i] }));
-  return replaceNodeAt(tree, path, { kind: 'split', dir: target.dir, children });
-}
-
-// ──────────────────────────────── equalize ────────────────────────────────
-
-/** Even out the direct children of the split at `path` (1/n each). `[]` targets
- *  the root. Double-click-a-divider semantics. */
-export function equalizeAt(tree: LayoutNode, path: readonly number[]): LayoutNode {
-  const target = nodeAt(tree, path);
-  if (!target || !isSplit(target)) return tree;
-  const w = equalWeights(target.children.length);
-  const children = target.children.map((c, i) => ({ ...c, weight: w[i] }));
-  return replaceNodeAt(tree, path, { kind: 'split', dir: target.dir, children });
-}
-
-/** Even out EVERY split in the tree (depth-first). The "equalize all" command —
- *  the current two engines can't express this in one shot. */
-export function equalizeAll(node: LayoutNode): LayoutNode {
-  if (isLeaf(node)) return node;
-  const w = equalWeights(node.children.length);
-  return {
-    kind: 'split',
-    dir: node.dir,
-    children: node.children.map((c, i) => ({ weight: w[i], node: equalizeAll(c.node) })),
-  };
-}
-
-// ─────────────────────────── node addressing helpers ───────────────────────────
-
-/** The node at a child-index `path` from the root, or null if the path is invalid. */
-export function nodeAt(node: LayoutNode, path: readonly number[]): LayoutNode | null {
-  let cur: LayoutNode = node;
-  for (const i of path) {
-    if (isLeaf(cur) || i < 0 || i >= cur.children.length) return null;
-    cur = cur.children[i].node;
-  }
-  return cur;
-}
-
-/** Replace the node at `path` with `replacement`, returning a new tree. Weights
- *  along the path are preserved. Invalid path → unchanged. */
-export function replaceNodeAt(
-  node: LayoutNode,
-  path: readonly number[],
-  replacement: LayoutNode,
-): LayoutNode {
-  if (path.length === 0) return replacement;
-  if (isLeaf(node)) return node;
-  const [head, ...rest] = path;
-  if (head < 0 || head >= node.children.length) return node;
-  const children = node.children.map((c, i) =>
-    i === head ? { ...c, node: replaceNodeAt(c.node, rest, replacement) } : c,
-  );
-  return { kind: 'split', dir: node.dir, children };
 }
 
 // ──────────────────────────────── geometry ────────────────────────────────
@@ -395,10 +175,9 @@ export interface LeafRect extends Rect {
 
 /**
  * Lay the tree out inside `rect`, returning one absolute rect per leaf. `gutter`
- * (px) is subtracted BETWEEN siblings so dividers — and, for native browser
- * panes, the webview-free strips the divider lives in — get real space. This is
- * the single geometry source the renderer, the divider hit-boxes, and the
- * per-region vibrancy all read, so they can never disagree.
+ * (px) is subtracted BETWEEN siblings so dividers get real space. This is the
+ * geometry ORACLE the golden-geometry tests compare the legacy adapters against
+ * — the live renderer (`<SplitTree>`) lays out via flex-grow, not these rects.
  */
 export function computeRects(node: LayoutNode, rect: Rect, gutter = 0): LeafRect[] {
   if (isLeaf(node)) return [{ id: node.id, ...rect }];

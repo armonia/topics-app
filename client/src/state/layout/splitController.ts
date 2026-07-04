@@ -33,9 +33,9 @@ export function dropZone(rect: Rect, px: number, py: number, edgeFrac = 0.25): D
 
 /**
  * Convert a divider drag measured in PIXELS into a signed weight delta suitable
- * for `resizeAt`, given the split band's total px size along its axis. Dragging
- * the divider 1/4 of the band's width moves 0.25 of the weight. Degenerate band
- * size → 0 (no-op).
+ * for `resizeWeights`, given the split band's total px size along its axis.
+ * Dragging the divider 1/4 of the band's width moves 0.25 of the weight.
+ * Degenerate band size → 0 (no-op).
  */
 export function pxToWeightDelta(bandPx: number, deltaPx: number): number {
   if (!Number.isFinite(bandPx) || bandPx <= 0 || !Number.isFinite(deltaPx)) return 0;
@@ -43,8 +43,8 @@ export function pxToWeightDelta(bandPx: number, deltaPx: number): number {
 }
 
 /**
- * Two-child divider resize on a flat weight array (`resizeAt` reduced to a single
- * band). Shifts `delta` (a signed fraction of the band) from child `idx+1` to
+ * Two-child divider resize on a flat weight array (a single-band resize).
+ * Shifts `delta` (a signed fraction of the band) from child `idx+1` to
  * `idx`, clamping each to `floor` so neither collapses, leaving every other child
  * untouched; the array is renormalised to sum 1 first so `delta` (from
  * `pxToWeightDelta`) is in the right units. Used to map a divider drag back onto

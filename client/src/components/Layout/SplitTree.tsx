@@ -12,7 +12,7 @@
  * Dividers live BETWEEN siblings in a dedicated strip (the `gutter`), lifted to
  * z-50 so adjacent pane content can't steal the grab (the divider-hover lesson),
  * and report a pixel delta on drag; the host hook converts that to a weight delta
- * (`pxToWeightDelta` + `resizeAt`). On gesture start/end it fires the existing
+ * (`pxToWeightDelta`, then applies it to its own row model). On gesture start/end it fires the existing
  * `topics:pane-resize-start` / `-end` events so the per-region vibrancy freezes
  * and snaps exactly like it does for the legacy engines.
  *
@@ -33,10 +33,11 @@ export interface SplitTreeProps {
   gutter?: number;
   /** Drag on the divider after child `dividerIdx` of the split at `path`, by
    *  `deltaPx` along the split axis, within a band of `bandPx` total px. The host
-   *  maps this onto `resizeAt` via `pxToWeightDelta(bandPx, deltaPx)`. */
+   *  converts px→weight via `pxToWeightDelta(bandPx, deltaPx)` and applies it to
+   *  its own row model (`splitController.resizeWeights`). */
   onResize?: (path: number[], dividerIdx: number, deltaPx: number, bandPx: number) => void;
   /** Double-click the divider after child `dividerIdx` → even out the band at
-   *  `path` (host maps to `equalizeAt`). Double-click-a-divider semantics. */
+   *  `path` (host evens the corresponding row/column). Double-click-a-divider semantics. */
   onEqualize?: (path: number[], dividerIdx: number) => void;
   /** Optional: render the divider strip between siblings yourself instead of the
    *  built-in <Divider>. Lets a host inject a richer handle (e.g. the legacy
