@@ -58,6 +58,7 @@ import {
   projectLayoutLocalKey,
   locateTerminalPane,
   browserProjectPanesStore,
+  getPaneConfig,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
 import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors';
@@ -740,7 +741,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // ids and silently drops the new utility id (same trap that
     // broke cmd+K project open).
     ensurePaneRegistered(
-      { id, type: type as PaneType, title: type },
+      // Store the proper display label (e.g. "Activity"/"Cron"), NOT the raw
+      // lowercase type string — the tab bar reads pane.title directly in some
+      // surfaces (drag ghost, sidebar), so a stored "activity" would leak the
+      // untitled-case label there even though the standalone bar recomputes it.
+      { id, type: type as PaneType, title: getPaneConfig(type as PaneType).label },
       { groupId: 'group:default' },
     );
     if (isMobile) {

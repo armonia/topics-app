@@ -1,7 +1,7 @@
 import type { Topic, UnreadData, TerminalSessionInfo } from '@/types';
 import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey } from '../state/pane/adapters';
 import { topicAttentionCount, terminalAttentionCount, rollupProjectAttention } from '../state/signals';
-import { basename } from './path-utils';
+import { basename, tryHostname } from './path-utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -538,8 +538,4 @@ export function filterSidebarItems(items: SidebarItem[], query: string): Sidebar
     }
     return acc;
   }, []);
-}
-
-function tryHostname(url: string): string {
-  try { return new URL(url).hostname; } catch { return url; }
 }

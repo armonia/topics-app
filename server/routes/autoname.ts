@@ -61,10 +61,14 @@ export function createAutoNameRouter(ctx: AppContext, deps: AutoNameDeps): Route
           const parsed = JSON.parse(jsonMatch[0]);
           if (!parsed.title) return;
           // Re-fetch right before write — between the AI call (~seconds) and
-          // here the user may have manually renamed the topic; preserve
-          // their explicit edit instead of overwriting with the AI guess.
+          // here the user may have manually renamed the topic (or the client's
+          // instant first-message heuristic may have named it); preserve their
+          // explicit edit instead of overwriting with the AI guess. Only write
+          // when the name is still a default placeholder — the SAME gate the
+          // client trigger uses (ChatPane.tsx isDefaultName) so the two agree.
           const aiTopic = getTopicById(topicId);
-          if (aiTopic) {
+          const isStillDefault = !!aiTopic && (aiTopic.name === "New Chat" || aiTopic.name.startsWith("New "));
+          if (aiTopic && isStillDefault) {
             aiTopic.name = parsed.title;
             if (parsed.icon) aiTopic.icon = parsed.icon;
             aiTopic.slug = slugify(parsed.title);

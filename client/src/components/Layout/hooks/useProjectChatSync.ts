@@ -213,7 +213,7 @@ export function useProjectChatSync(
             id: createPaneId('chat', tid),
             type: 'chat' as PaneType,
             topicId: tid,
-            title: topic?.name || 'Chat',
+            title: topic?.name || 'New Chat',
             preview: false,
           });
           survivingChatTopicIds.add(tid);
@@ -260,7 +260,7 @@ export function useProjectChatSync(
           id: createPaneId('chat', tid),
           type: 'chat' as PaneType,
           topicId: tid,
-          title: topic?.name || 'Chat',
+          title: topic?.name || 'New Chat',
           preview: false,
         });
         survivingChatTopicIds.add(tid);
@@ -386,7 +386,7 @@ export function useProjectChatSync(
             id: createPaneId('chat', tid),
             type: 'chat' as PaneType,
             topicId: tid,
-            title: ftopic.name || 'Chat',
+            title: ftopic.name || 'New Chat',
             preview: false,
           });
         }
@@ -407,7 +407,7 @@ export function useProjectChatSync(
   // --- reopenTopic: delegates to layout's atomic placement helper ---
   const reopenTopic = useCallback(
     (topicId: string) => {
-      reopenChatPane(topicId, topics[topicId]?.name || 'Chat');
+      reopenChatPane(topicId, topics[topicId]?.name || 'New Chat');
     },
     [reopenChatPane, topics],
   );

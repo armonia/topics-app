@@ -29,6 +29,9 @@ interface RemoteBrowserPanelProps {
   initialUrl?: string;
   navigateUrl?: string;
   onUrlChange?: (url: string) => void;
+  /** Surfaces the live page `<title>` so the host can label the tab with it
+   *  (the title analogue of onUrlChange). Fires only for a non-empty title. */
+  onTitleChange?: (title: string) => void;
   onNavigateConsumed?: () => void;
   /** True when this pane is the visible one in its parent's layout
    *  (e.g. the active pane in a keep-alive ladder, or the active group's
@@ -56,7 +59,7 @@ interface RemoteBrowserPanelProps {
 // error in this mode (acknowledged constraint).
 const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 
-export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
+export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
   // ============ Tauri NATIVE path — real child WKWebView (multi-webview). ============
   // Like Electron's WebContentsView but via Window::add_child (browser_* commands).
   // Reuses NativeBrowserPlaceholder for the layout-slot → setBounds geometry. This is
@@ -69,6 +72,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
         initialUrl={initialUrl}
         navigateUrl={navigateUrl}
         onUrlChange={onUrlChange}
+        onTitleChange={onTitleChange}
         onNavigateConsumed={onNavigateConsumed}
         isVisible={isVisible}
         onFocusPanel={onFocusPanel}
@@ -89,6 +93,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
       initialUrl={initialUrl}
       navigateUrl={navigateUrl}
       onUrlChange={onUrlChange}
+      onTitleChange={onTitleChange}
       onNavigateConsumed={onNavigateConsumed}
       onFocusPanel={onFocusPanel}
       topics={topics}
@@ -138,7 +143,7 @@ function useBackToSpawner(
  * aren't wired yet and BrowserToolbar self-hides a control whose handler is
  * absent, so there are no dead buttons.
  */
-function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
+function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
@@ -157,6 +162,14 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on url change only
   }, [browser.url]);
+
+  // Surface the live page <title> so the host can label the tab with it (the
+  // title analogue of the url effect above). Empty titles are dropped by the
+  // host's persist gate, so a page with no <title> won't erase a good label.
+  useEffect(() => {
+    if (browser.title) onTitleChange?.(browser.title);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire on title change only
+  }, [browser.title]);
 
   // External navigation (agent / spawner / restored pane url).
   useEffect(() => {
@@ -277,7 +290,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   );
 }
 
-function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true }: RemoteBrowserPanelProps) {
+function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true }: RemoteBrowserPanelProps) {
   // isVisible gates the screencast: only the visible pane streams frames (keeps
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const browser = useRemoteBrowser(contextId, isVisible);
@@ -301,6 +314,11 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onNa
       pushHistory(browser.url);
     }
   }, [browser.url]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Surface the live page <title> so the host can label the tab with it.
+  useEffect(() => {
+    if (browser.title) onTitleChange?.(browser.title);
+  }, [browser.title]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 30 BROWSER-CHAT-04 — Cmd+Shift+E enters select-element mode (Cursor pattern).
   // Esc exits the mode without picking. Window-level listener so the shortcut works
