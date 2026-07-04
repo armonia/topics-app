@@ -24,7 +24,7 @@ import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { usePaneStore } from '../../state/pane/store';
 import { selectVisiblePaneIds } from '../../state/pane/selectors';
-import { resolvePaneSpace } from '../../state/pane/reducers/spaces';
+import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID, SPACES_MAX, type SpaceMeta, type Pane } from '../../state/pane/types';
 import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
 import { useSignalsStore, projectAttentionTier } from '../../state/signals';
@@ -250,7 +250,7 @@ export function SpaceSwitcher() {
           </button>
         );
       })}
-      {Object.keys(spaces).length < SPACES_MAX && (
+      {liveSpaceCount(spaces) < SPACES_MAX && (
         <button
           onClick={() => {
             const id = createSpaceId();

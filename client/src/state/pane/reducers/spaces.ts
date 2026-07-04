@@ -45,6 +45,22 @@ export function isLiveSpaceId(
 }
 
 /**
+ * Count of registry entries that are NOT soft-deleted (the implicit default
+ * space is never a record and is not counted). The "can I create another
+ * space?" cap MUST use this, not `Object.keys(spaces).length`: SPACE_DELETE
+ * keeps a `deleted: true` tombstone in the registry (for cross-device LWW), so
+ * counting raw keys permanently disables "+ New Space" after SPACES_MAX
+ * create/delete cycles — a dead-end the user can't escape (creating is exactly
+ * what would trim the over-cap tombstones).
+ */
+export function liveSpaceCount(spaces: Record<string, SpaceMeta> | undefined): number {
+  if (!spaces) return 0;
+  let n = 0;
+  for (const meta of Object.values(spaces)) if (!meta.deleted) n++;
+  return n;
+}
+
+/**
  * Per-id LWW merge of two space registries — the HYDRATE_FROM_SNAPSHOT
  * primitive. NEVER a wholesale replace: local-only records are KEPT (two
  * devices creating different spaces inside the 500ms debounce both survive),

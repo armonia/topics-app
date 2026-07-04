@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { paneReducer } from "./panes";
-import { mergeSpaces, resolvePaneSpace, isLiveSpaceId, spacesReducer } from "./spaces";
+import { mergeSpaces, resolvePaneSpace, isLiveSpaceId, liveSpaceCount, spacesReducer } from "./spaces";
 import type { PaneState, SpaceMeta } from "../types";
 import { DEFAULT_SPACE_ID, SPACES_MAX } from "../types";
 
@@ -327,6 +327,20 @@ describe("resolvePaneSpace / isLiveSpaceId", () => {
     expect(isLiveSpaceId(DEFAULT_SPACE_ID, spaces)).toBe(true);
     expect(isLiveSpaceId("space:dead", spaces)).toBe(false);
     expect(isLiveSpaceId("space:ghost", spaces)).toBe(false);
+  });
+
+  test("liveSpaceCount ignores soft-deleted tombstones (the create-cap must not deadlock)", () => {
+    expect(liveSpaceCount(undefined)).toBe(0);
+    expect(liveSpaceCount({})).toBe(0);
+    const spaces = {
+      "space:a": space("space:a"),
+      "space:b": space("space:b"),
+      "space:dead": space("space:dead", { deleted: true }),
+    };
+    // 3 raw keys but only 2 live — the gate must see 2, else 32 create/delete
+    // cycles would permanently hide "+ New Space".
+    expect(Object.keys(spaces).length).toBe(3);
+    expect(liveSpaceCount(spaces)).toBe(2);
   });
 });
 
