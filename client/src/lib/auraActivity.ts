@@ -66,10 +66,12 @@ let rafId = 0;
 
 function loop(now: number): void {
   rafId = requestAnimationFrame(loop);
-  // Freeze while the window is backgrounded, exactly like the CSS keyframes
-  // (`.anims-paused` on <html>). The loop stays scheduled so it resumes cleanly;
-  // each aura clamps its own dt so no phase jump occurs on resume.
-  if (document.documentElement.classList.contains('anims-paused')) return;
+  // Freeze only when the window is truly HIDDEN (minimized/occluded/tab hidden),
+  // NOT on a mere focus-out — with native panes stealing focus, `.anims-paused`
+  // fires while the window is still visible, which would freeze a wave the user
+  // can plainly see. The loop stays scheduled so it resumes cleanly; each aura
+  // clamps its own dt so no phase jump occurs on resume.
+  if (document.hidden) return;
   for (const fn of subscribers) fn(now);
 }
 
