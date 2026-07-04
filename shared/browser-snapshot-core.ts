@@ -236,7 +236,7 @@ const line = (e: SnapElement): string => {
 
 export function serialize(
   snap: Snapshot,
-  { header = true }: { header?: boolean } = {},
+  { header = true, maxChars = 12000 }: { header?: boolean; maxChars?: number } = {},
 ): string {
   const lines: string[] = [];
   if (header) {
@@ -248,7 +248,22 @@ export function serialize(
       `${snap.elements.length} interactive element(s)${snap.truncated ? " (truncated)" : ""}:`,
     );
   }
-  for (const e of snap.elements) lines.push(line(e));
+  // Total-size budget: the element cap (200) bounds the COUNT, but a page of
+  // long-named links can still serialize to ~28KB (~7-8k tokens). Stop emitting
+  // once the budget is hit and note the remainder, so a content-heavy page can't
+  // blow the agent's context. Normal pages sit far below and are unaffected.
+  let chars = lines.reduce((n, l) => n + l.length + 1, 0);
+  let emitted = 0;
+  for (const e of snap.elements) {
+    const l = line(e);
+    if (chars + l.length + 1 > maxChars) break;
+    lines.push(l);
+    chars += l.length + 1;
+    emitted++;
+  }
+  if (emitted < snap.elements.length) {
+    lines.push(`… +${snap.elements.length - emitted} more element(s) omitted (size budget)`);
+  }
   return lines.join("\n");
 }
 
