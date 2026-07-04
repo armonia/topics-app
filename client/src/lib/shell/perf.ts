@@ -14,13 +14,6 @@ export interface ShellPerfMetrics {
   partial: boolean;
 }
 
-interface ElectronPerf {
-  getMetrics(): Promise<{
-    version: string;
-    cpu: { total: number };
-    memory: { totalMB: number };
-  }>;
-}
 interface TauriPerf {
   version: string;
   total_mb: number;
@@ -31,12 +24,6 @@ interface TauriPerf {
 /** Returns null on web (no native process introspection). */
 export async function getPerfMetrics(): Promise<ShellPerfMetrics | null> {
   switch (shellKind) {
-    case 'electron': {
-      const api = (window as unknown as { electronAPI?: { perf?: ElectronPerf } }).electronAPI?.perf;
-      if (!api?.getMetrics) return null;
-      const m = await api.getMetrics();
-      return { version: m.version, totalMB: m.memory.totalMB, cpuPercent: m.cpu.total, partial: false };
-    }
     case 'tauri': {
       const m = await tauriInvoke<TauriPerf>('perf_metrics');
       return { version: m.version, totalMB: m.total_mb, cpuPercent: m.cpu_percent, partial: m.partial };

@@ -13,14 +13,13 @@ export interface PerfMetrics {
 }
 
 /**
- * Polls Electron's per-process performance metrics while `active`. Returns null
- * in web mode (no `electronAPI.perf`) or until the first sample lands.
+ * Polls the shell's performance metrics while `active`. Returns null in web mode
+ * (no native process introspection) or until the first sample lands.
  *
  * Two callers, two cadences: the status-bar dropdown samples fast (1.5s) while
  * open, and the always-mounted status bar samples slowly (~5s) to keep the
  * memory/CPU readout live. To avoid an always-on probe doing useless work, the
- * tick is skipped while the window is hidden (`document.hidden`) — each metrics
- * call walks every Chromium process via `app.getAppMetrics()` — and fires once
+ * tick is skipped while the window is hidden (`document.hidden`) and fires once
  * immediately when the window becomes visible again.
  */
 /**
@@ -40,25 +39,22 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
   const [metrics, setMetrics] = useState<PerfMetrics | null>(null);
 
   useEffect(() => {
-    const electronGet = window.electronAPI?.perf?.getMetrics;
-    // Electron exposes the rich per-process breakdown. Tauri's perf_metrics
-    // command reports the shell process only (content/GPU are launchd-reparented
-    // XPC — honest multi-process attribution is a later phase), so map its small
-    // shape onto PerfMetrics with zeroed sub-process figures and a 'rss' metric.
+    // Tauri's perf_metrics command reports the shell process only (content/GPU are
+    // launchd-reparented XPC — honest multi-process attribution is a later phase),
+    // so map its small shape onto PerfMetrics with zeroed sub-process figures and a
+    // 'rss' metric. Web has no native process introspection (null).
     const getMetrics: (() => Promise<PerfMetrics>) | null =
-      typeof electronGet === 'function'
-        ? electronGet
-        : isTauri
-          ? async () => {
-              const m = await tauriInvoke<{ version: string; total_mb: number; cpu_percent: number }>('perf_metrics');
-              return {
-                version: m.version,
-                cpu: { renderer: 0, gpu: 0, total: m.cpu_percent },
-                memory: { totalMB: Math.round(m.total_mb), rendererMB: 0, gpuMB: 0, otherMB: 0, processCount: 1, metric: 'rss' },
-                gpu: TAURI_GPU,
-              };
-            }
-          : null;
+      isTauri
+        ? async () => {
+            const m = await tauriInvoke<{ version: string; total_mb: number; cpu_percent: number }>('perf_metrics');
+            return {
+              version: m.version,
+              cpu: { renderer: 0, gpu: 0, total: m.cpu_percent },
+              memory: { totalMB: Math.round(m.total_mb), rendererMB: 0, gpuMB: 0, otherMB: 0, processCount: 1, metric: 'rss' },
+              gpu: TAURI_GPU,
+            };
+          }
+        : null;
     if (!active || !getMetrics) return;
     let alive = true;
     const tick = async () => {
