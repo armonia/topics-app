@@ -40,6 +40,30 @@ const SCALAR_REF_FIELDS = [
   "activeTopicId",
 ] as const;
 
+// Per-project `ui_state` keys (`topics-project-panes-<hash>` holds the project's
+// real `{ nonChatPanes, openChatTopicIds, activeChatTopicId }` membership;
+// `topics-project-layout-<hash>` holds its geometry). A topic whose
+// `project_path` is set is a legitimate MEMBER of its own project row, NOT an
+// orphan — so the sweep MUST NOT touch these families.
+//
+// The orphan sweep only makes sense for STANDALONE structures (`pane-store-v2`
+// and legacy standalone keys), where a project-bound topic appearing as a
+// top-level pane is the May-3 ping-pong bug this module fixes. Without this
+// guard, `stripOrphans` walked every row and deleted every project's own open
+// chat topics from `openChatTopicIds` (and nulled `activeChatTopicId`) on EVERY
+// boot — and under `bun --watch` that fires on every save — then broadcast the
+// emptied membership, which is the "tab vanishes then reappears" resurrection
+// symptom. Client-side `useProjectLayout` already reconciles genuinely-stale
+// members, so excluding these keys loses no real cleanup.
+const PROJECT_SCOPED_KEY_PREFIXES = [
+  "topics-project-panes-",
+  "topics-project-layout-",
+] as const;
+
+function isProjectScopedKey(key: string): boolean {
+  return PROJECT_SCOPED_KEY_PREFIXES.some((p) => key.startsWith(p));
+}
+
 interface CleanupReport {
   /** Number of `ui_state` rows that were rewritten. */
   rowsAffected: number;
@@ -153,6 +177,9 @@ export function purgeOrphanTopicRefs(db: Database): CleanupReport {
   // routes/topics.ts:23-94).
   const plans: Array<{ key: string; nextValue: string; removed: number }> = [];
   for (const row of rows) {
+    // A project's own membership/geometry row owns its project-bound topics —
+    // they are members, not orphans. Skip the entire per-project key family.
+    if (isProjectScopedKey(row.key)) continue;
     let parsed: unknown;
     try {
       parsed = JSON.parse(row.value);

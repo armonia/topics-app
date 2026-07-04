@@ -225,4 +225,64 @@ describe("purgeOrphanTopicRefs", () => {
     expect(v).toContain(KEEP_C);
     expect(v).not.toContain(ORPHAN_A);
   });
+
+  // Regression (resurrection bug): a project's OWN membership/geometry rows own
+  // their project-bound topics — they are MEMBERS, not orphans. The sweep must
+  // skip the `topics-project-panes-*` / `topics-project-layout-*` families
+  // entirely. Before the fix, `stripOrphans` emptied `openChatTopicIds` (and
+  // nulled `activeChatTopicId`) on every boot, then broadcast the wiped
+  // membership — the "tab vanishes then reappears" symptom.
+  test("9. project membership row (topics-project-panes-*) is left untouched", () => {
+    const memKey = "topics-project-panes-abc123";
+    putUiState(
+      db,
+      memKey,
+      {
+        nonChatPanes: [],
+        openChatTopicIds: [ORPHAN_A, ORPHAN_B, KEEP_D],
+        activeChatTopicId: ORPHAN_A,
+      },
+      50,
+    );
+
+    const report = purgeOrphanTopicRefs(db);
+
+    // Not counted, not rewritten, server_seq preserved.
+    expect(report.perKey.find((p) => p.key === memKey)).toBeUndefined();
+    const { value, server_seq } = getUiState(db, memKey);
+    expect(server_seq).toBe(50);
+    const v = value as any;
+    expect(v.openChatTopicIds).toEqual([ORPHAN_A, ORPHAN_B, KEEP_D]);
+    expect(v.activeChatTopicId).toBe(ORPHAN_A);
+  });
+
+  test("10. project layout row (topics-project-layout-*) is left untouched", () => {
+    const layoutKey = "topics-project-layout-abc123";
+    putUiState(
+      db,
+      layoutKey,
+      { activeChatTopicId: ORPHAN_A, focusedTopicId: ORPHAN_B },
+      60,
+    );
+
+    const report = purgeOrphanTopicRefs(db);
+
+    expect(report.perKey.find((p) => p.key === layoutKey)).toBeUndefined();
+    const { value, server_seq } = getUiState(db, layoutKey);
+    expect(server_seq).toBe(60);
+    const v = value as any;
+    expect(v.activeChatTopicId).toBe(ORPHAN_A);
+    expect(v.focusedTopicId).toBe(ORPHAN_B);
+  });
+
+  test("11. standalone pane-store-v2 is STILL cleaned (regression guard for the fix)", () => {
+    // The fix must not over-scope: a project-bound topic appearing as a
+    // top-level pane in the standalone store is still a genuine orphan.
+    putUiState(db, "pane-store-v2", { paneIds: [ORPHAN_A, KEEP_D], panes: {} }, 70);
+
+    const report = purgeOrphanTopicRefs(db);
+    expect(report.rowsAffected).toBe(1);
+    expect(report.refsRemoved).toBe(1);
+    expect((getUiState(db, "pane-store-v2").value as any).paneIds).toEqual([KEEP_D]);
+  });
 });
