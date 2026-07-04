@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
-import { readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
+import { auraCount, readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
 
 // The "working" aura: a real, dynamic wave of iridescent smoke that hugs the
 // pane's edge while a session works. It replaces the old rotating-band +
@@ -37,7 +37,9 @@ const W_INSET = 0.5;    // band-breathing rate
 const ENV_DEPTH = 0.6;  // amplitude-breathing depth
 const ENV_CYCLES = 1.5; // spatial envelope cycles around the loop
 const W_ENV = 0.45;     // envelope drift rate
-const LAYERS = 5;       // nested fog contours whose overlap makes the soft 100→0 falloff
+const MAX_LAYERS = 16;  // fog contours rendered; how many are DRAWN each frame is
+                        // adaptive (fewer when many auras animate at once — see draw)
+const LAYER_BUDGET = 45; // ~ contour-updates/frame across all auras for 60fps
 
 interface AuraWaveProps {
   /** Activity key (chat: topic.sessionKey, terminal: sessionId). Drives speed. */
@@ -58,12 +60,9 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
     const svg = svgRef.current;
     const base = baseRef.current;
     if (!host || !svg || !base) return;
-    // Graded opacity across the nested contours: outer/thin layers most opaque,
-    // the layer reaching the wave faintest → their overlap ramps alpha 100→0
-    // from the border to the wave.
     const fogs = Array.from(svg.querySelectorAll<SVGPathElement>('.fog'));
     if (!fogs.length) return;
-    fogs.forEach((f, i) => { f.style.opacity = (0.5 * (fogs.length - i) / fogs.length).toFixed(3); });
+    let activeLayers = -1; // recomputed in draw when the mounted-aura count changes
 
     let P: { x: number; y: number }[] = [];
     let N: { x: number; y: number }[] = [];
@@ -140,11 +139,27 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
         const dd = inset + A * envF * wave;
         disp[i] = dd < 1.5 ? 1.5 : dd; // keep the contour just inside the border
       }
-      // 2) LAYERS nested rings [border → disp·f], f = (L+1)/K — evenodd fills, no
-      //    blur; their graded-opacity overlap is the soft haze.
-      const K = fogs.length;
-      for (let L = 0; L < K; L++) {
-        const f = (L + 1) / K;
+      // 2) nested rings [border → disp·f], f = (L+1)/active — evenodd fills, NO
+      //    blur; their constant-opacity overlap is the soft 100→0 haze.
+      //    `active` adapts to how many auras animate at once so total per-frame
+      //    contour work stays ~LAYER_BUDGET (smooth when few, coarser when many);
+      //    opacity is retuned on change to hold the same cumulative falloff.
+      const count = auraCount() || 1;
+      const active = Math.max(5, Math.min(fogs.length, Math.round(LAYER_BUDGET / count)));
+      if (active !== activeLayers) {
+        activeLayers = active;
+        const op = (1 - Math.pow(0.15, 1 / active)).toFixed(3); // ~0.85 cumulative at the border
+        for (let L = 0; L < fogs.length; L++) {
+          if (L < active) {
+            fogs[L].style.opacity = op;
+          } else {
+            fogs[L].style.opacity = '0';
+            fogs[L].setAttribute('d', ''); // park the unused contours
+          }
+        }
+      }
+      for (let L = 0; L < active; L++) {
+        const f = (L + 1) / active;
         let d = '';
         for (let q = 0; q <= NS; q++) {
           const j = q % NS;
@@ -200,7 +215,7 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
           </linearGradient>
         </defs>
         <path ref={baseRef} className="base" />
-        {Array.from({ length: LAYERS }, (_, i) => (
+        {Array.from({ length: MAX_LAYERS }, (_, i) => (
           <path key={i} className="fog" style={{ fill: `url(#${gradId})` }} />
         ))}
       </svg>
