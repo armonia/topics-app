@@ -130,8 +130,10 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
     };
   }, [isMobile]);
 
-  // Electron detection (constant per session)
-  const isElectron = !!(window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron;
+  // The archived Electron shell was the only host that set this; it never ships
+  // now (Tauri is the only desktop shell), so it is permanently false. Kept as a
+  // named constant because it is still threaded to modals/shortcuts as a prop.
+  const isElectron = false;
 
   // Show/hide macOS traffic lights with Topics dropdown (Electron + Tauri).
   useEffect(() => {

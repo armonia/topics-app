@@ -25,10 +25,10 @@
 
   // Desktop on macOS: tag <html> so the app can let native window vibrancy show
   // through the chrome. Set before first paint so the opaque base never masks the
-  // blur. Covers both shells via per-region NSVisualEffectViews: Electron
-  // (native/vibrancy addon, main.ts) and Tauri (vibrancy_set_regions, driven by
-  // useFloatingVibrancy). `.electron-mac` is shell-neutral (makes the base
-  // transparent so the frost shows); `.tauri-mac` is the Tauri-mac gate.
+  // blur. Driven by per-region NSVisualEffectViews on the Tauri shell
+  // (vibrancy_set_regions, from useFloatingVibrancy). `.electron-mac` is the
+  // shell-neutral base-transparency hook (legacy name kept — referenced in CSS);
+  // `.tauri-mac` is the Tauri-mac gate.
   try {
     // navigator.platform is deprecated and can be empty in a WKWebView — OR it
     // with the userAgent (always contains "Mac OS X").
@@ -39,11 +39,10 @@
     var __isTauri = !!(window.__TAURI_INTERNALS__ || window.__TAURI__)
       || location.protocol === 'tauri:'
       || /(^|\.)tauri\.localhost$/i.test(location.hostname || '');
-    var __isElectronMac = !!(window.electronAPI && window.electronAPI.platform === 'darwin');
     var __isTauriMac = __isTauri && __isMac;
-    if (__isElectronMac || __isTauriMac) {
+    if (__isTauriMac) {
       document.documentElement.classList.add('electron-mac');
-      if (__isTauriMac) document.documentElement.classList.add('tauri-mac');
+      document.documentElement.classList.add('tauri-mac');
     }
   } catch (e) {}
 

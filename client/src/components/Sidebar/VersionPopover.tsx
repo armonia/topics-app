@@ -1,6 +1,6 @@
 /**
  * VersionPopover — opens from the status-bar version chip. Shows app info and,
- * crucially, the system auto-update box (the Electron updater surface) so the
+ * crucially, the system auto-update box (the desktop updater surface) so the
  * user can check / download / install updates from one place. In web mode it
  * falls back to the service-worker update hint.
  */
@@ -12,12 +12,8 @@ import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { isDesktop } from '@/lib/shell';
 
 function platformLabel(): string {
-  const p = (window.electronAPI as { platform?: string } | undefined)?.platform;
-  if (p === 'darwin') return 'macOS';
-  if (p === 'win32') return 'Windows';
-  if (p === 'linux') return 'Linux';
-  // Tauri (and web) expose no electronAPI.platform — on a desktop shell derive it
-  // from the UA so a Tauri mac/win/linux build isn't mislabelled as "Web".
+  // The desktop shell (Tauri) exposes no native platform field — derive it from
+  // the UA so a Tauri mac/win/linux build isn't mislabelled as "Web".
   if (isDesktop) {
     const ua = navigator.userAgent;
     if (/Mac/i.test(ua)) return 'macOS';
@@ -45,7 +41,6 @@ export function VersionPopover({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const isElectron = isDesktop; // shell-resolved desktop (Electron or Tauri)
   const { available, status, check, download, install } = useUpdater();
   const { updateAvailable: swUpdate } = useServiceWorkerUpdate();
 
@@ -89,7 +84,7 @@ export function VersionPopover({
       <div className="space-y-1 text-[11px] text-app-text-muted">
         <div className="flex justify-between"><span>Compilato</span><span className="text-app-text-secondary">{buildDate || '—'}</span></div>
         <div className="flex justify-between"><span>Build</span><span className="text-app-text-secondary font-mono">{buildSha || '—'}</span></div>
-        <div className="flex justify-between"><span>Piattaforma</span><span className="text-app-text-secondary">{platformLabel()}{isElectron ? ' · desktop' : ''}</span></div>
+        <div className="flex justify-between"><span>Piattaforma</span><span className="text-app-text-secondary">{platformLabel()}{isDesktop ? ' · desktop' : ''}</span></div>
       </div>
 
       {/* Auto-update box */}

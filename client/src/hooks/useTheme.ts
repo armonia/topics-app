@@ -21,20 +21,9 @@ export function useTheme(onMessage?: (handler: (msg: WSMessage) => void) => () =
 
   useEffect(() => {
     const effective = getEffectiveTheme(themeMode);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- converging sync: resolves themeMode (incl. 'system' via matchMedia, which can't run in render) alongside the DOM/Electron side effects below; only re-runs when themeMode changes, never loops
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- converging sync: resolves themeMode (incl. 'system' via matchMedia, which can't run in render) alongside the DOM/native side effects below; only re-runs when themeMode changes, never loops
     setEffectiveTheme(effective);
     document.documentElement.classList.toggle('dark', effective === 'dark');
-    // Phase F · 3rd no-flash layer: sync the resolved theme into the
-    // Electron native chrome so the title bar / vibrancy material match
-    // without flicker. No-op outside Electron.
-    // Electron native-chrome theme bridge (preload-exposed). Not part of the
-    // shared electronAPI .d.ts; describe just the slice we touch here.
-    const electronTheme = (window as unknown as {
-      electronAPI?: { theme?: { setResolved?: (theme: 'light' | 'dark') => Promise<void> } };
-    }).electronAPI?.theme;
-    if (electronTheme && typeof electronTheme.setResolved === 'function') {
-      electronTheme.setResolved(effective).catch(() => {});
-    }
     // Tauri native chrome: set the NSWindow appearance so the traffic lights and
     // the per-region vibrancy material re-tint to match light/dark (set_theme in
     // src-tauri/src/lib.rs). No-op off macOS / on web.
