@@ -28,10 +28,6 @@ export function tauriInvoke<T = unknown>(cmd: string, args?: Record<string, unkn
   return i.invoke<T>(cmd, args);
 }
 
-export function hasTauri(): boolean {
-  return internals() !== null;
-}
-
 /** Tauri only — return AppKit first-responder to the main webview (the React
  *  chrome). A native browser pane is a sibling WKWebView that can hold keyboard
  *  first-responder; without handing it back, switching tabs can feel like the

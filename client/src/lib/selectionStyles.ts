@@ -64,8 +64,6 @@ export const AWAITING_INPUT_SURFACE =
   'bg-amber-500 text-black animate-awaiting-attention';
 export const DONE_UNSEEN_SURFACE =
   'bg-[#0a84ff] text-white animate-awaiting-pulse';
-/** Back-compat alias — the old single "awaiting" fill was this blue. */
-export const AWAITING_SURFACE = DONE_UNSEEN_SURFACE;
 
 /** The fill class for an attention tier: 'input' → loud amber, 'done' → calm blue. */
 export function attentionSurface(tier: AttentionTier): string {
