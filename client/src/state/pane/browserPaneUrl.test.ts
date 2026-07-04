@@ -94,3 +94,39 @@ describe("browser pane url persistence", () => {
     expect(rehydrated!.panes!["browser:ctx-1"].url).toBe("https://example.com/roundtrip");
   });
 });
+
+describe("browser pane title + titleSource persistence", () => {
+  test("UPDATE_PANE writes title + titleSource onto an existing pane", () => {
+    const state = withBrowserPane();
+    paneReducer(state, {
+      type: "UPDATE_PANE",
+      payload: { id: "browser:ctx-1", updates: { title: "Example Domain", titleSource: "auto" } },
+    });
+    expect(state.panes["browser:ctx-1"].title).toBe("Example Domain");
+    expect(state.panes["browser:ctx-1"].titleSource).toBe("auto");
+  });
+
+  test("a user rename round-trips (titleSource='user' survives sync + hydrate)", () => {
+    // Risk #7: a missing sanitize whitelist entry would silently drop
+    // titleSource on the server round-trip, letting the page-title poll
+    // resurrect the auto title over a manual rename after a reload.
+    const state = withBrowserPane();
+    paneReducer(state, {
+      type: "UPDATE_PANE",
+      payload: { id: "browser:ctx-1", updates: { title: "My tab", titleSource: "user" } },
+    });
+    const outbound = selectSyncableSnapshot(state);
+    const rehydrated = sanitizeSnapshot(outbound as Record<string, unknown>);
+    expect(rehydrated!.panes!["browser:ctx-1"].title).toBe("My tab");
+    expect(rehydrated!.panes!["browser:ctx-1"].titleSource).toBe("user");
+  });
+
+  test("sanitizeSnapshot drops a bogus titleSource value", () => {
+    const clean = sanitizeSnapshot({
+      panes: { "browser:ctx-1": { id: "browser:ctx-1", type: "browser", title: "x", titleSource: "bogus" } },
+      groups: { "group:default": { id: "group:default", paneIds: ["browser:ctx-1"], splitRatio: 0.5, splitAxis: "horizontal" } },
+      groupOrder: ["group:default"],
+    });
+    expect(clean!.panes!["browser:ctx-1"].titleSource).toBeUndefined();
+  });
+});

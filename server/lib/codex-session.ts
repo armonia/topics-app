@@ -172,25 +172,50 @@ export function discoverCodexSessionId(opts: {
   return best?.id ?? null;
 }
 
+// Rollout paths are immutable once written (the filename encodes the ISO start
+// time + UUID), so cache the id→path resolution to avoid re-walking the Y/M/D
+// tree on every call. The per-turn codex auto-namer (autoNameCodexSession)
+// hits this each idle transition, so the memo turns an O(tree) scan into O(1)
+// after the first hit. Bounded by the number of codex sessions ever seen this
+// process; a `null` (not-yet-written) result is NOT cached so a later write is
+// still discovered.
+const rolloutPathCache = new Map<string, string>();
+
 /**
- * Does a rollout file for `id` still exist on disk? The resume guard — mirrors
- * claude's transcript-exists check so a `codex resume <id>` is only attempted
- * when codex can actually honour it (else the caller relaunches fresh instead
- * of looping "appears then closes"). The UUID is the rollout filename suffix,
- * so this is a cheap suffix scan across date dirs.
+ * Absolute path to the rollout file for `id`, or null when none exists yet. The
+ * UUID is the rollout filename suffix, so this is a cheap suffix scan across the
+ * date dirs (memoised — see rolloutPathCache). Shared by the resume guard
+ * (codexRolloutExists) and the auto-namer (deriveCodexSessionTitle).
  */
-export function codexRolloutExists(id: string, root?: string): boolean {
+export function codexRolloutPath(id: string, root?: string): string | null {
+  if (!id) return null;
+  const cached = rolloutPathCache.get(id);
+  if (cached && existsSync(cached)) return cached;
   const r = root ?? codexSessionsRoot();
-  if (!id || !existsSync(r)) return false;
+  if (!existsSync(r)) return null;
   const suffix = `-${id}.jsonl`;
   for (const y of safeSubdirs(r)) {
     for (const m of safeSubdirs(join(r, y))) {
       for (const d of safeSubdirs(join(r, y, m))) {
         for (const f of safeFiles(join(r, y, m, d))) {
-          if (f.startsWith('rollout-') && f.endsWith(suffix)) return true;
+          if (f.startsWith('rollout-') && f.endsWith(suffix)) {
+            const p = join(r, y, m, d, f);
+            rolloutPathCache.set(id, p);
+            return p;
+          }
         }
       }
     }
   }
-  return false;
+  return null;
+}
+
+/**
+ * Does a rollout file for `id` still exist on disk? The resume guard — mirrors
+ * claude's transcript-exists check so a `codex resume <id>` is only attempted
+ * when codex can actually honour it (else the caller relaunches fresh instead
+ * of looping "appears then closes").
+ */
+export function codexRolloutExists(id: string, root?: string): boolean {
+  return codexRolloutPath(id, root) !== null;
 }

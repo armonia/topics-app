@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import { spawn, execFile } from "child_process";
-import { resolve, join } from "path";
+import { resolve, join, basename } from "path";
 import { createInterface } from "readline";
 import { getDatabase } from "../db";
 import { tmpdir } from "os";
@@ -10,7 +10,8 @@ import net from "net";
 import fs from "fs";
 import { augmentPath, realHome } from "../utils/path-env";
 import { resolveCodexBin } from "../lib/codex-bin";
-import { discoverCodexSessionId, codexRolloutExists } from "../lib/codex-session";
+import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
+import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
@@ -142,6 +143,13 @@ function markTerminalActivity(id: string) {
     // turn. `finished:true` lets the client raise a notification (it filters
     // to claude-code). `kind` carries the session type for that decision.
     _broadcastToAll?.({ type: 'terminal:activity', id, busy: false, finished: true, kind: session.type });
+    // Codex has no hooks (claude-hooks drives autoNameClaudeSession), so this
+    // busy→idle transition IS its turn boundary: re-derive the tab name from
+    // the rollout's latest user prompt. Guarded on a captured rollout id; a
+    // no-op once the user renamed the tab. Best-effort, never throws.
+    if (session.type === 'codex' && session.claudeSessionId) {
+      try { autoNameCodexSession(session.claudeSessionId); } catch { /* best-effort */ }
+    }
   }, TERMINAL_IDLE_MS);
 }
 
@@ -959,6 +967,16 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     throw err;
   }
 
+  // A plain shell born with the generic add-menu label ("Shell") or "Terminal N"
+  // gets a more useful default: the working directory's basename (e.g. the repo
+  // name). Kept name_source='default' so a later user rename (PATCH → 'user')
+  // still wins, and claude/codex are untouched (they auto-name from their
+  // transcript/rollout). Only when the caller didn't pass a user name.
+  if (sessionType === 'shell' && nameSource === 'default') {
+    const dirName = basename(cwd);
+    if (dirName) name = dirName;
+  }
+
   const session: TerminalSession = {
     id,
     name,
@@ -1037,6 +1055,10 @@ function scheduleCodexIdCapture(sessionId: string, cwd: string, sinceMs: number)
           console.warn(`[Terminal] codex session-id persist failed for ${sessionId}:`, e);
         }
         broadcastTerminalSessions();
+        // The rollout now exists (its first user_message is written), so give
+        // the tab a real label immediately instead of waiting for the first
+        // idle transition. Best-effort — no-ops if nothing usable yet.
+        autoNameCodexSession(found);
       }
       return;
     }
@@ -1081,6 +1103,43 @@ export function autoNameClaudeSession(claudeSessionId: string, transcriptPath?: 
     );
   } catch (e) {
     console.warn(`[Terminal] auto-name persist failed for ${target.id}:`, e);
+  }
+  broadcastTerminalSessions();
+}
+
+/**
+ * Auto-label a Codex terminal tab from its rollout's user prompts (Codex has no
+ * `ai-title` event, so the label tracks the user's own text — see
+ * codex-transcript-title.ts). The Codex analogue of autoNameClaudeSession:
+ * no-ops until the rollout id has been captured (scheduleCodexIdCapture can lag
+ * a few seconds), when the derived title is unchanged, or once the user has
+ * renamed the tab (name_source='user'). Best-effort — never throws into the
+ * caller (the id-capture success branch or the per-turn idle transition).
+ * `codexRolloutId` is the UUID stored on the session's resumable-pointer slot
+ * (`claudeSessionId`).
+ */
+export function autoNameCodexSession(codexRolloutId: string): void {
+  if (!codexRolloutId) return;
+  let target: TerminalSession | undefined;
+  for (const s of sessions.values()) {
+    if (s.claudeSessionId === codexRolloutId && s.type === "codex") { target = s; break; }
+  }
+  if (!target || target.nameSource === "user") return; // a manual rename wins
+
+  const path = codexRolloutPath(codexRolloutId);
+  if (!path) return; // rollout not written/discovered yet
+  const title = deriveCodexSessionTitle(path);
+  if (!title || title === target.name) return;
+
+  target.name = title;
+  target.nameSource = "auto";
+  try {
+    getDatabase().run(
+      "UPDATE terminal_sessions SET name = ?, name_source = 'auto' WHERE id = ?",
+      [title, target.id],
+    );
+  } catch (e) {
+    console.warn(`[Terminal] codex auto-name persist failed for ${target.id}:`, e);
   }
   broadcastTerminalSessions();
 }
