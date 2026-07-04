@@ -143,11 +143,6 @@ export function useCompletionNotifier({
     } catch { /* ignore — notifications simply won't show */ }
   }, []);
 
-  // Electron desktop? The MAIN process (electron-app/main.ts) is the established
-  // owner of native OS banners for the streams it already handles, so the
-  // renderer must not duplicate them there — see `fire` / the `osBanner` gate.
-  const isElectron = !!(window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron;
-
   // Single fan-out for every completion/attention cue: a native OS banner (the
   // only surface — no in-app toast, per user preference) + an optional sound.
   // Keeps the notifier paths below from drifting in how they surface an event.
@@ -261,12 +256,12 @@ export function useCompletionNotifier({
               const topic = topicsRef.current[topicId];
               const label = topic?.name ?? 'Topic';
               // osBanner off in Electron — main.ts already banners agents:sessions.
-              fire(justErrored ? 'warn' : 'ok', `${label}: ${justErrored ? 'agent error' : 'agent done'}`, cfg.notificationsSound, !isElectron);
+              fire(justErrored ? 'warn' : 'ok', `${label}: ${justErrored ? 'agent error' : 'agent done'}`, cfg.notificationsSound);
             }
           } else if (shouldShow && !topicId) {
             // Session without a topic id — still surface it, but without
             // cooldown keying since we have nothing to key on.
-            fire(justErrored ? 'warn' : 'ok', justErrored ? 'Agent error' : 'Agent done', cfg.notificationsSound, !isElectron);
+            fire(justErrored ? 'warn' : 'ok', justErrored ? 'Agent error' : 'Agent done', cfg.notificationsSound);
           }
         }
 
@@ -437,16 +432,16 @@ export function useCompletionNotifier({
       // (message:new) and session:state error/approval; firing here too doubles.
       switch (phase) {
         case 'awaiting-user':
-          fire('ok', `${label}: in attesa di te`, cfg.notificationsSound, !isElectron);
+          fire('ok', `${label}: in attesa di te`, cfg.notificationsSound);
           break;
         case 'awaiting-approval':
-          fire('warn', `${label}: serve un'approvazione`, cfg.notificationsSound, !isElectron);
+          fire('warn', `${label}: serve un'approvazione`, cfg.notificationsSound);
           break;
         case 'completed':
-          fire('ok', `${label}: lavoro completato`, cfg.notificationsSound, !isElectron);
+          fire('ok', `${label}: lavoro completato`, cfg.notificationsSound);
           break;
         case 'error':
-          fire('warn', `${label}: errore — interventi richiesti`, cfg.notificationsSound, !isElectron);
+          fire('warn', `${label}: errore — interventi richiesti`, cfg.notificationsSound);
           break;
       }
   });

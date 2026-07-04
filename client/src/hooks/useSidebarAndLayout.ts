@@ -5,7 +5,7 @@
  * Extracted from App.tsx during Phase 3 (hook 1 of 4).
  *
  * Owns (every line moved out of App):
- *  - windowId, isMobile, isPWA, viewportHeight, isElectron
+ *  - windowId, isMobile, isPWA, viewportHeight
  *  - appSettings (with cross-tab useStorageSync)
  *  - sidebarWidth, sidebarCollapsed
  *  - sidebar resize refs + touch refs + edge-touch refs
@@ -52,7 +52,6 @@ export interface UseSidebarAndLayoutReturn {
     isMobile: boolean;
     isPWA: boolean;
     viewportHeight: number | null;
-    isElectron: boolean;
     windowId: string;
   };
   refs: {
@@ -129,9 +128,6 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
       window.removeEventListener('resize', trackFullHeight);
     };
   }, [isMobile]);
-
-  // Electron detection (constant per session)
-  const isElectron = !!(window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron;
 
   // Show/hide macOS traffic lights with Topics dropdown (Electron + Tauri).
   useEffect(() => {
@@ -332,7 +328,6 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
       isMobile,
       isPWA,
       viewportHeight,
-      isElectron,
       windowId,
     },
     refs: { sidebarRef },
