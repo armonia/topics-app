@@ -413,27 +413,37 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
     }
 
     // 3) Wait for the sidecar to become healthy (cold DB init + migrations take a
-    // moment), up to ~20s. The proxy is already up but a connection before the
-    // server binds just fails and the client retries, so this only tightens the
-    // first-paint latency.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    let mut healthy = false;
-    while std::time::Instant::now() < deadline {
-        if probe_topics_server(port, false).await {
-            healthy = true;
-            break;
+    // moment), up to ~20s — but FIRE-AND-FORGET so it does NOT delay the caller,
+    // which starts run_tls_proxy the instant we return. UPSTREAM is already set
+    // (above), so the proxy can bind and start piping immediately; a connection
+    // that lands before the server itself binds just fails and the client retries.
+    // Previously this wait ran inline before the caller reached run_tls_proxy, so
+    // a virgin machine sat on "connecting" for the full cold-start (up to 20s)
+    // because the proxy hadn't bound yet. The wait's only jobs are logging health
+    // and nudging a reload for a client that connected mid-cold-start — both fine
+    // to do off the boot path.
+    let app_health = app.clone();
+    let health_port = port;
+    tauri::async_runtime::spawn(async move {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let mut healthy = false;
+        while std::time::Instant::now() < deadline {
+            if probe_topics_server(health_port, false).await {
+                healthy = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    }
-    eprintln!("[sidecar] health after wait: {healthy} (:{port})");
-    // Nudge the webview to reload now that the upstream is live, so a client that
-    // connected during the cold start (and cached a failed fetch) re-fetches.
-    if healthy {
-        use tauri::Manager;
-        if let Some(w) = app.get_webview_window("main") {
-            let _ = w.eval("window.location.reload()");
+        eprintln!("[sidecar] health after wait: {healthy} (:{health_port})");
+        // Nudge the webview to reload now that the upstream is live, so a client
+        // that connected during the cold start (and cached a failed fetch) re-fetches.
+        if healthy {
+            use tauri::Manager;
+            if let Some(w) = app_health.get_webview_window("main") {
+                let _ = w.eval("window.location.reload()");
+            }
         }
-    }
+    });
 }
 
 /// Kill the sidecar if we spawned one. Called on app exit so no orphan server
@@ -845,19 +855,28 @@ struct VibRegion {
     radius: f64,
 }
 
+/// Per-window frost views, keyed by NSWindow pointer → (region id → NSView ptr).
+/// MUST be keyed per window: a detached (pop-out) window mounts the same App and
+/// pushes the SAME region ids (r0, r1, …), so a single global id→view map made the
+/// detached window's push move/remove the MAIN window's frost views (the "pop-out
+/// nukes the main frost" bug). The NSWindow pointer scopes each window's views to
+/// its own contentView; `window_detach` purges a window's entry on Destroyed so a
+/// reused pointer address can't inherit freed view pointers.
 #[cfg(target_os = "macos")]
-fn vibrancy_views() -> &'static std::sync::Mutex<std::collections::HashMap<String, usize>> {
-    static V: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, usize>>> =
+fn vibrancy_views() -> &'static std::sync::Mutex<std::collections::HashMap<usize, std::collections::HashMap<String, usize>>> {
+    static V: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<usize, std::collections::HashMap<String, usize>>>> =
         std::sync::OnceLock::new();
     V.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Pointer to the full-window frost shown DURING a window-edge resize (0 = none).
-/// See `vibrancy_resize_cover`.
+/// Full-window frost shown DURING a window-edge resize, keyed per NSWindow pointer
+/// (absent/0 = none). Per-window for the same reason as `vibrancy_views`: each
+/// window's live-resize cover is independent. See `vibrancy_resize_cover`.
 #[cfg(target_os = "macos")]
-fn vibrancy_cover_slot() -> &'static std::sync::Mutex<usize> {
-    static C: std::sync::OnceLock<std::sync::Mutex<usize>> = std::sync::OnceLock::new();
-    C.get_or_init(|| std::sync::Mutex::new(0))
+fn vibrancy_cover_slot() -> &'static std::sync::Mutex<std::collections::HashMap<usize, usize>> {
+    static C: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<usize, usize>>> =
+        std::sync::OnceLock::new();
+    C.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
 /// `hitTest:` override for the frost views: always return nil so the
@@ -915,22 +934,25 @@ fn apply_vibrancy_regions(window: &tauri::Window, regions: Vec<VibRegion>) {
         if content_view == nil {
             return;
         }
+        let wkey = ns_window as usize;
         // A client push means a gesture SETTLED (during a live window resize the JS
-        // is starved, so this never runs mid-drag) — tear down the full-window
-        // resize cover so the per-region cards + clear gaps come back. Own lock
-        // scope, before `vibrancy_views`, matching the cover handler's lock order.
+        // is starved, so this never runs mid-drag) — tear down THIS window's full-
+        // window resize cover so the per-region cards + clear gaps come back. Own
+        // lock scope, before `vibrancy_views`, matching the cover handler's order.
         {
-            let mut cover = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
-            if *cover != 0 {
-                let v = *cover as id;
-                let _: () = msg_send![v, removeFromSuperview];
-                *cover = 0;
+            let mut covers = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(ptr) = covers.remove(&wkey) {
+                if ptr != 0 {
+                    let v = ptr as id;
+                    let _: () = msg_send![v, removeFromSuperview];
+                }
             }
         }
         let bounds: NSRect = msg_send![content_view, bounds];
         let content_h = bounds.size.height;
 
-        let mut map = vibrancy_views().lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = vibrancy_views().lock().unwrap_or_else(|e| e.into_inner());
+        let map = all.entry(wkey).or_default();
         let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         // CRITICAL for perf: a layer-backed NSView's setFrame/setCornerRadius triggers
@@ -1050,19 +1072,23 @@ fn apply_vibrancy_animation(window: &tauri::Window, regions: Vec<VibRegion>, dur
         if content_view == nil {
             return;
         }
-        // Tear down any window-resize cover so the per-region cards animate (parity
-        // with apply_vibrancy_regions' lock order).
+        let wkey = ns_window as usize;
+        // Tear down THIS window's resize cover so the per-region cards animate
+        // (parity with apply_vibrancy_regions' lock order).
         {
-            let mut cover = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
-            if *cover != 0 {
-                let v = *cover as id;
-                let _: () = msg_send![v, removeFromSuperview];
-                *cover = 0;
+            let mut covers = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(ptr) = covers.remove(&wkey) {
+                if ptr != 0 {
+                    let v = ptr as id;
+                    let _: () = msg_send![v, removeFromSuperview];
+                }
             }
         }
         let bounds: NSRect = msg_send![content_view, bounds];
         let content_h = bounds.size.height;
-        let map = vibrancy_views().lock().unwrap_or_else(|e| e.into_inner());
+        let all = vibrancy_views().lock().unwrap_or_else(|e| e.into_inner());
+        let empty = std::collections::HashMap::new();
+        let map = all.get(&wkey).unwrap_or(&empty);
 
         let tf = ca_timing_for(timing);
         let _: () = msg_send![class!(NSAnimationContext), beginGrouping];
@@ -1176,7 +1202,9 @@ fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
         if content_view == nil {
             return;
         }
-        let cover = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
+        let wkey = ns_window as usize;
+        let covers = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
+        let cover_ptr = covers.get(&wkey).copied().unwrap_or(0);
         // A programmatic / spurious *same-size* `Resized` (tray re-show, Space or
         // display switch, scale/focus change all emit one at the SAME size) must NOT
         // raise a cover here: there is no continuous drag to hide, and the cover's
@@ -1187,11 +1215,11 @@ fn vibrancy_resize_cover(window: &tauri::WebviewWindow) {
         // on_live_resize_start → vibrancy_begin_cover and self-heal on drag-end (the
         // size actually changed, so the settle push isn't deduped and removes it).
         // Here we ONLY keep an already-raised live-resize cover glued to the new size.
-        if *cover == 0 {
+        if cover_ptr == 0 {
             return;
         }
         let bounds: NSRect = msg_send![content_view, bounds];
-        let v = *cover as id;
+        let v = cover_ptr as id;
         let _: () = msg_send![v, setFrame: bounds];
     }
 }
@@ -1213,22 +1241,26 @@ unsafe fn vibrancy_begin_cover(ns_window: cocoa::base::id) {
     if content_view == nil {
         return;
     }
-    let mut cover = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
-    if *cover != 0 {
+    let wkey = ns_window as usize;
+    let mut covers = vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner());
+    if covers.get(&wkey).copied().unwrap_or(0) != 0 {
         return; // already covering
     }
     {
-        let mut map = vibrancy_views().lock().unwrap_or_else(|e| e.into_inner());
-        if map.is_empty() {
-            return; // nothing placed yet — don't frost a bare window
-        }
-        for (_, ptr) in map.drain() {
-            let v = ptr as id;
-            let _: () = msg_send![v, removeFromSuperview];
+        let mut all = vibrancy_views().lock().unwrap_or_else(|e| e.into_inner());
+        match all.get_mut(&wkey) {
+            Some(map) if !map.is_empty() => {
+                for (_, ptr) in map.drain() {
+                    let v = ptr as id;
+                    let _: () = msg_send![v, removeFromSuperview];
+                }
+            }
+            // nothing placed yet for THIS window — don't frost a bare window
+            _ => return,
         }
     }
     let bounds: NSRect = msg_send![content_view, bounds];
-    *cover = vibrancy_insert_cover(content_view, bounds) as usize;
+    covers.insert(wkey, vibrancy_insert_cover(content_view, bounds) as usize);
 }
 
 /// `NSWindowWillStartLiveResize` observer callback → raise the cover for the drag.
@@ -3516,6 +3548,20 @@ async fn window_detach(
         apply_traffic_lights(&win, false);
         wire_live_resize_cover(&win);
         register_ui_webview(&win, &label);
+        // Purge THIS window's vibrancy view/cover bookkeeping when it closes. The
+        // maps are keyed by NSWindow pointer; a detached window's address can be
+        // reused by a later window, so a stale entry left behind would hand the new
+        // window freed NSView pointers (setFrame on a dangling view → crash). The
+        // views are freed with the contentView, so we only drop the map entries.
+        if let Ok(p) = win.ns_window() {
+            let wkey = p as usize;
+            win.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    vibrancy_views().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
+                    vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
+                }
+            });
+        }
     }
     Ok(label)
 }
@@ -4467,9 +4513,9 @@ pub fn run() {
             // machine with an external server on :3333 we defer to it (TLS proxy, as
             // before); on a virgin machine we spawn the bundled sidecar (plain HTTP,
             // isolated data dir) and point the proxy there. `decide_upstream_and_spawn`
-            // sets `UPSTREAM` before the proxy reads it, so the ordering is: probe /
-            // spawn → set UPSTREAM → run_tls_proxy. The (up-to-20s) sidecar health wait
-            // runs AFTER UPSTREAM is set, so it never delays the proxy or first paint.
+            // sets `UPSTREAM` then RETURNS (its up-to-20s sidecar health wait is now
+            // fire-and-forget), so run_tls_proxy binds :13333 immediately — the virgin
+            // machine no longer sits on "connecting" for the whole cold start.
             {
                 let app_for_boot = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
