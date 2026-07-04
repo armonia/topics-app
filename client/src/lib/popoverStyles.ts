@@ -17,11 +17,6 @@
  * vibrancy) so it carries its OWN backdrop-blur via `.glass-surface`. Hairline
  * `border-app-border`, soft 8px radius (`rounded-lg`), and `shadow-lg` for a
  * gentle lift that doesn't read as a heavy modal.
- *
- * Native (Electron) menus rendered above the OS-level WebContentsView use the
- * overlay window (electron-app/overlay.html); its CSS mirrors these same tokens
- * (radius / shadow / translucency) so the native browser menus match the React
- * popovers pixel-for-pixel.
  */
 
 /**
@@ -77,37 +72,3 @@ export const POPOVER_DIVIDER = 'my-1 h-px bg-app-border';
  */
 export const POPOVER_SHEET =
   'glass-surface border-t border-app-border rounded-t-xl shadow-lg py-2 bottom-sheet';
-
-/**
- * Theme colours for the NATIVE Electron overlay menu (overlay.html reads these
- * via CSS vars). Lifted here so every native-menu caller — PaneAddMenu AND the
- * browser toolbar via lib/overlayMenu.ts — passes the SAME themed palette
- * instead of the overlay falling back to a hardcoded white panel (which made
- * the browser's native menus look unthemed next to the rest). Reads the live
- * CSS custom properties off <html> so custom themes are honoured too.
- *
- * The bg is the TRANSLUCENT glass tint matching `.glass-surface` so the native
- * panel frosts the content behind it like the in-app popovers — the overlay
- * window turns on `backdrop-filter` (overlay.html) to blur the WebContentsView
- * underneath. Alpha is kept high enough (~0.85) that text stays crisp even if a
- * given GPU path doesn't composite the blur.
- */
-export function overlayThemeColors(): {
-  bg: string;
-  text: string;
-  muted: string;
-  border: string;
-  hover: string;
-} {
-  const isDark = document.documentElement.classList.contains('dark');
-  const cs = getComputedStyle(document.documentElement);
-  const cssVar = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
-  return {
-    // Mirror the `.glass-surface` tint (index.css) so native ≡ React popovers.
-    bg: isDark ? 'hsl(224 26% 6% / 0.85)' : 'hsl(220 20% 94% / 0.85)',
-    text: cssVar('--text', isDark ? '#e5e7eb' : '#1a1a1a'),
-    muted: cssVar('--text-muted', isDark ? '#9ca3af' : '#6b7280'),
-    border: cssVar('--border', isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
-    hover: cssVar('--bg-hover', isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)'),
-  };
-}
