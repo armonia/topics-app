@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
@@ -24,7 +24,8 @@ import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
 import { useDetachedTopicMap } from '@/state/windowPresence';
-import { POPOVER_SURFACE, POPOVER_ITEM } from '@/lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_ITEM, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { useDismissable } from '@/hooks/useDismissable';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
@@ -158,6 +159,7 @@ export function TopicTree({
   // also gone — the canonical <PaneAddMenu> component owns its own
   // button ref and open/close state.
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean } | null>(null);
+  const projectCtxMenuRef = useRef<HTMLDivElement>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
   const { isTouch } = useMobile();
   // Awaiting-feedback sets, read once here so the (non-component) renderProjectItem
@@ -179,18 +181,15 @@ export function TopicTree({
     });
   }, [onToggleProject]);
 
-  // Close project context menu on outside click or Escape.
-  useEffect(() => {
-    if (!projectContextMenu) return;
-    const close = () => setProjectContextMenu(null);
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [projectContextMenu]);
+  // Close project context menu on outside click or Escape (canonical
+  // useDismissable contract). Cursor-positioned menu with no trigger element to
+  // restore focus to, so restoreFocus off — matches the prior hand-rolled effect.
+  useDismissable({
+    open: !!projectContextMenu,
+    onClose: () => setProjectContextMenu(null),
+    refs: [projectCtxMenuRef],
+    restoreFocus: false,
+  });
 
   // ── Build unified items ──────────────────────────────────────────────────
 
@@ -758,8 +757,10 @@ export function TopicTree({
         const top = Math.max(8, Math.min(projectContextMenu.y, window.innerHeight - menuH - 8));
         return (
         <div
-          className={`fixed ${POPOVER_SURFACE} z-[100] min-w-[160px]`}
-          style={{ top, left }}
+          ref={projectCtxMenuRef}
+          role="menu"
+          className={`fixed ${POPOVER_SURFACE} min-w-[160px]`}
+          style={{ top, left, zIndex: Z_CONTEXT_MENU }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {projectContextMenu.unreadTopicIds.length > 0 && (
@@ -840,17 +841,16 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   // Desktop right-click menu (touch uses the overflow "…" DropdownPortal). null
   // = closed; positioned at the cursor, viewport-clamped like the project menu.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const close = () => setCtxMenu(null);
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [ctxMenu]);
+  const ctxMenuRef = useRef<HTMLDivElement>(null);
+  // Cursor-positioned desktop right-click menu — canonical useDismissable
+  // contract (capture pointer/touch + Escape). No trigger element to restore
+  // focus to, so restoreFocus off, matching the prior hand-rolled effect.
+  useDismissable({
+    open: !!ctxMenu,
+    onClose: () => setCtxMenu(null),
+    refs: [ctxMenuRef],
+    restoreFocus: false,
+  });
   // v3 sidebar↔topbar sync: also check `close-tab:terminal:<id>` so that
   // closing the terminal pane via the topbar X shows the countdown in
   // the sidebar terminal row too.
@@ -1004,9 +1004,10 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         const top = Math.max(8, Math.min(ctxMenu.y, window.innerHeight - menuH - 8));
         return (
           <div
+            ref={ctxMenuRef}
             role="menu"
-            className={`fixed z-50 ${POPOVER_SURFACE} min-w-[200px]`}
-            style={{ left, top }}
+            className={`fixed ${POPOVER_SURFACE} min-w-[200px]`}
+            style={{ left, top, zIndex: Z_CONTEXT_MENU }}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <button

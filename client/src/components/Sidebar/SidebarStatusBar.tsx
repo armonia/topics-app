@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
+import { useDismissable } from '@/hooks/useDismissable';
+import { Z_POPOVER } from '@/lib/popoverStyles';
 import { useFps, useFpsActive } from '@/lib/fpsMonitor';
 import { usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { PerfSection } from './PerfSection';
@@ -201,19 +203,15 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   // idle bursts when closed.
   useFpsActive(showStatusDropdown);
 
-  // Close dropdown on outside click or Escape
-  useEffect(() => {
-    if (!showStatusDropdown) return;
-    const h = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (statusBtnRef.current?.contains(t) || statusDropdownRef.current?.contains(t)) return;
-      setShowStatusDropdown(false);
-    };
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setShowStatusDropdown(false); e.stopPropagation(); } };
-    document.addEventListener('mousedown', h);
-    document.addEventListener('keydown', k, true);
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
-  }, [showStatusDropdown]);
+  // Close dropdown on outside pointer / Escape via the shared contract
+  // (capture-phase pointerdown + touch + Escape, focus-restore). Trigger +
+  // portalled panel both count as "inside". Bespoke bottom-anchored placement
+  // below is preserved.
+  useDismissable({
+    open: showStatusDropdown,
+    onClose: () => setShowStatusDropdown(false),
+    refs: [statusBtnRef, statusDropdownRef],
+  });
 
   // Close on sidebar collapse. The status bar lives inside the sidebar but the
   // dropdown is portaled to <body> (position:fixed), so when the (overlay)
@@ -398,7 +396,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
             bottom: window.innerHeight - statusBtnRef.current.getBoundingClientRect().top + 4,
             // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read for horizontal placement
             left: statusBtnRef.current.getBoundingClientRect().left,
-            zIndex: 9999,
+            zIndex: Z_POPOVER,
           }}
         >
           {/* Performance block — non-lazy so the dropdown opens instantly with
