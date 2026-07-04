@@ -21,7 +21,7 @@ import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE } from '@/lib/popoverStyles';
 import { usePaneStore } from '../../state/pane/store';
-import { resolvePaneSpace } from '../../state/pane/reducers/spaces';
+import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID, SPACES_MAX } from '../../state/pane/types';
 import {
   DEFAULT_SPACE_LABEL,
@@ -1137,7 +1137,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                             </button>
                           );
                         })}
-                        {Object.keys(spacesRegistry).length < SPACES_MAX && (
+                        {liveSpaceCount(spacesRegistry) < SPACES_MAX && (
                           <button
                             onClick={() => {
                               const id = createSpaceId();

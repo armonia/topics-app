@@ -611,12 +611,6 @@ test.describe("Command Palette", () => {
   test("CMD-08: Cmd+/ opens keyboard shortcuts modal with all shortcut groups", async ({
     page,
   }) => {
-    // Use addInitScript to fake Electron context for desktop-only shortcuts
-    await page.addInitScript(() => {
-      (window as any).electronAPI = { isElectron: true };
-    });
-
-    // Navigate after addInitScript to apply it
     await page.goto("/", { waitUntil: "networkidle" });
 
     // Press Cmd+/ to open keyboard shortcuts modal

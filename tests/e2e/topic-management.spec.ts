@@ -29,11 +29,6 @@ test.describe("Topic Management", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
-    // Enable the NewTopicModal keyboard shortcut by faking Electron context
-    await page.addInitScript(() => {
-      (window as any).electronAPI = { isElectron: true };
-    });
-
     await topicPage.goto();
 
     // Open the NewTopicModal via Cmd+Shift+N keyboard shortcut
@@ -322,11 +317,6 @@ test.describe("Topic Management", () => {
     request,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
-    // Enable the NewTopicModal keyboard shortcut by faking Electron context
-    await page.addInitScript(() => {
-      (window as any).electronAPI = { isElectron: true };
-    });
-
     await topicPage.goto();
 
     // Open the NewTopicModal via Cmd+Shift+N
