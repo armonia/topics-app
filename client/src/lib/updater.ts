@@ -78,8 +78,8 @@ const tauriUpdater: ElectronUpdater = {
 
 export function getUpdaterApi(): ElectronUpdater | undefined {
   if (isTauri) return tauriUpdater;
-  const api = window.electronAPI as { updater?: ElectronUpdater } | undefined;
-  return api?.updater;
+  // Web has no native updater bridge (always-fresh); consumers show a web fallback.
+  return undefined;
 }
 
 /**

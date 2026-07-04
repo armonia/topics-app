@@ -4,23 +4,9 @@
 import { shellKind } from './index';
 import { tauriInvoke } from './tauri';
 
-interface ElectronApp {
-  relaunch?(): Promise<void>;
-  getVersion?(): Promise<string>;
-}
-function electronApp(): ElectronApp | undefined {
-  return (window as unknown as { electronAPI?: { app?: ElectronApp } }).electronAPI?.app;
-}
-
 /** Open a URL in the user's default browser (never inside the app shell). */
 export async function openExternal(url: string): Promise<void> {
   switch (shellKind) {
-    case 'electron': {
-      const api = (window as unknown as { electronAPI?: { openExternal?(u: string): void } }).electronAPI;
-      if (api?.openExternal) { api.openExternal(url); return; }
-      window.open(url, '_blank', 'noopener,noreferrer');
-      return;
-    }
     case 'tauri':
       // tauri-plugin-opener
       await tauriInvoke('plugin:opener|open_url', { url });
@@ -34,10 +20,6 @@ export async function openExternal(url: string): Promise<void> {
  *  cancelled. No-op (null) on web/PWA where there's no OS dialog. */
 export async function selectDirectory(): Promise<string | null> {
   switch (shellKind) {
-    case 'electron': {
-      const api = (window as unknown as { electronAPI?: { selectDirectory?: () => Promise<string | null> } }).electronAPI;
-      return (await api?.selectDirectory?.()) ?? null;
-    }
     case 'tauri': {
       // tauri-plugin-dialog: open({ directory: true }) → string | string[] | null.
       const sel = await tauriInvoke<string | string[] | null>('plugin:dialog|open', {
@@ -78,9 +60,6 @@ export function notifyNative(title: string, body: string, opts?: { silent?: bool
 /** Hard-restart the desktop app (bypasses the service worker). No-op on web. */
 export async function relaunch(): Promise<void> {
   switch (shellKind) {
-    case 'electron':
-      await electronApp()?.relaunch?.();
-      return;
     case 'tauri':
       // tauri-plugin-process
       await tauriInvoke('plugin:process|restart');
@@ -93,8 +72,6 @@ export async function relaunch(): Promise<void> {
 /** App version string. Falls back to the build-time version on web. */
 export async function getVersion(): Promise<string> {
   switch (shellKind) {
-    case 'electron':
-      return (await electronApp()?.getVersion?.()) ?? buildVersion();
     case 'tauri':
       try {
         return await tauriInvoke<string>('plugin:app|version');

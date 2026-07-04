@@ -1,10 +1,10 @@
 // Canonical "open a URL outside the app" helper.
 //
-// In Electron we hand the URL to the system browser via the preload bridge
-// (window.electronAPI.openExternal → IPC → shell.openExternal). In web mode we
-// fall back to window.open. Both renderer link surfaces — chat markdown links
-// (MessageContent) and terminal links (wrappedLinkProvider) — route through
-// here so there is ONE place that decides how an external link opens.
+// Delegates to the shell bridge (`openExternal` in lib/shell/app.ts): the Tauri
+// opener plugin on the desktop shell, or window.open on the web. Both renderer
+// link surfaces — chat markdown links (MessageContent) and terminal links
+// (wrappedLinkProvider) — route through here so there is ONE place that decides
+// how an external link opens.
 //
 // De-dupe guard: a repeat open of the SAME url within DEDUPE_MS is swallowed.
 // This neutralises the ways a single user intent can fire the open twice —

@@ -14,7 +14,6 @@ beforeEach(() => {
   now = 1_000_000;
   Date.now = () => now;
   (globalThis as unknown as { window: unknown }).window = {
-    electronAPI: { openExternal: (u: string) => opened.push(u) },
     open: (u: string) => opened.push(u),
   };
 });
@@ -55,8 +54,7 @@ test('ignores empty urls', () => {
   expect(opened).toEqual([]);
 });
 
-test('falls back to window.open in web mode (no electronAPI)', () => {
-  (globalThis as unknown as { window: { electronAPI?: unknown } }).window.electronAPI = undefined;
+test('routes through window.open (web / shell bridge fallback)', () => {
   openExternalOnce('https://x.test/web');
   expect(opened).toEqual(['https://x.test/web']);
 });
