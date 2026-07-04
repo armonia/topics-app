@@ -21,6 +21,8 @@ import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useAttentionSignals, signalsActions, useTerminalAttentionTier, useSignalsStore, projectAttentionTier } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
+import { usePaneStore } from '@/state/pane/store';
+import { useShallow } from 'zustand/react/shallow';
 import { useDetachedTopicMap } from '@/state/windowPresence';
 import { POPOVER_SURFACE, POPOVER_ITEM } from '@/lib/popoverStyles';
 import { tauriInvoke } from '@/lib/shell/tauri';
@@ -213,6 +215,19 @@ export function TopicTree({
   // Topics open in ANOTHER window (pop-out presence). A zustand hook = React
   // state, so this memo re-fires when a window detaches/closes.
   const detachedTopicIds = useDetachedTopicMap();
+  // Live page titles of top-level browser panes, straight from the global pane
+  // store. The server can't title native WKWebView panes, so this is the only
+  // source that matches what the tab bar shows. `useShallow` over a titles-only
+  // projection means a navigation/scroll that leaves the title set unchanged
+  // does NOT repaint the (hot) sidebar tree — only an actual title change does.
+  const browserPaneTitles = usePaneStore(useShallow((s) => {
+    const m: Record<string, string> = {};
+    for (const p of Object.values(s.panes)) {
+      if (p.type === 'browser' && typeof p.title === 'string' && p.title.trim()) m[p.id] = p.title.trim();
+    }
+    return m;
+  }));
+  const paneTitleById = useMemo(() => new Map(Object.entries(browserPaneTitles)), [browserPaneTitles]);
   const allItems = useMemo(() => buildSidebarItems({
     topics,
     workspaceProjects,
@@ -227,7 +242,8 @@ export function TopicTree({
     terminalFinishedIds,
     pinnedIds,
     detachedTopicIds,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, detachedTopicIds]);
+    paneTitleById,
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, detachedTopicIds, paneTitleById]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
