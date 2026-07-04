@@ -32,6 +32,7 @@ import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { SELECTED_SURFACE, RESTING_SURFACE, ROW_INSET } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { generateUUID } from '../../utils/uuid';
+import { clearPanelGridStorage } from './usePanelGridPersistence';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
 
 /** Label for the implicit default space (never stored in the registry). */
@@ -304,6 +305,10 @@ export function SpaceSwitcher() {
               // Soft-delete: member tabs reassign to the default space (the
               // reducer owns both moves), nothing closes.
               dispatch({ type: 'SPACE_DELETE', payload: { id: chipMenu.spaceId } });
+              // Drop the deleted space's device-local grid overlay so its
+              // suffixed localStorage key doesn't leak (the reducer is pure and
+              // can't touch storage; PanelGrid's remount key is now gone too).
+              clearPanelGridStorage(chipMenu.spaceId);
               setChipMenu(null);
             }}
             className={POPOVER_ITEM_DANGER}
