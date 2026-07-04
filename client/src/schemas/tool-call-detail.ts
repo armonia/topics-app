@@ -151,8 +151,4 @@ export function parseToolCallDetail(value: unknown): ParseResult {
   return { ok: false, error };
 }
 
-export function isToolCallDetail(value: unknown): value is ToolCallDetail {
-  return toolCallDetailSchema.safeParse(value).success;
-}
-
 export type ZodInferredToolCallDetail = z.infer<typeof toolCallDetailSchema>;

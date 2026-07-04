@@ -40,36 +40,6 @@ function readGitCache(path: string): {
   }
 }
 
-interface ScriptEntry {
-  status: string;
-  projectPath?: string;
-}
-
-function readRunningScriptCounts(): Record<string, number> {
-  // Legacy hook pulled from useScripts() — we read the same in-memory event
-  // log via a custom window bridge that useScripts dispatches on update.
-  // During Phase 30's cutover the adapter doesn't depend on useScripts directly
-  // (to keep the legacy file truly deletable); consumers that want a live count
-  // can dispatch a 'scripts-updated' CustomEvent with a detail payload, or the
-  // adapter will simply return 0s (sidebar still renders correctly).
-  const counts: Record<string, number> = {};
-  try {
-    const cached = (window as unknown as {
-      __gsdScriptsSnapshot?: ScriptEntry[];
-    }).__gsdScriptsSnapshot;
-    if (Array.isArray(cached)) {
-      for (const s of cached) {
-        if (s?.status === 'running' && s.projectPath) {
-          counts[s.projectPath] = (counts[s.projectPath] || 0) + 1;
-        }
-      }
-    }
-  } catch {
-    /* no snapshot — return empty counts */
-  }
-  return counts;
-}
-
 export function useProjectTabStatus(
   projectPaths: string[],
 ): Record<string, ProjectTabStatus> {
@@ -80,10 +50,12 @@ export function useProjectTabStatus(
     setStatus((prev) => {
       let changed = false;
       const next: Record<string, ProjectTabStatus> = { ...prev };
-      const scriptCounts = readRunningScriptCounts();
       for (const path of projectPaths) {
         const git = readGitCache(path);
-        const runningProcessCount = scriptCounts[path] ?? 0;
+        // Running-process counts came from a `useScripts` window bridge that was
+        // never wired up (no writer for `__gsdScriptsSnapshot` / `scripts-updated`).
+        // Always 0 until a pane-state-backed source lands.
+        const runningProcessCount = 0;
         const old = prev[path];
         if (
           !old ||
@@ -113,12 +85,9 @@ export function useProjectTabStatus(
     if (projectPaths.length === 0) return;
     refresh();
     const gitHandler = () => refresh();
-    const scriptsHandler = () => refresh();
     window.addEventListener('git-cache-updated', gitHandler);
-    window.addEventListener('scripts-updated', scriptsHandler);
     return () => {
       window.removeEventListener('git-cache-updated', gitHandler);
-      window.removeEventListener('scripts-updated', scriptsHandler);
     };
   }, [refresh, projectPaths.length]);
 

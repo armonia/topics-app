@@ -764,14 +764,6 @@ export function useTopicLoading(topicId: string | undefined): boolean {
   );
 }
 
-/** A chat topic whose bound Claude session is parked awaiting human input
- *  (awaiting-user / awaiting-approval / paused) — drives the blue "awaiting
- *  feedback" tab/row fill. Distinct from loading (the spinner axis) and from
- *  the attention badge (which also counts `error` + unread). */
-export function useTopicAwaitingFeedback(topicId: string | undefined): boolean {
-  return useSignalsStore((s) => !!topicId && s.awaitingFeedbackTopics.has(topicId));
-}
-
 /** The attention TIER of a chat topic's Claude session, or null. 'input' (amber,
  *  act now) when awaiting a permission; 'done' (blue, look when ready) when the
  *  turn finished/paused. The surface colour is chosen from this — see
@@ -827,12 +819,6 @@ export function useTerminalWorkingRing(sessionId: string | undefined, isClaudeCo
   return useSignalsStore((s) =>
     !!sessionId && terminalRingFrom(sessionId, isClaudeCode, s.claudePhaseActiveTermIds, s.terminalBusyIds, s.claudePhaseRestingTermIds),
   );
-}
-
-/** A claude-code terminal session parked awaiting human input — the terminal
- *  twin of useTopicAwaitingFeedback. Drives the blue fill on terminal tabs/rows. */
-export function useTerminalAwaitingFeedback(sessionId: string | undefined): boolean {
-  return useSignalsStore((s) => !!sessionId && s.claudePhaseAwaitingTermIds.has(sessionId));
 }
 
 /** A claude-code session finished a turn and the user hasn't looked yet. */

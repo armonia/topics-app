@@ -55,10 +55,6 @@ export const POPOVER_ITEM_DANGER =
 /** Hairline separator between menu groups. */
 export const POPOVER_DIVIDER = 'my-1 h-px bg-app-border';
 
-/** Small uppercase section label inside a menu. */
-export const POPOVER_SECTION_LABEL =
-  'px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-app-text-faint';
-
 /**
  * Mobile bottom-sheet variant (DropdownPortal's mobile path): pinned to the
  * bottom edge, only the top corners rounded, top border only. Combine with the
