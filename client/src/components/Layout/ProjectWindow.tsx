@@ -486,6 +486,11 @@ export function ProjectWindowPane({
             onSettings={handlePaneSettings}
             onPopOut={handlePanePopOut}
             onPinPane={handlePinPane}
+            // Tab-level rename parity: chat → canonical topic update; browser →
+            // pin pane.title with titleSource='user' (project panes persist via
+            // updatePane, not the global store, so we can't use the store helper).
+            onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
+            onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
           />
         </div>
         {showContext && activeTopic && (

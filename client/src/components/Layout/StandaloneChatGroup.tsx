@@ -23,7 +23,7 @@ import {
   useProjectTabStatus,
   type ProjectTabStatus,
 } from '../../state/pane/adapters';
-import { persistBrowserPaneUrl, getBrowserPaneUrl, persistBrowserPaneTitle, getBrowserPaneTitle, tryHostname } from '../../state/pane/browserPaneUrl';
+import { persistBrowserPaneUrl, getBrowserPaneUrl, persistBrowserPaneTitle, getBrowserPaneTitle, setBrowserPaneUserTitle, tryHostname } from '../../state/pane/browserPaneUrl';
 import { TERMINAL_AGENT_LABELS, normalizeTerminalAgent } from '../../lib/terminalAgents';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
@@ -582,6 +582,12 @@ export function StandaloneChatGroup({
       onCloseOthers={handleCloseOthers}
       onSettings={handleSettings}
       onPopOut={handlePopOut}
+      // Tab-level rename parity with terminals: chat tabs go through the
+      // canonical topic-update path (optimistic + persisted + broadcast);
+      // browser tabs pin pane.title (titleSource='user') so the page-title
+      // poll stops overwriting the chosen name.
+      onRenameChat={(tid, name) => { void onUpdateTopic(tid, { name }); }}
+      onRenameBrowser={(id, name) => setBrowserPaneUserTitle(id, name)}
       // 'Detach' = split OUT into an own cell (pool tabs). A solo cell's tab
       // instead offers 'Riporta nel gruppo' (onReattach → unsolo) — the two
       // used to share one 'Detach' label with opposite semantics.

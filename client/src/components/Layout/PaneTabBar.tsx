@@ -6,7 +6,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
 import { signalsActions, useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
@@ -108,7 +108,17 @@ interface PaneTabBarProps {
    * in-place via the pane store (movePaneToSpace).
    */
   canMoveToSpace?: boolean;
-  onRename?: (paneId: string) => void;
+  /**
+   * Rename a chat tab from its context menu (parity with the terminal tab's
+   * inline rename). Reuses the host's canonical topic-update path so the change
+   * is optimistic + persisted + broadcast, exactly like a sidebar rename.
+   */
+  onRenameChat?: (topicId: string, name: string) => void;
+  /**
+   * Rename a browser tab. Pins pane.title with titleSource='user' so the live
+   * page-title poll stops overwriting it (see browserPaneUrl.setBrowserPaneUserTitle).
+   */
+  onRenameBrowser?: (paneId: string, name: string) => void;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
   onStopStreaming?: (paneId: string) => void;
@@ -151,7 +161,7 @@ interface PaneTabBarProps {
   addMenuScope?: PaneScope;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project' }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project' }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -240,18 +250,29 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // fetch the "Ricarica" entry uses. The server re-broadcasts the roster so the
   // tab relabels without a local write.
   const submitRename = useCallback((paneId: string, next: string) => {
-    const sid = getTerminalSessionFromPaneId(paneId);
     const name = next.replace(/\s+/g, ' ').trim();
-    if (sid && name) {
-      void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      }).catch(() => {});
+    if (name) {
+      const pane = panes.find(p => p.id === paneId);
+      const sid = getTerminalSessionFromPaneId(paneId);
+      if (sid) {
+        // Terminal: PATCH the session name (name_source='user') — the server
+        // re-broadcasts the roster so the tab relabels without a local write.
+        void fetch(`/api/terminal/sessions/${encodeURIComponent(sid)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        }).catch(() => {});
+      } else if (pane?.type === 'chat' && pane.topicId) {
+        // Chat: route through the host's canonical topic-update path.
+        onRenameChat?.(pane.topicId, name);
+      } else if (isBrowserPaneId(paneId)) {
+        // Browser: pin the tab title (titleSource='user') via the host.
+        onRenameBrowser?.(paneId, name);
+      }
     }
     setRenameDraft(null);
     setCtxMenu(null);
-  }, []);
+  }, [panes, onRenameChat, onRenameBrowser]);
   // Registry read is cheap (identity-stable slice); only consulted when the
   // context menu offers the move entry.
   const spacesRegistry = usePaneStore((s) => s.spaces);
@@ -961,19 +982,23 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <span className="flex-1 text-left">Ricarica</span>
             </button>
           )}
-          {/* "Rinomina" — terminal panes only. Expands an inline editor in place
-              (Enter saves, Esc cancels) that PATCHes the session name with
-              name_source='user'. Chat/topic tabs rename from the sidebar
-              context menu, so this entry stays terminal-scoped. */}
-          {isTerminalPaneId(ctxMenu.paneId) && (
-            renameDraft === null ? (
+          {/* "Rinomina" — inline editor (Enter saves, Esc cancels). Terminal
+              tabs PATCH the session name (name_source='user'); chat tabs route
+              through the host's topic-update path; browser tabs pin pane.title
+              (titleSource='user'). The chat/browser entries hide when the host
+              doesn't wire the matching callback (e.g. project-inner bars that
+              don't thread onRenameChat). */}
+          {(() => {
+            const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
+            const canRename = isTerminalPaneId(ctxMenu.paneId)
+              || (ctxPane?.type === 'chat' && !!ctxPane.topicId && !!onRenameChat)
+              || (isBrowserPaneId(ctxMenu.paneId) && !!onRenameBrowser);
+            if (!canRename) return null;
+            return renameDraft === null ? (
               <button
-                onClick={() => {
-                  const pane = panes.find(p => p.id === ctxMenu.paneId);
-                  setRenameDraft(pane?.title ?? '');
-                }}
+                onClick={() => setRenameDraft(ctxPane?.title ?? '')}
                 className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                title="Rinomina questa sessione"
+                title="Rinomina questa scheda"
               >
                 <Edit3 size={14} />
                 <span className="flex-1 text-left">Rinomina</span>
@@ -990,7 +1015,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                     if (e.key === 'Enter') submitRename(ctxMenu.paneId, renameDraft);
                     else if (e.key === 'Escape') setRenameDraft(null);
                   }}
-                  placeholder="Nome sessione"
+                  placeholder="Nuovo nome"
                   maxLength={120}
                   className="flex-1 min-w-0 bg-app-input border border-app-border rounded px-2 py-1 text-[13px] md:text-[12px] text-app-text focus:outline-none focus:border-primary"
                 />
@@ -1003,8 +1028,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   <Check size={14} />
                 </button>
               </div>
-            )
-          )}
+            );
+          })()}
           {/* Right-click "Close" is the explicit-confirmation path — bypass
               the PendingAction countdown that gates the default X button.
               Falls back to onClose for legacy callers that don't pass
@@ -1194,15 +1219,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <span>Riporta nel gruppo</span>
               </button>
             </>
-          )}
-          {onRename && (
-            <button
-              onClick={() => { onRename(ctxMenu.paneId); setCtxMenu(null); }}
-              className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-            >
-              <Edit3 size={14} />
-              <span>Rename</span>
-            </button>
           )}
           {(() => {
             const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
