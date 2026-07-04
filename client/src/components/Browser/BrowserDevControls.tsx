@@ -7,21 +7,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Minus, Plus, Monitor, Smartphone, Tablet, Maximize, SlidersHorizontal, Terminal, ChevronDown, X } from 'lucide-react';
 import type { DeviceMode, BrowserConsoleEntry } from './browserDevTypes';
-import { overlayMenusAvailable, showOverlayMenu } from '../../lib/overlayMenu';
-import { POPOVER_SURFACE, POPOVER_PANEL } from '@/lib/popoverStyles';
+import { Menu } from '../Shared/Menu';
 
 const ICON = 14;
-
-function useOutsideClose(open: boolean, onClose: () => void) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [open, onClose]);
-  return ref;
-}
 
 /* ---------------------------------------------------------------- Zoom ---- */
 
@@ -66,37 +54,22 @@ export function DeviceSwitcher({
   const [open, setOpen] = useState(false);
   const [cw, setCw] = useState('414');
   const [ch, setCh] = useState('896');
-  const ref = useOutsideClose(open, () => setOpen(false));
+  const btnRef = useRef<HTMLButtonElement>(null);
   const Icon = DEVICE_ICON[mode];
   const active = mode !== 'desktop';
   return (
-    <div className="relative" ref={ref}>
-      <button type="button" title={`Dispositivo: ${DEVICE_LABEL[mode]}`}
+    <>
+      <button ref={btnRef} type="button" title={`Dispositivo: ${DEVICE_LABEL[mode]}`}
         data-testid="browser-device-switcher"
-        onClick={async (e) => {
-          // Native menu over the WebContentsView (Electron); React dropdown
-          // (with the custom W×H inputs) is the web fallback.
-          if (overlayMenusAvailable()) {
-            const id = await showOverlayMenu({
-              anchorEl: e.currentTarget,
-              items: (['desktop', 'mobile', 'tablet', 'auto', 'custom'] as DeviceMode[]).map(m => ({
-                id: m, label: `${mode === m ? '✓  ' : '     '}${DEVICE_LABEL[m]}`,
-              })),
-              side: 'bottom',
-              estimatedWidth: 180,
-            });
-            if (id) onSet(id as DeviceMode);
-            return;
-          }
-          setOpen(o => !o);
-        }}
+        onClick={() => setOpen(o => !o)}
         className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${active ? 'text-accent' : 'text-app-text-secondary'}`}>
         <Icon size={ICON} />
         <ChevronDown size={10} className="opacity-60" />
       </button>
-      {open && (
-        <div className={`absolute top-full right-0 mt-1 z-50 min-w-[160px] ${POPOVER_SURFACE}`}
-          data-testid="browser-device-menu">
+      {/* Anchored React <Menu> (portal + flip/clamp + Escape/dismissal). The W×H
+          input row means the panel owns its own focus → unmanagedFocus. */}
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" minWidth={160} unmanagedFocus>
+        <div data-testid="browser-device-menu">
           {(['desktop', 'mobile', 'tablet', 'auto', 'custom'] as DeviceMode[]).map((m) => {
             const MI = DEVICE_ICON[m];
             return (
@@ -123,8 +96,8 @@ export function DeviceSwitcher({
               className="ml-auto px-1.5 py-0.5 text-[11px] rounded bg-primary text-white hover:bg-primary/90">OK</button>
           </div>
         </div>
-      )}
-    </div>
+      </Menu>
+    </>
   );
 }
 
@@ -142,7 +115,7 @@ export function ConsoleBadge({
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useOutsideClose(open, () => setOpen(false));
+  const btnRef = useRef<HTMLButtonElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   // Auto-scroll to the newest entry when open.
   useEffect(() => { if (open && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [open, entries.length]);
@@ -151,45 +124,20 @@ export function ConsoleBadge({
   const hasWarn = !hasErr && summary.warnings > 0;
   const count = hasErr ? summary.errors : hasWarn ? summary.warnings : 0;
   return (
-    <div className="relative" ref={ref}>
-      <button type="button" title="Console"
+    <>
+      <button ref={btnRef} type="button" title="Console"
         data-testid="browser-console-badge"
-        onClick={async (e) => {
-          // Native menu over the WebContentsView (Electron): a clear action plus
-          // the recent entries (select to copy). React panel is the web fallback.
-          if (overlayMenusAvailable()) {
-            const recent = entries.slice(-30).reverse();
-            const id = await showOverlayMenu({
-              anchorEl: e.currentTarget,
-              items: [
-                { id: '__clear__', label: `Svuota · ${summary.errors} err · ${summary.warnings} warn` },
-                { id: '__div__', label: '', divider: true },
-                ...(recent.length
-                  ? recent.map(en => ({
-                      id: String(en.id),
-                      label: `${en.level === 'error' ? '✖' : en.level === 'warn' ? '⚠' : '›'}  ${en.text.slice(0, 140)}`,
-                    }))
-                  : [{ id: '__empty__', label: 'Nessun messaggio' }]),
-              ],
-              side: 'bottom',
-              estimatedWidth: 460,
-            });
-            if (id === '__clear__') onClear();
-            else if (id && id !== '__empty__') {
-              const en = entries.find(x => String(x.id) === id);
-              if (en) navigator.clipboard?.writeText(en.text).catch(() => {});
-            }
-            return;
-          }
-          setOpen(o => !o);
-        }}
+        onClick={() => setOpen(o => !o)}
         className={`h-6 px-1.5 flex items-center gap-1 rounded hover:bg-black/5 dark:hover:bg-white/5 ${hasErr ? 'text-red-400' : hasWarn ? 'text-amber-400' : 'text-app-text-secondary'}`}>
         <Terminal size={ICON} />
         {count > 0 && <span className="text-[10px] font-semibold tabular-nums leading-none">{count > 99 ? '99+' : count}</span>}
       </button>
-      {open && (
-        <div className={`absolute top-full right-0 mt-1 z-50 w-[420px] max-w-[80vw] ${POPOVER_PANEL} flex flex-col`}
-          data-testid="browser-console-panel">
+      {/* Anchored React <Menu> (portal + flip/clamp + Escape/dismissal + focus-
+          restore). A scrollable log panel that owns its own layout → unmanagedFocus.
+          The `-my-1` wrapper cancels Menu's POPOVER_SURFACE py-1 so the header/body
+          sit flush to the card edges exactly like the old POPOVER_PANEL surface. */}
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} align="right" unmanagedFocus className="w-[420px] max-w-[80vw]">
+        <div className="-my-1 flex flex-col" data-testid="browser-console-panel">
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-app-border">
             <span className="text-[11px] font-medium text-app-text-secondary">
               Console · {summary.errors} errori · {summary.warnings} warning
@@ -210,7 +158,7 @@ export function ConsoleBadge({
             ))}
           </div>
         </div>
-      )}
-    </div>
+      </Menu>
+    </>
   );
 }

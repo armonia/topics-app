@@ -19,7 +19,8 @@ import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinne
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT, RESTING_SURFACE, ROW_PX, ROW_INSET, attentionSurface, ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
-import { POPOVER_SURFACE } from '@/lib/popoverStyles';
+import { POPOVER_SURFACE, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { useDismissable } from '@/hooks/useDismissable';
 import { usePaneStore } from '../../state/pane/store';
 import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID, SPACES_MAX } from '../../state/pane/types';
@@ -298,16 +299,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     }
   }, [activePaneId]);
 
-  // Close context menu on click/touch outside
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const h = (e: Event) => {
-      if (ctxMenuRef.current && !ctxMenuRef.current.contains(e.target as Node)) setCtxMenu(null);
-    };
-    document.addEventListener('mousedown', h);
-    document.addEventListener('touchstart', h, { passive: true });
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); };
-  }, [ctxMenu]);
+  // Close context menu on outside pointer / Escape via the shared dismissal
+  // contract (capture-phase pointerdown+touchstart+Escape, focus-restore). The
+  // rename editor and the "Sposta nello Spazio" submenu both live inside
+  // ctxMenuRef, so one panel ref covers every "inside" target.
+  useDismissable({ open: !!ctxMenu, onClose: () => setCtxMenu(null), refs: [ctxMenuRef] });
 
   // Long-press for context menu on touch devices
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -931,8 +927,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {ctxMenu && createPortal(
         <div
           ref={ctxMenuRef}
-          className={`fixed ${POPOVER_SURFACE} z-[9999] min-w-[150px]`}
-          style={{ top: ctxMenu.y, left: ctxMenu.x }}
+          className={`fixed ${POPOVER_SURFACE} min-w-[150px]`}
+          style={{ top: ctxMenu.y, left: ctxMenu.x, zIndex: Z_CONTEXT_MENU }}
         >
           {/* "Fissa" / "Rimuovi dai Fissati" — sidebar pinning parity for tabs.
               Pin key is the sidebar-item id: a chat's bare topicId, or the
