@@ -2074,7 +2074,6 @@ export function PanelGrid({
   const renderGroupForKey = useCallback(
     (item: GridItem, key: string, rowIdx: number, colIdx: number) => (
       <StandaloneChatGroup
-        splitMap={hasGridSplit ? { rows: splitRowWidths, rowHeights: gridRowHeights, active: [rowIdx, colIdx] } : undefined}
         topicIds={item.panelIds}
         focusedPanelId={focusedPanelId}
         onFocusPanel={onFocusPanel}

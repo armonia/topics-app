@@ -113,13 +113,9 @@ export function GroupLayout({
     return m;
   }, [groups]);
 
-  // Split mini-map descriptor: real column widths per row + row heights, so the
-  // schematic mirrors the actual split proportions. Passed to each group's tab
-  // bar; it lights its own cell. Only meaningful with more than one cell — a
-  // single group has nothing to orient against.
-  const splitRowWidths = useMemo(() => rows.map((r) => r.widths), [rows]);
-  const totalCells = useMemo(() => splitRowWidths.reduce((a, r) => a + r.length, 0), [splitRowWidths]);
-  const hasSplit = totalCells > 1;
+  // NOTE: the sidebar split mini-map (per-topic cell schematic) is published
+  // separately via SplitPositionContext — GroupLayout no longer threads a
+  // `splitMap` descriptor into the tab bars (the tab bar never rendered it).
 
   // Keep-alive: track which panes have ever been activated. Once a pane is
   // visited we keep its React subtree mounted (just hidden via display:none
@@ -717,10 +713,9 @@ export function GroupLayout({
 
   // Render one group's "block" — its tab bar + active-pane content — reused for
   // a column's primary group AND for each group vertically stacked under it via
-  // cellStacks. `rowIdx`/`groupIdx` only feed the split mini-map's active cell
-  // (column-level); stacked members share their column's groupIdx. `seenPaneIds`
-  // is threaded so a duplicated pane id never paints twice.
-  const renderGroupBlock = (gid: string, rowIdx: number, groupIdx: number, seenPaneIds: Set<string>): React.ReactNode => {
+  // cellStacks. `rowIdx` drives the last-row gutter inset; `seenPaneIds` is
+  // threaded so a duplicated pane id never paints twice.
+  const renderGroupBlock = (gid: string, rowIdx: number, seenPaneIds: Set<string>): React.ReactNode => {
     const group = groupMap.get(gid);
     if (!group) return null;
     const groupPanes = group.paneIds
@@ -806,7 +801,6 @@ export function GroupLayout({
             onPopOut={onPopOut}
             onPinPane={onPinPane ? (paneId) => onPinPane(gid, paneId) : undefined}
             tabNotifications={groupNotifications}
-            splitMap={hasSplit ? { rows: splitRowWidths, rowHeights, active: [rowIdx, groupIdx] } : undefined}
           />
           </div>
         </div>
@@ -938,8 +932,8 @@ export function GroupLayout({
         )}
         <CellSubStack
           stack={subStack}
-          primary={renderGroupBlock(gid, rowIdx, groupIdx, seen)}
-          renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, groupIdx, seen)}
+          primary={renderGroupBlock(gid, rowIdx, seen)}
+          renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, seen)}
           onResize={(nextHeights) => onUpdateRows(setColumnStackHeights(rows, gid, nextHeights))}
         />
       </div>

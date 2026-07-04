@@ -31,7 +31,6 @@ import {
   movePaneToSpace,
   nextSpaceName,
 } from './SpaceSwitcher';
-import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -150,16 +149,9 @@ interface PaneTabBarProps {
    *  actions); project tab bars (GroupLayout) default to 'project'. The
    *  variant's items/order/icons live in <PaneAddMenu> — see its docs. */
   addMenuScope?: PaneScope;
-  /**
-   * Schematic of the surrounding split layout, with THIS group's cell flagged
-   * as active. Rendered as a tiny grid of squares at the trailing edge of the
-   * bar so the user can see where this tab lives in a multi-pane split. Omit
-   * (single-cell layouts, standalone, sidebar) to render nothing.
-   */
-  splitMap?: SplitMapDescriptor;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', splitMap: _splitMap }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRename, onSettings, onPopOut, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project' }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -881,8 +873,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             )}
             {/* The split position mini-map lives on the SIDEBAR topic cards
                 only (user preference), NOT on the top tab bar — see
-                Sidebar/TopicItem + SplitMiniMap. `splitMap` is intentionally
-                ignored here. */}
+                Sidebar/TopicItem + SplitMiniMap (fed by SplitPositionContext).
+                The tab bar deliberately renders no split schematic. */}
             <NotificationBadge count={badgeCount} className="ml-0.5" variant={onFill ? 'onFill' : 'default'} />
             {showRightIndicator && <InsertCaret side="right" />}
           </div>
