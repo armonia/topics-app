@@ -102,8 +102,12 @@ export interface NativeBrowserHandle {
   selectMode?: boolean;
   enterSelectMode?(): void;
   exitSelectMode?(): void;
-  /** Zoom (Cmd+/-/0). delta=+1 zooms in, -1 out, 'reset' to 100%. Returns new zoom level. */
+  /** Zoom (Cmd+/-/0). Only the sign of `delta` matters (one ladder notch);
+   *  'reset' → 100%. Returns the new zoom percentage (a clean integer). */
   setZoom(delta: number | 'reset'): Promise<number>;
+  /** Current zoom percentage (clean integer on the ZOOM_STEPS ladder, default 100).
+   *  Reactive source of truth for the toolbar label so button + keyboard agree. */
+  zoom: number;
   /** Current device-emulation mode (default 'desktop'). */
   deviceMode: DeviceMode;
   /** Apply a device preset. 'mobile'/'tablet' emulate; 'custom' = responsive

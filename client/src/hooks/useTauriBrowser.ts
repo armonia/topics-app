@@ -28,6 +28,7 @@ import { tauriInvoke } from '../lib/shell/tauri';
 import { slotIsOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
+import { stepZoom, DEFAULT_ZOOM } from '../lib/shell/zoomScale';
 import { parseBrowserWsMessage } from '../types/browser-ws-messages';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
@@ -73,7 +74,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const [selectMode, setSelectMode] = useState(false);
   const [agentActive, setAgentActive] = useState(false);
   const [agentAction, setAgentAction] = useState<string | null>(null);
-  const zoomRef = useRef(100); // page zoom percent (CSS-driven via exec_js)
+  // Page zoom percent (CSS-driven via exec_js). Reactive so the toolbar's zoom
+  // label reflects both button and keyboard changes from one source of truth.
+  const [zoom, setZoomState] = useState(DEFAULT_ZOOM);
+  const zoomRef = useRef(DEFAULT_ZOOM);
   const consoleIdRef = useRef(0);
   const selectPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Direction-B focus bridge: a click inside a native WKWebView pane never
@@ -524,11 +528,14 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   }, [id]);
 
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
-  // portable stop-gap). delta is a step (+/-0.5 ≈ ±10%), 'reset' → 100%.
+  // portable stop-gap). The percentage is snapped to a fixed Chrome-style ladder
+  // (see zoomScale) so every step is a clean round integer — only the SIGN of
+  // `delta` matters, so buttons (±1) and keyboard (±0.5) both move one notch.
   const setZoom = useCallback(
     async (delta: number | 'reset'): Promise<number> => {
-      const next = delta === 'reset' ? 100 : Math.min(300, Math.max(30, zoomRef.current + delta * 20));
+      const next = delta === 'reset' ? DEFAULT_ZOOM : stepZoom(zoomRef.current, delta);
       zoomRef.current = next;
+      setZoomState(next);
       await tauriInvoke('browser_exec_js', {
         id,
         js: `document.documentElement.style.zoom='${next / 100}'`,
@@ -637,6 +644,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     stopFind,
     onFindResult: () => () => {},
     setZoom,
+    zoom,
     countMatches,
     inspectAt,
     selectMode,
