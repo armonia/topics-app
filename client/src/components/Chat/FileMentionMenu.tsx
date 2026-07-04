@@ -3,6 +3,7 @@ import { File, X, Search } from 'lucide-react';
 import type { FileNode } from '../../types';
 import { filesApi } from '../../lib/api';
 import { POPOVER_PANEL } from '@/lib/popoverStyles';
+import { useDismissable } from '@/hooks/useDismissable';
 
 export interface MentionedFile {
   path: string;
@@ -16,6 +17,12 @@ interface FileMentionMenuProps {
   onSelect: (file: MentionedFile) => void;
   selectedIndex: number;
   onIndexChange: (index: number) => void;
+  /** Dismiss the menu (outside-pointer / Escape). Owned by the parent, which
+   *  holds the open flag. */
+  onClose?: () => void;
+  /** The chat textarea — kept "inside" so typing/clicking in it never
+   *  dismisses; restoreFocus:false so the caret is left untouched. */
+  inputRef?: React.RefObject<HTMLElement | null>;
 }
 
 // Flatten file tree into a flat list of files (no dirs)
@@ -58,11 +65,21 @@ function fuzzyMatch(query: string, target: string): { match: boolean; score: num
   return { match: qi === q.length, score };
 }
 
-export function FileMentionMenu({ projectPath, visible, filter, onSelect, selectedIndex, onIndexChange }: FileMentionMenuProps) {
+export function FileMentionMenu({ projectPath, visible, filter, onSelect, selectedIndex, onIndexChange, onClose, inputRef }: FileMentionMenuProps) {
   const [allFiles, setAllFiles] = useState<{ path: string; name: string; depth: number }[]>([]);
   const [loading, setLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // Unified dismissal: capture-phase outside-pointer + Escape close. The
+  // textarea (which drives arrow/Enter selection) stays "inside" and the caret
+  // is left untouched (restoreFocus:false).
+  useDismissable({
+    open: visible,
+    onClose: onClose ?? (() => {}),
+    refs: inputRef ? [inputRef, menuRef] : [menuRef],
+    restoreFocus: false,
+  });
 
   // Load project files
   useEffect(() => {
@@ -125,7 +142,7 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
       </div>
       
       {/* File list */}
-      <div className="overflow-y-auto flex-1">
+      <div role="listbox" className="overflow-y-auto flex-1">
         {loading ? (
           <div className="px-3 py-4 text-center text-[12px] text-app-text-muted">
             <div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin mx-auto mb-2" />
@@ -145,6 +162,8 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
                 key={file.path}
                 ref={el => { itemRefs.current[idx] = el; }}
                 type="button"
+                role="option"
+                aria-selected={idx === selectedIndex}
                 data-mention-idx={idx}
                 onClick={() => onSelect({ path: file.path, name: file.name })}
                 onMouseEnter={() => onIndexChange(idx)}

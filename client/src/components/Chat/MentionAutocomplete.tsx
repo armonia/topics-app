@@ -1,11 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
+import { useDismissable } from '@/hooks/useDismissable';
+import { Z_POPOVER } from '@/lib/popoverStyles';
 
 interface MentionAutocompleteProps {
   query: string;
   onSelect: (name: string) => void;
   onClose: () => void;
   position: { top: number; left: number };
+  /** The chat textarea — kept "inside" so clicks/Escape in it don't dismiss,
+   *  and focus is never yanked away from the caret (restoreFocus:false). */
+  inputRef?: React.RefObject<HTMLElement | null>;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -14,7 +20,7 @@ const ROLE_COLORS: Record<string, string> = {
   specialist: 'bg-purple-500/15 text-purple-600 dark:text-purple-400',
 };
 
-export function MentionAutocomplete({ query, onSelect, onClose, position }: MentionAutocompleteProps) {
+export function MentionAutocomplete({ query, onSelect, onClose, position, inputRef }: MentionAutocompleteProps) {
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -63,40 +69,39 @@ export function MentionAutocomplete({ query, onSelect, onClose, position }: Ment
       e.stopPropagation();
       const selected = results[selectedIndex];
       if (selected) onSelect(selected.name);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
     }
-  }, [results, selectedIndex, onSelect, onClose]);
+    // Escape is handled by useDismissable (unified dismissal contract).
+  }, [results, selectedIndex, onSelect]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown, true);
     return () => document.removeEventListener('keydown', handleKeyDown, true);
   }, [handleKeyDown]);
 
-  // Click outside to close
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
+  // Unified dismissal: capture-phase outside-pointer + Escape close. The
+  // textarea stays "inside" so typing/clicking in it never dismisses, and
+  // restoreFocus:false leaves the caret where it is (the input already holds
+  // focus — don't fight it).
+  useDismissable({
+    open: results.length > 0,
+    onClose,
+    refs: inputRef ? [inputRef, menuRef] : [menuRef],
+    restoreFocus: false,
+  });
 
   if (results.length === 0) return null;
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[9999] glass-surface border border-app-border rounded-lg shadow-lg overflow-hidden"
+      role="listbox"
+      className="fixed glass-surface border border-app-border rounded-lg shadow-lg overflow-hidden"
       style={{
         top: position.top,
         left: position.left,
         minWidth: '180px',
         maxWidth: '260px',
+        zIndex: Z_POPOVER,
       }}
     >
       {results.map((item, idx) => {
@@ -107,6 +112,8 @@ export function MentionAutocomplete({ query, onSelect, onClose, position }: Ment
           <button
             key={item.id}
             type="button"
+            role="option"
+            aria-selected={idx === selectedIndex}
             className={`w-full px-2.5 py-1.5 flex items-center gap-2 text-left transition-colors ${
               idx === selectedIndex
                 ? 'bg-primary/10 text-app-text'
@@ -126,6 +133,7 @@ export function MentionAutocomplete({ query, onSelect, onClose, position }: Ment
           </button>
         );
       })}
-    </div>
+    </div>,
+    document.body,
   );
 }

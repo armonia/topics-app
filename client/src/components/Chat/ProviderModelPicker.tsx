@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Settings, Zap, X, RefreshCw } from 'lucide-react';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
-import { POPOVER_PANEL } from '@/lib/popoverStyles';
+import { useDismissable } from '../../hooks/useDismissable';
+import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import type { ProviderSnapshotEntry } from '../../types';
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -48,19 +49,11 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   // which would invalidate the useMemo hooks below on every render.
   const entries: ProviderSnapshotEntry[] = useMemo(() => snapshot?.providers ?? [], [snapshot]);
 
-  // Outside click + Escape — outside-click uses pointerdown so the Settings
-  // sheet's mousedown→focus cycle can't swallow it; the data-popover boundary
-  // ensures the portal-rendered popover counts as "inside".
-  useEffect(() => {
-    if (!open) return;
-    const onPointer = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (btnRef.current?.contains(t) || popoverRef.current?.contains(t)) return;
-      setOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointer);
-    return () => document.removeEventListener('pointerdown', onPointer);
-  }, [open]);
+  // Outside-pointer + Escape close is delegated to the shared useDismissable
+  // contract (capture-phase pointerdown/touch + Escape, focus-restore to the
+  // trigger). The popover keeps its OWN onKeyDown for arrow/enter nav below —
+  // useDismissable handles closing, not arrow-key navigation.
+  useDismissable({ open, onClose: () => setOpen(false), refs: [btnRef, popoverRef] });
 
   // Resolve the effective selection (override → topic provider → global default)
   // so the button can show the actual model name in use.
@@ -155,6 +148,9 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         type="button"
         onClick={() => setOpen(!open)}
         data-testid="provider-model-picker"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls="provider-model-listbox"
         className="inline-flex items-center gap-1 px-2 h-8 rounded-lg text-[11px] font-medium transition-colors text-app-text-muted hover:text-app-text hover:bg-app-hover"
         title="Provider & model"
       >
@@ -194,7 +190,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
             position: 'fixed',
             bottom: popoverPos.bottom,
             left: popoverPos.left,
-            zIndex: 9999,
+            zIndex: Z_POPOVER,
           }}
         >
           {/* Header — search + refresh */}
@@ -228,7 +224,12 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
           </div>
 
           {/* Provider/model groups */}
-          <div className="overflow-y-auto flex-1 py-1">
+          <div
+            id="provider-model-listbox"
+            role="listbox"
+            aria-activedescendant={flatRows.length ? `pmp-opt-${activeIndex}` : undefined}
+            className="overflow-y-auto flex-1 py-1"
+          >
             {/* Error state takes priority over the empty state — without it
                 the picker would loop on "No providers ready" forever when
                 /api/providers/snapshot fails on first paint, with no way to
@@ -281,6 +282,9 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                     return (
                       <button
                         key={`${entry.name}:${m}`}
+                        id={`pmp-opt-${rowIdx}`}
+                        role="option"
+                        aria-selected={isSelected}
                         ref={(el) => { rowRefs.current[rowIdx] = el; }}
                         data-row-index={rowIdx}
                         data-active={isActive ? 'true' : undefined}
