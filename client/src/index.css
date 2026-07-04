@@ -1090,9 +1090,9 @@ input[type="range"]::-webkit-slider-thumb {
 /* ─── "Working" aura ─────────────────────────────────────────────────────────
  * A real, dynamic wave of iridescent smoke hugging the pane edge while a
  * session works. Rendered by <AuraWave> (components/AuraWave.tsx): an SVG whose
- * `fog` path is rebuilt every frame from ~140 border points displaced by a
- * multi-harmonic sine sum; the ring between the border and that contour is
- * filled and blurred → haze that fades 100→0 inward. Wave SPEED tracks session
+ * `fog` contours are rebuilt every frame from ~140 border points displaced by a
+ * multi-harmonic sine sum; nested graded-opacity fills between the border and
+ * the wave ramp the alpha 100→0 inward → soft smoke, no blur. SPEED tracks session
  * activity (see lib/auraActivity.ts). Host = this container (position:absolute,
  * overflow:hidden, border-radius:inherit). Rendered only while working → zero
  * idle cost; the shared rAF freezes when `.anims-paused` is set on <html>. */
@@ -1125,11 +1125,14 @@ input[type="range"]::-webkit-slider-thumb {
  * edge to 0 at the wave, so it reads as iridescent smoke fading 100→0 from the
  * border inward. The host's overflow:hidden clips the outer side so the border
  * stays full. Fill (the per-instance gradient) is set inline in AuraWave. */
+/* Each of the nested fog contours. Opacity is set per-layer in AuraWave: their
+ * graded-opacity overlap ramps alpha 100→0 from the border to the wave, giving
+ * soft smoke WITHOUT a per-frame blur (blurring changing geometry is far too
+ * costly at many panes, and CSS `filter: blur()` on an inner SVG <path> does not
+ * even render in WKWebView). */
 .chat-working-aura .wave-svg .fog {
   fill-rule: evenodd;
   stroke: none;
-  opacity: 0.9;
-  filter: blur(10px);
 }
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
