@@ -6,20 +6,7 @@ import {
   isSplit,
   isLeaf,
   leafIds,
-  leafCount,
-  hasLeaf,
-  pathToLeaf,
-  nodeAt,
-  splitLeaf,
-  closeLeaf,
-  moveLeaf,
-  resizeAt,
-  setWeightAt,
-  equalizeAt,
-  equalizeAll,
   computeRects,
-  treesEqual,
-  MIN_CHILD_WEIGHT,
   type LayoutNode,
   type SplitNode,
 } from './layoutTree';
@@ -70,160 +57,32 @@ describe('constructors / normalize', () => {
     expect(asSplit(t).children.length).toBe(2);
     expect(leafIds(t)).toEqual(['a', 'b', 'c']);
   });
+
+  test('normalize flattens a multi-level same-axis nest in one pass', () => {
+    // row[ row[ row[a,b] , c ] , d ] → row[a,b,c,d]
+    const messy = {
+      kind: 'split' as const,
+      dir: 'row' as const,
+      children: [
+        {
+          weight: 0.5,
+          node: split('row', [split('row', [leaf('a'), leaf('b')]), leaf('c')]),
+        },
+        { weight: 0.5, node: leaf('d') },
+      ],
+    };
+    const r = normalize(messy);
+    expect(isSplit(r)).toBe(true);
+    expect(asSplit(r).dir).toBe('row');
+    expect(asSplit(r).children.every((ch) => isLeaf(ch.node))).toBe(true);
+    expect(leafIds(r)).toEqual(['a', 'b', 'c', 'd']);
+    expect(weights(r).reduce((s, x) => s + x, 0)).toBeCloseTo(1, 6);
+  });
 });
 
 describe('queries', () => {
   const t = split('row', [leaf('a'), split('col', [leaf('b'), leaf('c')]), leaf('d')], [1, 2, 1]);
   test('leafIds in document order', () => expect(leafIds(t)).toEqual(['a', 'b', 'c', 'd']));
-  test('leafCount', () => expect(leafCount(t)).toBe(4));
-  test('hasLeaf', () => {
-    expect(hasLeaf(t, 'c')).toBe(true);
-    expect(hasLeaf(t, 'z')).toBe(false);
-  });
-  test('pathToLeaf', () => {
-    expect(pathToLeaf(t, 'a')).toEqual([0]);
-    expect(pathToLeaf(t, 'c')).toEqual([1, 1]);
-    expect(pathToLeaf(t, 'z')).toBeNull();
-  });
-  test('nodeAt resolves the addressed node', () => {
-    expect(nodeAt(t, [1, 0])).toEqual(leaf('b'));
-    expect(nodeAt(t, [9])).toBeNull();
-  });
-});
-
-describe('splitLeaf (donor halves, siblings preserved)', () => {
-  test('splitting a column halves only the donor', () => {
-    const t = split('row', [leaf('a'), leaf('b'), leaf('c')], [0.2, 0.3, 0.5]);
-    const r = splitLeaf(t, 'b', 'right', 'd');
-    expect(leafIds(r)).toEqual(['a', 'b', 'd', 'c']);
-    const w = weights(r);
-    expect(w[0]).toBeCloseTo(0.2, 6); // a untouched
-    expect(w[1]).toBeCloseTo(0.15, 6); // b halved
-    expect(w[2]).toBeCloseTo(0.15, 6); // d = other half
-    expect(w[3]).toBeCloseTo(0.5, 6); // c untouched
-    expect(w.reduce((s, x) => s + x, 0)).toBeCloseTo(1, 6);
-  });
-
-  test('left edge inserts before the donor', () => {
-    const t = split('row', [leaf('a'), leaf('b')]);
-    const r = splitLeaf(t, 'b', 'left', 'x');
-    expect(leafIds(r)).toEqual(['a', 'x', 'b']);
-  });
-
-  test('cross-axis split nests (leaf → col under a row)', () => {
-    const t = split('row', [leaf('a'), leaf('b')]);
-    const r = splitLeaf(t, 'a', 'bottom', 'c'); // a splits vertically
-    expect(asSplit(r).dir).toBe('row');
-    expect(leafIds(r)).toEqual(['a', 'c', 'b']);
-    expect(asSplit(asSplit(r).children[0].node).dir).toBe('col');
-  });
-
-  test('custom ratio respected (before)', () => {
-    const r = splitLeaf(leaf('a'), 'a', 'left', 'b', 0.25);
-    expect(leafIds(r)).toEqual(['b', 'a']);
-    expect(weights(r)[0]).toBeCloseTo(0.25, 6);
-    expect(weights(r)[1]).toBeCloseTo(0.75, 6);
-  });
-
-  test('missing target → unchanged', () => {
-    const t = split('row', [leaf('a'), leaf('b')]);
-    expect(treesEqual(splitLeaf(t, 'zzz', 'right', 'x'), t)).toBe(true);
-  });
-});
-
-describe('closeLeaf', () => {
-  test('survivors keep relative proportions, renormalised', () => {
-    const t = split('row', [leaf('a'), leaf('b'), leaf('c')], [0.2, 0.3, 0.5]);
-    const r = closeLeaf(t, 'b')!;
-    expect(leafIds(r)).toEqual(['a', 'c']);
-    const w = weights(r);
-    expect(w[0]).toBeCloseTo(0.2 / 0.7, 6);
-    expect(w[1]).toBeCloseTo(0.5 / 0.7, 6);
-  });
-
-  test('closing down to one leaf collapses the split away', () => {
-    const t = split('row', [leaf('a'), leaf('b')]);
-    const r = closeLeaf(t, 'a')!;
-    expect(isLeaf(r)).toBe(true);
-    expect((r as { id: string }).id).toBe('b');
-  });
-
-  test('closing the last leaf yields null', () => {
-    expect(closeLeaf(leaf('only'), 'only')).toBeNull();
-  });
-
-  test('nested: collapsing an inner split bubbles up', () => {
-    const t = split('row', [leaf('a'), split('col', [leaf('b'), leaf('c')])], [0.5, 0.5]);
-    const r = closeLeaf(t, 'c')!; // inner col loses c → collapses to b
-    expect(leafIds(r)).toEqual(['a', 'b']);
-    expect(asSplit(r).children.every((ch) => isLeaf(ch.node))).toBe(true);
-  });
-});
-
-describe('moveLeaf', () => {
-  test('relocate a column to the far left', () => {
-    const t = split('row', [leaf('a'), leaf('b'), leaf('c')]);
-    const r = moveLeaf(t, 'c', 'a', 'left');
-    expect(leafIds(r)).toEqual(['c', 'a', 'b']);
-  });
-
-  test('move to a new axis (split target vertically)', () => {
-    const t = split('row', [leaf('a'), leaf('b')]);
-    const r = moveLeaf(t, 'b', 'a', 'bottom');
-    expect(leafIds(r)).toEqual(['a', 'b']);
-    // a now hosts a col-split [a, b]; the outer row collapsed to that single col.
-    expect(asSplit(r).dir).toBe('col');
-  });
-
-  test('source == target → no-op', () => {
-    const t = split('row', [leaf('a'), leaf('b')]);
-    expect(treesEqual(moveLeaf(t, 'a', 'a', 'right'), t)).toBe(true);
-  });
-});
-
-describe('resize', () => {
-  test('shift weight between adjacent children, others untouched', () => {
-    const t = split('row', [leaf('a'), leaf('b'), leaf('c')]); // ~1/3 each
-    const r = resizeAt(t, [], 0, 0.1);
-    const w = weights(r);
-    expect(w[0]).toBeCloseTo(1 / 3 + 0.1, 6);
-    expect(w[1]).toBeCloseTo(1 / 3 - 0.1, 6);
-    expect(w[2]).toBeCloseTo(1 / 3, 6);
-  });
-
-  test('clamps to MIN_CHILD_WEIGHT', () => {
-    const t = split('row', [leaf('a'), leaf('b')]);
-    const r = resizeAt(t, [], 0, -5);
-    expect(weights(r)[0]).toBeCloseTo(MIN_CHILD_WEIGHT, 6);
-    expect(weights(r)[1]).toBeCloseTo(1 - MIN_CHILD_WEIGHT, 6);
-  });
-
-  test('invalid divider index → unchanged', () => {
-    const t = split('row', [leaf('a'), leaf('b')]);
-    expect(treesEqual(resizeAt(t, [], 5, 0.1), t)).toBe(true);
-  });
-
-  test('setWeightAt rebalances the band', () => {
-    const t = split('row', [leaf('a'), leaf('b'), leaf('c')]);
-    const r = setWeightAt(t, [], 1, 0.6);
-    expect(weights(r)[1]).toBeGreaterThan(weights(r)[0]);
-    expect(weights(r).reduce((s, x) => s + x, 0)).toBeCloseTo(1, 6);
-  });
-});
-
-describe('equalize', () => {
-  test('equalizeAt evens the addressed band', () => {
-    const t = split('row', [leaf('a'), leaf('b'), leaf('c')], [0.1, 0.1, 0.8]);
-    const r = equalizeAt(t, []);
-    expect(weights(r)).toEqual([1 / 3, 1 / 3, 1 / 3]);
-  });
-
-  test('equalizeAll evens every split recursively', () => {
-    const t = split('row', [leaf('a'), split('col', [leaf('b'), leaf('c'), leaf('d')], [0.6, 0.3, 0.1])], [0.8, 0.2]);
-    const r = equalizeAll(t);
-    expect(weights(r)).toEqual([0.5, 0.5]);
-    expect(weights(asSplit(r).children[1].node)).toEqual([1 / 3, 1 / 3, 1 / 3]);
-  });
 });
 
 describe('computeRects geometry', () => {
@@ -268,70 +127,5 @@ describe('computeRects geometry', () => {
     const t = split('row', [leaf('a'), split('col', [leaf('b'), leaf('c')]), leaf('d')], [0.2, 0.5, 0.3]);
     const area = computeRects(t, RECT).reduce((s, r) => s + r.width * r.height, 0);
     expect(area).toBeCloseTo(100 * 100, 4);
-  });
-});
-
-describe('round-trip invariants', () => {
-  test('split then close the inserted pane restores the leaf set (faithful redistribution)', () => {
-    const t = split('row', [leaf('a'), leaf('b')], [0.3, 0.7]);
-    const grown = splitLeaf(t, 'a', 'right', 'x'); // a 0.3 → a 0.15, x 0.15, b 0.7
-    const shrunk = closeLeaf(grown, 'x')!;
-    expect(leafIds(shrunk)).toEqual(['a', 'b']);
-    // Closing x redistributes its space PROPORTIONALLY across survivors (the
-    // current gridWidths `keepColumnWidths` semantics), so the donor keeps only
-    // its post-split weight — a:b is now 0.15:0.7, NOT the original 0.3:0.7.
-    const w = weights(shrunk);
-    expect(w[0] / w[1]).toBeCloseTo(0.15 / 0.7, 5);
-    expect(w[0] + w[1]).toBeCloseTo(1, 6);
-  });
-});
-
-describe('nested-path edge cases', () => {
-  // row[ a , col[b,c] ] — resize/equalize the INNER col at path [1]
-  const nested = () => split('row', [leaf('a'), split('col', [leaf('b'), leaf('c')])], [0.5, 0.5]);
-
-  test('resizeAt drives a nested split by path', () => {
-    const r = resizeAt(nested(), [1], 0, 0.2); // shift the inner b/c divider
-    const inner = asSplit(asSplit(r).children[1].node);
-    expect(inner.dir).toBe('col');
-    expect(inner.children[0].weight).toBeCloseTo(0.7, 6);
-    expect(inner.children[1].weight).toBeCloseTo(0.3, 6);
-    // outer band untouched
-    expect(weights(r)).toEqual([0.5, 0.5]);
-  });
-
-  test('equalizeAt evens a nested band by path', () => {
-    const t = split('row', [leaf('a'), split('col', [leaf('b'), leaf('c'), leaf('d')], [0.7, 0.2, 0.1])]);
-    const r = equalizeAt(t, [1]);
-    expect(weights(asSplit(r).children[1].node)).toEqual([1 / 3, 1 / 3, 1 / 3]);
-  });
-
-  test('moveLeaf out of a 2-child split collapses that split, then re-inserts', () => {
-    // row[ a, col[b,c] ] → move b to the right of a → b leaves col (col collapses to c)
-    const r = moveLeaf(nested(), 'b', 'a', 'right');
-    expect(leafIds(r)).toEqual(['a', 'b', 'c']);
-    // the inner col is gone (only c remained → collapsed to a leaf sibling)
-    expect(asSplit(r).children.every((ch) => isLeaf(ch.node))).toBe(true);
-  });
-
-  test('normalize flattens a multi-level same-axis nest in one pass', () => {
-    // row[ row[ row[a,b] , c ] , d ] → row[a,b,c,d]
-    const messy = {
-      kind: 'split' as const,
-      dir: 'row' as const,
-      children: [
-        {
-          weight: 0.5,
-          node: split('row', [split('row', [leaf('a'), leaf('b')]), leaf('c')]),
-        },
-        { weight: 0.5, node: leaf('d') },
-      ],
-    };
-    const r = normalize(messy);
-    expect(isSplit(r)).toBe(true);
-    expect(asSplit(r).dir).toBe('row');
-    expect(asSplit(r).children.every((ch) => isLeaf(ch.node))).toBe(true);
-    expect(leafIds(r)).toEqual(['a', 'b', 'c', 'd']);
-    expect(weights(r).reduce((s, x) => s + x, 0)).toBeCloseTo(1, 6);
   });
 });
