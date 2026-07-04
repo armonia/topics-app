@@ -53,10 +53,9 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
 interface KeyboardShortcutsProps {
   isOpen: boolean;
   onClose: () => void;
-  isElectron?: boolean;
 }
 
-export function KeyboardShortcuts({ isOpen, onClose, isElectron }: KeyboardShortcutsProps) {
+export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
   if (!isOpen) return null;
 
   return (
@@ -74,7 +73,7 @@ export function KeyboardShortcuts({ isOpen, onClose, isElectron }: KeyboardShort
         </div>
         <div className="p-4 max-h-[60vh] overflow-y-auto space-y-5">
           {SHORTCUT_GROUPS.map(group => {
-            const shortcuts = group.shortcuts.filter(s => isElectron || !s.desktopOnly);
+            const shortcuts = group.shortcuts.filter(s => !s.desktopOnly);
             if (shortcuts.length === 0) return null;
             return (
               <div key={group.title}>

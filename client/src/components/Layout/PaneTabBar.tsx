@@ -552,10 +552,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // a single global slot. The local handler that used to live here was
   // removed; we keep the badges wired up so users still see ⌘N hints, but
   // the indices now reflect the global tab order, not the per-group order.
-  const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
-  // `window.electronAPI` is typed in client/src/types/electron.d.ts.
-  const isElectron = !!window.electronAPI?.isElectron;
-
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
   return (
@@ -1030,7 +1026,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           >
             <X size={14} />
             <span className="flex-1 text-left">Close now</span>
-            {isElectron && <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}W</kbd>}
           </button>
           <button
             onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
