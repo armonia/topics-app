@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import {
-  soloCellKey, flattenSoloCells, removeTopicFromCells, addSoloCell, extractToOwnCell,
+  soloCellKey, flattenSoloCells, removeTopicFromCells, extractToOwnCell,
   moveTopicToCell, pruneSoloCells, soloCellsFromFlat, primaryFromSoloCellKey,
   remapTopicInCells, reorderCellPreservingPrimary,
 } from './soloCells';
@@ -10,12 +10,6 @@ describe('soloCells — model primitives', () => {
     expect(soloCellsFromFlat(['A', 'B'])).toEqual([['A'], ['B']]);
     expect(soloCellKey(['A'])).toBe('solo:A');
     expect(soloCellKey(['B', 'A'])).toBe('solo:B'); // primary = first
-  });
-
-  test('addSoloCell splits a topic into its own cell, idempotent', () => {
-    expect(addSoloCell([], 'A')).toEqual([['A']]);
-    expect(addSoloCell([['A']], 'A')).toEqual([['A']]); // already solo → no dup
-    expect(addSoloCell([['A']], 'B')).toEqual([['A'], ['B']]);
   });
 
   test('THE FEATURE: moveTopicToCell merges a tab into a populated cell', () => {
