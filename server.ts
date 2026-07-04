@@ -28,7 +28,6 @@ import { createUsageRouter } from "./server/routes/usage";
 import { initUsageStore, rebuildSummary } from "./server/usage/store";
 import { createAgentsRouter } from "./server/routes/agents";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
-import { createSpacesRouter } from "./server/routes/spaces";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createBrowserService } from "./server/browser-service";
@@ -289,7 +288,6 @@ const memoryRouter = createMemoryRouter(ctx);
 const usageRouter = createUsageRouter(ctx);
 const agentsRouter = createAgentsRouter(ctx);
 const checkpointsRouter = createCheckpointsRouter(ctx);
-const spacesRouter = createSpacesRouter(ctx);
 const openclawContextRouter = aiProvider.name === 'openclaw' ? createOpenClawContextRouter(ctx) : null;
 // Always-on: serves /api/topics/:id/context-preview and /context-snapshots.
 // Independent of which provider is the default — every provider benefits
@@ -725,7 +723,6 @@ const server = Bun.serve<WSData>({
         || await agentsRouter(req, url, pathname, method)
         || await checkpointsRouter(req, url, pathname, method)
         || await journalRouter(req, url, pathname, method)
-        || await spacesRouter(req, url, pathname, method)
         || (openclawContextRouter && await openclawContextRouter(req, url, pathname, method))
         || await contextPreviewRouter(req, url, pathname, method)
         || await tagsRouter(req, url, pathname, method)
