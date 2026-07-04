@@ -407,6 +407,38 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     };
   }, [id, ready, isVisible, maybeFireSelfFocus]);
 
+  // Background tab title/url/favicon. The fast poll above is gated on isVisible, so
+  // a browser pane opened/navigated while it's NOT the foreground tab (agent-opened,
+  // or any non-active tab) would never fetch its <title> and the tab would stay
+  // label-less. Run a SLOW (2.5s), cheap title/url/favicon read while hidden so its
+  // tab still converges to a real label; foreground panes are covered by the fast
+  // poll (this effect is off then — the two gates are complementary). No console
+  // drain / focus bump here (those only matter for the visible pane).
+  useEffect(() => {
+    if (!ready || isVisible) return;
+    let stop = false;
+    let inFlight = false;
+    const META =
+      "(function(){try{return JSON.stringify({u:location.href,t:document.title," +
+      "f:(document.querySelector(\"link[rel~='icon']\")||{}).href||location.origin+'/favicon.ico'})}catch(e){return ''}})()";
+    const tick = async () => {
+      if (stop || inFlight) return;
+      inFlight = true;
+      try {
+        const raw = await tauriInvoke<string>('browser_eval_js', { id, js: META });
+        if (stop || !raw) return;
+        const s = JSON.parse(raw) as { u: string; t: string; f: string };
+        if (s.u && s.u !== 'about:blank') setUrl(s.u);
+        if (s.t) setTitle(s.t);
+        if (s.f) setFaviconUrl(s.f);
+      } catch { /* pane closing / eval timeout — next tick retries */ }
+      finally { inFlight = false; }
+    };
+    void tick(); // prime once immediately so the label appears fast on open
+    const iv = window.setInterval(tick, 2500);
+    return () => { stop = true; window.clearInterval(iv); };
+  }, [id, ready, isVisible]);
+
   // #3 instant focus-on-click. The 800ms data poll above ALSO detects clicks
   // into the native pane (the pointerdown bump → activate the tab), but at up to
   // 800ms latency the tab activates visibly late. A native WKWebView composites
