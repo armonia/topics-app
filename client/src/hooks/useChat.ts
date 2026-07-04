@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ChatMessage, ChatRequest, ContentBlock, HistoryMessage, Message, ToolCall, WSMessage } from '../types';
 import { chatApi } from '../lib/api';
+import { bumpAura } from '../lib/auraActivity';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { useRefMirror } from './useRefMirror';
@@ -308,6 +309,11 @@ export function useChat() {
   };
 
   const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
+    // Feed the working aura: every streamed delta (SSE foreground + WS cross-
+    // window both funnel through here) is a unit of activity → the wave speeds
+    // up while tokens flow fast and eases back on a lull. Keyed by sessionKey,
+    // which is exactly what the aura reads (topic.sessionKey).
+    bumpAura(sessionKey);
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
       const lastMessageIndex = sessionMessages.length - 1;

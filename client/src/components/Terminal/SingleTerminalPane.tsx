@@ -10,6 +10,8 @@ import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkPr
 import { signalsActions, useTerminalFinished, useTerminalReloading, useTerminalWorkingRing } from '../../state/signals';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
+import { AuraWave } from '../AuraWave';
+import { bumpAura } from '../../lib/auraActivity';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -330,6 +332,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     function connectWs() {
       const ws = new WebSocket(`${serverWsBase()}/ws/terminal/${sessionId}`);
       ws.binaryType = 'arraybuffer';
+      // Don't count the scrollback backlog (flushed before `replay-end`) as live
+      // activity — only real-time PTY output should drive the working aura's speed.
+      let replayed = false;
 
       // Update ref so onData/paste always use the current WS
       if (termRef.current) {
@@ -357,11 +362,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           // JSON. Anything else is treated as plain output for forward compat.
           try {
             const msg = JSON.parse(data);
-            if (msg && msg.type === 'replay-end') return;
+            if (msg && msg.type === 'replay-end') { replayed = true; return; }
           } catch { /* not JSON — write as-is */ }
           term.write(data);
+          if (replayed) bumpAura(sessionId, 0.2);
         } else if (data instanceof ArrayBuffer) {
           term.write(new Uint8Array(data));
+          // weight by chunk size so a fast, chatty session pushes the wave harder
+          if (replayed) bumpAura(sessionId, 0.15 + Math.min(0.4, data.byteLength / 2000));
         }
       };
 
@@ -648,11 +656,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             pointer-events:none, z-30, border-radius inherit). Absolutely
             positioned over the xterm container, so it never touches xterm's
             layout or fit. Rendered only when working → zero idle cost. */}
-        {showWorkingRing && (
-          <div className="chat-working-aura" aria-hidden="true">
-            <s /><b className="aura-o1" /><b className="aura-o2" /><b className="aura-o3" /><b className="aura-o4" /><b className="aura-o5" /><b className="aura-o6" />
-          </div>
-        )}
+        {showWorkingRing && <AuraWave activityId={sessionId} />}
         {/* Copy button for non-touch */}
         {!isTouchDevice && !stale && (
           <button
