@@ -332,3 +332,50 @@ describe("buildSidebarItems — pinning (Fissati)", () => {
     expect(groups.project.map((i) => i.id)).toEqual([`project:${PP}`]);
   });
 });
+
+describe("buildSidebarItems — browser row title (tab/sidebar parity)", () => {
+  const browserBase = { ...base, workspaceProjects: [], topics: {}, terminalSessions: [] };
+  const CTX = "ctx1";
+  const paneId = `browser:${CTX}`;
+
+  test("paneTitleById (global pane store) drives the row name — matches the tab", () => {
+    const items = buildSidebarItems({
+      ...browserBase,
+      openPanels: [paneId],
+      paneTitleById: new Map([[paneId, "Example Domain"]]),
+    });
+    const row = items.find((i) => i.id === paneId);
+    expect(row?.name).toBe("Example Domain");
+  });
+
+  test("falls back to the server context title when the store has none", () => {
+    const items = buildSidebarItems({
+      ...browserBase,
+      openPanels: [paneId],
+      browserContexts: [{ id: CTX, url: "https://news.example.com/x", title: "Server Title", lastActivity: 0 }],
+    });
+    expect(items.find((i) => i.id === paneId)?.name).toBe("Server Title");
+  });
+
+  test("falls back to hostname, then 'Browser', when no title is known", () => {
+    const withHost = buildSidebarItems({
+      ...browserBase,
+      openPanels: [paneId],
+      browserContexts: [{ id: CTX, url: "https://www.github.com/foo", title: "", lastActivity: 0 }],
+    });
+    expect(withHost.find((i) => i.id === paneId)?.name).toBe("github.com");
+
+    const bare = buildSidebarItems({ ...browserBase, openPanels: [paneId] });
+    expect(bare.find((i) => i.id === paneId)?.name).toBe("Browser");
+  });
+
+  test("the store title wins over a stale server context title", () => {
+    const items = buildSidebarItems({
+      ...browserBase,
+      openPanels: [paneId],
+      paneTitleById: new Map([[paneId, "Live Page Title"]]),
+      browserContexts: [{ id: CTX, url: "https://example.com", title: "Old Server Title", lastActivity: 0 }],
+    });
+    expect(items.find((i) => i.id === paneId)?.name).toBe("Live Page Title");
+  });
+});
