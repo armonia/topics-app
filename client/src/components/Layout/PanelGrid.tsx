@@ -9,6 +9,7 @@ import { getProjectGridWeight, subscribeProjectGridWeights, type ProjectGridWeig
 import { useGridResize } from '../../hooks/useGridResize';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
+import { spawnDragGhost } from './dragGhost';
 import { SpaceSwitcher } from './SpaceSwitcher';
 import { popOutTopics } from '../../lib/popOutTopic';
 import { DetachedWindowMarker } from './DetachedWindowMarker';
@@ -1232,24 +1233,11 @@ export function PanelGrid({
     e.dataTransfer.effectAllowed = 'move';
 
     const topic = topics[topicId];
-    const ghost = document.createElement('div');
-    ghost.style.cssText = `
-      position:fixed;left:-9999px;top:-9999px;
-      display:flex;align-items:center;gap:6px;
-      padding:6px 14px;border-radius:8px;
-      background:color-mix(in srgb, var(--primary) 90%, transparent);color:#fff;
-      font:500 13px/1 Inter,system-ui,sans-serif;
-      box-shadow:0 4px 12px rgba(0,0,0,0.15);
-      white-space:nowrap;pointer-events:none;
-    `;
-    ghost.textContent = `${topic?.icon || '\uD83D\uDCAC'} ${topic?.name || 'Chat'}`;
-    document.body.appendChild(ghost);
-    activeGhostsRef.current.add(ghost);
-    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
-    requestAnimationFrame(() => {
-      if (ghost.parentElement) document.body.removeChild(ghost);
-      activeGhostsRef.current.delete(ghost);
-    });
+    spawnDragGhost(
+      e,
+      { text: `${topic?.icon || '\uD83D\uDCAC'} ${topic?.name || 'Chat'}`, size: 'md' },
+      activeGhostsRef.current,
+    );
 
     if (windowId) {
       sendWS({ type: 'drag:start', topicId, windowId });
