@@ -4,6 +4,7 @@ import { PaneTabBar } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
 import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
+import { spawnDragGhost } from './dragGhost';
 import { equalizeWidths, weightedWidths } from './gridWidths';
 import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTypes';
 import { canSplitPane } from './splitRules';
@@ -486,23 +487,7 @@ export function GroupLayout({
     e.dataTransfer.setData(DND_TYPES.LAYOUT_ROW, String(rowIdx));
     e.dataTransfer.effectAllowed = 'move';
 
-    const ghost = document.createElement('div');
-    ghost.style.cssText = `
-      position:fixed;left:-9999px;top:-9999px;
-      padding:4px 12px;border-radius:6px;
-      background:color-mix(in srgb, var(--primary) 80%, transparent);color:#fff;
-      font:500 12px/1 Inter,system-ui,sans-serif;
-      box-shadow:0 2px 8px rgba(0,0,0,0.15);
-      white-space:nowrap;pointer-events:none;
-    `;
-    ghost.textContent = `Row ${rowIdx + 1}`;
-    document.body.appendChild(ghost);
-    activeGhostsRef.current.add(ghost);
-    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
-    requestAnimationFrame(() => {
-      if (ghost.parentElement) document.body.removeChild(ghost);
-      activeGhostsRef.current.delete(ghost);
-    });
+    spawnDragGhost(e, { text: `Row ${rowIdx + 1}`, size: 'sm' }, activeGhostsRef.current);
   }, [onReorderRows]);
 
   const handleRowDragOver = useCallback((rowIdx: number) => (e: React.DragEvent) => {
