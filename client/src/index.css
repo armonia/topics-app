@@ -1106,13 +1106,32 @@ input[type="range"]::-webkit-slider-thumb {
   animation: chat-working-ring-in 300ms ease-out;
 }
 /* SVG overlay that carries the dynamic wave (positions written per frame by
- * AuraWave via setAttribute — no React re-render). */
+ * AuraWave via setAttribute — no React re-render).
+ *
+ * The static mask feathers the OUTER ~11px of every edge to transparent (four
+ * edge gradients INTERSECTED, so corners fade doubly and softly). Without it the
+ * smoke is opaque right at the window border and reads as a hard, cut edge —
+ * most visible at the rounded corners. With it the haze fades to nothing on the
+ * border side too, so there are no crisp edges anywhere. The mask is static
+ * (only the masked content animates) so it stays cheap. */
 .chat-working-aura .wave-svg {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   overflow: visible;
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, #fff 11px),
+    linear-gradient(to top, transparent, #fff 11px),
+    linear-gradient(to right, transparent, #fff 11px),
+    linear-gradient(to left, transparent, #fff 11px);
+  -webkit-mask-composite: source-in, source-in, source-in;
+  mask-image:
+    linear-gradient(to bottom, transparent, #fff 11px),
+    linear-gradient(to top, transparent, #fff 11px),
+    linear-gradient(to right, transparent, #fff 11px),
+    linear-gradient(to left, transparent, #fff 11px);
+  mask-composite: intersect;
 }
 /* `base` is the invisible geometry path AuraWave samples for border positions +
  * inward normals; never painted. */
