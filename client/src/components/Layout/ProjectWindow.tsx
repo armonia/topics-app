@@ -15,7 +15,7 @@ import {
   useClosedTabs,
 } from '../../state/pane/adapters';
 import { DND_TYPES } from '../../lib/dndTypes';
-import { isRealUrl } from '../../state/pane/browserPaneUrl';
+import { isRealUrl, shouldPersistBrowserTitle } from '../../state/pane/browserPaneUrl';
 import { computeProjectGridWeight, setProjectGridWeight, clearProjectGridWeight } from '../../state/projectGridWeights';
 import { sendFocusTopic, sendBlur } from '../../lib/focusMessaging';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
@@ -356,6 +356,9 @@ export function ProjectWindowPane({
               // isRealUrl == the standalone path's guard (browserPaneUrl.ts) — it
               // also drops chrome-error: pages, which the old inline check missed.
               onUrlChange={(u) => { if (isRealUrl(u) && u !== pane.url) updatePane(pane.id, { url: u }); }}
+              // Label the project browser tab with the live page title (gated so
+              // a manual rename — titleSource='user' — survives navigation).
+              onTitleChange={(t) => { if (shouldPersistBrowserTitle(pane.title, pane.titleSource, t)) updatePane(pane.id, { title: t.trim(), titleSource: 'auto' }); }}
               onFocusPanel={onFocusPanel}
               topics={topics}
               // A click inside the native pane never reaches React, so activate

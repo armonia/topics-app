@@ -66,6 +66,15 @@ export interface Pane {
    * mount. Whitelisted in sanitizePane.
    */
   url?: string;
+  /**
+   * Provenance of `title` for a browser pane — the browser analogue of a
+   * terminal session's `name_source`. `'auto'` (or absent) = the title tracks
+   * the live page title (persisted from the WKWebView poll); `'user'` = the
+   * user renamed the tab, which pins the title so the poll no longer overwrites
+   * it. Only set on browser panes. MUST be whitelisted in sanitizePane
+   * (reducers/sanitizeSnapshot.ts) or it's erased on every server round-trip.
+   */
+  titleSource?: 'auto' | 'user';
   // Legacy pane-shape fields — carried through sync so a round-trip through
   // the server doesn't silently erase tab metadata. Every field here must
   // also appear in sanitizePane's whitelist (reducers/sanitizeSnapshot.ts).

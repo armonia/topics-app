@@ -267,7 +267,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         id,
         type: 'chat',
         topicId,
-        title: topics[topicId]?.name || 'Chat',
+        title: topics[topicId]?.name || 'New Chat',
         preview: false,
       });
     }
@@ -904,7 +904,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
             id: paneId,
             type: 'chat' as PaneType,
             topicId,
-            title: topic?.name || 'Chat',
+            title: topic?.name || 'New Chat',
             preview: false,
           },
         ];
@@ -972,7 +972,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       onPendingFocusConsumed?.();
       return;
     }
-    reopenChatPaneRef.current?.(pendingFocusTopicId, t.name || 'Chat', pendingFocusTargetGroupId);
+    reopenChatPaneRef.current?.(pendingFocusTopicId, t.name || 'New Chat', pendingFocusTargetGroupId);
     onPendingFocusConsumed?.();
   }, [pendingFocusTopicId, pendingFocusTargetGroupId, topics, projectPath, onPendingFocusConsumed]);
 
