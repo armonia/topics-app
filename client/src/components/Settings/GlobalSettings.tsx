@@ -14,8 +14,6 @@ interface GlobalSettingsProps {
   onSettingsChange: (settings: AppSettings) => void;
   themeMode?: ThemeMode;
   onThemeChange?: (mode: ThemeMode) => void;
-  /** Desktop (Electron) build — gates desktop-only options (e.g. floating splits). */
-  isElectron?: boolean;
 }
 
 type SectionId = 'appearance' | 'notifications' | 'features' | 'providers' | 'shortcuts';
