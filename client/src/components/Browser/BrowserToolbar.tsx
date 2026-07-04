@@ -3,9 +3,9 @@ import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLe
 import { AgentActivityPill } from './AgentActivityPill';
 import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
-import { overlayMenusAvailable, showOverlayMenu } from '../../lib/overlayMenu';
-import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
+import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { DropdownPortal } from '../Shared/DropdownPortal';
+import { Menu } from '../Shared/Menu';
 import { openExternalOnce } from '../../lib/openExternal';
 
 /** Split a URL into scheme / host / rest for Chrome-style emphasis (host bold,
@@ -102,7 +102,7 @@ export function BrowserToolbar({
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const historyMenuRef = useRef<HTMLDivElement>(null);
+  const historyBtnRef = useRef<HTMLButtonElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [faviconError, setFaviconError] = useState(false);
   const urlParts = useMemo(() => splitUrlParts(url), [url]);
@@ -130,44 +130,28 @@ export function BrowserToolbar({
 
   // Back/forward navigation-history menu (Chrome-style right-click / long-press).
   const [navMenu, setNavMenu] = useState<{ side: 'back' | 'forward'; entries: NavHistoryEntry[]; activeIndex: number } | null>(null);
-  const navMenuRef = useRef<HTMLDivElement>(null);
+  const backBtnRef = useRef<HTMLButtonElement>(null);
+  const forwardBtnRef = useRef<HTMLButtonElement>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFiredRef = useRef(false);
-  const openNavMenu = useCallback(async (side: 'back' | 'forward', anchorEl: HTMLElement | null) => {
+  const openNavMenu = useCallback(async (side: 'back' | 'forward') => {
     if (!getNavEntries) return;
     const { entries, activeIndex } = await getNavEntries();
     const filtered = side === 'back'
       ? entries.filter(e => e.index < activeIndex).reverse()
       : entries.filter(e => e.index > activeIndex);
     if (filtered.length === 0) return;
-    // Native menu above the OS-level WebContentsView (Electron); React dropdown
-    // is the web/screenshot fallback.
-    if (overlayMenusAvailable()) {
-      const id = await showOverlayMenu({
-        anchorEl,
-        items: filtered.map(e => ({ id: String(e.index), label: e.title || e.url })),
-        side: 'bottom',
-        estimatedWidth: 340,
-      });
-      if (id != null) onGoToNavIndex?.(Number(id));
-      return;
-    }
+    // React <Menu> popover (portal + flip/clamp + Escape/keyboard) — renders
+    // above the native WKWebView pane via Menu's glass-surface occlusion marker.
     setNavMenu({ side, entries, activeIndex });
-  }, [getNavEntries, onGoToNavIndex]);
-  useEffect(() => {
-    if (!navMenu) return;
-    const h = (e: MouseEvent) => { if (navMenuRef.current && !navMenuRef.current.contains(e.target as Node)) setNavMenu(null); };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [navMenu]);
+  }, [getNavEntries]);
   const navButtonHandlers = (side: 'back' | 'forward', navFn: () => void) => ({
     onClick: () => { if (longPressFiredRef.current) { longPressFiredRef.current = false; return; } navFn(); },
-    onContextMenu: (e: React.MouseEvent) => { if (!getNavEntries) return; e.preventDefault(); void openNavMenu(side, e.currentTarget as HTMLElement); },
-    onMouseDown: (e: React.MouseEvent) => {
+    onContextMenu: (e: React.MouseEvent) => { if (!getNavEntries) return; e.preventDefault(); void openNavMenu(side); },
+    onMouseDown: () => {
       if (!getNavEntries) return;
       longPressFiredRef.current = false;
-      const anchorEl = e.currentTarget as HTMLElement;
-      longPressRef.current = setTimeout(() => { longPressFiredRef.current = true; void openNavMenu(side, anchorEl); }, 450);
+      longPressRef.current = setTimeout(() => { longPressFiredRef.current = true; void openNavMenu(side); }, 450);
     },
     onMouseUp: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
     onMouseLeave: () => { if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; } },
@@ -188,18 +172,6 @@ export function BrowserToolbar({
       el.select();
     });
   }, [onRegisterFocus]);
-
-  // Close history dropdown on outside click.
-  useEffect(() => {
-    if (!historyOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (historyMenuRef.current && !historyMenuRef.current.contains(e.target as Node)) {
-        setHistoryOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [historyOpen]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -251,6 +223,7 @@ export function BrowserToolbar({
       )}
       {/* Navigation buttons. Right-click / long-press opens the history menu. */}
       <button
+        ref={backBtnRef}
         {...navButtonHandlers('back', onBack)}
         disabled={!canGoBack}
         className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
@@ -259,6 +232,7 @@ export function BrowserToolbar({
         <ArrowLeft size={14} />
       </button>
       <button
+        ref={forwardBtnRef}
         {...navButtonHandlers('forward', onForward)}
         disabled={!canGoForward}
         className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary disabled:opacity-30 transition-colors"
@@ -267,32 +241,39 @@ export function BrowserToolbar({
         <ArrowRight size={14} />
       </button>
 
-      {/* Back/forward history menu */}
-      {navMenu && (
-        <div
-          ref={navMenuRef}
-          className={`absolute top-full left-2 mt-1 z-50 min-w-[260px] max-w-[460px] ${POPOVER_SURFACE}`}
-          data-testid="browser-nav-history-menu"
-        >
-          {(() => {
-            const items = navMenu.side === 'back'
-              ? navMenu.entries.filter(e => e.index < navMenu.activeIndex).reverse()
-              : navMenu.entries.filter(e => e.index > navMenu.activeIndex);
-            if (items.length === 0) {
-              return <div className="px-3 py-1.5 text-[11px] text-app-text-faint">Nessuna voce</div>;
-            }
-            return items.map((e) => (
-              <button key={e.index} type="button"
-                onClick={() => { onGoToNavIndex?.(e.index); setNavMenu(null); }}
-                className="w-full px-3 py-1.5 text-left hover:bg-app-hover"
-                title={e.url}>
-                <div className="text-[12px] text-app-text truncate">{e.title || e.url}</div>
-                <div className="text-[10px] text-app-text-faint truncate">{e.url}</div>
-              </button>
-            ));
-          })()}
-        </div>
-      )}
+      {/* Back/forward history menu — anchored React <Menu> (portal, flip/clamp,
+          Escape + roving keyboard nav, focus-restore), rendered above the native
+          WKWebView pane via Menu's glass-surface occlusion marker. */}
+      <Menu
+        open={!!navMenu}
+        anchorRef={navMenu?.side === 'forward' ? forwardBtnRef : backBtnRef}
+        onClose={() => setNavMenu(null)}
+        align="left"
+        minWidth={260}
+        className="max-w-[460px]"
+      >
+        {navMenu && (() => {
+          const items = navMenu.side === 'back'
+            ? navMenu.entries.filter(e => e.index < navMenu.activeIndex).reverse()
+            : navMenu.entries.filter(e => e.index > navMenu.activeIndex);
+          if (items.length === 0) {
+            return <div className="px-3 py-1.5 text-[11px] text-app-text-faint">Nessuna voce</div>;
+          }
+          return (
+            <div data-testid="browser-nav-history-menu">
+              {items.map((e) => (
+                <button key={e.index} type="button"
+                  onClick={() => { onGoToNavIndex?.(e.index); setNavMenu(null); }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-app-hover"
+                  title={e.url}>
+                  <div className="text-[12px] text-app-text truncate">{e.title || e.url}</div>
+                  <div className="text-[10px] text-app-text-faint truncate">{e.url}</div>
+                </button>
+              ))}
+            </div>
+          );
+        })()}
+      </Menu>
       <button
         onClick={onRefresh}
         className={`w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors ${loading ? 'animate-spin' : ''}`}
@@ -447,34 +428,26 @@ export function BrowserToolbar({
         <>
           {/* Phase 30 BROWSER-CHAT-04 — URL history dropdown (per-topic, last 10) */}
           {history && history.length > 0 && (
-            <div className="relative" ref={historyMenuRef}>
+            <>
               <button
+                ref={historyBtnRef}
                 type="button"
-                onClick={async (e) => {
-                  // Native menu above the WebContentsView (Electron); React dropdown fallback on web.
-                  if (overlayMenusAvailable()) {
-                    const id = await showOverlayMenu({
-                      anchorEl: e.currentTarget,
-                      items: history!.slice(0, 10).map((u) => ({ id: u, label: u })),
-                      side: 'bottom',
-                      estimatedWidth: 380,
-                    });
-                    if (id != null) onUrlChange(id);
-                    return;
-                  }
-                  setHistoryOpen((open) => !open);
-                }}
+                onClick={() => setHistoryOpen((open) => !open)}
                 className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-secondary transition-colors"
                 title="Recent URLs"
                 data-testid="browser-history-button"
               >
                 <Clock size={14} />
               </button>
-              {historyOpen && (
-                <div
-                  className={`absolute top-full right-0 mt-1 z-50 min-w-[260px] max-w-[480px] ${POPOVER_SURFACE}`}
-                  data-testid="browser-history-menu"
-                >
+              <Menu
+                open={historyOpen}
+                anchorRef={historyBtnRef}
+                onClose={() => setHistoryOpen(false)}
+                align="right"
+                minWidth={260}
+                className="max-w-[480px]"
+              >
+                <div data-testid="browser-history-menu">
                   {history.slice(0, 10).map((entry) => (
                     <button
                       key={entry}
@@ -487,8 +460,8 @@ export function BrowserToolbar({
                     </button>
                   ))}
                 </div>
-              )}
-            </div>
+              </Menu>
+            </>
           )}
 
           {/* Phase 30.1 polish — DevTools toggle (Electron native only) */}

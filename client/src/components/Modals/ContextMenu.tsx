@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { PenLine, Smile, Palette, Bot, Trash2, Pin, PinOff, ExternalLink, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
 import { TOPIC_ICONS, getTopicIcon } from '@/lib/topicIcons';
-import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { useDismissable } from '@/hooks/useDismissable';
 
 interface ContextMenuProps {
   x: number;
@@ -35,20 +37,11 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
-    };
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('keydown', handleEsc);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('keydown', handleEsc);
-    };
-  }, [onClose]);
+  // ONE dismissal contract: capture-phase outside-pointer + Escape close. The
+  // rename input's ref is included so clicking into it (it lives inside menuRef
+  // anyway) can never dismiss. No persistent trigger for a cursor-positioned
+  // menu → restoreFocus:false (an open rename input keeps its own focus).
+  useDismissable({ open: true, onClose, refs: [menuRef, inputRef], restoreFocus: false });
 
   useEffect(() => {
     if (subMenu === 'rename') {
@@ -80,13 +73,16 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
 
   const pos = adjustedStyle();
 
-  return (
+  // Portaled to <body> so position:fixed escapes any transformed / overflow /
+  // stacking-context ancestor, and Z_CONTEXT_MENU keeps it on the shared
+  // popover plane (above portaled dropdowns / the project menu).
+  return createPortal(
     <div
       ref={menuRef}
       role="menu"
       aria-label={`Actions for ${topic.name}`}
-      className={`fixed z-50 ${POPOVER_SURFACE} min-w-[200px]`}
-      style={{ left: pos.left, top: pos.top }}
+      className={`fixed ${POPOVER_SURFACE} min-w-[200px]`}
+      style={{ left: pos.left, top: pos.top, zIndex: Z_CONTEXT_MENU }}
     >
       {subMenu === 'none' && (
         <>
@@ -191,7 +187,8 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
         </div>
       )}
 
-    </div>
+    </div>,
+    document.body
   );
 }
 
