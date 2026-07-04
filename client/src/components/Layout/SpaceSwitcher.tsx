@@ -18,10 +18,11 @@
  * the tab bar and sidebar read — badge-parity invariant, no switcher-only
  * math.
  */
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
+import { useDismissable } from '../../hooks/useDismissable';
 import { usePaneStore } from '../../state/pane/store';
 import { selectVisiblePaneIds } from '../../state/pane/selectors';
 import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
@@ -30,7 +31,7 @@ import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
 import { useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { SELECTED_SURFACE, RESTING_SURFACE, ROW_INSET } from '../../lib/selectionStyles';
-import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER } from '../../lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
 import { generateUUID } from '../../utils/uuid';
 import { clearPanelGridStorage } from './usePanelGridPersistence';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
@@ -171,23 +172,14 @@ export function SpaceSwitcher() {
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Dismiss the chip menu on outside click / Escape — same pattern as the
-  // tab bar's context menu.
-  useEffect(() => {
-    if (!chipMenu) return;
-    const onDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setChipMenu(null);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setChipMenu(null);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [chipMenu]);
+  // Dismiss the chip menu via the shared contract (capture-phase pointerdown +
+  // touch + Escape, focus-restore). The rename input lives inside menuRef, so it
+  // counts as "inside" for free. Cursor-anchored positioning is kept below.
+  useDismissable({
+    open: chipMenu !== null,
+    onClose: () => setChipMenu(null),
+    refs: [menuRef],
+  });
 
   const ordered = useMemo(() => liveSpacesOrdered(spaces), [spaces]);
 
@@ -269,8 +261,8 @@ export function SpaceSwitcher() {
       {chipMenu && menuSpace && !menuSpace.deleted && createPortal(
         <div
           ref={menuRef}
-          className={`fixed ${POPOVER_SURFACE} z-[9999] min-w-[170px]`}
-          style={{ top: chipMenu.y, left: chipMenu.x }}
+          className={`fixed ${POPOVER_SURFACE} min-w-[170px]`}
+          style={{ top: chipMenu.y, left: chipMenu.x, zIndex: Z_POPOVER }}
         >
           {renameDraft !== null ? (
             <form

@@ -4,11 +4,13 @@
  * user can check / download / install updates from one place. In web mode it
  * falls back to the service-worker update hint.
  */
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RefreshCw, Check, AlertCircle, Rocket } from 'lucide-react';
 import { useUpdater } from '@/lib/updater';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
+import { useDismissable } from '@/hooks/useDismissable';
+import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { isDesktop } from '@/lib/shell';
 
 function platformLabel(): string {
@@ -41,21 +43,20 @@ export function VersionPopover({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Ref view of the raw anchor element so it counts as "inside" for dismissal
+  // and acts as the focus-restore trigger (refs[0]).
+  const anchorRef = useRef<HTMLElement | null>(null);
+  anchorRef.current = anchorEl;
   const { available, status, check, download, install } = useUpdater();
   const { updateAvailable: swUpdate } = useServiceWorkerUpdate();
 
-  // Close on outside click / Escape.
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (ref.current?.contains(t) || anchorEl?.contains(t)) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { onClose(); e.stopPropagation(); } };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey, true);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey, true); };
-  }, [anchorEl, onClose]);
+  // Close on outside pointer / Escape via the shared contract. The component is
+  // only mounted while open, so `open` is always true here.
+  useDismissable({
+    open: true,
+    onClose,
+    refs: [anchorRef, ref],
+  });
 
   if (!anchorEl) return null;
   const rect = anchorEl.getBoundingClientRect();
@@ -63,12 +64,13 @@ export function VersionPopover({
   return createPortal(
     <div
       ref={ref}
-      className="glass-surface border border-app-border rounded-lg shadow-lg w-[260px] p-3 space-y-3"
+      role="dialog"
+      className={`${POPOVER_PANEL} w-[260px] p-3 space-y-3`}
       style={{
         position: 'fixed',
         bottom: window.innerHeight - rect.top + 6,
         right: Math.max(8, window.innerWidth - rect.right),
-        zIndex: 9999,
+        zIndex: Z_POPOVER,
       }}
     >
       {/* Identity */}

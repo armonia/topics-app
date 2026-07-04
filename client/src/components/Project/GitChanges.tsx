@@ -9,7 +9,8 @@ import { BranchList } from '../Git/BranchList';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
-import { POPOVER_SURFACE, POPOVER_PANEL } from '@/lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_PANEL, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
+import { useDismissable } from '../../hooks/useDismissable';
 import { MODAL_PANEL } from '@/lib/modalStyles';
 
 interface GitChangesProps {
@@ -80,20 +81,12 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const branchDropdownRef = useRef<HTMLDivElement>(null);
   const branchBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Close branch dropdown on click outside
-  useEffect(() => {
-    if (!showBranches) return;
-    const onClick = (e: MouseEvent) => {
-      if (
-        branchDropdownRef.current && !branchDropdownRef.current.contains(e.target as Node) &&
-        branchBtnRef.current && !branchBtnRef.current.contains(e.target as Node)
-      ) {
-        setShowBranches(false);
-      }
-    };
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, [showBranches]);
+  // Dismissal for the branch dropdown (compact & full modes share these refs).
+  useDismissable({
+    open: showBranches,
+    onClose: () => setShowBranches(false),
+    refs: [branchBtnRef, branchDropdownRef],
+  });
 
   // Detect dark mode
   const [darkMode, setDarkMode] = useState(false);
@@ -316,17 +309,13 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
-  // Close context menu on outside click / escape
-  useEffect(() => {
-    if (!contextMenu) return;
-    const onMouseDown = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) closeContextMenu();
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeContextMenu(); };
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onMouseDown); document.removeEventListener('keydown', onKey); };
-  }, [contextMenu, closeContextMenu]);
+  // Dismissal for the file context menu (right-click, positioned at the cursor).
+  useDismissable({
+    open: !!contextMenu,
+    onClose: closeContextMenu,
+    refs: [contextMenuRef],
+    restoreFocus: false,
+  });
 
   // Clear selection when the set of changed files changes
   const fileKeys = useMemo(() => gitStatus?.files.map(f => f.path).sort().join('\n') ?? '', [gitStatus]);
@@ -439,8 +428,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     return createPortal(
       <div
         ref={contextMenuRef}
-        className={`fixed ${POPOVER_SURFACE} min-w-[180px] z-[10000] text-[12px]`}
-        style={{ left: x, top: y }}
+        role="menu"
+        className={`fixed ${POPOVER_SURFACE} min-w-[180px] text-[12px]`}
+        style={{ left: x, top: y, zIndex: Z_CONTEXT_MENU }}
       >
         <div className="px-3 py-1 text-[11px] text-app-text-muted truncate border-b border-app-border mb-0.5">
           {label}
@@ -788,10 +778,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {showBranches && branchBtnRef.current && createPortal(
           <div
             ref={branchDropdownRef}
-            className={`fixed w-52 max-h-[220px] overflow-y-auto ${POPOVER_PANEL} z-[9999]`}
+            className={`fixed w-52 max-h-[220px] overflow-y-auto ${POPOVER_PANEL}`}
             style={{
               top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
               left: branchBtnRef.current.getBoundingClientRect().left,
+              zIndex: Z_POPOVER,
             }}
           >
             <BranchList
@@ -1111,10 +1102,11 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       {showBranches && branchBtnRef.current && createPortal(
         <div
           ref={branchDropdownRef}
-          className={`fixed w-56 max-h-[320px] overflow-y-auto ${POPOVER_PANEL} z-[9999]`}
+          className={`fixed w-56 max-h-[320px] overflow-y-auto ${POPOVER_PANEL}`}
           style={{
             top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
             left: branchBtnRef.current.getBoundingClientRect().left,
+            zIndex: Z_POPOVER,
           }}
         >
           <BranchList

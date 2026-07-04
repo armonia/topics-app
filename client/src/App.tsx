@@ -24,6 +24,8 @@ import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
 import { initDevBundleReload } from './lib/devBundleReload';
+import { useDismissable } from './hooks/useDismissable';
+import { POPOVER_SURFACE, POPOVER_PANEL, Z_POPOVER } from './lib/popoverStyles';
 
 // Tauri-on-macOS chrome parity: like Electron, the traffic lights are HIDDEN by
 // default and revealed only while the Topics menu is open (the Rust shell hides
@@ -267,34 +269,24 @@ function App() {
   const topicsDropdownRef = useRef<HTMLDivElement>(null);
   const [topicsMenuPos, setTopicsMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
-  // Close topics menu on outside click or Escape
-  useEffect(() => {
-    if (!showTopicsMenu) return;
-    const h = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (topicsMenuRef.current?.contains(t) || topicsDropdownRef.current?.contains(t)) return;
-      setShowTopicsMenu(false); setExpandedTool(null);
-    };
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setShowTopicsMenu(false); setExpandedTool(null); e.stopPropagation(); } };
-    document.addEventListener('mousedown', h);
-    document.addEventListener('keydown', k, true);
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
-  }, [showTopicsMenu]);
+  // Close topics menu on outside click or Escape (canonical useDismissable
+  // contract: capture-phase pointer/touch + Escape). Trigger wrapper + dropdown
+  // panel both count as "inside". restoreFocus off to preserve prior behaviour.
+  useDismissable({
+    open: showTopicsMenu,
+    onClose: () => { setShowTopicsMenu(false); setExpandedTool(null); },
+    refs: [topicsMenuRef, topicsDropdownRef],
+    restoreFocus: false,
+  });
 
   // Close remote access dropdown on outside click or Escape. The trigger now
-  // lives inside the Topics ▾ menu, so guard against the Topics menu wrapper.
-  useEffect(() => {
-    if (expandedTool !== 'remote') return;
-    const h = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (topicsMenuRef.current?.contains(t) || remoteAccessDropdownRef.current?.contains(t)) return;
-      setExpandedTool(null);
-    };
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { setExpandedTool(null); e.stopPropagation(); } };
-    document.addEventListener('mousedown', h);
-    document.addEventListener('keydown', k, true);
-    return () => { document.removeEventListener('mousedown', h); document.removeEventListener('keydown', k, true); };
-  }, [expandedTool]);
+  // lives inside the Topics ▾ menu, so the Topics menu wrapper counts as "inside".
+  useDismissable({
+    open: expandedTool === 'remote',
+    onClose: () => setExpandedTool(null),
+    refs: [topicsMenuRef, remoteAccessDropdownRef],
+    restoreFocus: false,
+  });
 
 
   const {
@@ -1038,13 +1030,13 @@ function App() {
       {showTopicsMenu && createPortal(
         <div
           ref={topicsDropdownRef}
-          className="glass-surface border border-app-border rounded-lg shadow-lg min-w-[200px]"
-          style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: 9999 }}
+          className={`${POPOVER_SURFACE} min-w-[200px]`}
+          style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: Z_POPOVER }}
         >
           {/* Sidebar controls relocated from the old <SidebarControls> row. */}
           <button
             onClick={() => { sidebar.toggleShowArchived(); }}
-            className={`w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] hover:bg-app-hover transition-colors mt-1 ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
+            className={`w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] hover:bg-app-hover transition-colors ${sidebar.showArchived ? 'text-primary' : 'text-app-text'}`}
           >
             <Archive size={isMobile ? 18 : 14} className={sidebar.showArchived ? 'text-primary' : ''} />
             <span className="flex-1 text-left">Mostra archiviati</span>
@@ -1125,7 +1117,6 @@ function App() {
             <SettingsIcon size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Settings</span>
           </button>
-          <div className="h-1" />
         </div>,
         document.body
       )}
@@ -1139,14 +1130,14 @@ function App() {
       {expandedTool === 'remote' && topicsMenuRef.current && createPortal(
         <div
           ref={remoteAccessDropdownRef}
-          className="glass-surface border border-app-border rounded-lg shadow-lg min-w-[300px]"
+          className={`${POPOVER_PANEL} min-w-[300px]`}
           style={{
             position: 'fixed',
             // Anchored to the Topics ▾ menu (its trigger is now the menu item),
             // opening at the same spot as the Topics dropdown.
             top: topicsMenuPos.top,
             left: topicsMenuPos.left,
-            zIndex: 9999,
+            zIndex: Z_POPOVER,
           }}
         >
           <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
