@@ -229,7 +229,12 @@ export async function executeNativeBrowserOp(
 
         const payload = { ref, action, text: a.text, value: a.value, key: a.key, dy: a.dy };
         const actJs = `JSON.stringify((${ACT_FN.toString()})(${JSON.stringify(payload)}))`;
-        const actRaw = await invoke<string>('browser_eval_js', { id, js: actJs });
+        // preserveFocus: ACT_FN calls el.focus() on the target field (fill/type/press),
+        // which would make this pane's WKWebView the OS key view and steal focus off
+        // wherever the user is typing (e.g. another chat). The native eval saves and
+        // restores the window's first-responder around the action so an agent act
+        // never yanks the user's focus.
+        const actRaw = await invoke<string>('browser_eval_js', { id, js: actJs, preserveFocus: true });
         let actRes: { ok: boolean; error?: string };
         try {
           actRes = JSON.parse(actRaw || '{"ok":false}');

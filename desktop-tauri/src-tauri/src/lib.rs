@@ -1994,7 +1994,7 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
 /// the main thread (Tauri commands are — the handler runs ON main, we block a
 /// worker on `rx`). macOS only; Win/Linux need WebView2/WebKitGTK equivalents.
 #[cfg(target_os = "macos")]
-fn eval_js_blocking(wv: &tauri::Webview, js: String) -> Result<String, String> {
+fn eval_js_blocking(wv: &tauri::Webview, js: String, preserve_focus: bool) -> Result<String, String> {
     use std::sync::mpsc;
     use std::time::Duration;
     let (tx, rx) = mpsc::channel::<Result<String, String>>();
@@ -2020,6 +2020,21 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String) -> Result<String, String> {
         }
         unsafe {
             let wk = platform.inner() as id; // WKWebView
+            // Focus-neutral eval. Agent actions (ACT_FN fill/type/press) call
+            // `el.focus()` on a page field, which makes THIS pane's WKWebView the
+            // window first-responder — yanking OS key focus off wherever the user was
+            // typing (e.g. a chat input in the main webview). When the caller asks to
+            // preserve focus, snapshot the window's first-responder BEFORE the JS runs
+            // and restore it in the completion handler if the eval grabbed it. Read
+            // polls don't set the flag, so the constant title/url poll pays nothing.
+            // Pointers captured as usize (Copy/Send) for the completion block.
+            let (win_u, saved_fr_u): (usize, usize) = if preserve_focus {
+                let w: id = msg_send![wk, window];
+                let fr: id = if w != nil { msg_send![w, firstResponder] } else { nil };
+                (w as usize, fr as usize)
+            } else {
+                (0, 0)
+            };
             // callAsyncJavaScript: (macOS 11+) treats the string as an async function
             // BODY and AWAITS a returned Promise — the fix for async IIFEs / top-level
             // await that the old evaluateJavaScript: returned as an "unsupported type"
@@ -2038,6 +2053,16 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String) -> Result<String, String> {
             let world: id = msg_send![class!(WKContentWorld), pageWorld];
             let tx2 = tx.clone();
             let handler = block::ConcreteBlock::new(move |result: id, error: id| {
+                // Restore the pre-eval first-responder if the JS grabbed it onto this
+                // pane (an agent action focused a field). No-op when focus didn't move
+                // or when the user was already in this pane (saved == current).
+                if win_u != 0 && saved_fr_u != 0 {
+                    let w = win_u as id;
+                    let now_fr: id = msg_send![w, firstResponder];
+                    if now_fr as usize != saved_fr_u {
+                        let _: () = msg_send![w, makeFirstResponder: saved_fr_u as id];
+                    }
+                }
                 let out = if error != nil { Err(id_to_string(error)) } else { Ok(id_to_string(result)) };
                 let _ = tx2.send(out);
             });
@@ -2067,8 +2092,9 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String) -> Result<String, String> {
 /// hop to the blocking pool via `spawn_blocking` so we never stall an async
 /// runtime worker, leaving main free to service the completion handler.
 #[tauri::command]
-async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String) -> Result<String, String> {
+async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String, preserve_focus: Option<bool>) -> Result<String, String> {
     let label = browser_label(&id);
+    let preserve_focus = preserve_focus.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Manager;
         let wv = app
@@ -2076,7 +2102,7 @@ async fn browser_eval_js(app: tauri::AppHandle, id: String, js: String) -> Resul
             .ok_or_else(|| "no such browser pane".to_string())?;
         #[cfg(target_os = "macos")]
         {
-            return eval_js_blocking(&wv, js);
+            return eval_js_blocking(&wv, js, preserve_focus);
         }
         #[allow(unreachable_code)]
         {
