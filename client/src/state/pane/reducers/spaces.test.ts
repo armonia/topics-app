@@ -288,6 +288,23 @@ describe("mergeSpaces (per-id LWW, tombstone-wins, anti-clobber)", () => {
     expect(mergeSpaces(localDeleted, remoteStaleRename)["space:a"].deleted).toBe(true);
   });
 
+  test("delete is ABSORBING: a rename with a HIGHER updatedAt still cannot resurrect (clock skew)", () => {
+    // The real resurrection bug: a rename that raced the delete (or a skewed
+    // clock) carries a numerically-higher updatedAt than the tombstone. Plain
+    // updatedAt-LWW would un-delete the space; the absorbing latch must not.
+    const localDeleted = { "space:a": space("space:a", { updatedAt: 20, deleted: true }) };
+    const remoteNewerRename = { "space:a": space("space:a", { name: "Zombie", updatedAt: 99 }) };
+    const merged = mergeSpaces(localDeleted, remoteNewerRename)["space:a"];
+    expect(merged.deleted).toBe(true);
+    // Latest fields are kept on the tombstone (harmless), but it stays deleted.
+    expect(merged.name).toBe("Zombie");
+
+    // Symmetric: local rename is newer, remote delete is older — still deleted.
+    const localNewerRename = { "space:a": space("space:a", { name: "Live?", updatedAt: 99 }) };
+    const remoteOlderDelete = { "space:a": space("space:a", { updatedAt: 20, deleted: true }) };
+    expect(mergeSpaces(localNewerRename, remoteOlderDelete)["space:a"].deleted).toBe(true);
+  });
+
   test("never admits a default-space record", () => {
     const merged = mergeSpaces({}, { [DEFAULT_SPACE_ID]: space(DEFAULT_SPACE_ID) });
     expect(merged[DEFAULT_SPACE_ID]).toBeUndefined();
