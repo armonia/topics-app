@@ -211,8 +211,6 @@ export interface BrowserObserveResult {
   full: boolean;
   /** Base64 annotated JPEG — present only when screenshot:true was requested. */
   screenshot_annotated?: string;
-  /** Legacy a11y tree — present only when screenshot:true (compat). */
-  a11y_tree?: string;
 }
 
 export async function handleBrowserObserve(
@@ -249,8 +247,9 @@ export async function handleBrowserObserve(
         const elements = await ops.extractIndexedElements({ maxElements: max });
         observeCache.set(contextId, elements);
         result.screenshot_annotated = await ops.captureAnnotatedScreenshot(elements);
-        const a11y = await ops.accessibilitySnapshot();
-        result.a11y_tree = a11y.ariaSnapshot;
+        // NB: the compact ref snapshot above + the annotated JPEG already give the
+        // agent both structure and pixels; the old `a11y_tree` (full ariaSnapshot)
+        // duplicated the snapshot at ~3–6k tokens per call, so it's dropped.
       } catch {
         /* screenshot best-effort */
       }
@@ -596,7 +595,7 @@ export async function handleBrowserScreenshot(
       quality: 70,
       fullPage: args?.full_page ?? false,
     });
-    const vp = ops.viewport();
+    const vp = await ops.viewport();
     return {
       format: "jpeg" as const,
       data: buf.toString("base64"),
@@ -624,7 +623,7 @@ export async function handleBrowserPoint(
       format: "jpeg",
       quality: 70,
     });
-    const vp = ops.viewport();
+    const vp = await ops.viewport();
     const result = await pointObject({
       contextId,
       imageBase64: buf.toString("base64"),

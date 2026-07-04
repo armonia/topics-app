@@ -115,15 +115,33 @@ function startObserver(): void {
     return false;
   };
 
+  // An overlay can also CLOSE without unmounting — a menu/dialog toggled via
+  // `display:none` / `hidden` / `visibility` / class swap is an ATTRIBUTE change,
+  // not a childList change. Without watching those, a hidden overlay stays in the
+  // rect set and the pane it covered never thaws (a dead/frozen-looking browser).
+  // Gate on `overlays.length > 0` (a tracked overlay may have just been hidden —
+  // recompute re-verifies) or a matching target (an overlay just revealed), so the
+  // constant class churn of streaming chat with no overlay open costs nothing.
+  const attrRelevant = (m: MutationRecord): boolean => {
+    const t = m.target;
+    if (!(t instanceof Element)) return false;
+    return overlays.length > 0 || t.matches(OVERLAY_SELECTOR) || t.querySelector(OVERLAY_SELECTOR) != null;
+  };
+
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
-      if (relevant(m.addedNodes) || relevant(m.removedNodes)) {
+      if (m.type === 'attributes' ? attrRelevant(m) : (relevant(m.addedNodes) || relevant(m.removedNodes))) {
         schedule();
         return;
       }
     }
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style', 'class', 'hidden', 'aria-hidden'],
+  });
   // Initial state (in case an overlay is already open at subscribe time).
   recompute();
 }
