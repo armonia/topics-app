@@ -64,11 +64,20 @@ export function liveSpaceCount(spaces: Record<string, SpaceMeta> | undefined): n
  * Per-id LWW merge of two space registries — the HYDRATE_FROM_SNAPSHOT
  * primitive. NEVER a wholesale replace: local-only records are KEPT (two
  * devices creating different spaces inside the 500ms debounce both survive),
- * remote records win per-id only when their `updatedAt` is strictly newer,
- * and a `deleted: true` tombstone wins like any other newer write (delete
- * propagates; a stale pre-delete rename does not resurrect). Capped at
- * SPACES_MAX keeping the most-recently-updated records (runaway backstop —
- * mirrors the closedStack keep-the-tail rule).
+ * remote records win per-id only when their `updatedAt` is strictly newer.
+ *
+ * Delete is an ABSORBING latch, NOT plain LWW: once EITHER side carries a
+ * `deleted: true` tombstone for an id, the merged record stays deleted — even
+ * if the other side's non-deleted record has a numerically-higher `updatedAt`.
+ * Pure updatedAt-LWW would let a stale pre-delete rename (clock skew, or a
+ * rename that raced a peer's delete) resurrect a space; that's a real
+ * resurrection bug. Space ids are fresh UUIDs and the only same-id re-upsert is
+ * a RENAME of a locally-live space, so there is no legitimate "revive the same
+ * deleted id across devices" flow to protect — the delete rightly wins. We keep
+ * the newer record's fields (latest name/order) but force `deleted: true`.
+ *
+ * Capped at SPACES_MAX keeping the most-recently-updated records (runaway
+ * backstop — mirrors the closedStack keep-the-tail rule).
  */
 export function mergeSpaces(
   local: Record<string, SpaceMeta> | undefined,
@@ -78,7 +87,16 @@ export function mergeSpaces(
   for (const [id, meta] of Object.entries(remote ?? {})) {
     if (id === DEFAULT_SPACE_ID) continue; // implicit — never a record
     const existing = out[id];
-    if (!existing || meta.updatedAt > existing.updatedAt) out[id] = meta;
+    if (!existing) {
+      out[id] = meta;
+    } else if (existing.deleted || meta.deleted) {
+      // Absorbing delete: keep the newer record's fields, but the tombstone
+      // never lifts via a concurrent non-deleted write.
+      const base = meta.updatedAt > existing.updatedAt ? meta : existing;
+      out[id] = base.deleted ? base : { ...base, deleted: true };
+    } else if (meta.updatedAt > existing.updatedAt) {
+      out[id] = meta;
+    }
   }
   const ids = Object.keys(out);
   if (ids.length <= SPACES_MAX) return out;
