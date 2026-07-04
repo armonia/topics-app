@@ -117,10 +117,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   const { updateAvailable } = useServiceWorkerUpdate();
   const [refreshing, setRefreshing] = useState(false);
 
-  // Desktop = Electron OR Tauri (shell-resolved). Gates the relaunch button +
-  // the live-version override + the "·desktop" affordances; under Tauri these
-  // now route through the shell bridge (was hard-wired to electronAPI → web path).
-  const isElectron = isDesktop;
+  // Desktop (Tauri) gates the relaunch button + the live-version override; these
+  // route through the shell bridge (relaunch()/getVersion()).
   const isDev = import.meta.env.DEV;
   // "Last local update" chip. Show it in dev (HMR-tracked) AND when this build
   // is RECENT — the desktop app runs the BUILT bundle (import.meta.env.DEV is
@@ -377,12 +375,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
             onClick={handleRefresh}
             disabled={refreshing}
             className={`p-0.5 rounded hover:bg-app-hover transition-colors ${updateAvailable ? 'text-primary' : 'text-app-text-muted'}`}
-            title={isElectron ? 'Riavvia l\'app' : updateAvailable ? 'Aggiornamento disponibile' : 'Ricarica'}
+            title={isDesktop ? 'Riavvia l\'app' : updateAvailable ? 'Aggiornamento disponibile' : 'Ricarica'}
           >
             {/* Distinct glyph from the dropdown's data-refresh (RefreshCw): the
-                bar button RESTARTS the app (Electron) — a different, heavier
+                bar button RESTARTS the app (desktop shell) — a different, heavier
                 action that shouldn't look identical sitting next to it. */}
-            {isElectron
+            {isDesktop
               ? <RotateCcw size={10} className={refreshing ? 'animate-spin' : ''} />
               : <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />}
           </button>

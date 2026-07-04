@@ -29,8 +29,7 @@ import { slotIsOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion
 import { serverWsBase } from '../lib/shell/net';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { parseBrowserWsMessage } from '../types/browser-ws-messages';
-import type { NativeBrowserHandle } from './useNativeBrowser';
-import type { DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
+import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
 
 /** Parking spot far outside any display — keeps the webview alive (no reload)

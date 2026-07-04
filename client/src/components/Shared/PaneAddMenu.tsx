@@ -27,11 +27,8 @@
  *         the sidebar header's standalone add menu. Also opens via the
  *         global `topics:open-add-palette` window event (⌘N).
  *
- * Every host also shares: the Electron native-overlay path (used when a
- * `WebContentsView` browser pane is open — the OS-level overlay paints above
- * the React DOM, so a regular portal would render behind it; we delegate to
- * a transparent BrowserWindow via `electronAPI.overlay`) and the mobile
- * bottom-sheet (same items, slid up from the bottom, safe-area aware).
+ * Every host also shares the mobile bottom-sheet presentation (same items, slid
+ * up from the bottom, safe-area aware).
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -62,7 +59,6 @@ import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
 import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
-import { overlayThemeColors } from '../../lib/popoverStyles';
 import { RESTING_SURFACE } from '../../lib/selectionStyles';
 import { isDesktop } from '../../lib/shell';
 import type { PaneType } from '../../types';
@@ -93,52 +89,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   BarChart3,
   LayoutGrid,
   Eye,
-};
-
-/** Subset accepted by the Electron overlay's `iconName` field (server-side
- *  renders SVG by name). Mapping mirrors ICON_MAP but with overlay-side
- *  string keys. Returns `'plus-square'` for any name we don't have.
- *
- *  Mirrors the lucide icons in `ICON_MAP` above so the Electron overlay and
- *  the web portal paint the same brand icons. Pre-fix the overlay only
- *  knew a small subset (`globe`, `terminal`, `bot`, `folder`, …) so Files /
- *  Git / Board Memory all fell through to the generic `plus-square` and
- *  Claude Code rendered a generic "bot" instead of the Anthropic glyph —
- *  which is exactly what made the user say the menus look different. */
-type OverlayIconName =
-  | 'globe'
-  | 'terminal'
-  | 'terminal-square'
-  | 'message-square'
-  | 'folder'
-  | 'folder-tree'
-  | 'git-branch'
-  | 'brain'
-  | 'file-code'
-  | 'claude'
-  | 'bot'
-  | 'file-text'
-  | 'layout'
-  | 'list'
-  | 'plus-square';
-const OVERLAY_ICON_BY_LUCIDE: Record<string, OverlayIconName> = {
-  Globe: 'globe',
-  Terminal: 'terminal',
-  TerminalSquare: 'terminal-square',
-  MessageSquare: 'message-square',
-  Folder: 'folder',
-  FolderOpen: 'folder',
-  FolderTree: 'folder-tree',
-  GitBranch: 'git-branch',
-  Brain: 'brain',
-  FileCode: 'file-code',
-  Bot: 'bot',
-  FileText: 'file-text',
-  Layout: 'layout',
-  // No native overlay icon for kanban/grid yet — fall back to layout.
-  Kanban: 'layout',
-  LayoutGrid: 'layout',
-  List: 'list',
 };
 
 /** Shared row class — identical for every host so the menu looks the same
@@ -190,10 +140,6 @@ export function PaneAddMenuItems({
   const [claudeSkipPermissions, setClaudeSkipPermissions] = useClaudeSkipPermissions();
   const { isMobile } = useMobile();
   const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
-  // Desktop = Electron OR Tauri (shell-resolved). Gates the project actions
-  // (Apri/Crea Progetto — now reachable under Tauri via the dialog-plugin
-  // selectDirectory) and the ⌘N hint. Was electronAPI-only → dead under Tauri.
-  const isElectron = isDesktop;
 
   // Touch targets are bigger on mobile, so the icons need to scale up to
   // stay legible inside the larger row. Matches the pre-unification
@@ -224,8 +170,8 @@ export function PaneAddMenuItems({
 
   // Apri / Crea Progetto are a STANDALONE-variant feature (you don't open or
   // create a project from inside a project's "+"), and need the OS folder
-  // picker — Electron only.
-  const showProjectActions = scope === 'standalone' && isElectron;
+  // picker — desktop only.
+  const showProjectActions = scope === 'standalone' && isDesktop;
 
   // Brand-tint the "New Chat" row with the chat pane's canonical accent
   // (PANE_CONFIG.chat.color = #0066ff) so it reads as part of the same
@@ -249,7 +195,7 @@ export function PaneAddMenuItems({
             style={{ color: chatColor }}
           />
           <span className="flex-1 text-left">New Chat</span>
-          {showShortcuts && isElectron && (
+          {showShortcuts && isDesktop && (
             <kbd className="kbd text-app-text-muted">{isMac ? '⌘' : '⌃'}N</kbd>
           )}
         </button>
@@ -480,23 +426,8 @@ export function PaneAddMenu({
   const hasMenuItems = !!onNewChat || (availableTypes ?? getAddableTypesForScope(scope)).length > 0;
   if (!hasMenuItems) return null;
 
-  /* ── Click handler — Electron overlay path first, web portal fallback ── */
-  const handleClick = async () => {
-    const overlayApi = window.electronAPI?.overlay;
-    const hasNativeBrowser = !!window.electronAPI?.browserNative?.isAvailable;
-    if (overlayApi && hasNativeBrowser && buttonRef.current && !open) {
-      const selectedId = await openElectronOverlayMenu({
-        anchor: buttonRef.current.getBoundingClientRect(),
-        scope,
-        onNewChat,
-        onAddPane,
-        availableTypes,
-      });
-      if (!selectedId) return;
-      dispatchOverlaySelection(selectedId, onNewChat, onAddPane);
-      return;
-    }
-    // Web fallback: anchor + open (or close on second click).
+  /* ── Click handler — anchor + open (or close on second click). ── */
+  const handleClick = () => {
     if (!open && buttonRef.current && presentation === 'dropdown') {
       setAnchorRect(computeAnchor(buttonRef.current));
     }
@@ -614,126 +545,4 @@ function computeAnchor(button: HTMLButtonElement): { top: number; left: number }
   const fitsBelow = rect.bottom + 4 + ESTIMATED_MENU_HEIGHT_PX <= window.innerHeight - 8;
   const top = fitsBelow ? rect.bottom + 4 : Math.max(8, rect.top - ESTIMATED_MENU_HEIGHT_PX - 4);
   return { top, left };
-}
-
-interface OverlayMenuItem {
-  id: string;
-  label: string;
-  iconName?: OverlayIconName;
-  /** Optional brand accent for the icon. Mirrors `PANE_CONFIG[type].color`
-   *  so the Electron overlay paints the same hue as the web menu. The
-   *  overlay-renderer ignores it if absent. */
-  iconColor?: string;
-  divider?: boolean;
-}
-
-async function openElectronOverlayMenu({
-  anchor,
-  scope,
-  onNewChat,
-  onAddPane: _onAddPane,
-  availableTypes,
-}: {
-  anchor: DOMRect;
-  scope: PaneScope;
-  onNewChat?: () => void;
-  onAddPane?: (type: PaneType, subType?: string) => void;
-  availableTypes?: readonly PaneType[];
-}): Promise<string | null> {
-  const overlayApi = window.electronAPI?.overlay;
-  if (!overlayApi) return null;
-
-  const items: OverlayMenuItem[] = [];
-  // Match the web menu's brand-tinted icons by passing `iconColor` to the
-  // overlay. Without this Claude Code shows the Anthropic glyph but in
-  // mono ink, Shell stays grey instead of terminal-purple, etc. — which is
-  // the divergence the user kept seeing between the sidebar (overlay path
-  // when a WebContentsView browser is open) and the tab bar (web portal).
-  const chatCfg = getPaneConfig('chat');
-  if (onNewChat) {
-    items.push({
-      id: 'new-chat',
-      label: 'New Chat',
-      iconName: 'message-square',
-      iconColor: chatCfg.color,
-    });
-  }
-  const types = availableTypes ?? getAddableTypesForScope(scope);
-  for (const type of types) {
-    if (type === 'terminal') {
-      const terminalCfg = getPaneConfig('terminal');
-      // Shell uses the boxed terminal-square (matches web <TerminalSquare/>)
-      // and the terminal-family purple. Claude Code gets the actual
-      // Anthropic glyph (`claude`) in Claude orange — same as the web
-      // <ClaudeIcon className="text-[#D97757]" />. Codex falls back to the
-      // overlay's `bot` glyph (the renderer's fixed icon set has no OpenAI
-      // mark yet) in mono ink, mirroring the web menu's monochrome choice.
-      items.push({
-        id: 'terminal-shell',
-        label: 'Shell',
-        iconName: 'terminal-square',
-        iconColor: terminalCfg.color,
-        divider: items.length > 0,
-      });
-      items.push({
-        id: 'terminal-claude-code',
-        label: 'Claude Code',
-        iconName: 'claude',
-        iconColor: '#D97757',
-      });
-      items.push({
-        id: 'terminal-codex',
-        label: 'Codex',
-        iconName: 'bot',
-      });
-    } else {
-      const cfg = getPaneConfig(type);
-      const iconName = OVERLAY_ICON_BY_LUCIDE[cfg.icon] ?? 'plus-square';
-      items.push({
-        id: type,
-        label: cfg.label,
-        iconName,
-        // PANE_CONFIG.color is the canonical brand accent per pane type:
-        // browser → green, git → red, files → amber, board-memory → green.
-        // Same value the web menu reads via getPaneConfig(type).color.
-        iconColor: cfg.color,
-        divider: type !== types[0] && types[0] !== 'terminal',
-      });
-    }
-  }
-
-  // Open / create a PROJECT — standalone variant only, never inside a
-  // project's "+". Distinct icons: folder (open existing) vs plus-square (new).
-  if (scope === 'standalone') {
-    items.push({ id: 'open-project', label: 'Apri Progetto', iconName: 'folder', divider: items.length > 0 });
-    items.push({ id: 'create-project', label: 'Crea Progetto', iconName: 'plus-square' });
-  }
-
-  const isDark = document.documentElement.classList.contains('dark');
-  // Shared single source of truth — same themed palette the browser toolbar's
-  // native menus use via lib/overlayMenu.ts, so every native menu matches.
-  const colors = overlayThemeColors();
-  return overlayApi.showMenu({
-    anchor: { x: anchor.left, y: anchor.top, width: anchor.width, height: anchor.height },
-    items,
-    side: 'bottom',
-    theme: isDark ? 'dark' : 'light',
-    estimatedWidth: ESTIMATED_MENU_WIDTH_PX,
-    estimatedItemHeight: 28,
-    gap: 4,
-    colors,
-  });
-}
-
-function dispatchOverlaySelection(
-  selectedId: string,
-  onNewChat?: () => void,
-  onAddPane?: (type: PaneType, subType?: string) => void,
-): void {
-  if (selectedId === 'new-chat') return onNewChat?.();
-  if (selectedId === 'terminal-shell') return onAddPane?.('terminal', 'shell');
-  if (selectedId === 'terminal-claude-code') return onAddPane?.('terminal', 'claude-code');
-  if (selectedId === 'terminal-codex') return onAddPane?.('terminal', 'codex');
-  if (selectedId === 'open-project' || selectedId === 'create-project') return openProjectPicker();
-  return onAddPane?.(selectedId as PaneType);
 }

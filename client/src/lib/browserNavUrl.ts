@@ -20,10 +20,6 @@
 export function resolveBrowserNavigateUrl(raw: string): string {
   if (typeof window === 'undefined') return raw;
 
-  // Electron native: the WebContentsView is on the server's machine — localhost
-  // is reachable and the dev server's own scheme (often http) must be kept.
-  if (window.electronAPI?.browserNative?.isAvailable) return raw;
-
   const here = window.location.hostname;
   // Local web client (same machine as the server): localhost reachable too.
   if (!here || here === 'localhost' || here === '127.0.0.1') return raw;
