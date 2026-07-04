@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'bun:test';
 import { gridRowsToTree, groupRowsToTree, treeToGridRows, treeToGroupRows } from './legacyAdapters';
-import { leafIds, computeRects, isLeaf, isSplit, splitLeaf, type LayoutNode, type SplitNode, type LeafRect, type Rect } from './layoutTree';
+import { leaf, split, leafIds, computeRects, isLeaf, isSplit, type LayoutNode, type SplitNode, type LeafRect, type Rect } from './layoutTree';
 import type { PanelGridRow, GroupLayoutRow } from '../../types';
 
 const asSplit = (n: LayoutNode): SplitNode => {
@@ -156,11 +156,13 @@ describe('round-trip legacy → tree → legacy (forward-adapter fidelity)', () 
   });
 
   test('a deeper-than-legacy tree flattens defensively (never throws)', () => {
-    // Build a tree the legacy model cannot hold: a column split, then split a leaf
-    // AGAIN on the cross axis → depth 3 inside one column.
-    let t: LayoutNode = gridRowsToTree([{ itemKeys: ['a', 'b'], widths: [0.5, 0.5] }], [1]);
-    t = splitLeaf(t, 'b', 'bottom', 'c'); // b → col[b,c]
-    t = splitLeaf(t, 'c', 'right', 'd'); // c → row[c,d] nested in the col
+    // Build a tree the legacy model cannot hold: a column split, then a leaf
+    // split AGAIN on the cross axis → depth 3 inside one column.
+    //   row[ a , col[ b , row[c, d] ] ]
+    const t: LayoutNode = split('row', [
+      leaf('a'),
+      split('col', [leaf('b'), split('row', [leaf('c'), leaf('d')])]),
+    ]);
     const back = treeToGridRows(t);
     expect(back.rows.length).toBeGreaterThan(0);
     // No throw, and every original-ish key is still referenced somewhere.
