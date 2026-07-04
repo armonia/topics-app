@@ -8,6 +8,10 @@
  * pane navigates.
  */
 import { usePaneStore } from './store';
+// Re-exported so browser-pane consumers get the hostname helper from the same
+// module as the title/url helpers; the canonical definition is the pure one in
+// lib/path-utils (no store dependency, safe for the sidebar's unit test).
+export { tryHostname } from '../../lib/path-utils';
 
 /** A URL worth persisting/restoring: not blank, not the empty page, not a
  *  failed-navigation error page (`chrome-error:`). Exported so every persist
@@ -64,5 +68,78 @@ export function persistBrowserPaneUrl(paneId: string, url: string): void {
     state.dispatch({ type: 'UPDATE_PANE', payload: { id: paneId, updates: { url } } });
   } catch {
     /* ignore — persistence is best-effort */
+  }
+}
+
+// ── Browser tab title ────────────────────────────────────────────────────────
+// A browser tab shows the live page `<title>` (polled off the WKWebView in
+// useTauriBrowser), falling back to the URL's hostname, then the constant
+// "Browser". The page title round-trips on `pane.title` exactly like `pane.url`
+// so the tab keeps its label across a restart (and a background/hidden pane,
+// whose poll is paused, keeps its last-known title instead of resetting).
+//
+// `pane.titleSource` mirrors a terminal's `name_source`: 'auto' (or absent) = the
+// title tracks the page; 'user' = the user renamed the tab, which pins it so the
+// poll's 'auto' writes no longer clobber it (see shouldPersistBrowserTitle).
+
+/** Read a browser pane's persisted title (empty when none / not store-resident).
+ *  The standalone tab bar rebuilds panes from ids and doesn't carry the stored
+ *  title, so it reads it back through here. */
+export function getBrowserPaneTitle(paneId: string): string {
+  try {
+    return usePaneStore.getState().panes[paneId]?.title || '';
+  } catch {
+    return '';
+  }
+}
+
+/** Pure gate: should an incoming auto (page-poll) title be written? Skip blank
+ *  titles, no-op writes, and any pane the user has pinned with a manual rename.
+ *  Shared by the store-backed path (standalone) and the project-layout path so
+ *  the "user rename wins" rule is defined once. */
+export function shouldPersistBrowserTitle(
+  currentTitle: string | undefined,
+  currentSource: 'auto' | 'user' | undefined,
+  incoming: string,
+): boolean {
+  const next = incoming.trim();
+  if (!next) return false; // a page with no <title> pushes '' — don't erase
+  if (currentSource === 'user') return false; // manual rename is sticky
+  if (currentTitle === next) return false; // unchanged
+  return true;
+}
+
+/**
+ * Persist a browser pane's live page title (change-gated, source-gated). No-op
+ * when the pane isn't in the global store (project-layout panes persist via
+ * updatePane), the title is blank/unchanged, or the tab was manually renamed.
+ * Stamps titleSource='auto'.
+ */
+export function persistBrowserPaneTitle(paneId: string, title: string): void {
+  try {
+    const state = usePaneStore.getState();
+    const pane = state.panes[paneId];
+    if (!pane) return; // not a store-resident pane — caller persists elsewhere
+    if (!shouldPersistBrowserTitle(pane.title, pane.titleSource, title)) return;
+    state.dispatch({ type: 'UPDATE_PANE', payload: { id: paneId, updates: { title: title.trim(), titleSource: 'auto' } } });
+  } catch {
+    /* ignore — persistence is best-effort */
+  }
+}
+
+/**
+ * Pin a browser pane's title to a user-chosen name (manual rename from the tab
+ * context menu). Stamps titleSource='user' so the page-title poll leaves it
+ * alone thereafter. Blank input is ignored.
+ */
+export function setBrowserPaneUserTitle(paneId: string, title: string): void {
+  const name = title.replace(/\s+/g, ' ').trim();
+  if (!name) return;
+  try {
+    const state = usePaneStore.getState();
+    if (!state.panes[paneId]) return;
+    state.dispatch({ type: 'UPDATE_PANE', payload: { id: paneId, updates: { title: name, titleSource: 'user' } } });
+  } catch {
+    /* ignore — best-effort */
   }
 }

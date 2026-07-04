@@ -30,3 +30,24 @@ export function basename(path: string): string {
   const idx = trimmed.lastIndexOf('/');
   return idx === -1 ? trimmed : trimmed.slice(idx + 1);
 }
+
+/**
+ * Pretty hostname for a URL (leading `www.` stripped), or the raw string when
+ * it can't be parsed. The single source both the browser tab label
+ * (browserPaneUrl re-exports it) and the sidebar row use, so the two never
+ * drift on how a URL collapses to a short label.
+ *
+ * Examples:
+ *   tryHostname('https://www.github.com/a/b') → 'github.com'
+ *   tryHostname('about:blank')                → 'about:blank' (parses, no host)
+ *   tryHostname('not a url')                  → 'not a url'
+ *   tryHostname('')                           → ''
+ */
+export function tryHostname(url: string | undefined | null): string {
+  if (!url) return '';
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}

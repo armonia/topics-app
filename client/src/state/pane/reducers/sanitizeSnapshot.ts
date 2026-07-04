@@ -119,6 +119,10 @@ function sanitizePane(raw: unknown): Pane | null {
   // Browser pane restorable URL — must round-trip so the tab reopens to its
   // page after restart (the browser analogue of chat's topicId).
   if (typeof raw.url === 'string') pane.url = raw.url;
+  // Browser title provenance (auto page-title vs a user rename). Whitelisted so
+  // a `user`-pinned tab name survives a server round-trip and the poll doesn't
+  // resurrect the page title over it after a reload.
+  if (raw.titleSource === 'auto' || raw.titleSource === 'user') pane.titleSource = raw.titleSource;
   if (typeof raw.diff === 'boolean') pane.diff = raw.diff;
   if (typeof raw.diffProjectPath === 'string') pane.diffProjectPath = raw.diffProjectPath;
   if (typeof raw.preview === 'boolean') pane.preview = raw.preview;

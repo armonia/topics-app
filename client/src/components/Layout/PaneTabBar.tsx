@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff } from 'lucide-react';
+import { X, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
@@ -46,7 +46,7 @@ import { releaseNativeFocus } from '../../lib/shell/tauri';
 // uniform affordance is both cleaner and less surprising.
 
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
-  MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban,
+  MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock,
 };
 
 // Tab status reads as two orthogonal cues, both shared with the sidebar so the
@@ -685,7 +685,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // surface, never a flashing attention fill — the fix for "the tab I'm on
         // keeps pulsing". A background/dimmed needy tab keeps its tier fill.
         const onFill = attentionTier !== null && !isFullyActive;
-        const label = pane.title || (pane.type === 'chat' ? 'Chat' : config.label);
+        const label = pane.title || (pane.type === 'chat' ? 'New Chat' : config.label);
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
         const isNotSelf = !draggedPaneId || draggedPaneId !== pane.id;

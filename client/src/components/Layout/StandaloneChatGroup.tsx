@@ -23,7 +23,8 @@ import {
   useProjectTabStatus,
   type ProjectTabStatus,
 } from '../../state/pane/adapters';
-import { persistBrowserPaneUrl, getBrowserPaneUrl } from '../../state/pane/browserPaneUrl';
+import { persistBrowserPaneUrl, getBrowserPaneUrl, persistBrowserPaneTitle, getBrowserPaneTitle, tryHostname } from '../../state/pane/browserPaneUrl';
+import { TERMINAL_AGENT_LABELS, normalizeTerminalAgent } from '../../lib/terminalAgents';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { ProjectWindowPane } from './ProjectWindow';
@@ -186,11 +187,15 @@ export function StandaloneChatGroup({
   });
   const { validatedOrderedIds, effectivePinnedIds, activePaneId } = ordering.derived;
 
-  // Terminal pane labels derived from server sessions
+  // Terminal pane labels derived from server sessions. Fall back to the
+  // agent-specific label (Shell / Claude Code / Codex) when the roster carries
+  // no name yet — the SAME expression the project window uses (useProjectLayout),
+  // so a session with no name reads identically in both tab bars (was a generic
+  // "Terminal" here vs the agent label there).
   const terminalLabels = useMemo(() => {
     const map: Record<string, string> = {};
     for (const s of terminalSessions) {
-      map[`terminal:${s.id}`] = s.name;
+      map[`terminal:${s.id}`] = s.name || TERMINAL_AGENT_LABELS[normalizeTerminalAgent(s.type)];
     }
     return map;
   }, [terminalSessions]);
@@ -218,16 +223,21 @@ export function StandaloneChatGroup({
     validatedOrderedIds.map(id => {
       const isPreview = !effectivePinnedIds.has(id);
       if (isBrowserPaneId(id)) {
+        // This map rebuilds panes from ids each render and ignores the stored
+        // pane.title, so read the persisted title back explicitly. Resolution
+        // order matches the sidebar (buildSidebarItems): live/persisted page
+        // title → hostname of the real URL → "Browser".
+        const bUrl = getBrowserPaneUrl(id);
         return {
           id,
           type: 'browser' as PaneType,
-          title: 'Browser',
+          title: getBrowserPaneTitle(id) || tryHostname(bUrl) || 'Browser',
           preview: false,
           // Seed the persisted URL from the store so renderPaneBody passes it
           // as initialUrl → the tab reopens to its page after a restart instead
           // of about:blank. (This map reconstructs panes from ids, so without
           // this the url never reaches the render.)
-          url: getBrowserPaneUrl(id),
+          url: bUrl,
         };
       }
       if (isTerminalPaneId(id)) {
@@ -286,7 +296,10 @@ export function StandaloneChatGroup({
         id,
         type: 'chat' as PaneType,
         topicId: id,
-        title: topics[id]?.name || 'Chat',
+        // One placeholder for an as-yet-unnamed chat everywhere ("New Chat" —
+        // the server's own default topic name), so a loading/draft tab never
+        // flips between "Chat" and "New Chat" across surfaces.
+        title: topics[id]?.name || 'New Chat',
         preview: isPreview,
       };
     }), [validatedOrderedIds, topics, effectivePinnedIds, terminalLabels]);
@@ -627,6 +640,9 @@ export function StandaloneChatGroup({
             onNavigateConsumed={isPaneActive ? () => setBrowserNavigateUrl(null) : undefined}
             // Persist each navigation onto the pane so the next restart restores it.
             onUrlChange={(u) => persistBrowserPaneUrl(paneId, u)}
+            // Persist the live page title so the tab labels with it (gated so a
+            // manual rename — titleSource='user' — is never overwritten).
+            onTitleChange={(t) => persistBrowserPaneTitle(paneId, t)}
             // Drives WebContentsView visibility — `display:none` on the
             // keep-alive wrapper doesn't reach the OS-level overlay, so
             // we tell it explicitly. Without this, the inactive browser's
