@@ -24,8 +24,8 @@ import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
 import { useDetachedTopicMap } from '@/state/windowPresence';
-import { POPOVER_SURFACE, POPOVER_ITEM, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
-import { useDismissable } from '@/hooks/useDismissable';
+import { POPOVER_ITEM } from '@/lib/popoverStyles';
+import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
@@ -159,7 +159,6 @@ export function TopicTree({
   // also gone — the canonical <PaneAddMenu> component owns its own
   // button ref and open/close state.
   const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean } | null>(null);
-  const projectCtxMenuRef = useRef<HTMLDivElement>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
   const { isTouch } = useMobile();
   // Awaiting-feedback sets, read once here so the (non-component) renderProjectItem
@@ -180,16 +179,6 @@ export function TopicTree({
       return Array.from(set);
     });
   }, [onToggleProject]);
-
-  // Close project context menu on outside click or Escape (canonical
-  // useDismissable contract). Cursor-positioned menu with no trigger element to
-  // restore focus to, so restoreFocus off — matches the prior hand-rolled effect.
-  useDismissable({
-    open: !!projectContextMenu,
-    onClose: () => setProjectContextMenu(null),
-    refs: [projectCtxMenuRef],
-    restoreFocus: false,
-  });
 
   // ── Build unified items ──────────────────────────────────────────────────
 
@@ -429,8 +418,10 @@ export function TopicTree({
         depth={depth}
         isFocused={isFocused}
         isOpen={isOpen}
+        pinned={!!item.pinned}
         onOpenBrowser={onOpenBrowser}
         onCloseBrowser={onCloseBrowser}
+        onTogglePin={onTogglePin ? () => onTogglePin(paneId) : undefined}
       />
     );
   };
@@ -745,23 +736,13 @@ export function TopicTree({
       </div>
 
       {/* Project context menu */}
-      {projectContextMenu && (() => {
-        // Clamp the click point so the menu never spills past the viewport
-        // (mirrors ProviderModelPicker's Math.min approach). Width = the menu's
-        // min-w (160px); height is estimated from the visible item count
-        // (~34px/row desktop + the py-1 wrapper) since we have no ref to measure.
-        const MENU_W = 160;
-        const itemCount = (projectContextMenu.unreadTopicIds.length > 0 ? 1 : 0) + (onTogglePin ? 1 : 0) + (onArchiveProject ? 1 : 0);
-        const menuH = itemCount * 34 + 8;
-        const left = Math.max(8, Math.min(projectContextMenu.x, window.innerWidth - MENU_W - 8));
-        const top = Math.max(8, Math.min(projectContextMenu.y, window.innerHeight - menuH - 8));
-        return (
-        <div
-          ref={projectCtxMenuRef}
-          role="menu"
-          className={`fixed ${POPOVER_SURFACE} min-w-[160px]`}
-          style={{ top, left, zIndex: Z_CONTEXT_MENU }}
-          onMouseDown={(e) => e.stopPropagation()}
+      {projectContextMenu && (
+        <ContextMenuPortal
+          open
+          x={projectContextMenu.x}
+          y={projectContextMenu.y}
+          onClose={() => setProjectContextMenu(null)}
+          minWidth={160}
         >
           {projectContextMenu.unreadTopicIds.length > 0 && (
             <button
@@ -803,9 +784,8 @@ export function TopicTree({
               <span>{projectContextMenu.allArchived ? 'Restore Project' : 'Archive Project'}</span>
             </button>
           )}
-        </div>
-        );
-      })()}
+        </ContextMenuPortal>
+      )}
     </div>
   );
 }
@@ -841,16 +821,6 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   // Desktop right-click menu (touch uses the overflow "…" DropdownPortal). null
   // = closed; positioned at the cursor, viewport-clamped like the project menu.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const ctxMenuRef = useRef<HTMLDivElement>(null);
-  // Cursor-positioned desktop right-click menu — canonical useDismissable
-  // contract (capture pointer/touch + Escape). No trigger element to restore
-  // focus to, so restoreFocus off, matching the prior hand-rolled effect.
-  useDismissable({
-    open: !!ctxMenu,
-    onClose: () => setCtxMenu(null),
-    refs: [ctxMenuRef],
-    restoreFocus: false,
-  });
   // v3 sidebar↔topbar sync: also check `close-tab:terminal:<id>` so that
   // closing the terminal pane via the topbar X shows the countdown in
   // the sidebar terminal row too.
@@ -996,19 +966,13 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           desktop (touch uses the overflow "…" above). Reuses the shared popover
           tokens like the project header menu. Rendered inline (not a portal): a
           fixed-position node clamped to the viewport, same as the project menu. */}
-      {ctxMenu && onTogglePin && (() => {
-        const MENU_W = 200;
-        const rows = 1 + (onOpenAsProject && !projectName ? 1 : 0) + (onCloseTerminal ? 1 : 0);
-        const menuH = rows * 34 + 8;
-        const left = Math.max(8, Math.min(ctxMenu.x, window.innerWidth - MENU_W - 8));
-        const top = Math.max(8, Math.min(ctxMenu.y, window.innerHeight - menuH - 8));
-        return (
-          <div
-            ref={ctxMenuRef}
-            role="menu"
-            className={`fixed ${POPOVER_SURFACE} min-w-[200px]`}
-            style={{ left, top, zIndex: Z_CONTEXT_MENU }}
-            onMouseDown={(e) => e.stopPropagation()}
+      {ctxMenu && onTogglePin && (
+          <ContextMenuPortal
+            open
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            onClose={() => setCtxMenu(null)}
+            minWidth={200}
           >
             <button
               role="menuitem"
@@ -1038,9 +1002,8 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
                 Close
               </button>
             )}
-          </div>
-        );
-      })()}
+          </ContextMenuPortal>
+      )}
     </div>
   );
 }
@@ -1202,15 +1165,21 @@ interface BrowserSidebarItemProps {
   depth: number;
   isFocused: boolean;
   isOpen: boolean;
+  pinned?: boolean;
   onOpenBrowser?: (id: string) => void;
   onCloseBrowser?: (id: string) => void;
+  onTogglePin?: () => void;
 }
 
-function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrowser, onCloseBrowser }: BrowserSidebarItemProps) {
+function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, onOpenBrowser, onCloseBrowser, onTogglePin }: BrowserSidebarItemProps) {
   // v3 sidebar↔topbar sync: also check `close-tab:browser:<id>` so the
   // sidebar browser row shows the countdown when the close is initiated
   // from the topbar.
   const pendingClose = useBrowserPendingStatus(bc.id);
+  // Desktop right-click menu — parity with the chat/terminal rows (which had one
+  // while browser rows did not). Cursor-positioned, portaled via ContextMenuPortal.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const hasMenu = !!onTogglePin || !!onCloseBrowser;
   return (
     <div
       className={[
@@ -1219,6 +1188,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrow
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
       onClick={() => onOpenBrowser?.(bc.id)}
+      onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
       {pendingClose && <PendingActionProgressOverlay status={pendingClose} />}
       <Globe size={14} className="flex-shrink-0 mr-2 opacity-60" />
@@ -1257,6 +1227,36 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, onOpenBrow
             </span>
           )}
         </span>
+      )}
+      {ctxMenu && (
+        <ContextMenuPortal
+          open
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          minWidth={200}
+        >
+          {onTogglePin && (
+            <button
+              role="menuitem"
+              onClick={() => { onTogglePin(); setCtxMenu(null); }}
+              className={POPOVER_ITEM}
+            >
+              {pinned ? <PinOff size={14} className="text-app-text-tertiary" /> : <Pin size={14} className="text-app-text-tertiary" />}
+              {pinned ? 'Rimuovi dai Fissati' : 'Fissa'}
+            </button>
+          )}
+          {onCloseBrowser && (
+            <button
+              role="menuitem"
+              onClick={() => { onCloseBrowser(bc.id); setCtxMenu(null); }}
+              className={POPOVER_ITEM}
+            >
+              <X size={14} className="text-app-text-tertiary" />
+              Chiudi browser
+            </button>
+          )}
+        </ContextMenuPortal>
       )}
     </div>
   );
