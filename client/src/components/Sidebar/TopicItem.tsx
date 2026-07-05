@@ -12,7 +12,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useTopicLoading, useTopicAttentionTier } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
-import { GridLoader } from '@/components/Layout/StreamingIndicator';
+import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
@@ -228,7 +228,7 @@ export const TopicItem = memo(function TopicItem({
       {!hideIcon && (
         <span className="flex-shrink-0 leading-none flex items-center justify-center w-5 h-5">
           {isArchived ? (
-            <Archive size={14} className="text-app-text-tertiary" />
+            <Archive size={14} className={onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary"} />
           ) : (
             <TopicIcon name={topic.icon} size={14} color={topic.color || undefined} />
           )}
@@ -267,14 +267,17 @@ export const TopicItem = memo(function TopicItem({
           rows={splitPosition.rows}
           rowHeights={splitPosition.rowHeights}
           active={splitPosition.active}
-          className="flex-shrink-0 text-app-text-tertiary"
+          // The map draws from currentColor, so on an attention fill it MUST
+          // inherit the fill's high-contrast tone (white on blue / dark on amber)
+          // instead of a fixed grey that vanishes on the fill — the grey-on-blue bug.
+          className={cn("flex-shrink-0", onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary")}
         />
       )}
 
       {/* Assigned agents badge */}
       {assignedAgentCount > 0 && (
         <span
-          className="flex-shrink-0 flex items-center gap-0.5 text-[11px] text-purple-500 dark:text-purple-400"
+          className={cn("flex-shrink-0 flex items-center gap-0.5 text-[11px]", onFill ? ON_FILL_TEXT_SOFT : "text-purple-500 dark:text-purple-400")}
           title={`${assignedAgentCount} agent${assignedAgentCount > 1 ? 's' : ''} assigned`}
         >
           <Bot size={12} />
@@ -288,15 +291,16 @@ export const TopicItem = memo(function TopicItem({
           sidebar rows. The notification badge below is the only trailing
           element after it. */}
       {isStreaming ? (
-        <button
-          onClick={(e) => { e.stopPropagation(); onStopStreaming?.(); }}
-          className="group/stop flex-shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all"
-          title="Stop generating"
-          aria-label="Stop generating"
-        >
-          <GridLoader className="group-hover/stop:hidden" />
-          <div className="w-2 h-2 bg-primary rounded-[1px] hidden group-hover/stop:block" />
-        </button>
+        /* The SAME shared loader the tab bar renders (GridLoader + hover-stop via
+           LoaderSlot), just a bigger 28px box for the sidebar hit target — so the
+           sidebar chat row and its tab can't drift in glyph, animation, or stop
+           affordance. */
+        <TopicStreamingSpinner
+          topicId={topic.id}
+          onStop={onStopStreaming}
+          size={28}
+          className="flex-shrink-0"
+        />
       ) : (
         isTouchDevice ? (
           /* Touch: timestamp always visible + ... button always visible */

@@ -169,6 +169,9 @@ interface TopicSpinnerProps {
   onStop?: () => void;
   /** Tooltip override. Defaults to "Stop generating" or "Streaming". */
   title?: string;
+  /** Box size in px (default 16 — the tab slot). The sidebar chat row passes a
+   *  larger value for a comfier hit target while keeping the identical glyph. */
+  size?: number;
 }
 
 export function TopicStreamingSpinner({
@@ -176,11 +179,12 @@ export function TopicStreamingSpinner({
   onStop,
   title,
   className = '',
+  size,
 }: TopicSpinnerProps) {
   const streaming = useTopicLoading(topicId);
   if (!streaming) return null;
   const tip = title ?? (onStop ? 'Stop generating' : 'Streaming');
-  return <LoaderSlot onStop={onStop} title={tip} className={className} />;
+  return <LoaderSlot onStop={onStop} title={tip} className={className} size={size} />;
 }
 
 interface ProjectSpinnerProps {
