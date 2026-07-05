@@ -93,7 +93,11 @@ export function flattenGroupRows(
   const hasStackMembers = rows.some(
     (r) => !!r.cellStacks && Object.values(r.cellStacks).some((s) => s.groupIds.length > 0),
   );
-  if (isAlreadyFlat(rows.length, hasStackMembers, walked.length)) return null;
+  // A single row whose columns were dragged to custom widths is NOT canonical —
+  // reset re-equalises it (mirrors flattenGridRows; the project window "Reimposta
+  // pannelli non fa nulla" case).
+  const singleRowNeedsEqualise = rows.length === 1 && !hasStackMembers && !widthsAreEqual(rows[0].widths);
+  if (isAlreadyFlat(rows.length, hasStackMembers, walked.length) && !singleRowNeedsEqualise) return null;
 
   const keys = liveGroupIds ? dedupFirst([...walked, ...liveGroupIds]) : walked;
   if (keys.length === 0) return null;
