@@ -1115,21 +1115,6 @@ input[type="range"]::-webkit-slider-thumb {
   width: 100%;
   height: 100%;
 }
-/* Dither: a hair of neutral noise at SCREEN resolution to break the 8-bit
- * gradient banding the low-res canvas can't fix (a very gradual glow on a dark
- * ground crosses few grey levels → visible vertical steps). soft-light keeps
- * near-black near-black (invisible over the dark pane interior and behind the
- * chat content, which paints above z-index 30) while perturbing the mid falloff
- * enough to dissolve the steps. Static, GPU-composited → zero per-frame cost. */
-.chat-working-aura::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  mix-blend-mode: soft-light;
-  opacity: 0.35;
-  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='160'%20height='160'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.9'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='saturate'%20values='0'/%3E%3C/filter%3E%3Crect%20width='160'%20height='160'%20filter='url(%23n)'/%3E%3C/svg%3E");
-}
 @keyframes chat-working-ring-in {
   from { opacity: 0; }
   to   { opacity: 1; }
