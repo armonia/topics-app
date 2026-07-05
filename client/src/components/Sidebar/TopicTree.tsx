@@ -517,7 +517,7 @@ export function TopicTree({
                 path). Only present when more than one window is open — a single
                 window has nothing to orient against. Lives on the sidebar row
                 only (user preference), never on the top tab bar. */}
-            <ProjectSplitMiniMap projectPath={pp} />
+            <ProjectSplitMiniMap projectPath={pp} onFill={projOnFill} />
             {/* Pin glyph — trailing rail, before the loader/badge (same fixed
                 Pin → … → NotificationBadge order as the chat rows). Inherits
                 the on-fill treatment on attention fills, never a hardcoded
@@ -1139,7 +1139,7 @@ function ProjectRowPendingOverlay({ projectPath }: { projectPath: string }) {
  * sidebar chat rows use, with this window's cell lit. Module-scope sub-component
  * because it calls a hook — can't run inside the projects render loop above.
  */
-function ProjectSplitMiniMap({ projectPath }: { projectPath: string }) {
+function ProjectSplitMiniMap({ projectPath, onFill }: { projectPath: string; onFill?: boolean }) {
   const pos = useSplitPosition(projectPath);
   if (!pos) return null;
   return (
@@ -1147,7 +1147,9 @@ function ProjectSplitMiniMap({ projectPath }: { projectPath: string }) {
       rows={pos.rows}
       rowHeights={pos.rowHeights}
       active={pos.active}
-      className="flex-shrink-0 mr-1.5 text-app-text-tertiary"
+      // currentColor-driven: on the attention fill inherit its high-contrast tone
+      // instead of a fixed grey (the grey-on-blue bug), matching the chat row.
+      className={`flex-shrink-0 mr-1.5 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
     />
   );
 }
