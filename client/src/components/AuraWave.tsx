@@ -9,17 +9,18 @@ import { readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
 // frame, then upscaled by CSS to fill the pane. Real blur — a genuinely soft,
 // edgeless haze — is the whole point, but blurring pane-sized content every
 // frame is far too costly (CSS/SVG blur of changing geometry collapses to
-// ~15fps at a few panes). Drawing at 1/3 resolution and blurring only those few
-// pixels with ctx.filter, then letting the bilinear upscale blur further, gives
-// the same soft look for ~1/9 the cost — 60fps even at 9 panes.
+// ~15fps at a few panes). Drawing at half resolution and blurring only those
+// few pixels with ctx.filter, then letting the bilinear upscale blur further,
+// gives the same soft look for a fraction of the cost — 60fps even at 9 panes.
 //
 // Shape: per frame we displace ~120 points sampled along the rounded-rect border
 // by a small multi-harmonic sum `Σ Aₖ·sin(kₖ·s − ωₖ·t)` to get the wave contour,
-// then FILL the region between the window edge and that contour as a few nested
-// rings (dense at the border, fading inward) under a blur — a soft iridescent
-// vignette that fills up to the window, not a band along the wave. Three
-// ~coprime integer harmonics make the crests all different (and morph over
-// time); a slow envelope breathes the amplitude and band height.
+// then FILL the region between the window edge and that contour as MANY nested
+// rings (dense at the border, fading inward). Enough rings + a firm blur means
+// the steps dissolve into a continuous falloff (few rings at low res read as
+// blocky bands) — a soft iridescent vignette that fills up to the window, not a
+// band along the wave. Three ~coprime integer harmonics make the crests all
+// different (and morph over time); a slow envelope breathes the amplitude.
 //
 // Speed tracks activity: readAuraEnergy(activityId) rises with token/output
 // throughput so the wave travels faster mid-stream and eases back on a lull; the
@@ -28,9 +29,9 @@ import { readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
 
 const SAMPLES = 120;
 const DEFAULT_RADIUS = 16;
-const DOWNSCALE = 3;    // canvas backing store = pane / DOWNSCALE (cheap blur, upscaled)
-const BLUR_BACKING = 6; // ctx blur in backing px (≈ DOWNSCALE× in screen px, + upscale)
-const LAYERS = 6;       // nested rings for the border→wave fill (blur smooths them)
+const DOWNSCALE = 2;    // canvas backing store = pane / DOWNSCALE (cheap blur, upscaled)
+const BLUR_BACKING = 9; // ctx blur in backing px (≈ DOWNSCALE× in screen px, + upscale)
+const LAYERS = 14;      // nested rings for the border→wave fill: many + blur = no visible steps
 const BASE_SPEED = 1.6;
 
 // wave shape (tuned live with Attilio: long, harmonious base + gentle overtones)
