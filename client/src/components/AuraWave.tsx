@@ -29,6 +29,13 @@ import { readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
 
 const SAMPLES = 120;
 const DEFAULT_RADIUS = 16;
+// Corner radius of the rounded-rect we sample the INNER contour from. It must be
+// ≥ the deepest inward displacement (inset + max wave ≈ 53px): offsetting a
+// convex corner inward by more than its own radius inverts it into a concave
+// dark notch. Sampling from a larger radius keeps the offset convex so the wave
+// turns each corner smoothly. Decoupled from the pane's real (smaller) radius,
+// which only clips the outer edge via CSS.
+const SAMPLE_RADIUS = 60;
 const DOWNSCALE = 2;    // canvas backing store = pane / DOWNSCALE (cheap blur, upscaled)
 const BLUR_BACKING = 9; // ctx blur in backing px (≈ DOWNSCALE× in screen px, + upscale)
 const LAYERS = 14;      // nested rings for the border→wave fill: many + blur = no visible steps
@@ -101,7 +108,8 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
         canvas.width = bw;
         canvas.height = bh;
       }
-      const r = Math.min(radius / DOWNSCALE, bw / 2, bh / 2);
+      const sampleR = Math.max(radius, SAMPLE_RADIUS);
+      const r = Math.min(sampleR / DOWNSCALE, bw / 2, bh / 2);
       base.setAttribute('d', roundRectPath(bw, bh, r));
       const L = base.getTotalLength();
       if (!L) return;
