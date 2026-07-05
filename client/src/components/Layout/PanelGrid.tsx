@@ -2008,13 +2008,18 @@ export function PanelGrid({
     setGridRowHeights(flat.rowHeights);
   }, [gridRowsRef, gridRowHeightsRef, setGridRows, setGridRowHeights]);
 
-  // Palette path — same per-window CustomEvent GroupLayout listens to. This
-  // surface acts only when the App-focused panel is a standalone grid item
-  // (NOT a project pane): a focused project window owns the event via its
-  // GroupLayout listener, so the two never flatten together.
+  // Palette / Topics-menu path — same per-window CustomEvent GroupLayout listens
+  // to. A focused PROJECT window owns the event (its GroupLayout flattens), so we
+  // bail only when the focused pane IS a project pane. Otherwise — a focused
+  // standalone grid item OR NOTHING focused at all — the standalone grid is the
+  // default target. The old extra `!focusedPanelId` bail made "Reimposta pannelli"
+  // from the header menu / palette a silent no-op whenever no pane happened to be
+  // focused (nothing clicked yet), which read as "it does nothing". GroupLayout's
+  // gate is `focusedPanelId === wrapperPaneId`, so a null focus never flattens a
+  // project — the two still never act together.
   useEffect(() => {
     const handler = () => {
-      if (!focusedPanelId || getProjectPathFromPaneId(focusedPanelId)) return;
+      if (focusedPanelId && getProjectPathFromPaneId(focusedPanelId)) return;
       handleResetGridLayout();
     };
     window.addEventListener('topics:reset-split-layout', handler);
