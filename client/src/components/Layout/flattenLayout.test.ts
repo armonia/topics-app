@@ -68,9 +68,18 @@ describe('flattenGroupRows', () => {
     expect(res!.rowHeights).toEqual(equalizeWidths(2));
   });
 
-  it('returns null when already flat (single row, no stacks) so hosts hide the menu entry', () => {
+  it('returns null when already flat (single row, EQUAL widths, no stacks) so hosts hide the menu entry', () => {
     expect(flattenGroupRows([groupRow(['A', 'B', 'C'])])).toBeNull();
     expect(flattenGroupRows([])).toBeNull();
+  });
+
+  it('re-equalises a project single row whose widths were dragged to custom values', () => {
+    const rows = [{ groupIds: ['A', 'B'], widths: [0.75, 0.25] }];
+    const res = flattenGroupRows(rows);
+    expect(res).not.toBeNull();
+    expect(res!.rows.length).toBe(1);
+    expect(res!.rows[0].groupIds).toEqual(['A', 'B']);
+    expect(res!.rows[0].widths).toEqual(equalizeWidths(2));
   });
 
   it('a single row WITH a stack is NOT flat — the stack dissolves into columns', () => {

@@ -653,16 +653,19 @@ export function GroupLayout({
     onUpdateRowHeights(flat.rowHeights);
   }, [rows, rowHeights, groupMap, onUpdateRows, onUpdateRowHeights]);
 
-  // Palette path ('topics:reset-split-layout' is a per-window CustomEvent bus,
-  // like topics:open-project-picker). Gated on isAppFocused so the FOCUSED
-  // surface flattens — with several project windows mounted in split view,
-  // only the App-focused one may act, and PanelGrid only acts when the
-  // focused panel is NOT a project pane (mutually exclusive by construction).
+  // Global "Reimposta pannelli" ('topics:reset-split-layout') is fired ONLY by the
+  // header Topics menu and the ⌘K palette — a broad "tidy my layout" action with no
+  // specific target. So every mounted surface flattens ITS OWN split; a surface
+  // already flat no-ops (handleResetLayout early-returns on canFlatten=false). The
+  // old `isAppFocused` gate meant a split living in a NON-focused surface never
+  // reset (diagnosed: the focused surface was already flat while the split sat in a
+  // blurred one) — the "non fa nulla" report. The per-tab context menu keeps its
+  // targeted reset (it calls onResetLayout directly, not this event).
   useEffect(() => {
-    const handler = () => { if (isAppFocused) handleResetLayout(); };
+    const handler = () => handleResetLayout();
     window.addEventListener('topics:reset-split-layout', handler);
     return () => window.removeEventListener('topics:reset-split-layout', handler);
-  }, [isAppFocused, handleResetLayout]);
+  }, [handleResetLayout]);
 
   if (rows.length === 0) {
     const emptyAvailableTypes = availableTypesForGroup('chat', '');

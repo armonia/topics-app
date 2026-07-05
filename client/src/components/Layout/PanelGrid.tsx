@@ -2017,14 +2017,15 @@ export function PanelGrid({
   // focused (nothing clicked yet), which read as "it does nothing". GroupLayout's
   // gate is `focusedPanelId === wrapperPaneId`, so a null focus never flattens a
   // project — the two still never act together.
+  // Global "Reimposta pannelli" (header menu / ⌘K) — flatten the standalone grid
+  // too. handleResetGridLayout no-ops when the grid is already flat, so it's safe
+  // to run unconditionally alongside every GroupLayout surface; each flattens its
+  // own model and already-flat surfaces do nothing.
   useEffect(() => {
-    const handler = () => {
-      if (focusedPanelId && getProjectPathFromPaneId(focusedPanelId)) return;
-      handleResetGridLayout();
-    };
+    const handler = () => handleResetGridLayout();
     window.addEventListener('topics:reset-split-layout', handler);
     return () => window.removeEventListener('topics:reset-split-layout', handler);
-  }, [focusedPanelId, handleResetGridLayout]);
+  }, [handleResetGridLayout]);
 
   // Publish each open topic's grid position so the SIDEBAR cards can render the
   // same proportional mini-map with that topic's cell lit (not just the tab
