@@ -62,6 +62,18 @@ function isAlreadyFlat(
   return rowCount <= 1 && !hasStackMembers && walkedCount <= MAX_COLS_PER_ROW;
 }
 
+/** Single-row widths are "canonical" only when already ~equal (1/n). A row whose
+ *  columns were DRAGGED to custom widths is not canonical, so "Reimposta pannelli"
+ *  still has work to do: re-equalise it. Without this a horizontal split at, say,
+ *  70/30 counted as "already flat" and the reset silently did nothing — the
+ *  reported "non fa nulla" on the standalone layout. The tolerance swallows the
+ *  float drift persistence/normalisation can introduce; a real drag is far larger. */
+function widthsAreEqual(widths: readonly number[]): boolean {
+  if (widths.length <= 1) return true;
+  const target = 1 / widths.length;
+  return widths.every((w) => Math.abs(w - target) <= 1e-3);
+}
+
 /**
  * Flatten the PROJECT model (`GroupLayoutRow[]` + rowHeights).
  *
@@ -125,7 +137,11 @@ export function flattenGridRows(
   const hasStackMembers = rows.some(
     (r) => !!r.cellStacks && Object.values(r.cellStacks).some((s) => s.items.length > 0),
   );
-  if (isAlreadyFlat(rows.length, hasStackMembers, walked.length)) return null;
+  // Single-row layouts also count as "needs reset" when their column widths were
+  // dragged away from equal — so "Reimposta pannelli" re-equalises them instead
+  // of no-oping (the standalone "non fa nulla" report).
+  const singleRowNeedsEqualise = rows.length === 1 && !hasStackMembers && !widthsAreEqual(rows[0].widths);
+  if (isAlreadyFlat(rows.length, hasStackMembers, walked.length) && !singleRowNeedsEqualise) return null;
 
   const keys = liveItemKeys ? dedupFirst([...walked, ...liveItemKeys]) : walked;
   if (keys.length === 0) return null;

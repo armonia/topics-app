@@ -125,9 +125,20 @@ describe('flattenGridRows', () => {
     expect(res!.rows[0].widths).toEqual(equalizeWidths(3));
   });
 
-  it('returns null when already flat (single row, no stacks)', () => {
+  it('returns null when already flat (single row, EQUAL widths, no stacks)', () => {
     expect(flattenGridRows([gridRow(['standalone', 'solo:a'])])).toBeNull();
     expect(flattenGridRows([])).toBeNull();
+  });
+
+  it('re-equalises a single row whose widths were dragged to custom values', () => {
+    // 70/30 horizontal split, one row, no stacks: NOT canonical → reset restores
+    // even columns (the standalone "Reimposta pannelli non fa nulla" fix).
+    const rows = [{ itemKeys: ['standalone', 'solo:a'], widths: [0.7, 0.3] }];
+    const res = flattenGridRows(rows);
+    expect(res).not.toBeNull();
+    expect(res!.rows.length).toBe(1);
+    expect(res!.rows[0].itemKeys).toEqual(['standalone', 'solo:a']);
+    expect(res!.rows[0].widths).toEqual(equalizeWidths(2));
   });
 
   it('a single row with a stack flattens (not null)', () => {
