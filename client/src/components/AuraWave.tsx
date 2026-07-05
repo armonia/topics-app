@@ -29,26 +29,27 @@ import { readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
 
 const SAMPLES = 120;
 const DEFAULT_RADIUS = 16;
-// Corner radius of the rounded-rect we sample the INNER contour from. It must be
-// ≥ the deepest inward displacement (inset + max wave ≈ 53px): offsetting a
-// convex corner inward by more than its own radius inverts it into a concave
-// dark notch. Sampling from a larger radius keeps the offset convex so the wave
-// turns each corner smoothly. Decoupled from the pane's real (smaller) radius,
-// which only clips the outer edge via CSS.
-const SAMPLE_RADIUS = 60;
-const DOWNSCALE = 2;    // canvas backing store = pane / DOWNSCALE (cheap blur, upscaled)
-const BLUR_BACKING = 9; // ctx blur in backing px (≈ DOWNSCALE× in screen px, + upscale)
-const LAYERS = 14;      // nested rings for the border→wave fill: many + blur = no visible steps
+const DOWNSCALE = 2;     // canvas backing store = pane / DOWNSCALE (cheap blur, upscaled)
+const LAYERS = 16;       // nested rings for the border→wave fill: many + blur = no visible steps
+const LAYER_EASE = 1.4;  // >1 clusters rings near the edge, spreads them toward the wave → long soft inner fade
 const BASE_SPEED = 1.6;
+
+// ── Geometry is PROPORTIONAL to pane size ────────────────────────────────────
+// All lengths below are FRACTIONS of the backing min-dimension (min(bw,bh) in
+// backing px), so the aura looks identical on a big pane and a small one. With
+// absolute px, a fixed blur was a smaller fraction of a big pane → it read as
+// sharp/defined there and soft on small panes (why the demo looked harder than
+// the app). Fractions make every pane — and the demo — match.
+const INSET_FRAC = 0.05;        // constant band depth (always-present glow)
+const INSET_SWELL_FRAC = 0.018; // slow breathing of that depth
+const AMP_FRAC = 0.05;          // wave amplitude
+const BLUR_FRAC = 0.12;         // ctx blur radius (the softness lever)
 
 // wave shape (tuned live with Attilio: long, harmonious base + gentle overtones)
 const CYCLES = 4;
 const H1 = CYCLES;
 const H2 = Math.max(2, Math.round(CYCLES * 1.7)); // 7
 const H3 = Math.max(3, Math.round(CYCLES * 2.6)); // 10
-const AMP = 9;
-const INSET = 24;
-const INSET_SWELL = 6;
 const W_INSET = 0.5;
 const ENV_DEPTH = 0.6;
 const ENV_CYCLES = 1.5;
@@ -76,6 +77,7 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
 
     let P: { x: number; y: number }[] = [];
     let N: { x: number; y: number }[] = [];
+    let RE: number[] = []; // per-point reach = distance to nearest corner centre
     let bw = 0;
     let bh = 0;
     let grad: CanvasGradient | null = null;
@@ -108,15 +110,21 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
         canvas.width = bw;
         canvas.height = bh;
       }
-      const sampleR = Math.max(radius, SAMPLE_RADIUS);
-      const r = Math.min(sampleR / DOWNSCALE, bw / 2, bh / 2);
+      // Sample from the pane's OWN corner radius so the wave hugs the corner at a
+      // uniform offset (a big sampling radius pushed the contour far from the
+      // corner → corners read as "forcedly full"). Record per-point REACH =
+      // distance to the nearest corner-arc centre; draw() soft-clamps each
+      // displacement below its reach so the tight-corner offset can't invert.
+      const r = Math.min(radius / DOWNSCALE, bw / 2, bh / 2);
       base.setAttribute('d', roundRectPath(bw, bh, r));
       const L = base.getTotalLength();
       if (!L) return;
       P = [];
       N = [];
+      RE = [];
       const cx = bw / 2;
       const cy = bh / 2;
+      const cc = [[r, r], [bw - r, r], [bw - r, bh - r], [r, bh - r]]; // corner centres
       for (let i = 0; i < SAMPLES; i++) {
         const s = (i / SAMPLES) * L;
         const a = base.getPointAtLength(s);
@@ -129,8 +137,14 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
         let nx = ty;
         let ny = -tx;
         if ((cx - a.x) * nx + (cy - a.y) * ny < 0) { nx = -nx; ny = -ny; } // inward
+        let reach = 1e9;
+        for (let c = 0; c < 4; c++) {
+          const d = Math.hypot(a.x - cc[c][0], a.y - cc[c][1]);
+          if (d < reach) reach = d;
+        }
         P.push({ x: a.x, y: a.y });
         N.push({ x: nx, y: ny });
+        RE.push(reach);
       }
       grad = ctx.createLinearGradient(0, 0, bw, bh);
       grad.addColorStop(0, '#32c8ff');
@@ -151,10 +165,12 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
       const NS = P.length;
       if (!NS || !grad) return;
       ctx.clearRect(0, 0, bw, bh);
+      const backMin = Math.min(bw, bh);
       const eased = energy * energy * (3 - 2 * energy);
       const ampMul = 0.85 + 0.35 * eased;
-      const A = (AMP * 1.35 * ampMul) / DOWNSCALE;
-      const inset = (INSET + INSET_SWELL * Math.sin(W_INSET * phSlow)) / DOWNSCALE;
+      const A = backMin * AMP_FRAC * ampMul;
+      const inset = backMin * INSET_FRAC + backMin * INSET_SWELL_FRAC * Math.sin(W_INSET * phSlow);
+      const blurB = Math.max(3, backMin * BLUR_FRAC);
       const k1 = (TWO * H1) / NS;
       const k2 = (TWO * H2) / NS;
       const k3 = (TWO * H3) / NS;
@@ -171,8 +187,14 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
           0.68 * Math.sin(k1 * i + p1) +
           0.24 * Math.sin(k2 * i + p2) +
           0.08 * Math.sin(k3 * i + p3);
-        const dd = inset + A * envF * wave;
-        disp[i] = dd < 1 ? 1 : dd;
+        let dd = inset + A * envF * wave;
+        if (dd < 0.5) dd = 0.5;
+        // soft-limit the inward offset below the local reach (distance to the
+        // corner centre): ~unchanged on straight edges (reach huge), saturates the
+        // corner offset below the arc radius so it stays convex — corners hug at a
+        // calm uniform depth instead of filling in.
+        const re = RE[i];
+        disp[i] = re > 0.001 ? re * Math.tanh(dd / re) : dd;
       }
       // FILL the region window-edge → wave as nested rings anchored at the
       // border (dense at the border, fading to the wave), under a blur → a soft
@@ -180,10 +202,13 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
       // band along the wave). evenodd: outer square edge minus the wave contour;
       // the host's rounded clip shapes the corner, so no rounded frame is drawn.
       ctx.fillStyle = grad;
-      ctx.filter = `blur(${BLUR_BACKING}px)`;
+      ctx.filter = `blur(${blurB}px)`;
       ctx.globalAlpha = layerAlpha;
       for (let Lr = 0; Lr < LAYERS; Lr++) {
-        const f = (Lr + 1) / LAYERS;
+        // eased spacing: rings cluster near the edge and spread toward the wave,
+        // so the inner tip is covered by fewer rings → a long, soft inner fade
+        // (no "netto" boundary as the wave recedes).
+        const f = Math.pow((Lr + 1) / LAYERS, LAYER_EASE);
         ctx.beginPath();
         squareTrace(); // outer boundary = square canvas edge (host rounds the corner)
         ctx.moveTo(P[0].x + N[0].x * disp[0] * f, P[0].y + N[0].y * disp[0] * f);
