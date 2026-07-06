@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Search, Plus, Settings, Moon, Sun, File, FolderPlus, FolderOpen,
-  Loader2, TerminalSquare, RotateCcw,
+  Loader2, TerminalSquare, RotateCcw, Grid2x2,
 } from 'lucide-react';
 import { ClaudeIcon } from './ClaudeIcon';
 import { CodexIcon } from './CodexIcon';
@@ -69,6 +69,7 @@ interface CommandPaletteProps {
    *  'topics:reset-split-layout' CustomEvent; the focused GroupLayout /
    *  PanelGrid listener acts). Always offered; a no-op when already flat. */
   onResetPanels?: () => void;
+  onAutoTilePanels?: () => void;
   themeMode: string;
   projectPath?: string;
   onOpenFile?: (path: string, lineNumber?: number) => void;
@@ -94,6 +95,7 @@ export function CommandPalette({
   onToggleTheme,
   onOpenSettings,
   onResetPanels,
+  onAutoTilePanels,
   themeMode,
   projectPath,
   onOpenFile,
@@ -272,20 +274,34 @@ export function CommandPalette({
   }, [topics, onOpenTopic, onClose]);
 
   // ── Layout actions (searchable command rows, 'action' category) ─────────
-  // Only "Reimposta pannelli al primo livello" for now. Always offered when
-  // the host wires the callback (the reset itself no-ops on an already-flat
-  // surface); rendered in the query results, not the empty-state columns.
+  // "Reimposta pannelli" (collapse every split into one tabbed cell) and its
+  // inverse "Disponi automaticamente" (auto-tile every pane into a balanced
+  // grid). Offered when the host wires the callback; each no-ops when there's
+  // nothing to do. Rendered in the query results, not the empty-state columns.
   const actionItems = useMemo((): CommandAction[] => {
-    if (!onResetPanels) return [];
-    return [{
-      id: 'reset-panels',
-      label: 'Reimposta pannelli al primo livello',
-      description: 'Appiattisce gli split su un solo livello (le schede restano aperte)',
-      icon: <RotateCcw size={14} />,
-      category: 'action' as const,
-      action: () => { onResetPanels(); onClose(); },
-    }];
-  }, [onResetPanels, onClose]);
+    const items: CommandAction[] = [];
+    if (onResetPanels) {
+      items.push({
+        id: 'reset-panels',
+        label: 'Reimposta pannelli',
+        description: 'Riunisce tutti i pannelli in uno solo (le schede restano aperte)',
+        icon: <RotateCcw size={14} />,
+        category: 'action' as const,
+        action: () => { onResetPanels(); onClose(); },
+      });
+    }
+    if (onAutoTilePanels) {
+      items.push({
+        id: 'auto-tile-panels',
+        label: 'Disponi automaticamente',
+        description: 'Dispone tutte le schede affiancate in una griglia bilanciata',
+        icon: <Grid2x2 size={14} />,
+        category: 'action' as const,
+        action: () => { onAutoTilePanels(); onClose(); },
+      });
+    }
+    return items;
+  }, [onResetPanels, onAutoTilePanels, onClose]);
 
   // ── File search results (only when query has text) ──────────────────────
   const searchFileItems = useMemo((): CommandAction[] => {
