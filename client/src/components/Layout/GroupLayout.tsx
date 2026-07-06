@@ -12,7 +12,7 @@ import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { detectDropZone, type EdgeZone } from '../../lib/dropZone';
-import { SplitRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
+import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { FULL_ROW_GUTTER_PX } from '../../lib/dropFeedback';
 import { SplitTree } from './SplitTree';
 import { type LayoutNode } from '../../state/layout/layoutTree';
@@ -231,7 +231,10 @@ export function GroupLayout({
   }, [rows, rowHeights, rowVerticalDepth, onUpdateRowHeights]);
 
   /* ---- Edge drop zone state (Phase 3: split-on-edge-drop) ---- */
-  const [edgeDropTarget, setEdgeDropTarget] = useState<{ groupId: string; edge: EdgeZone } | null>(null);
+  // `edge` may also be 'center': a tab hovering the pane BODY's middle box
+  // previews (and drops as) a MERGE into this group — before, the middle of a
+  // project pane was a dead drop (nothing painted, release did nothing).
+  const [edgeDropTarget, setEdgeDropTarget] = useState<{ groupId: string; edge: EdgeZone | 'center' } | null>(null);
   // Ref mirror so the drop handler always sees the latest target — React
   // state from `setEdgeDropTarget` may not be committed yet when `drop`
   // fires in the same frame as `dragover`, causing fast drops to silently
@@ -268,9 +271,11 @@ export function GroupLayout({
     if (!onSplitGroup) return;
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    // 4-zone (no center) — within a group's content area we only care about
-    // edges; the center area is owned by the active pane content / tab bar.
-    const edge = detectDropZone(e, rect, 'edges') as EdgeZone | null;
+    // 5-zone: edges split, the middle box MERGES the tab into this group
+    // (add-as-tab). The tab BAR is a sibling of this content area (its own
+    // capture handler clears our preview), so 'center' here is always the
+    // pane body.
+    const edge = detectDropZone(e, rect, 'edges+center') as EdgeZone | 'center' | null;
 
     if (edge) {
       // DEDUP: dragover fires ~60fps+; only re-render when the target edge/group
@@ -354,22 +359,31 @@ export function GroupLayout({
     // few pixels before release the cache may be null/stale — fall back to
     // recomputing from the drop coordinates so a drop anywhere inside an
     // edge band still splits.
-    let edge: EdgeZone | null = null;
+    let edge: EdgeZone | 'center' | null = null;
     const cached = edgeDropTargetRef.current;
     if (cached && cached.groupId === groupId && cached.edge) {
       edge = cached.edge;
     } else {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      edge = detectDropZone(e, rect, 'edges') as EdgeZone | null;
+      edge = detectDropZone(e, rect, 'edges+center') as EdgeZone | 'center' | null;
     }
-    // No edge → not a split drop. Still clear any overlay this group painted so
-    // a dead-center release doesn't leave the preview stuck.
     if (!edge) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); return; }
 
     e.preventDefault();
     e.stopPropagation();
 
-    onSplitGroup?.(sourceGroupId, sourcePaneId, groupId, edge);
+    if (edge === 'center') {
+      // Merge-as-tab into this group (append at the end — a drop on the BAR
+      // owns precise insert indexes). Same-group center is a no-op, but the
+      // event is still consumed so WKWebView's dragend can't read the release
+      // as a drag-out (pop-out/close).
+      if (sourceGroupId !== groupId) {
+        const insertIdx = groupMap.get(groupId)?.paneIds.length ?? 0;
+        onMovePaneBetweenGroups?.(sourceGroupId, groupId, sourcePaneId, insertIdx);
+      }
+    } else {
+      onSplitGroup?.(sourceGroupId, sourcePaneId, groupId, edge);
+    }
     edgeDropTargetRef.current = null;
     setEdgeDropTarget(null);
     // Same leak as handleFullRowDrop: stopPropagation + onSplitGroup reparenting
@@ -377,7 +391,7 @@ export function GroupLayout({
     // full-width strips (gated on dragActive) would stay painted after an
     // edge-split drop too. Clear it here.
     setDragActive(false);
-  }, [onSplitGroup, edgeDropTargetRef, dndScope, groupMap]);
+  }, [onSplitGroup, onMovePaneBetweenGroups, edgeDropTargetRef, dndScope, groupMap]);
 
   /* ---- Cross-group tab drop handler ---- */
   const handleCrossGroupDrop = useCallback((targetGroupId: string) =>
@@ -863,13 +877,15 @@ export function GroupLayout({
           {/* Single-column split preview — a filled region the width of THIS
               column. On the bottom row (when full-width-row strips are live) its
               bottom stops above the gutter so the column-split and full-width-row
-              previews never visually collide; width alone tells them apart. */}
-          {edgeDrop && (
+              previews never visually collide; width alone tells them apart.
+              'center' paints the inset merge region instead (add-as-tab). */}
+          {edgeDrop && edgeDrop !== 'center' && (
             <SplitRegion
               zone={edgeDrop}
               gutterInset={rowIdx === rows.length - 1 && rows.some((r) => r.groupIds.length > 1) ? FULL_ROW_GUTTER_PX : 0}
             />
           )}
+          {edgeDrop === 'center' && <CenterRegion />}
         </div>
       </div>
     );
