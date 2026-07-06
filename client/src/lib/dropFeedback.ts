@@ -29,11 +29,6 @@ export const DROP_ACCENT = 'var(--primary)';
  *  seam, never a dashed perimeter), and the seam is what makes a half-split read
  *  cleanly on busy terminal/editor content instead of a vague tinted rectangle. */
 export const DROP_REGION_FILL = 'color-mix(in srgb, var(--primary) 22%, transparent)';
-/** Resting fill of the full-width-row gutter while a drag is live but not over
- *  it. Kept clearly visible (not a faint hint) so the "drop here for a
- *  full-width row" affordance is DISCOVERABLE the moment a drag starts — the
- *  old 7%/0.7 band was effectively invisible until the cursor was already on it. */
-export const DROP_GUTTER_FILL_IDLE = 'color-mix(in srgb, var(--primary) 14%, transparent)';
 export const DROP_RADIUS = 4;
 /** Thickness of the solid seam accent / caret. */
 export const DROP_SEAM_PX = 2;
@@ -89,6 +84,26 @@ export function dropRegionStyle(
   };
 }
 
+/**
+ * The center-merge preview: an inset, rounded FILL covering the pane's
+ * interior — "this drop goes INTO the pane" (adds as a tab), as opposed to a
+ * half-footprint (which claims a side). Pure fill, no seam: there is no
+ * divider to preview for a merge. Before this primitive existed, hovering the
+ * center of a pane body gave ZERO feedback — a merge drop looked like a dead
+ * zone.
+ */
+export function centerRegionStyle(): CSSProperties {
+  return {
+    position: 'absolute',
+    pointerEvents: 'none',
+    zIndex: Z_DROP_REGION,
+    inset: '10%',
+    background: DROP_REGION_FILL,
+    borderRadius: 10,
+    transition: 'all 140ms ease',
+  };
+}
+
 /** The 1-D insert caret drawn at a tab's left/right edge. Solid bar, no fill. */
 export function caretStyle(side: 'left' | 'right'): CSSProperties {
   return {
@@ -105,9 +120,13 @@ export function caretStyle(side: 'left' | 'right'): CSSProperties {
 
 /**
  * The full-width-row drop gutter: a full-container-width band pinned to the
- * container's top/bottom. Same fill language as a split region (so it reads as
- * "occupy this area"), but spanning the whole width — that width is what makes
- * it unmistakable from a single-column bottom split.
+ * container's top/bottom. IDLE (drag live, cursor elsewhere) it shows only a
+ * hairline accent hugging the container edge — a hint, not furniture; ACTIVE
+ * (cursor over it) the whole band fills with the region language ("occupy this
+ * area") spanning the full width — the width is what makes it unmistakable
+ * from a single-column split. The old idle state painted the full 26px band
+ * plus an uppercase text label on every drag, which cluttered the workspace
+ * before the user had expressed any intent.
  */
 export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean): CSSProperties {
   return {
@@ -117,15 +136,17 @@ export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean): CSSPr
     [side]: 0,
     height: FULL_ROW_GUTTER_PX,
     zIndex: Z_DROP_FULLROW,
-    background: active ? DROP_REGION_FILL : DROP_GUTTER_FILL_IDLE,
-    // Solid accent on the inner edge (facing the content) — this is a thin
-    // full-width band with a label, so the accent reads as the band's edge, not
-    // a competing split line.
-    boxShadow: side === 'bottom'
-      ? `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`
-      : `inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`,
-    opacity: active ? 1 : 0.92,
-    transition: 'background 140ms ease, opacity 140ms ease',
+    background: active ? DROP_REGION_FILL : 'transparent',
+    // Active: solid accent on the inner edge (facing the content). Idle: a
+    // hairline pinned to the container's own edge, at reduced strength.
+    boxShadow: active
+      ? (side === 'bottom'
+          ? `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`
+          : `inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`)
+      : (side === 'bottom'
+          ? `inset 0 -${DROP_SEAM_PX}px 0 0 color-mix(in srgb, ${DROP_ACCENT} 45%, transparent)`
+          : `inset 0 ${DROP_SEAM_PX}px 0 0 color-mix(in srgb, ${DROP_ACCENT} 45%, transparent)`),
+    transition: 'background 140ms ease, box-shadow 140ms ease',
   };
 }
 
@@ -135,6 +156,7 @@ export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean): CSSPr
  * Same visual language as the top/bottom `fullRowZoneStyle` strips — it IS
  * the same intent (insert a full-width row), just BETWEEN two existing rows
  * instead of at the container's extremes. Drag-only, like the extreme strips.
+ * Idle = a centered hairline on the boundary; active = the filled band.
  */
 export function rowGapZoneStyle(topPct: number, active: boolean): CSSProperties {
   return {
@@ -144,11 +166,15 @@ export function rowGapZoneStyle(topPct: number, active: boolean): CSSProperties 
     top: `calc(${topPct}% - ${FULL_ROW_GUTTER_PX / 2}px)`,
     height: FULL_ROW_GUTTER_PX,
     zIndex: Z_DROP_FULLROW,
-    background: active ? DROP_REGION_FILL : DROP_GUTTER_FILL_IDLE,
-    // Seam on BOTH edges — the band sits between two rows, so both edges face
-    // content; a single seam would read as belonging to one row only.
-    boxShadow: `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}, inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`,
-    opacity: active ? 1 : 0.92,
-    transition: 'background 140ms ease, opacity 140ms ease',
+    background: active
+      ? DROP_REGION_FILL
+      : // Idle: hairline centered on the row boundary itself.
+        `linear-gradient(to bottom, transparent calc(50% - 1px), color-mix(in srgb, ${DROP_ACCENT} 45%, transparent) calc(50% - 1px), color-mix(in srgb, ${DROP_ACCENT} 45%, transparent) calc(50% + 1px), transparent calc(50% + 1px))`,
+    // Seam on BOTH edges when active — the band sits between two rows, so both
+    // edges face content; a single seam would read as belonging to one row only.
+    boxShadow: active
+      ? `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}, inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`
+      : 'none',
+    transition: 'background 140ms ease, box-shadow 140ms ease',
   };
 }
