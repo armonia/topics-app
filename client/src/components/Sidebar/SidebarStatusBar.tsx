@@ -110,11 +110,11 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   // Shared FPS monitor: idle burst-sampling for this number, live 1Hz while the
   // dropdown is open (see useFpsActive below).
   const fps = useFps();
-  // Real desktop footprint + CPU. The hook self-guards (null in web mode, and
-  // pauses while the window is hidden), so an always-on call is cheap; it polls
-  // every 5s in Electron. This is the number that fixes the "status bar says
-  // 69 MB but the app is eating way more" gap: 69 MB was just the Bun server's
-  // RSS, while `perf.memory.totalMB` sums every Electron process.
+  // Shell-process memory + CPU (Tauri). The hook self-guards (null in web mode,
+  // pauses while the window is hidden), so an always-on 5s poll is cheap. NOTE:
+  // this is the SHELL process only — `perf.partial` is true because the WKWebView
+  // content/GPU processes (the per-pane browser RAM) are reparented to launchd and
+  // can't be attributed, so it is labeled honestly as the shell figure below.
   const perf = usePerfMetrics(true, 5000);
   const { updateAvailable } = useServiceWorkerUpdate();
   const [refreshing, setRefreshing] = useState(false);
@@ -133,28 +133,28 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
     buildIsRecent = !!BUILD_TIME && (Date.now() - new Date(BUILD_TIME).getTime()) < 24 * 60 * 60 * 1000;
   } catch { buildIsRecent = false; }
 
-  // Total app memory: Electron processes (all renderers/GPU/main) + the Bun
-  // server (a separate process, not in getAppMetrics). In web mode there's no
-  // per-process data, so we fall back to the server RSS alone — the old number,
-  // now honestly scoped by its tooltip.
+  // The two REAL process figures: the Topics shell (Tauri) and the Bun server (a
+  // separate OS process). We do NOT invent a whole-app total — the WKWebView
+  // content/GPU processes aren't attributable, so `perf.partial` is true and the
+  // headline is honestly the shell figure with the caveat in its tooltip.
   const serverMemMB = status?.server.memoryMB ?? null;
   // Optional-chain `memory`: it crosses the IPC boundary, so a renderer running
-  // ahead of a not-yet-rebuilt Electron main (auto-update / partial deploy) sees
-  // an old payload without `memory`. `?.memory?.` degrades to the server-only
-  // fallback instead of throwing. Every read below is gated on electronMemMB,
-  // so a non-null value guarantees perf.memory exists.
+  // ahead of a not-yet-rebuilt shell (auto-update / partial deploy) can see an old
+  // payload without `memory`. `?.memory?.` degrades to the server-only fallback
+  // instead of throwing. Every read below is gated on shellMemMB, so a non-null
+  // value guarantees perf.memory exists.
   const memMetric = perf?.memory?.metric;
-  // Headline = the Electron app's own memory (what Activity Monitor groups as
-  // "Topics"). The Bun server is a SEPARATE OS process (shown separately in
-  // Activity Monitor too), so it's surfaced in the tooltip, not added in — that
-  // keeps this number directly comparable to Activity Monitor's "Topics" row.
-  const electronMemMB = perf?.memory?.totalMB ?? null;
-  const totalMemMB = electronMemMB !== null ? electronMemMB : serverMemMB;
-  const memHigh = electronMemMB !== null ? totalMemMB! > 3072 : (serverMemMB ?? 0) > 512;
-  const memTitle = electronMemMB !== null
-    ? `App Topics: ${totalMemMB} MB — ${memMetric === 'footprint' ? 'footprint, ≈ Activity Monitor (RSS + memoria compressa + GPU)' : 'memoria residente (RSS)'}\n· renderer ${perf!.memory.rendererMB} · GPU ${perf!.memory.gpuMB} · altri ${perf!.memory.otherMB} MB (${perf!.memory.processCount} processi)\n· server Bun (processo separato): ${serverMemMB ?? '—'} MB`
+  const isPartialMem = perf?.partial ?? false;
+  const shellMemMB = perf?.memory?.totalMB ?? null;
+  const totalMemMB = shellMemMB !== null ? shellMemMB : serverMemMB;
+  // No whole-app number exists to threshold on; flag only a shell process that is
+  // itself heavy (the old >3072 MB "app total" alarm could never fire on a
+  // shell-only figure, so it was dead).
+  const memHigh = shellMemMB !== null ? shellMemMB > 1024 : (serverMemMB ?? 0) > 512;
+  const memTitle = shellMemMB !== null
+    ? `Topics (processo shell): ${shellMemMB} MB — ${memMetric === 'footprint' ? 'footprint, ≈ Activity Monitor' : 'memoria residente (RSS)'}${isPartialMem ? '\n· NON include i processi WKWebView (contenuto browser dei pannelli): macOS li scorpora sotto launchd' : ''}\n· server Bun (processo separato): ${serverMemMB ?? '—'} MB`
     : status
-      ? `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB} MB) — la memoria totale dell'app è disponibile solo nell'app desktop`
+      ? `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB} MB) — la memoria dell'app è disponibile solo nell'app desktop`
       : '';
 
   // App version: build-time constant, overridden by the live Electron version
@@ -269,10 +269,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
               {totalMemMB}MB
             </span>
           )}
-          {perf && (
+          {/* Only shown with a real reading: cpu.total is 0 until the shell CPU
+              baseline lands (and 0 on an idle shell), so a persistent "0%" would
+              look fabricated — better to hide than to show a number we don't
+              measure. It's the shell process alone (WKWebView content excluded). */}
+          {perf && perf.cpu.total > 0 && (
             <span
-              className={`text-app-text-muted tabular-nums ${perf.cpu.total > 150 ? 'text-amber-500' : ''}`}
-              title={`CPU app: ${perf.cpu.total}% (renderer ${perf.cpu.renderer}% · GPU ${perf.cpu.gpu}% · altri ${Math.max(0, perf.cpu.total - perf.cpu.renderer - perf.cpu.gpu)}%) — somma % sui processi, può superare 100% come in Activity Monitor`}
+              className={`text-app-text-muted tabular-nums ${perf.cpu.total > 100 ? 'text-amber-500' : ''}`}
+              title={`CPU processo shell di Topics: ${perf.cpu.total}%${isPartialMem ? ' — non include i processi WKWebView dei pannelli' : ''} · può superare 100% (per core)`}
             >
               {perf.cpu.total}%
             </span>

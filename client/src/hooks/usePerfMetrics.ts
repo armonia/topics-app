@@ -4,12 +4,23 @@ import { tauriInvoke } from '../lib/shell/tauri';
 
 export interface PerfMetrics {
   version: string;
+  /** CPU % of the measured process(es). Under Tauri only `total` (the shell
+   *  process) is real; `renderer`/`gpu` stay 0 because WKWebView's content/GPU
+   *  processes aren't attributable (see `partial`). `total` is 0 until the second
+   *  poll establishes a CPU baseline — callers should treat 0 as "no reading". */
   cpu: { renderer: number; gpu: number; total: number };
-  /** Real desktop memory of every Electron process (MB). `metric` says which
-   *  figure: 'footprint' ≈ Activity Monitor (macOS, RSS+compressed+GPU), or
-   *  'rss' (resident only) as the cross-platform fallback. */
+  /** Process memory in MB. Under Tauri this is the SHELL process only (`partial`
+   *  true, `metric` 'rss'): `rendererMB`/`gpuMB`/`otherMB` are 0 and `totalMB` is
+   *  the shell RSS — NOT the whole-app footprint. `metric` 'footprint' would be
+   *  the Activity-Monitor-equivalent figure but no current shell reports it. */
   memory: { totalMB: number; rendererMB: number; gpuMB: number; otherMB: number; processCount: number; metric: 'footprint' | 'rss' };
   gpu: { accelerated: boolean; compositing: string; webgl: string };
+  /** True when `memory.totalMB`/`cpu.total` cover only the shell process, not the
+   *  full multi-process app. Always true on Tauri today: the macOS WKWebView
+   *  content/GPU/networking XPC processes are reparented to launchd and can't be
+   *  attributed without private APIs. The UI MUST NOT present a partial figure as
+   *  the whole-app total. */
+  partial: boolean;
 }
 
 /**
@@ -41,17 +52,19 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
   useEffect(() => {
     // Tauri's perf_metrics command reports the shell process only (content/GPU are
     // launchd-reparented XPC — honest multi-process attribution is a later phase),
-    // so map its small shape onto PerfMetrics with zeroed sub-process figures and a
-    // 'rss' metric. Web has no native process introspection (null).
+    // so map its small shape onto PerfMetrics with zeroed sub-process figures, a
+    // 'rss' metric, and the command's own `partial` flag carried through so the UI
+    // can label it truthfully. Web has no native process introspection (null).
     const getMetrics: (() => Promise<PerfMetrics>) | null =
       isTauri
         ? async () => {
-            const m = await tauriInvoke<{ version: string; total_mb: number; cpu_percent: number }>('perf_metrics');
+            const m = await tauriInvoke<{ version: string; total_mb: number; cpu_percent: number; partial: boolean }>('perf_metrics');
             return {
               version: m.version,
-              cpu: { renderer: 0, gpu: 0, total: m.cpu_percent },
+              cpu: { renderer: 0, gpu: 0, total: Math.round(m.cpu_percent) },
               memory: { totalMB: Math.round(m.total_mb), rendererMB: 0, gpuMB: 0, otherMB: 0, processCount: 1, metric: 'rss' },
               gpu: TAURI_GPU,
+              partial: m.partial ?? true,
             };
           }
         : null;
