@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
@@ -70,7 +70,7 @@ export interface ChatPaneProps {
   aboveInputSlot?: React.ReactNode;
 }
 
-export function ChatPane({
+function ChatPaneComponent({
   topic, isFocused,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic,
@@ -655,3 +655,34 @@ export function ChatPane({
     </div>
   );
 }
+
+/**
+ * Custom memo comparator so a streaming chunk in ONE pane stops re-rendering
+ * every OTHER (idle) ChatPane subtree.
+ *
+ * `useChat.getSessionMessages` is `useCallback(_, [messages])`, so it rebinds on
+ * every streaming token — even for panes whose own session didn't change. A
+ * default shallow memo would therefore never hold. We shallow-compare all props
+ * EXCEPT `getSessionMessages`, and for that one compare the RESOLVED per-session
+ * array instead of the function identity. That array is ref-stable per session
+ * (getSessionMessages caches by source-array identity), so:
+ *   - a chunk in another pane leaves THIS pane's resolved array untouched → skip;
+ *   - a chunk in THIS pane's own session changes its array → re-render.
+ * Any genuine prop change (topic rename, focus, chatError, loading/streaming
+ * rebind at turn boundaries, ProjectWindow's per-render wrappedSendMessage for
+ * preview panes) fails the shallow pass → re-render, so no pane goes stale.
+ */
+function chatPanePropsEqual(prev: ChatPaneProps, next: ChatPaneProps): boolean {
+  const keys = new Set<keyof ChatPaneProps>([
+    ...(Object.keys(prev) as (keyof ChatPaneProps)[]),
+    ...(Object.keys(next) as (keyof ChatPaneProps)[]),
+  ]);
+  for (const k of keys) {
+    if (k === 'getSessionMessages') continue; // compared via resolved messages below
+    if (prev[k] !== next[k]) return false;
+  }
+  // Reached only when topic (and thus sessionKey) is identical across renders.
+  return prev.getSessionMessages(prev.topic.sessionKey) === next.getSessionMessages(next.topic.sessionKey);
+}
+
+export const ChatPane = memo(ChatPaneComponent, chatPanePropsEqual);
