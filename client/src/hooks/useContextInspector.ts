@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   contextAnalysisApi,
   contextPreviewApi,
@@ -104,21 +104,37 @@ export function useContextInspector(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Staleness guard. The inspector instance is NOT keyed by topic (project
+  // panel swaps the active topic in place), so a slow analyze() for topic A
+  // can resolve AFTER the user switched to B — without the guard it would
+  // display A's sources under B's header, and "Edit source" → Save would
+  // overwrite B's memory with A's stale preview text.
+  const topicIdRef = useRef(topicId);
+  topicIdRef.current = topicId;
+
   const load = useCallback(async () => {
     if (!topicId) return;
+    const id = topicId;
     setLoading(true);
     setError(null);
     try {
-      const result = await contextAnalysisApi.analyze(topicId);
+      const result = await contextAnalysisApi.analyze(id);
+      if (topicIdRef.current !== id) return; // stale — another topic is active now
       setAnalysis(result);
     } catch (err) {
+      if (topicIdRef.current !== id) return;
       setError(err instanceof Error ? err.message : 'Failed to analyze context');
     } finally {
-      setLoading(false);
+      if (topicIdRef.current === id) setLoading(false);
     }
   }, [topicId]);
 
   useEffect(() => {
+    // Clear the previous topic's data the moment the target changes — even
+    // BEFORE the new fetch lands, the old sources must not render under the
+    // new topic's header (that window is what made stale edits possible).
+    setAnalysis(null);
+    setError(null);
     load();
   }, [load]);
 
@@ -166,21 +182,34 @@ export function useContextPreview(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Same staleness guard as useContextInspector (instance not keyed by topic).
+  const targetKey = `${topicId}|${providerName ?? ''}`;
+  const targetRef = useRef(targetKey);
+  targetRef.current = targetKey;
+
   const load = useCallback(async () => {
     if (!topicId) return;
+    const key = targetKey;
     setLoading(true);
     setError(null);
     try {
       const result = await contextPreviewApi.fetch(topicId, providerName);
+      if (targetRef.current !== key) return; // stale — target changed mid-flight
       setPreview(result);
     } catch (err) {
+      if (targetRef.current !== key) return;
       setError(err instanceof Error ? err.message : 'Failed to fetch context preview');
     } finally {
-      setLoading(false);
+      if (targetRef.current === key) setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- targetKey derives from topicId+providerName
   }, [topicId, providerName]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setPreview(null);
+    setError(null);
+    load();
+  }, [load]);
 
   useEffect(() => {
     if (!onMessage || !topicId) return;
@@ -210,17 +239,24 @@ export function useContextSnapshots(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Same staleness guard as useContextInspector (instance not keyed by topic).
+  const topicIdRef = useRef(topicId);
+  topicIdRef.current = topicId;
+
   const load = useCallback(async () => {
     if (!topicId) return;
+    const id = topicId;
     setLoading(true);
     setError(null);
     try {
-      const result = await contextSnapshotsApi.list(topicId);
+      const result = await contextSnapshotsApi.list(id);
+      if (topicIdRef.current !== id) return; // stale — another topic is active now
       setSnapshots(result.snapshots);
     } catch (err) {
+      if (topicIdRef.current !== id) return;
       setError(err instanceof Error ? err.message : 'Failed to load snapshots');
     } finally {
-      setLoading(false);
+      if (topicIdRef.current === id) setLoading(false);
     }
   }, [topicId]);
 
@@ -234,7 +270,11 @@ export function useContextSnapshots(
     }
   }, [topicId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setSnapshots([]);
+    setError(null);
+    load();
+  }, [load]);
 
   useEffect(() => {
     if (!onMessage || !topicId) return;

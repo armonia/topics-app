@@ -1163,9 +1163,14 @@ function App() {
         document.body
       )}
 
-      {/* Context menu */}
+      {/* Context menu — keyed by topic so a right-click on a DIFFERENT topic
+          remounts it: without the key, React reuses the instance and its local
+          state (open subMenu, half-typed renameValue seeded in a useState
+          initializer) survives the prop swap — Save/Delete would then act on
+          the NEW topic with the OLD topic's state. */}
       {contextMenu && (
         <ContextMenu
+          key={contextMenu.topic.id}
           x={contextMenu.x}
           y={contextMenu.y}
           topic={contextMenu.topic}

@@ -271,20 +271,27 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
             <Globe size={10} />
             Remote ({remoteBranches.length})
           </div>
-          {remoteBranches.map(branch => (
-            <div
-              key={branch.name}
-              className="flex items-center gap-2 px-2 py-[3px] cursor-pointer hover:bg-app-hover text-app-text-secondary transition-colors"
-              onClick={() => handleCheckout(branch.name.replace(/^remotes\/origin\//, ''))}
-            >
-              {switching === branch.name ? (
-                <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin flex-shrink-0" />
-              ) : (
-                <Globe size={12} className="flex-shrink-0 opacity-30" />
-              )}
-              <span className="truncate text-[11px]">{branch.name.replace(/^remotes\/origin\//, '')}</span>
-            </div>
-          ))}
+          {remoteBranches.map(branch => {
+            // Checkout runs on the STRIPPED name — `switching` holds that, so
+            // the spinner compare must use it too (matching against the raw
+            // `remotes/origin/…` name never succeeded → zero feedback during a
+            // multi-second remote checkout).
+            const localName = branch.name.replace(/^remotes\/origin\//, '');
+            return (
+              <div
+                key={branch.name}
+                className="flex items-center gap-2 px-2 py-[3px] cursor-pointer hover:bg-app-hover text-app-text-secondary transition-colors"
+                onClick={() => handleCheckout(localName)}
+              >
+                {switching === localName ? (
+                  <div className="w-3 h-3 border-2 border-app-spinner border-t-primary rounded-full animate-spin flex-shrink-0" />
+                ) : (
+                  <Globe size={12} className="flex-shrink-0 opacity-30" />
+                )}
+                <span className="truncate text-[11px]">{localName}</span>
+              </div>
+            );
+          })}
         </>
       )}
 
