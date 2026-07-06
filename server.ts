@@ -408,7 +408,10 @@ const wsHeartbeatTimer = setInterval(() => {
         // close on an already-half-dead socket may not fire the `close` handler,
         // which would otherwise leave a Tauri pane's delegation pointing at a dead
         // socket so isDelegated() keeps routing agent ops into the void.
-        nativeDelegateRegistry.unregister(ctxId);
+        // Owner-scoped: if the pane already re-registered on a NEWER socket
+        // (reconnect after sleep), reaping this stale one must not drop the
+        // fresh registration.
+        nativeDelegateRegistry.unregister(ctxId, ws);
         void ws.data._browserCleanup?.();
         set.delete(ws);
         try { ws.close(1001, "Connection timeout"); } catch {}
@@ -874,6 +877,7 @@ const server = Bun.serve<WSData>({
             raw, ctxId,
             (m) => { try { ws.send(JSON.stringify(m)); } catch {} },
             nativeDelegateRegistry,
+            ws, // owner — lets unregister() skip stale-socket cleanups after a re-register
           );
           if (delegated === 'registered') {
             // A native pane runs ops itself — it never views server frames, so tear
@@ -999,8 +1003,10 @@ const server = Bun.serve<WSData>({
           if (bset.size === 0) browserWsClients.delete(ws.data.browserContextId);
         }
         // Drop any native-executor registration for this pane + fail its in-flight
-        // ops (Tauri delegation) — no-op if this context never registered.
-        nativeDelegateRegistry.unregister(ws.data.browserContextId);
+        // ops (Tauri delegation) — no-op if this context never registered, and
+        // owner-scoped so a late `close` from an OLD socket can't kill a fresh
+        // re-registration made by the pane's reconnect (see unregister()).
+        nativeDelegateRegistry.unregister(ws.data.browserContextId, ws);
         ws.data._browserCleanup?.().catch(err =>
           console.warn(`[WS][browser] cleanup failed:`, err.message)
         );

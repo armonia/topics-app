@@ -54,6 +54,29 @@ test('unregister fails the in-flight ops of that context', async () => {
   expect(await p).toEqual({ error: 'native browser pane disconnected' });
 });
 
+// Reconnect race (the reason `owner` exists): the pane re-registers on a NEW
+// socket, then the OLD socket's late close / heartbeat-reap fires unregister.
+// Without the owner guard that would drop the fresh registration and reroute
+// agent ops to the headless Playwright context instead of the live native pane.
+test('unregister with a stale owner is a no-op (newer socket re-registered)', () => {
+  const r = createNativeDelegateRegistry();
+  const oldWs = { id: 'old' };
+  const newWs = { id: 'new' };
+  r.register('ctx', () => {}, oldWs);
+  r.register('ctx', () => {}, newWs); // reconnect overwrites send + owner
+  r.unregister('ctx', oldWs);         // stale cleanup — must NOT touch it
+  expect(r.isDelegated('ctx')).toBe(true);
+  r.unregister('ctx', newWs);         // the actual owner CAN drop it
+  expect(r.isDelegated('ctx')).toBe(false);
+});
+
+test('unregister without an owner stays unconditional (legacy callers)', () => {
+  const r = createNativeDelegateRegistry();
+  r.register('ctx', () => {}, { id: 'ws' });
+  r.unregister('ctx');
+  expect(r.isDelegated('ctx')).toBe(false);
+});
+
 test('a stale/unknown result is ignored (no throw)', () => {
   const r = createNativeDelegateRegistry();
   expect(() => r.resolveOp({ opId: 'ghost', result: 1 })).not.toThrow();
