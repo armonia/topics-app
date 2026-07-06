@@ -78,7 +78,6 @@ export const topicsApi = mk({
 });
 export const chatApi = mk({ getHistory: async () => ({ messages: [] }), abort: async () => ({ ok: true }) });
 export const searchApi = mk({});
-export const unreadApi = mk({ getAll: async () => ({}) });
 export const uploadApi = mk({});
 export const filesApi = mk({
   list: async () => ([
@@ -110,9 +109,6 @@ export const boardsApi = mk({
 });
 export const approvalsApi = mk({ list: async () => ({ approvals: [] }) });
 export const tagsApi = mk({ list: async () => ({ tags: [] }) });
-export const processesApi = mk({ list: async () => ([
-  { sessionKey: "s-ship", label: "claude-code", status: "running", startedAt: now() },
-]) });
 export const scriptsApi = mk({
   list: async () => ({ scripts: SCRIPTS }),
   output: async (id: string) => ({ output: SCRIPT_OUTPUT[id] || SCRIPT_OUTPUT.p1, offset: 99, done: id === "p3", status: id === "p3" ? "done" : "running", exitCode: id === "p3" ? 0 : undefined }),
@@ -125,8 +121,6 @@ export const openclawContextApi = mk({});
 export const contextAnalysisApi = mk({});
 export const contextPreviewApi = mk({ fetch: async () => ({}) });
 export const contextSnapshotsApi = mk({});
-export const usageApi = mk({});
-export const topicMessagesApi = mk({});
 export const agentProfilesApi = mk({ list: async () => ([
   { id: "a1", name: "Lead", role: "lead", modelPreference: "opus", maxConcurrentTasks: 3, capabilities: [], avatarEmoji: "🧭", status: "online", createdAt: now(), updatedAt: now() },
   { id: "a2", name: "Worker", role: "worker", modelPreference: "sonnet", maxConcurrentTasks: 2, capabilities: [], avatarEmoji: "⚙️", status: "idle", createdAt: now(), updatedAt: now() },
@@ -139,7 +133,6 @@ export const boardMemoryApi = mk({ list: async () => ([]) });
 export const agentActionsApi = mk({});
 export const providersApi = mk({ snapshot: async () => ({ providers: [], defaultProvider: null, generatedAt: now() }) });
 export const projectsApi = mk({ list: async () => ({ projects: [{ path: "/demo/topics-app", name: "topics-app" }] }) });
-export const machinesApi = mk({ list: async () => ([]) });
 export const worktreesApi = mk({ list: async () => ([]) });
 // standalone (non-*Api) value exports the real api.ts provides
 export function getMediaUrl(path: string): string { return path || ""; }
