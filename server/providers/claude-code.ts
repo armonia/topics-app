@@ -687,9 +687,13 @@ export class ClaudeCodeProvider implements AIProvider {
       message: { role: "user", content: outboundMessage },
     }) + "\n";
 
-    // Set up message timeout
+    // Set up message timeout. Keep the handle: the race below settles in
+    // seconds on a normal turn, and an uncleared 30-min timer would linger for
+    // its full window — one per message, so an active session accumulated
+    // dozens of pending timers (the complete() path already clears its own).
+    let messageTimeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error("TIMEOUT")), MESSAGE_TIMEOUT_MS);
+      messageTimeout = setTimeout(() => reject(new Error("TIMEOUT")), MESSAGE_TIMEOUT_MS);
     });
 
     const messagePromise = new Promise<{ runId: string }>((resolve, reject) => {
@@ -707,7 +711,9 @@ export class ClaudeCodeProvider implements AIProvider {
 
     try {
       await Promise.race([messagePromise, timeoutPromise]);
+      clearTimeout(messageTimeout);
     } catch (err: any) {
+      clearTimeout(messageTimeout);
       const errMsg = err?.message ?? "";
       pp.streamHandler = null;
       pp.pendingResolve = null;
@@ -1067,13 +1073,17 @@ export class ClaudeCodeProvider implements AIProvider {
       stderrBuf += d.toString();
       if (stderrBuf.length > 2048) stderrBuf = stderrBuf.slice(-2048);
 
-      const chunk = d.toString();
-
-      // The CLI was asked to `--resume` a session that no longer exists on
-      // disk. Wipe the DB row so the next spawn falls back to --session-id
-      // instead of looping forever on a doomed resume. We don't kill here —
-      // the close handler will fire shortly with the non-zero exit code.
-      if (!isNewSession && looksLikeMissingSessionError(chunk)) {
+      // Detect on the ACCUMULATED tail, not the single chunk: the CLI can
+      // flush an error across multiple write()s, splitting the pattern over
+      // two data events — neither chunk alone would match, and a real
+      // rate-limit would go undetected until the 30-min hard timeout (or a
+      // doomed --resume would retry forever). The 2 KiB cap keeps the scan
+      // cheap; both detections are latch-style (idempotent on re-match).
+      if (!isNewSession && looksLikeMissingSessionError(stderrBuf)) {
+        // The CLI was asked to `--resume` a session that no longer exists on
+        // disk. Wipe the DB row so the next spawn falls back to --session-id
+        // instead of looping forever on a doomed resume. We don't kill here —
+        // the close handler will fire shortly with the non-zero exit code.
         console.warn(
           `[claude-code] Resume failed for ${sessionKey} (claude_session_id=${claudeSessionId}); forgetting and will respawn fresh on next call`
         );
@@ -1081,7 +1091,7 @@ export class ClaudeCodeProvider implements AIProvider {
       }
 
       if (
-        (chunk.includes("rate_limit") || chunk.includes("429") || /overloaded/i.test(chunk)) &&
+        (stderrBuf.includes("rate_limit") || stderrBuf.includes("429") || /overloaded/i.test(stderrBuf)) &&
         pp.pendingReject
       ) {
         const reject = pp.pendingReject;
