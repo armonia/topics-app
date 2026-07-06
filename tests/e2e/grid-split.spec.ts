@@ -777,7 +777,7 @@ test.describe("Grid Split System", () => {
       await tab.click({ button: 'right' });
 
       // Check if context menu appears
-      const ctxMenu = page.locator('.fixed.z-\\[9999\\]').last();
+      const ctxMenu = page.getByRole('menu').last();
       await expect(ctxMenu).toBeVisible({ timeout: 3000 });
 
       const menuText = await ctxMenu.textContent();
@@ -800,7 +800,7 @@ test.describe("Grid Split System", () => {
       await tab.click({ button: 'right' });
 
       // Wait for context menu
-      const ctxMenu = page.locator('.fixed.z-\\[9999\\]').last();
+      const ctxMenu = page.getByRole('menu').last();
       await expect(ctxMenu).toBeVisible({ timeout: 3000 });
 
       // Verify both split options are present
@@ -819,7 +819,7 @@ test.describe("Grid Split System", () => {
       test.fixme();
     });
 
-    test("GRID-09: 'Reimposta pannelli' flattens the standalone grid to one row of equal cells", async ({ page }) => {
+    test("GRID-09: 'Reimposta pannelli' collapses the standalone grid to one tabbed cell", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten)" });
       await goToApp(page);
       await openTwoTopics(page);
@@ -828,7 +828,12 @@ test.describe("Grid Split System", () => {
       await splitViaContextMenu(page, 'Split Down');
       expect(await countRowDividers(page), 'Split Down should create a row divider').toBeGreaterThanOrEqual(1);
 
-      const tabsBefore = (await getVisibleTabLabels(page)).length;
+      // The tabs we own in this test (union-hydrate may carry residue from
+      // earlier tests in the shared DB, so exact counts are not hermetic —
+      // assert on OUR topics surviving instead).
+      const labelsBefore = await getVisibleTabLabels(page);
+      expect(labelsBefore.some(l => /E2E-Split-A/.test(l)), 'topic A visible before reset').toBe(true);
+      expect(labelsBefore.some(l => /E2E-Split-B/.test(l)), 'topic B visible before reset').toBe(true);
 
       // Right-click a tab → "Reimposta pannelli" is offered on a nested layout.
       const tab = page.locator('[role="main"] [draggable="true"]').first();
@@ -838,37 +843,30 @@ test.describe("Grid Split System", () => {
       await resetBtn.click();
       await page.waitForTimeout(500);
 
-      // One row: the vertical stack dissolved into side-by-side columns.
-      expect(await countRowDividers(page), 'flatten should remove every row divider').toBe(0);
-      expect(await countColDividers(page), 'flattened cells sit side by side').toBeGreaterThanOrEqual(1);
+      // Reset semantics (since abfa87f9): every split dissolves and ALL tabs
+      // collapse into ONE tabbed cell — no dividers of either axis remain.
+      expect(await countRowDividers(page), 'reset should remove every row divider').toBe(0);
+      expect(await countColDividers(page), 'reset should remove every column divider').toBe(0);
 
-      // No pane closed: same visible tab count.
-      expect((await getVisibleTabLabels(page)).length, 'flatten must not close any tab').toBe(tabsBefore);
-
-      // Equal-width cells (bounding boxes, ±2px) — exactly equalizeWidths(n).
-      const cells = page.locator('[role="main"] [data-panel-cell]');
-      const cellCount = await cells.count();
-      expect(cellCount, 'stack members become top-level cells').toBeGreaterThanOrEqual(2);
-      const widths: number[] = [];
-      for (let i = 0; i < cellCount; i++) {
-        const b = await cells.nth(i).boundingBox();
-        expect(b, `cell ${i} should have a bounding box`).not.toBeNull();
-        widths.push(b!.width);
-      }
-      const maxDiff = Math.max(...widths) - Math.min(...widths);
-      expect(maxDiff, 'flattened cells should be equal width (±2px)').toBeLessThanOrEqual(2);
+      // Our panes are not closed: both topics live on as tabs of the single cell.
+      const labelsAfter = await getVisibleTabLabels(page);
+      expect(labelsAfter.some(l => /E2E-Split-A/.test(l)), 'topic A must survive the reset').toBe(true);
+      expect(labelsAfter.some(l => /E2E-Split-B/.test(l)), 'topic B must survive the reset').toBe(true);
+      expect(await page.locator('[role="main"] [data-panel-cell]').count(), 'reset collapses to a single cell').toBe(1);
 
       // Persistence: the flat layout survives a reload (written through the
       // usePanelGridPersistence debounced writer, restored by its sanitizers).
       await page.reload({ waitUntil: 'networkidle' });
       await page.waitForTimeout(2000);
       expect(await countRowDividers(page), 'flat layout must persist across reload').toBe(0);
-      expect((await getVisibleTabLabels(page)).length, 'tabs must persist across reload').toBe(tabsBefore);
+      const labelsReloaded = await getVisibleTabLabels(page);
+      expect(labelsReloaded.some(l => /E2E-Split-A/.test(l)), 'topic A must persist across reload').toBe(true);
+      expect(labelsReloaded.some(l => /E2E-Split-B/.test(l)), 'topic B must persist across reload').toBe(true);
 
       // Already flat → the menu entry is hidden.
       const tabAfter = page.locator('[role="main"] [draggable="true"]').first();
       await tabAfter.click({ button: 'right' });
-      const ctxMenu = page.locator('.fixed.z-\\[9999\\]').last();
+      const ctxMenu = page.getByRole('menu').last();
       await expect(ctxMenu).toBeVisible({ timeout: 3000 });
       await expect(ctxMenu.getByText('Reimposta pannelli', { exact: true }), 'menu entry must hide on a flat layout').toHaveCount(0);
       await page.keyboard.press('Escape');
@@ -903,7 +901,7 @@ test.describe("Grid Split System", () => {
         return;
       }
       await tab.click({ button: 'right' });
-      const ctxMenu = page.locator('.fixed.z-\\[9999\\]').last();
+      const ctxMenu = page.getByRole('menu').last();
       await expect(ctxMenu).toBeVisible({ timeout: 3000 });
       const splitDown = ctxMenu.getByText('Split Down', { exact: true });
       if (!(await splitDown.isVisible().catch(() => false))) {
@@ -919,7 +917,21 @@ test.describe("Grid Split System", () => {
         return;
       }
 
-      const tabsBefore = (await getVisibleTabLabels(page)).length;
+      // Scope the invariant to the PROJECT window's own tabs. The reset event
+      // is global: it may legitimately purge a project-bound topic that was
+      // squatting as a STANDALONE tab (the PURGE_ORPHAN_PANE enforcement), so
+      // page-wide label counts are not a valid oracle here.
+      const projectTabLabels = async (): Promise<string[]> => {
+        const tabs = page.locator('[data-testid="project-window"] .truncate.flex-1');
+        const n = await tabs.count();
+        const out: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const t = await tabs.nth(i).textContent();
+          if (t) out.push(t.trim());
+        }
+        return out.sort();
+      };
+      const labelsBefore = await projectTabLabels();
 
       // Flatten from any project tab's context menu.
       const anyTab = page.locator('[role="main"] [draggable="true"]').first();
@@ -930,7 +942,14 @@ test.describe("Grid Split System", () => {
       await page.waitForTimeout(500);
 
       expect(await countRowDividers(page), 'project flatten should remove row dividers').toBe(0);
-      expect((await getVisibleTabLabels(page)).length, 'project flatten must not close tabs').toBe(tabsBefore);
+      // Set equality (order-insensitive), polled past the reflow: a lost
+      // project tab shows up as an explicit diff of WHICH label vanished.
+      await expect
+        .poll(projectTabLabels, {
+          message: 'project flatten must not close project tabs',
+          timeout: 7000,
+        })
+        .toEqual(labelsBefore);
     });
   });
 

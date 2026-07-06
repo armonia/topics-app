@@ -587,6 +587,7 @@ export function ProjectWindow({
 
   return (
     <div
+      data-testid="project-window"
       className={`relative flex flex-col min-h-0 min-w-[200px] overflow-hidden transition-all ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
       style={{ flex: 1 }}
       onDragOver={handleProjectDragOver}
