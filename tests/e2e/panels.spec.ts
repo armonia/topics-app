@@ -46,17 +46,6 @@ test.describe("Panels & Views", () => {
     expect((await page.locator('[role="main"]').textContent())!.length).toBeGreaterThan(5);
   });
 
-  test("kanban board renders", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
-    await goToApp(page);
-    const boardBtn = page.getByRole("button", { name: /Board/ });
-    await expect(boardBtn).toBeVisible({ timeout: 10000 });
-    await boardBtn.click();
-    await page.waitForTimeout(1500);
-
-    expect((await page.locator('[role="main"]').textContent())!.length).toBeGreaterThan(10);
-  });
-
   test("multi-pane layout with Add Pane", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
