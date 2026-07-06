@@ -21,6 +21,7 @@ import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION } from '
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
+import { notifyPaneReflow } from './paneReflow';
 import { extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey, remapTopicInCells, reorderCellPreservingPrimary } from './soloCells';
 import { recordSoloTombstones, restoreFromSoloTombstones, type SoloCellTombstone } from './soloCellTombstones';
 import { pushUndo } from '../../contexts/UndoContext';
@@ -948,15 +949,9 @@ export function PanelGrid({
     // add-if-absent would no-op there and silently drop the split).
     setSoloCells(prev => extractToOwnCell(prev, topicId));
 
-    // Native browser panes are OS-level WebContentsViews that don't follow the
-    // DOM reflow on their own. This split rearranges cells and, during the
-    // transition, can briefly leave a view overlapping the NEW tab strip — a
-    // mousedown on that tab then hits the view, not the tab, so the tab "won't
-    // drag" right after splitting a browser out. Hide every browser view for the
-    // reflow (the same signal a divider-resize uses) and re-measure once it
-    // settles. Dispatched past every limit guard above so a no-op never flashes.
-    window.dispatchEvent(new Event('topics:pane-resize-start'));
-    setTimeout(() => window.dispatchEvent(new Event('topics:pane-resize-end')), 400);
+    // Dispatched past every limit guard above so a no-op split never flashes
+    // the native browser views. See paneReflow.ts for the full rationale.
+    notifyPaneReflow();
 
     setGridRows(prev => {
       // Re-check limits in the updater — `prev` may have shifted between
