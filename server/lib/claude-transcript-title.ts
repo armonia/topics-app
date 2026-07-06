@@ -92,11 +92,25 @@ export function extractTitleFromTranscript(raw: string): string | null {
   return chooseTitle(st);
 }
 
-/** Per-transcript incremental scan state. Bounded by the number of live
- *  sessions (a few dozen entries of a few strings each). Keyed by path; a
- *  same-size in-place rewrite would go unnoticed, but JSONL transcripts are
- *  append-only in practice. */
+/** Per-transcript incremental scan state, keyed by path. Transcript paths are
+ *  unique per spawn/resume, so without an explicit cap this grows with every
+ *  session the process has EVER seen (each entry holds a carry buffer + full
+ *  untruncated prompt strings) — a real leak on a long-running launchd server.
+ *  LRU-capped: reads re-insert (recency), inserts evict the oldest. */
 const scanCache = new Map<string, TitleScanState>();
+const SCAN_CACHE_MAX = 200;
+
+function cacheTouch(path: string, st: TitleScanState): void {
+  // Map iteration order is insertion order — delete+set moves this key to the
+  // tail, so the head is always the least-recently-used entry.
+  scanCache.delete(path);
+  scanCache.set(path, st);
+  while (scanCache.size > SCAN_CACHE_MAX) {
+    const oldest = scanCache.keys().next().value;
+    if (oldest === undefined) break;
+    scanCache.delete(oldest);
+  }
+}
 
 /** Read a transcript file (only the bytes appended since the last call) and
  *  derive its title. Returns null if the file is missing/unreadable or
@@ -130,7 +144,7 @@ export function deriveClaudeSessionTitle(transcriptPath: string): string | null 
       // Copy — a subarray view would pin the whole delta buffer in memory.
       st.carry = Buffer.from(combined.subarray(lastNl + 1));
       st.offset += read;
-      scanCache.set(transcriptPath, st);
+      cacheTouch(transcriptPath, st);
     }
     // A final unterminated line is parsed opportunistically (it may be the
     // freshest ai-title; a complete line missing only its newline flush is
