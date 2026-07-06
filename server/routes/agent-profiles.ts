@@ -412,13 +412,22 @@ export function createAgentProfilesRouter(ctx: AppContext): RouteHandler {
         const session = stmts.getSessionByKey.get(sessionKey) as any;
         if (!session) return errorResponse(404, "Session not found");
 
-        // Update session heartbeat
-        const status = body?.status || session.status;
+        // Update session heartbeat. Type-guard every bound value: this is a
+        // reporting endpoint hit by external agents/scripts, and bun:sqlite
+        // doesn't reject bad bind types cleanly (an array is UNPACKED as extra
+        // positional params → sync throw AFTER updateSessionStatus already
+        // auto-committed, i.e. a half-written heartbeat + a 500).
+        const status = typeof body?.status === "string" && body.status ? body.status : session.status;
+        const tokensUsed =
+          typeof body?.tokensUsed === "number" && Number.isFinite(body.tokensUsed) && body.tokensUsed > 0
+            ? body.tokensUsed
+            : 0;
+        const currentTask = typeof body?.currentTask === "string" && body.currentTask ? body.currentTask : null;
         stmts.updateSessionStatus.run(status, now, sessionKey);
 
         // Add tokens if provided
-        if (body?.tokensUsed && body.tokensUsed > 0) {
-          stmts.updateSessionTokens.run(body.tokensUsed, now, sessionKey);
+        if (tokensUsed > 0) {
+          stmts.updateSessionTokens.run(tokensUsed, now, sessionKey);
         }
 
         // Insert heartbeat record
@@ -426,8 +435,8 @@ export function createAgentProfilesRouter(ctx: AppContext): RouteHandler {
           sessionKey,
           now,
           status,
-          body?.tokensUsed || 0,
-          body?.currentTask || null
+          tokensUsed,
+          currentTask
         );
 
         // Periodically clean old heartbeats
