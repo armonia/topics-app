@@ -158,11 +158,18 @@ export function CommandPalette({
   // searchFileItems memo (`undefined.filter` crashed the whole palette).
   useEffect(() => {
     if (projectPath && isOpen && scope !== 'projects') {
+      // Staleness guard: the palette stays mounted while open, and ⌘1-9
+      // switches focusedProjectPath (its capture-phase handler is NOT gated on
+      // the palette). If project A's slow flatList resolves after B's, it must
+      // not clobber B's list — the user would see/open paths from the wrong
+      // project.
+      let cancelled = false;
       import('../../lib/api').then(({ filesApi }) => {
         filesApi.flatList(projectPath)
-          .then(data => setFileList(Array.isArray(data?.files) ? data.files : []))
+          .then(data => { if (!cancelled) setFileList(Array.isArray(data?.files) ? data.files : []); })
           .catch(() => {});
       });
+      return () => { cancelled = true; };
     }
   }, [projectPath, isOpen, scope]);
 

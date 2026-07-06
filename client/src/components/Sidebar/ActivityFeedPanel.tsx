@@ -222,6 +222,12 @@ export function ActivityFeedPanel({ enabled = true }: ActivityFeedPanelProps) {
               atBottomStateChange={handleAtBottomStateChange}
               atBottomThreshold={40}
               followOutput="smooth"
+              // Key rows by event id, not by Virtuoso's default slot index:
+              // filtering/searching reshuffles `events`, and an index-keyed row
+              // makes React reuse an ActivityItem instance for a DIFFERENT
+              // event — its local `expanded` state then sticks to whatever
+              // event lands in that slot.
+              computeItemKey={(_index, event) => event?.id ?? _index}
               itemContent={(_index, event) => {
                 if (!event?.id) return null;
                 return <ActivityItem event={event} />;
