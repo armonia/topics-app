@@ -53,9 +53,22 @@ function atomicWrite(filepath: string, data: object) {
 
 function loadDayRecords(date: string): UsageRecord[] {
   const fp = dayFilePath(date);
+  let raw: string;
   try {
-    return JSON.parse(readFileSync(fp, "utf-8"));
+    raw = readFileSync(fp, "utf-8");
   } catch {
+    return []; // no file for this day yet — the normal case
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    // File exists but doesn't parse (torn write, disk full, external edit).
+    // This swallow used to be fully silent — rebuildSummary's "Corrupted
+    // usage file" catch could never fire because we never threw — so a whole
+    // day just vanished from cost/token totals with zero trace. Keep
+    // returning [] (appendUsageRecord may legitimately overwrite with fresh
+    // records) but say so loudly.
+    console.error(`[usage] Corrupted usage file ${fp} (${(err as Error)?.message}); treating as empty — that day's records are lost`);
     return [];
   }
 }
