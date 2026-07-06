@@ -843,6 +843,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         const fromSK = msg.fromSessionKey;
         if (!fromSK || isOwnStream(fromSK)) {
           if (fromSK) ownTopicSwitchesRef.current.add(fromSK);
+          // Register the pane BEFORE pushing into openPanels — same trap the
+          // open-project handler below documents: Effect B's REORDER_PANES
+          // bridge filters to ids WITH a pane entity in the store, so a bare
+          // setOpenPanels here leaves the id in React state but absent from
+          // state.panes, and the next Effect A tick silently drops it back
+          // out of openPanels (the tab never appears).
+          ensurePaneRegistered(
+            { id: msg.toTopicId, type: 'chat', topicId: msg.toTopicId, title: topicsRef.current[msg.toTopicId]?.name },
+            { groupId: 'group:default' },
+          );
           if (!openPanelsRef.current.includes(msg.toTopicId)) {
             setOpenPanels(prev => [...prev, msg.toTopicId]);
           }
@@ -864,7 +874,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         setFocusedPanelId(msg.toTopicId);
       }
     });
-  }, [onWSMessage, isOwnStream, clearSession, loadHistory, addMessageFromWS, openPanelsRef]);
+  }, [onWSMessage, isOwnStream, clearSession, loadHistory, addMessageFromWS, openPanelsRef, topicsRef]);
 
   // WS Cluster 4: open-project broadcast
   useEffect(() => {
@@ -1215,6 +1225,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleCloseProject = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
+    // Project tabs have no undo affordance here (no pushUndo, unlike
+    // handleClosePanel's CLOSE_PANE), so purge the pane entity from the store
+    // outright instead of leaving it orphaned. Without this, the entity and
+    // its group membership survive in `state.panes` forever — and worse,
+    // REORDER_PANES (Effect B, dispatched next render from the shrunk
+    // openPanels) is a pure permutation primitive that RE-APPENDS any current
+    // group member missing from its payload (groups.ts orphan-guard), so a
+    // bare setOpenPanels filter would resurrect the closed tab on the very
+    // next Effect A store→React sync tick.
+    usePaneStore.getState().dispatch({ type: 'PURGE_ORPHAN_PANE', payload: { id: paneId } });
     setOpenPanels(prev => {
       const next = prev.filter(id => id !== paneId);
       if (focusedPanelIdRef.current === paneId) {
@@ -1525,6 +1545,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     fetch(`/api/terminal/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
     terminalOps.removeSession(sessionId);
     const paneId = createPaneId('terminal', sessionId);
+    // Same PURGE as handleCloseProject above: terminal tabs have no undo
+    // path, so drop the pane entity from the store instead of leaving it
+    // orphaned (a bare setOpenPanels filter would let REORDER_PANES
+    // re-append it — see handleCloseProject for the full mechanism).
+    usePaneStore.getState().dispatch({ type: 'PURGE_ORPHAN_PANE', payload: { id: paneId } });
     setOpenPanels(prev => prev.filter(p => p !== paneId));
   }, [terminalOps]);
 
