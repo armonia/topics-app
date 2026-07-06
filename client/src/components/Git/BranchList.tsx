@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { GitBranch, Check, RefreshCw, Globe, Monitor, Plus, Trash2, Link } from 'lucide-react';
 import { gitApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
+import { MODAL_PANEL } from '../../lib/modalStyles';
+import { SELECTED_SURFACE } from '../../lib/selectionStyles';
 
 interface Branch {
   name: string;
@@ -38,6 +41,8 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
   const [newBranchName, setNewBranchName] = useState('');
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [forceDeleteConfirm, setForceDeleteConfirm] = useState<string | null>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
   const [showRemoteInput, setShowRemoteInput] = useState(false);
   const [newRemoteName, setNewRemoteName] = useState('origin');
@@ -97,24 +102,44 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
     }
   };
 
-  const handleDeleteBranch = async (name: string, e: React.MouseEvent) => {
+  const handleDeleteBranch = (name: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setDeleteConfirm(name);
+  };
+
+  const executeDeleteBranch = useCallback(async (name: string) => {
+    setDeleteConfirm(null);
     try {
       setDeleting(name);
       await gitApi.deleteBranch(projectPath, name);
       await loadBranches();
-    } catch {
-      // If normal delete fails, try force
-      try {
-        await gitApi.deleteBranch(projectPath, name, true);
-        await loadBranches();
-      } catch (err2) {
-        toast.error(errMessage(err2));
+    } catch (err) {
+      const message = errMessage(err);
+      // `git branch -d` refuses branches with unmerged commits — that failure
+      // is exactly the case where a silent force-retry would destroy work, so
+      // surface it as its own explicit confirmation instead of auto-retrying.
+      if (/not fully merged/i.test(message)) {
+        setForceDeleteConfirm(name);
+      } else {
+        toast.error(message);
       }
     } finally {
       setDeleting(null);
     }
-  };
+  }, [projectPath, loadBranches, toast]);
+
+  const executeForceDeleteBranch = useCallback(async (name: string) => {
+    setForceDeleteConfirm(null);
+    try {
+      setDeleting(name);
+      await gitApi.deleteBranch(projectPath, name, true);
+      await loadBranches();
+    } catch (err) {
+      toast.error(errMessage(err));
+    } finally {
+      setDeleting(null);
+    }
+  }, [projectPath, loadBranches, toast]);
 
   const handleAddRemoteSubmit = async () => {
     const name = newRemoteName.trim();
@@ -147,6 +172,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
   }
 
   return (
+    <>
     <div className="text-[12px]">
       {/* New branch input */}
       {showNewInput && (
@@ -202,7 +228,7 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
           key={branch.name}
           className={`flex items-center gap-2 px-2 py-[3px] cursor-pointer transition-colors group ${
             branch.current
-              ? 'bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary-dark'
+              ? SELECTED_SURFACE
               : 'hover:bg-app-hover text-app-text-body'
           }`}
           onClick={() => !branch.current && handleCheckout(branch.name)}
@@ -340,6 +366,70 @@ export function BranchList({ projectPath, onBranchSwitch, remotes, onAddRemote, 
           ))}
         </>
       )}
+    </div>
+    {deleteConfirm && createPortal(
+      <DeleteBranchConfirmDialog
+        branchName={deleteConfirm}
+        force={false}
+        onConfirm={() => executeDeleteBranch(deleteConfirm)}
+        onCancel={() => setDeleteConfirm(null)}
+      />,
+      document.body,
+    )}
+    {forceDeleteConfirm && createPortal(
+      <DeleteBranchConfirmDialog
+        branchName={forceDeleteConfirm}
+        force
+        onConfirm={() => executeForceDeleteBranch(forceDeleteConfirm)}
+        onCancel={() => setForceDeleteConfirm(null)}
+      />,
+      document.body,
+    )}
+    </>
+  );
+}
+
+function DeleteBranchConfirmDialog({ branchName, force, onConfirm, onCancel }: { branchName: string; force: boolean; onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        className={`${MODAL_PANEL} p-5 max-w-md w-full mx-4`}
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold text-app-text-heading mb-2">
+          {force ? 'Force Delete Branch' : 'Delete Branch'}
+        </h3>
+        <p className="text-xs text-app-text-body mb-3">
+          {force
+            ? <>The branch <span className="font-mono">{branchName}</span> has unmerged commits. Force delete anyway? This will permanently discard those commits.</>
+            : <>Delete branch <span className="font-mono">{branchName}</span>? This cannot be undone.</>}
+        </p>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-xs rounded border border-app-border text-app-text-body hover:bg-app-hover transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+          >
+            {force ? 'Force Delete' : 'Delete'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
