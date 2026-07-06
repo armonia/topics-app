@@ -107,9 +107,16 @@ describe("fullRowZoneStyle — full-width gutter", () => {
     expect(s.bottom).toBe(0);
   });
 
-  test("active state is more opaque than idle", () => {
+  test("idle is a hairline hint, active is the filled band (drop UX v2)", () => {
     const idle = fullRowZoneStyle("bottom", false);
     const active = fullRowZoneStyle("bottom", true);
-    expect(Number(active.opacity)).toBeGreaterThan(Number(idle.opacity));
+    // Idle: no fill (transparent) — only a reduced-strength hairline pinned to
+    // the container's own edge. The old always-on fill + uppercase label
+    // cluttered every drag before the user expressed any intent.
+    expect(idle.background).toBe("transparent");
+    expect(String(idle.boxShadow)).toContain("color-mix");
+    // Active: the region fill language + a full-strength seam on the inner edge.
+    expect(String(active.background)).toContain("color-mix");
+    expect(String(active.boxShadow)).toBe(`inset 0 ${DROP_SEAM_PX}px 0 0 var(--primary)`);
   });
 });
