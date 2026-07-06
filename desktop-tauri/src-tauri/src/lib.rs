@@ -504,6 +504,25 @@ fn apply_traffic_lights(window: &tauri::WebviewWindow, visible: bool) {
                 hit += 1;
             }
         }
+        // HIDE repaint fix. A SHOW paints instantly (the reposition setFrame:
+        // below — or, when it's skipped, unhiding the view — forces a redraw),
+        // but a HIDE via `setHidden:true` alone does NOT invalidate the vacated
+        // region on this frameless titleBarStyle:Overlay window: the buttons
+        // stay PAINTED until the next titlebar relayout (a focus/resize). That
+        // is the "semafori restano dopo aver chiuso il menu logo" bug — they
+        // only vanished once the user next touched the window. Force the
+        // titlebar container to redraw now so the hide lands immediately.
+        // Guarded to the hide path so the show path keeps its existing redraw.
+        if !visible {
+            let close: id = ptr.standardWindowButton_(NSWindowButton::NSWindowCloseButton);
+            if close != nil {
+                let sv: id = msg_send![close, superview];
+                if sv != nil {
+                    let _: () = msg_send![sv, setNeedsDisplay: true];
+                    let _: () = msg_send![sv, displayIfNeeded];
+                }
+            }
+        }
         // Electron parity: trafficLightPosition { x: 12, y: 12 } (from the
         // window's top-left). AppKit resets the standard buttons' frames on
         // every titlebar relayout, which is why the Resized/Focused window
