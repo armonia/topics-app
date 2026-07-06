@@ -9,6 +9,7 @@ import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
 import { augmentPath, realHome } from "../utils/path-env";
+import { timingSafeEqualStr } from "../utils";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
 import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
@@ -1204,7 +1205,7 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
 function agentAuthOk(req: Request): boolean {
   const expected = process.env.GATEWAY_TOKEN;
   if (!expected) return false;
-  return (req.headers.get("x-gateway-token") || "") === expected;
+  return timingSafeEqualStr(req.headers.get("x-gateway-token") || "", expected);
 }
 
 /** Kill every live child of a parent that just exited/was deleted. Children are

@@ -16,6 +16,7 @@ import { getTerminalSessionById } from "./terminal";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
+import { timingSafeEqualStr } from "../utils";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -1598,7 +1599,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         // chat path never hits this route — it dispatches in-process). Stops a LAN
         // peer / local process from triggering a confused-deputy cookie import.
         const tok = req.headers.get("x-gateway-token") || "";
-        if (!process.env.GATEWAY_TOKEN || tok !== process.env.GATEWAY_TOKEN) {
+        if (!process.env.GATEWAY_TOKEN || !timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN)) {
           return json({ error: "unauthorized" }, 401);
         }
         if (!browserService) {
@@ -1644,7 +1645,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const toolName = endpoint ? BRIDGED_BROWSER_ENDPOINTS[endpoint] : undefined;
       if (m && method === "POST" && toolName) {
         const tok = req.headers.get("x-gateway-token") || "";
-        if (!process.env.GATEWAY_TOKEN || tok !== process.env.GATEWAY_TOKEN) return json({ error: "unauthorized" }, 401);
+        if (!process.env.GATEWAY_TOKEN || !timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN)) return json({ error: "unauthorized" }, 401);
         if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
         const target = resolveBrowserContext(byTopic, bySession);
         if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first)" }, 404);
