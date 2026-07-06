@@ -72,7 +72,7 @@ function PerfStat({ label, value, color, title, className }: { label: string; va
  * Performance diagnostics for the status dropdown. Renders instantly (not lazy)
  * so opening the dropdown shows the live FPS history with no spinner. It answers
  * the "why is it slow?" question on two axes:
- *   • Topics — renderer FPS history + renderer-process CPU (Electron).
+ *   • Topics — renderer FPS history + the shell process' memory/CPU (Tauri).
  *   • PC — system load average + GPU hardware-acceleration status.
  */
 export function PerfSection() {
@@ -106,23 +106,28 @@ export function PerfSection() {
     return [...m.entries()].sort((a, b) => b[1].cpu - a[1].cpu).slice(0, 5);
   })();
 
-  // Electron app memory (footprint ≈ Activity Monitor, or RSS fallback). The Bun
-  // server is a separate process → its own tile, not in the headline total.
+  // Two real process figures: Topics shell (Tauri) + the Bun server (separate
+  // process). `perf.partial` is true when we could only measure the shell (the
+  // WKWebView content/GPU processes are launchd-reparented, unattributable), so
+  // the breakdown below shows shell + server honestly instead of fabricated 0s.
   // `perf?.memory` (not just `perf`): a renderer running ahead of an un-rebuilt
-  // Electron main gets a payload without `memory`, so guard the whole block.
+  // shell gets a payload without `memory`, so guard the whole block.
   const serverMemMB = status?.server.memoryMB ?? null;
   const mem = perf?.memory ?? null;
+  const isPartial = perf?.partial ?? false;
   const totalMemMB = mem ? mem.totalMB : serverMemMB;
   const memLabel = mem?.metric === 'footprint' ? 'footprint' : 'RSS';
 
   // Bottleneck verdict — only the unambiguous calls. We no longer guess "PC
   // saturated by other processes": the top-process list below shows the actual
-  // culprits, so the user reads it directly instead of being told.
+  // culprits, so the user reads it directly instead of being told. Under Tauri the
+  // renderer CPU isn't visible (WKWebView XPC), so the load verdict keys off the
+  // shell process instead of the always-0 renderer figure.
   let verdict: { text: string; color: string } | null = null;
   if (perf && accelerated === false) {
     verdict = { text: 'Accelerazione hardware OFF — causa principale dei pochi FPS', color: 'text-red-500' };
-  } else if (perf && perf.cpu.renderer > 80) {
-    verdict = { text: 'Renderer Topics sotto carico — è Topics a costare', color: 'text-amber-500' };
+  } else if (perf && (isPartial ? perf.cpu.total > 100 : perf.cpu.renderer > 80)) {
+    verdict = { text: 'Processo Topics sotto carico', color: 'text-amber-500' };
   }
   // No "Fluido" line in the good case: the FPS headline + sparkline above
   // already say it. The verdict only speaks up when there's a real problem.
@@ -141,11 +146,23 @@ export function PerfSection() {
       </div>
       <FpsSparkline data={history} />
 
-      {/* Topics' own CPU cost (renderer + GPU process). "PC load" was removed:
-          it was load1/cores*100, which exceeds 100% on an overloaded machine
-          (e.g. "229%") and read as broken — and the Top CPU list below already
-          shows what's actually loading the machine. */}
-      {perf && (
+      {/* CPU cost. Under Tauri only the shell process is measurable (renderer/GPU
+          CPU live in WKWebView's XPC processes we can't attribute), so we show the
+          shell figure ONLY when there's a real reading — cpu.total is 0 until the
+          baseline lands and on an idle shell, and a persistent "0%" reads as fake.
+          The pre-Tauri renderer+GPU split is kept for a shell that reports it. */}
+      {perf && isPartial && perf.cpu.total > 0 && (
+        <div className="grid grid-cols-4 gap-1.5">
+          <PerfStat
+            label="CPU shell"
+            className="col-span-4"
+            value={`${perf.cpu.total}%`}
+            color={perf.cpu.total > 100 ? 'text-amber-500' : 'text-app-text'}
+            title="CPU del processo shell di Topics — non include i processi WKWebView dei pannelli · può superare 100% (per core)"
+          />
+        </div>
+      )}
+      {perf && !isPartial && (
         <div className="grid grid-cols-4 gap-1.5">
           <PerfStat
             label="CPU renderer"
@@ -164,37 +181,49 @@ export function PerfSection() {
         </div>
       )}
 
-      {/* Memory footprint — the REAL one. The status bar used to show only the
-          Bun server's RSS (~70 MB); this is the full desktop figure: every
-          Electron process (renderers, GPU, main, utility) + the server. */}
+      {/* Memory — the honest process figures. Under Tauri (`isPartial`) we can only
+          measure the shell process, so we show Topics (shell) + the Bun server as
+          the two real numbers, NOT a fabricated renderer/GPU/other breakdown. */}
       <div
         className="flex items-center justify-between px-0.5 pt-0.5"
-        title={memLabel === 'footprint'
-          ? 'Footprint dei processi Electron di Topics — ≈ il valore di Activity Monitor (RSS + memoria compressa + superfici GPU). Il server Bun è un processo separato (tile a parte).'
-          : 'Memoria residente (RSS) dei processi Electron. Activity Monitor mostra un valore più alto (footprint).'}
+        title={isPartial
+          ? 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli): macOS li scorpora sotto launchd e non sono attribuibili. Il server Bun è un processo separato (tile a parte).'
+          : memLabel === 'footprint'
+            ? 'Footprint dei processi di Topics — ≈ il valore di Activity Monitor. Il server Bun è un processo separato (tile a parte).'
+            : 'Memoria residente (RSS) dei processi di Topics. Activity Monitor mostra un valore più alto (footprint).'}
       >
         <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
-          <HardDrive size={12} /> Memoria <span className="text-[9px] opacity-60">{memLabel}</span>
+          <HardDrive size={12} /> Memoria <span className="text-[9px] opacity-60">{isPartial ? 'shell · RSS' : memLabel}</span>
         </span>
         <span className="tabular-nums text-[13px] font-semibold text-app-text">
           {totalMemMB !== null ? `${totalMemMB} MB` : '—'}
-          {mem && (
-            <span className="text-[10px] font-normal text-app-text-muted ml-1.5">
-              {mem.processCount} processi
-            </span>
-          )}
         </span>
       </div>
       <div className="grid grid-cols-4 gap-1.5">
-        {mem ? (
+        {isPartial && mem ? (
+          <>
+            <PerfStat
+              label="Topics (shell)"
+              className="col-span-2"
+              value={`${mem.totalMB}MB`}
+              title="RSS del processo shell di Topics — i processi WKWebView dei pannelli non sono inclusi (macOS li scorpora)"
+            />
+            <PerfStat
+              label="Server Bun"
+              className="col-span-2"
+              value={serverMemMB !== null ? `${serverMemMB}MB` : 'n/d'}
+              title={`RSS del processo server Bun${status?.server ? ` · heap ${status.server.heapUsedMB} MB` : ''}`}
+            />
+          </>
+        ) : mem ? (
           <>
             <PerfStat
               label="Renderer"
               value={`${mem.rendererMB}MB`}
-              title="Memoria dei processi renderer — finestre + ogni pannello browser nativo (WebContentsView)"
+              title="Memoria dei processi renderer — finestre + ogni pannello browser nativo"
             />
             <PerfStat label="GPU" value={`${mem.gpuMB}MB`} title="Memoria del processo GPU/compositor" />
-            <PerfStat label="Altri" value={`${mem.otherMB}MB`} title="Processo main + utility (network, storage, audio) di Electron" />
+            <PerfStat label="Altri" value={`${mem.otherMB}MB`} title="Processo main + utility (network, storage, audio)" />
             <PerfStat
               label="Server"
               value={serverMemMB !== null ? `${serverMemMB}MB` : 'n/d'}
