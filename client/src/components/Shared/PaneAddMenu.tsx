@@ -30,7 +30,7 @@
  * Every host also shares the mobile bottom-sheet presentation (same items, slid
  * up from the bottom, safe-area aware).
  */
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   MessageSquare,
@@ -59,6 +59,7 @@ import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
 import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
+import { computeMenuPosition } from '../../lib/popoverPosition';
 import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
 import { RESTING_SURFACE } from '../../lib/selectionStyles';
 import { useDismissable } from '../../hooks/useDismissable';
@@ -353,13 +354,6 @@ export interface PaneAddMenuProps extends Omit<PaneAddMenuItemsProps, 'onClose'>
 const TRIGGER_CLASS_PILL =
   'w-6 h-6 flex items-center justify-center rounded-md bg-surface hover:bg-app-hover text-app-text-muted hover:text-app-text transition-colors';
 
-/** Estimated menu dimensions for viewport overflow math. The actual menu
- *  is content-sized (`min-w-[150px]`) and item-row height is ~28 px desktop
- *  / ~44 px mobile. Slightly over-estimating is fine — we just want to
- *  decide whether to flip ABOVE the trigger or render BELOW. */
-const ESTIMATED_MENU_WIDTH_PX = 180;
-const ESTIMATED_MENU_HEIGHT_PX = 220;
-
 export function PaneAddMenu({
   scope,
   onNewChat,
@@ -376,7 +370,7 @@ export function PaneAddMenu({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [anchorRect, setAnchorRect] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const { isMobile } = useMobile();
 
   const close = useCallback(() => setOpen(false), []);
@@ -385,17 +379,31 @@ export function PaneAddMenu({
   // the trigger button. Replaces the old mousedown-only handler.
   useDismissable({ open, onClose: close, refs: [buttonRef, menuRef] });
 
-  // Re-anchor on viewport resize while open (dropdown presentation only —
-  // the palette is centered by flexbox and needs no anchor math).
-  useEffect(() => {
-    if (!open || isMobile || presentation === 'palette') return;
-    const onResize = () => {
-      if (!buttonRef.current) return;
-      setAnchorRect(computeAnchor(buttonRef.current));
+  // Measure the REAL dropdown panel and place it before paint (dropdown
+  // presentation only — the palette is centered by flexbox and needs no
+  // anchor math). Replaces the old click-time ESTIMATED_MENU_WIDTH/HEIGHT_PX
+  // guess, which over/under-shot depending on how many rows a given scope
+  // rendered (e.g. project scope's longer list vs. standalone's shorter one).
+  const reposition = useCallback(() => {
+    const button = buttonRef.current;
+    const panel = menuRef.current;
+    if (!button || !panel) return;
+    const anchor = button.getBoundingClientRect();
+    const menu = panel.getBoundingClientRect();
+    const next = computeMenuPosition(anchor, { width: menu.width, height: menu.height });
+    setPos({ top: next.top, left: next.left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open || isMobile || presentation !== 'dropdown') { setPos(null); return; }
+    reposition();
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
     };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [open, isMobile, presentation]);
+  }, [open, isMobile, presentation, reposition]);
 
   // ⌘N / programmatic open: palette instances toggle on the global
   // open-add-palette event so the keyboard shortcut needs no prop-drilling
@@ -410,13 +418,9 @@ export function PaneAddMenu({
   const hasMenuItems = !!onNewChat || (availableTypes ?? getAddableTypesForScope(scope)).length > 0;
   if (!hasMenuItems) return null;
 
-  /* ── Click handler — anchor + open (or close on second click). ── */
-  const handleClick = () => {
-    if (!open && buttonRef.current && presentation === 'dropdown') {
-      setAnchorRect(computeAnchor(buttonRef.current));
-    }
-    setOpen((prev) => !prev);
-  };
+  /* ── Click handler — open (or close on second click); positioning happens
+     in the layout effect above once the real panel has mounted. ── */
+  const handleClick = () => setOpen((prev) => !prev);
 
   // Trigger preset selection. The 'ghost' variant matches sidebar
   // header icons (Settings, Remote, etc.) — same 7×7 / 10×10 footprint,
@@ -504,11 +508,18 @@ export function PaneAddMenu({
         </div>,
         document.body,
       )}
-      {open && !isMobile && presentation === 'dropdown' && anchorRect && createPortal(
+      {open && !isMobile && presentation === 'dropdown' && createPortal(
         <div
           ref={menuRef}
           className={`fixed ${POPOVER_SURFACE} min-w-[150px]`}
-          style={{ top: anchorRect.top, left: anchorRect.left, zIndex: Z_POPOVER }}
+          style={{
+            top: pos?.top ?? -9999,
+            left: pos?.left ?? -9999,
+            zIndex: Z_POPOVER,
+            // Hidden for the one pre-measure pass so it never flashes at an
+            // unclamped position before `reposition()` runs.
+            visibility: pos ? 'visible' : 'hidden',
+          }}
           data-testid="pane-add-menu"
         >
           {menuItems}
@@ -517,16 +528,4 @@ export function PaneAddMenu({
       )}
     </>
   );
-}
-
-/* ── Helpers ───────────────────────────────────────────────────────────── */
-
-function computeAnchor(button: HTMLButtonElement): { top: number; left: number } {
-  const rect = button.getBoundingClientRect();
-  // Clamp left so the menu never overflows the right edge.
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - ESTIMATED_MENU_WIDTH_PX - 8));
-  // Flip above the button if it would clip the bottom of the viewport.
-  const fitsBelow = rect.bottom + 4 + ESTIMATED_MENU_HEIGHT_PX <= window.innerHeight - 8;
-  const top = fitsBelow ? rect.bottom + 4 : Math.max(8, rect.top - ESTIMATED_MENU_HEIGHT_PX - 4);
-  return { top, left };
 }

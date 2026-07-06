@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PenLine, Smile, Palette, Bot, Trash2, Pin, PinOff, ExternalLink, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
@@ -49,15 +49,21 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
     }
   }, [subMenu]);
 
-  const adjustedStyle = useCallback(() => {
-    const menuWidth = 220;
-    const menuHeight = 260;
-    let adjustedX = x;
-    let adjustedY = y;
-    if (x + menuWidth > window.innerWidth) adjustedX = window.innerWidth - menuWidth - 8;
-    if (y + menuHeight > window.innerHeight) adjustedY = window.innerHeight - menuHeight - 8;
-    return { left: adjustedX, top: adjustedY };
-  }, [x, y]);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  // Measure the REAL menu and clamp it inside the viewport (same MARGIN=8
+  // technique as ContextMenuPortal), replacing the old hardcoded 220×260
+  // guess — the subMenus differ wildly in height (rename ~80px vs the icon
+  // grid ~200px), so a single fixed size over/under-shot depending on which
+  // one was open. Re-measures whenever the subMenu changes.
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    const w = el?.offsetWidth ?? 220;
+    const h = el?.offsetHeight ?? 260;
+    const left = Math.max(8, Math.min(x, window.innerWidth - w - 8));
+    const top = Math.max(8, Math.min(y, window.innerHeight - h - 8));
+    setPos({ left, top });
+  }, [x, y, subMenu]);
 
   const handleRename = async () => {
     if (renameValue.trim() && renameValue.trim() !== topic.name) {
@@ -71,8 +77,6 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
 
   const handleDelete = async () => { await onDelete(topic.id); onClose(); };
 
-  const pos = adjustedStyle();
-
   // Portaled to <body> so position:fixed escapes any transformed / overflow /
   // stacking-context ancestor, and Z_CONTEXT_MENU keeps it on the shared
   // popover plane (above portaled dropdowns / the project menu).
@@ -82,7 +86,13 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
       role="menu"
       aria-label={`Actions for ${topic.name}`}
       className={`fixed ${POPOVER_SURFACE} min-w-[200px]`}
-      style={{ left: pos.left, top: pos.top, zIndex: Z_CONTEXT_MENU }}
+      style={{
+        left: pos?.left ?? x,
+        top: pos?.top ?? y,
+        zIndex: Z_CONTEXT_MENU,
+        // Hidden for the one pre-measure pass so it never flashes unclamped.
+        visibility: pos ? 'visible' : 'hidden',
+      }}
     >
       {subMenu === 'none' && (
         <>
