@@ -648,6 +648,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             updateLastMessage(sessionKey, { content: fullContent, partial: undefined, streamedAt: undefined });
             endStream(sessionKey);
             topicProvider.unregisterStreamHandler?.(sessionKey);
+            // Abort the underlying provider turn too. `unregisterStreamHandler` is
+            // a no-op for providers that don't implement it (e.g. ClaudeCodeProvider),
+            // so without this the spawned process keeps running and later fires
+            // `onDone` → a second finalizeStream (now guarded) and, worse, a frozen
+            // per-session turn queue. Mirrors `/api/chat/abort` in topics.ts.
+            topicProvider.abort?.(sessionKey)?.catch((err: any) => console.warn(`[StreamWS] Provider abort on grace-expiry failed:`, err));
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
@@ -671,6 +677,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             updateLastMessage(sessionKey, { content: fullContent, partial: undefined, streamedAt: undefined });
             endStream(sessionKey);
             topicProvider.unregisterStreamHandler?.(sessionKey);
+            // See handleGraceExpiry: abort the orphaned provider turn (no-op
+            // unregister otherwise leaves the process running).
+            topicProvider.abort?.(sessionKey)?.catch((err: any) => console.warn(`[StreamWS] Provider abort on hard-timeout failed:`, err));
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: msg });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
@@ -726,6 +735,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
           // Helper: finalize the stream (called on done/error/abort)
           const finalizeStream = async (reason: "done" | "error" | "aborted", errorMsg?: string) => {
+            // Idempotent. A timeout path (handleGraceExpiry/handleHardTimeout) may
+            // have already finalized and aborted this stream; a late provider
+            // callback — `onDone` from an orphaned turn, or `onAborted` from the
+            // abort() those handlers now issue — must not re-persist content or
+            // re-broadcast to clients that already closed the stream out.
+            if (streamState === "finalized") return;
             // Always cancel pending timers — the stream is over.
             clearAllTimers();
             // Recovery path: if the provider succeeded after the soft
