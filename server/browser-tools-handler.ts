@@ -21,10 +21,8 @@ import type {
   IndexedElement,
 } from "./browser-tools";
 import { pointObject, describeImage } from "./integrations/moondream-client";
-import { isElectronCdpAvailable } from "./electron-cdp-probe";
-import type { ElectronCdpDispatcher } from "./browser-cdp-dispatcher";
-import { playwrightOps, cdpOps, type BrowserOps } from "./browser-ops-adapter";
-import { decryptChromeCookies, listChromeCookieHosts } from "./integrations/chrome-cookies";
+import { playwrightOps, type BrowserOps } from "./browser-ops-adapter";
+import { listChromeCookieHosts } from "./integrations/chrome-cookies";
 import {
   serialize,
   diff,
@@ -45,73 +43,14 @@ const observeCache = new Map<string, IndexedElement[]>();
 /** Last ref-based snapshot per context — powers incremental diffs in observe/act. */
 const prevSnapshotCache = new Map<string, Snapshot>();
 
-// Phase 30.1 BROWSER-CHAT-06 — module-level dispatcher reference. Set once at
-// boot via setBrowserCdpDispatcher() in server.ts. Null in pure-web builds.
-let cdpDispatcher: ElectronCdpDispatcher | null = null;
-export function setBrowserCdpDispatcher(d: ElectronCdpDispatcher | null): void {
-  cdpDispatcher = d;
-}
-
 /**
- * Wait (bounded poll) for a native WebContentsView's CDP target to be registered
- * for `contextId`. Returns the targetId once available, or null on timeout / when
- * not in Electron-host mode. No-op fast path in pure web mode (no dispatcher or
- * CDP unavailable). Used both by resolveOps (between-turns re-registration race)
- * and by the open-pane route (first-open mount race) so open_browser_pane can
- * deterministically navigate the SAME native view the agent's tools drive.
- */
-export async function awaitNativeCdpTarget(
-  contextId: string,
-  timeoutMs = 3000,
-): Promise<string | null> {
-  if (!cdpDispatcher) return null;
-  if (!(await isElectronCdpAvailable())) return null;
-  const deadline = Date.now() + Math.max(0, timeoutMs);
-  let targetId = cdpDispatcher.getTargetId(contextId);
-  while (!targetId && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 100));
-    targetId = cdpDispatcher.getTargetId(contextId);
-  }
-  return targetId;
-}
-
-/**
- * Resolve the right BrowserOps adapter for a contextId.
- * - Electron CDP up + cdpTargetId registered for this contextId -> CDP path
- * - Electron CDP up + context is native-bound but its target is momentarily
- *   unresolved (renderer remount / first-open mount race) -> WAIT briefly for it,
- *   and if it still doesn't appear, FAIL LOUD rather than silently driving an
- *   invisible Playwright phantom (a different browser, no auth) the user never
- *   sees. That silent fallback was the root cause of the "open_browser_pane shows
- *   about:blank / state resets between turns" bug.
- * - Pure web mode (no dispatcher / CDP down) OR a context that never owned a
- *   native pane -> existing Playwright path (zero regressions in web mode).
+ * Resolve the BrowserOps adapter for a contextId. The Tauri native pane is
+ * intercepted upstream by the native delegate registry (see
+ * dispatchBrowserToolCallByContext), so it never reaches here — this only ever
+ * serves a web-mode pane, backed by the server-launched Playwright context.
+ * (The former Electron-CDP branch went away with the Electron shell in v2.0.0.)
  */
 async function resolveOps(service: BrowserService, contextId: string): Promise<BrowserOps> {
-  if (cdpDispatcher && (await isElectronCdpAvailable())) {
-    let targetId = cdpDispatcher.getTargetId(contextId);
-    if (!targetId) {
-      // Wait briefly for the native pane to (re)register — covers the first-open
-      // mount race and a between-turns remount. We poll regardless of
-      // isNativeBound: after a server restart the in-memory native-bound set is
-      // empty even though a real pane is mounted (the persisted target map / the
-      // renderer heartbeat re-register within the window).
-      targetId = await awaitNativeCdpTarget(contextId, 3000);
-    }
-    if (targetId) return cdpOps(cdpDispatcher, contextId, service);
-    // IN ELECTRON THE AGENT MUST DRIVE THE USER'S VISIBLE WebContentsView — never
-    // the off-screen Playwright phantom (a different, headless browser the user
-    // can't see, with no shared auth/storage). When no native pane resolves, the
-    // pane simply isn't open/visible for this session; fail LOUD so the agent
-    // (re)opens a visible one instead of silently operating an invisible browser
-    // (the "tools work but the user sees nothing" bug). The Playwright path is
-    // reserved for true web mode (Electron CDP down), handled below.
-    throw new Error(
-      "No visible browser pane is open for this session. Call open_browser_pane " +
-        "(with a url) to open one the user can see in the app, then retry — browser " +
-        "tools won't drive an off-screen browser in the desktop app.",
-    );
-  }
   return playwrightOps(service, contextId);
 }
 
@@ -440,17 +379,11 @@ export async function handleBrowserConsole(
   args: { level?: "all" | "errors" | "warnings"; limit?: number }
 ): Promise<{ entries: { level: string; text: string }[]; errors: number; warnings: number; total: number } | { error: string }> {
   console.log(`[BrowserTools] browser_console(${contextId}, level=${args?.level ?? "all"})`);
-  if (!cdpDispatcher || !(await isElectronCdpAvailable()) || !cdpDispatcher.isNativeBound(contextId)) {
-    return { error: "browser_console is available only for a visible native browser pane. Call open_browser_pane (with a url) first." };
-  }
-  try {
-    const all = await cdpDispatcher.getConsole(contextId, { level: args?.level ?? "all", limit: args?.limit });
-    let errors = 0, warnings = 0;
-    for (const e of all) { if (e.level === "error") errors++; else if (e.level === "warn") warnings++; }
-    return { entries: all.map((e) => ({ level: e.level, text: e.text })), errors, warnings, total: all.length };
-  } catch (err: unknown) {
-    return { error: `browser_console failed: ${err instanceof Error ? err.message : String(err)}` };
-  }
+  // Console capture lives on the native pane — the Tauri client delegates
+  // browser_console to its own executor (tauriBrowserOps), so it never reaches
+  // this handler. In web mode there is no per-context console buffer, so this
+  // path only ever returns the "needs a native pane" note.
+  return { error: "browser_console is available only for a visible native browser pane. Call open_browser_pane (with a url) first." };
 }
 
 /**
@@ -655,13 +588,15 @@ export async function handleBrowserPoint(
  * Seed the topic's native browser (WebContentsView persistent partition) with the
  * user's REAL Chrome logins, so it's instantly signed in to whatever Chrome is —
  * no per-site sign-in. Reads ONLY the Chrome cookie store (never saved passwords);
- * the macOS Keychain prompt is the consent gate. Requires the Electron native pane
- * (CDP). Cookies are injected over the page's own CDP session via Network.setCookies
- * so they land in that exact partition. `dry_run` lists hosts only (no Keychain).
+ * the macOS Keychain prompt is the consent gate. Requires the Topics native pane:
+ * the server decrypts the store here, then the native-state delegate
+ * (browser-native-state.ts) hands the cookies to the pane's WKWebView so they land
+ * in its partition. `dry_run` lists hosts only (no Keychain). This web-mode handler
+ * has no native pane, so it only serves dry_run / reports a native pane is needed.
  */
 export async function handleBrowserImportChrome(
-  service: BrowserService,
-  contextId: string,
+  _service: BrowserService,
+  _contextId: string,
   args: { domains?: string[]; profile?: string; dry_run?: boolean }
 ): Promise<unknown> {
   const domains = Array.isArray(args?.domains) ? args.domains.map(String) : [];
@@ -676,32 +611,13 @@ export async function handleBrowserImportChrome(
       'browser_import_chrome: "domains" (non-empty array) is required, e.g. ["youtube.com"]. Use dry_run:true to list importable hosts first.'
     );
   }
-  if (!cdpDispatcher || !(await isElectronCdpAvailable()) || !cdpDispatcher.getTargetId(contextId)) {
-    return {
-      error:
-        "browser_import_chrome requires the Topics native browser. Open the browser pane first (open_browser_pane / browser_open), then retry.",
-    };
-  }
-  console.log(`[BrowserTools] browser_import_chrome(${contextId}, domains=${domains.join(",")})`);
-  return withLock(service, contextId, async () => {
-    const { cookies, decrypted, decryptFailed, skippedEmpty, appBoundEncrypted, profile: p } =
-      await decryptChromeCookies({ domains, profile });
-    if (!cookies.length) {
-      return { ok: true, imported: 0, note: "no matching cookies (none found, all expired, or App-Bound encrypted)", appBoundEncrypted };
-    }
-    const page = await cdpDispatcher!.getPage(contextId);
-    const session = await page.context().newCDPSession(page);
-    try {
-      // Inject into THIS page's network/session = the WebContentsView's persistent
-      // partition. setCookies replaces matching cookies; never logs values.
-      await session.send("Network.setCookies", { cookies: cookies as never });
-    } finally {
-      await session.detach().catch(() => { /* ignore */ });
-    }
-    await page.reload().catch(() => { /* harmless if on about:blank */ });
-    clearBrowserCaches(contextId); // page reloaded -> refs/bboxes stale
-    const out: Record<string, unknown> = { ok: true, profile: p, imported: decrypted, decryptFailed, skippedEmpty };
-    if (appBoundEncrypted) out.appBoundEncrypted = appBoundEncrypted;
-    return out;
-  });
+  // Real cookie injection happens on the native pane: the Tauri client is a
+  // native-state delegate for browser_import_chrome (the server decrypts the
+  // Chrome store in browser-native-state.ts, then hands the cookies to the
+  // pane's WKWebView). This web-mode handler has no native pane to inject into,
+  // so it only lists hosts (dry_run, above) or reports a native pane is required.
+  return {
+    error:
+      "browser_import_chrome requires the Topics native browser. Open the browser pane first (open_browser_pane / browser_open), then retry.",
+  };
 }
