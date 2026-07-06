@@ -501,6 +501,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (!panelsChanged && !topicsChanged) return;
 
       const projectPanesToAdd: string[] = [];
+      // paneId → projectPath, so we can register the pane ENTITY below before
+      // its id flows into openPanels. Per the ensurePaneRegistered header, an
+      // unregistered project id is silently dropped by Effect B's REORDER_PANES.
+      const projectPanePaths = new Map<string, string>();
       // Post-mortem (May 3 sidebar-flash): a topic with `projectPath` that
       // somehow ended up in openPanels must NOT just be filtered out of
       // React state — the same id is still in pane-store-v2.panes/groups
@@ -517,6 +521,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (topic.archived) return false;
         if (topic.projectPath) {
           const paneId = createPaneId('project', topic.projectPath);
+          projectPanePaths.set(paneId, topic.projectPath);
           if (!projectPanesToAdd.includes(paneId)) projectPanesToAdd.push(paneId);
           if (!orphanTopicIdsToPurge.includes(id)) orphanTopicIdsToPurge.push(id);
           return false;
@@ -530,6 +535,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (changed) {
         prevOpenPanelsForValidation.current = validPanels;
         setOpenPanels(validPanels);
+        // Register the project pane ENTITIES before Effect B dispatches
+        // REORDER_PANES for the new openPanels — otherwise the reducer drops
+        // these ids (no `state.panes` entity) and the project tab never opens.
+        // Effect 7 previously skipped this (every other call site honors the
+        // ensurePaneRegistered contract); the focus branch below only ever
+        // patched the *focused* pane, leaving non-focused project panes orphaned.
+        for (const p of projectPanesToAdd) {
+          const pp = projectPanePaths.get(p);
+          if (pp) ensurePaneRegistered({ id: p, type: 'project', projectPath: pp });
+        }
         // Drain the orphan list into the pane store so this corruption
         // doesn't bounce back through the next hydrate. Dispatched after
         // setOpenPanels so the React state and store state converge in
