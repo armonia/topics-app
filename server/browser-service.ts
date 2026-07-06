@@ -463,8 +463,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
             }
           } finally {
             // This session exists only to read the targetId — detach it so it
-            // doesn't linger attached to the page for the whole context lifetime
-            // (mirrors the try/finally capture in browser-cdp-dispatcher.ts).
+            // doesn't linger attached to the page for the whole context lifetime.
             // Detach failure is non-fatal (the context may already be closing).
             await session.detach().catch(() => {});
           }

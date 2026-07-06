@@ -3,17 +3,12 @@
  *
  * These two operations used to live inline in BrowserService (Phase 30,
  * Playwright server-launched Chromium). They are plain `page.evaluate`
- * scripts and work on ANY Playwright `Page` — including a page resolved via
- * `chromium.connectOverCDP` against the Electron host (the real, user-visible
- * WebContentsView).
+ * scripts and work on ANY Playwright `Page`.
  *
- * Extracting them here lets both render paths share ONE implementation:
- *   - BrowserService (web mode) walks its server-side page.
- *   - cdpOps (Electron native) walks the SAME WebContentsView that the user
- *     sees and that browser_act clicks via CDP — so observe coordinates and
- *     act coordinates finally refer to the same DOM. Before this, observe ran
- *     on a separate headless Chromium and act clicked the native view, a
- *     silent coordinate/DOM mismatch that made native agent control unreliable.
+ * Extracting them here keeps the walk in ONE implementation that BrowserService
+ * (web mode) runs on its server-side page. The Tauri native pane runs the same
+ * walk client-side via the native executor, so observe coordinates and act
+ * coordinates refer to the same DOM regardless of render path.
  *
  * Both functions are behaviour-preserving copies of the original inline logic
  * (same selectors, same bbox rounding, same overlay colors, same cleanup).

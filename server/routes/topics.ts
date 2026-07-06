@@ -9,8 +9,6 @@ import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
-import { awaitNativeCdpTarget } from "../browser-tools-handler";
-import { isElectronCdpAvailable } from "../electron-cdp-probe";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { getTerminalSessionById } from "./terminal";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
@@ -1300,46 +1298,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
             // resolve to — that's what lets a terminal drive the pane, not just
             // open it.
             const ctxId = `term-${term.id}`;
-            // 1. Broadcast first → the client opens the near-terminal pane under
-            //    ctxId and seeds it with `url` (initialUrl), registering the
-            //    native CDP target.
+            // Broadcast so the client opens the near-terminal pane under ctxId and
+            // seeds it with `url` (initialUrl). The client's native pane drives the
+            // actual load; the agent's browser_* tools reach that same pane via the
+            // native delegate (registered under ctxId). Nothing to navigate
+            // server-side here — just ack.
             broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, contextId: ctxId, url });
-            // 2. In Electron, wait for that native target then navigate THAT view
-            //    over CDP — deterministic + idempotent, so observe/act/eval read
-            //    the same WebContentsView instead of an invisible Playwright
-            //    phantom (the about:blank / lost-state bug). No-op in web mode
-            //    (awaitNativeCdpTarget returns null) → keep the legacy ack, the
-            //    client's RemoteBrowserPanel drives the load.
-            try {
-              let targetId = await awaitNativeCdpTarget(ctxId, 4000);
-              // Gate force-open on a live Electron CDP endpoint, exactly like the
-              // chat-originated path below. On the Tauri shell (primary) there is
-              // no CDP (port 19333), so `awaitNativeCdpTarget` ALWAYS returns null
-              // instantly — an ungated force-open then fired on EVERY terminal
-              // browser open and raced the project window's async pane claim
-              // (open-near-pane → queueMicrotask), spawning a duplicate standalone
-              // `browser:<ctx>` in group:default that showed up both inside the
-              // project AND outside it. The client already surfaces the pane via
-              // `browser:open-near-pane`, so on Tauri force-open is pure dup-risk.
-              const electronUp = await isElectronCdpAvailable();
-              if (!targetId && electronUp) {
-                // No rendered cell claimed the open-near-pane (the terminal pane
-                // isn't a tab in any visible layout), so nothing mounted a native
-                // view. Force a VISIBLE pane open in the primary window — otherwise
-                // the agent would silently drive the off-screen Playwright phantom
-                // the user can't see. Then wait for that forced view to register.
-                broadcastToAll({ type: "browser:force-open", contextId: ctxId, url });
-                targetId = await awaitNativeCdpTarget(ctxId, 6000);
-              }
-              if (targetId) {
-                const result = await dispatchBrowserToolCallByContext(
-                  "browser_open", { url }, ctxId, browserService,
-                ) as { url?: string; title?: string; error?: string };
-                if (!result?.error) {
-                  return json({ url: typeof result?.url === "string" ? result.url : url, title: result?.title ?? "" });
-                }
-              }
-            } catch { /* fall through to the basic ack — the client still navigates */ }
             return json({ url, title: "" });
           }
         }
@@ -1359,29 +1323,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         broadcastToAll({ type: "browser:navigate", topicId: topic.id, contextId: ctxId, url });
         browserNavigatedTopics.add(topic.id);
         try {
-          // 2. Wait for the native view's CDP target (Electron) then navigate THAT
-          //    view over CDP — idempotent with the client's own initialUrl load and
-          //    essential for re-navigating an already-open pane to a new URL.
-          let targetId = await awaitNativeCdpTarget(ctxId, 4000);
-          const electronUp = await isElectronCdpAvailable();
-          if (!targetId && electronUp) {
-            // No rendered cell claimed browser:navigate (this topic isn't an open
-            // tab in any visible layout), so nothing mounted a native view. Force a
-            // VISIBLE pane open in the primary window so the user SEES the browser
-            // the agent drives — otherwise its browser_* tools would silently run
-            // against the off-screen Playwright phantom. Then wait for it to register.
-            broadcastToAll({ type: "browser:force-open", contextId: ctxId, url });
-            targetId = await awaitNativeCdpTarget(ctxId, 6000);
-          }
-          // Dispatch browser_open ONLY when it lands on a real, user-visible pane:
-          //   - targetId present  → Electron native view (CDP), or
-          //   - web mode          → the Playwright context the streamed pane mirrors.
-          // If even the forced open didn't register a native target, just ack — the
-          // broadcast still drives whatever visible pane exists; never navigate the
-          // invisible phantom.
-          if (!targetId && electronUp) {
-            return json({ url, title: "" });
-          }
+          // Dispatch browser_open through the context. The dispatcher routes it to
+          // the Tauri native pane (via the native delegate registered under ctxId
+          // by the broadcast above) or, in web mode, to the Playwright context the
+          // streamed pane mirrors. Idempotent with the client's own initialUrl load
+          // and essential for re-navigating an already-open pane to a new URL.
           const result = await dispatchBrowserToolCallByContext(
             "browser_open",
             { url },
