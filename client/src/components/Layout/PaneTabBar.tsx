@@ -593,6 +593,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           // edge-split overlay, no preventDefault → browser shows "no drop").
           if (!dragMatchesScope(e.dataTransfer.types, dndScope)) return;
           e.preventDefault();
+          // WKWebView (Tauri) won't infer dropEffect from preventDefault — without
+          // it, dragend reads dropEffect==='none' even after a successful drop into
+          // the empty bar / edge zone and fires the pop-out-close path (same guard
+          // the tab-level handler already applies).
+          e.dataTransfer.dropEffect = 'move';
           // Cross-group drag detection (draggedPaneId is only set for same-group drags)
           const isCrossGroupDrag = !draggedPaneId && e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP);
           if (isCrossGroupDrag) setCrossGroupDragActive(true);
