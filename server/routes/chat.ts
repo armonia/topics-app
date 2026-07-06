@@ -871,7 +871,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }, 1000);
 
             if (matchedTopic && !matchedTopic.projectPath) {
-              setTimeout(() => autoBindProject(matchedTopic!), 500);
+              setTimeout(() => {
+                try {
+                  autoBindProject(matchedTopic!);
+                } catch (err) {
+                  console.error("[AutoBind] failed:", err);
+                }
+              }, 500);
             }
 
             // Close SSE response
