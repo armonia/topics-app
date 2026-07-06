@@ -89,10 +89,23 @@ export function extractCodexTitleFromRollout(raw: string): string | null {
   return chooseTitle(st);
 }
 
-/** Per-rollout incremental scan state, keyed by path. Bounded by the number of
- *  live codex sessions. A same-size in-place rewrite would go unnoticed, but
- *  rollout JSONL is append-only in practice. */
+/** Per-rollout incremental scan state, keyed by path. Rollout paths are unique
+ *  per session, so without a cap this grows with every session the process has
+ *  EVER seen — LRU-capped like claude-transcript-title's twin cache. */
 const scanCache = new Map<string, TitleScanState>();
+const SCAN_CACHE_MAX = 200;
+
+function cacheTouch(path: string, st: TitleScanState): void {
+  // Map iteration order is insertion order — delete+set moves this key to the
+  // tail, so the head is always the least-recently-used entry.
+  scanCache.delete(path);
+  scanCache.set(path, st);
+  while (scanCache.size > SCAN_CACHE_MAX) {
+    const oldest = scanCache.keys().next().value;
+    if (oldest === undefined) break;
+    scanCache.delete(oldest);
+  }
+}
 
 /** Read a rollout file (only the bytes appended since the last call) and derive
  *  its title. Returns null if the file is missing/unreadable or carries nothing
@@ -126,7 +139,7 @@ export function deriveCodexSessionTitle(rolloutPath: string): string | null {
       // Copy — a subarray view would pin the whole delta buffer in memory.
       st.carry = Buffer.from(combined.subarray(lastNl + 1));
       st.offset += read;
-      scanCache.set(rolloutPath, st);
+      cacheTouch(rolloutPath, st);
     }
     // A final unterminated line is parsed opportunistically (a complete line
     // missing only its newline flush is common at turn end) WITHOUT consuming it
