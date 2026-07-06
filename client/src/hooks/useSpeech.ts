@@ -220,6 +220,11 @@ export function useVoiceCall(
   isStreaming: boolean
 ) {
   const [isCallActive, setIsCallActive] = useState(false);
+  // Synchronous mirror of isCallActive: onstop's restart branches (and their
+  // pending 500ms timers) capture a stale `isCallActive` and fire AFTER endCall,
+  // so a plain state check can't stop them re-acquiring the mic. startCall/endCall
+  // flip this ref synchronously and startRecording gates on it.
+  const isCallActiveRef = useRef(false);
   const [callStatus, setCallStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking'>('idle');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -248,6 +253,10 @@ export function useVoiceCall(
 
   // Start recording
   const startRecording = useCallback(async () => {
+    // Never (re)acquire the mic once the call has ended. onstop's restart
+    // branches and any pending 500ms timers fire after endCall — without this
+    // guard the mic silently goes hot again with no UI left to stop it.
+    if (!isCallActiveRef.current) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -390,6 +399,7 @@ export function useVoiceCall(
   }, [isCallActive, startRecording]);
 
   const startCall = useCallback(() => {
+    isCallActiveRef.current = true;
     setIsCallActive(true);
     setCallStatus('listening');
     lastProcessedMsgRef.current = currentMessages.filter(m => m.role === 'assistant').length;
@@ -397,6 +407,7 @@ export function useVoiceCall(
   }, [currentMessages, startRecording]);
 
   const endCall = useCallback(() => {
+    isCallActiveRef.current = false;
     setIsCallActive(false);
     setCallStatus('idle');
     
