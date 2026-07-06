@@ -14,6 +14,7 @@ import { ContextRing } from '../Shared/ContextRing';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
+import { Menu } from '../Shared/Menu';
 
 // Available slash commands
 const SLASH_COMMANDS = [
@@ -45,17 +46,14 @@ function OverflowMenu({
   onSlashCommand: (cmd: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const anyActive = isCallActive || isRecording || isListening || isSpeaking || autoTTS;
 
-  // Unified dismissal (adds Escape + capture-phase over the old mousedown-only
-  // handler). Inline-positioned, so menuRef wraps both trigger and panel.
-  useDismissable({ open, onClose: () => setOpen(false), refs: [menuRef], restoreFocus: false });
-
   return (
-    <div className="relative" ref={menuRef}>
+    <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
         className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${
@@ -68,74 +66,76 @@ function OverflowMenu({
       >
         <MoreHorizontal size={16} />
       </button>
-      {open && (
-        <div className={`absolute bottom-full right-0 mb-1 ${POPOVER_PANEL} z-50 py-1.5 min-w-[220px]`}>
-          {/* Slash commands */}
-          {SLASH_COMMANDS.map((cmd) => {
-            const Icon = cmd.icon;
-            return (
-              <button
-                key={cmd.cmd}
-                type="button"
-                onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
-                className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-[12px] transition-colors hover:bg-app-hover text-app-text"
-              >
-                <Icon size={14} className="text-app-text-muted" />
-                <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
-                <span className="text-[11px] text-app-text-muted text-right truncate">{cmd.description}</span>
-              </button>
-            );
-          })}
-
-          {/* Divider */}
-          <div className="h-px bg-app-border my-1" />
-
-          {/* Voice tools */}
-          {voiceCallSupported && (
+      {/* Migrated to the canonical Menu primitive (flip-above + clamp +
+          reposition + dismiss are inherited for free; align="right" matches
+          the old right-0 anchoring). restoreFocus=false preserves the
+          pre-migration behavior of not stealing focus back on dismiss. */}
+      <Menu open={open} anchorRef={triggerRef} onClose={() => setOpen(false)} align="right" minWidth={220} restoreFocus={false}>
+        {/* Slash commands */}
+        {SLASH_COMMANDS.map((cmd) => {
+          const Icon = cmd.icon;
+          return (
             <button
+              key={cmd.cmd}
               type="button"
-              onClick={() => { toggleCall(); setOpen(false); }}
-              className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
-                isCallActive ? 'text-red-500' : 'text-app-text'
-              }`}
-              disabled={uploading}
+              onClick={() => { onSlashCommand(cmd.cmd); setOpen(false); }}
+              className="w-full px-3 py-1.5 text-left grid grid-cols-[14px_auto_1fr] gap-x-2.5 items-baseline text-[12px] transition-colors hover:bg-app-hover text-app-text"
             >
-              {isCallActive ? <PhoneOff size={14} /> : <Phone size={14} />}
-              {isCallActive ? 'End call' : 'Voice call'}
-              <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧C</span>
+              <Icon size={14} className="text-app-text-muted" />
+              <span className="font-mono text-primary text-[11px] whitespace-nowrap">{cmd.cmd}</span>
+              <span className="text-[11px] text-app-text-muted text-right truncate">{cmd.description}</span>
             </button>
-          )}
-          {sttSupported && !isCallActive && (
-            <button
-              type="button"
-              onClick={() => { toggleListening(); setOpen(false); }}
-              className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
-                isListening ? 'text-green-500' : 'text-app-text'
-              }`}
-              disabled={currentStreaming || uploading}
-            >
-              {isListening ? <MicOff size={14} /> : <MessageSquare size={14} />}
-              {isListening ? 'Stop dictation' : 'Dictation mode'}
-              <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧D</span>
-            </button>
-          )}
+          );
+        })}
+
+        {/* Divider */}
+        <div className="h-px bg-app-border my-1" />
+
+        {/* Voice tools */}
+        {voiceCallSupported && (
           <button
             type="button"
-            onClick={() => {
-              if (isSpeaking) stopSpeaking(); else setAutoTTS(prev => !prev);
-              setOpen(false);
-            }}
+            onClick={() => { toggleCall(); setOpen(false); }}
             className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
-              isSpeaking || autoTTS ? 'text-blue-500' : 'text-app-text'
+              isCallActive ? 'text-red-500' : 'text-app-text'
             }`}
+            disabled={uploading}
           >
-            {isSpeaking || autoTTS ? <Volume2 size={14} /> : <VolumeX size={14} />}
-            {isSpeaking ? 'Stop speaking' : autoTTS ? 'Auto-TTS (ON)' : 'Auto-TTS'}
-            <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧S</span>
+            {isCallActive ? <PhoneOff size={14} /> : <Phone size={14} />}
+            {isCallActive ? 'End call' : 'Voice call'}
+            <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧C</span>
           </button>
-        </div>
-      )}
-    </div>
+        )}
+        {sttSupported && !isCallActive && (
+          <button
+            type="button"
+            onClick={() => { toggleListening(); setOpen(false); }}
+            className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+              isListening ? 'text-green-500' : 'text-app-text'
+            }`}
+            disabled={currentStreaming || uploading}
+          >
+            {isListening ? <MicOff size={14} /> : <MessageSquare size={14} />}
+            {isListening ? 'Stop dictation' : 'Dictation mode'}
+            <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧D</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            if (isSpeaking) stopSpeaking(); else setAutoTTS(prev => !prev);
+            setOpen(false);
+          }}
+          className={`w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover ${
+            isSpeaking || autoTTS ? 'text-blue-500' : 'text-app-text'
+          }`}
+        >
+          {isSpeaking || autoTTS ? <Volume2 size={14} /> : <VolumeX size={14} />}
+          {isSpeaking ? 'Stop speaking' : autoTTS ? 'Auto-TTS (ON)' : 'Auto-TTS'}
+          <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧S</span>
+        </button>
+      </Menu>
+    </>
   );
 }
 

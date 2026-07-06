@@ -13,6 +13,7 @@ import { CheckpointTimeline } from './CheckpointTimeline';
 import { useVoiceRecording } from './useVoiceRecording';
 import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters';
+import { useToast } from '../Shared/Toast';
 
 const SLASH_COMMANDS_HELP = [
   '/status — Show session status',
@@ -77,6 +78,7 @@ export function ChatPane({
   editMessage, switchBranch, onOpenSessionViewer,
   aboveInputSlot,
 }: ChatPaneProps) {
+  const toast = useToast();
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
@@ -366,7 +368,12 @@ export function ChatPane({
   const resizeTextarea = useCallback(() => { const ta = textareaRef.current; if (!ta) return; ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; }, []);
   useEffect(() => { resizeTextarea(); }, [message, resizeTextarea]);
 
-  const uploadFiles = useCallback(async (files: File[]) => { const paths: string[] = []; for (const f of files) { try { const r = await uploadApi.uploadFile(f); paths.push(r.path); } catch {} } return paths; }, []);
+  const uploadFiles = useCallback(async (files: File[]) => {
+    const paths: string[] = []; const failed: string[] = [];
+    for (const f of files) { try { const r = await uploadApi.uploadFile(f); paths.push(r.path); } catch (e) { console.error('[ChatPane] file upload failed:', f.name, e); failed.push(f.name); } }
+    if (failed.length > 0) toast.error(`Upload failed: ${failed.join(', ')}`);
+    return paths;
+  }, [toast]);
 
   const handleSlashCommand = useCallback(async (text: string): Promise<boolean> => {
     const cmd = text.toLowerCase().trim();
@@ -532,7 +539,17 @@ export function ChatPane({
       setUploading(true);
       try {
         if (curFiles.length > 0) { const paths = await uploadFiles(curFiles); finalMessage = paths.map(p => `[Attached file: ${p}]`).join('\n') + (finalMessage ? '\n' + finalMessage : ''); }
-        if (curImages.length > 0) { const urls: string[] = []; for (const img of curImages) { try { const res = await fetch('/api/upload-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: img.dataUrl, mimeType: img.mimeType }) }); if (res.ok) urls.push((await res.json()).url); } catch {} } if (urls.length > 0) finalMessage = urls.map(u => `[Attached file: ${u}]`).join('\n') + (finalMessage ? '\n' + finalMessage : ''); }
+        if (curImages.length > 0) {
+          const urls: string[] = []; let imgFailCount = 0;
+          for (const img of curImages) {
+            try {
+              const res = await fetch('/api/upload-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: img.dataUrl, mimeType: img.mimeType }) });
+              if (res.ok) urls.push((await res.json()).url); else { imgFailCount++; console.error('[ChatPane] image upload failed:', res.status, res.statusText); }
+            } catch (e) { imgFailCount++; console.error('[ChatPane] image upload failed:', e); }
+          }
+          if (imgFailCount > 0) toast.error(`${imgFailCount} image${imgFailCount > 1 ? 's' : ''} failed to upload`);
+          if (urls.length > 0) finalMessage = urls.map(u => `[Attached file: ${u}]`).join('\n') + (finalMessage ? '\n' + finalMessage : '');
+        }
       } finally { setUploading(false); }
     }
     if (curMentioned.length > 0) {
