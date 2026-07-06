@@ -24,6 +24,7 @@
  */
 import { getTabId } from '../middleware/syncCrossTab';
 import { subscribeFrames, subscribeLifecycle } from '../../../lib/wsFrameBus';
+import { backoff } from './syncBackoff';
 import {
   exportTombstones,
   importTombstones,
@@ -45,7 +46,6 @@ const KIND_BY_UI_KEY: Record<string, TombstoneKind> = {
 
 const SYNC_DEBOUNCE_MS = 500;
 const MAX_RETRIES = 3;
-const BASE_BACKOFF_MS = 200;
 
 const lastAppliedSeq = new Map<string, number>();
 const lastSyncedJson = new Map<string, string>();
@@ -71,11 +71,6 @@ function parseEntries(value: unknown): TombstoneEntry[] | null {
       typeof (e as TombstoneEntry).id === 'string' &&
       typeof (e as TombstoneEntry).ts === 'number',
   );
-}
-
-function backoff(attempt: number): Promise<void> {
-  const ms = BASE_BACKOFF_MS * Math.pow(2, attempt) * (0.8 + Math.random() * 0.4);
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 async function putWithRetry(uiKey: string, json: string): Promise<void> {
@@ -196,4 +191,21 @@ export function initTombstoneSync(): void {
   // Initial seed of the current local sets.
   publish('terminal');
   publish('browser');
+}
+
+// ─── test-only exports ────────────────────────────────────────────────────
+/** Test-only: expose the un-acked set so a durability test can assert a
+ *  failed PUT is retained for the next WS-reconnect retry. */
+export function __getUnackedTombstoneSyncKeys(): string[] {
+  return [...unackedJson.keys()];
+}
+/** Test-only: reset per-key sync bookkeeping between cases. Deliberately
+ *  does NOT touch `wired` — re-running `initTombstoneSync()` would double
+ *  register the WS frame/lifecycle subscriptions. */
+export function __resetTombstoneSyncForTests(): void {
+  for (const t of debounceTimers.values()) clearTimeout(t);
+  debounceTimers.clear();
+  unackedJson.clear();
+  lastSyncedJson.clear();
+  lastAppliedSeq.clear();
 }

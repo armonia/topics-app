@@ -27,13 +27,16 @@ export function hydrateFromLegacyStorage(): void {
     order: [],
     pinned: [],
   });
-  const closedTabs = safeJSON<unknown[]>('topics-closed-tabs', []);
-  const gridLayout = safeJSON<unknown>('topics-grid-layout', null);
-  const projectLayout = safeJSON<unknown>('topics-project-layout', null);
+  // topics-closed-tabs / topics-grid-layout / topics-project-layout used to be
+  // read here too, but the HYDRATE_FROM_LEGACY reducer case (panes.ts) only
+  // ever destructured openPanels/focusedPaneId/panelOrder — those three were
+  // read, dispatched, and then immediately deleted below with the rest of
+  // LEGACY_KEYS, never reaching any consumer. Dropped rather than wired up
+  // (that would be a new migration feature, not a dead-code removal).
 
   usePaneStore.getState().dispatch({
     type: 'HYDRATE_FROM_LEGACY',
-    payload: { openPanels, focusedPaneId, panelOrder, closedTabs, gridLayout, projectLayout },
+    payload: { openPanels, focusedPaneId, panelOrder },
   });
 
   for (const k of LEGACY_KEYS) {

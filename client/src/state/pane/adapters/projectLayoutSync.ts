@@ -16,6 +16,7 @@
  */
 import { getTabId } from '../middleware/syncCrossTab';
 import { subscribeFrames, subscribeLifecycle } from '../../../lib/wsFrameBus';
+import { backoff } from './syncBackoff';
 
 // Storage-key derivation (hash of projectPath). Exposed here so call sites
 // don't need to re-implement the hash and so the PANE-01 grep gate passes
@@ -192,19 +193,14 @@ function ensureWsWired(): void {
 // channel keeps pointing at the dead id and its live successor is orphaned
 // ("[Warn 404] Terminal session not found", tab "lost"). The old code fired
 // once and swallowed failure — a PUT that raced a server restart (the exact
-// 16:23 window) was lost for good. Mirrors syncServer.ts' backoff.
+// 16:23 window) was lost for good. Backoff shape mirrors syncServer.ts';
+// the delay itself is shared with tombstoneSync.ts via syncBackoff.ts.
 const MAX_RETRIES = 3;
-const BASE_BACKOFF_MS = 200;
 
 // Last JSON we FAILED to persist, per key. Survives across queueSync calls so a
 // teardown/reconnect flush can retry the not-yet-durable value even when the
 // debounce already drained pendingValues.
 const unackedJsonByKey = new Map<string, string>();
-
-function backoff(attempt: number): Promise<void> {
-  const ms = BASE_BACKOFF_MS * Math.pow(2, attempt) * (0.8 + Math.random() * 0.4);
-  return new Promise((r) => setTimeout(r, ms));
-}
 
 /**
  * PUT `json` for `key` with bounded retry. On success commits the echo/seq
