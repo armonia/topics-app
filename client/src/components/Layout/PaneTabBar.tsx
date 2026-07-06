@@ -932,6 +932,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       {ctxMenu && createPortal(
         <div
           ref={ctxMenuRef}
+          role="menu"
           className={`fixed ${POPOVER_SURFACE} min-w-[150px]`}
           style={{ top: ctxMenu.y, left: ctxMenu.x, zIndex: Z_CONTEXT_MENU }}
         >
