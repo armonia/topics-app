@@ -643,6 +643,33 @@ describe("paneReducer — audit fixes (empty-group cleanup, ratio clamp, reorder
     expect(state.groups["group:default"].paneIds).toEqual([]);
   });
 
+  test("SPLIT sets the group's splitAxis and clamps splitRatio (routes through groupsReducer, same as RESIZE)", () => {
+    const state = blankState();
+    paneReducer(state, {
+      type: "OPEN_PANE",
+      payload: { id: "p1", type: "chat", title: "A", groupId: "g1" },
+    });
+    state.groups["g1"].splitAxis = "horizontal";
+    state.groups["g1"].splitRatio = 0.5;
+
+    paneReducer(state, { type: "SPLIT", payload: { groupId: "g1", axis: "vertical", ratio: 0.3 } });
+    expect(state.groups["g1"].splitAxis).toBe("vertical");
+    expect(state.groups["g1"].splitRatio).toBe(0.3);
+
+    // Same clamp as RESIZE — SPLIT must not be able to collapse a pane via an
+    // out-of-range or NaN ratio either.
+    paneReducer(state, { type: "SPLIT", payload: { groupId: "g1", axis: "horizontal", ratio: NaN } });
+    expect(state.groups["g1"].splitRatio).toBe(0.3); // unchanged fallback
+    paneReducer(state, { type: "SPLIT", payload: { groupId: "g1", axis: "horizontal", ratio: 5 } });
+    expect(state.groups["g1"].splitRatio).toBe(0.95);
+  });
+
+  test("SPLIT on an unknown groupId is a harmless no-op", () => {
+    const state = blankState();
+    paneReducer(state, { type: "SPLIT", payload: { groupId: "ghost-group", axis: "vertical", ratio: 0.4 } });
+    expect(state.groups["ghost-group"]).toBeUndefined();
+  });
+
   test("RESIZE clamps splitRatio to [0.05, 0.95] and rejects NaN", () => {
     const state = blankState();
     paneReducer(state, {

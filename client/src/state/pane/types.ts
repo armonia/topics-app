@@ -242,9 +242,6 @@ export type PaneAction =
         openPanels: string[];
         focusedPaneId: string | null;
         panelOrder: { order: string[]; pinned: string[] };
-        closedTabs: unknown[];
-        gridLayout: unknown;
-        projectLayout: unknown;
       };
     }
   | {
