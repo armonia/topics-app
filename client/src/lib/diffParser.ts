@@ -22,7 +22,10 @@ export interface MessageSegment {
   edit?: DiffEdit;   // for diff segments
 }
 
-const DIFF_BLOCK_REGEX = /^(.+?\.\w+)\n<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE$/gm;
+// The filename is just the single non-empty line before the SEARCH marker — the
+// `\n<<<<<<< SEARCH\n` sequence is the real anchor, so we don't require a dot+extension
+// (that silently dropped extensionless paths: Dockerfile, Makefile, .gitignore, LICENSE).
+const DIFF_BLOCK_REGEX = /^(.+?)\n<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE$/gm;
 
 /**
  * Parse message content and extract search/replace blocks mixed with text.
