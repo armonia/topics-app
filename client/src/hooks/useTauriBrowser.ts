@@ -23,7 +23,7 @@
  * bridge yet). url/title/loading are reflected by an 800ms eval poll (WKNavigationDelegate
  * not bridged; see PORTING-PLAN §8.1), gated on visibility so only the active pane polls.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tauriInvoke } from '../lib/shell/tauri';
 import { slotIsOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
@@ -680,10 +680,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     void tauriInvoke('browser_exec_js', { id, js: 'try{window.__topicsConsole&&(window.__topicsConsole.length=0)}catch(e){}' }).catch(() => {});
   }, [id]);
 
-  const consoleSummary = {
+  const consoleSummary = useMemo(() => ({
     errors: consoleEntries.reduce((n, e) => (e.level === 'error' ? n + 1 : n), 0),
     warnings: consoleEntries.reduce((n, e) => (e.level === 'warn' ? n + 1 : n), 0),
-  };
+  }), [consoleEntries]);
 
   // Device emulation: pick the preset's dims + UA, letterbox the pane to them and
   // reload so the custom UA takes effect (WKWebView applies it on next load). The
@@ -722,14 +722,47 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     [applyBounds],
   );
 
-  return {
+  // Real WKBackForwardList (Rust browser_nav_entries) → the toolbar's
+  // back/forward history dropdown. The client adds the 0-based `index`.
+  const getNavEntries = useCallback(async () => {
+    try {
+      const raw = await tauriInvoke<string>('browser_nav_entries', { id });
+      const parsed = JSON.parse(raw || '{}') as {
+        entries?: { url: string; title: string }[];
+        activeIndex?: number;
+      };
+      const entries = (Array.isArray(parsed.entries) ? parsed.entries : []).map((e, index) => ({
+        url: e.url,
+        title: e.title,
+        index,
+      }));
+      return { entries, activeIndex: typeof parsed.activeIndex === 'number' ? parsed.activeIndex : 0 };
+    } catch {
+      return { entries: [], activeIndex: 0 };
+    }
+  }, [id]);
+
+  const goToNavIndex = useCallback(async (index: number) => {
+    await tauriInvoke('browser_go_to_index', { id, index }).catch(() => {});
+  }, [id]);
+
+  const viewId = ready ? id : null;
+
+  // Memoized: this hook re-renders often (the 120ms fast-focus poll alone can
+  // tick every frame), and a fresh object identity every render defeated
+  // downstream `useEffect([browser])` deps (e.g. RemoteBrowserPanel's keydown
+  // handler), forcing them to re-subscribe constantly. Mirrors useRemoteBrowser's
+  // sibling useMemo. Every value below is either a primitive/derived-primitive
+  // or a useCallback stable on the deps listed here, so the memo only produces
+  // a new object when something a consumer could actually observe changed.
+  return useMemo<NativeBrowserHandle>(() => ({
     url,
     title,
     loading,
     agentActive,
     agentAction,
     ready,
-    viewId: ready ? id : null,
+    viewId,
     faviconUrl,
     frozenImage,
     navigate,
@@ -741,7 +774,6 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     toggleDevTools,
     findInPage,
     stopFind,
-    onFindResult: () => () => {},
     setZoom,
     zoom,
     countMatches,
@@ -756,27 +788,13 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     consoleEntries,
     consoleSummary,
     clearConsole,
-    getNavEntries: async () => {
-      // Real WKBackForwardList (Rust browser_nav_entries) → the toolbar's
-      // back/forward history dropdown. The client adds the 0-based `index`.
-      try {
-        const raw = await tauriInvoke<string>('browser_nav_entries', { id });
-        const parsed = JSON.parse(raw || '{}') as {
-          entries?: { url: string; title: string }[];
-          activeIndex?: number;
-        };
-        const entries = (Array.isArray(parsed.entries) ? parsed.entries : []).map((e, index) => ({
-          url: e.url,
-          title: e.title,
-          index,
-        }));
-        return { entries, activeIndex: typeof parsed.activeIndex === 'number' ? parsed.activeIndex : 0 };
-      } catch {
-        return { entries: [], activeIndex: 0 };
-      }
-    },
-    goToNavIndex: async (index: number) => {
-      await tauriInvoke('browser_go_to_index', { id, index }).catch(() => {});
-    },
-  };
+    getNavEntries,
+    goToNavIndex,
+  }), [
+    url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
+    navigate, goBack, goForward, reload, goHome, setBounds, toggleDevTools, findInPage, stopFind,
+    setZoom, zoom, countMatches, inspectAt, selectMode, enterSelectMode, exitSelectMode,
+    deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,
+    clearConsole, getNavEntries, goToNavIndex,
+  ]);
 }

@@ -1395,17 +1395,29 @@ struct DownloadEventMsg {
     state: String, // done: "completed" | "interrupted"
     #[serde(rename = "savedPath")]
     saved_path: String,
+    // Pane this download belongs to. The queue is a single GLOBAL Vec shared by
+    // every open browser webview, so draining it whole (the old behaviour) let
+    // whichever DownloadStrip happened to poll first steal every other pane's
+    // events. Internal bookkeeping only — not serialized to the client, which
+    // already scoped its poll by passing its own contextId.
+    #[serde(skip)]
+    pane_id: String,
 }
 
 static DOWNLOAD_EVENTS: std::sync::Mutex<Vec<DownloadEventMsg>> = std::sync::Mutex::new(Vec::new());
-static DOWNLOAD_PENDING: std::sync::Mutex<Vec<(String, i64, String)>> = std::sync::Mutex::new(Vec::new()); // (url, id, savedPath)
+static DOWNLOAD_PENDING: std::sync::Mutex<Vec<(String, i64, String, String)>> = std::sync::Mutex::new(Vec::new()); // (url, id, savedPath, paneId)
 static DOWNLOAD_ID: AtomicI64 = AtomicI64::new(1);
 
-/// Drain queued download start/done events for the DownloadStrip to apply.
+/// Drain queued download start/done events for `id`'s DownloadStrip to apply.
+/// Scoped to that pane — other panes' events stay queued for their own poll.
 #[tauri::command]
-fn browser_take_download_events() -> Vec<DownloadEventMsg> {
+fn browser_take_download_events(id: String) -> Vec<DownloadEventMsg> {
     match DOWNLOAD_EVENTS.lock() {
-        Ok(mut v) => std::mem::take(&mut *v),
+        Ok(mut v) => {
+            let (mine, rest): (Vec<_>, Vec<_>) = v.drain(..).partition(|e| e.pane_id == id);
+            *v = rest;
+            mine
+        }
         Err(_) => Vec::new(),
     }
 }
@@ -1816,10 +1828,13 @@ fn browser_open(
     if isolate.unwrap_or(false) {
         builder = builder.data_store_identifier(data_store_uuid_for(&id));
     }
+    // Cloned for the (move) download closure below — `id` itself is still needed
+    // after add_child() returns (see apply_browser_corner_mask below).
+    let dl_pane_id = id.clone();
     window
         .add_child(
             builder
-                .on_download(|_webview, event| {
+                .on_download(move |_webview, event| {
                     use tauri::webview::DownloadEvent;
                     match event {
                         DownloadEvent::Requested { url, destination } => {
@@ -1847,7 +1862,7 @@ fn browser_open(
                                     let overflow = p.len() - 63;
                                     p.drain(0..overflow);
                                 }
-                                p.push((url_s.clone(), id, saved.clone()));
+                                p.push((url_s.clone(), id, saved.clone(), dl_pane_id.clone()));
                             }
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
                                 v.push(DownloadEventMsg {
@@ -1858,18 +1873,19 @@ fn browser_open(
                                     success: false,
                                     state: "progressing".into(),
                                     saved_path: saved,
+                                    pane_id: dl_pane_id.clone(),
                                 });
                             }
                         }
                         DownloadEvent::Finished { url, path: _, success } => {
                             let url_s = url.to_string();
-                            let (id, saved) = {
+                            let (id, saved, pane_id) = {
                                 let mut p = DOWNLOAD_PENDING.lock().unwrap_or_else(|e| e.into_inner());
-                                if let Some(pos) = p.iter().position(|(u, _, _)| *u == url_s) {
-                                    let (_, i, s) = p.remove(pos);
-                                    (i, s)
+                                if let Some(pos) = p.iter().position(|(u, _, _, _)| *u == url_s) {
+                                    let (_, i, s, pid) = p.remove(pos);
+                                    (i, s, pid)
                                 } else {
-                                    (DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst), String::new())
+                                    (DOWNLOAD_ID.fetch_add(1, Ordering::SeqCst), String::new(), dl_pane_id.clone())
                                 }
                             };
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
@@ -1881,6 +1897,7 @@ fn browser_open(
                                     success,
                                     state: if success { "completed".into() } else { "interrupted".into() },
                                     saved_path: saved,
+                                    pane_id,
                                 });
                             }
                         }
