@@ -34,10 +34,17 @@ interface Pending {
 }
 
 export interface NativeDelegateRegistry {
-  /** Mark a contextId as client-executed and store its outbound `send`. */
-  register(contextId: string, send: SendFn): void;
-  /** Drop a contextId (client disconnected / pane closed). Rejects its in-flight ops. */
-  unregister(contextId: string): void;
+  /** Mark a contextId as client-executed and store its outbound `send`.
+   *  `owner` identifies WHICH socket registered (the ws object itself works);
+   *  a re-register from a new socket overwrites both send and owner. */
+  register(contextId: string, send: SendFn, owner?: unknown): void;
+  /** Drop a contextId (client disconnected / pane closed). Rejects its in-flight ops.
+   *  When `owner` is passed and doesn't match the CURRENT registration's owner,
+   *  this is a no-op: it means a newer socket already re-registered (reconnect)
+   *  and the caller is only cleaning up a stale/older socket — killing the fresh
+   *  registration would silently reroute agent ops to the headless Playwright
+   *  context instead of the user's live native pane. */
+  unregister(contextId: string, owner?: unknown): void;
   /** Is this contextId currently client-delegated (a live native pane)? */
   isDelegated(contextId: string): boolean;
   /** Forward a tool-call to the client and await its reply (or a timeout error). */
@@ -60,7 +67,7 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
   let counter = 0;
   const genOpId = opts.genOpId ?? (() => `op-${++counter}`);
 
-  const senders = new Map<string, SendFn>();
+  const senders = new Map<string, { send: SendFn; owner?: unknown }>();
   // opId → pending resolver. We resolve (never reject) with an {error} object so a
   // timeout/disconnect surfaces to the agent as a structured tool error, matching
   // how the CDP/Playwright handlers report failures.
@@ -75,10 +82,19 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
   }
 
   return {
-    register(contextId, send) {
-      senders.set(contextId, send);
+    register(contextId, send, owner) {
+      senders.set(contextId, { send, owner });
     },
-    unregister(contextId) {
+    unregister(contextId, owner) {
+      // Ownership guard (reconnect race): if the caller identifies itself and a
+      // DIFFERENT socket now owns the registration, leave it alone. Concrete
+      // sequence this prevents: pane reconnects and re-registers on a new WS →
+      // up to 90s later the heartbeat reaper (or the old socket's late `close`)
+      // fires unregister for the OLD socket → without the guard it would drop
+      // the fresh registration. In-flight ops sent via the old socket simply
+      // hit their own 30s timeout.
+      const current = senders.get(contextId);
+      if (owner !== undefined && current !== undefined && current.owner !== owner) return;
       senders.delete(contextId);
       // Fail any in-flight ops that were destined for this client.
       for (const [opId, p] of pending) {
@@ -93,7 +109,7 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
       return senders.has(contextId);
     },
     delegateOp(contextId, tool, args) {
-      const send = senders.get(contextId);
+      const send = senders.get(contextId)?.send;
       if (!send) return Promise.resolve({ error: 'no native executor for context' });
       // Namespace the opId with the contextId so unregister can fail just its ops.
       const opId = `${contextId}::${genOpId()}`;
@@ -140,11 +156,12 @@ export function handleNativeDelegationFrame(
   contextId: string,
   send: SendFn,
   registry: NativeDelegateRegistry,
+  owner?: unknown,
 ): 'registered' | 'result' | null {
   if (!raw || typeof raw !== 'object') return null;
   const m = raw as { type?: string; opId?: string; result?: unknown; error?: string };
   if (m.type === 'register_native_executor') {
-    registry.register(contextId, send);
+    registry.register(contextId, send, owner);
     return 'registered';
   }
   if (m.type === 'browser_op_result' && typeof m.opId === 'string') {
