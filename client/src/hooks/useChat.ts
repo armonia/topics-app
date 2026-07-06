@@ -113,6 +113,11 @@ function getInitialMessages(): Record<string, ChatMessage[]> {
   }
 }
 
+// Shared stable empty array so getSessionMessages returns a reference-equal
+// result for a session with no messages (a fresh `[]` per call would be a cache
+// miss every time and hand consumers a new identity each render).
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
 export function useChat() {
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>(getInitialMessages);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -144,6 +149,15 @@ export function useChat() {
   // collapses those onto one request.
   const inFlightHistoryRef = useRef<Set<string>>(new Set());
   const HISTORY_DEDUP_MS = 5_000;
+  // Per-session cache of the context-filtered message view. getSessionMessages is
+  // called in the render body of EVERY mounted ChatPane (StandaloneChatGroup keeps
+  // visited panes mounted), so a fresh `.filter()` array per call re-ran the filter
+  // for every pane on every stream token AND handed MessageList a new array
+  // reference each render, defeating its `useMemo([currentMessages])`. Cache keyed
+  // on the session's own array identity: setMessages does `{...prev,[key]:next}`,
+  // so a session that DIDN'T change keeps the same array reference — making this a
+  // reference-stable result until that session's messages actually change.
+  const filteredMessagesCacheRef = useRef<Map<string, { src: ChatMessage[]; out: ChatMessage[] }>>(new Map());
   // Sessions whose `messages[sessionKey]` map has been populated at least
   // once from the server's authoritative history endpoint (or an equivalent
   // server-truth path like editMessage's post-edit thread reload). Until
@@ -1084,7 +1098,15 @@ export function useChat() {
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
 
   const getSessionMessages = useCallback((sessionKey: string): ChatMessage[] => {
-    return (messages[sessionKey] || []).filter(msg => !isContextMessage(msg.content));
+    const src = messages[sessionKey] || EMPTY_MESSAGES;
+    const cache = filteredMessagesCacheRef.current;
+    const hit = cache.get(sessionKey);
+    // Same source array ⇒ same filtered result: return the cached reference so
+    // callers (and their useMemos) can bail on identity.
+    if (hit && hit.src === src) return hit.out;
+    const out = src.filter(msg => !isContextMessage(msg.content));
+    cache.set(sessionKey, { src, out });
+    return out;
   }, [messages]);
 
   const isSessionLoading = useCallback((sessionKey: string): boolean => {
@@ -1431,6 +1453,14 @@ export function useChat() {
       [sessionKey]: [],
     }));
     clearCachedMessages(sessionKey);
+    // Evict this session's per-session caches too. `useChat` is a single
+    // app-lifetime instance (mounted once in App.tsx), so these Maps/Sets would
+    // otherwise grow with every topic ever opened and never shrink on removal.
+    // Dropping them here also makes a re-open correctly re-hydrate from server
+    // rather than trusting a stale "already hydrated" flag over wiped messages.
+    filteredMessagesCacheRef.current.delete(sessionKey);
+    lastHistoryFetchAtRef.current.delete(sessionKey);
+    hydratedSessionsRef.current.delete(sessionKey);
   }, []);
 
   // Drain outbound queue on reconnect

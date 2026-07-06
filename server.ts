@@ -223,10 +223,17 @@ console.log(`[Server] AI provider: ${aiProvider.name} (capabilities: ${[...aiPro
 const browserService = await createBrowserService({
   onNavigate: (contextId, url, viewport) => {
     // Find the topic whose first 8 chars of id match contextId (matches
-    // the convention at server/routes/topics.ts:1650).
+    // the convention at server/routes/topics.ts:1650). Topics are created with
+    // `sessionKey = "topic:" + id.slice(0,8)`, so the indexed session_key lookup
+    // resolves the common case in O(1) instead of a full loadTopics() table-scan
+    // + 5 joins on every browser navigation. Fall back to the scan only if that
+    // misses or returns a topic whose id prefix doesn't actually match (a topic
+    // with a non-standard sessionKey), preserving the original behaviour exactly.
     try {
-      const topics = ctx.loadTopics().topics;
-      const topic = Object.values(topics).find(t => t.id.slice(0, 8) === contextId);
+      let topic = ctx.getTopicBySessionKey("topic:" + contextId);
+      if (!topic || topic.id.slice(0, 8) !== contextId) {
+        topic = Object.values(ctx.loadTopics().topics).find(t => t.id.slice(0, 8) === contextId) ?? null;
+      }
       if (!topic) return;  // contextId may be temp/standalone — ignore
       topic.browserState = {
         url,
@@ -852,7 +859,10 @@ const server = Bun.serve<WSData>({
       // executed in the stream — the user perceives "response arrived all
       // at once with no tools visible". With them, the chronological timeline
       // is preserved and future stream:* deltas continue appending live.
-      const topicsData = loadTopics();
+      // The common case is zero active streams (idle app): skip the work
+      // entirely rather than paying a full loadTopics() table-scan+joins on
+      // every WS connect. When streams do exist, resolve each one's topicId
+      // via the indexed single-row lookup instead of scanning all topics.
       for (const [sessionKey, stream] of activeStreams.entries()) {
         // Trust the DB's `partial` flag as single source of truth: if the
         // assistant message was already finalized, the stream is over even
@@ -867,8 +877,7 @@ const server = Bun.serve<WSData>({
           activeStreams.delete(sessionKey);
           continue;
         }
-        let topicId: string | undefined;
-        for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { topicId = t.id; break; } }
+        const topicId = ctx.getTopicBySessionKey(sessionKey)?.id;
         ws.send(JSON.stringify({
           type: "stream:catchup",
           sessionKey,
@@ -1071,9 +1080,7 @@ const staleStreamTimer = setInterval(() => {
       console.log(`[StaleStream] Auto-clearing stale stream for ${sessionKey}`);
       // Finalize partial messages via SQLite
       db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [sessionKey]);
-      const topicsData = loadTopics();
-      let topicId: string | undefined;
-      for (const t of Object.values(topicsData.topics)) { if (t.sessionKey === sessionKey) { topicId = t.id; break; } }
+      const topicId = ctx.getTopicBySessionKey(sessionKey)?.id;
       broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "stale_timeout" });
       activeStreams.delete(sessionKey);
     }
