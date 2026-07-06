@@ -7,6 +7,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { countColDividers, splitViaContextMenu } from "./helpers/layout";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -38,10 +39,6 @@ async function countTabBars(page: Page): Promise<number> {
 
 async function countRowDividers(page: Page): Promise<number> {
   return page.locator('[role="main"] .cursor-row-resize').count();
-}
-
-async function countColDividers(page: Page): Promise<number> {
-  return page.locator('[role="main"] .cursor-col-resize').count();
 }
 
 async function setupPanels(page: Page, topicIds: string[]) {
@@ -139,16 +136,6 @@ async function simulateDragTabToEdge(
   }, { tabIdx: tabIndex, targetEdge: edge });
 }
 
-async function splitViaContextMenu(page: Page, direction: "Split Right" | "Split Down") {
-  const tab = page.locator('[role="main"] [draggable="true"]').first();
-  await expect(tab).toBeVisible({ timeout: 5000 });
-  await tab.click({ button: "right" });
-  const splitBtn = page.getByText(direction, { exact: true });
-  await expect(splitBtn).toBeVisible({ timeout: 3000 });
-  await splitBtn.click();
-  await page.waitForTimeout(1500);
-}
-
 // ─── Test Data ────────────────────────────────────────────────────────────
 
 let topicIds: string[] = [];
@@ -175,7 +162,7 @@ test.describe("Tab Drag — Real DnD", () => {
     const allBefore = await getAllTabLabels(page);
     expect(allBefore.length).toBe(2);
 
-    await splitViaContextMenu(page, "Split Down");
+    await splitViaContextMenu(page, "Split Down", 0, 1500);
 
     // 2 tab bars, each with at least 1 tab
     const bars = await countTabBars(page);
@@ -193,7 +180,7 @@ test.describe("Tab Drag — Real DnD", () => {
   test("Split Right: tab moves to new cell, both cells have content", async ({ page }) => {
     await setupPanels(page, topicIds.slice(0, 2));
 
-    await splitViaContextMenu(page, "Split Right");
+    await splitViaContextMenu(page, "Split Right", 0, 1500);
 
     const bars = await countTabBars(page);
     expect(bars).toBeGreaterThanOrEqual(2);
@@ -244,7 +231,7 @@ test.describe("Tab Drag — Real DnD", () => {
 
   test("no empty tab bars after Split Down", async ({ page }) => {
     await setupPanels(page, topicIds.slice(0, 2));
-    await splitViaContextMenu(page, "Split Down");
+    await splitViaContextMenu(page, "Split Down", 0, 1500);
 
     const bars = page.locator('[data-testid="panel-tab-bar"]');
     const count = await bars.count();
@@ -256,7 +243,7 @@ test.describe("Tab Drag — Real DnD", () => {
 
   test("no empty tab bars after Split Right", async ({ page }) => {
     await setupPanels(page, topicIds.slice(0, 2));
-    await splitViaContextMenu(page, "Split Right");
+    await splitViaContextMenu(page, "Split Right", 0, 1500);
 
     const bars = page.locator('[data-testid="panel-tab-bar"]');
     const count = await bars.count();
@@ -268,7 +255,7 @@ test.describe("Tab Drag — Real DnD", () => {
 
   test("split persists after reload", async ({ page }) => {
     await setupPanels(page, topicIds.slice(0, 2));
-    await splitViaContextMenu(page, "Split Right");
+    await splitViaContextMenu(page, "Split Right", 0, 1500);
 
     const barsBeforeReload = await countTabBars(page);
     expect(barsBeforeReload).toBeGreaterThanOrEqual(2);
@@ -292,10 +279,10 @@ test.describe("Tab Drag — Real DnD", () => {
   test("3 topics: split twice creates 3-cell layout", async ({ page }) => {
     await setupPanels(page, topicIds);
 
-    await splitViaContextMenu(page, "Split Right");
+    await splitViaContextMenu(page, "Split Right", 0, 1500);
     expect(await countTabBars(page)).toBeGreaterThanOrEqual(2);
 
-    await splitViaContextMenu(page, "Split Down");
+    await splitViaContextMenu(page, "Split Down", 0, 1500);
 
     const allLabels = await getAllTabLabels(page);
     expect(allLabels.length).toBe(3);
@@ -309,7 +296,7 @@ test.describe("Tab Drag — Real DnD", () => {
     await setupPanels(page, topicIds.slice(0, 2));
 
     // Split to create 2 cells
-    await splitViaContextMenu(page, "Split Right");
+    await splitViaContextMenu(page, "Split Right", 0, 1500);
     expect(await countTabBars(page)).toBeGreaterThanOrEqual(2);
 
     // Close the tab in the solo cell (second tab bar) via the context
@@ -332,7 +319,7 @@ test.describe("Tab Drag — Real DnD", () => {
     await setupPanels(page, topicIds.slice(0, 2));
 
     // Create a split
-    await splitViaContextMenu(page, "Split Down");
+    await splitViaContextMenu(page, "Split Down", 0, 1500);
     expect(await countTabBars(page)).toBeGreaterThanOrEqual(2);
 
     // Verify both bars exist with tabs

@@ -12,9 +12,12 @@ import { existsSync, rmSync } from "fs";
 import { join } from "path";
 
 const BASE = "http://localhost:13334";
+// Must agree with the server's WORKSPACE_DIR (server/routes/topics.ts —
+// `join(OPENCLAW_DIR, "workspace")`). global-setup.ts propagates OPENCLAW_DIR
+// to this runner process so both sides resolve the same isolated path.
 const WORKSPACE_DIR = join(
-  process.env.HOME || "/tmp",
-  ".openclaw/workspace"
+  process.env.OPENCLAW_DIR || join(process.env.HOME || "/tmp", ".openclaw"),
+  "workspace"
 );
 
 /**
