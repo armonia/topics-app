@@ -724,17 +724,6 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             </div>
           </div>
         )}
-        {/* "Ricarica" restart in progress — a clear overlay instead of the bare
-            grey gap while the PTY is killed and re-spawned (claude/codex --resume
-            boot). Cleared on WS reconnect (ws.onopen) or a safety timeout. */}
-        {reloading && !stale && (
-          <div data-testid="terminal-reloading-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-20">
-            <div className="flex items-center gap-2 text-app-text-muted text-[12px]">
-              <RotateCw size={14} className="animate-spin" />
-              <span>Riavvio sessione…</span>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
