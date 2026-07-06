@@ -28,7 +28,14 @@ interface SessionsStatus {
 }
 
 export function createStatusRouter(ctx: AppContext): RouteHandler {
-  const { json, wsClients, activeStreams, loadTopics } = ctx;
+  const { json, wsClients, activeStreams, db } = ctx;
+
+  // Topic counts come straight from indexed COUNT(*) queries — this endpoint is
+  // polled by the status bar, so it must not pay a full loadTopics() table-scan
+  // + 5 relation joins just to report two numbers.
+  const topicCountStmt = db.prepare(
+    `SELECT COUNT(*) AS total, SUM(CASE WHEN archived = 1 THEN 0 ELSE 1 END) AS active FROM topics`
+  );
 
   // Cached state
   let lastGatewayCheck: (GatewayHealthResult & { checkedAt: string }) | null = null;
@@ -172,8 +179,9 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       const [load1, load5, load15] = os.loadavg();
       const loadSupported = load1 > 0 || load5 > 0 || load15 > 0;
 
-      const topicsData = loadTopics();
-      const activeTopicsCount = Object.values(topicsData.topics).filter(t => !t.archived).length;
+      const topicCounts = topicCountStmt.get() as { total: number; active: number | null };
+      const totalTopicsCount = topicCounts.total ?? 0;
+      const activeTopicsCount = topicCounts.active ?? 0;
 
       const streamKeys = Array.from(activeStreams.keys());
 
@@ -217,7 +225,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         },
         topics: {
           activeCount: activeTopicsCount,
-          totalCount: Object.keys(topicsData.topics).length,
+          totalCount: totalTopicsCount,
         },
         cronJobs: lastCronStatus || { enabled: 0, disabled: 0, total: 0 },
         sessions: lastSessionsStatus || { total: 0, byType: {} },

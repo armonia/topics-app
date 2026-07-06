@@ -18,6 +18,7 @@
  */
 import type { AppContext, RouteHandler } from "../types";
 import { SlugConflictError, ProjectInUseError } from "../services/project-store";
+import { unwatchGitDir } from "../git-watcher";
 import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
 import { join, dirname, extname } from "node:path";
 
@@ -298,8 +299,14 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         }
         if (method === "DELETE") {
           try {
+            // Capture the path before deletion so we can release the project's
+            // git watcher (3 fs.watch handles opened lazily by GET /api/git/status).
+            // Without this they leak for the life of the server process — mirrors
+            // the unwatchGitDir call on worktree deletion.
+            const doomed = projectStore.get(idParams.id);
             const ok = projectStore.delete(idParams.id);
             if (!ok) return errorResponse(404, "Project not found");
+            if (doomed) unwatchGitDir(doomed.path);
             emit("project:deleted", { id: idParams.id });
             return json({ ok: true });
           } catch (err: any) {
