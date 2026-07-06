@@ -179,6 +179,9 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
       const p2 = 0.5 * ph + 1.7;
       const p3 = -1.3 * ph + 3.1;
       const we = W_ENV * phSlow;
+      const rB = Math.min(radius / DOWNSCALE, bw / 2, bh / 2); // pane corner radius (backing)
+      const cfa = rB * 1.5; // wave fades 0→1 across this reach band near each corner
+      const cfb = rB * 4.0;
       let disp = dispArr;
       if (!disp || disp.length !== NS) disp = dispArr = new Float64Array(NS);
       for (let i = 0; i < NS; i++) {
@@ -187,13 +190,18 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
           0.68 * Math.sin(k1 * i + p1) +
           0.24 * Math.sin(k2 * i + p2) +
           0.08 * Math.sin(k3 * i + p3);
-        let dd = inset + A * envF * wave;
+        // corner-fade: taper the WAVE to 0 near the corner (reach→rB) so the tight
+        // corner is a calm, constant arc instead of a wiggling, pinched curve; the
+        // wave only plays on the straight edges (reach ≫ rB).
+        let t = (RE[i] - cfa) / (cfb - cfa);
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const cf = t * t * (3 - 2 * t);
+        let dd = inset + A * envF * wave * cf;
         if (dd < 0.5) dd = 0.5;
-        // soft-limit the inward offset below the local reach (distance to the
-        // corner centre): ~unchanged on straight edges (reach huge), saturates the
-        // corner offset below the arc radius so it stays convex — corners hug at a
-        // calm uniform depth instead of filling in.
-        const re = RE[i];
+        // soft-limit the offset below ~0.8·reach so the corner arc stays open and
+        // convex (never inverts, never collapses to a cusp); ~unchanged on straight
+        // edges where reach is huge.
+        const re = RE[i] * 0.8;
         disp[i] = re > 0.001 ? re * Math.tanh(dd / re) : dd;
       }
       // FILL the region window-edge → wave as nested rings anchored at the
