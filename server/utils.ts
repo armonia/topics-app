@@ -986,8 +986,12 @@ export function createAppContext(baseDir: string): AppContext {
     const lastActivity = new Date(stream.lastActivity).getTime();
     const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
     if (Date.now() - lastActivity > STREAM_TIMEOUT_MS) {
-      console.log(`[isStreaming] Auto-expiring stale stream for ${sessionKey} (last activity: ${stream.lastActivity})`);
-      activeStreams.delete(sessionKey);
+      // Stale: report "not streaming" but do NOT delete the entry here. Deleting
+      // it would steal the entry from the authoritative sweeper (server.ts
+      // `staleStreamTimer`), which is the only path that finalizes the partial
+      // DB row (partial=0) and broadcasts stream:end. A bare delete left the
+      // message stuck partial=1 forever (perpetual "streaming" in history until
+      // a server restart). Leave it for the 30s sweeper to clean up properly.
       return undefined;
     }
     return stream;
