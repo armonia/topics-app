@@ -350,6 +350,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
           {appVersion && (
             <button
               ref={versionBtnRef}
+              data-version-anchor
               onClick={() => setShowVersionPopover(v => !v)}
               className={`text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded px-1 -mx-0.5 transition-colors ${showVersionPopover ? 'bg-app-hover text-app-text-secondary' : ''}`}
               title="Info versione e aggiornamenti"

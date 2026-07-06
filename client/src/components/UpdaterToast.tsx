@@ -21,8 +21,16 @@
  * the listener.
  */
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
 import { getUpdaterApi, type UpdaterStatus } from '@/lib/updater';
+import { Z_POPOVER } from '@/lib/popoverStyles';
+
+// The version chip in the sidebar status bar tags itself with this attribute so
+// the toast can sit directly ABOVE it ("sopra la versione") instead of a
+// bottom-right corner that hides behind the panes. Falls back to the corner when
+// the chip isn't in the DOM (collapsed sidebar / web without a status bar).
+const VERSION_ANCHOR_SELECTOR = '[data-version-anchor]';
 
 export function UpdaterToast() {
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });
@@ -60,17 +68,22 @@ export function UpdaterToast() {
     };
   }, []);
 
+  // Re-anchor the toast when the window resizes while it's visible — the
+  // anchor's live geometry (read at render, below) would otherwise drift.
+  const [, forceReposition] = useState(0);
+  useEffect(() => {
+    if (status.state === 'idle') return;
+    const onResize = () => forceReposition((n) => n + 1);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [status.state]);
+
   if (status.state === 'idle' || dismissed) return null;
 
   const isReady = status.state === 'ready';
   const isError = status.state === 'error';
 
-  return (
-    <div
-      className="fixed bottom-4 right-4 z-50 max-w-xs"
-      role="status"
-      aria-live="polite"
-    >
+  const card = (
       <div className={`rounded-lg border shadow-lg p-3 flex items-start gap-2 ${
         isReady ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-700 dark:text-emerald-300' :
         isError ? 'bg-red-500/10 border-red-500/40 text-red-700 dark:text-red-300' :
@@ -134,6 +147,35 @@ export function UpdaterToast() {
           </button>
         )}
       </div>
+  );
+
+  // Anchor above the version chip when it's in the DOM ("sopra la versione");
+  // otherwise fall back to the bottom-right corner. Reading the anchor's rect at
+  // render mirrors the status dropdown in SidebarStatusBar.
+  const anchor = document.querySelector<HTMLElement>(VERSION_ANCHOR_SELECTOR);
+  if (anchor) {
+    const r = anchor.getBoundingClientRect();
+    return createPortal(
+      <div
+        role="status"
+        aria-live="polite"
+        className="max-w-xs"
+        style={{
+          position: 'fixed',
+          bottom: window.innerHeight - r.top + 6,
+          right: window.innerWidth - r.right,
+          zIndex: Z_POPOVER,
+        }}
+      >
+        {card}
+      </div>,
+      document.body,
+    );
+  }
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50 max-w-xs" role="status" aria-live="polite">
+      {card}
     </div>
   );
 }
