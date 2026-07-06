@@ -8,20 +8,16 @@ import type {
   HistoryRequest,
   HistoryResponse,
   HistoryMessage,
-  ToolCall,
   UploadResponse,
   SearchResult,
-  UnreadData,
   FileNode,
   GitStatus,
-  ProcessInfo,
   GitBranch,
   GitLogEntry,
   ProvidersSnapshot,
   ProviderSnapshotEntry,
   Project,
   Worktree,
-  Machine,
 } from '../types';
 
 // Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
@@ -246,13 +242,6 @@ export const searchApi = {
       method: 'POST',
       body: JSON.stringify({ query, limit }),
     });
-  },
-};
-
-// Unread API
-export const unreadApi = {
-  async getAll(): Promise<UnreadData> {
-    return request<UnreadData>('/unread');
   },
 };
 
@@ -694,13 +683,6 @@ export interface Approval {
   expiresAt: string | null;
 }
 
-// Processes API
-export const processesApi = {
-  async list(topicId: string): Promise<ProcessInfo[]> {
-    return request<ProcessInfo[]>(`/processes?topicId=${encodeURIComponent(topicId)}`);
-  },
-};
-
 // Scripts API (npm scripts run in background)
 export interface ScriptProcessInfo {
   processId: string;
@@ -1013,50 +995,6 @@ export const contextSnapshotsApi = {
   },
 };
 
-// Usage API
-export interface UsageRecord {
-  timestamp: number;
-  sessionKey: string;
-  topicId?: string;
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  costUsd: number;
-}
-
-export interface DaySummary {
-  date: string;
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-  requestCount: number;
-}
-
-export interface UsageSummary {
-  daily: Record<string, DaySummary>;
-  byModel: Record<string, { model: string; totalTokens: number; costUsd: number; requestCount: number }>;
-  byTopic: Record<string, { topicId: string; totalTokens: number; costUsd: number; requestCount: number }>;
-  totalCostUsd: number;
-  totalTokens: number;
-  totalRequests: number;
-}
-
-export const usageApi = {
-  async getToday(): Promise<{ records: UsageRecord[]; summary: DaySummary }> {
-    return request<{ records: UsageRecord[]; summary: DaySummary }>('/usage/today');
-  },
-
-  async getSummary(): Promise<UsageSummary> {
-    return request<UsageSummary>('/usage/summary');
-  },
-
-  async getRange(from: string, to: string): Promise<{ records: UsageRecord[] }> {
-    return request<{ records: UsageRecord[] }>(`/usage/range?from=${from}&to=${to}`);
-  },
-};
-
 // ── Agent Profiles ──────────────────────────────────────────────────────────
 
 export interface AgentProfile {
@@ -1106,26 +1044,6 @@ export interface SessionHistoryItem extends AgentSession {
   agentRole: string | null;
   topicName: string | null;
 }
-
-export interface TopicMessagesResponse {
-  messages: Array<{
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: string;
-    thinking?: string;
-    toolCalls?: ToolCall[];
-    media?: string[];
-  }>;
-  total: number;
-  topicName: string;
-}
-
-export const topicMessagesApi = {
-  async get(topicId: string, limit = 200): Promise<TopicMessagesResponse> {
-    return request<TopicMessagesResponse>(`/topics/${topicId}/messages?limit=${limit}`);
-  },
-};
 
 export interface TimelineEvent {
   type: 'session_start' | 'session_end' | 'heartbeat' | 'action';
@@ -1406,21 +1324,6 @@ export const projectsApi = {
   },
   async delete(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' });
-  },
-};
-
-export const machinesApi = {
-  async list(): Promise<{ machines: Machine[] }> {
-    return request<{ machines: Machine[] }>('/machines');
-  },
-  async get(id: string): Promise<Machine> {
-    return request<Machine>(`/machines/${id}`);
-  },
-  async rename(id: string, name: string): Promise<Machine> {
-    return request<Machine>(`/machines/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
-  },
-  async delete(id: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>(`/machines/${id}`, { method: 'DELETE' });
   },
 };
 
