@@ -16,6 +16,7 @@ import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
+import { clearSnapshots } from "./context/snapshots";
 import { parseToolCallDetail } from "./schemas/tool-call-detail";
 import { validateOutbound } from "./schemas/ws-outbound";
 
@@ -376,6 +377,11 @@ export function createAppContext(baseDir: string): AppContext {
       }
       stmts.deleteTopic.run(id);
     })();
+    // Drop the in-memory context-envelope ring for this topic. Without this,
+    // every deleted topic left up to RING_SIZE full envelopes (message history
+    // + system block) pinned in the process-global Map for the server's whole
+    // lifetime — a real leak under the app's low-RAM constraint.
+    clearSnapshots(id);
   }
 
   // --- Helper: Convert SQLite message row to StoredMessage ---
