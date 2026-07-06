@@ -122,13 +122,15 @@ export function createWorktreeManager(
   ): Promise<T> {
     const prev = projectQueues.get(projectId) ?? Promise.resolve();
     const next = prev.catch(() => undefined).then(fn);
-    projectQueues.set(
-      projectId,
-      next.finally(() => {
-        // GC: only clear if no one chained more work after us.
-        if (projectQueues.get(projectId) === next) projectQueues.delete(projectId);
-      }),
-    );
+    // GC: only clear if no one chained more work after us. The map must hold
+    // the SAME promise the guard compares against — `.finally()` returns a NEW
+    // promise, so setting the map to the finally-chain while comparing to
+    // `next` made the guard always-false (the delete was dead code and every
+    // project id lingered in the map forever).
+    const tail = next.finally(() => {
+      if (projectQueues.get(projectId) === tail) projectQueues.delete(projectId);
+    });
+    projectQueues.set(projectId, tail);
     return next;
   }
 
@@ -324,6 +326,20 @@ export function createWorktreeManager(
           // The user can manually clean up; we should not block deletion.
           console.warn(
             `[WorktreeManager] git worktree remove failed for ${wt.absPath}:`,
+            err?.stderr || err?.message,
+          );
+        }
+      } else if (project) {
+        // Directory already gone (user deleted it by hand). Git still holds
+        // the worktree registration in .git/worktrees/<name>, and while it
+        // does, `git branch -D` below refuses ("branch is used by worktree")
+        // — the branch + metadata would leak permanently and a same-name
+        // re-create would fail with a cryptic git error. Prune first.
+        try {
+          await runGit(project.path, ["worktree", "prune"]);
+        } catch (err: any) {
+          console.warn(
+            `[WorktreeManager] git worktree prune failed for ${project.path}:`,
             err?.stderr || err?.message,
           );
         }
