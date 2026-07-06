@@ -1,5 +1,13 @@
 import { sendPushToAll } from "./push-service";
 
+// Fire-and-forget: maybeSendPush runs synchronously after broadcastToAll, so a
+// rejected sendPushToAll (DB closed mid-shutdown, VAPID init failure — its top
+// getDatabase()/initVapid() calls are NOT internally caught) would surface as an
+// unhandled promise rejection. Push is best-effort; swallow and log.
+function firePush(payload: { title: string; body: string; tag?: string; url?: string }): void {
+  sendPushToAll(payload).catch(err => console.warn("[Push] send failed:", err?.message || err));
+}
+
 /**
  * Evaluate a WebSocket broadcast message and send push notifications for meaningful events.
  * Called after broadcastToAll — only triggers on selective, non-spammy events.
@@ -9,7 +17,7 @@ export function maybeSendPush(message: Record<string, any>): void {
 
   // Agent completed or errored
   if (type === "agents:stopped") {
-    sendPushToAll({
+    firePush({
       title: "Agent stopped",
       body: `Session ${message.sessionKey || "unknown"} was stopped`,
       tag: "agent-stopped",
@@ -21,7 +29,7 @@ export function maybeSendPush(message: Record<string, any>): void {
   // Approval created — someone needs to review
   if (type === "approval:created") {
     const approval = message.approval;
-    sendPushToAll({
+    firePush({
       title: "Approval needed",
       body: approval?.description || "A new approval request is waiting",
       tag: `approval-${approval?.id || "new"}`,
@@ -32,7 +40,7 @@ export function maybeSendPush(message: Record<string, any>): void {
 
   // Stream ended — Claude finished responding in a topic
   if (type === "stream:end" && message.sessionKey) {
-    sendPushToAll({
+    firePush({
       title: "✅ Response complete",
       body: `Claude finished responding`,
       tag: `stream-end-${message.sessionKey}`,
@@ -48,7 +56,7 @@ export function maybeSendPush(message: Record<string, any>): void {
         const updatedAt = session.updatedAt || 0;
         const age = Date.now() - updatedAt;
         if (age < 60_000) {
-          sendPushToAll({
+          firePush({
             title: `❌ Agent error`,
             body: `${session.displayName || session.key} failed`,
             tag: `agent-${session.key}-error`,
