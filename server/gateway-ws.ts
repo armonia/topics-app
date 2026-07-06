@@ -445,6 +445,24 @@ export function routeGatewayEvent(event: GatewayEvent): boolean {
 
   if (event.event === "agent") {
     const payload = event.payload as AgentEventPayload;
+
+    // Thought/thinking deltas MUST be handled before the tool guard below.
+    // This used to live in a second `if (event.event === "agent")` block AFTER
+    // the tool one — but the tool block's `stream !== "tool"` early `return false`
+    // swallowed every non-tool agent event first, making that later block
+    // unreachable dead code (agent reasoning deltas were silently dropped).
+    if (payload?.stream === "thought" || payload?.stream === "thinking") {
+      const sessionKey = normalizeSessionKey(payload.sessionKey);
+      if (!sessionKey) return false;
+      const entry = sessionHandlers.get(sessionKey);
+      if (!entry) return false;
+      const text = payload.data?.text || payload.data?.content;
+      if (typeof text === "string") {
+        entry.handler.onThinkingDelta?.(text);
+      }
+      return true;
+    }
+
     if (payload?.stream !== "tool") return false;
 
     const sessionKey = normalizeSessionKey(payload.sessionKey);
@@ -461,11 +479,11 @@ export function routeGatewayEvent(event: GatewayEvent): boolean {
     const handler = entry.handler;
     const data = payload.data;
     if (!data?.toolCallId) return false;
-    
+
     const phase = data.phase as string;
     const toolCallId = data.toolCallId as string;
     const name = (data.name as string) || "tool";
-    
+
     switch (phase) {
       case "start":
         handler.onToolStart(toolCallId, name, data.args);
@@ -476,24 +494,6 @@ export function routeGatewayEvent(event: GatewayEvent): boolean {
       case "result":
         handler.onToolResult(toolCallId, typeof data.result === "string" ? data.result : JSON.stringify(data.result ?? ""));
         break;
-    }
-    return true;
-  }
-
-  // Handle "thought" stream events from agent
-  if (event.event === "agent") {
-    const payload = event.payload as AgentEventPayload;
-    if (payload?.stream !== "thought" && payload?.stream !== "thinking") return false;
-    
-    const sessionKey = normalizeSessionKey(payload.sessionKey);
-    if (!sessionKey) return false;
-    
-    const entry = sessionHandlers.get(sessionKey);
-    if (!entry) return false;
-    
-    const text = payload.data?.text || payload.data?.content;
-    if (typeof text === "string") {
-      entry.handler.onThinkingDelta?.(text);
     }
     return true;
   }
