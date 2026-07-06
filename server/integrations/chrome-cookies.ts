@@ -160,6 +160,18 @@ export async function listChromeCookieHosts({ domains = [], profile = "Default" 
  */
 export async function decryptChromeCookies({ domains = [], profile = "Default" }: { domains?: string[]; profile?: string } = {}) {
   const { cleanDomains, cleanProfile } = sanitizeInputs(domains, profile);
+  // Consent-model invariant: decryption is scoped to the domains the user
+  // asked for. The caller already requires a non-empty `domains`, but the
+  // sanitizer can collapse every entry to "" (e.g. an IDN/Unicode domain like
+  // "münchen.de" strips to nothing) — and an empty filter would make queryRows
+  // drop its WHERE clause and decrypt the ENTIRE profile cookie jar. Refuse
+  // instead of silently widening the scope.
+  if (!cleanDomains.length) {
+    throw new Error(
+      `decryptChromeCookies: no usable domain after sanitization (got: ${domains.map((d) => JSON.stringify(String(d))).join(", ") || "none"}). ` +
+      "Pass ASCII hostnames (punycode for IDN, e.g. xn--mnchen-3ya.de).",
+    );
+  }
   const rows = await readRows(cleanDomains, cleanProfile);
   if (!rows.length) return { profile: cleanProfile, domains: cleanDomains, cookies: [] as CdpCookieParam[], decrypted: 0, decryptFailed: 0, skippedEmpty: 0, appBoundEncrypted: 0 };
   const key = await keychainKey();
