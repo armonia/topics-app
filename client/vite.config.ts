@@ -119,7 +119,11 @@ export default defineConfig({
     } : undefined,
     port: 3332,
     host: '0.0.0.0',
-    allowedHosts: true,
+    // DNS-rebinding protection: allow localhost + any Tailscale MagicDNS host
+    // (*.ts.net, how we reach the dev box from a phone) instead of the previous
+    // `true` wildcard, which accepted every Host header. IP-literal access
+    // (e.g. a raw 100.x Tailscale addr) bypasses this check in Vite anyway.
+    allowedHosts: ['localhost', '127.0.0.1', '.ts.net'],
     proxy: {
       '/api': { target: 'https://localhost:3330', secure: false, changeOrigin: true },
       '/preview': { target: 'https://localhost:3330', secure: false, changeOrigin: true },
