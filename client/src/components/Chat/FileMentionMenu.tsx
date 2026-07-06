@@ -81,22 +81,27 @@ export function FileMentionMenu({ projectPath, visible, filter, onSelect, select
     restoreFocus: false,
   });
 
-  // Load project files
+  // Load project files — cached PER projectPath. The old guard was a bare
+  // `allFiles.length > 0`, which pinned the FIRST project's list forever:
+  // switching to a topic of another project kept offering (and inserting)
+  // cross-project paths in @mentions.
+  const loadedForRef = useRef<string | null>(null);
   useEffect(() => {
     if (!projectPath || !visible) return;
-    
-    // Only load once per projectPath
-    if (allFiles.length > 0) return;
+    if (loadedForRef.current === projectPath && allFiles.length > 0) return;
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot loading flag for the async filesApi fetch (external-system sync); the guard above makes this run at most once
+    loadedForRef.current = projectPath;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot loading flag for the async filesApi fetch (external-system sync); the guard above makes this run at most once per projectPath
     setLoading(true);
+    setAllFiles([]);
     filesApi.list(projectPath, 4)
       .then(nodes => {
+        if (loadedForRef.current !== projectPath) return; // stale — switched again
         const flat = flattenFiles(nodes);
         setAllFiles(flat);
       })
       .catch(err => console.error('Failed to load files for @mention:', err))
-      .finally(() => setLoading(false));
+      .finally(() => { if (loadedForRef.current === projectPath) setLoading(false); });
   }, [projectPath, visible, allFiles.length]);
 
   // Filter and sort files

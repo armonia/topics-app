@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import type { Topic, ChatMessage } from '../../types';
@@ -8,6 +8,7 @@ import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu
 import { ContextPills } from './ContextPills';
 import { useContextFileTokens } from './useContextFileTokens';
 import { basename } from '../../lib/path-utils';
+import { topicsApi, uploadApi } from '../../lib/api';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { ContextRing } from '../Shared/ContextRing';
@@ -385,10 +386,22 @@ export function ChatInput({
   defaultProviderLabel,
   onOpenSettings,
 }: ChatInputProps) {
-  // Context pills state
+  // Context pills state. Excluded pills derive from the topic's SERVER-side
+  // disabledContextSources (id format `file:<path>` — the same channel the
+  // Context inspector and the envelope assembler use, and the only one the
+  // send path respects). This used to be a LOCAL Set nothing ever read at
+  // send time: the pill greyed out but the file was injected into the model
+  // context anyway, and the ✕ button only greyed it too instead of removing.
   const contextFilePaths = topic.contextFiles || [];
   const contextTokenMap = useContextFileTokens(topic.sessionKey, contextFilePaths);
-  const [excludedContextPaths, setExcludedContextPaths] = useState<Set<string>>(new Set());
+  const excludedContextPaths = useMemo(
+    () => new Set(
+      (topic.disabledContextSources || [])
+        .filter(id => id.startsWith('file:'))
+        .map(id => id.slice('file:'.length)),
+    ),
+    [topic.disabledContextSources],
+  );
 
   // Context budget ring — sits left of the model selector. Drafts have no
   // server-side topic yet, so skip the analysis call until promotion.
@@ -400,21 +413,23 @@ export function ChatInput({
   }, [topic.id]);
 
   const handleToggleContext = useCallback((path: string, currentlyExcluded: boolean) => {
-    setExcludedContextPaths(prev => {
-      const next = new Set(prev);
-      if (currentlyExcluded) next.delete(path);
-      else next.add(path);
-      return next;
+    const sourceId = `file:${path}`;
+    const current = topic.disabledContextSources || [];
+    const next = currentlyExcluded
+      ? current.filter(id => id !== sourceId)
+      : [...current, sourceId];
+    // Persist through the topic PATCH — the topic:updated broadcast flows the
+    // new state back into this prop (and every other window/inspector).
+    topicsApi.update(topic.id, { disabledContextSources: next }).catch(err => {
+      console.warn('[ChatInput] toggle context source failed:', err);
     });
-  }, []);
+  }, [topic.id, topic.disabledContextSources]);
 
   const handleRemoveContext = useCallback((path: string) => {
-    setExcludedContextPaths(prev => {
-      const next = new Set(prev);
-      next.add(path);
-      return next;
+    uploadApi.deleteContextFile(topic.id, path).catch(err => {
+      console.warn('[ChatInput] remove context file failed:', err);
     });
-  }, []);
+  }, [topic.id]);
 
   // Slash command menu state
   const [showSlashMenu, setShowSlashMenu] = useState(false);
