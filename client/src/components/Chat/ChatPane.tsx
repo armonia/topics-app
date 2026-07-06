@@ -621,8 +621,14 @@ export function ChatPane({
   const handleFileDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setFileDragOver(false); }, []);
   const handleFileDrop = useCallback((e: React.DragEvent) => { if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return; e.preventDefault(); e.stopPropagation(); setFileDragOver(false); const f = Array.from(e.dataTransfer.files); if (f.length > 0) setPendingFiles(prev => [...prev, ...f]); }, []);
 
-  const handleCopyMessage = (msg: ChatMessage) => { navigator.clipboard.writeText(msg.content).then(() => { setCopiedMsgId(msg.id); setTimeout(() => setCopiedMsgId(null), 2000); }); };
-  const handleTogglePin = async (msg: ChatMessage) => { const pinned = topic.pinnedMessages || []; const newPinned = pinned.includes(msg.id) ? pinned.filter(id => id !== msg.id) : [...pinned, msg.id]; await onUpdateTopic(topic.id, { pinnedMessages: newPinned }); };
+  // Ref-stable so `MessageBubble`'s memo holds during streaming. These are
+  // passed to EVERY visible bubble via MessageList → itemContent; when they were
+  // plain functions their identity changed on every streaming token, breaking
+  // the shallow memo and re-parsing every visible message's markdown per chunk.
+  // With stable identities only the growing last bubble (whose `msg` object
+  // actually changes) re-renders.
+  const handleCopyMessage = useCallback((msg: ChatMessage) => { navigator.clipboard.writeText(msg.content).then(() => { setCopiedMsgId(msg.id); setTimeout(() => setCopiedMsgId(null), 2000); }); }, []);
+  const handleTogglePin = useCallback(async (msg: ChatMessage) => { const pinned = topic.pinnedMessages || []; const newPinned = pinned.includes(msg.id) ? pinned.filter(id => id !== msg.id) : [...pinned, msg.id]; await onUpdateTopic(topic.id, { pinnedMessages: newPinned }); }, [topic.pinnedMessages, topic.id, onUpdateTopic]);
   const isImageFile = (f: File) => f.type.startsWith('image/');
   const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
 
