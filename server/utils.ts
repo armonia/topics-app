@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync, renameSync, unlinkSync } from "fs";
 import { readFileSync } from "fs";
+import { timingSafeEqual } from "crypto";
 import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
@@ -55,6 +56,18 @@ function sanitizeToolCallDetail(tc: any): any {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { detail: _drop, ...rest } = tc;
   return rest;
+}
+
+/**
+ * Constant-time string compare for secrets (gateway tokens). Avoids leaking the
+ * token length/prefix via early-exit timing on `===`. Returns false on any
+ * length mismatch (timingSafeEqual throws on unequal-length buffers).
+ */
+export function timingSafeEqualStr(a: string, b: string): boolean {
+  const ab = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
 }
 
 export function createAppContext(baseDir: string): AppContext {
