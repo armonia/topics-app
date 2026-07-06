@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { WSMessage } from '../types';
 import { memoryApi } from '../lib/api';
 
@@ -13,22 +13,37 @@ export function useMemory(topicId: string | null, options?: UseMemoryOptions) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Staleness guard (same pattern as useContextInspector): the memory panel
+  // is not remounted per topic, so a slow fetch for topic A resolving after a
+  // switch to B would display A's memory under B's header — and a subsequent
+  // save would overwrite B's REAL memory with A's stale text.
+  const topicIdRef = useRef(topicId);
+  topicIdRef.current = topicId;
+
   const load = useCallback(async () => {
     if (!topicId) return;
+    const id = topicId;
     setLoading(true);
     setError(null);
     try {
-      const data = await memoryApi.getForTopic(topicId);
+      const data = await memoryApi.getForTopic(id);
+      if (topicIdRef.current !== id) return; // stale — another topic is active
       setTopicMemory(data.topicContent);
       setGlobalMemory(data.globalContent);
     } catch (err) {
+      if (topicIdRef.current !== id) return;
       setError(err instanceof Error ? err.message : 'Failed to load memory');
     } finally {
-      setLoading(false);
+      if (topicIdRef.current === id) setLoading(false);
     }
   }, [topicId]);
 
   useEffect(() => {
+    // Clear the previous topic's text the moment the target changes — the old
+    // content must not sit editable under the new topic's header while the
+    // fresh fetch is in flight.
+    setTopicMemory('');
+    setError(null);
     load();
   }, [load]);
 

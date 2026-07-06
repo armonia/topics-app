@@ -68,13 +68,31 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
   // for this state→ref bridge.
   const sessionsRef = useRefMirror(sessions);
 
+  // Merge an authoritative list with any OPTIMISTIC entries still inside
+  // their creation grace: a roster fetched (or broadcast) before the server
+  // registered a just-created terminal would otherwise wholesale-replace the
+  // optimistic entry away — the pane survives via recentlyCreatedTerminalsRef,
+  // but its name/cwd metadata (read from `sessions`) blanked until the next
+  // real broadcast. Entries past the grace defer to server truth.
+  const mergeWithOptimistic = useCallback((incoming: TerminalSessionInfo[]): TerminalSessionInfo[] => {
+    const now = Date.now();
+    const ids = new Set(incoming.map(s => s.id));
+    const keep = sessionsRef.current.filter(s => {
+      if (ids.has(s.id)) return false;
+      const ts = recentlyCreatedTerminalsRef.current.get(s.id);
+      return ts !== undefined && now - ts <= GRACE_MS;
+    });
+    return keep.length ? [...incoming, ...keep] : incoming;
+  }, [sessionsRef]);
+
   const fetchTerminalSessions = useCallback(() => {
     fetch('/api/terminal/sessions').then(r => r.json()).then((data: TerminalSessionInfo[]) => {
       terminalSessionsLoadedRef.current = true;
-      setSessions(data);
-      try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(data)); } catch {}
+      const merged = mergeWithOptimistic(data);
+      setSessions(merged);
+      try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(merged)); } catch {}
     }).catch(() => {});
-  }, []);
+  }, [mergeWithOptimistic]);
 
   // Fetch on mount
   useEffect(() => { fetchTerminalSessions(); }, [fetchTerminalSessions]);
@@ -86,15 +104,18 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
     }
   }, [wsStatus, fetchTerminalSessions]);
 
-  // WS terminal:sessions subscription
+  // WS terminal:sessions subscription — same optimistic-grace merge as the
+  // fetch path (an unrelated broadcast can land before a new terminal's
+  // registration reaches the roster).
   useEffect(() => {
     return onWSMessage((msg) => {
       if (msg.type === 'terminal:sessions') {
-        setSessions(msg.sessions);
-        try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(msg.sessions)); } catch {}
+        const merged = mergeWithOptimistic(msg.sessions);
+        setSessions(merged);
+        try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(merged)); } catch {}
       }
     });
-  }, [onWSMessage]);
+  }, [onWSMessage, mergeWithOptimistic]);
 
   // Ops exposed to the panel hook (written via handleQuickCreateTerminal /
   // handleCloseTerminal — which live in usePanelLifecycle).
