@@ -335,6 +335,27 @@ async function getDescendantPids(pid: number): Promise<Set<number>> {
   return out;
 }
 
+/**
+ * Per-pid identity snapshot (`pid → lstart`) for the delayed-SIGKILL guard.
+ * A PID can be recycled by the OS within the 5s SIGTERM→SIGKILL grace; killing
+ * by number alone could then SIGKILL an unrelated fresh process. The start
+ * timestamp disambiguates: a reused pid has a different lstart.
+ */
+async function getPidStartTimes(pids: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  if (!pids.length) return out;
+  try {
+    const proc = Bun.spawn(["ps", "-o", "pid=,lstart=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    for (const line of text.split("\n")) {
+      const m = line.trim().match(/^(\d+)\s+(.+)$/);
+      if (m) out.set(+m[1], m[2]);
+    }
+  } catch { /* transient ps failure → empty map → the guard skips the SIGKILL */ }
+  return out;
+}
+
 async function getPortsForProcess(pid: number): Promise<number[]> {
   const allPorts = await getListeningPorts();
   const treePids = await getDescendantPids(pid);
@@ -839,10 +860,20 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       const dpid = sp.pid;
       runningScripts.delete(sp.processId);
       if (dpid && isPidAlive(dpid)) {
-        getDescendantPids(dpid).then(tree => {
-          for (const p of tree) { try { process.kill(p, "SIGTERM"); } catch {} }
-          setTimeout(() => {
-            for (const p of tree) { try { process.kill(p, 0); process.kill(p, "SIGKILL"); } catch {} }
+        getDescendantPids(dpid).then(async tree => {
+          const pids = [...tree];
+          // Capture each pid's identity BEFORE signalling: the delayed SIGKILL
+          // must only fire on the same incarnation (see getPidStartTimes).
+          const identity = await getPidStartTimes(pids);
+          for (const p of pids) { try { process.kill(p, "SIGTERM"); } catch {} }
+          setTimeout(async () => {
+            const still = await getPidStartTimes(pids);
+            for (const p of pids) {
+              const then = identity.get(p);
+              if (then && still.get(p) === then) {
+                try { process.kill(p, "SIGKILL"); } catch {}
+              }
+            }
           }, 5000);
         }).catch(() => { try { process.kill(dpid, "SIGTERM"); } catch {} });
       }
@@ -867,6 +898,11 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       try { process.kill(pid, "SIGTERM"); } catch {}
     }
     setTimeout(() => {
+      // Identity guard: if OUR process already exited (proc.exited handler set
+      // status + removed it from runningScripts within the grace), the pid may
+      // have been recycled by the OS — SIGKILLing it now could hit an unrelated
+      // fresh process. Our own bookkeeping is the authoritative liveness check.
+      if (sp.status !== "running") return;
       try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch {}
     }, 5000);
   }
