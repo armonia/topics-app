@@ -1,7 +1,7 @@
 /**
  * Dev-toolbar controls for the native browser pane: zoom, device emulation,
- * and a quick console (error/warning badge + dropdown panel). Rendered only in
- * Electron native mode (the host passes the handlers from useNativeBrowser);
+ * and a quick console (error/warning badge + dropdown panel). Rendered only for
+ * the Tauri native pane (the host passes the handlers from useTauriBrowser);
  * web/screenshot mode omits them.
  */
 import { useEffect, useRef, useState } from 'react';

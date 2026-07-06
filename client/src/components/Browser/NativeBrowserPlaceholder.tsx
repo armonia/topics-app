@@ -122,7 +122,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
         if (viewIdRef.current) {
           try { setBoundsRef.current({ x: 0, y: 0, width: 0, height: 0 }); } catch { /* view gone */ }
         }
-        console.debug('[dnd-debug] view hide on dragstart, viewId=', viewIdRef.current);
+        if (import.meta.env.DEV) console.debug('[dnd-debug] view hide on dragstart, viewId=', viewIdRef.current);
       }
     };
     const onEnd = () => {
@@ -131,7 +131,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
         // Tiny defer so the drop animation completes before the view
         // re-mounts at full bounds (avoids a 1-frame flicker).
         setTimeout(() => setDragging(false), 60);
-        console.debug('[dnd-debug] view restore on dragend');
+        if (import.meta.env.DEV) console.debug('[dnd-debug] view restore on dragend');
       }
     };
     window.addEventListener('dragstart', onStart, true);

@@ -63,7 +63,7 @@ export interface NativeBrowserHandle {
    *  example.com", …). Last value seen on agent_active=true; persists through the
    *  brief idle linger so a burst of tool calls shows steady text. */
   agentAction: string | null;
-  ready: boolean;             // viewId resolved + cdpTargetId registered
+  ready: boolean;             // native webview opened (browser_open resolved)
   viewId: string | null;
   /** Optional — Tauri only. A base64 PNG data-URL still of the page, shown in the
    *  placeholder while the native WKWebView is parked off-screen (a dropdown/menu
@@ -85,7 +85,6 @@ export interface NativeBrowserHandle {
   /** Find in page (Cmd+F). Pass empty string + findNext=false to clear. */
   findInPage(text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }): Promise<void>;
   stopFind(): Promise<void>;
-  onFindResult(cb: (r: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): () => void;
   /** Optional — count case-insensitive matches of `text` in the page (Tauri pane,
    *  where window.find gives no count). */
   countMatches?(text: string): Promise<number>;
