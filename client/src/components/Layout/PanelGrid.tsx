@@ -19,7 +19,7 @@ import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
-import { SplitRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
+import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
 import { notifyPaneReflow } from './paneReflow';
 import { extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey, remapTopicInCells, reorderCellPreservingPrimary } from './soloCells';
@@ -1359,11 +1359,17 @@ export function PanelGrid({
     // at the wobble moment between two edge frames still produces a `drop`.
     e.preventDefault();
 
-    // For PANE_TAB drags over center/top of a cell: keep the target populated
-    // with the actual zone so the drop handler can identify the case at
-    // release time and let children handle the reorder/drop. We don't
-    // stopPropagation here so the child's dragover can also run.
-    if (isTabDrag && !isGridDrag && (zone === 'center' || zone === 'top')) {
+    // For PANE_TAB drags over a cell's CENTER: commit the target (paints the
+    // merge preview) but don't stopPropagation — if the pointer is over the
+    // tab bar its own dragover/caret must still run (the closest() guard above
+    // already returns for genuine bar hovers, so this is the pane BODY).
+    // Signal acceptance for WKWebView: without dropEffect the source's dragend
+    // reads 'none' and the pop-out path would close the pane on a center drop.
+    // 'top' is NOT special-cased anymore: it falls through to the edge path
+    // below and previews/act as a real stack-above split (the old routing sent
+    // it to the bar, making "split up" unreachable from a tab drag).
+    if (isTabDrag && !isGridDrag && zone === 'center') {
+      e.dataTransfer.dropEffect = 'move';
       commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: true });
       return;
     }
@@ -1377,8 +1383,23 @@ export function PanelGrid({
     // Signal acceptance explicitly so an in-window split drop is never mistaken
     // for a drag-out. (effectAllowed is 'move' for all our drags.)
     e.dataTransfer.dropEffect = 'move';
+    // A GRID drag's top/bottom drop inserts a FULL-WIDTH row — light the row
+    // strip/gap band as the preview (the honest footprint of the action) and
+    // let the cell paint nothing: the old half-cell region promised a
+    // per-column split the drop never performed.
+    if (isGridDrag && (zone === 'top' || zone === 'bottom')) {
+      const rowCount = gridRowsRef.current.length;
+      const strip: 'top' | 'bottom' | number =
+        zone === 'top'
+          ? (rowIdx === 0 ? 'top' : rowIdx - 1)
+          : (rowIdx >= rowCount - 1 ? 'bottom' : rowIdx);
+      if (fullRowDropRef.current !== strip) { fullRowDropRef.current = strip; setFullRowDrop(strip); }
+    } else if (fullRowDropRef.current !== null) {
+      fullRowDropRef.current = null;
+      setFullRowDrop(null);
+    }
     commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag });
-  }, [gridDropTargetRef]);
+  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef]);
 
   const handleGridItemDragEnd = useCallback(() => {
     setDraggingGridKey(null);
@@ -1455,16 +1476,40 @@ export function PanelGrid({
     // destructures below; rowIdx/colIdx pass through unchanged.
     let dropTarget = rawDropTarget;
 
-    // PANE_TAB drops: edge zones create split + move tab, center lets tab bar handle reorder.
+    // PANE_TAB drops: edge zones create split + move tab; center on the pane
+    // BODY merges the tab into the target cell's group; a drop physically on
+    // the tab bar stays the bar's (it owns the precise insertIdx merge and
+    // this capture handler must not steal it).
     if (!effectiveKey && sourcePaneTab) {
-      // Use actual zone at drop time, not the stale dragover zone
-      if (actualZone === 'center') return;
-      // The in-cell top band belongs to the tab bar (the h-10 bar covers the
-      // whole 30px edge band, so a 'top' tab drop is always aiming at it).
-      // Splitting ABOVE is offered via the full-width strips instead — the
-      // only 'top' that reaches here.
-      if (actualZone === 'top' && !explicitTarget?.fullRow) return;
       if (!sourceTopicId) return;
+      if (!explicitTarget && (e.target as HTMLElement).closest?.('[data-testid="panel-tab-bar"]')) return;
+      // Use actual zone at drop time, not the stale dragover zone
+      if (actualZone === 'center') {
+        // Merge-as-tab into the target cell (add at the end). Previously this
+        // was a bare `return`: the drop was consumed by nobody, nothing
+        // happened, and on WKWebView the source's dragend could even read it
+        // as a drag-out and close the pane.
+        e.preventDefault();
+        e.stopPropagation();
+        setIsAnyDragActive(false);
+        setTabDragActive(false);
+        setFullRowDrop(null);
+        fullRowDropRef.current = null;
+        dropConsumedRef.current = true;
+        const targetKey = gridRowsRef.current[dropTarget.rowIdx]?.itemKeys[dropTarget.colIdx];
+        if (targetKey?.startsWith('solo:')) {
+          const targetPrimary = targetKey.slice('solo:'.length);
+          if (targetPrimary !== sourceTopicId) handleMergeIntoCell(sourceTopicId, targetPrimary);
+        } else if (targetKey) {
+          // The main pool cell: un-solo the tab back into it (no-op if it
+          // already lives there).
+          handleUnsoloTopic(sourceTopicId);
+        }
+        setDraggingGridKey(null);
+        setGridDropTarget(null);
+        gridDropTargetRef.current = null;
+        return;
+      }
       // Update dropTarget zone to match actual position
       dropTarget = { ...dropTarget, zone: actualZone };
     } else if (effectiveKey) {
@@ -1533,10 +1578,12 @@ export function PanelGrid({
 
         // Row-insert (full-width strips) vs in-cell column stack: a bare
         // bottom-edge tab drop stacks UNDER the target cell's column (the
-        // same shape the menu "Split Down" and the project surface build);
+        // same shape the menu "Split Down" builds) and a bare top-edge drop
+        // stacks ABOVE it (the new pane becomes the column's primary);
         // only the strips' fullRow intent inserts a grid row.
         const isFullRowInsert = (zone === 'top' || zone === 'bottom') && !!explicitTarget?.fullRow;
         const isColumnStack = zone === 'bottom' && !explicitTarget?.fullRow;
+        const isColumnStackAbove = zone === 'top' && !explicitTarget?.fullRow;
 
         // Enforce grid limits BEFORE mutating soloCells: extracting first
         // and bailing inside the setGridRows updater left the topic marked
@@ -1547,7 +1594,7 @@ export function PanelGrid({
           let overLimit = false;
           if (isFullRowInsert) {
             overLimit = rowsNow.length >= MAX_ROWS;
-          } else if (isColumnStack) {
+          } else if (isColumnStack || isColumnStackAbove) {
             const tKey = rowsNow[targetRowIdx]?.itemKeys[targetColIdx];
             const depth = tKey
               ? (rowsNow[targetRowIdx]?.cellStacks?.[tKey]?.items.length ?? 0) + 1
@@ -1579,8 +1626,8 @@ export function PanelGrid({
           // Enforce grid limits (kept as in-updater defense — the pre-check
           // above reads a ref that could lag a concurrent update)
           if (isFullRowInsert && prev.length >= MAX_ROWS) return prev;
-          if (isColumnStack && ((prev[targetRowIdx]?.cellStacks?.[targetKey]?.items.length ?? 0) + 1) >= MAX_STACK_DEPTH) return prev;
-          if (!isFullRowInsert && !isColumnStack && (prev[targetRowIdx]?.itemKeys.length ?? 0) >= MAX_COLS_PER_ROW) return prev;
+          if ((isColumnStack || isColumnStackAbove) && ((prev[targetRowIdx]?.cellStacks?.[targetKey]?.items.length ?? 0) + 1) >= MAX_STACK_DEPTH) return prev;
+          if (!isFullRowInsert && !isColumnStack && !isColumnStackAbove && (prev[targetRowIdx]?.itemKeys.length ?? 0) >= MAX_COLS_PER_ROW) return prev;
 
           // ISSUE 8 FIX: Use immutable operations instead of splice()
           let rows = prev.map(cloneRow);
@@ -1629,6 +1676,31 @@ export function PanelGrid({
               stacks[findKey] = { items: [soloKey], heights: [0.5, 0.5] };
             }
             rows = rows.map((r, i) => (i === tRow ? { ...r, cellStacks: stacks } : r));
+          } else if (isColumnStackAbove) {
+            // Stack ABOVE the target cell's column — the mirror of the bottom
+            // stack, previously impossible from a drag (a bare top drop was
+            // routed to the tab bar and silently dropped). cellStacks are
+            // keyed by the column's PRIMARY (its itemKey), and items render
+            // BELOW the primary — so "above" means the dropped pane becomes
+            // the new primary: it takes the column's slot in itemKeys and the
+            // old primary (plus its former stack) moves into its items.
+            const row = rows[tRow];
+            const stacks = row.cellStacks ? { ...row.cellStacks } : {};
+            const existing = stacks[findKey];
+            const items = existing ? [findKey, ...existing.items] : [findKey];
+            const slots = items.length + 1; // new primary + demoted items
+            delete stacks[findKey];
+            stacks[soloKey] = {
+              items,
+              heights: Array.from({ length: slots }, () => 1 / slots),
+            };
+            rows = rows.map((r, i) => (i === tRow
+              ? {
+                  ...r,
+                  itemKeys: r.itemKeys.map(k => (k === findKey ? soloKey : k)),
+                  cellStacks: stacks,
+                }
+              : r));
           } else {
             const row = rows[tRow];
             const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right'))
@@ -1805,7 +1877,7 @@ export function PanelGrid({
     // omitting it captured a stale soloCells in the drop handler. The handler is
     // only a JSX prop / wrapped by other callbacks (never an effect dep), so
     // recreating it on soloCells change has no re-render/loop cost.
-  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells]);
+  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells, handleMergeIntoCell, handleUnsoloTopic]);
 
   /* ---- Insert-between handlers (column / row dividers) ----
    *
@@ -1864,7 +1936,11 @@ export function PanelGrid({
   }, []);
 
   const handleFullRowDragOver = useCallback((strip: 'top' | 'bottom' | number) => (e: React.DragEvent) => {
-    if (!isStandaloneTabDrag(e)) return;
+    // Tab drags (standalone scope) AND whole-cell GRID drags both insert a
+    // full-width row here — grid drags previously had no physical strip
+    // target at all (their only row-insert gesture was the dishonest
+    // half-cell top/bottom preview).
+    if (!isStandaloneTabDrag(e) && !e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance (see cell dragover)
@@ -2276,8 +2352,14 @@ export function PanelGrid({
     const zone = isTarget ? gridDropTarget!.zone : null;
     const cSide = isTarget ? gridDropTarget!.centerSide : undefined;
     const isTabTarget = isTarget && !!gridDropTarget!.isTab;
-    const suppressSplitOverlay = isTabTarget && zone === 'top';
-    const showSplitRegion = !suppressSplitOverlay && (zone === 'left' || zone === 'right' || zone === 'top' || zone === 'bottom');
+    // Every edge zone previews for tab drags now — 'top' is a real
+    // stack-above split (the bar's own hover is intercepted upstream by the
+    // closest() guard, so no double indicator over the bar). GRID drags'
+    // top/bottom insert a FULL-WIDTH row, so their preview is the row
+    // strip/gap band (lit from the cell's dragover), NOT a half-cell region —
+    // the half-cell promised a per-column split the drop never performed.
+    const showSplitRegion = zone === 'left' || zone === 'right'
+      || (isTabTarget && (zone === 'top' || zone === 'bottom'));
     const stack = gridRows[rowIdx]?.cellStacks?.[key];
     const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx);
     return (
@@ -2293,6 +2375,7 @@ export function PanelGrid({
         onDropCapture={handleGridItemDropCapture}
       >
         {showSplitRegion && <SplitRegion zone={zone as 'left' | 'right' | 'top' | 'bottom'} />}
+        {isTabTarget && zone === 'center' && <CenterRegion />}
         {stack ? (
           <CellSubStack
             stack={stack}
@@ -2424,7 +2507,7 @@ export function PanelGrid({
           column (with a single column the per-cell stack already spans full
           width); interior gap strips whenever there are ≥2 rows — the only
           gesture that inserts a full-width row BETWEEN rows. Drag-only. */}
-      {tabDragActive && !isMobile && gridRows.some(r => r.itemKeys.length > 1) &&
+      {(tabDragActive || !!draggingGridKey) && !isMobile && gridRows.some(r => r.itemKeys.length > 1) &&
         (['top', 'bottom'] as const).map((side) => (
           <FullWidthRowZone
             key={side}
@@ -2435,7 +2518,7 @@ export function PanelGrid({
             onDrop={handleFullRowDrop(side)}
           />
         ))}
-      {tabDragActive && !isMobile && gridRows.length > 1 && (() => {
+      {(tabDragActive || !!draggingGridKey) && !isMobile && gridRows.length > 1 && (() => {
         const total = gridRowHeights.reduce((s, h) => s + (Number.isFinite(h) && h > 0 ? h : 1 / gridRows.length), 0) || 1;
         let acc = 0;
         return gridRows.slice(0, -1).map((_, i) => {
@@ -2483,15 +2566,12 @@ export function PanelGrid({
               const zone = isTarget ? gridDropTarget!.zone : null;
               const cSide = isTarget ? gridDropTarget!.centerSide : undefined;
               const isTabTarget = isTarget && !!gridDropTarget!.isTab;
-              // A tab dragged over the `top` zone is aiming at the tab bar that
-              // sits there, not splitting the cell (the drop no-ops it) — show no
-              // region. The `closest(panel-tab-bar)` guard in the dragover handler
-              // already clears the target when the pointer is genuinely over the
-              // bar (incl. its corners); this is belt-and-suspenders for a bar
-              // shorter than the edge band. Real edge splits (left/right/bottom),
-              // and all GRID_ITEM drags, still paint a region.
-              const suppressSplitOverlay = isTabTarget && zone === 'top';
-              const showSplitRegion = !suppressSplitOverlay && (zone === 'left' || zone === 'right' || zone === 'top' || zone === 'bottom');
+              // Same overlay law as the tree renderer above: tab drags preview
+              // every edge (top = stack-above now); grid drags' top/bottom are
+              // full-width row inserts previewed by the strip/gap bands, so
+              // the half-cell region stays off for those.
+              const showSplitRegion = zone === 'left' || zone === 'right'
+                || (isTabTarget && (zone === 'top' || zone === 'bottom'));
 
               return (
                 <Fragment key={key}>
@@ -2511,6 +2591,7 @@ export function PanelGrid({
                     onDropCapture={handleGridItemDropCapture}
                   >
                     {showSplitRegion && <SplitRegion zone={zone as 'left' | 'right' | 'top' | 'bottom'} />}
+                    {isTabTarget && zone === 'center' && <CenterRegion />}
                     {/* Unified standalone group (handles chat, utility, and
                         project tabs). When the cell hosts a vertical
                         sub-stack (split-down inside this column), wrap it
