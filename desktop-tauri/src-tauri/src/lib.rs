@@ -85,21 +85,37 @@ struct PerfMetrics {
     partial: bool,
 }
 
+/// Persisted System so `cpu_usage()` is a REAL delta. sysinfo derives per-process
+/// CPU from the change in CPU time between two refreshes; a fresh `System::new()`
+/// per call has no prior sample, so `cpu_usage()` was always 0.0 (the status bar's
+/// "CPU 0%" was fabricated, not measured). Keeping one System across calls makes
+/// each poll diff against the previous one — the JS polls every 1.5–5s, so that's
+/// a valid CPU average over the poll window, with zero added command latency.
+static PERF_SYS: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> = std::sync::OnceLock::new();
+
 #[tauri::command]
 fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
-    use sysinfo::System;
     let version = app.package_info().version.to_string();
-    let mut sys = System::new();
+    let sys_mutex = PERF_SYS.get_or_init(|| std::sync::Mutex::new(sysinfo::System::new()));
     let (total_mb, cpu_percent) = match sysinfo::get_current_pid() {
         Ok(pid) => {
+            // Recover a poisoned lock rather than panic the whole command: a prior
+            // panicked holder must not permanently break the diagnostics readout.
+            let mut sys = sys_mutex.lock().unwrap_or_else(|e| e.into_inner());
             sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
             match sys.process(pid) {
+                // Memory is absolute (correct on the first call); CPU is a delta,
+                // so it reads 0.0 until the second poll establishes a baseline.
                 Some(p) => ((p.memory() as f64) / 1_048_576.0, p.cpu_usage()),
                 None => (0.0, 0.0),
             }
         }
         Err(_) => (0.0, 0.0),
     };
+    // `partial: true` — this is the shell process ONLY. The WKWebView content/GPU/
+    // networking XPC processes (where the real per-pane RAM lives) are reparented
+    // to launchd on macOS and can't be attributed without private APIs, so the JS
+    // side must label this honestly as the shell figure, not the whole-app total.
     PerfMetrics { version, total_mb, cpu_percent, partial: true }
 }
 
