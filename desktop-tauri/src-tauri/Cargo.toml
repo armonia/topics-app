@@ -40,9 +40,6 @@ tauri-plugin-dialog = "2"
 # Native OS notifications: the completion/idle toasts use the web Notification API,
 # which is unreliable in a WKWebView shell — route them through the plugin on Tauri.
 tauri-plugin-notification = "2"
-# Remember window size/position/maximized across launches (Electron persisted its
-# bounds; a bare Tauri window always reopens at the default size + centre).
-tauri-plugin-window-state = "2"
 # Auto-update (parity with the Electron updater). Activates once a signed tauri-v*
 # release is published + the endpoint serves its latest.json; inert otherwise.
 tauri-plugin-updater = "2"
