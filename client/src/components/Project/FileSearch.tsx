@@ -34,7 +34,14 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
     inputRef.current?.focus();
   }, []);
 
+  // Monotonic request token: a SLOWER earlier query (broad pattern, many
+  // matches) resolving after a faster later one must not overwrite the newer
+  // results — the input showed the new query with the old query's matches and
+  // nothing re-corrected it until the user typed again.
+  const searchSeqRef = useRef(0);
+
   const doSearch = useCallback(async (q: string) => {
+    const seq = ++searchSeqRef.current;
     setRegexError(null);
     if (!q.trim()) {
       setResults([]);
@@ -46,11 +53,13 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
     setLoading(true);
     try {
       const data = await filesApi.search(projectPath, q, useRegex, caseSensitive);
+      if (seq !== searchSeqRef.current) return; // stale — a newer search ran
       setResults(data.results);
     } catch {
+      if (seq !== searchSeqRef.current) return;
       setResults([]);
     } finally {
-      setLoading(false);
+      if (seq === searchSeqRef.current) setLoading(false);
     }
   }, [projectPath, useRegex, caseSensitive]);
 

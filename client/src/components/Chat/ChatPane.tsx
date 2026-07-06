@@ -153,11 +153,20 @@ export function ChatPane({
     try { return localStorage.getItem(`fastMode:${topic.id}`) === 'true'; } catch { return false; }
   });
   // Reconcile if the server-pushed topic.fastMode diverges (cross-window sync,
-  // or app boot order where topic arrives after first paint).
+  // or app boot order where topic arrives after first paint). When the topic
+  // has NO explicit server value (undefined — never toggled there), re-seed
+  // from THAT topic's own localStorage: the old boolean-only guard skipped
+  // this case, so an in-place switch from a fastMode:true topic carried
+  // `true` into topics that never enabled it (same leak class as planMode).
   useEffect(() => {
-    if (typeof topic.fastMode === 'boolean' && topic.fastMode !== fastMode) {
-      setFastMode(topic.fastMode);
-      try { localStorage.setItem(`fastMode:${topic.id}`, String(topic.fastMode)); } catch {}
+    if (typeof topic.fastMode === 'boolean') {
+      if (topic.fastMode !== fastMode) {
+        setFastMode(topic.fastMode);
+        try { localStorage.setItem(`fastMode:${topic.id}`, String(topic.fastMode)); } catch {}
+      }
+    } else {
+      try { setFastMode(localStorage.getItem(`fastMode:${topic.id}`) === 'true'); }
+      catch { setFastMode(false); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic.fastMode, topic.id]);
