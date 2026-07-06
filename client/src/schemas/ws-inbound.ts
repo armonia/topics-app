@@ -150,6 +150,24 @@ const uiStateUpdatedSchema = z.looseObject({
   value: z.unknown(),
 });
 
+// Delta shape (finding #11): replaces the old bulk-PUT → full `ui-state:init`
+// fan-out. `entries[key]` carries only the keys a bulk PUT actually changed —
+// see syncWS.ts/projectLayoutSync.ts/tombstoneSync.ts, the three modules that
+// read this frame by hand. `data` is intentionally `unknown`: its shape is
+// per-key (pane-store-v2 snapshot, project tab-identity record, tombstone
+// entry list, …), validated downstream by each consumer, not here.
+const uiStatePatchEntrySchema = z.looseObject({
+  data: z.optional(z.unknown()),
+  payload_version: z.optional(z.number()),
+  server_seq: z.optional(z.number()),
+});
+
+const uiStatePatchSchema = z.looseObject({
+  type: z.literal('ui-state:patch'),
+  sourceClientId: z.optional(z.nullable(z.string())),
+  entries: z.optional(z.record(z.string(), uiStatePatchEntrySchema)),
+});
+
 const messageNewSchema = z.looseObject({
   type: z.literal('message:new'),
   sessionKey: z.string(),
@@ -200,6 +218,7 @@ const INBOUND_SCHEMAS = {
   'topic:switch': topicSwitchSchema,
   'ui-state:init': uiStateInitSchema,
   'ui-state:updated': uiStateUpdatedSchema,
+  'ui-state:patch': uiStatePatchSchema,
   'message:new': messageNewSchema,
 } as const;
 
