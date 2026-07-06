@@ -3266,6 +3266,45 @@ fn clamp_position_to_monitors(
     Some((nx, ny))
 }
 
+/// Reveal a window that may have been hidden/minimized while its display went
+/// away, GUARANTEEING it lands on-screen. `show()` alone re-orders the window at
+/// its LAST position — and the cold-start clamp (in setup) runs only once, so if
+/// an external monitor was disconnected since the window was placed there, a plain
+/// show() brings it back OFF-SCREEN. The user then sees the app "open and do
+/// nothing" (dock bounce, no visible window) — the field report behind this fix.
+///
+/// Every bring-to-front path (single-instance re-launch, tray "Mostra", dock
+/// Reopen, menu, nav) routes through here: show + unminimize, re-anchor onto a
+/// LIVE monitor when the current rect is off every attached display (reusing the
+/// exact clamp as the restore path — a valid position on any connected display,
+/// including a second one, is honored verbatim), then focus.
+fn ensure_window_visible(win: &tauri::WebviewWindow) {
+    let _ = win.show();
+    let _ = win.unminimize();
+    if let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) {
+        let monitors: Vec<(i32, i32, u32, u32)> = win
+            .available_monitors()
+            .unwrap_or_default()
+            .iter()
+            .map(|m| {
+                let p = m.position();
+                let s = m.size();
+                (p.x, p.y, s.width, s.height)
+            })
+            .collect();
+        match clamp_position_to_monitors((pos.x, pos.y), (size.width, size.height), &monitors) {
+            Some((nx, ny)) if (nx, ny) != (pos.x, pos.y) => {
+                let _ = win.set_position(tauri::PhysicalPosition::new(nx, ny));
+            }
+            None => {
+                let _ = win.center();
+            }
+            _ => {}
+        }
+    }
+    let _ = win.set_focus();
+}
+
 /// Override the pane's User-Agent (device emulation). WKWebView
 /// `setCustomUserAgent:` — empty string resets to the default. Takes effect on
 /// the next load, so the client reloads after setting it. macOS only.
@@ -3694,9 +3733,7 @@ async fn window_detach(
 fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
     use tauri::Manager;
     if let Some(w) = app.get_webview_window(&label) {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+        ensure_window_visible(&w);
         true
     } else {
         false
@@ -4032,9 +4069,9 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
             if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
+                // A second launch forwards here and exits; if this window can't be
+                // shown ON-SCREEN the user just sees "opens then closes, no window".
+                ensure_window_visible(&w);
             }
         }))
         // Navigation guard: a stray external nav in the MAIN webview would escape
@@ -4266,8 +4303,7 @@ pub fn run() {
                     // UpdaterToast). A DOM CustomEvent keeps the shell free of the
                     // @tauri-apps/event dependency — same bridge the tray uses.
                     if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
+                        ensure_window_visible(&w);
                         let _ = w.eval(
                             "window.dispatchEvent(new CustomEvent('topics:check-for-updates'))",
                         );
@@ -4820,9 +4856,7 @@ pub fn run() {
                         let id = event.id().0.as_str();
                         if id == "tray-show" {
                             if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.unminimize();
-                                let _ = w.set_focus();
+                                ensure_window_visible(&w);
                             }
                         } else if id == "tray-quit" {
                             QUITTING.store(true, Ordering::Relaxed);
@@ -4835,9 +4869,7 @@ pub fn run() {
                             // the @tauri-apps/event dependency — same bridge the native
                             // shortcut forwarder uses.
                             if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.unminimize();
-                                let _ = w.set_focus();
+                                ensure_window_visible(&w);
                                 let arg = serde_json::to_string(topic_id)
                                     .unwrap_or_else(|_| "\"\"".to_string());
                                 let js = format!(
@@ -4923,9 +4955,7 @@ pub fn run() {
             if let tauri::RunEvent::Reopen { .. } = event {
                 use tauri::Manager;
                 if let Some(w) = app_handle.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.unminimize();
-                    let _ = w.set_focus();
+                    ensure_window_visible(&w);
                 }
             }
             // Kill the bundled server sidecar (if we spawned one) as the app exits,
@@ -4940,7 +4970,7 @@ pub fn run() {
 
 #[cfg(all(test, target_os = "macos"))]
 mod screenshot_tests {
-    use super::nsimage_to_png_base64;
+    use super::{clamp_position_to_monitors, nsimage_to_png_base64};
     use cocoa::base::{id, nil, NO, YES};
     use cocoa::foundation::{NSSize, NSString};
     use objc::{class, msg_send, sel, sel_impl};
@@ -4979,5 +5009,41 @@ mod screenshot_tests {
             );
             assert!(out.len() > 32, "PNG base64 implausibly short: {}", out.len());
         }
+    }
+
+    // The on-screen guarantee behind ensure_window_visible: a window whose last
+    // position lived on a since-disconnected display must be re-anchored fully
+    // inside a live monitor, while a still-valid position is left untouched.
+    #[test]
+    fn clamp_reanchors_off_screen_and_honors_valid() {
+        // Single built-in display at the origin, 1440x900 logical-as-physical.
+        let builtin = (0i32, 0i32, 1440u32, 900u32);
+
+        // The real field case: window last seen at (-784,-1410) on an external
+        // ultrawide ABOVE the laptop; that display is now unplugged → must land
+        // fully inside the built-in (top-left non-negative, fits the monitor).
+        let (nx, ny) =
+            clamp_position_to_monitors((-784, -1410), (1400, 900), &[builtin]).expect("some pos");
+        assert!(nx >= 0 && ny >= 0, "re-anchored off-screen: {nx},{ny}");
+        assert!(nx + 1400 <= 1440 && ny + 900 <= 900, "window not inside monitor: {nx},{ny}");
+
+        // A position with its top edge on the built-in is honored verbatim.
+        assert_eq!(
+            clamp_position_to_monitors((100, 50), (600, 400), &[builtin]),
+            Some((100, 50))
+        );
+
+        // No monitors enumerated → None, so the caller centers instead of trusting
+        // a stale rect.
+        assert_eq!(clamp_position_to_monitors((10, 10), (600, 400), &[]), None);
+
+        // Multi-monitor: the external-above position is still valid while that
+        // monitor is attached (negative Y honored), then re-anchored once it's gone.
+        let external_above = (-784i32, -1410i32, 3440u32, 1410u32);
+        assert_eq!(
+            clamp_position_to_monitors((-784, -1410), (1400, 900), &[builtin, external_above]),
+            Some((-784, -1410)),
+            "valid position on the attached external display must be honored"
+        );
     }
 }
