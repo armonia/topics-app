@@ -20,7 +20,7 @@ import { CellSubStack } from './CellSubStack';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION } from './constants';
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
-import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths } from './gridWidths';
+import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
 import { extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey, remapTopicInCells, reorderCellPreservingPrimary } from './soloCells';
 import { recordSoloTombstones, restoreFromSoloTombstones, type SoloCellTombstone } from './soloCellTombstones';
 import { pushUndo } from '../../contexts/UndoContext';
@@ -2036,6 +2036,55 @@ export function PanelGrid({
     window.addEventListener('topics:reset-split-layout', handler);
     return () => window.removeEventListener('topics:reset-split-layout', handler);
   }, [handleResetGridLayout]);
+
+  // "Disponi automaticamente" — auto-tile: explode EVERY open standalone pane
+  // into its own cell laid out in a balanced ~square grid (ceil(√n) columns).
+  // The inverse of collapse ("Reimposta pannelli"): from one pool full of tabs
+  // to all panes visible side-by-side. The first pane stays in the 'standalone'
+  // pool; the rest each become a single-topic solo cell — so every open topic
+  // maps 1:1 to a grid cell. naturalGridItems emits 'standalone' first then one
+  // cell per solo cell, and gridRows lists exactly those keys in row-major
+  // order, so no sync effect heals or prunes. Undoable; nothing is closed.
+  const handleAutoTileGrid = useCallback(() => {
+    const panes = openPanels;
+    const n = panes.length;
+    if (n < 2) return; // nothing to spread
+    const cols = Math.min(Math.ceil(Math.sqrt(n)), MAX_COLS_PER_ROW);
+    // First pane keeps the pool; the others each get their own single-topic cell.
+    const nextSolo: string[][] = panes.slice(1).map((id) => [id]);
+    const cellKeys = ['standalone', ...panes.slice(1).map((id) => soloCellKey([id]))];
+    const rows: PanelGridRow[] = [];
+    for (let i = 0; i < cellKeys.length; i += cols) {
+      const chunk = cellKeys.slice(i, i + cols);
+      rows.push({ itemKeys: chunk, widths: equalizeWidths(chunk.length) });
+    }
+    const rowHeights = equalizeWidths(rows.length);
+    const prevRows = gridRowsRef.current;
+    const prevHeights = gridRowHeightsRef.current;
+    const prevSolo = soloCellsRawRef.current;
+    const apply = () => {
+      // Batched (React 18) → naturalGridItems recomputes once to the tiled grid.
+      setSoloCells(nextSolo);
+      setGridRows(rows);
+      setGridRowHeights(rowHeights);
+    };
+    pushUndo({
+      description: 'Disponi automaticamente',
+      undo: () => {
+        setSoloCells(prevSolo);
+        setGridRows(prevRows);
+        setGridRowHeights(prevHeights);
+      },
+      redo: apply,
+    });
+    apply();
+  }, [openPanels, gridRowsRef, gridRowHeightsRef, soloCellsRawRef, setSoloCells, setGridRows, setGridRowHeights]);
+
+  useEffect(() => {
+    const handler = () => handleAutoTileGrid();
+    window.addEventListener('topics:auto-tile-layout', handler);
+    return () => window.removeEventListener('topics:auto-tile-layout', handler);
+  }, [handleAutoTileGrid]);
 
   // Publish each open topic's grid position so the SIDEBAR cards can render the
   // same proportional mini-map with that topic's cell lit (not just the tab

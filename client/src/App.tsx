@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw } from 'lucide-react';
+import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2 } from 'lucide-react';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { SidebarTab } from './types';
@@ -1050,12 +1050,12 @@ function App() {
               : <List size={isMobile ? 18 : 14} />}
             <span className="flex-1 text-left">{sidebar.viewMode === 'timeline' ? 'Vista a gruppi' : 'Vista timeline'}</span>
           </button>
-          {/* "Reimposta pannelli" — same per-window flatten the ⌘K palette and
+          {/* "Reimposta pannelli" — same per-window action the ⌘K palette and
               the tab-bar context menu expose (the shared 'topics:reset-split-
-              layout' CustomEvent bus). The focused surface — a project window's
-              inner splits OR the standalone grid — collapses to a single row of
-              equal columns; tabs stay open and it's ⌘Z-undoable. Sidebar entry
-              is always offered (like the palette); it no-ops when already flat. */}
+              layout' CustomEvent bus). The standalone grid COLLAPSES every split
+              — columns and stacks — into the single 'standalone' pool cell, where
+              panes live as tabs; nothing is closed and it's ⌘Z-undoable. Always
+              offered (like the palette); no-ops when already a single pane. */}
           <button
             onClick={() => {
               window.dispatchEvent(new CustomEvent('topics:reset-split-layout'));
@@ -1063,10 +1063,26 @@ function App() {
               setExpandedTool(null);
             }}
             className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-            title="Appiattisce gli split su un solo livello (le schede restano aperte)"
+            title="Riunisce tutti i pannelli in uno solo (le schede restano aperte)"
           >
             <RotateCcw size={isMobile ? 18 : 14} />
             <span className="flex-1 text-left">Reimposta pannelli</span>
+          </button>
+          {/* "Disponi automaticamente" — the inverse of Reimposta pannelli: auto-tile
+              every open standalone pane into its own cell in a balanced grid (the
+              shared 'topics:auto-tile-layout' bus; PanelGrid handles it). Always
+              offered; no-ops when fewer than two panes are open. ⌘Z-undoable. */}
+          <button
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'));
+              setShowTopicsMenu(false);
+              setExpandedTool(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+            title="Dispone tutte le schede aperte affiancate in una griglia bilanciata"
+          >
+            <Grid2x2 size={isMobile ? 18 : 14} />
+            <span className="flex-1 text-left">Disponi automaticamente</span>
           </button>
           <button
             onClick={() => { setShowTopicsMenu(false); setExpandedTool('remote'); }}
@@ -1226,10 +1242,12 @@ function App() {
             onNewTerminal={() => handleQuickCreateTerminal('shell')}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => { setShowSearch(false); setShowSettings(true); }}
-            // "Reimposta pannelli al primo livello" — per-window CustomEvent bus
-            // (same pattern as topics:open-project-picker); the FOCUSED surface's
-            // listener (GroupLayout / PanelGrid) performs the flatten.
+            // "Reimposta pannelli" (collapse to one tabbed cell) + "Disponi
+            // automaticamente" (auto-tile into a balanced grid) — per-window
+            // CustomEvent bus (same pattern as topics:open-project-picker); the
+            // standalone PanelGrid listener performs each.
             onResetPanels={() => window.dispatchEvent(new CustomEvent('topics:reset-split-layout'))}
+            onAutoTilePanels={() => window.dispatchEvent(new CustomEvent('topics:auto-tile-layout'))}
             onOpenFileSearch={() => {
               setShowSearch(false);
               // Resolve projectPath the same way as Cmd+Shift+F
