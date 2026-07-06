@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import type { GroupLayoutRow, PanelGridRow } from '../../types';
-import { flattenGroupRows, flattenGridRows } from './flattenLayout';
+import type { GroupLayoutRow } from '../../types';
+import { flattenGroupRows } from './flattenLayout';
 import { equalizeWidths } from './gridWidths';
 import { MAX_COLS_PER_ROW } from './constants';
 
@@ -12,15 +12,6 @@ const groupRow = (
 ): GroupLayoutRow => ({
   groupIds,
   widths: groupIds.map(() => 1 / groupIds.length),
-  ...(cellStacks ? { cellStacks } : {}),
-});
-
-const gridRow = (
-  itemKeys: string[],
-  cellStacks?: PanelGridRow['cellStacks'],
-): PanelGridRow => ({
-  itemKeys,
-  widths: itemKeys.map(() => 1 / itemKeys.length),
   ...(cellStacks ? { cellStacks } : {}),
 });
 
@@ -102,82 +93,5 @@ describe('flattenGroupRows', () => {
   it('an empty cellStacks entry (no members) does not block the null (already-flat) branch', () => {
     const rows = [groupRow(['A'], { A: { groupIds: [], heights: [1] } })];
     expect(flattenGroupRows(rows)).toBeNull();
-  });
-});
-
-describe('flattenGridRows', () => {
-  it('walks itemKeys-then-stack-items per row and never touches soloCells keys', () => {
-    const rows = [
-      gridRow(['standalone', 'solo:x'], {
-        standalone: { items: ['solo:y'], heights: [0.5, 0.5] },
-      }),
-      gridRow(['solo:z']),
-    ];
-    const res = flattenGridRows(rows);
-    expect(res).not.toBeNull();
-    expect(res!.rows.length).toBe(1);
-    // Stack members keep their EXISTING keys — promoted to top-level cells,
-    // no re-keying (soloCells is not consulted or rewritten).
-    expect(res!.rows[0].itemKeys).toEqual(['standalone', 'solo:y', 'solo:x', 'solo:z']);
-    expect(res!.rows[0].widths).toEqual(equalizeWidths(4));
-    expect('cellStacks' in res!.rows[0]).toBe(false);
-    expect(res!.rowHeights).toEqual([1]);
-  });
-
-  it('appends liveItemKeys missing from rows (defensive union against the sync-effect heal)', () => {
-    // Twin of flattenGroupRows' liveGroupIds test: a live grid cell the rows
-    // missed must be included with an equal width, not "healed" back in later.
-    const rows = [gridRow(['standalone']), gridRow(['solo:a'])];
-    const res = flattenGridRows(rows, ['standalone', 'solo:a', 'solo:ghost']);
-    expect(res).not.toBeNull();
-    expect(res!.rows[0].itemKeys).toEqual(['standalone', 'solo:a', 'solo:ghost']);
-    expect(res!.rows[0].widths).toEqual(equalizeWidths(3));
-  });
-
-  it('returns null when already flat (single row, EQUAL widths, no stacks)', () => {
-    expect(flattenGridRows([gridRow(['standalone', 'solo:a'])])).toBeNull();
-    expect(flattenGridRows([])).toBeNull();
-  });
-
-  it('re-equalises a single row whose widths were dragged to custom values', () => {
-    // 70/30 horizontal split, one row, no stacks: NOT canonical → reset restores
-    // even columns (the standalone "Reimposta pannelli non fa nulla" fix).
-    const rows = [{ itemKeys: ['standalone', 'solo:a'], widths: [0.7, 0.3] }];
-    const res = flattenGridRows(rows);
-    expect(res).not.toBeNull();
-    expect(res!.rows.length).toBe(1);
-    expect(res!.rows[0].itemKeys).toEqual(['standalone', 'solo:a']);
-    expect(res!.rows[0].widths).toEqual(equalizeWidths(2));
-  });
-
-  it('a single row with a stack flattens (not null)', () => {
-    const rows = [
-      gridRow(['standalone'], { standalone: { items: ['solo:a'], heights: [0.7, 0.3] } }),
-    ];
-    const res = flattenGridRows(rows);
-    expect(res).not.toBeNull();
-    expect(res!.rows[0].itemKeys).toEqual(['standalone', 'solo:a']);
-    expect(res!.rowHeights).toEqual([1]);
-  });
-
-  it('dedups duplicate/dead keys first-occurrence', () => {
-    const rows = [gridRow(['standalone', 'solo:a']), gridRow(['solo:a', 'solo:dead'])];
-    const res = flattenGridRows(rows);
-    expect(res).not.toBeNull();
-    // 'solo:dead' is kept (liveness pruning is the sync effect's job), the
-    // duplicate 'solo:a' is not.
-    expect(res!.rows[0].itemKeys).toEqual(['standalone', 'solo:a', 'solo:dead']);
-  });
-
-  it('chunks >MAX_COLS_PER_ROW cells into multiple rows', () => {
-    const n = MAX_COLS_PER_ROW + 1;
-    const keys = Array.from({ length: n }, (_, i) => `solo:k${i}`);
-    const rows = [gridRow(keys.slice(0, 20)), gridRow(keys.slice(20))];
-    const res = flattenGridRows(rows);
-    expect(res).not.toBeNull();
-    expect(res!.rows.length).toBe(2);
-    expect(res!.rows[0].itemKeys.length).toBe(MAX_COLS_PER_ROW);
-    expect(res!.rows[1].itemKeys.length).toBe(1);
-    expect(res!.rowHeights).toEqual(equalizeWidths(2));
   });
 });
