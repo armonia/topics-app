@@ -70,12 +70,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 // deliberately mixed about how that envelope is surfaced to callers:
 //
 //   • List methods that return the bare array (`agentProfilesApi.list`,
-//     `dashboardApi.getTimeSeries/getAgentStats`,
-//     `boardMemoryApi.list`, `agentActionsApi.list`) `await request<{ key: T[] }>`
+//     `dashboardApi.getTimeSeries/getAgentStats`) `await request<{ key: T[] }>`
 //     and return `.key` — the caller never sees the envelope.
-//   • The remaining methods (`tasksApi.list`, `boardsApi.listTasks`,
-//     `searchApi.search`, `usageApi.*`, …) return the envelope verbatim so the
-//     caller destructures `{ tasks }` / `{ results }` itself.
+//   • The remaining methods (`searchApi.search`, `providersApi.snapshot`, …)
+//     return the envelope verbatim so the caller destructures
+//     `{ results }` / `{ providers }` itself.
 //
 // Both are intentional and load-bearing for existing callers — do NOT
 // "normalise" one into the other without updating every call site. When adding
@@ -602,86 +601,6 @@ export const openclawControlApi = {
     });
   },
 };
-
-// Task Board API
-export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
-
-export interface Task {
-  id: string;
-  text: string;
-  status: TaskStatus;
-  kanbanOrder: number;
-  createdAt: string;
-  completedAt: string | null;
-  chatId: string | null;
-}
-
-export interface BoardTask extends Task {
-  projectId: string;
-  description: string | null;
-  priority: number;       // 0-4
-  assignedTo: string | null;
-  assignedAgentId: string | null;
-  /** KANBAN-DELTA-01 — bound teammate Topic for jump-to-tab. */
-  assignedTopicId: string | null;
-  /** KANBAN-DELTA-02 — link to Claude Code Agent Teams shared task. */
-  claudeTaskId: string | null;
-  fingerprint: string | null;
-  dueDate: string | null;
-  inProgressAt: string | null;
-  updatedAt: string;
-  archived: boolean;
-  blocks: string[];       // task IDs this blocks
-  blockedBy: string[];    // task IDs blocking this
-  tags: Tag[];
-}
-
-export interface Tag {
-  id: string;
-  name: string;
-  color: string;
-  createdAt?: string;
-}
-
-export interface TaskComment {
-  id: string;
-  taskId: string;
-  author: string;
-  content: string;
-  mentions: string[];
-  createdAt: string;
-}
-
-export interface BoardSettings {
-  projectId: string;
-  requireApprovalForDone: boolean;
-  requireReviewBeforeDone: boolean;
-  blockStatusWithPending: boolean;
-  onlyLeadCanChangeStatus: boolean;
-  maxAgents: number;
-  autoExpireHours: number;
-}
-
-// Approvals API
-export interface Approval {
-  id: string;
-  taskId: string;
-  taskText?: string;
-  taskStatus?: string;
-  approvalType: string;
-  fromStatus: string | null;
-  toStatus: string | null;
-  confidenceScore: number | null;
-  rubricScores: Record<string, number> | null;
-  justification: string | null;
-  requestedBy: string;
-  status: 'pending' | 'approved' | 'rejected' | 'expired';
-  reviewedBy: string | null;
-  reviewComment: string | null;
-  createdAt: string;
-  reviewedAt: string | null;
-  expiresAt: string | null;
-}
 
 // Scripts API (npm scripts run in background)
 export interface ScriptProcessInfo {

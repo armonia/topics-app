@@ -1,9 +1,8 @@
-/* Mock of @/lib/api for the landing demo. Real client components import these
-   exact names; we return generic placeholder data and a safe Proxy fallback so
-   any un-mocked method resolves to {} instead of crashing. NO network. */
+/* Mock of @/lib/api for the landing demo. Exports the api names the demo-built
+   client components import; we return generic placeholder data and a safe Proxy
+   fallback so any un-mocked method resolves to {} instead of crashing. NO network. */
 
 import type { Topic } from '../types';
-import type { BoardTask, TaskStatus } from '../lib/api';
 
 const now = () => new Date().toISOString();
 // any property not explicitly mocked becomes an async () => ({}) — keeps the
@@ -24,26 +23,6 @@ const MOCK_TOPICS: Record<string, Topic> = {
   "t-auth": { id: "t-auth", name: "auth", slug: "auth", parentId: null, links: [], sessionKey: "s-auth", color: "#22d3ee", icon: "🔒", createdAt: now(), updatedAt: now(), archived: false, projectPath: "/demo/topics-app" },
   "t-docs": { id: "t-docs", name: "docs", slug: "docs", parentId: null, links: [], sessionKey: "s-docs", color: "#f5a524", icon: "📝", createdAt: now(), updatedAt: now(), archived: false, projectPath: "/demo/topics-app" },
 };
-
-const TASK = (id: string, text: string, status: TaskStatus, order: number, priority = 2, extra: Partial<BoardTask> = {}): BoardTask => ({
-  id, text, status, kanbanOrder: order, createdAt: now(), completedAt: status === "done" ? now() : null,
-  chatId: null,
-  projectId: "/demo/topics-app", description: null, priority, assignedTo: null, assignedAgentId: null,
-  assignedTopicId: null, claudeTaskId: null, fingerprint: null, dueDate: null, inProgressAt: null,
-  updatedAt: now(), archived: false, blocks: [], blockedBy: [], tags: [], ...extra,
-});
-const MOCK_TASKS = [
-  TASK("k1", "Telemetry opt-in", "backlog", 0, 1),
-  TASK("k2", "i18n pass", "backlog", 1, 1),
-  TASK("k3", "Sign macOS build", "todo", 0, 3),
-  TASK("k4", "Empty states", "todo", 1, 2),
-  TASK("k5", "Ship v1.1 release", "in_progress", 0, 4, { assignedTo: "claude" }),
-  TASK("k6", "Landing site", "in_progress", 1, 3, { assignedTo: "claude" }),
-  TASK("k7", "Per-agent token hashing", "review", 0, 3),
-  TASK("k8", "Split panes", "done", 0, 2),
-  TASK("k9", "Auto-update", "done", 1, 2),
-  TASK("k10", "Grain + aurora pass", "done", 2, 1),
-];
 
 const GIT_STATUS = {
   branch: "main",
@@ -98,17 +77,6 @@ export const gitApi = mk({
 });
 export const autoNameApi = mk({});
 export const openclawControlApi = mk({});
-export const tasksApi = mk({ list: async () => ({ tasks: MOCK_TASKS }) });
-export const boardsApi = mk({
-  listTasks: async () => ({ tasks: MOCK_TASKS }),
-  createTask: async (_p: string, d: Partial<BoardTask>) => TASK("k-new", d?.text || "New task", d?.status || "todo", 99),
-  updateTask: async (_p: string, id: string, u: Partial<BoardTask>) => ({ ...MOCK_TASKS.find(t => t.id === id), ...u }),
-  moveTask: async (_p: string, id: string, status: string) => ({ ...MOCK_TASKS.find(t => t.id === id), status }),
-  deleteTask: async () => ({ ok: true }), archiveTask: async () => ({ ok: true }),
-  settings: async () => ({ projectId: "/demo/topics-app", requireApprovalForDone: false, requireReviewBeforeDone: false, blockStatusWithPending: false, onlyLeadCanChangeStatus: false, maxAgents: 4, autoExpireHours: 0 }),
-});
-export const approvalsApi = mk({ list: async () => ({ approvals: [] }) });
-export const tagsApi = mk({ list: async () => ({ tags: [] }) });
 export const scriptsApi = mk({
   list: async () => ({ scripts: SCRIPTS }),
   output: async (id: string) => ({ output: SCRIPT_OUTPUT[id] || SCRIPT_OUTPUT.p1, offset: 99, done: id === "p3", status: id === "p3" ? "done" : "running", exitCode: id === "p3" ? 0 : undefined }),
