@@ -779,17 +779,38 @@ const server = Bun.serve<WSData>({
             },
           });
         };
+        // Deferred + race-safe screencast start. A Tauri native pane's FIRST
+        // frame is `register_native_executor`, which arrives a few ms after
+        // open — but startScreencast's getOrCreate would already be launching a
+        // headless Chromium for a context that must NOT exist server-side
+        // (delegated panes run ops natively). The old code started eagerly and
+        // the 'registered' cleanup raced it: stopScreencast found no session
+        // yet (idempotent no-op), the start then completed seconds later, and
+        // the screencast streamed JPEGs forever into a pane that ignores them —
+        // with the phantom context pinning Chromium past the reaper's
+        // contexts.size===0 gate. The grace window lets the register frame
+        // cancel the start before anything launches; if the start already
+        // began, cleanup AWAITS it before stopping so the stop can't lose.
+        const SCREENCAST_START_GRACE_MS = 250;
+        let screencastCancelled = false;
+        let screencastStart: Promise<void> | null = null;
+        const screencastTimer = setTimeout(() => {
+          if (screencastCancelled) return;
+          screencastStart = browserService.startScreencast(ctxId, onFrame).catch(err => {
+            console.warn(`[WS][browser] startScreencast failed for ${ctxId}:`, err.message);
+            try {
+              ws.send(JSON.stringify({ type: 'error', message: `Screencast start failed: ${err.message}` }));
+            } catch {}
+          });
+        }, SCREENCAST_START_GRACE_MS);
         ws.data._browserCleanup = async () => {
+          screencastCancelled = true;
+          clearTimeout(screencastTimer);
+          if (screencastStart) await screencastStart;
           await browserService.stopScreencast(ctxId, onFrame).catch(err =>
             console.warn(`[WS][browser] stopScreencast failed for ${ctxId}:`, err.message)
           );
         };
-        browserService.startScreencast(ctxId, onFrame).catch(err => {
-          console.warn(`[WS][browser] startScreencast failed for ${ctxId}:`, err.message);
-          try {
-            ws.send(JSON.stringify({ type: 'error', message: `Screencast start failed: ${err.message}` }));
-          } catch {}
-        });
         return;
       }
 
