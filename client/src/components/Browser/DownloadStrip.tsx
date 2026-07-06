@@ -3,8 +3,10 @@
  *
  * Renders a horizontal list of active+recent downloads at the bottom of
  * the pane (same pattern as Chrome's bottom-of-window download shelf).
- * Polls the Rust download-event queue (browser_take_download_events) and
- * keeps a per-pane in-memory list. Renders nothing when the list is empty.
+ * Polls the Rust download-event queue (browser_take_download_events, scoped
+ * server-side to this pane's contextId — the underlying queue is shared
+ * across every open browser webview) and keeps a per-pane in-memory list.
+ * Renders nothing when the list is empty.
  */
 import { useEffect, useState, useCallback } from 'react';
 import { Check, X as XIcon, FolderOpen, Loader2 } from 'lucide-react';
@@ -23,7 +25,7 @@ interface DownloadEntry {
 
 const RECENT_KEEP_MS = 30_000;
 
-export function DownloadStrip() {
+export function DownloadStrip({ contextId }: { contextId: string }) {
   const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
 
   // Tauri: poll the Rust download-event queue (browser_take_download_events) and
@@ -33,7 +35,7 @@ export function DownloadStrip() {
     if (!isTauri) return;
     let stop = false;
     const iv = window.setInterval(() => {
-      void tauriInvoke<Array<{ kind: string; id: string; url: string; filename: string; success: boolean; state: string; savedPath: string }>>('browser_take_download_events')
+      void tauriInvoke<Array<{ kind: string; id: string; url: string; filename: string; success: boolean; state: string; savedPath: string }>>('browser_take_download_events', { id: contextId })
         .then((events) => {
           if (stop || !events || !events.length) return;
           for (const ev of events) {
@@ -49,7 +51,7 @@ export function DownloadStrip() {
         .catch(() => {});
     }, 1000);
     return () => { stop = true; window.clearInterval(iv); };
-  }, []);
+  }, [contextId]);
 
   const showInFolder = useCallback((path: string) => {
     // opener plugin: select the file in Finder / file manager.
