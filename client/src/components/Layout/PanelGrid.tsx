@@ -21,7 +21,6 @@ import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION } from '
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths } from './gridWidths';
-import { flattenGridRows } from './flattenLayout';
 import { extractToOwnCell, removeTopicFromCells, moveTopicToCell, pruneSoloCells, flattenSoloCells, soloCellKey, primaryFromSoloCellKey, remapTopicInCells, reorderCellPreservingPrimary } from './soloCells';
 import { recordSoloTombstones, restoreFromSoloTombstones, type SoloCellTombstone } from './soloCellTombstones';
 import { pushUndo } from '../../contexts/UndoContext';
@@ -1976,37 +1975,48 @@ export function PanelGrid({
   const splitRowWidths = useMemo(() => gridRows.map((r) => r.widths), [gridRows]);
   const hasGridSplit = useMemo(() => splitRowWidths.reduce((a, r) => a + r.length, 0) > 1, [splitRowWidths]);
 
-  // "Reimposta pannelli" — flatten the standalone grid back to one row of
-  // equal-width cells (cellStacks dissolve into top-level cells, soloCells
-  // untouched — stack members are already valid grid keys). Null = already
-  // flat, so the ctx-menu entry hides. rows + rowHeights are plain values
-  // committed together (React 18 batches); writes go through the
-  // usePanelGridPersistence setters only — never the storage key directly.
-  const canFlattenGrid = useMemo(() => flattenGridRows(gridRows) !== null, [gridRows]);
+  // "Reimposta pannelli" — COLLAPSE the whole standalone grid to ONE full cell.
+  // Every side-by-side column AND every vertical stack folds into the single
+  // 'standalone' pool cell, where the panes live as TABS (StandaloneChatGroup is
+  // tab-based). Emptying soloCells re-absorbs every solo pane into the pool —
+  // they're already in openPanels, so nothing is closed or lost — and a lone
+  // 'standalone' cell is a fixed point of every grid sync effect (additive
+  // naturalGridItems sync, deferred prune, rowHeights sync, project-weight
+  // rebalance all no-op on it), so nothing re-splits afterwards. Undoable;
+  // writes go through the usePanelGridPersistence setters only. This is
+  // deliberately stronger than the old flatten-to-one-row-of-columns: horizontal
+  // columns collapse into tabs too (the reported "toglie solo i verticali").
+  const isGridCollapsed = useMemo(() => {
+    if (soloCellsRaw.length > 0) return false;
+    if (gridRows.length !== 1) return false;
+    const only = gridRows[0];
+    return only.itemKeys.length === 1 && only.itemKeys[0] === 'standalone' && !only.cellStacks;
+  }, [soloCellsRaw, gridRows]);
+  const canFlattenGrid = !isGridCollapsed;
   const handleResetGridLayout = useCallback(() => {
-    // Pass the live grid cells (naturalGridItems) so the additive-sync effect
-    // can't "heal" a row-missed key back in with an unequal width right after
-    // the reset — mirrors GroupLayout passing [...groupMap.keys()].
-    const flat = flattenGridRows(gridRowsRef.current, naturalGridItemsRef.current.map(i => i.key));
-    if (!flat) return;
-    // Flatten is undoable — it irreversibly discarded manual widths/heights/
-    // stacks before, and ⌘Z silently undid the previous CLOSE instead.
+    if (isGridCollapsed) return; // already a single full pane → no-op (ctx-menu entry also hides)
     const prevRows = gridRowsRef.current;
     const prevHeights = gridRowHeightsRef.current;
+    const prevSolo = soloCellsRawRef.current;
+    const applyCollapsed = () => {
+      // Batched (React 18) → naturalGridItems recomputes once to the lone pool cell.
+      setSoloCells([]);
+      setGridRows([{ itemKeys: ['standalone'], widths: [1] }]);
+      setGridRowHeights([1]);
+    };
+    // Collapse discards manual widths/heights/stacks AND the solo extraction, so
+    // make it undoable — ⌘Z restores the exact prior geometry and solo cells.
     pushUndo({
       description: 'Reimposta pannelli',
       undo: () => {
+        setSoloCells(prevSolo);
         setGridRows(prevRows);
         setGridRowHeights(prevHeights);
       },
-      redo: () => {
-        setGridRows(flat.rows);
-        setGridRowHeights(flat.rowHeights);
-      },
+      redo: applyCollapsed,
     });
-    setGridRows(flat.rows);
-    setGridRowHeights(flat.rowHeights);
-  }, [gridRowsRef, gridRowHeightsRef, setGridRows, setGridRowHeights]);
+    applyCollapsed();
+  }, [isGridCollapsed, gridRowsRef, gridRowHeightsRef, soloCellsRawRef, setSoloCells, setGridRows, setGridRowHeights]);
 
   // Palette / Topics-menu path — same per-window CustomEvent GroupLayout listens
   // to. A focused PROJECT window owns the event (its GroupLayout flattens), so we
