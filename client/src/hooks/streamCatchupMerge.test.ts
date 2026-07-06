@@ -90,6 +90,29 @@ describe("mergeCatchupIntoPartial", () => {
       expect(msg.id).toBe("srv_42");
       expect(msg.partial).toBe(true);
     });
+
+    test("does NOT inherit a finalized previous turn's toolCalls", () => {
+      // lastMessage is the PRIOR (finalized, non-partial) assistant turn with a
+      // tool card. A catchup for a new turn that omits toolCalls must create a
+      // clean bubble — not bleed the previous turn's stale tool card into it.
+      const prevTurn: ChatMessage = {
+        id: "a_prev",
+        role: "assistant",
+        content: "done",
+        toolCalls: [tc("t_old")],
+        blocks: [tool("t_old")],
+        timestamp: NOW,
+      };
+      const msg = mergeCatchupIntoPartial(
+        { messageId: "srv_new", content: "next" },
+        prevTurn,
+        ID,
+        NOW,
+      );
+      expect(msg.id).toBe("srv_new");
+      expect(msg.toolCalls).toBeUndefined();
+      expect(msg.blocks).toBeUndefined();
+    });
   });
 
   // ── Update path: a partial assistant already exists ───────────────────────
