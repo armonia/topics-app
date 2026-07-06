@@ -64,7 +64,14 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     setNewContextFile('');
     setProvider(topic.provider ?? null);
     setSaved(false);
-  }, [topic, isOpen]);
+    // Keyed on topic.id, NOT the topic object: every `topic:updated` WS
+    // broadcast mints a fresh object reference (applyTopicFromWS), and with
+    // `[topic, isOpen]` an unrelated background update — e.g. the auto-namer
+    // renaming a New Chat a few seconds in — silently wiped whatever the user
+    // was typing in these fields and dropped isDirty. Re-seeding is only
+    // correct when the modal (re)opens or targets a different topic.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topic.id, isOpen]);
 
   // Fetch available providers
   useEffect(() => {
