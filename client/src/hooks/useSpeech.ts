@@ -428,6 +428,27 @@ export function useVoiceCall(
     }
   }, [isCallActive, startCall, endCall]);
 
+  // Release the mic/recorder/audio on unmount (e.g. the pane closes mid-call).
+  // endCall() otherwise only runs from a user click via toggleCall, so nothing
+  // would stop the getUserMedia stream if the component just goes away.
+  useEffect(() => {
+    return () => {
+      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause();
+        URL.revokeObjectURL(ttsAudioRef.current.src);
+        ttsAudioRef.current = null;
+      }
+    };
+  }, []);
+
   return {
     isCallActive,
     callStatus,
