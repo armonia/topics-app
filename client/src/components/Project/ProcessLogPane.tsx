@@ -49,9 +49,14 @@ export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
   useEffect(() => {
     let active = true;
     let currentOffset = 0;
+    // In-flight guard: currentOffset only advances AFTER the await resolves, so a
+    // request slower than the 2s tick would let the next poll start on the same
+    // offset — both fetch the same chunk and both append it → duplicated log text.
+    let inFlight = false;
 
     const poll = async () => {
-      if (!active) return;
+      if (!active || inFlight) return;
+      inFlight = true;
       try {
         const data = await scriptsApi.output(processId, currentOffset);
         if (!active) return;
@@ -69,6 +74,8 @@ export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
       } catch (err: unknown) {
         if (!active) return;
         setError((err instanceof Error && err.message) || 'Failed to fetch output');
+      } finally {
+        inFlight = false;
       }
     };
 
