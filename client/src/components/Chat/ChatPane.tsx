@@ -131,6 +131,16 @@ export function ChatPane({
   const [planMode, setPlanMode] = useState(() => {
     try { const stored = localStorage.getItem(`planMode:${topic.id}`); return stored === 'true'; } catch { return false; }
   });
+  // planMode is localStorage-only (no server field). ChatPane is NOT keyed by
+  // topic.id, so on an in-place topic switch (StandaloneChatGroup re-renders this
+  // instance) the useState seed above stays stale — same class as the scroll and
+  // fastMode reconciles below/above. Without this, Plan Mode enabled on topic A
+  // leaks into topic B and its next message silently ships planMode:true.
+  useEffect(() => {
+    try { setPlanMode(localStorage.getItem(`planMode:${topic.id}`) === 'true'); }
+    catch { setPlanMode(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topic.id]);
   // Fast Mode toggle (openspec change `chat-fast-mode`). Two sources of truth:
   //   1. `topic.fastMode` (server, persisted, synced cross-window via WS).
   //   2. `localStorage["fastMode:<topic.id>"]` — used purely to avoid a flash
