@@ -1829,9 +1829,21 @@ fn browser_open(
 ) -> Result<(), String> {
     use tauri::Manager;
     let label = browser_label(&id);
-    if app.get_webview(&label).is_some() {
-        // Already open — treat as navigate + reposition (idempotent mount).
-        let _ = browser_navigate(app.clone(), id.clone(), url);
+    if let Some(wv) = app.get_webview(&label) {
+        // Already open — reposition, and navigate ONLY if the URL actually
+        // differs. browser_open is the idempotent-mount path: a transient
+        // auto-split remount re-invokes it with the pane's persisted (≈live)
+        // URL, and a blind browser_navigate there RELOADS the live WKWebView,
+        // discarding the user's in-progress page/scroll/form state. Skip the
+        // navigate when we're already there; explicit browser_navigate (user
+        // re-entering a URL) still reloads as before.
+        let already_here = match (wv.url(), url.parse::<tauri::Url>()) {
+            (Ok(cur), Ok(want)) => cur == want,
+            _ => false,
+        };
+        if !already_here {
+            let _ = browser_navigate(app.clone(), id.clone(), url);
+        }
         return browser_set_bounds(app, id, x, y, width, height, None);
     }
     let window = app.get_window("main").ok_or("no 'main' window")?;
