@@ -1,6 +1,6 @@
 import type React from 'react';
 import type { EdgeZone } from '../../lib/dropZone';
-import { dropRegionStyle, caretStyle, fullRowZoneStyle, rowGapZoneStyle } from '../../lib/dropFeedback';
+import { dropRegionStyle, caretStyle, centerRegionStyle, fullRowZoneStyle, rowGapZoneStyle } from '../../lib/dropFeedback';
 
 /**
  * The shared drop-feedback primitives. Stateless by design: the parent's
@@ -34,6 +34,16 @@ export function InsertCaret({ side }: { side: 'left' | 'right' }) {
 }
 
 /**
+ * The center-merge preview: inset rounded fill covering the pane interior —
+ * "this drop goes INTO the pane" (adds as a tab). Painted when a drag hovers
+ * the cell's center zone; before this, a merge hover over the pane body gave
+ * no feedback at all and read as a dead zone.
+ */
+export function CenterRegion() {
+  return <div data-grid-split-overlay="center" style={centerRegionStyle()} />;
+}
+
+/**
  * The full-width-row drop gutter (project layout). Carries its own drag
  * handlers (it is a real hit target, unlike the pointer-events:none regions),
  * so it is NOT pointerEvents:none.
@@ -41,31 +51,27 @@ export function InsertCaret({ side }: { side: 'left' | 'right' }) {
 export function FullWidthRowZone({
   side,
   active,
-  label = 'Riga a tutta larghezza',
   onDragOver,
   onDragLeave,
   onDrop,
 }: {
   side: 'top' | 'bottom';
   active: boolean;
-  label?: string;
   onDragOver?: React.DragEventHandler;
   onDragLeave?: React.DragEventHandler;
   onDrop?: React.DragEventHandler;
 }) {
+  // No text label: the SHAPE carries the meaning (a full-container-width band
+  // = full-width row). Idle shows only a hairline at the container edge; the
+  // old always-on fill + uppercase caption cluttered every drag gesture.
   return (
     <div
       data-full-row-zone={side}
-      className="flex items-center justify-center gap-1.5"
       style={fullRowZoneStyle(side, active)}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-    >
-      <span className="text-[11px] font-semibold text-primary pointer-events-none select-none uppercase tracking-wide leading-none">
-        {side === 'top' ? '↑' : '↓'} {label}
-      </span>
-    </div>
+    />
   );
 }
 
@@ -78,7 +84,6 @@ export function FullWidthRowZone({
 export function RowGapDropZone({
   topPct,
   active,
-  label = 'Riga a tutta larghezza',
   onDragOver,
   onDragLeave,
   onDrop,
@@ -86,23 +91,19 @@ export function RowGapDropZone({
   /** The boundary's cumulative height, in % of the container. */
   topPct: number;
   active: boolean;
-  label?: string;
   onDragOver?: React.DragEventHandler;
   onDragLeave?: React.DragEventHandler;
   onDrop?: React.DragEventHandler;
 }) {
+  // Label-free like FullWidthRowZone: idle = hairline on the row boundary,
+  // active = the filled full-width band.
   return (
     <div
       data-row-gap-zone
-      className="flex items-center justify-center gap-1.5"
       style={rowGapZoneStyle(topPct, active)}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-    >
-      <span className="text-[11px] font-semibold text-primary pointer-events-none select-none uppercase tracking-wide leading-none">
-        {'↕'} {label}
-      </span>
-    </div>
+    />
   );
 }
