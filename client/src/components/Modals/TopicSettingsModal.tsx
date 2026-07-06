@@ -5,6 +5,7 @@ import type { Topic, UpdateTopicRequest, AutonomyLevel, Worktree } from '../../t
 import { TOPIC_ICONS, getTopicIcon, TopicIcon } from '@/lib/topicIcons';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { worktreesApi } from '../../lib/api';
+import { useToast } from '../Shared/Toast';
 
 interface TopicSettingsModalProps {
   topic: Topic;
@@ -33,6 +34,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [saved, setSaved] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const toast = useToast();
   // Phase A · TOPIC-WT-03: read-only worktree info when topic is bound.
   const [worktree, setWorktree] = useState<Worktree | null>(null);
 
@@ -93,7 +95,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   };
 
   const handleSave = async () => {
-    await onUpdate(topic.id, {
+    // updateTopic swallows request errors and resolves null rather than
+    // throwing, so an unguarded await always looked like a successful save.
+    const result = await onUpdate(topic.id, {
       name: topicName,
       icon: topicIcon,
       color: topicColor,
@@ -103,13 +107,25 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       contextFiles: contextFilesList,
       provider,
     });
+    if (!result) {
+      toast.error('Failed to save settings');
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
   const handleUnlinkProject = async () => {
+    const previousProjectPath = projectPath;
     setProjectPath('');
-    await onUpdate(topic.id, { projectPath: '' });
+    const result = await onUpdate(topic.id, { projectPath: '' });
+    if (!result) {
+      // Roll back the optimistic clear — the server still has the old
+      // projectPath, so leaving the field blank would be a phantom unlink.
+      setProjectPath(previousProjectPath);
+      toast.error('Failed to unlink project');
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
