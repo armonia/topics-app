@@ -888,7 +888,8 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
 
     if (method === "POST" && pathname === "/api/topics") {
       const body = await readJSON(req);
-      if (!body || !body.name) return json({ error: "name required" }, 400);
+      // typeof guard: slugify() calls .toLowerCase() and would 500 on a non-string name.
+      if (!body || typeof body.name !== "string" || !body.name) return json({ error: "name (string) required" }, 400);
       const data = loadTopics();
       const id = crypto.randomUUID();
       const slug = slugify(body.name);
@@ -1016,7 +1017,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const data = loadTopics();
         const topic = data.topics[params.id];
         if (!topic) return json({ error: "not found" }, 404);
-        if (body.name) { topic.name = body.name; topic.slug = slugify(body.name); }
+        // typeof guard: a non-string name here would set topic.name to garbage
+        // and then 500 inside slugify() (.toLowerCase()), after the mutation.
+        if (typeof body.name === "string" && body.name) { topic.name = body.name; topic.slug = slugify(body.name); }
         if (body.color !== undefined) topic.color = body.color;
         if (body.icon !== undefined) topic.icon = body.icon;
         if (body.parentId !== undefined) {
@@ -1616,7 +1619,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const params = matchRoute(pathname, "/api/topics/:id/system-message");
       if (params && method === "POST") {
         const body = await readJSON(req);
-        if (!body?.content) return json({ error: "content required" }, 400);
+        // Guard the TYPE up front: a non-string content would persist via
+        // appendLocalMessage + fire the first broadcast, then throw on the
+        // `.slice(0, 100)` below → a half-written message plus a 500.
+        if (typeof body?.content !== "string" || !body.content) return json({ error: "content (string) required" }, 400);
         const topic = getTopicById(params.id);
         if (!topic) return json({ error: "Topic not found" }, 404);
         const stored = appendLocalMessage(topic.sessionKey, "assistant", body.content);
