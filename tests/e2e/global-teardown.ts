@@ -4,7 +4,7 @@
  * Also cleans up any stale processes on the test port.
  */
 
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 
 const TEST_PORT = 13334;
 
@@ -64,9 +64,11 @@ async function globalTeardown() {
       console.log("[global-teardown] Running AI visual review...");
       const pyScript = reviewScript.replace('ai-review-screenshots.sh', 'ai-review-screenshots.py');
       if (fs.existsSync(pyScript)) {
-        execSync(`python3 ${pyScript}`, { stdio: 'inherit', timeout: 120000 });
+        execFileSync('python3', [pyScript], { stdio: 'inherit', timeout: 120000 });
       } else {
-        execSync(`bash ${reviewScript}`, { stdio: 'inherit', timeout: 120000 });
+        // zsh, matching the script's shebang: it uses `typeset -A` + zsh array
+        // syntax, which macOS' stock /bin/bash 3.2 rejects outright.
+        execFileSync('zsh', [reviewScript], { stdio: 'inherit', timeout: 120000 });
       }
     }
   } catch (e) {

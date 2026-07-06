@@ -208,8 +208,11 @@ print(json.dumps(arr))
 }
 
 # Process pairs
-for key in "${!PAIRS[@]}"; do
-  IFS='|' read -ra parts <<< "${PAIRS[$key]}"
+# zsh-native key iteration + array read: the previous `${!PAIRS[@]}` and
+# `read -ra` are bashisms — under this file's own zsh shebang they die with
+# "bad substitution" / "bad option: -a" on the FIRST pair (set -e aborts).
+for key in "${(k)PAIRS[@]}"; do
+  IFS='|' read -rA parts <<< "${PAIRS[$key]}"
   before=""; after=""
   for part in "${parts[@]}"; do
     if [[ "$part" == before:* ]]; then before="${part#before:}"; fi
