@@ -1,6 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { BrowserService } from "../browser-service";
-import type { ElectronCdpDispatcher } from "../browser-cdp-dispatcher";
 import {
   handleBrowserOpen,
   handleBrowserObserve,
@@ -21,7 +20,6 @@ import type { BrowserActAction } from "../browser-tools";
 export function createBrowserRouter(
   ctx: AppContext,
   browserService: BrowserService,
-  cdpDispatcher: ElectronCdpDispatcher | null = null,
 ): RouteHandler {
   const { readJSON, json, errorResponse, matchRoute, broadcast } = ctx;
 
@@ -258,31 +256,15 @@ export function createBrowserRouter(
       }
     }
 
-    // --- Phase 30.1 BROWSER-CHAT-06 — register CDP targetId for Electron native browser ---
-    // Called by client useNativeBrowser hook after WebContentsView creation.
-    // POST /api/browsers/:id/cdp-target { cdpTargetId } -> registers in dispatcher
-    // DELETE /api/browsers/:id/cdp-target               -> unregisters on view destroy
+    // --- Native browser pane teardown hook ---
+    // DELETE /api/browsers/:id/cdp-target — fired by the client when a native
+    // browser pane is really closed (useProjectLayout). The path keeps its
+    // historical name; there is no Electron CDP target to unregister anymore, but
+    // the native pane has no server-side BrowserService context (onDestroy never
+    // runs for it), so this is the moment to flush its per-context agent caches +
+    // Moondream vision budget so the maps don't outlive the closed view.
     const cdpRegisterMatch = matchRoute(pathname, "/api/browsers/:id/cdp-target");
-    if (cdpRegisterMatch && method === "POST") {
-      if (!cdpDispatcher) return errorResponse(400, "Electron CDP dispatcher not configured (web mode)");
-      try {
-        const body = (await req.json()) as { cdpTargetId?: string };
-        if (typeof body.cdpTargetId !== "string" || !body.cdpTargetId) {
-          return errorResponse(400, "cdpTargetId (string) is required");
-        }
-        cdpDispatcher.registerTarget(cdpRegisterMatch.id, body.cdpTargetId);
-        return json({ ok: true, contextId: cdpRegisterMatch.id, cdpTargetId: body.cdpTargetId });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return errorResponse(500, msg);
-      }
-    }
     if (cdpRegisterMatch && method === "DELETE") {
-      if (!cdpDispatcher) return json({ ok: true });
-      cdpDispatcher.unregisterTarget(cdpRegisterMatch.id);
-      // Pane closed → flush its agent caches + vision budget so the per-context
-      // maps don't outlive the view (web mode flushes via onDestroy; the native
-      // view has no BrowserService context, so do it here on unregister).
       clearBrowserCaches(cdpRegisterMatch.id);
       resetMoondreamCounter(cdpRegisterMatch.id);
       return json({ ok: true });
