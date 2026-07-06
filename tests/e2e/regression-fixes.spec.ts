@@ -8,6 +8,7 @@
 import { test, expect } from "@playwright/test";
 
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { getVisibleTabLabels } from "./helpers/layout";
 
 const BASE = "http://localhost:13334";
 
@@ -45,20 +46,6 @@ async function seedAndLoad(
     state: "visible",
     timeout: 15000,
   });
-}
-
-/** Get visible tab labels in the main area */
-async function getVisibleTabLabels(
-  page: import("@playwright/test").Page
-): Promise<string[]> {
-  const tabs = page.locator('[role="main"] .truncate.flex-1');
-  const count = await tabs.count();
-  const labels: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const text = await tabs.nth(i).textContent();
-    if (text) labels.push(text.trim());
-  }
-  return labels;
 }
 
 /** Count draggable tabs in the main area */

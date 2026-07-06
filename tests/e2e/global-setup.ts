@@ -84,6 +84,12 @@ async function startTestServer(): Promise<void> {
       // daemon lock + state files don't collide with the dev server
       // (which holds ~/.topics/daemon-process.lock).
       TOPICS_HOME: "/tmp/topics-test-data/.topics-home",
+      // Isolate OpenClaw config/session reads (server/utils.ts) from the
+      // real user — SESSIONS_DIR derives from OPENCLAW_DIR when unset, so
+      // this one var covers both. HOME is force-exported inside
+      // start-test-server.sh itself (not here) for the same reason it's
+      // not propagated to the runner above.
+      OPENCLAW_DIR: "/tmp/topics-test-data/.openclaw",
       // Dedicated PTY-bridge socket. The bridge socket is otherwise derived
       // from cwd, which the test server SHARES with the dev server — so the
       // test server's reconcile would see the dev server's live Claude PTYs
@@ -143,6 +149,16 @@ async function globalSetup() {
   // runner's process.env.DATA_DIR stays unset and specs would have to
   // hardcode the path.
   if (!process.env.DATA_DIR) process.env.DATA_DIR = "/tmp/topics-test-data";
+
+  // Same rationale, for OPENCLAW_DIR (see startTestServer() below) — specs
+  // that resolve project-workspace paths (e.g. project-commands.spec.ts's
+  // WORKSPACE_DIR) need to agree with the isolated server on where
+  // `${OPENCLAW_DIR}/workspace` lives. NOT done for HOME itself: HOME is
+  // isolated for the spawned server process only (start-test-server.sh) —
+  // mutating it here, in the runner process, would also change what
+  // Playwright's own os.homedir()-based Chromium cache lookup resolves to
+  // for every worker, breaking browser launch for the whole suite.
+  if (!process.env.OPENCLAW_DIR) process.env.OPENCLAW_DIR = "/tmp/topics-test-data/.openclaw";
 
   // Kill any stale test server processes on the test port before starting
   try {

@@ -9,22 +9,11 @@
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, createTerminalSession, deleteTerminalSession, resetPaneStore } from "./helpers/api-fixtures";
+import { countColDividers, getVisibleTabLabels } from "./helpers/layout";
 
 const BASE = "http://localhost:13334";
 
 // ─── Shared Helpers ──────────────────────────────────────────────────────────
-
-/** Get all visible tab labels in the main area */
-async function getVisibleTabLabels(page: Page): Promise<string[]> {
-  const tabs = page.locator('[role="main"] .truncate.flex-1');
-  const count = await tabs.count();
-  const labels: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const text = await tabs.nth(i).textContent();
-    if (text) labels.push(text.trim());
-  }
-  return labels;
-}
 
 /** Seed server state with specific open panels, then navigate.
  *  Grid layout is read from localStorage by the client — so we must seed both
@@ -119,11 +108,6 @@ async function rightClickTabHasOption(page: Page, tabIndex: number, menuText: st
   const visible = await btn.isVisible().catch(() => false);
   await page.keyboard.press("Escape");
   return visible;
-}
-
-/** Count col-resize dividers */
-async function countColDividers(page: Page): Promise<number> {
-  return page.locator('[role="main"] .cursor-col-resize').count();
 }
 
 /** Count row-resize dividers */

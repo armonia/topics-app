@@ -2,13 +2,9 @@ import { mkdirSync, rmSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
+import { countColDividers, splitViaContextMenu } from "./helpers/layout";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
-
-/** Count col-resize dividers (horizontal splits) */
-async function countColDividers(page: Page): Promise<number> {
-  return page.locator('[role="main"] .cursor-col-resize').count();
-}
 
 /** Count row-resize dividers (vertical splits) */
 async function countRowDividers(page: Page): Promise<number> {
@@ -18,22 +14,6 @@ async function countRowDividers(page: Page): Promise<number> {
 /** Count all panel tab bars */
 async function countTabBars(page: Page): Promise<number> {
   return page.locator('[data-testid="panel-tab-bar"]').count();
-}
-
-/** Right-click first draggable tab and click a context menu item */
-async function splitViaContextMenu(
-  page: Page,
-  direction: "Split Right" | "Split Down",
-  tabIndex = 0
-) {
-  const tab = page.locator('[role="main"] [draggable="true"]').nth(tabIndex);
-  await expect(tab).toBeVisible({ timeout: 5000 });
-  await tab.click({ button: "right" });
-
-  const splitBtn = page.getByText(direction, { exact: true });
-  await expect(splitBtn).toBeVisible({ timeout: 3000 });
-  await splitBtn.click();
-  await page.waitForTimeout(1000);
 }
 
 /** Collapse sidebar sections to save space */
