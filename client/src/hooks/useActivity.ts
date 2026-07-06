@@ -92,7 +92,13 @@ export function useActivity(enabled = true) {
           } else if (data.type === 'events') {
             const newEvents = data.events as ActivityEvent[];
             if (pausedRef.current) {
+              // Cap the paused buffer too: resume() already keeps only the last
+              // MAX_CLIENT_EVENTS, so an uncapped buffer just leaks memory while
+              // the feed sits paused during heavy streaming.
               pausedBufferRef.current.push(...newEvents);
+              if (pausedBufferRef.current.length > MAX_CLIENT_EVENTS) {
+                pausedBufferRef.current = pausedBufferRef.current.slice(-MAX_CLIENT_EVENTS);
+              }
             } else {
               setEvents(prev => {
                 const next = [...prev, ...newEvents];
