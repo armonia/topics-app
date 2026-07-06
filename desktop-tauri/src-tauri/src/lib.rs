@@ -2188,7 +2188,7 @@ fn screenshot_blocking(wv: &tauri::Webview) -> Result<String, String> {
                 let out: Result<String, String> = if err != nil {
                     Err("takeSnapshot failed".to_string())
                 } else {
-                    unsafe { nsimage_to_png_base64(img) }
+                    nsimage_to_png_base64(img)
                 };
                 let _ = tx2.send(out);
             });
@@ -2880,7 +2880,9 @@ const SLIDE_DEMO_JS: &str = r#"(async function(){
 
 /// Diagnostic sink for the FPS self-test: the injected probe posts its frame-timing
 /// summary here and we persist it to a fixed path the driver reads. Inert unless the
-/// self-test runs.
+/// self-test runs. Debug-only: writes an arbitrary caller-supplied string to a fixed
+/// /tmp path with no validation, so the command itself must not exist in release.
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn fps_report(result: String) -> Result<(), String> {
     let path = std::path::PathBuf::from("/tmp/topics-fps-selftest.json");
@@ -2941,6 +2943,9 @@ fn focus_read(app: tauri::AppHandle) -> Result<String, String> {
 /// Diagnostic counterpart to `focus_read`: FORCE AppKit first-responder onto a browser
 /// pane's WKWebView (simulating the "stuck in the page" state the tab-click fix must
 /// recover from) and return that view's pointer so the caller can assert it. macOS only.
+/// Debug-only: steals AppKit first-responder on demand, so the command must not exist
+/// in release.
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn focus_grab_browser(app: tauri::AppHandle, id: String) -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
@@ -2980,6 +2985,9 @@ fn focus_grab_browser(app: tauri::AppHandle, id: String) -> Result<String, Strin
 /// self-test — `browser_release_focus` must reclaim first-responder to the main
 /// webview regardless of WHAT held it, so a non-main holder is enough to prove the
 /// reclaim. Returns the new first-responder pointer. macOS only.
+/// Debug-only: steals AppKit first-responder on demand, so the command must not exist
+/// in release.
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn focus_grab_window(app: tauri::AppHandle) -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
@@ -3051,7 +3059,9 @@ const FOCUS_SELFTEST_JS: &str = r#"(async function(){
   }catch(e){ report({error:String(e)}); }
 })();"#;
 
-/// Diagnostic sink for the tab-focus self-test (mirror of `fps_report`).
+/// Diagnostic sink for the tab-focus self-test (mirror of `fps_report`). Debug-only:
+/// writes an arbitrary caller-supplied string to a fixed /tmp path with no validation.
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn focus_report(result: String) -> Result<(), String> {
     let path = std::path::PathBuf::from("/tmp/topics-focus-selftest.json");
@@ -4255,7 +4265,9 @@ pub fn run() {
 
             // Env-gated sidebar FPS self-test: drive real collapse/expands and sample
             // rAF frame timing, writing the summary to /tmp/topics-fps-selftest.json.
-            // OFF unless TOPICS_FPS_SELFTEST is set; works in release (not cfg(debug)).
+            // OFF unless TOPICS_FPS_SELFTEST is set. The `fps_report` sink command is
+            // debug-only (see its #[cfg(debug_assertions)]), so this probe only works
+            // in debug builds even when the env var is set in release.
             if std::env::var("TOPICS_FPS_SELFTEST").is_ok() {
                 eprintln!("[fps-selftest] armed");
                 let handle = app.handle().clone();
@@ -4813,10 +4825,14 @@ pub fn run() {
             browser_release_focus,
             browser_nav_entries,
             browser_go_to_index,
+            #[cfg(debug_assertions)]
             fps_report,
             focus_read,
+            #[cfg(debug_assertions)]
             focus_grab_browser,
+            #[cfg(debug_assertions)]
             focus_grab_window,
+            #[cfg(debug_assertions)]
             focus_report,
             browser_take_download_events,
             updater_check,
