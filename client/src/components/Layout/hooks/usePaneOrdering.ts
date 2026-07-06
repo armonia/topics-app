@@ -514,6 +514,23 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
 
   const openSessionViewerPane = useCallback((sessionKey: string): string => {
     const newId = createPaneId('session-viewer', sessionKey);
+    // Register the pane ENTITY with its real type BEFORE the id flows into
+    // openPanels (register-before-open contract, same as persistBrowserPane).
+    // Without this, handleFocusPanel's generic fallback registered it as
+    // { type: 'chat', title: undefined } — the tab rendered with the chat
+    // icon and the "New Chat" label instead of the Session viewer's own.
+    try {
+      const state = usePaneStore.getState();
+      if (!state.groups['group:default']?.paneIds.includes(newId)) {
+        state.dispatch(openPane({
+          id: newId,
+          type: 'session-viewer',
+          groupId: 'group:default',
+        }));
+      }
+    } catch (err) {
+      console.warn('[usePaneOrdering] openSessionViewerPane persist failed:', err);
+    }
     setOrderedIds(prev => (prev.includes(newId) ? prev : [...prev, newId]));
     queueMicrotask(() => onFocusPanel(newId));
     return newId;

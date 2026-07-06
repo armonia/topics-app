@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export interface JournalEvent {
   id: string;
@@ -27,13 +27,22 @@ export function useJournal({ date, enabled = true }: UseJournalOptions = {}) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Staleness guard: rapid prev/next-day clicks overlap loadDate calls, and a
+  // SLOWER older-day response landing after a newer one left events/digest
+  // mismatched with the date shown in the header (no auto-correction until
+  // the next navigation). Only the CURRENT date's responses may commit.
+  const currentDateRef = useRef(currentDate);
+  currentDateRef.current = currentDate;
+
   const fetchEvents = useCallback(async (d: string) => {
     try {
       const res = await fetch(`/api/journal/events?date=${d}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if (currentDateRef.current !== d) return; // stale — user navigated on
       setEvents(data.events || []);
     } catch (err) {
+      if (currentDateRef.current !== d) return;
       setError(err instanceof Error ? err.message : 'Request failed');
     }
   }, []);
@@ -43,9 +52,11 @@ export function useJournal({ date, enabled = true }: UseJournalOptions = {}) {
       const res = await fetch(`/api/journal/digest?date=${d}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if (currentDateRef.current !== d) return; // stale — user navigated on
       setDigest(data.digest || null);
       setDigestExists(data.exists);
     } catch (err) {
+      if (currentDateRef.current !== d) return;
       setError(err instanceof Error ? err.message : 'Request failed');
     }
   }, []);
@@ -54,8 +65,9 @@ export function useJournal({ date, enabled = true }: UseJournalOptions = {}) {
     setLoading(true);
     setError(null);
     setCurrentDate(d);
+    currentDateRef.current = d; // sync BEFORE the fetches so guards see it
     await Promise.all([fetchEvents(d), fetchDigest(d)]);
-    setLoading(false);
+    if (currentDateRef.current === d) setLoading(false);
   }, [fetchEvents, fetchDigest]);
 
   // Load data when date changes

@@ -110,14 +110,25 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((body: { sessions?: ClaudeSessionState[] }) => {
         if (cancelled) return;
-        const next = new Map<string, ClaudeSessionState>();
-        for (const s of body.sessions ?? []) {
-          // Topic sessions key off sessionKey; topic-less terminal sessions
-          // off claudeSessionId. getByClaudeSessionId works for both.
-          const key = s.sessionKey ?? s.claudeSessionId;
-          if (key) next.set(key, s);
-        }
-        setSessions(next);
+        setSessions((prev) => {
+          const next = new Map<string, ClaudeSessionState>();
+          for (const s of body.sessions ?? []) {
+            // Topic sessions key off sessionKey; topic-less terminal sessions
+            // off claudeSessionId. getByClaudeSessionId works for both.
+            const key = s.sessionKey ?? s.claudeSessionId;
+            if (!key) continue;
+            // Rev-guarded merge: on a reconnect the socket is already open
+            // while this REST snapshot is in flight — a fresher
+            // `session:state` frame can land first, and blindly replacing
+            // would REGRESS that session's phase (badge/colour rolls back
+            // with nothing left to re-correct it if that was the terminal
+            // event). Sessions absent from the snapshot still drop out —
+            // that removal is the healing this re-fetch exists for.
+            const local = prev.get(key);
+            next.set(key, local && local.rev > s.rev ? local : s);
+          }
+          return next;
+        });
         setHydrated(true);
       })
       .catch((err) => {
