@@ -24,8 +24,20 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   const runningScriptsRef = useRef(runningScripts);
   runningScriptsRef.current = runningScripts;
   const [ready, setReady] = useState(false);
-  const [startingScript, setStartingScript] = useState<string | null>(null);
-  const [stoppingScript, setStoppingScript] = useState<string | null>(null);
+  // PER-KEY pending sets, not shared scalars: two concurrent actions (e.g. a
+  // slow "Run build" overlapping a fast "Run lint") used to clobber each
+  // other's spinner — the fast one's `finally` nulled the scalar and the slow
+  // one looked never-started, inviting a duplicate click. Starting is keyed
+  // by script name; stopping by processId (the only stable key that also
+  // covers auto-detected processes — whose rows compare processId, which the
+  // old scalar, set to scriptName, never matched: their Stop spinner never
+  // showed at all).
+  const [startingScripts, setStartingScripts] = useState<Set<string>>(new Set());
+  const [stoppingScripts, setStoppingScripts] = useState<Set<string>>(new Set());
+  const addKey = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) =>
+    setter(prev => new Set(prev).add(key));
+  const removeKey = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) =>
+    setter(prev => { const next = new Set(prev); next.delete(key); return next; });
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
@@ -42,7 +54,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   }, [projectPath]);
 
   const handleRunScript = useCallback(async (name: string) => {
-    setStartingScript(name);
+    addKey(setStartingScripts, name);
     try {
       await scriptsApi.run(projectPath, name);
       refreshScripts();
@@ -51,13 +63,13 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
         onRunScript(`cd ${JSON.stringify(projectPath)} && npm run ${name}`);
       }
     } finally {
-      setStartingScript(null);
+      removeKey(setStartingScripts, name);
     }
   }, [projectPath, onRunScript, refreshScripts]);
 
   const handleStopScript = useCallback(async (processId: string, scriptName: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setStoppingScript(scriptName);
+    addKey(setStoppingScripts, processId);
     try {
       await scriptsApi.stop(processId);
       // Poll until the process is actually gone
@@ -69,12 +81,12 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
         if (stillRunning && attempts > 0) {
           setTimeout(() => poll(attempts - 1), 500);
         } else {
-          setStoppingScript(null);
+          removeKey(setStoppingScripts, processId);
         }
       };
       setTimeout(() => poll(10), 500);
     } catch {
-      if (mountedRef.current) setStoppingScript(null);
+      if (mountedRef.current) removeKey(setStoppingScripts, processId);
     }
   }, [refreshScripts]);
 
@@ -100,8 +112,8 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
     <div data-testid="script-runner" className="text-[12px] pb-1">
       {scriptEntries.map(([name, cmd]) => {
         const running = runningMap.get(name);
-        const isStarting = startingScript === name;
-        const isStopping = stoppingScript === name;
+        const isStarting = startingScripts.has(name);
+        const isStopping = running ? stoppingScripts.has(running.processId) : false;
         const ports = running?.ports ?? [];
 
         return (
@@ -168,7 +180,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
       {runningScripts
         .filter(sp => sp.status === 'running' && sp.source === 'detected' && !(sp.scriptName in scripts))
         .map(sp => {
-          const isStopping = stoppingScript === sp.processId;
+          const isStopping = stoppingScripts.has(sp.processId);
           const ports = sp.ports ?? [];
           return (
             <div key={sp.processId}>

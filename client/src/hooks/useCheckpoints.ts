@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 export interface Checkpoint {
   idx: number;
@@ -31,45 +31,59 @@ export function useCheckpoints(topicId: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Staleness guard: the hosting panel is not remounted per topic, so an
+  // async op begun on topic A can resolve after a switch to B — its setState
+  // would then mutate B's list (e.g. rollback's truncation slicing B's
+  // checkpoints at A's index, leaving a corrupted list until re-navigation).
+  // Server calls stay correct (topicId is closed over per-call); only the
+  // LOCAL state writes must be gated on "still the same topic".
+  const topicIdRef = useRef(topicId);
+  topicIdRef.current = topicId;
+
   const load = useCallback(async () => {
+    const id = topicId;
     setLoading(true);
     setError(null);
     try {
-      const data = await checkpointRequest<{ checkpoints: Checkpoint[] }>(`/topics/${topicId}/checkpoints`);
+      const data = await checkpointRequest<{ checkpoints: Checkpoint[] }>(`/topics/${id}/checkpoints`);
+      if (topicIdRef.current !== id) return;
       setCheckpoints(data.checkpoints || []);
     } catch (err) {
+      if (topicIdRef.current !== id) return;
       setError(err instanceof Error ? err.message : 'Failed to load checkpoints');
     } finally {
-      setLoading(false);
+      if (topicIdRef.current === id) setLoading(false);
     }
   }, [topicId]);
 
   const create = useCallback(async (description?: string) => {
+    const id = topicId;
     setError(null);
     try {
-      const data = await checkpointRequest<{ checkpoint: Checkpoint }>(`/topics/${topicId}/checkpoints`, {
+      const data = await checkpointRequest<{ checkpoint: Checkpoint }>(`/topics/${id}/checkpoints`, {
         method: 'POST',
         body: JSON.stringify({ description }),
       });
-      setCheckpoints(prev => [...prev, data.checkpoint]);
+      if (topicIdRef.current === id) setCheckpoints(prev => [...prev, data.checkpoint]);
       return data.checkpoint;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create checkpoint');
+      if (topicIdRef.current === id) setError(err instanceof Error ? err.message : 'Failed to create checkpoint');
       return null;
     }
   }, [topicId]);
 
   const rollback = useCallback(async (idx: number): Promise<{ ok: boolean; warning?: string }> => {
+    const id = topicId;
     setError(null);
     try {
-      const data = await checkpointRequest<{ git?: { warning?: string } }>(`/topics/${topicId}/checkpoints/${idx}/rollback`, {
+      const data = await checkpointRequest<{ git?: { warning?: string } }>(`/topics/${id}/checkpoints/${idx}/rollback`, {
         method: 'POST',
       });
-      setCheckpoints(prev => prev.slice(0, idx + 1));
+      if (topicIdRef.current === id) setCheckpoints(prev => prev.slice(0, idx + 1));
       return { ok: true, warning: data.git?.warning };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Rollback failed';
-      setError(message);
+      if (topicIdRef.current === id) setError(message);
       return { ok: false, warning: message };
     }
   }, [topicId]);

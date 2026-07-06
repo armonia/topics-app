@@ -14,6 +14,12 @@ export function useVoiceRecording(
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // The session the recording STARTED on. ChatPane persists across topic
+  // switches (reconcile-not-remount, see its fastMode/planMode effects), so
+  // stopRecording's closure would otherwise read the CURRENT sessionKey — a
+  // voice note recorded on topic A but stopped after switching to B was
+  // delivered into B's history.
+  const recordingSessionKeyRef = useRef<string | null>(null);
 
   const getSupportedMimeType = useCallback((): string => {
     // Safari supports mp4/aac, Chrome/Firefox support webm/opus
@@ -32,6 +38,7 @@ export function useVoiceRecording(
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recordingSessionKeyRef.current = sessionKey;
       recorder.start(100);
       setIsRecording(true);
       setRecordingTime(0);
@@ -46,7 +53,7 @@ export function useVoiceRecording(
         alert(`Recording failed: ${msg}`);
       }
     }
-  }, [getSupportedMimeType]);
+  }, [getSupportedMimeType, sessionKey]);
 
   const stopRecording = useCallback(async (): Promise<void> => {
     return new Promise((resolve) => {
@@ -64,9 +71,11 @@ export function useVoiceRecording(
         setUploading(true);
         try {
           const result = await uploadApi.uploadFile(file);
-          await sendMessage(sessionKey, `[Voice message: ${result.path}]`);
+          // Deliver to the session the recording STARTED on, not whatever
+          // topic is active at stop time (see recordingSessionKeyRef above).
+          await sendMessage(recordingSessionKeyRef.current ?? sessionKey, `[Voice message: ${result.path}]`);
         } catch (err) { console.error('Voice upload failed:', err); }
-        finally { setUploading(false); }
+        finally { setUploading(false); recordingSessionKeyRef.current = null; }
         resolve();
       };
       recorder.stop();

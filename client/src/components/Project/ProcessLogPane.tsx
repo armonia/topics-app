@@ -32,8 +32,24 @@ export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
   const [status, setStatus] = useState<string>('running');
   const [exitCode, setExitCode] = useState<number | undefined>();
   const [error, setError] = useState<string | null>(null);
-  const [startedAt] = useState(() => new Date().toISOString());
+  // Pane-mount fallback only: replaced by the REAL process start time from
+  // the registry as soon as it loads (below). Without that, opening the log
+  // of a long-running/detected process showed a duration restarting from 0s.
+  const [startedAt, setStartedAt] = useState(() => new Date().toISOString());
   const [completedAt, setCompletedAt] = useState<string | undefined>();
+
+  useEffect(() => {
+    let active = true;
+    scriptsApi.list()
+      .then(({ scripts }) => {
+        if (!active) return;
+        const rec = scripts.find(s => s.processId === processId);
+        if (rec?.startedAt) setStartedAt(rec.startedAt);
+        if (rec?.completedAt) setCompletedAt(rec.completedAt);
+      })
+      .catch(() => { /* registry unavailable — keep the mount-time fallback */ });
+    return () => { active = false; };
+  }, [processId]);
   const preRef = useRef<HTMLPreElement>(null);
   const autoScrollRef = useRef(true);
 
