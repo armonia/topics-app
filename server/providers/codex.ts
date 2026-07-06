@@ -214,6 +214,21 @@ function renderHistoryAsPrompt(history: ChatMessage[]): string {
 
 // ============ Provider ============
 
+/** Per-turn bookkeeping shared between the JSONL event router and the close
+ *  handler. Held both in `sessionState` (keyed by sessionKey, for abort/event
+ *  routing) and as a per-spawn local (`turnState`) so an overlapping newer
+ *  turn can't swap the state out from under a dying child's close handler. */
+interface CodexTurnState {
+  /** Set when the user aborted this turn — close handler emits `onAborted` instead of `onError`. */
+  aborted: boolean;
+  /** Latest usage payload extracted from `turn.completed` (if seen). */
+  usage?: ProviderUsage;
+  /** Wall-clock turn duration captured at close. */
+  startedAt: number;
+  /** Active command_execution tool calls, keyed by Codex's command id. */
+  runningTools: Map<string, { toolCallId: string; partial: string }>;
+}
+
 export class CodexProvider implements AIProvider {
   readonly name = "codex";
   readonly capabilities: Set<ProviderCapability> = new Set([
@@ -238,16 +253,7 @@ export class CodexProvider implements AIProvider {
    * Per-session bookkeeping that survives between event lines and the close
    * handler. Cleared in `child.on("close")`.
    */
-  private sessionState = new Map<string, {
-    /** Set when the user aborted this turn — close handler emits `onAborted` instead of `onError`. */
-    aborted: boolean;
-    /** Latest usage payload extracted from `turn.completed` (if seen). */
-    usage?: ProviderUsage;
-    /** Wall-clock turn duration captured at close. */
-    startedAt: number;
-    /** Active command_execution tool calls, keyed by Codex's command id. */
-    runningTools: Map<string, { toolCallId: string; partial: string }>;
-  }>();
+  private sessionState = new Map<string, CodexTurnState>();
 
   constructor(config: CodexProviderConfig) {
     this.config = config;
@@ -324,12 +330,20 @@ export class CodexProvider implements AIProvider {
       stdio: ["pipe", "pipe", "pipe"],
       env: buildSafeEnv(),
     });
-    this.activeChildren.set(sessionKey, child);
-    this.sessionState.set(sessionKey, {
+    // Keep a direct handle to THIS turn's state: the maps are keyed by
+    // sessionKey and a newer turn overwrites both entries (e.g. the chat
+    // route's timeout aborts this turn and the queue moves on while this
+    // child is still dying). The close/error handlers below must read their
+    // OWN state and only delete map entries they still own — an unconditional
+    // delete would strip the NEWER turn's entries, leaving its "stop" button
+    // pointing at nothing while the process keeps running.
+    const turnState: CodexTurnState = {
       aborted: false,
       startedAt: Date.now(),
       runningTools: new Map(),
-    });
+    };
+    this.activeChildren.set(sessionKey, child);
+    this.sessionState.set(sessionKey, turnState);
 
     let fullText = "";
     const rl = createInterface({ input: child.stdout! });
@@ -369,11 +383,13 @@ export class CodexProvider implements AIProvider {
 
     child.on("close", (code) => {
       clearTimeout(timeout);
-      this.activeChildren.delete(sessionKey);
+      // Owner-scoped cleanup (see turnState above): never strip a newer turn's
+      // entries, and read THIS turn's state, not whatever the map holds now.
+      if (this.activeChildren.get(sessionKey) === child) this.activeChildren.delete(sessionKey);
       try { rl.close(); } catch {}
 
-      const state = this.sessionState.get(sessionKey);
-      this.sessionState.delete(sessionKey);
+      const state = turnState;
+      if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
       const done: ProviderDoneMessage = {};
       if (state?.usage) done.usage = state.usage;
       if (state) done.durationMs = Date.now() - state.startedAt;
@@ -403,8 +419,9 @@ export class CodexProvider implements AIProvider {
 
     child.on("error", (err) => {
       clearTimeout(timeout);
-      this.activeChildren.delete(sessionKey);
-      this.sessionState.delete(sessionKey);
+      // Owner-scoped, same as the close handler.
+      if (this.activeChildren.get(sessionKey) === child) this.activeChildren.delete(sessionKey);
+      if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
       handler.onError(err.message);
     });
 
