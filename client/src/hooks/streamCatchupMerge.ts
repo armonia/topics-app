@@ -54,29 +54,30 @@ export function mergeCatchupIntoPartial(
   generateId: () => string,
   nowIso: string,
 ): ChatMessage {
-  // Prefer server-truth tool/block lists when the catchup carries them;
-  // otherwise keep whatever the local partial already has so a tool_call
-  // event that arrived between WS open and catchup delivery isn't lost.
-  const mergedToolCalls = payload.toolCalls ?? lastMessage?.toolCalls;
-  const mergedBlocks = payload.blocks ?? lastMessage?.blocks;
-
   if (lastMessage?.role === 'assistant' && lastMessage.partial) {
+    // Merging INTO the local partial: prefer server-truth tool/block lists when
+    // the catchup carries them; otherwise keep the partial's own so a tool_call
+    // event that arrived between WS open and catchup delivery isn't lost.
     return {
       ...lastMessage,
       content: payload.content || lastMessage.content || '',
       thinking: payload.thinking || lastMessage.thinking,
-      toolCalls: mergedToolCalls,
-      blocks: mergedBlocks,
+      toolCalls: payload.toolCalls ?? lastMessage.toolCalls,
+      blocks: payload.blocks ?? lastMessage.blocks,
     };
   }
 
+  // Creating a NEW assistant message: do NOT fall back to lastMessage's
+  // tool/block lists. Here lastMessage is a *different*, already-finalized
+  // message (e.g. the previous turn), so inheriting its toolCalls would render
+  // that turn's stale tool-call card on this fresh bubble.
   return {
     id: payload.messageId || generateId(),
     role: 'assistant',
     content: payload.content || '',
     thinking: payload.thinking || undefined,
-    toolCalls: mergedToolCalls,
-    blocks: mergedBlocks,
+    toolCalls: payload.toolCalls,
+    blocks: payload.blocks,
     timestamp: nowIso,
     partial: true,
   };
