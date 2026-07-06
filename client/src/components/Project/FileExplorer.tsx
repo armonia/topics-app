@@ -8,6 +8,8 @@ import { getFileIconDef } from '../../lib/fileIcons';
 import { useGitStatus } from '../../hooks/useGitStatus';
 import { useDismissable } from '../../hooks/useDismissable';
 import { Z_CONTEXT_MENU } from '@/lib/popoverStyles';
+import { MODAL_PANEL } from '@/lib/modalStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
 import { useToast } from '../Shared/Toast';
 
 const EditorTabs = lazy(() => import('../Editor/EditorTabs').then(m => ({ default: m.EditorTabs })));
@@ -212,9 +214,9 @@ function TreeNode({ node, depth, selectedPath, expandedDirs, expandedOverflow, o
       <div
         className={`group/node flex items-center gap-1.5 px-2 py-[3px] md:py-[3px] min-h-[28px] cursor-pointer text-[12px] select-none transition-colors ${
           isSelected
-            ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-dark'
+            ? SELECTED_SURFACE
             : isMultiSelected
-              ? 'bg-primary/15 dark:bg-primary/25 text-app-text-body'
+              ? SELECTED_SURFACE_SOFT
               : isFocused
                 ? 'bg-app-hover'
                 : 'hover:bg-app-hover text-app-text-body'
@@ -390,6 +392,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   const externalDragRef = useRef(false);
   const [isExternalDrag, setIsExternalDrag] = useState(false);
   const [cutPaths, setCutPaths] = useState<Set<string>>(new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState<string[] | null>(null);
 
   const closeContextMenu = useCallback(() => {
     setContextMenuPos(null);
@@ -605,17 +608,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     setRenamingPath(null);
   }, []);
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(() => {
     const pathsToDelete = selectedPaths.size > 1
       ? Array.from(selectedPaths)
       : contextMenuNode ? [contextMenuNode.path] : [];
-    if (pathsToDelete.length === 0) { closeContextMenu(); return; }
+    closeContextMenu();
+    if (pathsToDelete.length === 0) return;
+    setDeleteConfirm(pathsToDelete);
+  }, [contextMenuNode, selectedPaths, closeContextMenu]);
 
-    const msg = pathsToDelete.length === 1
-      ? `Delete "${basename(pathsToDelete[0])}"? This cannot be undone.`
-      : `Delete ${pathsToDelete.length} items? This cannot be undone.`;
-    const confirmed = window.confirm(msg);
-    if (!confirmed) { closeContextMenu(); return; }
+  const executeDelete = useCallback(async (pathsToDelete: string[]) => {
+    setDeleteConfirm(null);
     try {
       await Promise.all(pathsToDelete.map(p => filesApi.remove(p)));
       setSelectedPaths(new Set());
@@ -624,8 +627,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
       console.error('Failed to delete:', err);
       toast.error(`Delete failed: ${errMessage(err)}`);
     }
-    closeContextMenu();
-  }, [contextMenuNode, selectedPaths, closeContextMenu, loadFiles, toast]);
+  }, [loadFiles, toast]);
 
   const handleOpenFile = useCallback(() => {
     if (!contextMenuNode || contextMenuNode.type === 'dir') { closeContextMenu(); return; }
@@ -1267,6 +1269,15 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
     document.body
   );
 
+  const deleteConfirmPortal = deleteConfirm && createPortal(
+    <DeleteConfirmDialog
+      paths={deleteConfirm}
+      onConfirm={() => executeDelete(deleteConfirm)}
+      onCancel={() => setDeleteConfirm(null)}
+    />,
+    document.body,
+  );
+
   const treeNodeProps = {
     expandedDirs,
     expandedOverflow,
@@ -1335,6 +1346,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
           ))}
         </div>
         {contextMenuPortal}
+        {deleteConfirmPortal}
       </>
     );
   }
@@ -1417,6 +1429,52 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
         </div>
       </div>
       {contextMenuPortal}
+      {deleteConfirmPortal}
     </>
   );
 });
+
+function DeleteConfirmDialog({ paths, onConfirm, onCancel }: { paths: string[]; onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 dark:bg-black/50 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        className={`${MODAL_PANEL} p-5 max-w-md w-full mx-4`}
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold text-app-text-heading mb-2">
+          {paths.length === 1 ? 'Delete Item' : 'Delete Items'}
+        </h3>
+        <p className="text-xs text-app-text-body mb-3">
+          {paths.length === 1
+            ? <>Delete <span className="font-mono">{basename(paths[0])}</span>? This cannot be undone.</>
+            : <>Delete {paths.length} items? This cannot be undone.</>}
+        </p>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-xs rounded border border-app-border text-app-text-body hover:bg-app-hover transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

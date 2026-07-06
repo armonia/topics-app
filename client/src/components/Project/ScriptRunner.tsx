@@ -26,6 +26,8 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   const [ready, setReady] = useState(false);
   const [startingScript, setStartingScript] = useState<string | null>(null);
   const [stoppingScript, setStoppingScript] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   // Load package.json scripts on mount
   useEffect(() => {
@@ -60,7 +62,9 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
       await scriptsApi.stop(processId);
       // Poll until the process is actually gone
       const poll = async (attempts: number) => {
+        if (!mountedRef.current) return;
         await refreshScripts();
+        if (!mountedRef.current) return;
         const stillRunning = runningScriptsRef.current.some(s => s.scriptName === scriptName && s.status === 'running');
         if (stillRunning && attempts > 0) {
           setTimeout(() => poll(attempts - 1), 500);
@@ -70,7 +74,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
       };
       setTimeout(() => poll(10), 500);
     } catch {
-      setStoppingScript(null);
+      if (mountedRef.current) setStoppingScript(null);
     }
   }, [refreshScripts]);
 
@@ -202,7 +206,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 ))}
                 {!isStopping && (
                   <button
-                    onClick={(e) => handleStopScript(sp.processId, sp.processId, e)}
+                    onClick={(e) => handleStopScript(sp.processId, sp.scriptName, e)}
                     className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-40 group-hover:opacity-100"
                     title="Stop"
                   >

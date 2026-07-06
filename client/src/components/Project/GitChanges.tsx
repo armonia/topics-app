@@ -12,6 +12,7 @@ import { useToast } from '../Shared/Toast';
 import { POPOVER_SURFACE, POPOVER_PANEL, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
 import { useDismissable } from '../../hooks/useDismissable';
 import { MODAL_PANEL } from '@/lib/modalStyles';
+import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
 
 interface GitChangesProps {
   projectPath: string;
@@ -76,6 +77,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
   const [discardConfirm, setDiscardConfirm] = useState<{ files: string[]; group: 'staged' | 'unstaged' } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; group: 'staged' | 'unstaged' } | null>(null);
   const lastClickedRef = useRef<string | null>(null);
+  const diffFetchAbortRef = useRef<AbortController | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const commitInputRef = useRef<HTMLInputElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
@@ -166,16 +168,28 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
     loadRemotes();
   }, [projectPath, notGit, gitStatus, loadRemotes]);
 
+  // Abort any in-flight diff fetch when the component unmounts
+  useEffect(() => {
+    return () => { diffFetchAbortRef.current?.abort(); };
+  }, []);
+
   const handleFileClick = useCallback(async (filePath: string) => {
     if (compact) {
       // Dispatch event to open diff in editor tabs
       window.dispatchEvent(new CustomEvent('open-file-diff', { detail: { filePath, projectPath } }));
       return;
     }
+    // Cancel any previous in-flight fetch — clicking file A then quickly B can
+    // otherwise resolve out of order and clobber B's diff with A's stale content.
+    diffFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    diffFetchAbortRef.current = controller;
+
     setSelectedFile(filePath);
     setLoadingDiff(true);
     try {
       const original = await gitApi.show(projectPath, filePath);
+      if (controller.signal.aborted) return;
       const fullPath = `${projectPath}/${filePath}`;
       let modified = '';
       try {
@@ -183,13 +197,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       } catch {
         modified = '';
       }
+      if (controller.signal.aborted) return;
       setOriginalContent(original);
       setModifiedContent(modified);
     } catch (err: unknown) {
+      if (controller.signal.aborted) return;
       setOriginalContent('');
       setModifiedContent('Error loading diff: ' + errMessage(err));
     } finally {
-      setLoadingDiff(false);
+      if (!controller.signal.aborted) setLoadingDiff(false);
     }
   }, [projectPath, compact]);
 
@@ -619,7 +635,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                   <div
                     key={`${group}-${file.path}`}
                     className={`flex items-center gap-1.5 px-3 py-[3px] transition-colors group/file cursor-pointer select-none ${
-                      isSelected ? 'bg-primary/15 dark:bg-primary/25' : 'hover:bg-app-hover'
+                      isSelected ? SELECTED_SURFACE : 'hover:bg-app-hover'
                     }`}
                     title={file.path}
                     onClick={(e) => handleFileSelect(file.path, group, e)}
@@ -829,7 +845,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       <div
         key={`${group}-${file.path}`}
         className={`flex items-center gap-2 px-2 py-[4px] cursor-pointer text-[12px] transition-colors group select-none ${
-          isMultiSelected ? 'bg-primary/15 dark:bg-primary/25' : isDiffOpen ? 'bg-primary/10 dark:bg-primary/20' : 'hover:bg-app-hover'
+          isMultiSelected ? SELECTED_SURFACE : isDiffOpen ? SELECTED_SURFACE_SOFT : 'hover:bg-app-hover'
         }`}
         onClick={(e) => handleFileSelect(file.path, group, e)}
         onContextMenu={(e) => handleContextMenu(e, file.path, group)}
