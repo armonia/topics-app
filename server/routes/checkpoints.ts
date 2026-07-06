@@ -1,7 +1,25 @@
 import { readFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { execSync } from "child_process";
 import type { AppContext, RouteHandler } from "../types";
+
+/**
+ * Run a git command via async subprocess. The prior execSync froze Bun's single
+ * event loop for the full duration of every git call — on a large repo `git
+ * status`/`checkout` can take hundreds of ms during which NO other request, WS
+ * message, or timer runs. Array args also mean the checkpoint hash is passed as
+ * a literal argv entry (no shell), closing the interpolation-injection surface.
+ * Returns trimmed stdout; throws on non-zero exit so callers keep their try/catch.
+ */
+async function runGit(args: string[], cwd: string): Promise<string> {
+  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const [out, err] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const code = await proc.exited;
+  if (code !== 0) throw new Error(err.trim() || `git ${args[0]} exited ${code}`);
+  return out.trim();
+}
 
 export interface Checkpoint {
   idx: number;
@@ -32,19 +50,19 @@ function saveCheckpoints(baseDir: string, topicId: string, checkpoints: Checkpoi
   Bun.write(path, JSON.stringify(checkpoints, null, 2));
 }
 
-function getGitInfo(projectPath: string): { hash: string; branch: string } | null {
+async function getGitInfo(projectPath: string): Promise<{ hash: string; branch: string } | null> {
   try {
-    const hash = execSync("git rev-parse HEAD", { cwd: projectPath, encoding: "utf-8" }).trim();
-    const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: projectPath, encoding: "utf-8" }).trim();
+    const hash = await runGit(["rev-parse", "HEAD"], projectPath);
+    const branch = await runGit(["rev-parse", "--abbrev-ref", "HEAD"], projectPath);
     return { hash, branch };
   } catch {
     return null;
   }
 }
 
-function hasUncommittedChanges(projectPath: string): boolean {
+async function hasUncommittedChanges(projectPath: string): Promise<boolean> {
   try {
-    const status = execSync("git status --porcelain", { cwd: projectPath, encoding: "utf-8" }).trim();
+    const status = await runGit(["status", "--porcelain"], projectPath);
     return status.length > 0;
   } catch {
     return false;
@@ -88,7 +106,7 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
 
         // Capture git state if topic has a project path
         if (topic.projectPath && existsSync(topic.projectPath)) {
-          const gitInfo = getGitInfo(topic.projectPath);
+          const gitInfo = await getGitInfo(topic.projectPath);
           if (gitInfo) {
             checkpoint.gitHash = gitInfo.hash;
             checkpoint.gitBranch = gitInfo.branch;
@@ -128,16 +146,12 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
         let gitResult: { rolled: boolean; warning?: string } = { rolled: false };
         if (checkpoint.gitHash && topic.projectPath && existsSync(topic.projectPath)) {
           try {
-            if (hasUncommittedChanges(topic.projectPath)) {
+            if (await hasUncommittedChanges(topic.projectPath)) {
               // Stash current changes first
-              execSync("git stash push -m 'Topics checkpoint rollback auto-stash'", {
-                cwd: topic.projectPath, encoding: "utf-8",
-              });
+              await runGit(["stash", "push", "-m", "Topics checkpoint rollback auto-stash"], topic.projectPath);
               gitResult.warning = "Uncommitted changes were stashed";
             }
-            execSync(`git checkout ${checkpoint.gitHash}`, {
-              cwd: topic.projectPath, encoding: "utf-8",
-            });
+            await runGit(["checkout", checkpoint.gitHash], topic.projectPath);
             gitResult.rolled = true;
           } catch (err: any) {
             gitResult.warning = err.message || "Git rollback failed";

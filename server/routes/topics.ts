@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, openSync, readSync, closeSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic } from "../types";
@@ -248,7 +248,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     topicId: string;
     sessionKey: string;      // e.g. "topic:d1428015"
     jsonlPath: string;       // path to the JSONL transcript file
-    lastLineCount: number;   // lines already processed
+    byteOffset: number;      // bytes already consumed (incremental cursor)
+    lastIno: number;         // inode of the file at last read (rotation guard)
+    lastMtimeMs: number;     // mtime at last read (same-size rewrite guard)
     createdAt: number;
     deliveredEvents: Set<string>; // session_key of already-delivered results
   }
@@ -309,15 +311,41 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (!existsSync(watched.jsonlPath)) continue;
 
       try {
-        const content = readFileSync(watched.jsonlPath, 'utf-8');
-        const lines = content.split('\n').filter(Boolean);
-        if (lines.length <= watched.lastLineCount) continue; // no new lines
+        // Incremental read: only the bytes appended since last tick, so cost is
+        // O(new data) instead of O(whole transcript) on every 5s poll.
+        let st: ReturnType<typeof statSync>;
+        try { st = statSync(watched.jsonlPath); } catch { continue; }
+        // Rotation/truncation: different inode, shrunk below the cursor, or a
+        // same-size-or-smaller rewrite with a newer mtime → restart from 0.
+        const inoChanged = watched.lastIno !== 0 && st.ino !== watched.lastIno;
+        const truncated = st.size < watched.byteOffset;
+        const rewriteSameSize = watched.lastMtimeMs !== 0 && st.mtimeMs > watched.lastMtimeMs && st.size <= watched.byteOffset;
+        if (inoChanged || truncated || rewriteSameSize) watched.byteOffset = 0;
+        watched.lastIno = st.ino;
+        watched.lastMtimeMs = st.mtimeMs;
+        if (st.size === watched.byteOffset) continue; // no new bytes
 
-        // Check new lines for completion events
-        const newLines = lines.slice(watched.lastLineCount);
-        watched.lastLineCount = lines.length;
+        const length = st.size - watched.byteOffset;
+        const buf = Buffer.alloc(length);
+        let fd: number | null = null;
+        try {
+          fd = openSync(watched.jsonlPath, 'r');
+          readSync(fd, buf, 0, length, watched.byteOffset);
+        } finally {
+          if (fd != null) { try { closeSync(fd); } catch {} }
+        }
+        watched.byteOffset = st.size;
+        const text = buf.toString('utf-8');
+        const newLines = text.split('\n');
+        // A trailing partial line (no newline yet) is rewound so it's re-read
+        // whole on the next tick rather than JSON-parsed half-formed.
+        if (newLines.length > 0 && !text.endsWith('\n')) {
+          const partial = newLines.pop()!;
+          watched.byteOffset -= Buffer.byteLength(partial, 'utf-8');
+        }
 
         for (const line of newLines) {
+          if (!line.trim()) continue;
           try {
             const entry = JSON.parse(line);
             const msg = entry.message || entry;
@@ -468,14 +496,20 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       return;
     }
     const jsonlPath = findSessionJSONL(sessionKey) || '';
-    const lineCount = jsonlPath && existsSync(jsonlPath)
-      ? readFileSync(jsonlPath, 'utf-8').split('\n').filter(Boolean).length
-      : 0;
+    // Skip existing history: start the cursor at the current end-of-file so only
+    // events appended after we begin watching are processed.
+    let byteOffset = 0, lastIno = 0, lastMtimeMs = 0;
+    if (jsonlPath && existsSync(jsonlPath)) {
+      try {
+        const st = statSync(jsonlPath);
+        byteOffset = st.size; lastIno = st.ino; lastMtimeMs = st.mtimeMs;
+      } catch {}
+    }
     watchedSessions.set(sessionKey, {
-      topicId, sessionKey, jsonlPath, lastLineCount: lineCount,
+      topicId, sessionKey, jsonlPath, byteOffset, lastIno, lastMtimeMs,
       createdAt: Date.now(), deliveredEvents: new Set(),
     });
-    console.log(`[SubagentPoll] Watching ${sessionKey} for sub-agent completions (JSONL: ${jsonlPath ? 'found' : 'pending'}, lines: ${lineCount})`);
+    console.log(`[SubagentPoll] Watching ${sessionKey} for sub-agent completions (JSONL: ${jsonlPath ? 'found' : 'pending'}, offset: ${byteOffset})`);
     startSubagentPolling();
   }
 

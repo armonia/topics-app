@@ -520,6 +520,9 @@ export function startProcessDetection(ctx: AppContext, getSessions: DetectionSou
   _detectionSource = getSessions;
   if (_detectionTimer) return;
   _detectionTimer = setInterval(() => { runDetectionCycle(ctx).catch((e) => console.error('[detect] cycle error:', e?.message || e)); }, DETECTION_INTERVAL_MS);
+  // Never let this 4s poller keep the process alive on its own — it's the one
+  // long-lived timer that was missing from gracefulShutdown()'s teardown list.
+  if (typeof _detectionTimer.unref === "function") _detectionTimer.unref();
   runDetectionCycle(ctx).catch((e) => console.error('[detect] cycle error:', e?.message || e)); // run once promptly
 }
 

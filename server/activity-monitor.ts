@@ -1,4 +1,4 @@
-import { watch, existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from "fs";
+import { watch, existsSync, readFileSync, statSync, writeFileSync, mkdirSync, openSync, readSync, closeSync } from "fs";
 import { join, dirname } from "path";
 import { resolveStateDir } from "./lib/data-dir";
 
@@ -46,7 +46,6 @@ export class ActivityMonitor {
   // unique across the process lifetime even when Date.now() collides. It is
   // persisted/restored alongside the buffer so ids never repeat after restart.
   private eventCounter = 0;
-  private lastLineHash = '';
   private dedupeCount = 0;
   private dedupeTitle = '';
   private persistPath: string;
@@ -174,13 +173,36 @@ export class ActivityMonitor {
     if (!existsSync(this.logPath)) return;
     try {
       const stat = statSync(this.logPath);
-      if (stat.size <= this.fileOffset) return;
+      // Truncation/rotation-in-place: file shrank below our cursor → restart.
+      if (stat.size < this.fileOffset) this.fileOffset = 0;
+      if (stat.size === this.fileOffset) return;
 
-      const content = readFileSync(this.logPath, "utf-8");
-      const newContent = content.slice(this.fileOffset);
+      // Read ONLY the appended bytes via fd. The previous whole-file
+      // readFileSync + String.slice(fileOffset) was both O(filesize) per event
+      // AND wrong on any multibyte UTF-8 in the log: fileOffset is a byte count
+      // (from stat.size) but String.slice indexes UTF-16 code units, so a single
+      // emoji/accent desynced the cursor and corrupted or dropped events.
+      const length = stat.size - this.fileOffset;
+      const buf = Buffer.alloc(length);
+      let fd: number | null = null;
+      try {
+        fd = openSync(this.logPath, "r");
+        readSync(fd, buf, 0, length, this.fileOffset);
+      } finally {
+        if (fd != null) { try { closeSync(fd); } catch {} }
+      }
       this.fileOffset = stat.size;
+      const newContent = buf.toString("utf-8");
 
-      const lines = newContent.split("\n").filter(Boolean);
+      const rawLines = newContent.split("\n");
+      // A trailing line without a newline is a partial append — rewind the
+      // cursor by its byte length so it's re-read whole on the next event
+      // rather than parsed half-formed and lost.
+      if (rawLines.length > 0 && !newContent.endsWith("\n")) {
+        const partial = rawLines.pop()!;
+        this.fileOffset -= Buffer.byteLength(partial, "utf-8");
+      }
+      const lines = rawLines.filter(Boolean);
       for (const line of lines) {
         const event = this.parseLine(line);
         if (event) {
