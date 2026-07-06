@@ -13,7 +13,6 @@
     "os:default",
     "dialog:allow-open",
     "updater:default",
-    "shell:allow-execute",
     {
       "identifier": "shell:allow-spawn",
       "allow": [
