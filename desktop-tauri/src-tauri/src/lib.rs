@@ -1320,16 +1320,26 @@ fn live_resize_observer_instance() -> cocoa::base::id {
     }
 }
 
+/// Per-window live-resize observers, keyed by NSWindow pointer (`ns_window as usize`),
+/// exactly like the vibrancy maps. Each `wire_live_resize_cover` call registers its own
+/// observer instance and records it here so a closable window can unregister it on
+/// `Destroyed` (see `unwire_live_resize_cover`). The `main` window never closes, so its
+/// entry simply persists for the process lifetime.
+#[cfg(target_os = "macos")]
+fn live_resize_observers() -> &'static std::sync::Mutex<std::collections::HashMap<usize, usize>> {
+    static O: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<usize, usize>>> =
+        std::sync::OnceLock::new();
+    O.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 /// Wire the live-resize notifications for one window's NSWindow to the cover swap.
 ///
-/// INVARIANT: this app has exactly ONE persistent top-level window ('main', created at
-/// startup, never torn down — browser panes are child webviews, not windows). The
-/// NSNotificationCenter observer registered here is therefore intentionally NEVER
-/// removed: it lives as long as the window, i.e. the whole process. If a SECOND
-/// top-level NSWindow is ever introduced AND can close, add a matching `removeObserver`
-/// on its close — otherwise its observer dangles at a freed NSWindow (use-after-free on
-/// the next live-resize notification). Each window registers its own observer, so this
-/// need not be idempotent per process.
+/// The registered NSNotificationCenter observer is filtered by `object: ns_window`, so
+/// once that window is deallocated the registration dangles at a freed pointer (and the
+/// address can be reused by a later window → spurious cross-window firing). `main` never
+/// closes, but detach/pop-out windows do, so each window's observer is recorded in
+/// `live_resize_observers()` and the detach path calls `unwire_live_resize_cover` on
+/// `Destroyed` — same lifecycle as the vibrancy maps it purges there.
 #[cfg(target_os = "macos")]
 fn wire_live_resize_cover(window: &tauri::WebviewWindow) {
     use cocoa::base::{id, nil};
@@ -1358,6 +1368,33 @@ fn wire_live_resize_cover(window: &tauri::WebviewWindow) {
                                    selector: sel!(onLiveResizeEnd:)
                                    name: NSWindowDidEndLiveResizeNotification
                                    object: ns_window];
+        // Record so a detach window can unregister this observer when it closes.
+        live_resize_observers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(ns_window as usize, obs as usize);
+    }
+}
+
+/// Tear down the live-resize observer registered for `wkey` (an NSWindow pointer).
+/// `removeObserver:` drops both notification registrations for that observer instance,
+/// so NSNotificationCenter no longer holds the (soon-to-be-freed) window pointer. Called
+/// from the detach window's `Destroyed` handler; a no-op if nothing was wired.
+#[cfg(target_os = "macos")]
+fn unwire_live_resize_cover(wkey: usize) {
+    use cocoa::base::id;
+    use objc::{class, msg_send, sel, sel_impl};
+    let obs = match live_resize_observers()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&wkey)
+    {
+        Some(p) => p as id,
+        None => return,
+    };
+    unsafe {
+        let nc: id = msg_send![class!(NSNotificationCenter), defaultCenter];
+        let _: () = msg_send![nc, removeObserver: obs];
     }
 }
 
@@ -3612,6 +3649,9 @@ async fn window_detach(
                 if matches!(event, tauri::WindowEvent::Destroyed) {
                     vibrancy_views().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
                     vibrancy_cover_slot().lock().unwrap_or_else(|e| e.into_inner()).remove(&wkey);
+                    // Unregister this window's live-resize observer so NSNotificationCenter
+                    // stops holding the freed NSWindow pointer (dangling / address-reuse).
+                    unwire_live_resize_cover(wkey);
                 }
             });
         }
