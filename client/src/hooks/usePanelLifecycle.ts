@@ -1131,6 +1131,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // stays stable while .current always holds the latest closure; only invoked from
   // event handlers / undo, never read during render.
   handleClosePanelRef.current = (topicId: string) => {
+    // Dedup rapid double-invokes: a fast double-click on a tab's close button
+    // fires two discrete click events, and React flushes the first close between
+    // them. openPanelsRef is a render-time mirror, so by the second call topicId
+    // is already gone — bail before pushing a SECOND, spurious undo entry (its
+    // panelIndex would be -1, and undo would splice the tab back at the wrong
+    // slot, duplicating it). Undo/redo re-add the pane first, so both still work.
+    if (!openPanelsRef.current.includes(topicId)) return;
     const closingTopic = topicsRef.current[topicId];
     // 2-state model: a USER-closed chat tab archives the topic (closed ⟺
     // archived). Guard to REAL chat topics only — never drafts, never the

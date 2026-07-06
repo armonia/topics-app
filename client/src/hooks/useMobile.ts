@@ -28,18 +28,22 @@ export function useMobile(): MobileState {
     window.addEventListener('resize', updateState);
     window.addEventListener('orientationchange', updateState);
 
-    // Listen for keyboard (iOS/Android)
-    if ('visualViewport' in window) {
-      window.visualViewport?.addEventListener('resize', () => {
-        const vv = window.visualViewport!;
-        const keyboardVisible = vv.height < window.innerHeight * 0.75;
-        setState(prev => ({ ...prev, keyboardVisible }));
-      });
-    }
+    // Listen for keyboard (iOS/Android). Capture the handler so cleanup can
+    // remove it — an inline listener here leaked one visualViewport listener per
+    // mount (useMobile is called from Menu/PaneAddMenu, mounted on every open).
+    const vv = 'visualViewport' in window ? window.visualViewport : null;
+    const onViewportResize = vv
+      ? () => {
+          const keyboardVisible = vv.height < window.innerHeight * 0.75;
+          setState(prev => ({ ...prev, keyboardVisible }));
+        }
+      : null;
+    if (vv && onViewportResize) vv.addEventListener('resize', onViewportResize);
 
     return () => {
       window.removeEventListener('resize', updateState);
       window.removeEventListener('orientationchange', updateState);
+      if (vv && onViewportResize) vv.removeEventListener('resize', onViewportResize);
     };
   }, []);
 
