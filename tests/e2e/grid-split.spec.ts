@@ -2,6 +2,7 @@ import { mkdirSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, seedProjectPane } from "./helpers/api-fixtures";
+import { countColDividers, getVisibleTabLabels, splitViaContextMenu } from "./helpers/layout";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -26,26 +27,9 @@ async function openAnyTopic(page: Page) {
   }
 }
 
-/** Get all visible tab labels in the main area (all tab bars) */
-async function getVisibleTabLabels(page: Page): Promise<string[]> {
-  const tabs = page.locator('[role="main"] .truncate.flex-1');
-  const count = await tabs.count();
-  const labels: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const text = await tabs.nth(i).textContent();
-    if (text) labels.push(text.trim());
-  }
-  return labels;
-}
-
 /** Count row-resize dividers (vertical splits) */
 async function countRowDividers(page: Page): Promise<number> {
   return page.locator('[role="main"] .cursor-row-resize').count();
-}
-
-/** Count col-resize dividers (horizontal splits) */
-async function countColDividers(page: Page): Promise<number> {
-  return page.locator('[role="main"] .cursor-col-resize').count();
 }
 
 /** Open a project window by clicking its sidebar entry. The tab-driven
@@ -523,24 +507,6 @@ test.describe("Grid Split System", () => {
           await page.waitForTimeout(300);
         }
       }
-    }
-
-    /** Right-click a tab and click a context menu item */
-    async function splitViaContextMenu(page: Page, direction: 'Split Right' | 'Split Down') {
-      // Find a draggable tab in the main area
-      const tab = page.locator('[role="main"] [draggable="true"]').first();
-      await expect(tab).toBeVisible({ timeout: 5000 });
-
-      // Right-click on the tab to open context menu
-      await tab.click({ button: 'right' });
-
-      // Wait for the portaled context menu to appear (context menu uses fixed + z-[9999])
-      const splitBtn = page.getByText(direction, { exact: true });
-      await expect(splitBtn).toBeVisible({ timeout: 3000 });
-      await splitBtn.click();
-
-      // Wait for layout to update
-      await page.waitForTimeout(1000);
     }
 
     test("GRID-01: Split Right via context menu creates side-by-side panels", async ({ page }) => {
