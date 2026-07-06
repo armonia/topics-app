@@ -124,6 +124,8 @@ describe('client inbound registry contract', () => {
     // snapshot the client projects into "open elsewhere" affordances.
     // ui:bundle-updated joined in 258e9cce (dev bundle hot-delivery) — the
     // server's "built client changed on disk" signal that reloads windows.
+    // ui-state:patch joined in ad7e1c3f (sync refactor) — the incremental
+    // key-level ui_state delta the client applies without a full re-init.
     expect(REGISTERED_INBOUND_TYPES).toEqual([
       'connected',
       'dashboard:updated',
@@ -142,6 +144,7 @@ describe('client inbound registry contract', () => {
       'topic:updated',
       'typing',
       'ui-state:init',
+      'ui-state:patch',
       'ui-state:updated',
       'ui:bundle-updated',
       'unread:init',
