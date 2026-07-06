@@ -271,6 +271,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
         ) : activeTab ? (
           <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
             <CodeEditor
+              key={activeTab.path}
               content={activeTab.content}
               filename={activeTab.name}
               readOnly={false}

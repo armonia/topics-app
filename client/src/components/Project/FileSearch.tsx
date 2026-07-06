@@ -3,6 +3,7 @@ import { Search, X } from 'lucide-react';
 import { filesApi } from '../../lib/api';
 import { basename } from '../../lib/path-utils';
 import { MODAL_PANEL } from '@/lib/modalStyles';
+import { SELECTED_SURFACE } from '@/lib/selectionStyles';
 
 interface SearchResult {
   file: string;
@@ -188,7 +189,7 @@ export function FileSearch({ projectPath, onOpenFile, onClose }: FileSearchProps
                       ref={el => { resultRefs.current[idx] = el; }}
                       onClick={() => openResult(r)}
                       className={`w-full text-left px-3 py-1 flex items-start gap-2 transition-colors ${
-                        idx === selectedIdx ? 'bg-primary/15' : 'hover:bg-app-hover'
+                        idx === selectedIdx ? SELECTED_SURFACE : 'hover:bg-app-hover'
                       }`}
                     >
                       <span className="text-[11px] text-app-text-muted font-mono w-8 text-right flex-shrink-0 mt-0.5">
