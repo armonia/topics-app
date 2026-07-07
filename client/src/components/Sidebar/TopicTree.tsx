@@ -1189,6 +1189,7 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
         sidebarRowCard({ focused: isFocused, open: isOpen }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
+      data-pinned={pinned ? 'true' : undefined}
       onClick={() => onOpenBrowser?.(bc.id)}
       onContextMenu={hasMenu ? (e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
     >
@@ -1197,6 +1198,18 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       <span className="flex-1 truncate" title={bc.url}>
         {itemName}
       </span>
+      {/* Pin glyph — trailing rail, same "Fissato" indicator as the chat /
+          terminal / project rows (was missing here, so a pinned browser showed
+          the Fissati block placement but no per-row glyph). */}
+      {pinned && (
+        <span
+          className="flex-shrink-0 flex items-center text-app-text-tertiary mr-1"
+          title="Fissato"
+          aria-label="Fissato"
+        >
+          <Pin size={12} />
+        </span>
+      )}
       <span className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1">
         {relativeTime(bc.lastActivity)}
       </span>
