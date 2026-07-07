@@ -794,7 +794,8 @@ fn set_theme(app: tauri::AppHandle, theme: String) {
 /// back to the plugin path (at worst the old non-delivery, never a crash).
 #[cfg(target_os = "macos")]
 mod macos_notifications {
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::OnceLock;
 
     use block2::RcBlock;
     use objc2::rc::Retained;
@@ -810,6 +811,69 @@ mod macos_notifications {
     /// True when running from a real .app bundle (`bundleIdentifier` set).
     pub fn is_bundled() -> bool {
         NSBundle::mainBundle().bundleIdentifier().is_some()
+    }
+
+    /// UN authorization state, resolved async by `install()`'s callbacks. False
+    /// until they land (instants after boot) — early posts take the helper path.
+    static UN_AUTHORIZED: AtomicBool = AtomicBool::new(false);
+
+    /// Fallback banner carrier. macOS 26 denies UN authorization to any app
+    /// without an Apple-chain code signature (adhoc AND locally self-signed both
+    /// refused: no prompt, app never listed in Settings → Notifications), so an
+    /// unsigned Topics.app cannot post banners AS ITSELF. terminal-notifier is
+    /// Developer-ID-signed and already authorized on this machine (it's the same
+    /// carrier ~/.claude/notify.sh banners ride on — usernoted logs `Presenting`
+    /// for it), and `-activate` hands the banner click back to Topics. Resolved
+    /// once; absolute candidates because a login-item's PATH is minimal.
+    static HELPER: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+
+    fn helper_path() -> Option<&'static std::path::Path> {
+        HELPER
+            .get_or_init(|| {
+                const CANDIDATES: &[&str] = &[
+                    "/opt/homebrew/bin/terminal-notifier",
+                    "/usr/local/bin/terminal-notifier",
+                ];
+                CANDIDATES
+                    .iter()
+                    .map(std::path::Path::new)
+                    .find(|p| p.exists())
+                    .map(|p| p.to_path_buf())
+            })
+            .as_deref()
+    }
+
+    fn post_via_helper(title: &str, body: &str) {
+        let Some(bin) = helper_path() else { return };
+        // terminal-notifier parses argv via NSUserDefaults: a value starting
+        // with "-" reads as a flag. A leading space defuses it.
+        let pad = |s: &str| {
+            if s.starts_with('-') {
+                format!(" {s}")
+            } else {
+                s.to_string()
+            }
+        };
+        // Unique -group per banner: terminal-notifier's default group is a
+        // CONSTANT ident, so without this each post silently REPLACES the
+        // previous notification instead of presenting a new banner.
+        let group = format!(
+            "topics-notif-{}-{}",
+            std::process::id(),
+            NOTIF_SEQ.fetch_add(1, Ordering::Relaxed)
+        );
+        let _ = std::process::Command::new(bin)
+            .arg("-title")
+            .arg(pad(title))
+            .arg("-message")
+            .arg(pad(body))
+            .arg("-group")
+            .arg(group)
+            .arg("-activate")
+            .arg("io.armonia.topics.tauri")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
     }
 
     struct DelegateIvars {
@@ -889,6 +953,9 @@ mod macos_notifications {
             } else {
                 unsafe { &*error }.localizedDescription().to_string()
             };
+            if granted.as_bool() {
+                UN_AUTHORIZED.store(true, Ordering::Relaxed);
+            }
             diag(&format!(
                 "requestAuthorization → granted={} error={}",
                 granted.as_bool(),
@@ -901,15 +968,26 @@ mod macos_notifications {
         );
         let settings_done = RcBlock::new(
             |settings: std::ptr::NonNull<objc2_user_notifications::UNNotificationSettings>| {
+                use objc2_user_notifications::UNAuthorizationStatus;
                 let s = unsafe { settings.as_ref() };
+                let status = s.authorizationStatus();
+                if status == UNAuthorizationStatus::Authorized
+                    || status == UNAuthorizationStatus::Provisional
+                {
+                    UN_AUTHORIZED.store(true, Ordering::Relaxed);
+                }
                 diag(&format!(
                     "settings → authorizationStatus={:?} alertSetting={:?}",
-                    s.authorizationStatus(),
+                    status,
                     s.alertSetting()
                 ));
             },
         );
         center.getNotificationSettingsWithCompletionHandler(&settings_done);
+        diag(&format!(
+            "helper fallback: {}",
+            helper_path().map(|p| p.display().to_string()).unwrap_or_else(|| "none".into())
+        ));
     }
 
     /// Release builds have no logger installed (tauri_plugin_log is debug-only),
@@ -935,8 +1013,15 @@ mod macos_notifications {
 
     /// Post one banner. Unique identifier per request — completion banners must
     /// stack in the Notification Center, never coalesce/replace each other.
+    /// When macOS never authorized the app (unsigned build, see UN_AUTHORIZED),
+    /// posting as ourselves is a guaranteed silent drop — ride the signed
+    /// helper instead.
     pub fn post(title: &str, body: &str) {
         if !is_bundled() {
+            return;
+        }
+        if !UN_AUTHORIZED.load(Ordering::Relaxed) {
+            post_via_helper(title, body);
             return;
         }
         let content = UNMutableNotificationContent::new();

@@ -40,8 +40,15 @@ Convenzione: ogni gruppo chiude con `cargo check` verde in `desktop-tauri/src-ta
   posting UN funziona; è la PRESENTAZIONE a schermo che l'OS blocca finché l'app non ha
   firma Apple + consenso. 7 post reali dal client nel primo quarto d'ora: lato app tutto
   scorre.
-- [ ] 2.4 Dopo firma con certificato Apple: rilancio → prompt di sistema → Consenti →
-  banner a schermo + click-to-focus da confermare.
+- [x] 2.4 RISOLTO SENZA CERTIFICATO (via preferita dall'utente): fallback
+  `post_via_helper` — quando UN è negato (build non firmata Apple), il comando `notify`
+  spawna `terminal-notifier` (Developer-ID-signed, già autorizzato: è il carrier dei
+  banner di ~/.claude/notify.sh) con `-group` unico per banner (il group di default è
+  COSTANTE → i post si sostituivano senza ri-presentare) e `-activate
+  io.armonia.topics.tauri` (click → Topics in primo piano). Verificato live: usernoted
+  `Presenting <NotificationRecord app:"fr.julienxx.oss.terminal-notifier" …>` alle
+  22:39:18. Quando in futuro l'app sarà firmata Apple, UN_AUTHORIZED diventa true e il
+  path UN nativo subentra da solo (identità/icona Topics).
 - [x] 2.5 Regressione dev: guard `is_bundled()` su ogni entry point (binario nudo →
   `bundleIdentifier` nil → skip UN, fallback plugin); non eseguito `cargo run` live per
   non spawnare una seconda istanza sulla macchina di prod.
