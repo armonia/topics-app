@@ -112,9 +112,15 @@ fn notify(app: tauri::AppHandle, title: String, body: String) {
 
 ## Rischi / incognite
 
-- **App adhoc-signed**: `requestAuthorization` con firma adhoc funziona per app locali,
-  ma è il punto da verificare per primo dal vivo; se macOS rifiutasse il prompt, l'entry
-  in Impostazioni → Notifiche non appare e si ripiega su indagine firma (fuori scope qui).
+- **App adhoc-signed — VERIFICATO DAL VIVO: BLOCCANTE.** Su macOS 26 `requestAuthorization`
+  ritorna `granted=false "Notifications are not allowed for this application"`
+  (status Denied, nessun prompt, app non listata in Impostazioni → Notifiche) per
+  QUALSIASI app senza catena di firma Apple: probe minimal con firma adhoc E con
+  identità self-signed locale entrambe negate. Il fix UN in questo change resta
+  necessario (il path legacy è morto comunque) ma serve ANCHE firmare l'app con un
+  certificato Apple: "Apple Development" per la macchina locale, "Developer ID
+  Application" per le release distribuite (che oggi escono non firmate → nessun utente
+  macOS 26 riceve banner; risolverebbe anche la firma dell'auto-updater).
 - **Prompt negato dall'utente**: `post()` diventa no-op OS-side (per design: stesso
   contratto silenzioso di oggi), ma ora l'app È in Impostazioni → Notifiche e
   l'autorizzazione è riattivabile a mano.
