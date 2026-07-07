@@ -910,16 +910,52 @@ mod macos_notifications {
         let center = UNUserNotificationCenter::currentNotificationCenter();
         center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         std::mem::forget(delegate);
-        let done = RcBlock::new(|granted: Bool, _error: *mut NSError| {
-            log::info!(
-                "[topics] notification authorization granted={}",
-                granted.as_bool()
-            );
+        let done = RcBlock::new(|granted: Bool, error: *mut NSError| {
+            let err = if error.is_null() {
+                String::from("none")
+            } else {
+                unsafe { &*error }.localizedDescription().to_string()
+            };
+            diag(&format!(
+                "requestAuthorization → granted={} error={}",
+                granted.as_bool(),
+                err
+            ));
         });
         center.requestAuthorizationWithOptions_completionHandler(
             UNAuthorizationOptions::Alert,
             &done,
         );
+        let settings_done = RcBlock::new(
+            |settings: std::ptr::NonNull<objc2_user_notifications::UNNotificationSettings>| {
+                let s = unsafe { settings.as_ref() };
+                diag(&format!(
+                    "settings → authorizationStatus={:?} alertSetting={:?}",
+                    s.authorizationStatus(),
+                    s.alertSetting()
+                ));
+            },
+        );
+        center.getNotificationSettingsWithCompletionHandler(&settings_done);
+    }
+
+    /// Release builds have no logger installed (tauri_plugin_log is debug-only),
+    /// and the whole failure class here is SILENT drops — so the authorization
+    /// outcome goes to a plain file the field can always read.
+    fn diag(line: &str) {
+        use std::io::Write;
+        let Ok(home) = std::env::var("HOME") else { return };
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(format!("{home}/Library/Logs/topics-notifications.log"))
+        {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let _ = writeln!(f, "[{ts}] {line}");
+        }
     }
 
     static NOTIF_SEQ: AtomicU64 = AtomicU64::new(0);
