@@ -395,6 +395,9 @@ export function PaneAddMenu({
   }, []);
 
   useLayoutEffect(() => {
+    // Clear the measured position when hidden so the next open re-measures from
+    // scratch; paired with reposition()'s measure below.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!open || isMobile || presentation !== 'dropdown') { setPos(null); return; }
     reposition();
     window.addEventListener('resize', reposition);

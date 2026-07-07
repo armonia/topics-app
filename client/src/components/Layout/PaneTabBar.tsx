@@ -31,7 +31,7 @@ import {
   liveSpacesOrdered,
   movePaneToSpace,
   nextSpaceName,
-} from './SpaceSwitcher';
+} from './spaceHelpers';
 import { TopicIcon } from '../../lib/topicIcons';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -231,13 +231,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // "Sposta nello Spazio →" inline submenu (expanded space list inside the
   // context menu). Collapses whenever the menu re-opens on another tab.
   const [spaceSubmenuOpen, setSpaceSubmenuOpen] = useState(false);
-  useEffect(() => { setSpaceSubmenuOpen(false); }, [ctxMenu]);
   // Inline "Rinomina" editor for terminal tabs, expanded IN PLACE inside the
   // context menu (mirrors the sidebar ContextMenu rename submenu). null = not
   // editing; a string = the draft label. Collapses whenever the menu re-opens.
   const [renameDraft, setRenameDraft] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { setRenameDraft(null); }, [ctxMenu]);
+  // Collapse both inline sub-editors whenever the context menu re-opens on
+  // another tab (or closes). Adjusting state DURING render on the prev-value
+  // change is React's idiomatic reset — one render, no effect round-trip — and
+  // keeps clear of react-hooks/set-state-in-effect.
+  const [ctxMenuForReset, setCtxMenuForReset] = useState(ctxMenu);
+  if (ctxMenu !== ctxMenuForReset) {
+    setCtxMenuForReset(ctxMenu);
+    setSpaceSubmenuOpen(false);
+    setRenameDraft(null);
+  }
   useEffect(() => {
     if (renameDraft !== null) {
       // Defer focus so the input has mounted; select-all so a re-label is one keystroke.

@@ -86,6 +86,9 @@ export function Menu({
   // Measure the real panel and place it BEFORE paint; keep it placed while open.
   useLayoutEffect(() => {
     if (!open || isMobile) {
+      // Clear the measured position when hidden so the next open re-measures
+      // from scratch; paired with reposition()'s measure below.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPos(null);
       return;
     }

@@ -37,9 +37,15 @@ export interface UseDismissableOptions {
 export function useDismissable({ open, onClose, refs, restoreFocus = true }: UseDismissableOptions): void {
   // Latest values without re-subscribing the document listeners each render.
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
   const refsRef = useRef(refs);
-  refsRef.current = refs;
+  // Mirror in an effect (NOT during render) so the react-hooks/refs rule holds:
+  // both are read only inside the effects/handlers below, which run after this
+  // mirror commits. Declared first so it wins the commit-order race against the
+  // `[open]` effect that reads refsRef.current synchronously on open.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    refsRef.current = refs;
+  });
 
   // Element focused when the menu opened — the focus-restore target.
   const triggerRef = useRef<HTMLElement | null>(null);
