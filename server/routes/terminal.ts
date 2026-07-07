@@ -11,6 +11,7 @@ import fs from "fs";
 import { augmentPath, realHome } from "../utils/path-env";
 import { timingSafeEqualStr } from "../utils";
 import { resolveCodexBin } from "../lib/codex-bin";
+import { resolveClaudeBin } from "../lib/claude-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
 import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
@@ -227,6 +228,23 @@ function getSocketPath(): string {
 const SOCKET_PATH = getSocketPath();
 
 /**
+ * A bundled PTY bridge: the Tauri shell can ship a real Node runtime plus
+ * pty-bridge.mjs (and node-pty's prebuilds) as app resources and point the
+ * sidecar at them via TOPICS_NODE_BIN + TOPICS_PTY_BRIDGE_PATH. When BOTH are
+ * present the compiled sidecar CAN run a bridge after all (node-pty needs Node —
+ * it can't run under Bun), so terminals work on a virgin install. Socket
+ * isolation (TOPICS_PTY_SOCKET, set by the same shell) keeps this sidecar's
+ * bridge from ever touching a real server's — the 2026-07-02 invariant holds.
+ * Returns null unless both are set, so the plain standalone path is unchanged.
+ */
+function bundledBridge(): { node: string; bridge: string } | null {
+  const node = process.env.TOPICS_NODE_BIN;
+  const bridge = process.env.TOPICS_PTY_BRIDGE_PATH;
+  if (node && bridge) return { node, bridge };
+  return null;
+}
+
+/**
  * Self-contained / standalone mode: the app runs from a compiled sidecar bundle
  * with no external PTY bridge (set by the Tauri shell — desktop-tauri lib.rs
  * decide_upstream_and_spawn). When set, the server NEVER connects to or spawns the
@@ -235,11 +253,16 @@ const SOCKET_PATH = getSocketPath();
  * accidentally shares a checkout's cwd must be STRUCTURALLY unable to reconcile-kill
  * a real server's live PTYs (the 2026-07-02 incident). Terminal endpoints answer 503.
  *
+ * EXCEPTION: a bundledBridge() (shell-provided Node + bridge path) re-enables
+ * terminals — the sidecar spawns that Node against its OWN isolated socket, so
+ * the standalone concerns above no longer apply.
+ *
  * Read LIVE (not a module-const) so a test can flip the env per-case, and accept two
  * spellings: TOPICS_DISABLE_PTY_BRIDGE (precise) and TOPICS_EMBEDDED (the broader
  * "self-contained bundle" flag) — either enables standalone mode.
  */
 export function isPtyBridgeDisabled(): boolean {
+  if (bundledBridge()) return false;
   return process.env.TOPICS_DISABLE_PTY_BRIDGE === "1" || process.env.TOPICS_EMBEDDED === "1";
 }
 
@@ -276,11 +299,18 @@ export async function ensureBridge(): Promise<void> {
       return;
     }
 
-    // No bridge running — spawn one
-    const bridgePath = resolve(import.meta.dir, "../pty-bridge.mjs");
-    const child = spawn("node", [bridgePath, "--socket", SOCKET_PATH], {
+    // No bridge running — spawn one. In a bundled sidecar the shell hands us the
+    // Node binary + bridge script it shipped (bundledBridge); a normal server
+    // uses `node` off PATH and the sibling pty-bridge.mjs. augmentPath() gives the
+    // child the same PATH-hardening every PTY spawn gets, so a launchd/sidecar
+    // minimal PATH still finds node's own deps.
+    const bb = bundledBridge();
+    const nodeBin = bb?.node ?? "node";
+    const bridgePath = bb?.bridge ?? resolve(import.meta.dir, "../pty-bridge.mjs");
+    const child = spawn(nodeBin, [bridgePath, "--socket", SOCKET_PATH], {
       detached: true,
       stdio: ['ignore', 'ignore', 'inherit'],
+      env: { ...process.env, PATH: augmentPath() },
     });
     child.unref();
 
@@ -853,7 +883,13 @@ async function createSession(id: string, name: string, cwd: string, command?: st
   }
 
   if (isClaudeKind) {
-    file = 'claude';
+    // Absolute path where possible: the server runs under launchd (and, on a
+    // fresh install, the Tauri sidecar's bundled Node) with a bare PATH that
+    // excludes ~/.local/bin, Homebrew, etc. A plain `claude` then ENOENTs and the
+    // pane exits instantly (blank tab). Falls back to the bare name so a
+    // full-PATH dev shell still works, and so a machine without claude installed
+    // surfaces a clear "command not found" rather than nothing. Mirrors codex.
+    file = resolveClaudeBin() ?? 'claude';
     args = [];
     if (claudeSessionId) {
       args.push('--resume', claudeSessionId);
