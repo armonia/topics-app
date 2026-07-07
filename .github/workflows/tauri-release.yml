@@ -78,6 +78,23 @@ jobs:
         if: runner.os == 'Linux'
         run: ./scripts/build-server-sidecar.sh linux
 
+      # Stage the bundled PTY runtime (official Node + pty-bridge.mjs + node-pty
+      # prebuilds) into Resources/pty-runtime. WITHOUT this the standalone sidecar
+      # on a virgin machine can't spawn a PTY bridge (node-pty needs Node, not Bun)
+      # and shell/claude-code tabs never open. See scripts/stage-pty-runtime.sh +
+      # desktop-tauri lib.rs bundled_pty_runtime(). Must run BEFORE tauri build so
+      # the `pty-runtime` resource glob (tauri.conf.json bundle.resources) resolves.
+      - name: Stage PTY runtime (macOS universal)
+        if: runner.os == 'macOS'
+        run: ./scripts/stage-pty-runtime.sh macos
+      - name: Stage PTY runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./scripts/stage-pty-runtime.sh windows
+      - name: Stage PTY runtime (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/stage-pty-runtime.sh linux
+
       - name: Build client (Vite → public/, the Tauri frontendDist)
         working-directory: client
         run: |

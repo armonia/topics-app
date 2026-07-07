@@ -11,9 +11,11 @@ import net from "net";
 import { ensureBridge, isPtyBridgeDisabled } from "./terminal";
 
 const FLAGS = ["TOPICS_DISABLE_PTY_BRIDGE", "TOPICS_EMBEDDED"] as const;
+const BUNDLE_ENV = ["TOPICS_NODE_BIN", "TOPICS_PTY_BRIDGE_PATH"] as const;
 
 afterEach(() => {
   for (const f of FLAGS) delete process.env[f];
+  for (const f of BUNDLE_ENV) delete process.env[f];
 });
 
 test("isPtyBridgeDisabled reads both flag spellings, live", () => {
@@ -26,6 +28,20 @@ test("isPtyBridgeDisabled reads both flag spellings, live", () => {
   expect(isPtyBridgeDisabled()).toBe(true);
   process.env.TOPICS_EMBEDDED = "0";
   expect(isPtyBridgeDisabled()).toBe(false);
+});
+
+test("a bundled bridge (node + bridge path) RE-ENABLES terminals even under a standalone flag", () => {
+  // The fresh-install fix: the Tauri shell ships Node + pty-bridge.mjs and points
+  // the otherwise-standalone sidecar at them. Both envs must be set to flip the gate;
+  // one alone is not enough (a half-configured bundle stays safely disabled).
+  process.env.TOPICS_EMBEDDED = "1";
+  expect(isPtyBridgeDisabled()).toBe(true);
+
+  process.env.TOPICS_NODE_BIN = "/Applications/Topics.app/Contents/Resources/node";
+  expect(isPtyBridgeDisabled()).toBe(true); // node alone — not enough
+
+  process.env.TOPICS_PTY_BRIDGE_PATH = "/Applications/Topics.app/Contents/Resources/pty-bridge.mjs";
+  expect(isPtyBridgeDisabled()).toBe(false); // both present — terminals allowed
 });
 
 for (const flag of FLAGS) {
