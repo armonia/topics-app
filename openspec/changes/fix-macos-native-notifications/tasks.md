@@ -24,17 +24,24 @@ Convenzione: ogni gruppo chiude con `cargo check` verde in `desktop-tauri/src-ta
 ## Phase 2 — Verifica live (macchina prod, 2026-07-07)
 - [x] 2.1 `cargo build --release` (2m04s, 0 warning nuovi); swap binario + codesign adhoc;
   rilancio (PID 96086).
-- [~] 2.2 Nessun prompt osservato e nessuna entry ncprefs — ma la consegna risulta
-  AUTORIZZATA (vedi 2.3): su questo sistema macOS 26 pare auto-consentire l'app UN al
-  primo post. Se in futuro serve regolare lo stile banner, verificare quando l'entry
-  compare in Impostazioni → Notifiche.
-- [x] 2.3 Iniezione `UserPromptSubmit`→`Stop` su sessione idle: usernoted (log stream)
-  `Adding new request … req:"topics-notif-96086-1" … successfully processed …
-  Delivering … to [ .alert .lockScreen .notificationCenter ]` — SENZA errore
-  `LegacyConnection`. Un post reale (seq-0) era già partito dal traffico vivo.
-  Banner a schermo non confermato visivamente (app fullscreen in primo piano al momento
-  del test — possibile Focus); la consegna OS è verificata dal log.
-- [ ] 2.4 Click sul banner → app in primo piano (da confermare a mano al prossimo banner).
+- [x] 2.2→BLOCCANTE TROVATO (diagnostica in `~/Library/Logs/topics-notifications.log`):
+  `requestAuthorization → granted=false "Notifications are not allowed for this
+  application"`, `authorizationStatus=1 (Denied)`, nessun prompt, nessuna entry ncprefs
+  (app non listata → non abilitabile a mano). **macOS 26 nega l'autorizzazione UN alle
+  app senza firma con catena Apple.** Provato empiricamente con 2 probe minimal Swift:
+  bundle id vergine + firma adhoc → negata; + identità self-signed locale ("Topics Local
+  Signing") → negata uguale. Conferme esterne: kitty da nixpkgs (adhoc) stesso sintomo su
+  Tahoe; doc Electron "app must be code-signed for notifications"; Apple DTS raccomanda
+  Apple Development al posto di adhoc. → SERVE certificato Apple (Apple Development per
+  il locale, Developer ID Application per le release).
+- [x] 2.3 Pipeline moderna comunque verificata: usernoted (log stream) `Adding new
+  request … req:"topics-notif-96086-N" … entitlement check success … Delivering … to
+  [ .alert .lockScreen .notificationCenter ]` SENZA errore `LegacyConnection` — il
+  posting UN funziona; è la PRESENTAZIONE a schermo che l'OS blocca finché l'app non ha
+  firma Apple + consenso. 7 post reali dal client nel primo quarto d'ora: lato app tutto
+  scorre.
+- [ ] 2.4 Dopo firma con certificato Apple: rilancio → prompt di sistema → Consenti →
+  banner a schermo + click-to-focus da confermare.
 - [x] 2.5 Regressione dev: guard `is_bundled()` su ogni entry point (binario nudo →
   `bundleIdentifier` nil → skip UN, fallback plugin); non eseguito `cargo run` live per
   non spawnare una seconda istanza sulla macchina di prod.
