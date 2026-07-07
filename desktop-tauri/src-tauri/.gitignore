@@ -3,10 +3,7 @@
 /target/
 /gen/schemas
 
-# Bundled server sidecar — compiled per-target by CI (bun build --compile) and
-# named binaries/topics-server-<triple>. A build artifact, never committed.
+# Bundled sidecars — compiled per-target by CI and named binaries/<name>-<triple>:
+# topics-server (bun build --compile) and pty-bridge (cargo, from
+# desktop-tauri/pty-bridge). Build artifacts, never committed.
 /binaries/
-
-# Bundled PTY runtime — staged per-target by scripts/stage-pty-runtime.sh
-# (official Node dist + node-pty prebuilds). A build artifact, never committed.
-/pty-runtime/

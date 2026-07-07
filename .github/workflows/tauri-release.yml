@@ -50,7 +50,9 @@ jobs:
       - name: Rust build cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: desktop-tauri/src-tauri
+          workspaces: |
+            desktop-tauri/src-tauri
+            desktop-tauri/pty-bridge
 
       - name: Linux WebKitGTK + tray build deps
         if: runner.os == 'Linux'
@@ -78,22 +80,24 @@ jobs:
         if: runner.os == 'Linux'
         run: ./scripts/build-server-sidecar.sh linux
 
-      # Stage the bundled PTY runtime (official Node + pty-bridge.mjs + node-pty
-      # prebuilds) into Resources/pty-runtime. WITHOUT this the standalone sidecar
-      # on a virgin machine can't spawn a PTY bridge (node-pty needs Node, not Bun)
-      # and shell/claude-code tabs never open. See scripts/stage-pty-runtime.sh +
-      # desktop-tauri lib.rs bundled_pty_runtime(). Must run BEFORE tauri build so
-      # the `pty-runtime` resource glob (tauri.conf.json bundle.resources) resolves.
-      - name: Stage PTY runtime (macOS universal)
+      # Build the standalone Rust PTY-bridge sidecar (binaries/pty-bridge-<triple>).
+      # WITHOUT this the standalone sidecar on a virgin machine can't spawn a PTY
+      # bridge (the compiled Bun server can't run node-pty) and shell/claude-code tabs
+      # never open. A ~0.5 MB wire-compatible port of pty-bridge.mjs. See
+      # scripts/build-pty-bridge.sh + desktop-tauri lib.rs bundled_pty_bridge_bin().
+      # Must run BEFORE tauri build so the externalBin (tauri.conf.json) resolves.
+      # Windows compiles a no-op stub (bridge is Unix-socket only) just to satisfy the
+      # per-target externalBin bundle; lib.rs never spawns it there.
+      - name: Build PTY bridge sidecar (macOS universal)
         if: runner.os == 'macOS'
-        run: ./scripts/stage-pty-runtime.sh macos
-      - name: Stage PTY runtime (Windows)
+        run: ./scripts/build-pty-bridge.sh macos
+      - name: Build PTY bridge sidecar (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: ./scripts/stage-pty-runtime.sh windows
-      - name: Stage PTY runtime (Linux)
+        run: ./scripts/build-pty-bridge.sh windows
+      - name: Build PTY bridge sidecar (Linux)
         if: runner.os == 'Linux'
-        run: ./scripts/stage-pty-runtime.sh linux
+        run: ./scripts/build-pty-bridge.sh linux
 
       - name: Build client (Vite → public/, the Tauri frontendDist)
         working-directory: client
