@@ -308,6 +308,65 @@ fn sidecar_data_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
     dir
 }
 
+/// Resolve the bundled PTY runtime shipped under `Resources/pty-runtime`:
+/// `(node_binary, pty-bridge.mjs)`. Staged by scripts/stage-pty-runtime.sh — an
+/// official (self-contained) Node dist, the bridge script, and node-pty with its
+/// N-API prebuilds — and listed in tauri.conf.json `bundle.resources`.
+///
+/// Returns `Some` only when BOTH files exist, so a bundle built without staging
+/// (or an older release) transparently keeps the standalone kill-switch. On unix
+/// the copied `node` (and node-pty's `spawn-helper`) may lose their exec bit
+/// through packaging, so we re-assert it here — a non-executable node would fail
+/// the spawn and silently drop back to "no terminals".
+fn bundled_pty_runtime(app: &tauri::AppHandle) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    use tauri::Manager;
+    let res = app.path().resource_dir().ok()?;
+    let root = res.join("pty-runtime");
+    let node = root.join(if cfg!(windows) { "node.exe" } else { "node" });
+    let bridge = root.join("pty-bridge.mjs");
+    if !node.exists() || !bridge.exists() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let ensure_exec = |p: &std::path::Path| {
+            if let Ok(meta) = std::fs::metadata(p) {
+                let mut perm = meta.permissions();
+                if perm.mode() & 0o111 == 0 {
+                    perm.set_mode(perm.mode() | 0o755);
+                    let _ = std::fs::set_permissions(p, perm);
+                }
+            }
+        };
+        ensure_exec(&node);
+        // node-pty forks a `spawn-helper` next to its prebuilt pty.node on macOS;
+        // it must stay executable too or every pty spawn fails with posix_spawnp.
+        for entry in glob_spawn_helpers(&root) {
+            ensure_exec(&entry);
+        }
+    }
+    Some((node, bridge))
+}
+
+/// Best-effort find of node-pty's `spawn-helper` binaries under the staged
+/// runtime (`pty-runtime/node_modules/node-pty/prebuilds/*/spawn-helper`), so we
+/// can re-assert their exec bit. Never fails — a missing tree just yields none.
+#[cfg(unix)]
+fn glob_spawn_helpers(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let prebuilds = root.join("node_modules/node-pty/prebuilds");
+    let mut out = Vec::new();
+    if let Ok(dirs) = std::fs::read_dir(&prebuilds) {
+        for d in dirs.flatten() {
+            let helper = d.path().join("spawn-helper");
+            if helper.exists() {
+                out.push(helper);
+            }
+        }
+    }
+    out
+}
+
 /// Boot decision: if a Topics server already answers on :3333 (external launchd /
 /// dev — try TLS first, then plain), defer to it. Otherwise spawn the bundled
 /// sidecar on a free plain-HTTP port with an isolated data dir, wait until it's
@@ -348,43 +407,62 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         "[sidecar] no external server; spawning bundled sidecar on :{port} (data: {})",
         data_dir.display()
     );
-    // Per-instance PTY-bridge socket, under the isolated data dir. See the env
-    // block below for why this is CRITICAL and not just tidy.
-    let pty_socket = data_dir.join("pty-bridge-standalone.sock");
+    // A bundled PTY runtime (official Node + pty-bridge.mjs + node-pty prebuilds,
+    // staged into Resources/pty-runtime by scripts/stage-pty-runtime.sh). Present →
+    // this "standalone" sidecar can run a REAL PTY bridge, so shell/claude-code tabs
+    // work on a virgin install. Absent (older bundle / unstaged dev build) → None,
+    // and we keep today's hard kill-switch so nothing regresses.
+    let bundled_pty = bundled_pty_runtime(&app);
     let cmd = match app.shell().sidecar("topics-server") {
-        Ok(c) => c
-            .env("NO_TLS", "1")
-            .env("BUN_PORT", port.to_string())
-            // Bind IPv4 loopback explicitly: the proxy connects to 127.0.0.1 and a
-            // bare "::" bind is IPv6-only on some Bun/macOS combos (see server.ts).
-            .env("SERVER_HOST", "127.0.0.1")
-            // ── ISOLATION (all partition keys, not just one) ─────────────────────
-            // The server partitions its mutable state across SEPARATE env vars, and
-            // setting only TOPICS_DATA_DIR is NOT enough — this is the 2026-07-02
-            // incident: the PTY-bridge socket path is md5(cwd) when `DATA_DIR` is
-            // unset (server/routes/terminal.ts getSocketPath). A sidecar sharing a
-            // checkout's cwd hashed to the SAME socket as the live launchd server
-            // and, with its own empty DB, reconciled the live PTYs as "orphans" and
-            // KILLED them. So isolate EVERY key:
-            //   • TOPICS_DISABLE_PTY_BRIDGE=1 — structural kill-switch: the server
-            //     treats this as a self-contained bundle and NEVER connects to /
-            //     spawns the external PTY bridge; terminal endpoints answer 503. A
-            //     virgin machine has no bridge, and the compiled binary can't spawn
-            //     one anyway (pty-bridge.mjs resolves to a virtualized path). This
-            //     alone makes touching a real bridge impossible.
-            //   • TOPICS_PTY_SOCKET — belt: even if the gate were bypassed, the
-            //     override (terminal.ts:203) pins the socket to our own path.
-            //   • DATA_DIR / TOPICS_HOME — the other two state roots (browser-state,
-            //     db data path; daemon lock, ui-state backups, events), isolated too.
-            .env("TOPICS_DATA_DIR", data_dir.to_string_lossy().to_string())
-            .env("DATA_DIR", data_dir.join("data").to_string_lossy().to_string())
-            .env("TOPICS_HOME", data_dir.join("home").to_string_lossy().to_string())
-            .env("TOPICS_PTY_SOCKET", pty_socket.to_string_lossy().to_string())
-            // Both spellings of the standalone kill-switch (the server honors either):
-            // TOPICS_DISABLE_PTY_BRIDGE is the precise name, TOPICS_EMBEDDED the broader
-            // self-contained-bundle flag.
-            .env("TOPICS_DISABLE_PTY_BRIDGE", "1")
-            .env("TOPICS_EMBEDDED", "1"),
+        Ok(c) => {
+            let mut c = c
+                .env("NO_TLS", "1")
+                .env("BUN_PORT", port.to_string())
+                // Bind IPv4 loopback explicitly: the proxy connects to 127.0.0.1 and a
+                // bare "::" bind is IPv6-only on some Bun/macOS combos (see server.ts).
+                .env("SERVER_HOST", "127.0.0.1")
+                // ── ISOLATION (all partition keys, not just one) ─────────────────
+                // The server partitions its mutable state across SEPARATE env vars,
+                // and setting only TOPICS_DATA_DIR is NOT enough — this is the
+                // 2026-07-02 incident: the PTY-bridge socket path is md5(cwd) when
+                // `DATA_DIR` is unset (server/routes/terminal.ts getSocketPath). A
+                // sidecar sharing a checkout's cwd hashed to the SAME socket as the
+                // live launchd server and, with its own empty DB, reconciled the live
+                // PTYs as "orphans" and KILLED them. So isolate EVERY state root:
+                //   • DATA_DIR / TOPICS_DATA_DIR / TOPICS_HOME — db + browser state;
+                //     daemon lock, ui-state backups, events. DATA_DIR being set ALSO
+                //     makes getSocketPath derive a DISTINCT, short `/tmp/topics-pty-
+                //     bridge-<hash>.sock` (hash of cwd\0DATA_DIR) that a real server
+                //     (DATA_DIR unset) can never collide with — so the sidecar's
+                //     bridge is structurally isolated WITHOUT pinning a long,
+                //     bind-unfriendly socket path under Application Support (a unix
+                //     socket path >104 bytes fails to bind with EINVAL).
+                //   • TOPICS_EMBEDDED=1 — self-contained-bundle flag: keeps the
+                //     gateway/journal integrations off. It ALSO disables the PTY
+                //     bridge UNLESS a bundled runtime re-enables it (see below).
+                .env("TOPICS_DATA_DIR", data_dir.to_string_lossy().to_string())
+                .env("DATA_DIR", data_dir.join("data").to_string_lossy().to_string())
+                .env("TOPICS_HOME", data_dir.join("home").to_string_lossy().to_string())
+                .env("TOPICS_EMBEDDED", "1");
+            match &bundled_pty {
+                // Bundled runtime present: hand the server the Node binary + bridge
+                // script it should spawn. This flips isPtyBridgeDisabled() to false
+                // (terminal.ts) so terminals work, while the DATA_DIR-derived socket
+                // above keeps them isolated from any real server.
+                Some((node, bridge)) => {
+                    c = c
+                        .env("TOPICS_NODE_BIN", node.to_string_lossy().to_string())
+                        .env("TOPICS_PTY_BRIDGE_PATH", bridge.to_string_lossy().to_string());
+                }
+                // No bundled runtime: keep the hard kill-switch. A virgin machine has
+                // no external bridge and the compiled binary can't spawn one itself
+                // (node-pty needs Node, which Bun isn't), so terminals answer 503.
+                None => {
+                    c = c.env("TOPICS_DISABLE_PTY_BRIDGE", "1");
+                }
+            }
+            c
+        }
         Err(e) => {
             eprintln!("[sidecar] sidecar() resolve failed: {e} — falling back to external target");
             let _ = UPSTREAM.set(Upstream { port: DEFAULT_UPSTREAM_PORT, tls: true });
