@@ -70,3 +70,23 @@ objc = "0.2"
 # handler block; we bridge its async result back to the synchronous command via
 # a channel. Pins the same 0.1.x already in the tree (transitive from cocoa/objc).
 block = "0.1"
+# Native banner delivery via the modern UserNotifications framework. The plugin
+# path (tauri-plugin-notification → notify-rust → mac-notification-sys) posts
+# through the DEPRECATED NSUserNotificationCenter, which macOS 26's usernoted
+# refuses outright ("no notification allowed to be sent to it") — banners were
+# silently dropped and the app never appeared in Settings → Notifications. We
+# post UNNotificationRequests ourselves and request authorization at setup.
+# Versions pin the objc2 stack already in the tree (transitive from tauri/wry).
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSError"] }
+block2 = "0.6"
+objc2-user-notifications = { version = "0.3", features = [
+    "UNUserNotificationCenter",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationTrigger",
+    "UNNotification",
+    "UNNotificationResponse",
+    "UNNotificationSettings",
+    "block2",
+] }
