@@ -6,7 +6,7 @@ import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
-import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
+import { getPaneConfig, getTerminalSessionFromPaneId, isTerminalPaneId, isBrowserPaneId, pinKeyForPane, type ProjectTabStatus, type PaneScope } from '../../state/pane/adapters';
 import { signalsActions, useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
@@ -937,16 +937,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           style={{ top: ctxMenu.y, left: ctxMenu.x, zIndex: Z_CONTEXT_MENU }}
         >
           {/* "Fissa" / "Rimuovi dai Fissati" — sidebar pinning parity for tabs.
-              Pin key is the sidebar-item id: a chat's bare topicId, or the
-              terminal pane id `terminal:<sessionId>` (which is the pane id).
-              Only chat + terminal tabs have a pinnable sidebar row. Hidden when
-              the host doesn't wire onToggleFissato (project tab bars). */}
+              Pin key = the sidebar-item id, resolved by the canonical
+              pinKeyForPane so every pinnable type (chat, terminal, browser,
+              project) is covered from one place — previously this was inlined
+              as chat|terminal only, which silently hid "Fissa" on browser tabs.
+              Returns undefined for non-pinnable panes → item hidden. Also hidden
+              when the host doesn't wire onToggleFissato (project tab bars). */}
           {onToggleFissato && (() => {
             const pane = panes.find(p => p.id === ctxMenu.paneId);
             if (!pane) return null;
-            const pinKey = pane.type === 'chat'
-              ? pane.topicId
-              : isTerminalPaneId(pane.id) ? pane.id : undefined;
+            const pinKey = pinKeyForPane(pane);
             if (!pinKey) return null;
             const pinned = isFissato?.(pinKey) ?? false;
             return (

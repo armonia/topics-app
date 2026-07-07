@@ -196,6 +196,10 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       notificationCount: 0,
       archived: false,
       ...(projectPath ? { projectPath } : {}),
+      // Pin parity with chat/terminal/project rows: a pinned browser renders the
+      // pin glyph and floats into the Fissati block. Was missing, so toggling a
+      // browser pin was invisible even where the affordance existed.
+      ...(pinnedIds.has(paneId) ? { pinned: true } : {}),
       browser: bc ?? { id: contextId, url: '', title: '', lastActivity: 0 },
     };
   };
@@ -493,11 +497,19 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // `BrowserContextInfo` exists, use its title / url for the row label;
   // if not, fall back to "Browser". Either way the sidebar always lists
   // every open browser pane.
-  // Top-level browser panes (openPanels). Project-internal ones are already
-  // emitted as nested project children above (projectInternalBrowserIds), so
-  // skip them here to avoid a duplicate top-level row.
+  // Top-level browser panes (openPanels) PLUS any pinned browser whose tab has
+  // been closed — the pinned escape, mirroring standalone terminals (§4): a
+  // pinned browser survives its tab closing so it stays in the Fissati block.
+  // Project-internal browsers are already emitted as nested project children
+  // above (projectInternalBrowserIds), so skip them here to avoid a duplicate.
+  const topLevelBrowserIds = new Set<string>();
   for (const paneId of openPanelSet) {
-    if (!paneId.startsWith('browser:')) continue;
+    if (paneId.startsWith('browser:')) topLevelBrowserIds.add(paneId);
+  }
+  for (const paneId of pinnedIds) {
+    if (paneId.startsWith('browser:')) topLevelBrowserIds.add(paneId);
+  }
+  for (const paneId of topLevelBrowserIds) {
     if (projectInternalBrowserIds.has(paneId)) continue;
     items.push(buildBrowserItem(paneId));
   }
