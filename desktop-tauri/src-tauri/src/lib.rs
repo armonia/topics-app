@@ -612,13 +612,22 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
                         // Close at LEFT_INSET, each subsequent button one PITCH to the
                         // right — a fixed tight cluster regardless of AppKit's default.
                         f.origin.x = LEFT_INSET + (i as f64) * PITCH;
-                        // y=12 from the TOP of the titlebar container, in whichever
-                        // coordinate orientation the superview uses.
+                        // Vertically center the cluster on the APP's own titlebar, not
+                        // the shorter native strip the buttons live in. Measured: the
+                        // AppKit titlebar container is 32px tall and top-flush with the
+                        // window, but the app draws a 40px drag-region header
+                        // (App.tsx `.app-drag-region` = h-10) under it (Overlay style),
+                        // so centering in the 32px strip left the lights ~4px high in
+                        // the visual band. Target the 40px header's center instead; the
+                        // 14px buttons still fit inside the 32px strip (span 13..27px).
+                        const APP_TITLEBAR_H: f64 = 40.0;
+                        let center_from_top = APP_TITLEBAR_H / 2.0;
                         f.origin.y = if flipped {
-                            12.0
+                            center_from_top - f.size.height / 2.0
                         } else {
-                            svb.size.height - 12.0 - f.size.height
-                        };
+                            svb.size.height - center_from_top - f.size.height / 2.0
+                        }
+                        .max(0.0);
                         // Clamp inside the container so a surprising bounds/frame
                         // can never push a button out of view. Worst case the
                         // group crowds an edge — still on screen, still clickable.
