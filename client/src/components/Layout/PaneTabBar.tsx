@@ -893,6 +893,25 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <Cloud size={11} />
               </span>
             )}
+            {/* Pinned ("Fissato") cue — parity with the sidebar rows, which show
+                a Pin glyph on pinned chat/terminal/browser/project rows. Same
+                canonical pinKeyForPane the context menu uses, so every pinnable
+                type gets the indicator consistently. Only rendered when the host
+                wires isFissato (standalone tab bars; project tab bars don't). */}
+            {isFissato && (() => {
+              const pk = pinKeyForPane(pane);
+              if (!pk || !isFissato(pk)) return null;
+              return (
+                <span
+                  className={`ml-0.5 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
+                  title="Fissato"
+                  data-testid="tab-pinned"
+                  aria-label="Fissato"
+                >
+                  <Pin size={11} />
+                </span>
+              );
+            })()}
             {/* The split position mini-map lives on the SIDEBAR topic cards
                 only (user preference), NOT on the top tab bar — see
                 Sidebar/TopicItem + SplitMiniMap (fed by SplitPositionContext).
