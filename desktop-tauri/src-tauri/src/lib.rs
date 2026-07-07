@@ -1908,8 +1908,18 @@ fn browser_open(
         // discarding the user's in-progress page/scroll/form state. Skip the
         // navigate when we're already there; explicit browser_navigate (user
         // re-entering a URL) still reloads as before.
-        let already_here = match (wv.url(), url.parse::<tauri::Url>()) {
-            (Ok(cur), Ok(want)) => cur == want,
+        // wv.url() reaches into wry's `url_from_webview`, which `unwrap()`s the
+        // WKWebView's URL string — that's `nil` for a webview that hasn't
+        // committed a load yet (freshly (re)mounted pane), so the raw call
+        // PANICS → SIGABRT (observed crash: browser_open → url_from_webview →
+        // unwrap_failed). Isolate it behind catch_unwind: a nil/failed URL just
+        // means "not already here", so we fall through and navigate (safe — a
+        // not-yet-loaded pane has no in-progress state to clobber).
+        let cur_url = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| wv.url().ok()))
+            .ok()
+            .flatten();
+        let already_here = match (cur_url, url.parse::<tauri::Url>()) {
+            (Some(cur), Ok(want)) => cur == want,
             _ => false,
         };
         if !already_here {
