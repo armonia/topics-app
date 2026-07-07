@@ -47,6 +47,10 @@ export function ContextMenuPortal({ open, x, y, onClose, children, minWidth = 16
   // Measure the real menu and clamp it inside the viewport BEFORE paint, so it
   // never spills off-screen and never flashes at the raw cursor point.
   useLayoutEffect(() => {
+    // Clear the measured position on close so the next open re-measures from
+    // scratch (no flash at the previous menu's spot). Paired with the measure
+    // below, this reset belongs in the same layout effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!open) { setPos(null); return; }
     const el = menuRef.current;
     const w = el?.offsetWidth ?? minWidth;

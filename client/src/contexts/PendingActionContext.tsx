@@ -22,6 +22,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -91,7 +92,11 @@ export function PendingActionProvider({
   // setState's updater runs during the next render/commit, which never happens
   // on `pagehide`, so relying on it would silently skip every commit.
   const entriesRef = useRef<PendingActionEntry[]>(entries);
-  entriesRef.current = entries;
+  // Mirror in a LAYOUT effect (not during render) to satisfy react-hooks/refs
+  // while closing the async gap a passive effect would leave: `flushAll` reads
+  // entriesRef.current on `pagehide`, so the mirror must commit synchronously
+  // within React's work loop, before the browser can dispatch the unload event.
+  useLayoutEffect(() => { entriesRef.current = entries; });
   // Per-key commit timers so cancels are cheap (no need to scan).
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 

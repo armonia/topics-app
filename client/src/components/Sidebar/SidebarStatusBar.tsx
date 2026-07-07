@@ -128,10 +128,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   // signal that a local change landed. A genuinely shipped release is >24h old,
   // so the chip auto-hides there instead of being a meaningless ever-growing
   // counter (the earlier "30s fa che non è vero" complaint).
-  let buildIsRecent = false;
-  try {
-    buildIsRecent = !!BUILD_TIME && (Date.now() - new Date(BUILD_TIME).getTime()) < 24 * 60 * 60 * 1000;
-  } catch { buildIsRecent = false; }
+  // Evaluated once at mount via a lazy initializer — the wall-clock read stays
+  // out of the (pure) render body, and a coarse 24h "recent build" boolean has
+  // no reason to re-tick mid-session.
+  const [buildIsRecent] = useState(() => {
+    try {
+      return !!BUILD_TIME && (Date.now() - new Date(BUILD_TIME).getTime()) < 24 * 60 * 60 * 1000;
+    } catch { return false; }
+  });
 
   // The two REAL process figures: the Topics shell (Tauri) and the Bun server (a
   // separate OS process). We do NOT invent a whole-app total — the WKWebView
@@ -196,7 +200,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
 
   // Version chip → info + auto-update popover.
   const [showVersionPopover, setShowVersionPopover] = useState(false);
-  const versionBtnRef = useRef<HTMLButtonElement>(null);
+  // Anchor captured at click (not read from a ref during render) so the popover
+  // positions against the live button without tripping react-hooks/refs.
+  const [versionAnchor, setVersionAnchor] = useState<HTMLButtonElement | null>(null);
 
   // While the dropdown is open, hold the FPS monitor in its live (continuous,
   // 1Hz) cadence so the sparkline updates in real time. It drops back to cheap
@@ -349,9 +355,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
         <span className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[11px] text-app-text-muted tabular-nums whitespace-nowrap">
           {appVersion && (
             <button
-              ref={versionBtnRef}
               data-version-anchor
-              onClick={() => setShowVersionPopover(v => !v)}
+              onClick={(e) => { setVersionAnchor(e.currentTarget); setShowVersionPopover(v => !v); }}
               className={`text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded px-1 -mx-0.5 transition-colors ${showVersionPopover ? 'bg-app-hover text-app-text-secondary' : ''}`}
               title="Info versione e aggiornamenti"
             >
@@ -416,7 +421,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
 
       {showVersionPopover && (
         <VersionPopover
-          anchorEl={versionBtnRef.current}
+          anchorEl={versionAnchor}
           appVersion={appVersion}
           isDev={isDev}
           buildDate={BUILD_TIME ? formatBuildDate(BUILD_TIME) : ''}

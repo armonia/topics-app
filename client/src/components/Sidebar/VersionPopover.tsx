@@ -4,7 +4,7 @@
  * user can check / download / install updates from one place. In web mode it
  * falls back to the service-worker update hint.
  */
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RefreshCw, Check, AlertCircle, Rocket } from 'lucide-react';
 import { useUpdater } from '@/lib/updater';
@@ -46,7 +46,10 @@ export function VersionPopover({
   // Ref view of the raw anchor element so it counts as "inside" for dismissal
   // and acts as the focus-restore trigger (refs[0]).
   const anchorRef = useRef<HTMLElement | null>(null);
-  anchorRef.current = anchorEl;
+  // Mirror the raw anchor into a ref in an effect (not during render) to satisfy
+  // react-hooks/refs; useDismissable reads it only inside its own effect, which
+  // runs after this one.
+  useEffect(() => { anchorRef.current = anchorEl; });
   const { available, status, check, download, install } = useUpdater();
   const { updateAvailable: swUpdate } = useServiceWorkerUpdate();
 
