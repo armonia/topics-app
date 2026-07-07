@@ -1198,18 +1198,6 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
       <span className="flex-1 truncate" title={bc.url}>
         {itemName}
       </span>
-      {/* Pin glyph — trailing rail, same "Fissato" indicator as the chat /
-          terminal / project rows (was missing here, so a pinned browser showed
-          the Fissati block placement but no per-row glyph). */}
-      {pinned && (
-        <span
-          className="flex-shrink-0 flex items-center text-app-text-tertiary mr-1"
-          title="Fissato"
-          aria-label="Fissato"
-        >
-          <Pin size={12} />
-        </span>
-      )}
       <span className="flex-shrink-0 text-[11px] text-app-text-tertiary tabular-nums group-hover:hidden mr-1">
         {relativeTime(bc.lastActivity)}
       </span>
@@ -1218,6 +1206,21 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
           signal (useBrowserLoading) and component the browser TAB uses. No
           right margin so it sits flush when the close slot is hidden. */}
       <BrowserStreamingSpinner paneId={`browser:${bc.id}`} className="ml-0.5" />
+      {/* Pin glyph — same "Fissato" indicator as chat / terminal / project rows.
+          Placed as the trailing-most PERSISTENT element (after the timestamp +
+          spinner, before the hover-only close slot) so it lands in the SAME
+          column as the other rows' pins — putting it before the timestamp pushed
+          it left and broke the alignment. Applies to both project-nested and
+          top-level browser rows (same component). */}
+      {pinned && (
+        <span
+          className="flex-shrink-0 flex items-center text-app-text-tertiary ml-1"
+          title="Fissato"
+          aria-label="Fissato"
+        >
+          <Pin size={12} />
+        </span>
+      )}
       {onCloseBrowser && (
         // Hover-only close slot (or visible while a close is pending) so the
         // spinner above sits FLUSH at the trailing edge at rest — reserving it
