@@ -1109,6 +1109,33 @@ export function autoNameClaudeSession(claudeSessionId: string, transcriptPath?: 
 }
 
 /**
+ * Safety-net sweep: re-derive the auto-name for EVERY live Claude session, not
+ * just the one whose hook fired. `autoNameClaudeSession` is normally driven by
+ * the UserPromptSubmit/Stop hooks (claude-hooks), but a session whose hooks never
+ * reach the server — started outside the app flow, or a `claude_session_id` that
+ * drifted after a `--resume` — keeps the generic "Claude Code" label forever even
+ * though its transcript already carries a perfectly good title. This closes that
+ * gap. Cheap and idempotent: autoNameClaudeSession no-ops when the name is
+ * user-owned, unchanged, or underivable (missing transcript), and transcript
+ * reads are incremental via the scan cache. Best-effort — never throws.
+ */
+export function sweepAutoNameClaudeSessions(): void {
+  for (const s of sessions.values()) {
+    if ((s.type === "claude-code" || s.type === "claude-code-team") &&
+        s.nameSource !== "user" && s.claudeSessionId) {
+      try { autoNameClaudeSession(s.claudeSessionId); } catch { /* best-effort */ }
+    }
+  }
+}
+
+// Kick a first sweep once the boot reconcile has populated the session map, then
+// keep a low-frequency net running so a session that never gets a hook still
+// picks up its title within a minute. Unref'd — never holds the process open.
+const AUTO_NAME_SWEEP_MS = 45_000;
+setTimeout(() => { try { sweepAutoNameClaudeSessions(); } catch { /* best-effort */ } }, 8_000).unref?.();
+setInterval(() => { try { sweepAutoNameClaudeSessions(); } catch { /* best-effort */ } }, AUTO_NAME_SWEEP_MS).unref?.();
+
+/**
  * Auto-label a Codex terminal tab from its rollout's user prompts (Codex has no
  * `ai-title` event, so the label tracks the user's own text — see
  * codex-transcript-title.ts). The Codex analogue of autoNameClaudeSession:
