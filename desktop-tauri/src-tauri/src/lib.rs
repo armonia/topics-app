@@ -581,14 +581,25 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
                 // off-screen.
                 let looks_like_titlebar = sv0 != nil && svb.size.height > 0.0 && svb.size.height < 60.0;
                 if looks_like_titlebar {
-                    let first: NSRect = msg_send![close, frame];
-                    let dx = 12.0 - first.origin.x;
                     let flipped: bool = msg_send![sv0, isFlipped];
-                    for button in [
+                    // Explicit, uniform x positions instead of preserving AppKit's
+                    // natural spacing: on this custom-titlebar (hidden-title Overlay)
+                    // window AppKit lays the standard buttons out with a wider-than-
+                    // native pitch, so the cluster reads as "too far apart". Pin each
+                    // button to LEFT_INSET + i*PITCH to reproduce the native tight
+                    // group. LEFT_INSET=12 keeps Electron's trafficLightPosition.x;
+                    // PITCH=20 is the standard macOS traffic-light origin spacing
+                    // (~14px buttons, ~6px gap).
+                    const LEFT_INSET: f64 = 12.0;
+                    const PITCH: f64 = 20.0;
+                    for (i, button) in [
                         NSWindowButton::NSWindowCloseButton,
                         NSWindowButton::NSWindowMiniaturizeButton,
                         NSWindowButton::NSWindowZoomButton,
-                    ] {
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
                         let b: id = ptr.standardWindowButton_(button);
                         if b == nil {
                             continue;
@@ -598,9 +609,9 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
                             continue;
                         }
                         let mut f: NSRect = msg_send![b, frame];
-                        // Shift the whole group so the close button sits at x=12,
-                        // preserving AppKit's natural inter-button spacing.
-                        f.origin.x += dx;
+                        // Close at LEFT_INSET, each subsequent button one PITCH to the
+                        // right — a fixed tight cluster regardless of AppKit's default.
+                        f.origin.x = LEFT_INSET + (i as f64) * PITCH;
                         // y=12 from the TOP of the titlebar container, in whichever
                         // coordinate orientation the superview uses.
                         f.origin.y = if flipped {
