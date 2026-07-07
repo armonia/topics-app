@@ -179,8 +179,10 @@ function probeBridge(timeoutMs = 1500) {
       conn.write(JSON.stringify({
         type: 'create',
         id: probeId,
-        shell: '/bin/true',
-        args: [],
+        // `/bin/sh -c :` — the most portable trivial-exit spawn. /bin/true was
+        // dropped on macOS 26 (only /usr/bin/true remains); /bin/sh is universal.
+        shell: '/bin/sh',
+        args: ['-c', ':'],
         cwd: '/tmp',
         cols: 80,
         rows: 24,

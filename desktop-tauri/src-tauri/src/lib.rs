@@ -308,63 +308,39 @@ fn sidecar_data_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
     dir
 }
 
-/// Resolve the bundled PTY runtime shipped under `Resources/pty-runtime`:
-/// `(node_binary, pty-bridge.mjs)`. Staged by scripts/stage-pty-runtime.sh — an
-/// official (self-contained) Node dist, the bridge script, and node-pty with its
-/// N-API prebuilds — and listed in tauri.conf.json `bundle.resources`.
+/// Resolve the bundled **Rust PTY bridge** sidecar (`binaries/pty-bridge-<triple>` →
+/// bundled beside the app binary in `Contents/MacOS/pty-bridge`). It's a ~0.5 MB
+/// self-contained, wire-compatible port of pty-bridge.mjs that the compiled Bun
+/// sidecar spawns for terminals on a virgin install — Bun itself can't run node-pty.
 ///
-/// Returns `Some` only when BOTH files exist, so a bundle built without staging
-/// (or an older release) transparently keeps the standalone kill-switch. On unix
-/// the copied `node` (and node-pty's `spawn-helper`) may lose their exec bit
-/// through packaging, so we re-assert it here — a non-executable node would fail
-/// the spawn and silently drop back to "no terminals".
-fn bundled_pty_runtime(app: &tauri::AppHandle) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
-    use tauri::Manager;
-    let res = app.path().resource_dir().ok()?;
-    let root = res.join("pty-runtime");
-    let node = root.join(if cfg!(windows) { "node.exe" } else { "node" });
-    let bridge = root.join("pty-bridge.mjs");
-    if !node.exists() || !bridge.exists() {
+/// Returns `Some` only when the binary exists (macOS + Linux; on Windows the sidecar
+/// is a no-op stub and this returns None → standalone keeps its 503 kill-switch). On
+/// unix the packaged binary can lose its exec bit, so we re-assert it — a
+/// non-executable bridge would fail to spawn and silently drop back to "no terminals".
+fn bundled_pty_bridge_bin() -> Option<std::path::PathBuf> {
+    // Windows ships only a no-op stub; don't advertise a bridge there.
+    if cfg!(windows) {
+        return None;
+    }
+    // Tauri places externalBin sidecars beside the app executable.
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let bin = dir.join("pty-bridge");
+    if !bin.exists() {
         return None;
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let ensure_exec = |p: &std::path::Path| {
-            if let Ok(meta) = std::fs::metadata(p) {
-                let mut perm = meta.permissions();
-                if perm.mode() & 0o111 == 0 {
-                    perm.set_mode(perm.mode() | 0o755);
-                    let _ = std::fs::set_permissions(p, perm);
-                }
-            }
-        };
-        ensure_exec(&node);
-        // node-pty forks a `spawn-helper` next to its prebuilt pty.node on macOS;
-        // it must stay executable too or every pty spawn fails with posix_spawnp.
-        for entry in glob_spawn_helpers(&root) {
-            ensure_exec(&entry);
-        }
-    }
-    Some((node, bridge))
-}
-
-/// Best-effort find of node-pty's `spawn-helper` binaries under the staged
-/// runtime (`pty-runtime/node_modules/node-pty/prebuilds/*/spawn-helper`), so we
-/// can re-assert their exec bit. Never fails — a missing tree just yields none.
-#[cfg(unix)]
-fn glob_spawn_helpers(root: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let prebuilds = root.join("node_modules/node-pty/prebuilds");
-    let mut out = Vec::new();
-    if let Ok(dirs) = std::fs::read_dir(&prebuilds) {
-        for d in dirs.flatten() {
-            let helper = d.path().join("spawn-helper");
-            if helper.exists() {
-                out.push(helper);
+        if let Ok(meta) = std::fs::metadata(&bin) {
+            let mut perm = meta.permissions();
+            if perm.mode() & 0o111 == 0 {
+                perm.set_mode(perm.mode() | 0o755);
+                let _ = std::fs::set_permissions(&bin, perm);
             }
         }
     }
-    out
+    Some(bin)
 }
 
 /// Boot decision: if a Topics server already answers on :3333 (external launchd /
@@ -407,12 +383,11 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
         "[sidecar] no external server; spawning bundled sidecar on :{port} (data: {})",
         data_dir.display()
     );
-    // A bundled PTY runtime (official Node + pty-bridge.mjs + node-pty prebuilds,
-    // staged into Resources/pty-runtime by scripts/stage-pty-runtime.sh). Present →
-    // this "standalone" sidecar can run a REAL PTY bridge, so shell/claude-code tabs
-    // work on a virgin install. Absent (older bundle / unstaged dev build) → None,
-    // and we keep today's hard kill-switch so nothing regresses.
-    let bundled_pty = bundled_pty_runtime(&app);
+    // The bundled Rust PTY-bridge sidecar (binaries/pty-bridge → Contents/MacOS/
+    // pty-bridge). Present → this "standalone" sidecar can run a REAL PTY bridge, so
+    // shell/claude-code tabs work on a virgin install. Absent (Windows stub / older
+    // bundle / dev build without the sidecar) → None, keeping today's kill-switch.
+    let bridge_bin = bundled_pty_bridge_bin();
     let cmd = match app.shell().sidecar("topics-server") {
         Ok(c) => {
             let mut c = c
@@ -439,24 +414,22 @@ async fn decide_upstream_and_spawn(app: tauri::AppHandle) {
                 //     socket path >104 bytes fails to bind with EINVAL).
                 //   • TOPICS_EMBEDDED=1 — self-contained-bundle flag: keeps the
                 //     gateway/journal integrations off. It ALSO disables the PTY
-                //     bridge UNLESS a bundled runtime re-enables it (see below).
+                //     bridge UNLESS a bundled bridge re-enables it (see below).
                 .env("TOPICS_DATA_DIR", data_dir.to_string_lossy().to_string())
                 .env("DATA_DIR", data_dir.join("data").to_string_lossy().to_string())
                 .env("TOPICS_HOME", data_dir.join("home").to_string_lossy().to_string())
                 .env("TOPICS_EMBEDDED", "1");
-            match &bundled_pty {
-                // Bundled runtime present: hand the server the Node binary + bridge
-                // script it should spawn. This flips isPtyBridgeDisabled() to false
-                // (terminal.ts) so terminals work, while the DATA_DIR-derived socket
-                // above keeps them isolated from any real server.
-                Some((node, bridge)) => {
-                    c = c
-                        .env("TOPICS_NODE_BIN", node.to_string_lossy().to_string())
-                        .env("TOPICS_PTY_BRIDGE_PATH", bridge.to_string_lossy().to_string());
+            match &bridge_bin {
+                // Bundled Rust bridge present: hand the server the binary to spawn.
+                // This flips isPtyBridgeDisabled() to false (terminal.ts) so terminals
+                // work, while the DATA_DIR-derived socket above keeps them isolated
+                // from any real server.
+                Some(bin) => {
+                    c = c.env("TOPICS_PTY_BRIDGE_BIN", bin.to_string_lossy().to_string());
                 }
-                // No bundled runtime: keep the hard kill-switch. A virgin machine has
-                // no external bridge and the compiled binary can't spawn one itself
-                // (node-pty needs Node, which Bun isn't), so terminals answer 503.
+                // No bundled bridge (Windows stub / older bundle): keep the hard
+                // kill-switch — a virgin machine has no external bridge and Bun can't
+                // run one itself, so terminals answer 503.
                 None => {
                     c = c.env("TOPICS_DISABLE_PTY_BRIDGE", "1");
                 }

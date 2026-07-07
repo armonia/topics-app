@@ -1,0 +1,37 @@
+[package]
+name = "pty-bridge"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone PTY-bridge daemon — a Rust port of server/pty-bridge.mjs. Shipped as a
+# Tauri externalBin sidecar (`binaries/pty-bridge-<triple>`) so the compiled Bun
+# server, which CANNOT run node-pty under Bun, can still spawn shell/claude-code PTYs
+# on a virgin install. Zero Node dependency, ~1–2 MB. Separate crate (like cef-spike)
+# so its deps never touch the validated Tier-1 app in src-tauri/.
+#
+# Wire protocol (line-delimited JSON over a Unix socket) is byte-compatible with the
+# Node bridge the server already speaks; the server picks this binary via
+# TOPICS_PTY_BRIDGE_BIN (set by desktop-tauri lib.rs).
+
+[[bin]]
+name = "pty-bridge"
+path = "src/main.rs"
+
+[dependencies]
+portable-pty = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+signal-hook = "0.3"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+# panic = "unwind" (the default): a panic inside one client's message handler is
+# caught (catch_unwind) so it can't abort the daemon and drop every live PTY —
+# mirroring the Node bridge's per-message try/catch.

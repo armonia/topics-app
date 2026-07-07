@@ -11,7 +11,7 @@ import net from "net";
 import { ensureBridge, isPtyBridgeDisabled } from "./terminal";
 
 const FLAGS = ["TOPICS_DISABLE_PTY_BRIDGE", "TOPICS_EMBEDDED"] as const;
-const BUNDLE_ENV = ["TOPICS_NODE_BIN", "TOPICS_PTY_BRIDGE_PATH"] as const;
+const BUNDLE_ENV = ["TOPICS_PTY_BRIDGE_BIN", "TOPICS_NODE_BIN", "TOPICS_PTY_BRIDGE_PATH"] as const;
 
 afterEach(() => {
   for (const f of FLAGS) delete process.env[f];
@@ -30,10 +30,20 @@ test("isPtyBridgeDisabled reads both flag spellings, live", () => {
   expect(isPtyBridgeDisabled()).toBe(false);
 });
 
-test("a bundled bridge (node + bridge path) RE-ENABLES terminals even under a standalone flag", () => {
-  // The fresh-install fix: the Tauri shell ships Node + pty-bridge.mjs and points
-  // the otherwise-standalone sidecar at them. Both envs must be set to flip the gate;
-  // one alone is not enough (a half-configured bundle stays safely disabled).
+test("the bundled Rust bridge binary RE-ENABLES terminals even under a standalone flag", () => {
+  // The fresh-install fix: the Tauri shell ships a self-contained Rust bridge binary
+  // and points the otherwise-standalone sidecar at it via TOPICS_PTY_BRIDGE_BIN.
+  process.env.TOPICS_EMBEDDED = "1";
+  expect(isPtyBridgeDisabled()).toBe(true);
+
+  process.env.TOPICS_PTY_BRIDGE_BIN = "/Applications/Topics.app/Contents/MacOS/pty-bridge";
+  expect(isPtyBridgeDisabled()).toBe(false); // Rust bridge present — terminals allowed
+});
+
+test("the legacy bundled Node bridge (node + bridge path) also RE-ENABLES terminals", () => {
+  // Back-compat: a non-Rust bundle can still hand over Node + pty-bridge.mjs. BOTH
+  // envs must be set to flip the gate; one alone is not enough (a half-configured
+  // bundle stays safely disabled).
   process.env.TOPICS_EMBEDDED = "1";
   expect(isPtyBridgeDisabled()).toBe(true);
 
