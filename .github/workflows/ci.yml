@@ -121,7 +121,11 @@ jobs:
       - name: Resolve Chromium path (Linux)
         id: chromium
         run: |
-          bin="$(find "$HOME/.cache/ms-playwright" -maxdepth 2 -type f -name chrome -path '*chrome-linux*' | sort -V | tail -1)"
+          # The headed binary lives at chromium-<rev>/chrome-linux/chrome —
+          # depth 3 under ms-playwright, so -maxdepth 2 never reached it. The
+          # -name chrome + chrome-linux path filter skips the headless_shell
+          # sibling (chromium_headless_shell-<rev>/…/headless_shell).
+          bin="$(find "$HOME/.cache/ms-playwright" -maxdepth 3 -type f -name chrome -path '*chrome-linux*' | sort -V | tail -1)"
           test -x "$bin"
           echo "path=$bin" >> "$GITHUB_OUTPUT"
 
