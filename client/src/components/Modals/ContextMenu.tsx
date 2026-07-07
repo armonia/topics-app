@@ -62,6 +62,10 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
     const h = el?.offsetHeight ?? 260;
     const left = Math.max(8, Math.min(x, window.innerWidth - w - 8));
     const top = Math.max(8, Math.min(y, window.innerHeight - h - 8));
+    // Position depends on the MOUNTED menu's measured size (offsetWidth/Height),
+    // unknowable during render — this is the canonical measure-then-place, which
+    // legitimately commits state from a layout effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPos({ left, top });
   }, [x, y, subMenu]);
 

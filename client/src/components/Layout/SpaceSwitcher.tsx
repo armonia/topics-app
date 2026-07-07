@@ -24,7 +24,6 @@ import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useDismissable } from '../../hooks/useDismissable';
 import { usePaneStore } from '../../state/pane/store';
-import { selectVisiblePaneIds } from '../../state/pane/selectors';
 import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID, SPACES_MAX, type SpaceMeta, type Pane } from '../../state/pane/types';
 import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
@@ -32,30 +31,15 @@ import { useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { SELECTED_SURFACE, RESTING_SURFACE, ROW_INSET } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
-import { generateUUID } from '../../utils/uuid';
 import { clearPanelGridStorage } from './usePanelGridPersistence';
+import {
+  DEFAULT_SPACE_LABEL,
+  liveSpacesOrdered,
+  createSpaceId,
+  nextSpaceName,
+  isDetachedWindow,
+} from './spaceHelpers';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
-
-/** Label for the implicit default space (never stored in the registry). */
-export const DEFAULT_SPACE_LABEL = 'Principale';
-
-/** Live (non-deleted) spaces, ordered — the switcher's chip list after the
- *  default chip. */
-export function liveSpacesOrdered(spaces: Record<string, SpaceMeta>): SpaceMeta[] {
-  return Object.values(spaces)
-    .filter((s) => !s.deleted)
-    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
-}
-
-/** Mint a fresh space id (`space:` prefix per the coherence ruling). */
-export function createSpaceId(): string {
-  return `space:${generateUUID()}`;
-}
-
-/** Default name for the Nth user space ("Spazio 2", …). */
-export function nextSpaceName(spaces: Record<string, SpaceMeta>): string {
-  return `Spazio ${liveSpacesOrdered(spaces).length + 2}`;
-}
 
 interface AttentionSets {
   awaitingInputTopics: Set<string>;
@@ -105,44 +89,6 @@ function spaceAttentionTier(
     }
   }
   return hasDone ? 'done' : null;
-}
-
-/** Detached pop-out windows (`?topic=`) skip every pane-store bridge — the
- *  switcher (and the "Sposta nello Spazio" menu) must not render there
- *  (coherence ruling 3.8). */
-export function isDetachedWindow(): boolean {
-  try {
-    return new URLSearchParams(window.location.search).has('topic');
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Move an app-level pane to another Spazio ("Sposta nello Spazio →"). The
- * membership write is a plain UPDATE_PANE (spaceId is a synced Pane field);
- * the default space is encoded as ABSENT. If the moved pane was the focused
- * one it just left the visible set — hand focus to the first pane still
- * visible (or null) BEFORE the focus-follow effect could yank the window to
- * the target space. No auto-switch: Arc semantics, the tab travels quietly.
- */
-export function movePaneToSpace(paneId: string, targetSpaceId: string): void {
-  const s = usePaneStore.getState();
-  const pane = s.panes[paneId];
-  if (!pane) return;
-  if (resolvePaneSpace(pane, s.spaces) === targetSpaceId) return; // already there
-  s.dispatch({
-    type: 'UPDATE_PANE',
-    payload: {
-      id: paneId,
-      updates: { spaceId: targetSpaceId === DEFAULT_SPACE_ID ? undefined : targetSpaceId },
-    },
-  });
-  const after = usePaneStore.getState();
-  if (after.focusedPaneId === paneId) {
-    const visible = selectVisiblePaneIds(after);
-    after.dispatch({ type: 'FOCUS_PANE', payload: { id: visible[0] ?? null } });
-  }
 }
 
 interface ChipMenuState {

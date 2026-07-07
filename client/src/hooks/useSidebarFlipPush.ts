@@ -66,7 +66,12 @@ export function useSidebarFlipPush(
     const firstLeft = layer.getBoundingClientRect().left;
 
     // (2) Commit the final pad + clear any prior transform so Last is the clean layout.
+    // Imperative DOM control is this hook's whole purpose (see header): `content`
+    // and `layer` are DOM nodes read from the ref args, not the ref objects /
+    // props themselves, so react-hooks/immutability mis-targets them here.
+    // eslint-disable-next-line react-hooks/immutability
     content.style.paddingLeft = `${targetPad}px`;
+    // eslint-disable-next-line react-hooks/immutability
     layer.style.transition = 'none';
     layer.style.transform = 'none';
 
