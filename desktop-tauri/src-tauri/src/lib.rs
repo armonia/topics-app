@@ -805,13 +805,162 @@ fn set_theme(app: tauri::AppHandle, theme: String) {
     let _ = (app, theme);
 }
 
+/// Native banner delivery via the modern `UserNotifications` framework.
+///
+/// The plugin path (tauri-plugin-notification → notify-rust → mac-notification-sys)
+/// posts through the DEPRECATED `NSUserNotificationCenter`. macOS 26's usernoted
+/// refuses those legacy connections outright — "no notification allowed to be sent
+/// to it" — so every banner was silently dropped, and since nothing ever requested
+/// authorization (the desktop plugin hardcodes `PermissionState::Granted`) Topics
+/// never even appeared in System Settings → Notifications. This module posts
+/// `UNNotificationRequest`s directly and requests authorization once at setup.
+///
+/// Un-bundled processes (`cargo run` dev) MUST NOT touch `UNUserNotificationCenter`:
+/// `currentNotificationCenter()` raises an ObjC exception when there is no bundle
+/// proxy. Every entry point guards on `NSBundle.bundleIdentifier`; the caller falls
+/// back to the plugin path (at worst the old non-delivery, never a crash).
+#[cfg(target_os = "macos")]
+mod macos_notifications {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use block2::RcBlock;
+    use objc2::rc::Retained;
+    use objc2::runtime::{Bool, ProtocolObject};
+    use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
+    use objc2_foundation::{NSBundle, NSError, NSObject, NSObjectProtocol, NSString};
+    use objc2_user_notifications::{
+        UNAuthorizationOptions, UNMutableNotificationContent, UNNotification,
+        UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse,
+        UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    };
+
+    /// True when running from a real .app bundle (`bundleIdentifier` set).
+    pub fn is_bundled() -> bool {
+        NSBundle::mainBundle().bundleIdentifier().is_some()
+    }
+
+    struct DelegateIvars {
+        app: tauri::AppHandle,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[name = "TopicsNotificationDelegate"]
+        #[ivars = DelegateIvars]
+        struct NotificationDelegate;
+
+        unsafe impl NSObjectProtocol for NotificationDelegate {}
+
+        unsafe impl UNUserNotificationCenterDelegate for NotificationDelegate {
+            /// Without a delegate the framework SUPPRESSES banners while the app is
+            /// frontmost. Whether to notify at all is the CLIENT's call
+            /// (`decideTerminalBanner` / `notifyEvenWhenFocused`) — by the time the
+            /// shell is invoked the answer was already "yes", so always present.
+            #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+            fn will_present(
+                &self,
+                _center: &UNUserNotificationCenter,
+                _notification: &UNNotification,
+                completion: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
+            ) {
+                completion.call((UNNotificationPresentationOptions(
+                    UNNotificationPresentationOptions::Banner.0
+                        | UNNotificationPresentationOptions::List.0,
+                ),));
+            }
+
+            /// Click on a banner → surface the main window (parity with the old
+            /// terminal-notifier `-activate`). Delegate callbacks arrive on a
+            /// private queue; window work must hop to the main thread.
+            #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
+            fn did_receive(
+                &self,
+                _center: &UNUserNotificationCenter,
+                _response: &UNNotificationResponse,
+                completion: &block2::DynBlock<dyn Fn()>,
+            ) {
+                let app = self.ivars().app.clone();
+                let app2 = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    use tauri::Manager;
+                    if let Some(w) = app2.get_webview_window("main") {
+                        super::ensure_window_visible(&w);
+                    }
+                });
+                completion.call(());
+            }
+        }
+    );
+
+    /// Install the delegate + request authorization. Call once from `setup()`.
+    ///
+    /// The delegate is intentionally leaked: `UNUserNotificationCenter.delegate`
+    /// is a weak property, so somebody must hold a strong ref for the app's
+    /// lifetime. Authorization asks for `.alert` only — the completion tone is
+    /// played client-side (WebAudio), an OS sound would double it. Fire-and-forget:
+    /// a denial just means no banners (same silent contract as before), but the app
+    /// is now listed in System Settings → Notifications and can be re-enabled.
+    pub fn install(app: &tauri::AppHandle) {
+        if !is_bundled() {
+            return;
+        }
+        let delegate =
+            NotificationDelegate::alloc().set_ivars(DelegateIvars { app: app.clone() });
+        let delegate: Retained<NotificationDelegate> = unsafe { msg_send![super(delegate), init] };
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        std::mem::forget(delegate);
+        let done = RcBlock::new(|granted: Bool, _error: *mut NSError| {
+            log::info!(
+                "[topics] notification authorization granted={}",
+                granted.as_bool()
+            );
+        });
+        center.requestAuthorizationWithOptions_completionHandler(
+            UNAuthorizationOptions::Alert,
+            &done,
+        );
+    }
+
+    static NOTIF_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    /// Post one banner. Unique identifier per request — completion banners must
+    /// stack in the Notification Center, never coalesce/replace each other.
+    pub fn post(title: &str, body: &str) {
+        if !is_bundled() {
+            return;
+        }
+        let content = UNMutableNotificationContent::new();
+        content.setTitle(&NSString::from_str(title));
+        content.setBody(&NSString::from_str(body));
+        let id = format!(
+            "topics-notif-{}-{}",
+            std::process::id(),
+            NOTIF_SEQ.fetch_add(1, Ordering::Relaxed)
+        );
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
+            &NSString::from_str(&id),
+            &content,
+            None,
+        );
+        UNUserNotificationCenter::currentNotificationCenter()
+            .addNotificationRequest_withCompletionHandler(&request, None);
+    }
+}
+
 /// Fire a native OS notification (completion / idle toasts). The renderer's web
 /// `Notification` API is unreliable in a WKWebView shell, so the client routes
-/// through here under Tauri. Permission is requested by the plugin on first use
-/// (macOS shows the system prompt); a denied/failed show is a silent no-op — same
-/// observable contract as the web API, never an error the caller has to handle.
+/// through here under Tauri. Fire-and-forget: a denied/failed show is a silent
+/// no-op — same observable contract as the web API, never an error to the caller.
+/// macOS posts via `macos_notifications` (UserNotifications framework); the
+/// plugin/notify-rust path remains for Windows/Linux and un-bundled dev runs.
 #[tauri::command]
 fn notify(app: tauri::AppHandle, title: String, body: String) {
+    #[cfg(target_os = "macos")]
+    if macos_notifications::is_bundled() {
+        macos_notifications::post(&title, &body);
+        return;
+    }
     use tauri_plugin_notification::NotificationExt;
     let _ = app.notification().builder().title(title).body(body).show();
 }
@@ -4499,6 +4648,11 @@ pub fn run() {
             // the keydown. macOS-only (NSEvent local monitor); see the fn doc.
             #[cfg(target_os = "macos")]
             install_shortcut_forwarder(app.handle());
+
+            // UserNotifications delegate + one-time authorization request (first
+            // launch shows the system prompt). Bundled-only; see the module doc.
+            #[cfg(target_os = "macos")]
+            macos_notifications::install(app.handle());
 
             // Dev hot-reload (Electron-prod parity). By default the frontend is
             // EMBEDDED (include_bytes! over frontendDist) and served from
