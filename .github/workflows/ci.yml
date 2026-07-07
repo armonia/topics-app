@@ -33,7 +33,12 @@ jobs:
           node-version: 20
 
       - name: Install server deps (root)
-        run: bun install --frozen-lockfile
+        # node-pty's postinstall runs under Bun, whose bundled undici lacks
+        # webidl.util.markAsUncloneable → the gyp build crashes ("is not a
+        # function"). Skip install scripts here; node-pty is (re)built right
+        # after via `npm rebuild` under real Node 20, which is unaffected. No
+        # other root dep needs its install script in CI.
+        run: bun install --frozen-lockfile --ignore-scripts
 
       # node-pty ships no Linux prebuild — rebuild against the runner's Node.
       - name: Rebuild node-pty (Linux)
@@ -85,7 +90,12 @@ jobs:
           node-version: 20
 
       - name: Install server deps (root)
-        run: bun install --frozen-lockfile
+        # node-pty's postinstall runs under Bun, whose bundled undici lacks
+        # webidl.util.markAsUncloneable → the gyp build crashes ("is not a
+        # function"). Skip install scripts here; node-pty is (re)built right
+        # after via `npm rebuild` under real Node 20, which is unaffected. No
+        # other root dep needs its install script in CI.
+        run: bun install --frozen-lockfile --ignore-scripts
 
       # node-pty ships no Linux prebuild — rebuild against the runner's Node.
       - name: Rebuild node-pty (Linux)
@@ -144,6 +154,18 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop-tauri/src-tauri
+
+      # tauri-build validates that every externalBin resource EXISTS for the
+      # host triple even under `cargo check` (it only reads their bytes in
+      # `tauri build`). The real sidecars are produced by tauri-release.yml,
+      # not here, so stub empty host-triple files to clear the build-script
+      # existence gate without a slow sidecar compile.
+      - name: Stub sidecar binaries (cargo check existence gate)
+        working-directory: desktop-tauri/src-tauri
+        run: |
+          triple="$(rustc -vV | sed -n 's/host: //p')"
+          mkdir -p binaries
+          touch "binaries/topics-server-$triple" "binaries/pty-bridge-$triple"
 
       - name: Cargo check (Tauri crate)
         run: cargo check
