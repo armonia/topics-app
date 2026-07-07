@@ -591,7 +591,7 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
                     // PITCH=20 is the standard macOS traffic-light origin spacing
                     // (~14px buttons, ~6px gap).
                     const LEFT_INSET: f64 = 12.0;
-                    const PITCH: f64 = 20.0;
+                    const PITCH: f64 = 18.0;
                     for (i, button) in [
                         NSWindowButton::NSWindowCloseButton,
                         NSWindowButton::NSWindowMiniaturizeButton,
