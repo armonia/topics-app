@@ -553,6 +553,7 @@ impl TlWindow for tauri::WebviewWindow {
     fn tl_is_fullscreen(&self) -> tauri::Result<bool> { self.is_fullscreen() }
 }
 
+#[cfg(target_os = "macos")]
 fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
     use cocoa::appkit::{NSWindow, NSWindowButton};
     use cocoa::base::{id, nil};
@@ -701,6 +702,12 @@ fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
     }
     let _ = hit;
 }
+
+/// Off macOS there are no traffic-light buttons. `TlWindow` is a macOS-only
+/// trait, so the stub takes an unbounded window type and does nothing — the
+/// (ungated) call sites then compile everywhere.
+#[cfg(not(target_os = "macos"))]
+fn apply_traffic_lights<W>(_window: &W, _visible: bool) {}
 
 /// Reveal or hide the window's traffic lights. Driven by the client when the
 /// Topics dropdown opens/closes (mirrors Electron's `window:showTrafficLights`).
