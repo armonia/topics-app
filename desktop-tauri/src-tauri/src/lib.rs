@@ -479,12 +479,35 @@ fn kill_sidecar() {
 /// open. Tauri exposes no JS API for this, so we toggle the NSWindow's three
 /// standard buttons directly. No-op off macOS.
 #[cfg(target_os = "macos")]
-fn apply_traffic_lights(window: &tauri::WebviewWindow, visible: bool) {
+/// Abstracts "a thing that owns an NSWindow" so `apply_traffic_lights` accepts
+/// BOTH `tauri::Window` and `tauri::WebviewWindow`. This matters because once
+/// native browser PANES are mounted the main window is multi-webview and
+/// `get_webview_window("main")` returns None — so `set_traffic_lights` must
+/// resolve it via `get_window("main")` (a plain `Window`, which is retrievable
+/// regardless of webview count). Both types expose identical `ns_window()` /
+/// `is_fullscreen()` inherent methods; the trait just lets one fn take either.
+#[cfg(target_os = "macos")]
+trait TlWindow {
+    fn tl_ns_window(&self) -> tauri::Result<*mut std::ffi::c_void>;
+    fn tl_is_fullscreen(&self) -> tauri::Result<bool>;
+}
+#[cfg(target_os = "macos")]
+impl TlWindow for tauri::Window {
+    fn tl_ns_window(&self) -> tauri::Result<*mut std::ffi::c_void> { self.ns_window() }
+    fn tl_is_fullscreen(&self) -> tauri::Result<bool> { self.is_fullscreen() }
+}
+#[cfg(target_os = "macos")]
+impl TlWindow for tauri::WebviewWindow {
+    fn tl_ns_window(&self) -> tauri::Result<*mut std::ffi::c_void> { self.ns_window() }
+    fn tl_is_fullscreen(&self) -> tauri::Result<bool> { self.is_fullscreen() }
+}
+
+fn apply_traffic_lights<W: TlWindow>(window: &W, visible: bool) {
     use cocoa::appkit::{NSWindow, NSWindowButton};
     use cocoa::base::{id, nil};
     use objc::{msg_send, sel, sel_impl};
 
-    let ptr = match window.ns_window() {
+    let ptr = match window.tl_ns_window() {
         Ok(p) => p as id,
         Err(e) => {
             eprintln!("[chrome] ns_window() failed: {e}");
@@ -546,7 +569,7 @@ fn apply_traffic_lights(window: &tauri::WebviewWindow, visible: bool) {
         // So we only reposition when the superview reads like a titlebar
         // (bounds.height < 60) and clamp every final origin back inside those
         // bounds. Anything else: no-op, keep AppKit defaults.
-        if visible && !window.is_fullscreen().unwrap_or(false) {
+        if visible && !window.tl_is_fullscreen().unwrap_or(false) {
             use cocoa::foundation::NSRect;
             let close: id = ptr.standardWindowButton_(NSWindowButton::NSWindowCloseButton);
             if close != nil {
@@ -613,15 +636,17 @@ fn apply_traffic_lights(window: &tauri::WebviewWindow, visible: bool) {
 #[tauri::command]
 fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
     // Resolve the main window via the AppHandle (label "main") rather than taking a
-    // `WebviewWindow` param: once native browser PANES (child webviews) are mounted,
-    // the main window is multi-webview and the `WebviewWindow` invoke-extractor rejects
-    // with "current webview is not a WebviewWindow" — same root cause that froze the
-    // vibrancy. `get_webview_window("main")` looks up by label and works regardless.
+    // `WebviewWindow` param. CRUCIAL: once native browser PANES (child webviews) are
+    // mounted the main window is multi-webview, and `get_webview_window("main")` then
+    // returns None (verified via stderr: "main window NOT found, no-op" on logo click
+    // with a browser pane open) — which silently killed the traffic lights. `get_window`
+    // looks up the *window* by label and returns a plain `tauri::Window` regardless of
+    // webview count; `apply_traffic_lights` is generic over both handle types.
     TRAFFIC_LIGHTS_VISIBLE.store(visible, Ordering::Relaxed);
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
-        match app.get_webview_window("main") {
+        match app.get_window("main") {
             Some(win) => {
                 eprintln!("[chrome] set_traffic_lights(visible={visible}) — applying to main window");
                 apply_traffic_lights(&win, visible);
