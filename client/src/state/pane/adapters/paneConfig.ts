@@ -4,7 +4,7 @@
  * pane-type picker. All symbols here are pure — no side effects, no
  * reducer mutation. State mutation goes through usePaneStore dispatch.
  */
-import type { PaneType } from '../../../types';
+import type { Pane, PaneType } from '../../../types';
 import { generateUUID } from '../../../utils/uuid';
 
 /**
@@ -127,6 +127,34 @@ export function getTerminalSessionFromPaneId(id: string): string | null {
 export function getProjectPathFromPaneId(id: string): string | null {
   if (!isProjectPaneId(id)) return null;
   return decodeURIComponent(id.slice('project:'.length));
+}
+
+/**
+ * Canonical sidebar-item PIN KEY for a pane, or undefined when the pane type
+ * isn't pinnable (ephemeral views — file/git/activity/journal/agents/dashboard/
+ * session-viewer — have no persistent sidebar row to "Fissa"). This is the
+ * SINGLE source of truth for pinning across every tab type, so no surface can
+ * silently omit one (the browser omission was exactly that bug). The returned
+ * string is verbatim the id stored in `pinnedItems`, so callers feed it straight
+ * to togglePin / isPinned:
+ *   • chat     → the bare topicId (chat sidebar rows are keyed by topicId)
+ *   • terminal → the pane id `terminal:<sessionId>`
+ *   • browser  → the pane id `browser:<contextId>`
+ *   • project  → the pane id `project:<encodedPath>`
+ */
+export function pinKeyForPane(pane: Pane): string | undefined {
+  switch (pane.type) {
+    case 'chat':
+      return pane.topicId || undefined;
+    case 'terminal':
+      return isTerminalPaneId(pane.id) ? pane.id : undefined;
+    case 'browser':
+      return isBrowserPaneId(pane.id) ? pane.id : undefined;
+    case 'project':
+      return isProjectPaneId(pane.id) ? pane.id : undefined;
+    default:
+      return undefined;
+  }
 }
 
 export function isSessionViewerPaneId(id: string): boolean {

@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import type { Pane } from "../../../types";
 import {
   createPaneId,
   createDraftPaneId,
@@ -16,6 +17,7 @@ import {
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
   getSessionKeyFromViewerPaneId,
+  pinKeyForPane,
 } from "./paneConfig";
 
 describe("createPaneId — per-type branching", () => {
@@ -158,6 +160,36 @@ describe("getAddableTypesForScope — scope + singleton filtering", () => {
     const types = [...getAddableTypesForScope("standalone"), ...getAddableTypesForScope("project")];
     for (const t of types) {
       expect(getPaneConfig(t).fixed).not.toBe(true);
+    }
+  });
+});
+
+describe("pinKeyForPane — one canonical pin key per tab type", () => {
+  const pane = (p: Partial<Pane> & { id: string; type: Pane["type"] }): Pane => p as Pane;
+
+  test("chat → the bare topicId (NOT the chat:<id> pane id)", () => {
+    expect(pinKeyForPane(pane({ id: createPaneId("chat", "topic-9"), type: "chat", topicId: "topic-9" }))).toBe("topic-9");
+  });
+
+  test("terminal → the terminal:<sessionId> pane id verbatim", () => {
+    const id = createPaneId("terminal", "sess-7");
+    expect(pinKeyForPane(pane({ id, type: "terminal" }))).toBe(id);
+  });
+
+  test("browser → the browser:<contextId> pane id verbatim (the regression this fixes)", () => {
+    const id = createPaneId("browser", "ctx-42");
+    expect(pinKeyForPane(pane({ id, type: "browser" }))).toBe(id);
+  });
+
+  test("project → the project:<encodedPath> pane id verbatim", () => {
+    const id = createPaneId("project", "/work/x");
+    expect(pinKeyForPane(pane({ id, type: "project" }))).toBe(id);
+  });
+
+  test("chat with no topicId, and non-pinnable ephemeral types, return undefined", () => {
+    expect(pinKeyForPane(pane({ id: "chat:x", type: "chat" }))).toBeUndefined();
+    for (const type of ["file", "git", "activity", "journal", "agents", "dashboard"] as Pane["type"][]) {
+      expect(pinKeyForPane(pane({ id: `${type}:x`, type }))).toBeUndefined();
     }
   });
 });
