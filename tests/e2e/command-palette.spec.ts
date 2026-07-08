@@ -62,8 +62,17 @@ test.describe("Command Palette", () => {
   }) => {
     await page.goto("/", { waitUntil: "networkidle" });
 
+    // The empty-state palette no longer renders a flat option list — it shows
+    // two sparse columns (Ultimi progetti | Chiuse di recente) that can hold
+    // <2 rows in the isolated test env. Type a query matching the seeded
+    // E2E-Cmd{Alpha,Beta,Gamma} topics to get a deterministic ≥2-option list
+    // under the "Topic" section, then exercise arrow-key selection over it.
     await commandPalettePage.open();
     await expect(commandPalettePage.overlay).toBeVisible();
+    await commandPalettePage.searchInput.fill("E2E-Cmd");
+    await expect(
+      commandPalettePage.overlay.locator('[data-cmd-idx="1"]')
+    ).toBeVisible();
 
     // First item (index 0) should have aria-selected=true
     const firstItem = commandPalettePage.overlay.locator('[data-cmd-idx="0"]');
@@ -122,118 +131,50 @@ test.describe("Command Palette", () => {
   test("CMD-03: theme toggle changes document class and new chat creates topic", async ({
     commandPalettePage,
     page,
-    request,
   }) => {
+    // "New Chat" is a paid affordance, OFF by default (settings.ts) — its pill
+    // is hidden unless enableNewChat is set. Settings initialise from
+    // localStorage['app-settings'] at mount (loadSettings), so seed it before
+    // the app boots to render the pill for Part B.
+    await page.addInitScript(() => {
+      localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: true }));
+    });
     await page.goto("/", { waitUntil: "networkidle" });
 
     // --- Part A: Theme toggle ---
-    // Theme cycles: system -> light -> dark -> system
-    // We need to verify the toggle action works. First, force a known state,
-    // then toggle and check the result.
-    const wasDark = await page.evaluate(() =>
-      document.documentElement.classList.contains("dark")
-    );
-
-    // Open palette and find theme action
+    // Theme + Settings moved from result options into ActionPill <button>s in
+    // the palette's bottom bar (CommandPalette.tsx). The "Theme" pill cycles
+    // themeMode light→dark→system on each click (useTheme.toggleTheme) and
+    // closes the palette; themeMode persists to localStorage['theme']. Any
+    // single click advances to a distinct mode, so the stored value changes.
     await commandPalettePage.open();
     await expect(commandPalettePage.overlay).toBeVisible();
     await expect(commandPalettePage.searchInput).toBeFocused();
 
-    // Theme action should be visible (label varies by current mode)
-    const themeOption = commandPalettePage.overlay.getByRole("option", {
-      name: /Switch to|Toggle Theme/,
-    });
-    await expect(themeOption).toBeVisible();
-
-    // Read the theme action label to understand current state
-    const themeLabel = await themeOption.innerText();
-
-    // Execute theme toggle
-    await themeOption.click();
-
-    // Palette should close
+    const themeBefore = await page.evaluate(() => localStorage.getItem("theme"));
+    const themePill = commandPalettePage.overlay.getByRole("button", { name: "Theme" });
+    await expect(themePill).toBeVisible();
+    await themePill.click();
     await expect(commandPalettePage.overlay).toBeHidden();
-
-    // If label said "Switch to Dark Mode" (was light), dark class should now be present
-    // If label said "Switch to Light Mode" (was dark), dark class should now be absent
-    // If label said "Toggle Theme" (was system), mode changed to light
-    if (themeLabel.includes("Switch to Dark")) {
-      await expect(async () => {
-        const isDark = await page.evaluate(() =>
-          document.documentElement.classList.contains("dark")
-        );
-        expect(isDark).toBe(true);
-      }).toPass({ timeout: 3000 });
-    } else if (themeLabel.includes("Switch to Light")) {
-      await expect(async () => {
-        const isDark = await page.evaluate(() =>
-          document.documentElement.classList.contains("dark")
-        );
-        expect(isDark).toBe(false);
-      }).toPass({ timeout: 3000 });
-    } else {
-      // "Toggle Theme" means system mode - toggling goes to light
-      // If system was dark, going to light means dark class removed
-      // If system was light, going to light means no visible change in class
-      // Either way, the action executed successfully (palette closed)
-      // We can verify by toggling again to reach dark mode
-      await commandPalettePage.open();
-      await expect(commandPalettePage.overlay).toBeVisible();
-      // Now should show "Switch to Dark Mode" (we're in light mode)
-      const themeOption2 = commandPalettePage.overlay.getByRole("option", {
-        name: /Switch to Dark/,
-      });
-      await expect(themeOption2).toBeVisible();
-      await themeOption2.click();
-      await expect(commandPalettePage.overlay).toBeHidden();
-      // Now dark class should be present
-      await expect(async () => {
-        const isDark = await page.evaluate(() =>
-          document.documentElement.classList.contains("dark")
-        );
-        expect(isDark).toBe(true);
-      }).toPass({ timeout: 3000 });
-    }
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("theme")), { timeout: 3000 })
+      .not.toBe(themeBefore);
 
     // --- Part B: New Chat ---
-    // New Chat without a project creates a draft pane (no API call until first message)
-    // Count open pane tabs before
-    const tabCountBefore = await page
-      .locator('[role="main"] [role="region"]')
-      .count();
-
-    // Open palette and find New Chat action
+    // New Chat without a project creates a draft pane (no API call until first
+    // message). It's an ActionPill in the bottom bar, not a result option.
     await commandPalettePage.open();
     await expect(commandPalettePage.overlay).toBeVisible();
 
-    // Use specific text to match the action (not topic entries also named "New Chat")
-    const newChatOption = commandPalettePage.overlay.getByRole("option", {
-      name: /New Chat.*Create a new topic/,
-    });
-    await expect(newChatOption).toBeVisible();
+    const newChatPill = commandPalettePage.overlay.getByRole("button", { name: "New Chat" });
+    await expect(newChatPill).toBeVisible();
+    await newChatPill.click();
 
-    // Execute New Chat action
-    await newChatOption.click();
-
-    // Palette should close
+    // Palette should close, and a new draft pane opens with the welcome text.
     await expect(commandPalettePage.overlay).toBeHidden();
-
-    // A new draft pane should open - verify by checking for the "New Chat" panel
-    // or the "Start a conversation" welcome text in a new empty pane
     await expect(
       page.getByText("Start a conversation")
     ).toBeVisible({ timeout: 10000 });
-
-    // Restore to system theme by toggling until we see "Toggle Theme" (system mode)
-    // or just toggle once to move away from dark
-    await commandPalettePage.open();
-    await expect(commandPalettePage.overlay).toBeVisible();
-    const restoreOption = commandPalettePage.overlay.getByRole("option", {
-      name: /Switch to|Toggle Theme/,
-    });
-    await expect(restoreOption).toBeVisible();
-    await restoreOption.click();
-    await expect(commandPalettePage.overlay).toBeHidden();
   });
 
   // CMD-04: File search in palette uses mocked /api/files/flat route
@@ -266,39 +207,36 @@ test.describe("Command Palette", () => {
 
     await page.goto("/", { waitUntil: "networkidle" });
 
-    // Test 1: Verify the palette search mechanism works for any option type
-    // (file results use the same option/listbox structure)
-    await commandPalettePage.search("Settings");
-
-    // The "Settings" action should be visible as a filtered result
-    const settingsOption = commandPalettePage.overlay.getByRole("option", {
-      name: /Settings.*Open app settings/,
+    // Test 1: The palette search mechanism (shared by file results) surfaces a
+    // seeded topic as an option — same option/listbox structure files use.
+    await commandPalettePage.search(`E2E-CmdAlpha-${TS}`);
+    const topicOption = commandPalettePage.overlay.getByRole("option", {
+      name: new RegExp(`E2E-CmdAlpha-${TS}`),
     });
-    await expect(settingsOption).toBeVisible();
+    await expect(topicOption).toBeVisible();
 
     // Test 2: Verify the listbox structure exists (files would appear in this same container)
     await expect(
       commandPalettePage.overlay.locator('[role="listbox"]')
     ).toBeVisible();
 
-    // Test 3: Verify category headers render (FILES would appear as a category header)
-    // The ACTIONS category should be visible for the Settings option
+    // Test 3: Category headers render (localized) — a matched topic sits under
+    // the "Topic" header; file results would sit under a "File" header.
     await expect(
-      commandPalettePage.overlay.getByText(/ACTIONS/i)
+      commandPalettePage.overlay.getByText("Topic", { exact: true })
+    ).toBeVisible();
+
+    // Settings is now an ActionPill in the bottom bar, not a result option.
+    await expect(
+      commandPalettePage.overlay.getByRole("button", { name: "Settings" })
     ).toBeVisible();
 
     // Test 4: Selecting an option closes the palette (same close mechanism for file results)
-    await settingsOption.click();
+    await topicOption.click();
     await expect(commandPalettePage.overlay).toBeHidden();
 
-    // Test 5: Verify the route mock intercepts file API requests
-    // Make a direct request to confirm the mock is properly configured
-    const fileListResponse = await page.request.get(
-      "http://localhost:13334/api/files/flat?path=/tmp/test-project&maxFiles=2000",
-      { ignoreHTTPSErrors: true }
-    );
-    // Note: page.request bypasses page.route -- use the route's presence in the test
-    // as documentation that the mock is configured for the file search feature
+    // Test 5: the **/api/files/flat route mock above documents the file-search
+    // wiring; page.request bypasses page.route so we don't assert against it.
   });
 
   // CMD-05: Message search returns debounced results from mocked search API
@@ -341,9 +279,10 @@ test.describe("Command Palette", () => {
     // Open palette and type search query (min 2 chars to trigger debounce)
     await commandPalettePage.search("test search");
 
-    // Wait for message results to appear (auto-retry handles the 300ms debounce)
+    // Wait for message results to appear (auto-retry handles the 300ms debounce).
+    // The category header is localised to Italian ("Messaggi").
     await expect(
-      commandPalettePage.overlay.getByText(/MESSAGES/i)
+      commandPalettePage.overlay.getByText(/Messaggi/i)
     ).toBeVisible();
 
     // Verify result content is shown
@@ -376,50 +315,27 @@ test.describe("Command Palette", () => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
     await page.goto("/", { waitUntil: "networkidle" });
 
-    // Force a known starting state by reading current theme
-    const initialTheme = await page.evaluate(() =>
-      document.documentElement.classList.contains("dark") ? "dark" : "light"
-    );
-
-    // Cycle 1: Toggle theme from current state
-    await commandPalettePage.open();
-    await expect(commandPalettePage.overlay).toBeVisible();
-    const themeOption1 = commandPalettePage.overlay.getByRole("option", {
-      name: /Switch to|Toggle Theme/,
-    });
-    await expect(themeOption1).toBeVisible();
-    const label1 = await themeOption1.innerText();
-    await themeOption1.click();
-    await expect(commandPalettePage.overlay).toBeHidden();
-
-    // Cycle 2: Toggle again
-    await commandPalettePage.open();
-    await expect(commandPalettePage.overlay).toBeVisible();
-    const themeOption2 = commandPalettePage.overlay.getByRole("option", {
-      name: /Switch to|Toggle Theme/,
-    });
-    await expect(themeOption2).toBeVisible();
-    const label2 = await themeOption2.innerText();
-    await themeOption2.click();
-    await expect(commandPalettePage.overlay).toBeHidden();
-
-    // Cycle 3: Toggle once more
-    await commandPalettePage.open();
-    await expect(commandPalettePage.overlay).toBeVisible();
-    const themeOption3 = commandPalettePage.overlay.getByRole("option", {
-      name: /Switch to|Toggle Theme/,
-    });
-    await expect(themeOption3).toBeVisible();
-    const label3 = await themeOption3.innerText();
-    await themeOption3.click();
-    await expect(commandPalettePage.overlay).toBeHidden();
-
-    // After 3 toggles from any starting point, we should have cycled through all modes
-    // The labels must include all three variations across the 3 cycles
-    const allLabels = [label1, label2, label3].join(" ");
-    // At least 2 distinct labels should appear (light->dark->system or system->light->dark)
-    const uniqueLabels = new Set([label1, label2, label3]);
-    expect(uniqueLabels.size).toBeGreaterThanOrEqual(2);
+    // The theme control is the "Theme" ActionPill in the palette's bottom bar
+    // (CommandPalette.tsx). Clicking it advances themeMode light→dark→system
+    // (useTheme.toggleTheme) and closes the palette. Over three consecutive
+    // clicks the cycle necessarily visits the dark mode (effective `dark`
+    // class = true) AND a non-dark mode — regardless of the starting mode — so
+    // the effective-theme state must take ≥2 distinct values.
+    const readDark = () =>
+      page.evaluate(() => document.documentElement.classList.contains("dark"));
+    const states: boolean[] = [];
+    for (let i = 0; i < 3; i++) {
+      await commandPalettePage.open();
+      await expect(commandPalettePage.overlay).toBeVisible();
+      const themePill = commandPalettePage.overlay.getByRole("button", { name: "Theme" });
+      await expect(themePill).toBeVisible();
+      await themePill.click();
+      // Palette close (onClose) and the theme change (onToggleTheme) are batched
+      // into one re-render, so once the overlay is gone the theme effect has run.
+      await expect(commandPalettePage.overlay).toBeHidden();
+      states.push(await readDark());
+    }
+    expect(new Set(states).size).toBeGreaterThanOrEqual(2);
   });
 
   // CMD-11: Selecting a file from palette opens it in editor
@@ -544,15 +460,15 @@ test.describe("Command Palette", () => {
     // Search for something that returns both action and message results
     await commandPalettePage.search("test");
 
-    // Wait for results to load
+    // Wait for results to load (category header localised to Italian).
     await expect(
-      commandPalettePage.overlay.getByText(/Messages/i)
+      commandPalettePage.overlay.getByText(/Messaggi/i)
     ).toBeVisible({ timeout: 5000 });
 
-    // Verify category headers are present
-    // "Actions" or "Topics" should appear as action-type results exist
-    const actionsHeader = commandPalettePage.overlay.getByText(/Actions|Topics/i);
-    const messagesHeader = commandPalettePage.overlay.getByText(/Messages/i);
+    // Verify category headers are present. Localised: "Azioni"/"Argomenti"
+    // for actions/topics, "Messaggi" for messages.
+    const actionsHeader = commandPalettePage.overlay.getByText(/Azioni|Argomenti/i);
+    const messagesHeader = commandPalettePage.overlay.getByText(/Messaggi/i);
 
     await expect(messagesHeader).toBeVisible();
 
@@ -591,9 +507,9 @@ test.describe("Command Palette", () => {
     // Open palette and search for message content
     await commandPalettePage.search("Navigation target");
 
-    // Wait for message results to appear
+    // Wait for message results to appear (category header localised to Italian).
     await expect(
-      commandPalettePage.overlay.getByText(/Messages/i)
+      commandPalettePage.overlay.getByText(/Messaggi/i)
     ).toBeVisible({ timeout: 5000 });
 
     // Click on the message result
@@ -642,9 +558,9 @@ test.describe("Command Palette", () => {
     await expect(modal.getByText("Send message")).toBeVisible();
     await expect(modal.getByText("Record voice")).toBeVisible();
 
-    // Verify desktop-only shortcuts are shown (since we faked Electron context)
-    await expect(modal.getByText("New chat", { exact: true })).toBeVisible();
-    await expect(modal.getByText("Close panel")).toBeVisible();
+    // NOTE: desktop-only shortcuts (⌘⇧N "New chat", ⌘W "Close panel", ⌘1-9)
+    // are deliberately filtered out of this modal (KeyboardShortcuts.tsx skips
+    // `desktopOnly` entries), so they are not asserted here.
 
     // Close modal by pressing Cmd+/ again (toggle) since the keyboard shortcut is
     // a toggle and Escape may not work due to closure dependency on showShortcuts state
@@ -700,7 +616,7 @@ test.describe("Command Palette", () => {
     await expect(commandPalettePage.overlay.getByText("Azioni")).toBeVisible({ timeout: 3000 });
     const actionRow = commandPalettePage.overlay
       .getByRole("option")
-      .filter({ hasText: "Reimposta pannelli al primo livello" });
+      .filter({ hasText: "Reimposta pannelli" });
     await expect(actionRow).toBeVisible({ timeout: 3000 });
 
     // …and Enter runs it: palette closes, the focused surface flattens.
