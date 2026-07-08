@@ -96,6 +96,46 @@ export function getBrowserOrigin(contextId: string): BrowserOrigin | null {
   return read()[contextId] ?? null;
 }
 
+/**
+ * Resolve the durable project origin for a pinned browser paneId, for the
+ * SIDEBAR row. A browser pinned INSIDE a project, once its tab is CLOSED, is
+ * STRIPPED from the project snapshot — so the sidebar builder loses both the
+ * `projectPath` (row leaks to the top-level Fissati block instead of nesting
+ * under its project) AND the page title. This merges the two durable sources so
+ * the row can be rebuilt:
+ *   1. the origin store (`getBrowserOrigin`) — survives closedStack eviction,
+ *      the freshest last-navigation snapshot → wins when present;
+ *   2. the closedStack record for this exact pane — covers a pin closed before
+ *      the store captured it (e.g. never re-navigated after the store shipped);
+ *      its record is still on the bounded stack right after close.
+ * Returns null for a bare pin with neither source (genuinely unrecoverable —
+ * the url was never stored outside the ephemeral snapshot/stack).
+ */
+export function resolvePinnedBrowserOrigin(
+  paneId: string,
+  closedTabs: ClosedTabRecord[],
+): BrowserOrigin | null {
+  const contextId = paneId.startsWith('browser:') ? paneId.slice('browser:'.length) : paneId;
+  const stored = getBrowserOrigin(contextId);
+  if (stored?.projectPath) return stored;
+  const rec = closedTabs.find(
+    (r) =>
+      r.pane?.id === paneId &&
+      r.level === 'project' &&
+      !!r.projectPath &&
+      r.pane?.type === 'browser',
+  );
+  if (rec?.projectPath) {
+    return {
+      projectPath: rec.projectPath,
+      url: typeof rec.pane.url === 'string' ? rec.pane.url : '',
+      title: typeof rec.pane.title === 'string' ? rec.pane.title : undefined,
+      ts: rec.closedAt || 0,
+    };
+  }
+  return null;
+}
+
 /** Drop a contextId's origin (e.g. when its pin is removed). Best-effort. */
 export function clearBrowserOrigin(contextId: string): void {
   if (!contextId) return;

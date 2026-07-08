@@ -10,7 +10,7 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { topicsApi } from '@/lib/api';
-import { createPaneId } from '@/state/pane/adapters';
+import { createPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import type { Topic, UnreadData, PaneType, TerminalSessionInfo } from '@/types';
 import { useTabNotifications } from '@/hooks/useTabNotifications';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
@@ -216,6 +216,20 @@ export function TopicTree({
     return m;
   }));
   const paneTitleById = useMemo(() => new Map(Object.entries(browserPaneTitles)), [browserPaneTitles]);
+  // Durable origin for pinned browsers whose tab is CLOSED — resolved from the
+  // origin store ∪ closedStack so the row nests back under its project WITH its
+  // title instead of leaking to the top-level Fissati block. Recomputes when a
+  // pin toggles or a tab closes (closedTabs is a reactive closedStack view).
+  const { closedTabs } = useClosedTabs();
+  const browserOriginById = useMemo(() => {
+    const m = new Map<string, BrowserOrigin>();
+    for (const id of pinnedItems) {
+      if (!id.startsWith('browser:')) continue;
+      const o = resolvePinnedBrowserOrigin(id, closedTabs);
+      if (o) m.set(id, o);
+    }
+    return m;
+  }, [pinnedItems, closedTabs]);
   const allItems = useMemo(() => buildSidebarItems({
     topics,
     workspaceProjects,
@@ -231,7 +245,8 @@ export function TopicTree({
     pinnedIds,
     detachedTopicIds,
     paneTitleById,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, detachedTopicIds, paneTitleById]);
+    browserOriginById,
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
