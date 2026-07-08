@@ -517,7 +517,23 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       const validPanels = openPanels.filter(id => {
         if (isKnownPanePrefix(id)) return true;
         const topic = topics[id];
-        if (!topic) return isUUIDLike(id);
+        if (!topic) {
+          // Optimistic: a UUID with no topic record yet is very likely a real
+          // topic still loading (or a peer's create not yet hydrated) — keep it.
+          if (isUUIDLike(id)) return true;
+          // A NON-UUID id with no topic record is a phantom: a stale search
+          // result's synthetic id, or a deleted topic reached via navigation
+          // (e.g. onOpenTopic → openPanel). Filtering it out of React state
+          // alone is NOT enough — openPanel/handleTopicClick already called
+          // ensurePaneRegistered, so the id lives in pane-store-v2.panes/groups
+          // + ui_state; the next store→openPanels sync re-adds it and this
+          // validation re-evicts it, an unbounded add/evict ping-pong (the same
+          // ~750 Hz Effect 7 ↔ HYDRATE loop the projectPath orphan below guards,
+          // observed as a /api/context/analyze storm that starves the server).
+          // Purge it from the store too so the loop can't close.
+          if (!orphanTopicIdsToPurge.includes(id)) orphanTopicIdsToPurge.push(id);
+          return false;
+        }
         if (topic.archived) return false;
         if (topic.projectPath) {
           const paneId = createPaneId('project', topic.projectPath);
@@ -1205,12 +1221,25 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // Unarchive FIRST (optimistic archived:false this render) so the
         // re-added pane isn't immediately evicted by the validPanels effect.
         if (archivesOnClose) void archiveTopic(topicId, false);
-        setOpenPanels(prev => {
-          const next = [...prev];
-          const idx = Math.min(panelIndex, next.length);
-          next.splice(idx, 0, topicId);
-          return next;
-        });
+        // Undo is ADDITIVE (same contract as the Cmd+Shift+T reopen path at
+        // §19): UNDO_CLOSE re-inserts topicId, Effect A propagates it into
+        // openPanels → the standalone tab-ordering effect (usePaneOrdering)
+        // then sees a single-tab add. Without this marker it mis-reads that add
+        // as a preview-navigation and replace+closes the FIRST unpinned tab
+        // (findPreviewInList returns the first non-pinned id, not a real
+        // preview) — a bystander tab silently vanishes on every undo. Mark the
+        // restored id BEFORE the dispatch so consumeTabRestored short-circuits
+        // the preview replacement on the next render.
+        markTabRestored(topicId);
+        // CLOSE_PANE deleted the entity from state.panes and pushed a
+        // ClosedPaneRecord onto closedStack. A bare openPanels-splice can't
+        // bring it back: Effect B fires REORDER_PANES, which filters out any
+        // id missing from state.panes (a permutation can't resurrect a deleted
+        // pane), then Effect A snaps openPanels back to the store's group. Only
+        // UNDO_CLOSE re-inserts the entity (at its recorded groupIndex),
+        // retracts the tombstone, and restores focus — Effect A then syncs
+        // openPanels from the restored group.
+        usePaneStore.getState().dispatch({ type: 'UNDO_CLOSE' });
         setFocusedPanelId(topicId);
       },
       redo: () => {
