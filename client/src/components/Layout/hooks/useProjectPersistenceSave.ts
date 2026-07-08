@@ -24,6 +24,7 @@ import {
   savePersistedLayoutState,
   stripWrapperPaneId,
 } from './projectPersistence';
+import { getBrowserContextFromPaneId, recordBrowserOrigin } from '../../../state/pane/adapters';
 
 export interface UseProjectPersistenceSaveArgs {
   projectPath: string;
@@ -79,6 +80,18 @@ export function useProjectPersistenceSave(
       openChatTopicIds,
       activeChatTopicId,
     });
+
+    // Durable browser origin: record every OPEN project browser's
+    // {projectPath, url, title} on each persist (including the mount pass), so a
+    // later close leaves a closedStack-independent origin even if the pane was
+    // never re-navigated (updatePane's url-change writer wouldn't have fired).
+    // This is what lets the "Fissati" row nest back under its project WITH its
+    // title after the pane is stripped from the snapshot. See browserOriginStore.
+    for (const p of nonChatPanes) {
+      if (p.type !== 'browser' || typeof p.url !== 'string' || !p.url || p.url === 'about:blank') continue;
+      const ctx = getBrowserContextFromPaneId(p.id);
+      if (ctx) recordBrowserOrigin(ctx, projectPath, p.url, typeof p.title === 'string' ? p.title : undefined);
+    }
 
     // Local-only: layout structure (splits, groups, tab order, sidebar, focus)
     savePersistedLayoutState(projectPath, {
