@@ -60,6 +60,8 @@ import {
   locateTerminalPane,
   browserProjectPanesStore,
   getPaneConfig,
+  getBrowserOrigin,
+  enqueueProjectBrowserReopen,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
 import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors';
@@ -321,6 +323,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // those effects) and sync it after openPanel's declaration — referencing the
   // openPanel const directly in the effects reads it before declaration.
   const openPanelRef = useRef<(topicId: string, mode: 'preview' | 'permanent' | 'below', autoFocus?: boolean) => void>(() => {});
+  // Forward ref to handleProjectClick (declared ~650 lines below) so
+  // openBrowserPane can open a CLOSED project to route a pinned browser back
+  // into it. Assigned right after handleProjectClick's definition.
+  const handleProjectClickRef = useRef<((projectPath: string) => void) | null>(null);
 
   // ---- Spazi: visiblePanels derivation (derive, never mutate) ----
   // openPanels stays the FULL set (Effect B's REORDER_PANES bridge depends on
@@ -684,6 +690,54 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (isMobile) setSidebarCollapsed(true);
         return;
       }
+    }
+    // Route a browser back INTO a project window, reusing the ⌘⇧U claim protocol.
+    // If a mounted ProjectWindow whose projectPath matches claims the event
+    // (preventDefault), it restores the pane with `url`. If NONE claims it, the
+    // project is closed → open it and park the record so its window restores the
+    // browser on mount (drainProjectBrowserReopens), instead of a blank standalone.
+    const routeIntoProject = (projectPath: string, url: string, title?: string): void => {
+      const synthetic: ClosedTabRecord = {
+        id: paneId,
+        closedAt: Date.now(),
+        // groupId '' → restoreClosedRecord falls back to the window's first group
+        // (record.groupId not found); the exact cell isn't durably recoverable.
+        pane: { id: paneId, type: 'browser', title: title || 'Browser', url },
+        groupId: '',
+        groupIndex: 0,
+        level: 'project',
+        projectPath,
+      };
+      const ev = new CustomEvent('reopen-closed-tab', { detail: synthetic, cancelable: true });
+      window.dispatchEvent(ev);
+      if (!ev.defaultPrevented) {
+        enqueueProjectBrowserReopen(projectPath, synthetic);
+        handleProjectClickRef.current?.(projectPath);
+      }
+      if (isMobile) setSidebarCollapsed(true);
+    };
+
+    // Durable fallback (closedStack-INDEPENDENT). The stack above is bounded (50,
+    // FIFO), so a browser pinned long ago — or one whose close record got
+    // corrupted to a non-project/non-browser shape — has no usable record left
+    // there. The origin store (written on every project-browser navigation and
+    // NOT cleared on close) still knows this contextId's project + last url, so
+    // we can route the reopen back into its window even when the stack forgot it.
+    const origin = getBrowserOrigin(contextId);
+    if (origin) {
+      routeIntoProject(origin.projectPath, origin.url, origin.title);
+      return;
+    }
+    // Last-resort recovery for a pin created BEFORE the origin store existed (its
+    // url was never durably stored, so it's unrecoverable): if the contextId is a
+    // topic id, that topic's projectPath is authoritative — route the browser back
+    // into its project (blank until the user navigates, at which point updatePane
+    // records a durable origin). Only topic-keyed contexts resolve here; uuid /
+    // terminal-keyed ones have no reliable project association and fall through.
+    const recoveredProject = topicsRef.current[contextId]?.projectPath;
+    if (recoveredProject) {
+      routeIntoProject(recoveredProject, '');
+      return;
     }
     setPendingBrowserPane(contextId);
     setPendingSoloPanelId(paneId);
@@ -1298,6 +1352,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       localStorage.setItem(KEY, JSON.stringify(next));
     } catch { /* localStorage may be unavailable */ }
   }, [isMobile, setSidebarCollapsed]);
+  // Pin into the forward ref so openBrowserPane (declared above) can open a
+  // CLOSED project to route a pinned browser back into it.
+  handleProjectClickRef.current = handleProjectClick;
 
   const handleCloseProject = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
