@@ -228,9 +228,11 @@ test.describe("Agent Management", () => {
     });
     await expect(headerName).toBeVisible();
 
-    // Verify status badge visible (e.g., "Active" for first mock session)
+    // Verify status badge visible (e.g., "Active" for first mock session).
+    // The SessionDetail header badge is a `text-[11px] … font-medium` span
+    // (SessionHistory.tsx) — the old `text-[9px]` class was from a prior design.
     const statusBadge = page
-      .locator(".text-\\[9px\\].font-medium")
+      .locator(".text-\\[11px\\].font-medium")
       .filter({ hasText: "Active" });
     await expect(statusBadge.first()).toBeVisible();
 

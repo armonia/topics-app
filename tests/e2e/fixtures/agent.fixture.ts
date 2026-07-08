@@ -208,8 +208,22 @@ export class AgentPage {
   // ── Navigation ────────────────────────────────────────────
 
   async openAgentsPane() {
-    const agentsBtn = this.page.locator('button[title="Agents"]');
-    await agentsBtn.click();
+    // Agents relocated from a standalone header button into the "Topics ▾" menu
+    // (App.tsx), and is gated on `openclawAvailable` — satisfied by the
+    // providers-snapshot mock registered in mockAllAgentEndpoints(). Open the
+    // menu, then click the "Agents" row, which opens the AgentsPane
+    // (Sessions / Roster tabs). The old `button[title="Agents"]` no longer exists.
+    await this.page.locator('button[title="Settings & Tools"]').click();
+    // Scope the click to the Topics-menu portal: once the AgentsPane is open,
+    // the UtilityPanel header renders a second button named "Agents"
+    // (UtilityPanel.tsx), and pane-store-v2 persists that pane across the
+    // serial suite — so an un-scoped getByRole("button",{name:"Agents"}) hits
+    // a strict-mode 2-elements violation from the 2nd test onward. The portal
+    // is the only div whose DIRECT child is the "Reimposta pannelli" button.
+    const topicsMenu = this.page.locator(
+      'div:has(> button:has-text("Reimposta pannelli"))'
+    );
+    await topicsMenu.getByRole("button", { name: "Agents" }).click();
     await this.sessionsTab.waitFor({ state: "visible", timeout: 10_000 });
   }
 
@@ -298,6 +312,8 @@ export class AgentPage {
    */
   async mockAllAgentEndpoints() {
     const profiles = MOCK_PROFILES.map((p) => ({ ...p, assignments: [...(p.assignments || [])] }));
+    await this.mockProvidersWs();
+    await this.mockProvidersSnapshot();
     await this.mockSessionsEndpoint(MOCK_LIVE_SESSIONS);
     await this.mockSessionHistoryEndpoint(MOCK_HISTORY_SESSIONS);
     await this.mockProfilesEndpoint(profiles);
@@ -307,6 +323,89 @@ export class AgentPage {
     await this.mockSessionChatHistory([]);
     await this.mockChatApiHistory([]);
     await this.mockAssignEndpoints(profiles);
+  }
+
+  /**
+   * The Agents surface is gated behind `openclawAvailable`, which reads the
+   * providers snapshot (GET /api/providers/snapshot) — the "openclaw" provider
+   * must be present with a status other than "unavailable". The isolated test
+   * server reports openclaw as unconfigured, so without this mock the "Agents"
+   * menu entry never renders and openAgentsPane() times out. Shape is validated
+   * client-side by isProvidersSnapshot() in lib/api.ts.
+   */
+  async mockProvidersSnapshot() {
+    await this.page.route("**/api/providers/snapshot", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          providers: [
+            {
+              name: "openclaw",
+              label: "OpenClaw",
+              status: "ready",
+              isDefault: true,
+              models: [],
+              requirements: [],
+              fetchedAt: "2026-01-01T00:00:00Z",
+            },
+          ],
+          defaultProvider: "openclaw",
+          generatedAt: "2026-01-01T00:00:00Z",
+        }),
+      });
+    });
+  }
+
+  /**
+   * The providers snapshot reaches the client over TWO channels: the HTTP GET
+   * mocked in mockProvidersSnapshot() AND a `providers:snapshot` WS frame that
+   * server.ts pushes to every client on connect. providersSnapshotStore
+   * overwrites its cached snapshot on EVERY WS frame (last-write-wins), so
+   * whenever the real test-server's frame (openclaw unconfigured → status
+   * "unavailable") lands after the HTTP mock, `openclawAvailable` flips back to
+   * false, the "Agents" entry vanishes from the Topics menu, and
+   * openAgentsPane() hangs for the full 30s test timeout. Which channel wins is
+   * a pure timing race → the suite fails a non-deterministic ~40% of agent
+   * tests. This proxies the real WS but rewrites any `providers:snapshot` frame
+   * so openclaw is always "ready", closing the race at its source. All other
+   * frames pass through untouched. Must be registered BEFORE page.goto().
+   */
+  async mockProvidersWs() {
+    await this.page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      server.onMessage((msg) => {
+        const text = typeof msg === "string" ? msg : "";
+        if (text.includes('"providers:snapshot"')) {
+          try {
+            const frame = JSON.parse(text);
+            const provs = frame?.snapshot?.providers;
+            if (frame?.type === "providers:snapshot" && Array.isArray(provs)) {
+              const oc = provs.find((p: { name?: string }) => p.name === "openclaw");
+              if (oc) {
+                oc.status = "ready";
+              } else {
+                provs.push({
+                  name: "openclaw",
+                  label: "OpenClaw",
+                  status: "ready",
+                  isDefault: true,
+                  models: [],
+                  requirements: [],
+                  fetchedAt: "2026-01-01T00:00:00Z",
+                });
+              }
+              ws.send(JSON.stringify(frame));
+              return;
+            }
+          } catch {
+            // Malformed frame — fall through to verbatim passthrough.
+          }
+        }
+        ws.send(msg);
+      });
+      ws.onMessage((msg) => server.send(msg));
+    });
   }
 
   async mockSessionsEndpoint(sessions: any[]) {

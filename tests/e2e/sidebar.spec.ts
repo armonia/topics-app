@@ -146,24 +146,23 @@ test.describe("Sidebar — Unified Timeline", () => {
       timeout: 15000,
     });
 
-    // Find the view mode toggle button
-    const viewToggle = page.getByRole("button", {
-      name: /Switch to grouped view/,
-    });
-    await expect(viewToggle).toBeVisible({ timeout: 5000 });
+    // The view-mode + archived toggles relocated from the old <SidebarControls>
+    // row into the "Topics ▾" header menu (App.tsx). Open it to reach them.
+    const topicsMenuBtn = page.locator('button[title="Settings & Tools"]');
+    await topicsMenuBtn.click();
 
-    // Click to switch to grouped view
-    await viewToggle.click();
+    // Timeline → grouped: the menu row reads "Vista a gruppi".
+    const groupedToggle = page.getByRole("button", { name: "Vista a gruppi" });
+    await expect(groupedToggle).toBeVisible({ timeout: 5000 });
+    await groupedToggle.click();
 
     // In grouped view, collapsible section headers should appear
     await expect(
       page.getByRole("button", { name: /Chats section/ })
     ).toBeVisible({ timeout: 3000 });
 
-    // The toggle should now say "Switch to timeline view"
-    const timelineToggle = page.getByRole("button", {
-      name: /Switch to timeline view/,
-    });
+    // The menu stays open and the same row now reads "Vista timeline".
+    const timelineToggle = page.getByRole("button", { name: "Vista timeline" });
     await expect(timelineToggle).toBeVisible({ timeout: 3000 });
 
     // Click back to timeline
@@ -208,12 +207,19 @@ test.describe("Sidebar — Unified Timeline", () => {
     // With showArchived=false, the item should be hidden
     await expect(archivedItem).toBeHidden({ timeout: 5000 });
 
-    // Click "Show archived" to reveal it
-    await page.getByRole("button", { name: /Show archived/ }).click();
+    // The archived toggle relocated into the "Topics ▾" header menu (App.tsx).
+    // It's a single row ("Mostra archiviati") that flips showArchived on each
+    // click; the menu stays open, so the same locator toggles both ways.
+    await page.locator('button[title="Settings & Tools"]').click();
+    const archiveToggle = page.getByRole("button", { name: "Mostra archiviati" });
+    await expect(archiveToggle).toBeVisible({ timeout: 3000 });
+
+    // Reveal archived items
+    await archiveToggle.click();
     await expect(archivedItem).toBeVisible({ timeout: 5000 });
 
-    // Click "Hide archived" to hide it again
-    await page.getByRole("button", { name: /Hide archived/ }).click();
+    // Hide them again (same row)
+    await archiveToggle.click();
     await expect(archivedItem).toBeHidden({ timeout: 5000 });
   });
 
@@ -227,19 +233,18 @@ test.describe("Sidebar — Unified Timeline", () => {
   }) => {
     await goToApp(page);
 
-    // Search/command palette button should be visible
+    // Search launcher lives in the header (opens the ⌘K command palette).
     await expect(
-      page.getByRole("button", { name: /Open command palette/ })
+      page.getByRole("button", { name: /open the command palette/ })
     ).toBeVisible({ timeout: 5000 });
 
-    // View mode toggle should be visible
+    // View-mode + archive toggles live in the "Topics ▾" header menu.
+    await page.locator('button[title="Settings & Tools"]').click();
     await expect(
-      page.getByRole("button", { name: /Switch to grouped view/ })
+      page.getByRole("button", { name: "Mostra archiviati" })
     ).toBeVisible({ timeout: 3000 });
-
-    // Archive toggle should be visible
     await expect(
-      page.getByRole("button", { name: /Show archived/ })
+      page.getByRole("button", { name: "Vista a gruppi" })
     ).toBeVisible({ timeout: 3000 });
   });
 
