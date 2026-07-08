@@ -3,6 +3,7 @@ import {
   scheduleTerminalCleanup,
   cancelTerminalCleanup,
   reopenClosedTab,
+  selectProjectBrowserReopen,
   type ClosedTabRecord,
 } from "./closedTabRecord";
 
@@ -83,5 +84,74 @@ describe("reopenClosedTab (non-terminal path)", () => {
     await reopenClosedTab(baseRecord(pane)); // cancels cleanup for record.id
     await new Promise<void>((r) => setTimeout(r, 120));
     expect(fired).toBe(false);
+  });
+});
+
+describe("selectProjectBrowserReopen (pinned-browser reopen routing)", () => {
+  const rec = (
+    over: Partial<ClosedTabRecord> & { pane: ClosedTabRecord["pane"] },
+  ): ClosedTabRecord => ({
+    id: over.pane.id,
+    closedAt: over.closedAt ?? Date.now(),
+    groupId: "group:default",
+    groupIndex: 0,
+    level: "app",
+    ...over,
+  });
+
+  const projectBrowser = (id: string, url: string, projectPath: string, closedAt?: number) =>
+    rec({
+      pane: { id, type: "browser" as const, title: "Browser", url },
+      level: "project",
+      projectPath,
+      ...(closedAt !== undefined ? { closedAt } : {}),
+    });
+
+  test("returns the project-level browser record for the matching pane (url + projectPath preserved)", () => {
+    const target = projectBrowser("browser:ctx1", "https://example.com", "/tmp/proj");
+    const out = selectProjectBrowserReopen([target], "browser:ctx1");
+    expect(out).toBe(target);
+    expect(out?.pane.url).toBe("https://example.com");
+    expect(out?.projectPath).toBe("/tmp/proj");
+  });
+
+  test("returns null for a STANDALONE (level:'app') browser record → falls through to standalone open", () => {
+    const appBrowser = rec({ pane: { id: "browser:ctx1", type: "browser" as const, title: "B", url: "https://x.com" } });
+    expect(selectProjectBrowserReopen([appBrowser], "browser:ctx1")).toBeNull();
+  });
+
+  test("returns null when no record matches the browser pane id", () => {
+    const other = projectBrowser("browser:ctxOTHER", "https://a.com", "/tmp/proj");
+    expect(selectProjectBrowserReopen([other], "browser:ctx1")).toBeNull();
+  });
+
+  test("returns null for a project record missing projectPath (nothing to route into)", () => {
+    const noPath = rec({
+      pane: { id: "browser:ctx1", type: "browser" as const, title: "B", url: "https://x.com" },
+      level: "project",
+    });
+    expect(selectProjectBrowserReopen([noPath], "browser:ctx1")).toBeNull();
+  });
+
+  test("ignores a non-browser project record that happens to share the id", () => {
+    const chat = rec({
+      pane: { id: "browser:ctx1", type: "chat" as const, title: "C", topicId: "t1" },
+      level: "project",
+      projectPath: "/tmp/proj",
+    });
+    expect(selectProjectBrowserReopen([chat], "browser:ctx1")).toBeNull();
+  });
+
+  test("returns the NEWEST matching record (closedTabs is newest-first)", () => {
+    // useClosedTabs reverses the reducer stack → newest at index 0.
+    const newest = projectBrowser("browser:ctx1", "https://new.com", "/tmp/projB", 2000);
+    const older = projectBrowser("browser:ctx1", "https://old.com", "/tmp/projA", 1000);
+    const out = selectProjectBrowserReopen([newest, older], "browser:ctx1");
+    expect(out).toBe(newest);
+    expect(out?.pane.url).toBe("https://new.com");
+  });
+
+  test("empty stack → null", () => {
+    expect(selectProjectBrowserReopen([], "browser:ctx1")).toBeNull();
   });
 });

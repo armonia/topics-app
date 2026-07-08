@@ -401,7 +401,7 @@ function App() {
       loadHistory, appendMediaToLastAssistant, sendMessage, drainQueue,
     },
     setSidebarCollapsed,
-    removeClosedTab,
+    removeClosedTab, closedTabs,
   });
   const {
     openPanels, visiblePanels, activeSpaceId,
