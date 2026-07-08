@@ -275,11 +275,15 @@ test.describe("RemoteBrowserPanel", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
 
-      // Wait for toolbar buttons to appear
-      await expect(page.locator('button[title="Back"]')).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('button[title="Forward"]')).toBeVisible();
+      // Wait for toolbar buttons to appear. The toolbar is localized (IT): Back
+      // → "Indietro", Forward → "Avanti" (both carry a variable suffix when the
+      // nav-history menu is available, hence title^=). Refresh keeps its English
+      // title. The old "Home" button was replaced by the conditional
+      // back-to-spawner control; assert the always-present URL input instead.
+      await expect(page.locator('button[title^="Indietro"]')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('button[title^="Avanti"]')).toBeVisible();
       await expect(page.locator('button[title="Refresh"]')).toBeVisible();
-      await expect(page.locator('button[title="Home"]')).toBeVisible();
+      await expect(page.locator('[data-testid="browser-url-input"]')).toBeVisible();
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -312,7 +316,7 @@ test.describe("RemoteBrowserPanel", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
 
-      const urlInput = page.locator('input[placeholder="Enter URL..."]');
+      const urlInput = page.locator('[data-testid="browser-url-input"]');
       await expect(urlInput).toBeVisible({ timeout: 10000 });
 
       // Listen for navigation interact request (REST fallback path).

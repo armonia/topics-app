@@ -284,7 +284,9 @@ export class BrowserProcessPage {
   }
 
   get urlInput() {
-    return this.page.locator('input[placeholder="Enter URL..."]');
+    // Stable testid — the visible placeholder is localized ("Cerca o inserisci
+    // un indirizzo"), so match the data-testid the toolbar input always carries.
+    return this.page.locator('[data-testid="browser-url-input"]');
   }
 }
 

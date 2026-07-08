@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, waitForTopicVisible, resetPaneStore } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -32,12 +32,18 @@ async function mountBrowserPaneViaEvent(
 }
 
 test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05)", () => {
-  test.beforeEach(async ({}, testInfo) => {
+  // Reset pane-store-v2 before each test so a browser pane left over from a
+  // prior test in this serial suite doesn't survive into the next one — a
+  // stale pane keeps ownership of the active surface (new pane never activates,
+  // frames dropped) and its lingering connection-indicator trips strict-mode.
+  // See browser-ws-streaming.spec.ts for the full rationale.
+  test.beforeEach(async ({ request }, testInfo) => {
     testInfo.annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
     // BROWSER-01 (Navigation & Page Control) supersedes the retired sidebar
     // control flow with the same AC: open a browser pane, navigate via URL.
     testInfo.annotations.push({ type: "spec", description: "BROWSER-01" });
     testInfo.annotations.push({ type: "plan", description: "@plan-30-05" });
+    await resetPaneStore(request, []);
   });
 
   test("BROWSER-CHAT-04: + Browser menu opens new browser pane in topic [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
@@ -119,7 +125,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       // browser pane shortly after. Connection indicator visibility proves
       // RemoteBrowserPanel is rendered.
       await expect(page.locator('[data-testid="browser-connection-indicator"]')).toBeVisible({ timeout: 10000 });
-      const urlInput = page.locator('input[placeholder="Enter URL..."]');
+      const urlInput = page.locator('[data-testid="browser-url-input"]');
       await expect(urlInput).toBeVisible({ timeout: 10000 });
       const urlValue = await urlInput.inputValue();
       // URL bar reflects the most recent navigation; tolerate either the
@@ -340,8 +346,17 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       const overlay = page.locator('[data-testid="browser-select-element-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
 
-      // Click somewhere inside the overlay to trigger inspect + chat:insert-text.
-      await overlay.click({ position: { x: 200, y: 100 }, force: true });
+      // Click the CENTER of the overlay to trigger inspect + chat:insert-text.
+      // The screenshot is object-contain'd: a landscape frame (1280x800) inside
+      // a portrait pane letterboxes vertically, so a fixed top-ish position like
+      // {200,100} can land in the dead letterbox band above the image (localY<0
+      // → mapCoordsToPage returns null → no inspect fires). The geometric centre
+      // is always inside the displayed image regardless of pane aspect ratio.
+      const oBox = await overlay.boundingBox();
+      await overlay.click({
+        position: { x: (oBox?.width ?? 400) / 2, y: (oBox?.height ?? 400) / 2 },
+        force: true,
+      });
 
       // Spy must capture the dispatched event with the canonical text format.
       // SelectElementOverlay.tsx:153:
