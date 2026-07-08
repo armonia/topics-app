@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   scheduleTerminalCleanup,
   cancelTerminalCleanup,
@@ -84,6 +84,99 @@ describe("reopenClosedTab (non-terminal path)", () => {
     await reopenClosedTab(baseRecord(pane)); // cancels cleanup for record.id
     await new Promise<void>((r) => setTimeout(r, 120));
     expect(fired).toBe(false);
+  });
+});
+
+describe("reopenClosedTab (terminal revive path)", () => {
+  // bun:test has no DOM; clearTerminalTombstone reads/writes localStorage.
+  class MemoryStorage {
+    private m = new Map<string, string>();
+    getItem(k: string) { return this.m.has(k) ? (this.m.get(k) as string) : null; }
+    setItem(k: string, v: string) { this.m.set(k, String(v)); }
+    removeItem(k: string) { this.m.delete(k); }
+    clear() { this.m.clear(); }
+  }
+
+  type FetchCall = { url: string; method: string };
+  let calls: FetchCall[];
+  let realFetch: typeof fetch | undefined;
+
+  const installFetch = (
+    handler: (url: string, method: string) => { ok: boolean; body?: unknown },
+  ) => {
+    (globalThis as unknown as { fetch: unknown }).fetch = async (
+      url: string,
+      init?: { method?: string },
+    ) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      calls.push({ url: String(url), method });
+      const res = handler(String(url), method);
+      return {
+        ok: res.ok,
+        status: res.ok ? 200 : 404,
+        json: async () => res.body ?? {},
+      } as unknown as Response;
+    };
+  };
+
+  const terminalRecord = (sid: string): ClosedTabRecord => ({
+    id: `terminal:${sid}`,
+    closedAt: 123,
+    pane: { id: `terminal:${sid}`, type: "terminal", title: "claude", terminalType: "claude-code" },
+    groupId: "g",
+    groupIndex: 0,
+    level: "project",
+    projectPath: "/tmp/proj",
+    terminal: { cwd: "/tmp/proj", sessionType: "claude-code", name: "claude", claudeSessionId: "cs-1" },
+  });
+
+  beforeEach(() => {
+    calls = [];
+    realFetch = globalThis.fetch;
+    (globalThis as unknown as { localStorage: MemoryStorage }).localStorage = new MemoryStorage();
+  });
+  afterEach(() => {
+    if (realFetch) (globalThis as unknown as { fetch: typeof fetch }).fetch = realFetch;
+  });
+
+  test("dormant claude terminal: GET 404 → REVIVE by id → same pane, NO fresh POST (no empty second tab)", async () => {
+    installFetch((url, method) => {
+      if (url.endsWith("/api/terminal/sessions/sid1") && method === "GET") return { ok: false };
+      if (url.endsWith("/api/terminal/sessions/sid1/revive") && method === "POST") return { ok: true, body: { id: "sid1" } };
+      throw new Error(`unexpected fetch ${method} ${url}`);
+    });
+    const rec = terminalRecord("sid1");
+    const result = await reopenClosedTab(rec);
+    // Same id → id-dedup collapses reopen + the window's dormant-revive into one pane.
+    expect(result).toBe(rec.pane);
+    expect(result.id).toBe("terminal:sid1");
+    // The regression: a fresh POST /sessions here is the empty second tab. Must NOT happen.
+    expect(calls.some(c => c.method === "POST" && c.url.endsWith("/api/terminal/sessions"))).toBe(false);
+    expect(calls.some(c => c.method === "POST" && c.url.endsWith("/revive"))).toBe(true);
+  });
+
+  test("session neither live nor dormant: GET 404 + revive 404 → POST a fresh session (new id)", async () => {
+    installFetch((url, method) => {
+      if (url.endsWith("/api/terminal/sessions/sid2") && method === "GET") return { ok: false };
+      if (url.endsWith("/api/terminal/sessions/sid2/revive") && method === "POST") return { ok: false };
+      if (url.endsWith("/api/terminal/sessions") && method === "POST") return { ok: true, body: { id: "newsid", name: "claude" } };
+      throw new Error(`unexpected fetch ${method} ${url}`);
+    });
+    const result = await reopenClosedTab(terminalRecord("sid2"));
+    expect(result.id).toBe("terminal:newsid");
+  });
+
+  test("live terminal: GET ok → reuse pane, no revive, no POST", async () => {
+    installFetch((url) => {
+      if (url.endsWith("/api/terminal/sessions/sid3")) return { ok: true, body: {} };
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    const rec = terminalRecord("sid3");
+    const result = await reopenClosedTab(rec);
+    expect(result).toBe(rec.pane);
+    // Only the liveness GET was issued.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("GET");
   });
 });
 

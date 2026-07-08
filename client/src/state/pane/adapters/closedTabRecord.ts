@@ -292,6 +292,30 @@ async function reopenClosedTabImpl(record: ClosedTabRecord): Promise<Pane> {
         if (check.ok) {
           return record.pane;
         }
+        // Not in the live session map (404). The session may still be DORMANT:
+        // a claude-code PTY parks itself dormant on exit, and the deferred
+        // close-cleanup demotes a closed terminal the same way. Revive it BY ITS
+        // ORIGINAL ID instead of minting a brand-new session — the server's
+        // /revive reuses the id and relaunches claude with --resume.
+        //
+        // This is the fix for "close a project Claude Code, press Shift+Cmd+T →
+        // two tabs (one full, one empty)": the project window's own
+        // dormant-revive already brings the session back under `terminal:<id>`,
+        // so a fresh POST here would add a SECOND pane under `terminal:<newId>`,
+        // empty because the POST path ignores claudeSessionId (no --resume).
+        // Reviving the same id lets id-dedup collapse both into one restored,
+        // full pane. A session that is neither live nor dormant (revive 404)
+        // falls through to a fresh POST below.
+        try {
+          const revived = await fetch(`/api/terminal/sessions/${sessionId}/revive`, {
+            method: 'POST',
+          });
+          if (revived.ok) {
+            return record.pane;
+          }
+        } catch {
+          /* revive unreachable → recreate below */
+        }
       } catch {
         /* session dead, recreate below */
       }
