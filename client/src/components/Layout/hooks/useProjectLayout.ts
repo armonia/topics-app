@@ -50,6 +50,8 @@ import {
   addBrowserTombstone,
   clearBrowserTombstone,
   getBrowserTombstones,
+  recordBrowserOrigin,
+  drainProjectBrowserReopens,
 } from '../../../state/pane/adapters';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
@@ -1317,6 +1319,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     return () => window.removeEventListener('reopen-closed-tab', handler);
   }, [restoreClosedRecord, projectPath]);
 
+  // Drain any reopen parked for THIS project by openBrowserPane's not-open path:
+  // when a pinned browser is reopened while its ProjectWindow is closed, that
+  // handler opens the project (handleProjectClick) AND enqueues the synthetic
+  // record here. This runs on mount — once the freshly-opened window exists — and
+  // restores the browser with its url, closing the async open→mount gap that the
+  // one-shot 'reopen-closed-tab' event (dispatched before mount) would have missed.
+  useEffect(() => {
+    const parked = drainProjectBrowserReopens(projectPath);
+    for (const rec of parked) void restoreClosedRecord(rec);
+  }, [projectPath, restoreClosedRecord]);
+
   // Listen for Cmd+W → close-focused-pane: when this project is the App-
   // focused panel, close its inner active sub-tab instead of letting the
   // App-level handler close the whole project. preventDefault marks the
@@ -2319,7 +2332,17 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // object round-trips through projectLayoutSync (full-state JSON).
   const updatePane = useCallback((paneId: string, updates: Partial<Pane>) => {
     setPanes(prev => prev.map(p => (p.id === paneId ? { ...p, ...updates } : p)));
-  }, []);
+    // Durable origin: a project browser's url lives ONLY in this snapshot (and is
+    // stripped on close), so mirror every url write into the closedStack-
+    // independent origin store. That lets a pinned browser reopen back into THIS
+    // project — with its last url — even after its close record is evicted from
+    // the bounded stack. `getBrowserContextFromPaneId` returns non-null only for
+    // `browser:<ctx>` ids, so this is a no-op for chat/terminal panes.
+    if (updates.url) {
+      const bctx = getBrowserContextFromPaneId(paneId);
+      if (bctx) recordBrowserOrigin(bctx, projectPath, updates.url, updates.title);
+    }
+  }, [projectPath]);
   updatePaneRef.current = updatePane;
 
   // Pin the latest reopenChatPane into the forward-declared ref so the
