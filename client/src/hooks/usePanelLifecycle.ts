@@ -52,6 +52,7 @@ import {
   isSessionViewerPaneId,
   isUUIDLike,
   reopenClosedTab,
+  selectProjectBrowserReopen,
   type ClosedTabRecord,
   getProjectPathFromPaneId,
   projectPanesLocalKey,
@@ -190,6 +191,10 @@ export interface UsePanelLifecycleArgs {
   setSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
   // Closed-tabs undo
   removeClosedTab: (id: string) => void;
+  /** Recently-closed records (newest first). Lets openBrowserPane route a
+   *  reopened pinned browser back into its owning project instead of a blank
+   *  standalone pane (project browser url/affinity live only on the record). */
+  closedTabs: ClosedTabRecord[];
 }
 
 export interface UsePanelLifecycleReturn {
@@ -275,7 +280,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     terminalSessions, pruneStaleTerminalPanes, terminalOps,
     onWSMessage, sendWS, wsStatus, windowId,
     chatStreamHandlers,
-    setSidebarCollapsed, removeClosedTab,
+    setSidebarCollapsed, removeClosedTab, closedTabs,
   } = args;
 
   // The full detached set — seeds openPanels; empty off-detach. `detachedTopicId`
@@ -660,12 +665,32 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (isMobile) setSidebarCollapsed(true);
       return;
     }
+    // Closed while pinned INSIDE a project: a project-level record survives on
+    // the closed-tab stack carrying the pane's url + projectPath. A project
+    // browser's url lives ONLY in that project's snapshot (updatePane), never
+    // the global store — so the standalone fallback below would reopen it
+    // about:blank AND out of its project. Route it back to the owning window
+    // via the SAME cancelable claim protocol as ⌘⇧U (handleReopenClosedTab):
+    // the window whose projectPath matches restores the pane (url included) and
+    // preventDefault()s, and only then do we consume the record. If no project
+    // window is mounted to claim it, fall through to the standalone pane so the
+    // click still surfaces something.
+    const closedProjectRec = selectProjectBrowserReopen(closedTabs, paneId);
+    if (closedProjectRec) {
+      const ev = new CustomEvent('reopen-closed-tab', { detail: closedProjectRec, cancelable: true });
+      window.dispatchEvent(ev);
+      if (ev.defaultPrevented) {
+        removeClosedTab(closedProjectRec.id);
+        if (isMobile) setSidebarCollapsed(true);
+        return;
+      }
+    }
     setPendingBrowserPane(contextId);
     setPendingSoloPanelId(paneId);
     if (isMobile) {
       setSidebarCollapsed(true);
     }
-  }, [isMobile, setSidebarCollapsed, openPanelsRef, owningRenderedProject]);
+  }, [isMobile, setSidebarCollapsed, openPanelsRef, owningRenderedProject, closedTabs, removeClosedTab]);
 
   // Server fallback for open_browser_pane: when the normal broadcast
   // (browser:navigate / browser:open-near-pane) mounted NO visible pane in any
