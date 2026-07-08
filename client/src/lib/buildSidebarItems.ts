@@ -1,5 +1,5 @@
 import type { Topic, UnreadData, TerminalSessionInfo } from '@/types';
-import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey } from '../state/pane/adapters';
+import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey, type BrowserOrigin } from '../state/pane/adapters';
 import { topicAttentionCount, terminalAttentionCount, rollupProjectAttention } from '../state/signals';
 import { basename, tryHostname } from './path-utils';
 
@@ -159,10 +159,18 @@ interface BuildSidebarItemsOpts {
    *  unchanged doesn't repaint the tree. Covers top-level panes; project-internal
    *  ones are lifted from localStorage inside the builder. */
   paneTitleById?: Map<string, string>;
+  /** Durable origin for pinned browser paneIds whose tab is CLOSED, keyed by
+   *  pane id (`browser:<ctx>`). Resolved by the caller from browserOriginStore
+   *  ∪ closedStack (`resolvePinnedBrowserOrigin`). A project-inner browser is
+   *  stripped from its project snapshot on close, so without this a pinned
+   *  closed project browser leaks to the top-level Fissati block AND loses its
+   *  title. When an entry carries a `projectPath`, the row nests back under that
+   *  project; its `title`/`url` seed the label. */
+  browserOriginById?: Map<string, BrowserOrigin>;
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>() } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>() } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -181,12 +189,18 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   const buildBrowserItem = (paneId: string, projectPath?: string): SidebarItem => {
     const contextId = paneId.slice('browser:'.length);
     const bc = browserContextById.get(contextId);
+    // Durable origin (closedStack ∪ store) for a pinned CLOSED project browser —
+    // the only surviving title/url once the pane is stripped from the project
+    // snapshot. Kept as a low-priority fallback so a live title always wins.
+    const origin = browserOriginById.get(paneId);
     // Resolution order: persisted page title (store for top-level panes, else the
-    // project-localStorage lift) → server context title → hostname → "Browser".
-    // The persisted title is what the tab bar shows, so leading with it keeps the
-    // sidebar row and the tab in sync for native panes the server can't title.
-    const persistedTitle = paneTitleById.get(paneId) || projectBrowserTitles.get(paneId) || '';
-    const hostname = bc?.url && bc.url !== 'about:blank' ? tryHostname(bc.url) : '';
+    // project-localStorage lift) → durable origin title → server context title →
+    // hostname → "Browser". The persisted title is what the tab bar shows, so
+    // leading with it keeps the sidebar row and the tab in sync for native panes
+    // the server can't title.
+    const persistedTitle = paneTitleById.get(paneId) || projectBrowserTitles.get(paneId) || origin?.title || '';
+    const url = bc?.url || origin?.url || '';
+    const hostname = url && url !== 'about:blank' ? tryHostname(url) : '';
     return {
       id: paneId,
       type: 'browser',
@@ -200,7 +214,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // pin glyph and floats into the Fissati block. Was missing, so toggling a
       // browser pin was invisible even where the affordance existed.
       ...(pinnedIds.has(paneId) ? { pinned: true } : {}),
-      browser: bc ?? { id: contextId, url: '', title: '', lastActivity: 0 },
+      browser: bc ?? { id: contextId, url: origin?.url || '', title: origin?.title || '', lastActivity: 0 },
     };
   };
 
@@ -223,6 +237,22 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // and chat pins are bare topic ids, so the prefix check can't misfire.
   for (const key of pinnedIds) {
     if (key.startsWith('project:')) projectPaths.add(key.slice('project:'.length));
+  }
+
+  // Pinned browsers whose tab is CLOSED and whose durable origin points at a
+  // project → nest them back under that project (children loop below) instead of
+  // leaking to the top-level Fissati block (§5), and seed the owning project's
+  // path so its row is emitted even if it has nothing else open. A browser still
+  // open as a top-level tab is left to §5. See browserOriginStore /
+  // resolvePinnedBrowserOrigin (caller-resolved into browserOriginById).
+  const pinnedProjectBrowsers = new Map<string, BrowserOrigin>();
+  for (const key of pinnedIds) {
+    if (!key.startsWith('browser:') || openPanelSet.has(key)) continue;
+    const origin = browserOriginById.get(key);
+    if (origin?.projectPath) {
+      pinnedProjectBrowsers.set(key, origin);
+      projectPaths.add(origin.projectPath);
+    }
   }
 
   // Group topics by project path
@@ -396,6 +426,17 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // §5 only saw top-level openPanels).
     for (const paneId of internalPaneIds) {
       if (!paneId.startsWith('browser:')) continue;
+      projectInternalBrowserIds.add(paneId);
+      children.push(buildBrowserItem(paneId, pp));
+    }
+
+    // Pinned project browsers whose tab is CLOSED — nested back under their
+    // origin project (durable title/url via browserOriginById) instead of
+    // leaking to §5 as a top-level Fissati row. Marking them in
+    // projectInternalBrowserIds keeps §5 from listing them again.
+    for (const [paneId, origin] of pinnedProjectBrowsers) {
+      if (origin.projectPath !== pp) continue;
+      if (internalPaneIds.has(paneId) || projectInternalBrowserIds.has(paneId)) continue;
       projectInternalBrowserIds.add(paneId);
       children.push(buildBrowserItem(paneId, pp));
     }

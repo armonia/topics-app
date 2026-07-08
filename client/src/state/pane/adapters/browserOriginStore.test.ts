@@ -5,6 +5,7 @@ import {
   clearBrowserOrigin,
   enqueueProjectBrowserReopen,
   drainProjectBrowserReopens,
+  resolvePinnedBrowserOrigin,
 } from "./browserOriginStore";
 import type { ClosedTabRecord } from "./closedTabRecord";
 
@@ -124,5 +125,57 @@ describe("pending project-browser reopen queue (not-open bridge)", () => {
 
   test("draining an unknown project → empty array", () => {
     expect(drainProjectBrowserReopens("/never")).toEqual([]);
+  });
+});
+
+describe("resolvePinnedBrowserOrigin (store ∪ closedStack)", () => {
+  const closedRec = (
+    paneId: string,
+    projectPath: string,
+    url: string,
+    title?: string,
+    level: "project" | "app" = "project",
+    type: "browser" | "chat" = "browser",
+  ): ClosedTabRecord => ({
+    id: paneId,
+    closedAt: 123,
+    pane: { id: paneId, type, title: title ?? "B", url },
+    groupId: "",
+    groupIndex: 0,
+    level,
+    projectPath,
+  });
+
+  test("the durable store wins when both store and closedStack have it", () => {
+    recordBrowserOrigin("ctx1", "/tmp/store", "https://store.com", "StoreTitle");
+    const closed = [closedRec("browser:ctx1", "/tmp/stack", "https://stack.com", "StackTitle")];
+    const o = resolvePinnedBrowserOrigin("browser:ctx1", closed);
+    expect(o?.projectPath).toBe("/tmp/store");
+    expect(o?.url).toBe("https://store.com");
+    expect(o?.title).toBe("StoreTitle");
+  });
+
+  test("falls back to the closedStack record when the store has no origin", () => {
+    const closed = [closedRec("browser:ctx1", "/tmp/stack", "https://stack.com", "StackTitle")];
+    const o = resolvePinnedBrowserOrigin("browser:ctx1", closed);
+    expect(o?.projectPath).toBe("/tmp/stack");
+    expect(o?.url).toBe("https://stack.com");
+    expect(o?.title).toBe("StackTitle");
+  });
+
+  test("ignores a non-project or non-browser closed record", () => {
+    const appLevel = [closedRec("browser:ctx1", "/tmp/x", "https://x.com", "T", "app")];
+    expect(resolvePinnedBrowserOrigin("browser:ctx1", appLevel)).toBeNull();
+    const chatRec = [closedRec("browser:ctx1", "/tmp/x", "https://x.com", "T", "project", "chat")];
+    expect(resolvePinnedBrowserOrigin("browser:ctx1", chatRec)).toBeNull();
+  });
+
+  test("a bare pin with neither source → null (genuinely unrecoverable)", () => {
+    expect(resolvePinnedBrowserOrigin("browser:ctx1", [])).toBeNull();
+  });
+
+  test("matches the closed record by exact pane id, not contextId collision", () => {
+    const closed = [closedRec("browser:other", "/tmp/x", "https://x.com")];
+    expect(resolvePinnedBrowserOrigin("browser:ctx1", closed)).toBeNull();
   });
 });

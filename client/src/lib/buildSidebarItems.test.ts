@@ -379,3 +379,92 @@ describe("buildSidebarItems — browser row title (tab/sidebar parity)", () => {
     expect(items.find((i) => i.id === paneId)?.name).toBe("Live Page Title");
   });
 });
+
+// ── Pinned CLOSED project browser — nests under its project with its title ────
+//
+// A browser pinned INSIDE a project, once its tab is closed, is stripped from
+// the project snapshot: without the durable origin the row (1) leaks to the
+// top-level Fissati block (no projectPath) and (2) loses its title. The caller
+// resolves {projectPath,url,title} from browserOriginStore ∪ closedStack and
+// passes it as `browserOriginById`; the builder nests the row back and titles it.
+describe("buildSidebarItems — pinned closed project browser (origin nesting)", () => {
+  const CTX = "bctx";
+  const paneId = `browser:${CTX}`;
+  const origin = { projectPath: PP, url: "https://docs.example.com/x", title: "The Docs", ts: 1 };
+
+  test("nests under its origin project as a pinned child (not a top-level row)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [],
+      openPanels: [], // tab closed
+      projectOpenPanes: {},
+      pinnedIds: new Set([paneId]),
+      browserOriginById: new Map([[paneId, origin]]),
+    });
+    // The project row exists (seeded from the origin) …
+    const project = items.find((i) => i.id === `project:${PP}`);
+    expect(project).toBeTruthy();
+    // … the browser is a nested child, pinned, with its durable title …
+    const child = project!.children!.find((c) => c.id === paneId);
+    expect(child).toBeTruthy();
+    expect(child!.type).toBe("browser");
+    expect(child!.pinned).toBe(true);
+    expect(child!.projectPath).toBe(PP);
+    expect(child!.name).toBe("The Docs");
+    // … and it does NOT also appear as a top-level Fissati row.
+    expect(items.some((i) => i.id === paneId)).toBe(false);
+  });
+
+  test("falls back to the origin hostname when no title is known", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set([paneId]),
+      browserOriginById: new Map([[paneId, { projectPath: PP, url: "https://www.github.com/foo", ts: 1 }]]),
+    });
+    const project = items.find((i) => i.id === `project:${PP}`);
+    const child = project!.children!.find((c) => c.id === paneId);
+    expect(child?.name).toBe("github.com");
+  });
+
+  test("without an origin, a pinned closed browser stays a top-level row (unchanged)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+      pinnedIds: new Set([paneId]),
+      // no browserOriginById entry → genuinely unrecoverable
+    });
+    const row = items.find((i) => i.id === paneId);
+    expect(row).toBeTruthy();
+    expect(row!.type).toBe("browser");
+    expect(row!.pinned).toBe(true);
+    expect(row!.projectPath).toBeUndefined();
+  });
+
+  test("an OPEN pinned browser is untouched by origin nesting (stays top-level live)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {},
+      terminalSessions: [],
+      openPanels: [paneId], // still open at top level
+      projectOpenPanes: {},
+      pinnedIds: new Set([paneId]),
+      browserOriginById: new Map([[paneId, origin]]),
+    });
+    // Open top-level tab → §5 emits it at the top level, not nested.
+    const row = items.find((i) => i.id === paneId);
+    expect(row).toBeTruthy();
+    expect(row!.projectPath).toBeUndefined();
+  });
+});
