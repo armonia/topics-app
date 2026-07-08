@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, waitForTopicVisible, resetPaneStore } from "./helpers/api-fixtures";
 import { readFileSync } from "fs";
 import { resolve as resolvePath } from "path";
 
@@ -46,9 +46,16 @@ async function mountBrowserPane(
 }
 
 test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
-  test.beforeEach(({}, testInfo) => {
+  // Reset pane-store-v2 BEFORE each test so a browser pane left over from a
+  // prior test in this serial suite doesn't survive into the next one. A
+  // stale pane keeps ownership of the active surface — the new pane mounts
+  // but never activates (isPaneActive=false → frames dropped, navigateUrl
+  // prop withheld) — and its lingering [data-testid="browser-connection-
+  // indicator"] trips Playwright strict-mode ("resolved to 2 elements").
+  test.beforeEach(async ({ request }, testInfo) => {
     testInfo.annotations.push({ type: "spec", description: "BROWSER-CHAT-02" });
     testInfo.annotations.push({ type: "plan", description: "@plan-30-05" });
+    await resetPaneStore(request, []);
   });
 
   test("frame WS arrives push-driven within 500ms of first navigation [BROWSER-CHAT-02 / @plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
