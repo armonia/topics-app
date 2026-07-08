@@ -370,3 +370,35 @@ export function cancelTerminalCleanup(recordId: string): void {
     cleanupTimers.delete(recordId);
   }
 }
+
+/**
+ * Pure reopen-routing selector for a pinned browser tab.
+ *
+ * A project-inner browser pane persists its url ONLY in the owning project's
+ * layout snapshot (via the project-side updatePane), never in the global pane
+ * store — so reopening it on the standalone surface comes up about:blank AND
+ * out of its project. `openBrowserPane` calls this to detect that case: when
+ * the closed-tab stack holds a project-level record for this exact browser
+ * pane, the reopen is routed back into the owning project window (which
+ * restores the url) via the `reopen-closed-tab` claim protocol instead.
+ *
+ * `closedTabs` is newest-first (useClosedTabs reverses the reducer stack), so
+ * `.find` returns the most-recent close — correct when a browser was
+ * closed/reopened repeatedly. Returns null for standalone (`level:'app'`)
+ * records or a missing/pathless project record, both of which fall through to
+ * the normal standalone open.
+ */
+export function selectProjectBrowserReopen(
+  closedTabs: readonly ClosedTabRecord[],
+  browserPaneId: string,
+): ClosedTabRecord | null {
+  return (
+    closedTabs.find(
+      r =>
+        r.pane.id === browserPaneId &&
+        r.pane.type === 'browser' &&
+        r.level === 'project' &&
+        !!r.projectPath,
+    ) ?? null
+  );
+}
