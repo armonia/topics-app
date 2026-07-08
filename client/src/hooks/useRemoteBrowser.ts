@@ -293,6 +293,14 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = null;
       }
+      // Sync url/title from the server's known context state once on connect.
+      // The bridge streams `frame`s but only emits a `nav` message on an
+      // actual navigation — a pane that (re)connects to an already-navigated
+      // context would otherwise sit at an empty url (screenshot suppressed by
+      // the "enter a URL" empty-state gate) until the next navigation. This
+      // GET is the server's source of truth; `data.url || s.url` never clobbers
+      // a fresher optimistic/nav value.
+      fetchInfo();
     };
 
     ws.onmessage = (event) => {
@@ -383,7 +391,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
       clearLoadingWatchdog();
     };
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo]);
 
   // HTTP polling effect — runs ONLY when the WS dropped to fallback-http.
   // Mirrors the legacy polling loop but gated on connectionState.
