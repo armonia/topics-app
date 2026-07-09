@@ -19,6 +19,7 @@ export type PaneType =
   | 'journal'
   | 'agents'
   | 'dashboard'
+  | 'kanban'
   | 'project'
   | 'process-log'
   | 'session-viewer'
