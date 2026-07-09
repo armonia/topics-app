@@ -8,7 +8,7 @@
  * project-scoped board API (client/src/lib/board.ts).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { Loader2, Plus, Trash2, X, ShieldCheck, ShieldX, Send } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import {
@@ -74,12 +74,16 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
     catch (e) { setError(e instanceof Error ? e.message : 'update failed'); refetch(); }
   }, [projectId, patchLocal, refetch]);
 
+  const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const onDragStart = useCallback((e: DragStartEvent) => setActiveId(String(e.active.id)), []);
   const onDragEnd = useCallback((e: DragEndEvent) => {
+    setActiveId(null);
     const status = e.over?.id as TaskStatus | undefined;
     const task = tasks.find((t) => t.id === e.active.id);
     if (status && task && TASK_STATUSES.includes(status)) moveTo(task, status);
   }, [tasks, moveTo]);
+  const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
 
   const create = useCallback(async (status: TaskStatus, text: string) => {
     // A task can't be created directly in Done — land it in Todo instead.
@@ -97,7 +101,7 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
         <div className="flex h-full gap-3 overflow-x-auto p-3">
           {TASK_STATUSES.map((status) => (
             <Column
@@ -112,6 +116,16 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
             />
           ))}
         </div>
+        <DragOverlay dropAnimation={null}>
+          {activeTask ? (
+            <div className="w-64 rounded-md border border-white/20 bg-neutral-800 p-2.5 text-sm text-neutral-100 shadow-xl">
+              <div className="flex items-start gap-2">
+                <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[activeTask.priority] ?? PRIORITY_DOT[2]}`} />
+                <span className="flex-1 leading-snug">{activeTask.text}</span>
+              </div>
+            </div>
+          ) : null}
+        </DragOverlay>
       </DndContext>
       {selected && (
         <TaskDetail
@@ -172,8 +186,10 @@ function Card({ task, onOpen, projectId, onError, onRefetch }: {
   task: BoardTask; onOpen: (id: string) => void; projectId: string;
   onError: (e: string) => void; onRefetch: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
-  const style = transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined;
+  // Visual drag is handled by the board-level DragOverlay, so the source card
+  // stays in place (just dimmed) — no transform here (that clipped it inside the
+  // column's overflow before).
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
 
   const review = async (decision: 'approve' | 'reject') => {
     try { await boardApi.review(projectId, task.id, decision); onRefetch(); }
@@ -186,7 +202,7 @@ function Card({ task, onOpen, projectId, onError, onRefetch }: {
 
   return (
     <div
-      ref={setNodeRef} style={style} {...attributes} {...listeners}
+      ref={setNodeRef} {...attributes} {...listeners}
       onClick={() => onOpen(task.id)}
       className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
     >
