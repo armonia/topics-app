@@ -123,26 +123,68 @@ const TOOLS = [
   {
     name: "list_tasks",
     description:
-      "List Kanban board tasks. Optionally filter by status. Each row includes id and project, which update_task needs.",
+      "List Kanban board tasks for THIS session's project. Optionally filter by status. Pass scope='all' for the flat cross-project feed (each row shows its project). Row ids feed get_task / update_task / comment_task.",
     inputSchema: {
       type: "object",
       properties: {
         status: { type: "string", description: "Optional filter: backlog | todo | in_progress | review | done." },
+        scope: { type: "string", description: "'project' (default — this session's project) or 'all' (every project)." },
       },
+    },
+  },
+  {
+    name: "create_task",
+    description:
+      "Create a task on THIS session's project board (starts in Todo). The project is derived from the session — do not pass a project id. Pass idempotency_key to make retries safe (same key ⇒ same task, no duplicate).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "Task title / one-line description." },
+        description: { type: "string", description: "Optional longer body." },
+        priority: { type: "number", description: "0–4 (default 2)." },
+        assignee: { type: "string", description: "Optional agent/person to assign." },
+        idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "get_task",
+    description: "Read one task with its full discussion thread (comments) — use before commenting or updating so you have the latest state.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Task id from list_tasks." },
+      },
+      required: ["task_id"],
     },
   },
   {
     name: "update_task",
     description:
-      "Move a task to a new status, reflected live on the board the user sees. Requires task_id and project_id from list_tasks.",
+      "Update a task on THIS session's project board: status, priority, and/or assignee. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' — that is a human review gate. When your work is ready, set status='review'; a human approves it to 'done'.",
     inputSchema: {
       type: "object",
       properties: {
         task_id: { type: "string", description: "Task id from list_tasks." },
-        project_id: { type: "string", description: "Project id from list_tasks." },
-        status: { type: "string", description: "New status: backlog | todo | in_progress | review | done." },
+        status: { type: "string", description: "backlog | todo | in_progress | review (NOT done — human-only)." },
+        priority: { type: "number", description: "0–4." },
+        assignee: { type: "string", description: "Agent/person to assign." },
       },
-      required: ["task_id", "project_id", "status"],
+      required: ["task_id"],
+    },
+  },
+  {
+    name: "comment_task",
+    description: "Add a comment to a task's discussion thread (progress notes, questions, handoff). Signed as this agent server-side.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Task id from list_tasks." },
+        content: { type: "string", description: "Markdown comment body." },
+        mentions: { type: "array", items: { type: "string" }, description: "Optional @-mentions." },
+      },
+      required: ["task_id", "content"],
     },
   },
   {
@@ -397,9 +439,16 @@ interface TaskRow {
   id?: string;
   projectId?: string;
   project_id?: string;
+  priority?: number;
+  assignedTo?: string;
+  assigned_to?: string;
 }
 interface TasksResp { tasks?: TaskRow[] }
-interface UpdateTaskResp { status?: string }
+interface UpdateTaskResp { status?: string; id?: string }
+interface CommentRow { id?: string; author?: string; content?: string }
+interface GetTaskResp { task?: TaskRow; comments?: CommentRow[] }
+interface CreateTaskResp { id?: string; status?: string }
+interface CommentResp { id?: string }
 
 /**
  * Shared HTTP helper for the Phase-1 bridge tools. Sends an optionally-bodied
@@ -671,12 +720,14 @@ export async function callStopProcess(
 
 export async function callListTasks(
   args: ParsedArgs,
-  toolArgs: { status?: unknown },
+  toolArgs: { status?: unknown; scope?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
-  const q = typeof toolArgs?.status === "string" && toolArgs.status
-    ? `?status=${encodeURIComponent(toolArgs.status)}`
-    : "";
+  const qs = new URLSearchParams();
+  if (typeof toolArgs?.status === "string" && toolArgs.status) qs.set("status", toolArgs.status);
+  // scope=all → the flat cross-project feed; default is the session's own project.
+  if (toolArgs?.scope === "all") qs.set("scope", "all");
+  const q = qs.toString() ? `?${qs}` : "";
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks${q}`;
   const body = await httpJson<TasksResp>(args, "GET", path, undefined, fetchImpl);
   const tasks = Array.isArray(body?.tasks) ? body.tasks : [];
@@ -688,21 +739,80 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; project_id?: unknown; status?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
     throw new Error("update_task: 'task_id' (string) is required");
   }
-  if (typeof toolArgs?.project_id !== "string" || !toolArgs.project_id) {
-    throw new Error("update_task: 'project_id' (string) is required");
+  // Session-scoped: the server derives the project + agent identity from the
+  // session key, so the caller never passes (or can spoof) project_id.
+  const patch: Record<string, unknown> = {};
+  if (typeof toolArgs.status === "string" && toolArgs.status) patch.status = toolArgs.status;
+  if (typeof toolArgs.priority === "number") patch.priority = toolArgs.priority;
+  if (typeof toolArgs.assignee === "string") patch.assignee = toolArgs.assignee;
+  if (Object.keys(patch).length === 0) {
+    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee'");
   }
-  if (typeof toolArgs?.status !== "string" || !toolArgs.status) {
-    throw new Error("update_task: 'status' (string) is required");
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
+  const body = await httpJson<UpdateTaskResp>(args, "PATCH", path, patch, fetchImpl);
+  return `task ${toolArgs.task_id} → ${body?.status ?? (typeof patch.status === "string" ? patch.status : "updated")}`;
+}
+
+export async function callCreateTask(
+  args: ParsedArgs,
+  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
+    throw new Error("create_task: 'text' (string) is required");
   }
-  const path = `/api/boards/${encodeURIComponent(toolArgs.project_id)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
-  const body = await httpJson<UpdateTaskResp>(args, "PATCH", path, { status: toolArgs.status }, fetchImpl);
-  return `task ${toolArgs.task_id} → ${body?.status ?? toolArgs.status}`;
+  const reqBody: Record<string, unknown> = { text: toolArgs.text };
+  if (typeof toolArgs.description === "string") reqBody.description = toolArgs.description;
+  if (typeof toolArgs.priority === "number") reqBody.priority = toolArgs.priority;
+  if (typeof toolArgs.assignee === "string") reqBody.assignee = toolArgs.assignee;
+  if (typeof toolArgs.idempotency_key === "string") reqBody.idempotency_key = toolArgs.idempotency_key;
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks`;
+  const res = await httpJson<CreateTaskResp>(args, "POST", path, reqBody, fetchImpl);
+  return `created task ${res?.id ?? "?"} [${res?.status ?? "todo"}]: ${toolArgs.text}`;
+}
+
+export async function callGetTask(
+  args: ParsedArgs,
+  toolArgs: { task_id?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
+    throw new Error("get_task: 'task_id' (string) is required");
+  }
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
+  const res = await httpJson<GetTaskResp>(args, "GET", path, undefined, fetchImpl);
+  const t = res?.task;
+  if (!t) return `Task ${toolArgs.task_id} not found.`;
+  const who = t.assignedTo ?? t.assigned_to;
+  const head = `[${t.status}] ${t.text} (id=${t.id}${who ? ` @${who}` : ""})`;
+  const comments = Array.isArray(res?.comments) ? res.comments : [];
+  if (!comments.length) return `${head}\n(no comments)`;
+  const thread = comments.map((c) => `  ${c.author ?? "?"}: ${c.content ?? ""}`).join("\n");
+  return `${head}\ncomments:\n${thread}`;
+}
+
+export async function callCommentTask(
+  args: ParsedArgs,
+  toolArgs: { task_id?: unknown; content?: unknown; mentions?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
+    throw new Error("comment_task: 'task_id' (string) is required");
+  }
+  if (typeof toolArgs?.content !== "string" || !toolArgs.content.trim()) {
+    throw new Error("comment_task: 'content' (string) is required");
+  }
+  const reqBody: Record<string, unknown> = { content: toolArgs.content };
+  if (Array.isArray(toolArgs.mentions)) reqBody.mentions = toolArgs.mentions;
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}/comments`;
+  const res = await httpJson<CommentResp>(args, "POST", path, reqBody, fetchImpl);
+  return `commented on ${toolArgs.task_id}${res?.id ? ` (${res.id})` : ""}`;
 }
 
 /**
@@ -729,7 +839,10 @@ const TOOL_HANDLERS: Record<
   read_process_output: (a, t) => callReadProcessOutput(a, t),
   stop_process: (a, t) => callStopProcess(a, t),
   list_tasks: (a, t) => callListTasks(a, t),
+  create_task: (a, t) => callCreateTask(a, t),
+  get_task: (a, t) => callGetTask(a, t),
   update_task: (a, t) => callUpdateTask(a, t),
+  comment_task: (a, t) => callCommentTask(a, t),
   move_session_to_project: (a, t) => callMoveToProject(a, t as { project_path?: unknown }),
   spawn_agent: (a, t) => callSpawnAgent(a, t as { prompt?: unknown; name?: unknown; cwd?: unknown }),
   send_to_agent: (a, t) => callSendToAgent(a, t as { agent_id?: unknown; input?: unknown }),

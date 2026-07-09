@@ -48,6 +48,7 @@ import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders } from "./server/providers";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
+import { createTasksRouter } from "./server/routes/tasks";
 import { createPushRouter } from "./server/routes/push";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
@@ -292,6 +293,7 @@ const tagsRouter = createTagsRouter(ctx);
 const agentProfilesRouter = createAgentProfilesRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
+const tasksRouter = createTasksRouter(ctx);
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
 startProcessDetection(ctx, getClaudeSessionsForDetection);
@@ -732,6 +734,7 @@ const server = Bun.serve<WSData>({
         || await agentProfilesRouter(req, url, pathname, method)
         || await dashboardRouter(req, url, pathname, method)
         || await processesRouter(req, url, pathname, method)
+        || await tasksRouter(req, url, pathname, method)
         || await pushRouter(req, url, pathname, method)
         || await uiStateRouter(req, url, pathname, method)
         || await providersRouter(req, url, pathname, method)

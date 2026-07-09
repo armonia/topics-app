@@ -21,7 +21,10 @@ import {
   callReadProcessOutput,
   callStopProcess,
   callListTasks,
+  callCreateTask,
+  callGetTask,
   callUpdateTask,
+  callCommentTask,
   callSpawnAgent,
   callSendToAgent,
   callReadAgent,
@@ -238,7 +241,10 @@ describe("handleMessage", () => {
       "read_process_output",
       "stop_process",
       "list_tasks",
+      "create_task",
+      "get_task",
       "update_task",
+      "comment_task",
       "move_session_to_project",
       "spawn_agent",
       "send_to_agent",
@@ -254,9 +260,9 @@ describe("handleMessage", () => {
     expect(browser.inputSchema.required).toEqual(["url"]);
     expect(browser.inputSchema.properties.url.type).toBe("string");
     expect(tools.find((t) => t.name === "run_script")!.inputSchema.required).toEqual(["script"]);
-    expect(tools.find((t) => t.name === "update_task")!.inputSchema.required).toEqual([
-      "task_id", "project_id", "status",
-    ]);
+    expect(tools.find((t) => t.name === "update_task")!.inputSchema.required).toEqual(["task_id"]);
+    expect(tools.find((t) => t.name === "create_task")!.inputSchema.required).toEqual(["text"]);
+    expect(tools.find((t) => t.name === "comment_task")!.inputSchema.required).toEqual(["task_id", "content"]);
   });
 
   test("tools/call routes run_script through the registry", async () => {
@@ -454,10 +460,25 @@ describe("callListTasks", () => {
     expect(seen.url).toBe("http://x/api/sessions/s/tasks");
     expect(text).toMatch(/no tasks/i);
   });
+
+  test("scope=all hits the cross-project feed", async () => {
+    const seen: { url?: string } = {};
+    const fetchImpl = stubFetch(async (url) => {
+      seen.url = String(url);
+      return new Response(JSON.stringify({ tasks: [
+        { status: "todo", text: "A", id: "t1", project_id: "p1" },
+        { status: "review", text: "B", id: "t2", project_id: "p2" },
+      ] }), { status: 200 });
+    });
+    const text = await callListTasks({ baseUrl: "http://x", sessionKey: "s" }, { scope: "all" }, fetchImpl);
+    expect(seen.url).toBe("http://x/api/sessions/s/tasks?scope=all");
+    expect(text).toContain("project=p1");
+    expect(text).toContain("project=p2");
+  });
 });
 
 describe("callUpdateTask", () => {
-  test("PATCHes status to the project-scoped task endpoint", async () => {
+  test("PATCHes to the session-scoped task endpoint (no project_id)", async () => {
     const seen: { url?: string; init?: RequestInit } = {};
     const fetchImpl = stubFetch(async (url, init) => {
       seen.url = String(url);
@@ -466,29 +487,117 @@ describe("callUpdateTask", () => {
     });
     const text = await callUpdateTask(
       { baseUrl: "http://x", sessionKey: "s" },
-      { task_id: "t1", project_id: "proj1", status: "in_progress" },
+      { task_id: "t1", status: "in_progress" },
       fetchImpl,
     );
-    expect(seen.url).toBe("http://x/api/boards/proj1/tasks/t1");
+    expect(seen.url).toBe("http://x/api/sessions/s/tasks/t1");
     expect(seen.init?.method).toBe("PATCH");
     expect(seen.init?.body).toBe(JSON.stringify({ status: "in_progress" }));
     expect(text).toBe("task t1 → in_progress");
   });
 
-  test("throws on missing required args", async () => {
-    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
-    await expect(
-      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", status: "done" }, fetchImpl),
-    ).rejects.toThrow(/project_id.*required/i);
+  test("sends only the provided patch fields", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "todo" }), { status: 200 });
+    });
+    await callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", priority: 4, assignee: "claude" }, fetchImpl);
+    expect(seen.init?.body).toBe(JSON.stringify({ priority: 4, assignee: "claude" }));
   });
 
-  test("surfaces 409 dependency-block error", async () => {
+  test("throws when task_id missing or no patch given", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { status: "todo" }, fetchImpl),
+    ).rejects.toThrow(/task_id.*required/i);
+    await expect(
+      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1" }, fetchImpl),
+    ).rejects.toThrow(/at least one/i);
+  });
+
+  test("surfaces server error (e.g. agent cannot complete)", async () => {
     const fetchImpl = stubFetch(async () =>
-      new Response(JSON.stringify({ error: "Task is blocked by unfinished dependencies" }), { status: 409 }),
+      new Response(JSON.stringify({ error: "agents deliver to 'review'; only a human moves 'review' → 'done'" }), { status: 409 }),
     );
     await expect(
-      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", project_id: "p", status: "done" }, fetchImpl),
-    ).rejects.toThrow(/blocked by unfinished dependencies/);
+      callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", status: "done" }, fetchImpl),
+    ).rejects.toThrow(/only a human/);
+  });
+});
+
+describe("callCreateTask", () => {
+  test("POSTs text (+optional fields) to the session tasks endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t9", status: "todo" }), { status: 201 });
+    });
+    const text = await callCreateTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { text: "Do the thing", priority: 3, idempotency_key: "K1" },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/s/tasks");
+    expect(seen.init?.method).toBe("POST");
+    expect(seen.init?.body).toBe(JSON.stringify({ text: "Do the thing", priority: 3, idempotency_key: "K1" }));
+    expect(text).toContain("created task t9 [todo]");
+  });
+
+  test("throws when text missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callCreateTask({ baseUrl: "http://x", sessionKey: "s" }, { text: "   " }, fetchImpl),
+    ).rejects.toThrow(/text.*required/i);
+  });
+});
+
+describe("callGetTask", () => {
+  test("renders the task head + comment thread", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({
+      task: { id: "t1", status: "review", text: "Ship it", assigned_to: "claude" },
+      comments: [{ author: "claude", content: "done, ready for review" }, { author: "attilio", content: "looks good" }],
+    }), { status: 200 }));
+    const text = await callGetTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1" }, fetchImpl);
+    expect(text).toContain("[review] Ship it (id=t1 @claude)");
+    expect(text).toContain("claude: done, ready for review");
+    expect(text).toContain("attilio: looks good");
+  });
+
+  test("handles no comments", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({
+      task: { id: "t1", status: "todo", text: "x" }, comments: [],
+    }), { status: 200 }));
+    const text = await callGetTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1" }, fetchImpl);
+    expect(text).toContain("(no comments)");
+  });
+});
+
+describe("callCommentTask", () => {
+  test("POSTs the comment to the task's comments endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "c1" }), { status: 201 });
+    });
+    const text = await callCommentTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", content: "progress note" },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/s/tasks/t1/comments");
+    expect(seen.init?.method).toBe("POST");
+    expect(seen.init?.body).toBe(JSON.stringify({ content: "progress note" }));
+    expect(text).toContain("commented on t1");
+  });
+
+  test("throws when content missing", async () => {
+    const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(
+      callCommentTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", content: "" }, fetchImpl),
+    ).rejects.toThrow(/content.*required/i);
   });
 });
 
