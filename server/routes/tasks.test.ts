@@ -10,7 +10,7 @@ function freshDb(): Database {
     status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
     kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
     chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT
+    claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE task_comments (
@@ -135,5 +135,50 @@ describe("tasks router (session-scoped)", () => {
   test("non-task path falls through (null)", async () => {
     const resp = await call(router, "GET", "/api/sessions/s1/other");
     expect(resp).toBeNull();
+  });
+});
+
+describe("board router (human, project-scoped)", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  beforeEach(() => {
+    db = freshDb(); broadcasts = [];
+    router = createTasksRouter(makeCtx(db, broadcasts));
+  });
+
+  test("human create + PATCH to done (no review gate for humans)", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "ship" }))!.json();
+    expect(t.status).toBe("todo");
+    const done = (await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "done" }))!;
+    expect(done.status).toBe(200);
+    expect((await done.json()).status).toBe("done");
+  });
+
+  test("review approve moves review → done", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    await call(router, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "review" });
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/review`, { decision: "approve" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).status).toBe("done");
+  });
+
+  test("DELETE archives → drops off list, broadcasts task:deleted", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    expect((await call(router, "DELETE", `/api/boards/pX/tasks/${t.id}`))!.status).toBe(200);
+    const { tasks } = await (await call(router, "GET", "/api/boards/pX/tasks"))!.json();
+    expect(tasks.length).toBe(0);
+    expect(broadcasts.some(b => b.type === "task:deleted")).toBe(true);
+  });
+
+  test("human comment is authored 'user'", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    await call(router, "POST", `/api/boards/pX/tasks/${t.id}/comments`, { content: "hi" });
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.comments[0].author).toBe("user");
+  });
+
+  test("review with bad decision → 400", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/review`, { decision: "maybe" }))!;
+    expect(resp.status).toBe(400);
   });
 });

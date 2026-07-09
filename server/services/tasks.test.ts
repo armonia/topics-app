@@ -12,7 +12,7 @@ function freshDb(): Database {
     status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
     kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
     chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT
+    claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE task_comments (
@@ -161,6 +161,22 @@ describe("review gate (KANBAN-05)", () => {
     const done = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "done" } });
     expect(done.status).toBe("done");
     expect(done.completedAt).not.toBeNull();
+  });
+});
+
+describe("archive", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("archived task drops off the list but the row is kept", () => {
+    const t = s.create({ projectId: "p1", text: "x" });
+    s.archive({ taskId: t.id, projectId: "p1" });
+    expect(s.list({ scope: "project", projectId: "p1" }).length).toBe(0);
+    expect(s.get(t.id)).not.toBeNull();
+  });
+  test("archive is projectId-guarded", () => {
+    const t = s.create({ projectId: "p1", text: "x" });
+    expect(() => s.archive({ taskId: t.id, projectId: "p2" })).toThrow(/not found/);
   });
 });
 

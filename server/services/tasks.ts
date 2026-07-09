@@ -125,7 +125,9 @@ export interface TaskService {
   update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string }): Task;
   addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; projectId?: string }): TaskComment;
   /** Human-only review decision on a task sitting in `review`. */
-  reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string }): Task;
+  reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
+  /** Soft-delete (archive) — the row stays for history but drops off the board. */
+  archive(args: { taskId: string; projectId?: string }): Task;
 }
 
 export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskService {
@@ -204,7 +206,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     list(input: ListTasksInput): Task[] {
-      const clauses: string[] = [];
+      const clauses: string[] = ["archived = 0"];
       const params: any[] = [];
       if (input.scope === "project") {
         if (!input.projectId) throw new TaskServiceError("invalid_input", "scope=project requires projectId");
@@ -292,9 +294,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToComment(db.prepare("SELECT * FROM task_comments WHERE id = ?").get(id));
     },
 
-    reviewDecision({ taskId, by, decision, comment }): Task {
+    reviewDecision({ taskId, by, decision, comment, projectId }): Task {
       const row = getTaskRow(taskId);
-      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      if (!row || (projectId && row.project_id !== projectId)) {
+        throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      }
       if (row.status !== "review") throw new TaskServiceError("invalid_transition", "task is not in review");
       const ts = now();
 
@@ -310,6 +314,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const target: TaskStatus = decision === "approve" ? "done" : "in_progress";
       db.prepare("UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?")
         .run(target, target === "done" ? ts : null, ts, taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    archive({ taskId, projectId }): Task {
+      const row = getTaskRow(taskId);
+      if (!row || (projectId && row.project_id !== projectId)) {
+        throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      }
+      const ts = now();
+      db.prepare("UPDATE tasks SET archived = 1, updated_at = ? WHERE id = ?").run(ts, taskId);
       return rowToTask(getTaskRow(taskId));
     },
   };
