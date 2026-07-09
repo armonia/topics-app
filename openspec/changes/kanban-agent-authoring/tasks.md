@@ -3,11 +3,13 @@
 Convenzione: ogni Phase chiude con `cd client && tsc -b` verde + i test della Phase verdi.
 `[ ]` = da fare, `[x]` = fatto+verificato. Nessun cambio alla UI Kanban/AllBoardsPane.
 
-> STATO: Phase 0 + Phase 1 **fatte e verificate** — 87 test verdi (service 16 · MCP 64 ·
-> routes 7), `tsc -p tsconfig.server.json` OK. Il backend è pilotabile headless via MCP
-> (create/get/comment/update/list scope + gate Review). Restano: refactor DRY (0.4/0.5,
-> rimandati per non toccare i file dirty), board client lean (Phase 4), auto-dispatch
-> (Phase 5), endpoint human-side + E2E.
+> STATO: **backend completo e verificato** (Phase 0–1 + endpoint human-side) — 96 test
+> verdi (service 18 · MCP 64 · routes 14), `tsc` server OK. Due commit puliti su
+> `feat/kanban-agent-authoring` (`b59a9c69` agent surface, `18b80284` human board API +
+> archive + review). Superficie agent (`/api/sessions/:key/...`, gate Review) e human
+> (`/api/boards/:projectId/...`, done+archive+approve/reject) entrambe live, con guardia
+> IDOR projectId. Restano: **board client lean (Phase 4)** — pane React da costruire
+> sull'app viva; refactor DRY (0.4/0.5, rimandati); auto-dispatch (Phase 5); E2E.
 
 ## Phase 0 — Ricognizione & fondamenta (sblocca tutto)
 - [ ] 0.1 Localizzare in git (`refactor-master-into-kanban`) gli handler REST rimossi per
