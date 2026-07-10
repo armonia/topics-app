@@ -20,6 +20,7 @@
 import type { AppContext, RouteHandler } from "../types";
 import { getTerminalSessionById } from "./terminal";
 import { createTaskService, projectIdForPath, TaskServiceError } from "../services/tasks";
+import type { TaskDispatcher } from "../services/task-dispatcher";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -28,7 +29,7 @@ const ERROR_STATUS: Record<string, number> = {
   agent_cannot_complete: 409,
 };
 
-export function createTasksRouter(ctx: AppContext): RouteHandler {
+export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey } = ctx;
   const svc = createTaskService(db);
 
@@ -77,6 +78,31 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
     if (isBoard) {
       const HUMAN = "user";
 
+      // GET/PATCH /api/boards/:projectId/settings — per-board dispatch config
+      // (auto-dispatch toggle, concurrency cap, effort, worktree, timeout).
+      const bSettings = matchRoute(pathname, "/api/boards/:projectId/settings");
+      if (bSettings) {
+        const projectId = bSettings.projectId;
+        if (method === "GET") {
+          try { return json(svc.getBoardSettings(projectId)); } catch (e) { return fail(e); }
+        }
+        if (method === "PATCH") {
+          const body = (await readJSON(req)) as any;
+          try {
+            const settings = svc.updateBoardSettings(projectId, {
+              autoDispatch: typeof body?.autoDispatch === "boolean" ? body.autoDispatch : undefined,
+              maxAgents: typeof body?.maxAgents === "number" ? body.maxAgents : undefined,
+              dispatchEffort: typeof body?.dispatchEffort === "string" ? body.dispatchEffort : undefined,
+              dispatchUseWorktree: typeof body?.dispatchUseWorktree === "boolean" ? body.dispatchUseWorktree : undefined,
+              dispatchTimeoutMin: typeof body?.dispatchTimeoutMin === "number" ? body.dispatchTimeoutMin : undefined,
+            });
+            broadcastToAll({ type: "board:settings", projectId, settings });
+            return json(settings);
+          } catch (e) { return fail(e); }
+        }
+        return null;
+      }
+
       const bCol = matchRoute(pathname, "/api/boards/:projectId/tasks");
       if (bCol) {
         const projectId = bCol.projectId;
@@ -109,12 +135,19 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
         const decision = body?.decision === "approve" ? "approve" : body?.decision === "reject" ? "reject" : null;
         if (!decision) return json({ error: "decision must be 'approve' or 'reject'", code: "invalid_input" }, 400);
         try {
+          const comment = typeof body?.comment === "string" ? body.comment : undefined;
           const task = svc.reviewDecision({
-            taskId: bReview.taskId, by: HUMAN, decision,
-            comment: typeof body?.comment === "string" ? body.comment : undefined,
+            taskId: bReview.taskId, by: HUMAN, decision, comment,
             projectId: bReview.projectId,
           });
           broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task });
+          // Reject re-kicks the SAME agent tab with the human's feedback (a
+          // "Serve te" answer routes through here too), so the conversation
+          // resumes instead of a fresh agent spawning. reviewDecision already
+          // moved it back to in_progress.
+          if (dispatcher && decision === "reject" && task.assignedTopicId) {
+            void dispatcher.resume(bReview.taskId, comment ?? "");
+          }
           return json(task);
         } catch (e) { return fail(e); }
       }
@@ -145,6 +178,7 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
         if (method === "PATCH") {
           const body = (await readJSON(req)) as any;
           try {
+            const prevStatus = svc.get(taskId, { projectId })?.task.status;
             const task = svc.update({
               taskId, actor: "human", by: HUMAN, projectId,
               patch: {
@@ -157,6 +191,13 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
               },
             });
             broadcastToAll({ type: "task:updated", projectId, task });
+            // Auto-dispatch trigger: the human dragging a task INTO todo is the
+            // "vai" signal; dragging it back OUT while still queued cancels it.
+            // The dispatcher itself no-ops when auto_dispatch is off for the board.
+            if (dispatcher && prevStatus !== task.status) {
+              if (task.status === "todo") dispatcher.onEnterTodo(projectId, taskId);
+              else if (prevStatus === "todo") dispatcher.onLeaveTodo(taskId);
+            }
             return json(task);
           } catch (e) { return fail(e); }
         }
@@ -197,6 +238,10 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
             description: body?.description ?? null,
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
+            // Agents/MCP always create into `backlog` (intake), never straight into
+            // the "todo" run-queue: a task only becomes dispatch-eligible when a
+            // HUMAN moves it to todo. Symmetric to the agent-cannot-mark-done gate.
+            status: "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
