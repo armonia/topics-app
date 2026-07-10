@@ -1,9 +1,10 @@
 name: Auto-bump patch
 
 # Every push to main auto-increments the PATCH (the z in x.y.z) in lockstep
-# across package.json / tauri.conf.json / Cargo.toml and commits it back, so the
-# repo version is always ahead of the last shipped one without a manual
-# chore(release) step.
+# across package.json / tauri.conf.json / Cargo.toml, commits it back, and THEN
+# builds + publishes the Tauri installers for that version — so every merge to
+# main ships to everyone's auto-updater with no manual step (policy: main is
+# always shipped, approved 2026-07-10).
 #
 # Loop safety: the bump commit itself starts with "chore(release):", so the `if`
 # below skips it — the workflow never bumps its own bump. (The default
@@ -12,13 +13,14 @@ name: Auto-bump patch
 # message: a squash-merge concatenates the branch's commit messages into the
 # body, so a PR that merely mentions the loop guard would be skipped by accident.
 #
-# This workflow only bumps — it never builds or ships. Shipping installers is a
-# deliberate act: run `scripts/ship.sh`, which tags `tauri-v<version>` from your
-# own git credential and so fires tauri-release.yml (CI's GITHUB_TOKEN can't
-# trigger a tag workflow, which is why the release step lives locally, not here —
-# and needs no repo PAT). Rationale: a full 3-OS installer build on every merge
-# would burn the macOS runner budget; ship when a version is actually worth
-# pushing to users.
+# Why the release runs HERE instead of from the `tauri-v*` tag: CI's built-in
+# GITHUB_TOKEN can't trigger a tag- or dispatch-driven workflow, and we use no
+# repo PAT. This job is triggered by a human merge push, which CAN fan out to
+# downstream jobs — so it calls tauri-release.yml directly (workflow_call) on the
+# freshly-bumped commit. The installer build is itself the gate: a merge that
+# breaks compilation fails the build and publishes nothing. (Lint/unit run in
+# parallel in ci.yml; they don't block the publish — acceptable per the "always
+# shipped" policy. `scripts/ship.sh` remains for one-off manual releases.)
 on:
   push:
     branches: [main]
@@ -33,6 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      sha: ${{ steps.push.outputs.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -43,6 +48,7 @@ jobs:
         run: echo "version=$(bash scripts/bump-version.sh patch)" >> "$GITHUB_OUTPUT"
 
       - name: Commit the bump back to main
+        id: push
         env:
           VERSION: ${{ steps.bump.outputs.version }}
           BRANCH: ${{ github.ref_name }}
@@ -51,3 +57,16 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore(release): bump v${VERSION}"
           git push origin "HEAD:${BRANCH}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  # Build + publish the installers for the just-bumped version, live to everyone.
+  # Runs in THIS (human-triggered) run; auto-skips when `bump` is skipped.
+  release:
+    needs: bump
+    permissions:
+      contents: write
+    secrets: inherit
+    uses: ./.github/workflows/tauri-release.yml
+    with:
+      ref: ${{ needs.bump.outputs.sha }}
+      tag: tauri-v${{ needs.bump.outputs.version }}

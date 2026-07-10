@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Ship a Tauri desktop release for the version currently on origin/main.
 #
+# Normally you don't need this: every merge to main already auto-builds and
+# publishes its version (auto-bump.yml → tauri-release.yml). ship.sh is the manual
+# escape hatch — re-cut a release for the version currently on origin/main.
+#
 # What it does: tags origin/main as `tauri-v<version>` and pushes the tag, which
 # fires .github/workflows/tauri-release.yml → builds the macOS/Windows/Linux
-# installers + the `latest.json` updater manifest into a DRAFT GitHub Release.
-# Publish that draft (Releases page, or `gh release edit tauri-v<version>
-# --draft=false`) to actually push the update to everyone's auto-updater.
+# installers + the `latest.json` updater manifest and PUBLISHES the GitHub Release
+# live (releaseDraft: false), so the signed auto-updater picks it up.
 #
-# Why a local script instead of CI auto-tagging: CI's built-in GITHUB_TOKEN
-# cannot trigger a tag-driven workflow, so an auto-bump job pushing the tag would
-# never start the build. Pushing the tag from YOUR git credential (a real user)
-# does — no repo PAT/secret to manage. Keeping release deliberate also avoids a
-# full 3-OS build on every trivial merge (auto-bump keeps the version ahead;
-# ship.sh decides when it's worth building).
+# Why a local tag push works when CI can't: CI's built-in GITHUB_TOKEN cannot
+# trigger a tag-driven workflow. Pushing the tag from YOUR git credential (a real
+# user) does — no repo PAT/secret to manage.
 #
 # Always ships exactly what's merged on origin/main, never local WIP.
 set -euo pipefail
