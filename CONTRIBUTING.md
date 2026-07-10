@@ -106,9 +106,19 @@ and Linux installers with `tauri-apps/tauri-action`, and publishes them to a **d
 GitHub Release together with the `latest.json` auto-update manifest.
 
 ```bash
-git tag tauri-v2.1.0 && git push origin tauri-v2.1.0
-# then review + publish the draft release on GitHub
+scripts/ship.sh          # tags origin/main's version + pushes → builds the draft
+# then publish the draft (this is what pushes the update to users):
+gh release edit tauri-v<version> --draft=false
 ```
+
+`ship.sh` tags whatever is on `origin/main` (never local WIP) and is the intended
+release path. Tagging by hand (`git tag tauri-vX.Y.Z && git push origin …`) still
+works. **The tag must be pushed from a real git credential, not from CI:** every
+push to `main` auto-bumps the patch (`auto-bump.yml`), but that job runs as the
+built-in `GITHUB_TOKEN`, which by design cannot trigger a tag-driven workflow — so
+the repo version advances while nothing builds until you run `ship.sh`. That's
+deliberate (no repo PAT to manage, and no full 3-OS build on every trivial merge),
+not a bug.
 
 Signing: the updater manifest is minisign-signed via `TAURI_SIGNING_PRIVATE_KEY`
 (+ `_PASSWORD`); macOS code-signing/notarization uses the Apple signing secrets
