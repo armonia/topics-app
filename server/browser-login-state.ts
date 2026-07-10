@@ -1,14 +1,17 @@
 /**
- * Login-state sharing between the Topics native pane and Jarvis browser
- * sessions. Both speak Playwright `storageState` JSON (cookies + per-origin
- * localStorage), so a handle saved by one side loads on the other — WITHOUT
- * routing the pane through the Jarvis daemon (Approach A: file-format interop).
+ * Login-state sharing between the Topics native pane and an optional external
+ * companion browser tool. Both speak Playwright `storageState` JSON (cookies +
+ * per-origin localStorage), so a handle saved by one side loads on the other —
+ * WITHOUT routing the pane through the companion's daemon (file-format interop).
  *
- *   - Topics handles:  <DATA_DIR|data>/browser-state/_handles/<handle>.json
- *   - Jarvis handles:  ~/.claude/jarvis/state/browser-states/<handle>.json
+ *   - Topics handles:    <DATA_DIR|data>/browser-state/_handles/<handle>.json
+ *   - External handles:  <TOPICS_EXTERNAL_STATES_DIR>/<handle>.json  (opt-in)
  *
- * A handle is written to BOTH locations on save, so `jbrowser load-state <h>`
- * (and the daemon's loadState RPC) can reuse a Topics login and vice versa.
+ * The external store is OPT-IN: it's used only when `TOPICS_EXTERNAL_STATES_DIR`
+ * is set (or the legacy companion store already exists on this machine — see
+ * `externalStatesDir`). When active, a handle is written to BOTH locations on
+ * save, so an external tool can reuse a Topics login and vice versa. A fresh
+ * install writes to the Topics store only — no external paths are created.
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -50,16 +53,16 @@ export function safeHandle(handle: string): string {
 }
 
 /**
- * Sanitize a handle EXACTLY the way the Jarvis daemon does
- * (`jarvis-browser/daemon.mjs`: `String(s||"default").replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,64)`),
- * so a handle written to the SHARED Jarvis store lands under the same filename
- * `jbrowser load-state <handle>` will look for. Topics' own `safeHandle` keeps
- * dots (so "github.com" → "github.com.json" locally), but Jarvis strips them
- * ("github.com" → "github_com.json"). Using safeHandle for the Jarvis copy
- * silently broke cross-tool reuse for site-named handles; this keeps the two
- * sides byte-identical on the interop path. Mirror daemon.mjs verbatim.
+ * Sanitize a handle the way common companion browser daemons do
+ * (`String(s||"default").replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,64)`), so a
+ * handle written to the SHARED external store lands under the same filename the
+ * companion tool will look for. Topics' own `safeHandle` keeps dots (so
+ * "github.com" → "github.com.json" locally), but the companion convention
+ * strips them ("github.com" → "github_com.json"). Using safeHandle for the
+ * external copy would silently break cross-tool reuse for site-named handles;
+ * this keeps the two sides byte-identical on the interop path.
  */
-export function jarvisSanitizeHandle(handle: string): string {
+export function externalSanitizeHandle(handle: string): string {
   return (
     String(handle || "default")
       .replace(/[^a-zA-Z0-9_-]/g, "_")
@@ -85,20 +88,35 @@ function topicsStatesDir(): string {
   return join(base, "_handles");
 }
 
-function jarvisStatesDir(): string {
-  // Overridable for tests so they never touch the real Jarvis store.
-  if (process.env.JARVIS_STATES_DIR) return process.env.JARVIS_STATES_DIR;
-  return join(homedir(), ".claude", "jarvis", "state", "browser-states");
+/**
+ * Resolve the OPT-IN external companion store, or null when there isn't one.
+ *   1. `TOPICS_EXTERNAL_STATES_DIR` — explicit opt-in (also the test override).
+ *   2. `JARVIS_STATES_DIR` — backward-compat alias for the original integration.
+ *   3. A legacy companion store that already exists on this machine — so an
+ *      existing zero-config setup keeps interoperating, while a fresh install
+ *      (where the dir is absent) gets the Topics store only.
+ * Returning null means "Topics store only" — nothing external is written/read.
+ */
+function externalStatesDir(): string | null {
+  const configured =
+    process.env.TOPICS_EXTERNAL_STATES_DIR || process.env.JARVIS_STATES_DIR;
+  if (configured) return configured;
+  const legacy = join(homedir(), ".claude", "jarvis", "state", "browser-states");
+  return existsSync(legacy) ? legacy : null;
 }
 
 export function topicsStatePath(handle: string): string {
   return join(topicsStatesDir(), `${safeHandle(handle)}.json`);
 }
-export function jarvisStatePath(handle: string): string {
-  // Validate for traversal via safeHandle, then map to the JARVIS filename so
-  // the shared store stays interoperable with `jbrowser load-state`.
+
+/** Path in the external store, or null when no external store is active. */
+export function externalStatePath(handle: string): string | null {
+  // Validate for traversal via safeHandle, then map to the companion filename
+  // so the shared store stays interoperable with the external tool.
   safeHandle(handle);
-  return join(jarvisStatesDir(), `${jarvisSanitizeHandle(handle)}.json`);
+  const dir = externalStatesDir();
+  if (!dir) return null;
+  return join(dir, `${externalSanitizeHandle(handle)}.json`);
 }
 
 /** Atomic, 0600 write of a storageState JSON (it holds decrypted cookies). */
@@ -135,7 +153,7 @@ export async function exportStateFromContext(
  * Inject a saved storageState into the live pane: cookies first (batch, then
  * per-cookie fallback for any the browser rejects), then per-origin
  * localStorage (requires visiting the origin), then return to the original page
- * (now authenticated). Mirrors the Jarvis daemon's loadState semantics.
+ * (now authenticated). Mirrors the companion daemon's loadState semantics.
  */
 export async function applyStateToPage(
   page: Page,
@@ -200,37 +218,44 @@ export async function applyStateToPage(
   return { cookies: cookieCount, origins: originCount };
 }
 
-/** Persist a state under a handle to BOTH the Topics and Jarvis stores. */
+/**
+ * Persist a state under a handle to the Topics store, and — when an external
+ * companion store is active — to that store too. `externalPath` is null on a
+ * fresh install with no external store configured.
+ */
 export function saveStateToStores(handle: string, state: StorageState): {
   topicsPath: string;
-  jarvisPath: string;
+  externalPath: string | null;
   localStorageCaptured: boolean;
 } {
   const topicsPath = topicsStatePath(handle);
-  const jarvisPath = jarvisStatePath(handle);
+  const externalPath = externalStatePath(handle);
   writeStateFile(topicsPath, state);
-  try {
-    writeStateFile(jarvisPath, state);
-  } catch {
-    /* Jarvis dir may not exist / be writable — Topics copy still saved */
+  if (externalPath) {
+    try {
+      writeStateFile(externalPath, state);
+    } catch {
+      /* external dir may not be writable — Topics copy still saved */
+    }
   }
   const localStorageCaptured = (state.origins ?? []).some(
     (o) => Array.isArray(o.localStorage) && o.localStorage.length > 0,
   );
-  return { topicsPath, jarvisPath, localStorageCaptured };
+  return { topicsPath, externalPath, localStorageCaptured };
 }
 
-/** Resolve a handle to a saved state — Topics store, or Jarvis store. */
+/** Resolve a handle to a saved state — Topics store, or the external store. */
 export function loadStateFromStores(
   handle: string,
-  opts: { fromJarvis?: boolean } = {},
-): { state: StorageState; source: "topics" | "jarvis" } | null {
-  if (opts.fromJarvis) {
-    const s = readStateFile(jarvisStatePath(handle));
-    return s ? { state: s, source: "jarvis" } : null;
+  opts: { fromExternal?: boolean } = {},
+): { state: StorageState; source: "topics" | "external" } | null {
+  const externalPath = externalStatePath(handle);
+  if (opts.fromExternal) {
+    const s = externalPath ? readStateFile(externalPath) : null;
+    return s ? { state: s, source: "external" } : null;
   }
   const t = readStateFile(topicsStatePath(handle));
   if (t) return { state: t, source: "topics" };
-  const j = readStateFile(jarvisStatePath(handle));
-  return j ? { state: j, source: "jarvis" } : null;
+  const e = externalPath ? readStateFile(externalPath) : null;
+  return e ? { state: e, source: "external" } : null;
 }

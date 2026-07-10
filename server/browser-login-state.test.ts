@@ -1,6 +1,7 @@
 /**
- * Unit tests for the login-state file store (Jarvis-interop format).
- * Redirects both stores to a tmp dir so it never touches real data/ or ~/.claude.
+ * Unit tests for the login-state file store (external-tool interop format).
+ * Redirects both stores to a tmp dir so it never touches real data/ or the
+ * external store. Setting TOPICS_EXTERNAL_STATES_DIR opts the external store in.
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
@@ -9,17 +10,22 @@ import { join } from "node:path";
 
 let dir: string;
 let prevData: string | undefined;
+let prevExternal: string | undefined;
 let prevJarvis: string | undefined;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "topics-loginstate-"));
   prevData = process.env.DATA_DIR;
+  prevExternal = process.env.TOPICS_EXTERNAL_STATES_DIR;
   prevJarvis = process.env.JARVIS_STATES_DIR;
   process.env.DATA_DIR = join(dir, "data");
-  process.env.JARVIS_STATES_DIR = join(dir, "jarvis-states");
+  process.env.TOPICS_EXTERNAL_STATES_DIR = join(dir, "external-states");
+  // Ensure the legacy alias never leaks into these assertions.
+  delete process.env.JARVIS_STATES_DIR;
 });
 afterAll(() => {
   if (prevData === undefined) delete process.env.DATA_DIR; else process.env.DATA_DIR = prevData;
+  if (prevExternal === undefined) delete process.env.TOPICS_EXTERNAL_STATES_DIR; else process.env.TOPICS_EXTERNAL_STATES_DIR = prevExternal;
   if (prevJarvis === undefined) delete process.env.JARVIS_STATES_DIR; else process.env.JARVIS_STATES_DIR = prevJarvis;
   rmSync(dir, { recursive: true, force: true });
 });
@@ -30,9 +36,9 @@ import {
   saveStateToStores,
   loadStateFromStores,
   topicsStatePath,
-  jarvisStatePath,
+  externalStatePath,
   safeHandle,
-  jarvisSanitizeHandle,
+  externalSanitizeHandle,
   type StorageState,
 } from "./browser-login-state";
 
@@ -49,10 +55,11 @@ describe("login-state file store", () => {
     expect(() => safeHandle("")).toThrow();
   });
 
-  it("saves to BOTH the Topics and Jarvis stores", () => {
+  it("saves to BOTH the Topics and external stores when the external store is active", () => {
     const r = saveStateToStores("acme", sample);
     expect(existsSync(topicsStatePath("acme"))).toBe(true);
-    expect(existsSync(jarvisStatePath("acme"))).toBe(true);
+    expect(existsSync(externalStatePath("acme")!)).toBe(true);
+    expect(r.externalPath).not.toBeNull();
     expect(r.localStorageCaptured).toBe(true);
     // Files are valid storageState JSON.
     const onDisk = JSON.parse(readFileSync(topicsStatePath("acme"), "utf8"));
@@ -67,10 +74,10 @@ describe("login-state file store", () => {
     expect(loaded?.state.origins[0].localStorage[0].value).toBe("xyz");
   });
 
-  it("loads from the Jarvis store when from_jarvis is set", () => {
+  it("loads from the external store when from_external is set", () => {
     saveStateToStores("shared", sample);
-    const loaded = loadStateFromStores("shared", { fromJarvis: true });
-    expect(loaded?.source).toBe("jarvis");
+    const loaded = loadStateFromStores("shared", { fromExternal: true });
+    expect(loaded?.source).toBe("external");
     expect(loaded?.state.cookies[0].name).toBe("sid");
   });
 
@@ -83,33 +90,33 @@ describe("login-state file store", () => {
     expect(loadStateFromStores("does-not-exist")).toBeNull();
   });
 
-  // --- Jarvis interop parity (dot-bearing handles) -------------------------
-  // The whole point of the shared ~/.claude/jarvis/state/browser-states dir is
-  // that `jbrowser load-state <h>` finds a Topics-written state. Jarvis's daemon
-  // sanitize STRIPS dots (github.com -> github_com); Topics' safeHandle KEEPS
-  // them. The Jarvis-copy filename MUST use the Jarvis rule or interop silently
-  // breaks for the common case (logins are named after sites).
-  it("jarvisSanitizeHandle mirrors the Jarvis daemon rule (strips dots)", () => {
+  // --- External interop parity (dot-bearing handles) -----------------------
+  // The whole point of the shared external store is that a companion tool's
+  // `load-state <h>` finds a Topics-written state. Common companion daemons
+  // sanitize by STRIPPING dots (github.com -> github_com); Topics' safeHandle
+  // KEEPS them. The external-copy filename MUST use the companion rule or interop
+  // silently breaks for the common case (logins are named after sites).
+  it("externalSanitizeHandle mirrors the companion daemon rule (strips dots)", () => {
     const ref = (s: string) =>
       String(s || "default").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "default";
     for (const h of ["github.com", "app.example.com", "my.login", "weird name!", "a".repeat(80)]) {
-      expect(jarvisSanitizeHandle(h)).toBe(ref(h));
-      expect(jarvisSanitizeHandle(h)).not.toContain(".");
+      expect(externalSanitizeHandle(h)).toBe(ref(h));
+      expect(externalSanitizeHandle(h)).not.toContain(".");
     }
   });
 
-  it("a dotted handle round-trips to Topics (dots kept) and Jarvis (dots stripped)", () => {
+  it("a dotted handle round-trips to Topics (dots kept) and external (dots stripped)", () => {
     saveStateToStores("github.com", sample);
     // Topics-local keeps the liberal name.
     expect(topicsStatePath("github.com")).toContain("github.com.json");
     expect(existsSync(topicsStatePath("github.com"))).toBe(true);
-    // Jarvis copy lands under the name jbrowser load-state will look for.
-    expect(jarvisStatePath("github.com")).toContain("github_com.json");
-    expect(jarvisStatePath("github.com")).not.toContain("github.com.json");
-    expect(existsSync(jarvisStatePath("github.com"))).toBe(true);
-    // from_jarvis (the jbrowser-equivalent path) resolves the same file.
-    const loaded = loadStateFromStores("github.com", { fromJarvis: true });
-    expect(loaded?.source).toBe("jarvis");
+    // External copy lands under the name a companion load-state will look for.
+    expect(externalStatePath("github.com")).toContain("github_com.json");
+    expect(externalStatePath("github.com")).not.toContain("github.com.json");
+    expect(existsSync(externalStatePath("github.com")!)).toBe(true);
+    // from_external (the companion-equivalent path) resolves the same file.
+    const loaded = loadStateFromStores("github.com", { fromExternal: true });
+    expect(loaded?.source).toBe("external");
     expect(loaded?.state.cookies[0].name).toBe("sid");
   });
 });

@@ -5,9 +5,9 @@
  * The WKWebView pane has no CDP endpoint and no disk access, so these ops split
  * across the delegation seam exactly like browser_upload and the vision ops:
  * everything that needs the SERVER stays here — handle persistence in the
- * Topics + Jarvis stores (browser-login-state.ts, the SAME Playwright
- * storageState JSON the Electron/CDP and Jarvis surfaces use, so a handle saved
- * on the native pane loads anywhere) and the Chrome-cookie Keychain decryption
+ * Topics + external stores (browser-login-state.ts, the SAME Playwright
+ * storageState JSON the CDP and external companion surfaces use, so a handle
+ * saved on the native pane loads anywhere) and the Chrome-cookie Keychain decryption
  * (integrations/chrome-cookies.ts) — while only the pane-local legs (cookie
  * store read/write via the native `browser_pane_get_cookies` /
  * `browser_pane_set_cookies` commands, localStorage via eval) are delegated to
@@ -98,10 +98,12 @@ export async function nativeStateOp(
       throw new Error("browser_load_state: 'handle' (string) is required");
     }
     const handle = safeHandle(args.handle);
-    const loaded = loadStateFromStores(handle, { fromJarvis: !!args.from_jarvis });
+    // `from_jarvis` accepted as a deprecated alias of `from_external`.
+    const fromExternal = !!(args.from_external ?? args.from_jarvis);
+    const loaded = loadStateFromStores(handle, { fromExternal });
     if (!loaded) {
       return {
-        error: `browser_load_state: no saved state for handle "${handle}"${args.from_jarvis ? " in the Jarvis store" : ""}.`,
+        error: `browser_load_state: no saved state for handle "${handle}"${fromExternal ? " in the external store" : ""}.`,
       };
     }
     console.log(`[BrowserTools] browser_load_state(${contextId}, ${handle}, source=${loaded.source}) [native]`);
