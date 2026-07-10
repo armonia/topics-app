@@ -5,10 +5,12 @@ name: Auto-bump patch
 # repo version is always ahead of the last shipped one without a manual
 # chore(release) step.
 #
-# Loop safety: the bump commit itself starts with "chore(release):" (and carries
-# [skip-bump]), so the `if` below skips it — the workflow never bumps its own
-# bump. (The default GITHUB_TOKEN also cannot trigger another workflow run, a
-# second layer of protection.)
+# Loop safety: the bump commit itself starts with "chore(release):", so the `if`
+# below skips it — the workflow never bumps its own bump. (The default
+# GITHUB_TOKEN also cannot trigger another workflow run, a second layer of
+# protection.) We deliberately do NOT also match "[skip-bump]" anywhere in the
+# message: a squash-merge concatenates the branch's commit messages into the
+# body, so a PR that merely mentions the loop guard would be skipped by accident.
 #
 # Shipping to users (optional): if a repo secret RELEASE_PAT is set, the new
 # version is also tagged `tauri-v<version>`, which triggers tauri-release.yml to
@@ -25,9 +27,7 @@ concurrency:
 
 jobs:
   bump:
-    if: >-
-      !startsWith(github.event.head_commit.message, 'chore(release):')
-      && !contains(github.event.head_commit.message, '[skip-bump]')
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -52,7 +52,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "chore(release): bump v${VERSION} [skip-bump]"
+          git commit -am "chore(release): bump v${VERSION}"
           git push origin "HEAD:${BRANCH}"
 
       - name: Tag → trigger release (only when a PAT can fire it)
