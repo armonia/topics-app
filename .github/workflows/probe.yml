@@ -1,0 +1,21 @@
+name: probe-release-perm
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try to create + delete a draft release with GITHUB_TOKEN
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "default token release-create test"
+          if gh api -X POST "repos/$REPO/releases" -f tag_name=probe-perm-xyz -f name=probe -F draft=true >/tmp/r.json 2>/tmp/e.txt; then
+            echo "RESULT=CREATE_OK"
+            id=$(jq -r .id /tmp/r.json)
+            gh api -X DELETE "repos/$REPO/releases/$id" && echo "cleanup ok"
+          else
+            echo "RESULT=CREATE_FAIL"; cat /tmp/e.txt
+          fi
