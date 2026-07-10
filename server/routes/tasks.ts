@@ -77,6 +77,31 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
     if (isBoard) {
       const HUMAN = "user";
 
+      // GET/PATCH /api/boards/:projectId/settings — per-board dispatch config
+      // (auto-dispatch toggle, concurrency cap, effort, worktree, timeout).
+      const bSettings = matchRoute(pathname, "/api/boards/:projectId/settings");
+      if (bSettings) {
+        const projectId = bSettings.projectId;
+        if (method === "GET") {
+          try { return json(svc.getBoardSettings(projectId)); } catch (e) { return fail(e); }
+        }
+        if (method === "PATCH") {
+          const body = (await readJSON(req)) as any;
+          try {
+            const settings = svc.updateBoardSettings(projectId, {
+              autoDispatch: typeof body?.autoDispatch === "boolean" ? body.autoDispatch : undefined,
+              maxAgents: typeof body?.maxAgents === "number" ? body.maxAgents : undefined,
+              dispatchEffort: typeof body?.dispatchEffort === "string" ? body.dispatchEffort : undefined,
+              dispatchUseWorktree: typeof body?.dispatchUseWorktree === "boolean" ? body.dispatchUseWorktree : undefined,
+              dispatchTimeoutMin: typeof body?.dispatchTimeoutMin === "number" ? body.dispatchTimeoutMin : undefined,
+            });
+            broadcastToAll({ type: "board:settings", projectId, settings });
+            return json(settings);
+          } catch (e) { return fail(e); }
+        }
+        return null;
+      }
+
       const bCol = matchRoute(pathname, "/api/boards/:projectId/tasks");
       if (bCol) {
         const projectId = bCol.projectId;
@@ -197,6 +222,10 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
             description: body?.description ?? null,
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
+            // Agents/MCP always create into `backlog` (intake), never straight into
+            // the "todo" run-queue: a task only becomes dispatch-eligible when a
+            // HUMAN moves it to todo. Symmetric to the agent-cannot-mark-done gate.
+            status: "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });

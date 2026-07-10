@@ -9,11 +9,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Loader2, Plus, Trash2, X, ShieldCheck, ShieldX, Send } from 'lucide-react';
+import { Loader2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL,
-  type BoardTask, type TaskStatus, type TaskComment,
+  type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
 } from '../../lib/board';
 
 interface Props {
@@ -22,23 +22,37 @@ interface Props {
   /** Global cross-project board: locks to 'all' mode, no project column, no add. */
   global?: boolean;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
+  /** Deep-link a task's bound agent tab into focus (wired to handleTopicClick). */
+  onOpenTopic?: (topicId: string) => void;
 }
 
 const PRIORITY_DOT: Record<number, string> = {
   0: 'bg-neutral-400', 1: 'bg-sky-400', 2: 'bg-emerald-400', 3: 'bg-amber-400', 4: 'bg-rose-500',
 };
 
-export function KanbanBoardPane({ projectPath, global = false, onMessage }: Props) {
+// Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
+const DISPATCH_CHIP: Record<string, { text: string; cls: string }> = {
+  queued: { text: 'in coda', cls: 'bg-white/10 text-neutral-300' },
+  starting: { text: 'avvio…', cls: 'bg-amber-500/15 text-amber-300' },
+  working: { text: 'al lavoro', cls: 'bg-sky-500/15 text-sky-300' },
+  needs_input: { text: 'serve te', cls: 'bg-rose-500/15 text-rose-300' },
+};
+
+export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic }: Props) {
   const projectId = useMemo(() => (projectPath ? boardIdForPath(projectPath) : ''), [projectPath]);
   // The project/all toggle only makes sense inside a project window. The global
   // pane has no project, so it locks to 'all'.
   const canToggle = !!projectPath && !global;
+  // Per-board dispatch settings only exist for a single project (the global board
+  // aggregates many), so the gear only shows inside a project window.
+  const hasProject = !!projectPath && !global;
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const refetch = useCallback(async () => {
     try {
@@ -127,9 +141,21 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage }: Prop
         ) : (
           <span className="text-xs font-semibold text-neutral-200">Board generale</span>
         )}
-        {mode === 'all' && <span className="ml-auto text-[11px] text-neutral-500">{tasks.length} task · tutti i progetti</span>}
+        <div className="ml-auto flex items-center gap-2">
+          {mode === 'all' && <span className="text-[11px] text-neutral-500">{tasks.length} task · tutti i progetti</span>}
+          {hasProject && (
+            <button
+              onClick={() => setShowSettings((s) => !s)}
+              className={`rounded p-1 ${showSettings ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+              title="Impostazioni auto-dispatch"
+            ><Settings className="h-3.5 w-3.5" /></button>
+          )}
+        </div>
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
+      {showSettings && hasProject && (
+        <BoardSettingsPanel projectId={projectId} onClose={() => setShowSettings(false)} onError={setError} />
+      )}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
         <div className="flex h-full gap-3 overflow-x-auto p-3">
           {TASK_STATUSES.map((status) => (
@@ -143,6 +169,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage }: Prop
               showProject={mode === 'all'}
               onError={setError}
               onRefetch={refetch}
+              onOpenTopic={onOpenTopic}
             />
           ))}
         </div>
@@ -170,9 +197,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage }: Prop
 }
 
 // ── Column ────────────────────────────────────────────────────────────────
-function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch }: {
+function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: (id: string) => void; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
+  onOpenTopic?: (topicId: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -187,7 +215,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
         {tasks.map((t) => (
-          <Card key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} />
+          <Card key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic} />
         ))}
         {!canCreate ? null : adding ? (
           <div className="rounded-md border border-white/10 bg-white/5 p-2">
@@ -212,9 +240,9 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────
-function Card({ task, onOpen, showProject, onError, onRefetch }: {
+function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
   task: BoardTask; onOpen: (id: string) => void; showProject: boolean;
-  onError: (e: string) => void; onRefetch: () => void;
+  onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
 }) {
   // Visual drag is handled by the board-level DragOverlay, so the source card
   // stays in place (just dimmed) — no transform here (that clipped it inside the
@@ -249,6 +277,18 @@ function Card({ task, onOpen, showProject, onError, onRefetch }: {
       <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-4">
         {showProject && <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">{projectLabel}</span>}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
+        {task.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
+          <span className={`rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`}>
+            {DISPATCH_CHIP[task.dispatchState].text}
+          </span>
+        )}
+        {task.assignedTopicId && onOpenTopic && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenTopic(task.assignedTopicId!); }}
+            className="flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-200 hover:bg-white/20"
+            title="Apri la tab dell'agent"
+          ><ArrowUpRight className="h-3 w-3" /> apri tab</button>
+        )}
       </div>
       {task.status === 'review' && (
         <div className="mt-2 flex gap-1 pl-4">
@@ -318,6 +358,72 @@ function TaskDetail({ projectId, taskId, onClose, onChanged }: {
         />
         <button onClick={send} className="rounded bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500"><Send className="h-4 w-4" /></button>
       </div>
+    </div>
+  );
+}
+
+// ── Board settings (auto-dispatch config) ───────────────────────────────────
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+function BoardSettingsPanel({ projectId, onClose, onError }: {
+  projectId: string; onClose: () => void; onError: (e: string) => void;
+}) {
+  const [s, setS] = useState<BoardSettings | null>(null);
+  useEffect(() => {
+    let alive = true;
+    boardApi.getSettings(projectId)
+      .then((v) => { if (alive) setS(v); })
+      .catch((e) => onError(e instanceof Error ? e.message : 'settings load failed'));
+    return () => { alive = false; };
+  }, [projectId, onError]);
+
+  const patch = async (p: BoardSettingsPatch) => {
+    try { setS(await boardApi.updateSettings(projectId, p)); }
+    catch (e) { onError(e instanceof Error ? e.message : 'settings save failed'); }
+  };
+
+  if (!s) return null;
+  return (
+    <div className="shrink-0 space-y-2 border-b border-white/10 bg-neutral-900/60 px-3 py-2.5 text-xs text-neutral-300">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-neutral-200">Auto-dispatch</span>
+        <button onClick={onClose} className="rounded p-0.5 text-neutral-400 hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
+      </div>
+
+      <label className="flex cursor-pointer items-center justify-between">
+        <span>Avvia un agent quando sposto un task in <b>Todo</b></span>
+        <input type="checkbox" checked={s.autoDispatch} onChange={(e) => patch({ autoDispatch: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
+      </label>
+
+      <label className="flex items-center justify-between">
+        <span>Agent in parallelo (cap)</span>
+        <input
+          type="number" min={1} max={10} value={s.maxAgents}
+          onChange={(e) => patch({ maxAgents: Number(e.target.value) })}
+          className="w-14 rounded bg-white/5 px-1.5 py-0.5 text-right text-neutral-100 outline-none"
+        />
+      </label>
+
+      <div className="flex items-center justify-between gap-2">
+        <span>Effort</span>
+        <div className="flex gap-0.5">
+          {EFFORTS.map((ef) => (
+            <button
+              key={ef} onClick={() => patch({ dispatchEffort: ef })}
+              className={`rounded px-1.5 py-0.5 ${s.dispatchEffort === ef ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-neutral-400 hover:bg-white/10'}`}
+            >{ef}</button>
+          ))}
+        </div>
+      </div>
+
+      <label className="flex cursor-pointer items-center justify-between">
+        <span>Isola ogni agent in un git worktree</span>
+        <input type="checkbox" checked={s.dispatchUseWorktree} onChange={(e) => patch({ dispatchUseWorktree: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
+      </label>
+
+      {s.autoDispatch && (
+        <p className="text-[11px] text-amber-300/80">Attivo: spostare un task in Todo avvierà un agent con permessi pieni.</p>
+      )}
     </div>
   );
 }

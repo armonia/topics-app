@@ -32,6 +32,10 @@ export interface BoardTask {
   createdAt: string;
   completedAt: string | null;
   updatedAt: string;
+  /** Topic (chat tab) the dispatched agent works this task in, if any. */
+  assignedTopicId: string | null;
+  /** null = not dispatched; queued | starting | working | needs_input. */
+  dispatchState: string | null;
 }
 
 export interface TaskComment {
@@ -95,6 +99,26 @@ export interface UpdateTaskBody {
   kanbanOrder?: number;
 }
 
+/** Per-board dispatch config (server: board_settings). */
+export interface BoardSettings {
+  projectId: string;
+  autoDispatch: boolean;
+  maxAgents: number;
+  dispatchEffort: string;
+  dispatchUseWorktree: boolean;
+  dispatchTimeoutMin: number;
+  requireApprovalForDone: boolean;
+  requireReviewBeforeDone: boolean;
+}
+
+export interface BoardSettingsPatch {
+  autoDispatch?: boolean;
+  maxAgents?: number;
+  dispatchEffort?: string;
+  dispatchUseWorktree?: boolean;
+  dispatchTimeoutMin?: number;
+}
+
 const enc = encodeURIComponent;
 
 export const boardApi = {
@@ -119,4 +143,8 @@ export const boardApi = {
     req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions }) }),
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment }) }),
+  getSettings: (projectId: string) =>
+    req<BoardSettings>(`/boards/${enc(projectId)}/settings`),
+  updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
+    req<BoardSettings>(`/boards/${enc(projectId)}/settings`, { method: 'PATCH', body: JSON.stringify(patch) }),
 };

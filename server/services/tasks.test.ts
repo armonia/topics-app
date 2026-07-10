@@ -12,9 +12,18 @@ function freshDb(): Database {
     status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
     kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
     chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0
+    claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0,
+    assigned_agent_id TEXT, in_progress_at TEXT,
+    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
+  db.run(`CREATE TABLE board_settings (
+    project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
+    require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
+    only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
+    auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
+    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20
+  )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, created_at TEXT NOT NULL
@@ -212,5 +221,105 @@ describe("comments", () => {
     const b = s.addComment({ taskId: t.id, author: "claude", content: "same" });
     expect(s.get(t.id)!.comments.length).toBe(2);
     expect(b).toBeTruthy();
+  });
+});
+
+describe("claim (atomic dispatch)", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  const todo = () => { const t = s.create({ projectId: PID, text: "w", status: "todo" }); return t; };
+
+  test("claims a todo task: binds topic, → in_progress, attempts=1", () => {
+    const t = todo();
+    const claimed = s.claim({ taskId: t.id, topicId: "top-1", cap: 2, maxAttempts: 3 });
+    expect(claimed).not.toBeNull();
+    expect(claimed!.status).toBe("in_progress");
+    expect(claimed!.assignedTopicId).toBe("top-1");
+    expect(claimed!.dispatchState).toBe("starting");
+    expect(claimed!.dispatchAttempts).toBe(1);
+  });
+
+  test("idempotent: a second claim on the same task returns null (no double dispatch)", () => {
+    const t = todo();
+    expect(s.claim({ taskId: t.id, topicId: "top-1", cap: 2, maxAttempts: 3 })).not.toBeNull();
+    expect(s.claim({ taskId: t.id, topicId: "top-2", cap: 2, maxAttempts: 3 })).toBeNull();
+    // binding unchanged
+    expect(s.get(t.id)!.task.assignedTopicId).toBe("top-1");
+  });
+
+  test("concurrency cap: no free slot → null, task stays todo", () => {
+    const a = todo(); const b = todo();
+    expect(s.claim({ taskId: a.id, topicId: "top-a", cap: 1, maxAttempts: 3 })).not.toBeNull();
+    const bClaim = s.claim({ taskId: b.id, topicId: "top-b", cap: 1, maxAttempts: 3 });
+    expect(bClaim).toBeNull();
+    expect(s.get(b.id)!.task.status).toBe("todo");
+    expect(s.get(b.id)!.task.dispatchAttempts).toBe(0); // not consumed when capped out
+  });
+
+  test("retry cap: attempts >= maxAttempts → null", () => {
+    const t = todo();
+    // burn attempts via claim+release(requeue) cycles
+    s.claim({ taskId: t.id, topicId: "x", cap: 5, maxAttempts: 2 });
+    s.release({ taskId: t.id, requeue: true });
+    s.claim({ taskId: t.id, topicId: "x", cap: 5, maxAttempts: 2 });
+    s.release({ taskId: t.id, requeue: true });
+    // attempts now 2 == cap → refuse
+    expect(s.get(t.id)!.task.dispatchAttempts).toBe(2);
+    expect(s.claim({ taskId: t.id, topicId: "x", cap: 5, maxAttempts: 2 })).toBeNull();
+  });
+
+  test("only claims 'todo' — a backlog task is not eligible", () => {
+    const t = s.create({ projectId: PID, text: "w", status: "backlog" });
+    expect(s.claim({ taskId: t.id, topicId: "x", cap: 5, maxAttempts: 3 })).toBeNull();
+  });
+});
+
+describe("release", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("requeue=true → todo, binding cleared, attempts preserved, note posted", () => {
+    const t = s.create({ projectId: PID, text: "w", status: "todo" });
+    s.claim({ taskId: t.id, topicId: "top-1", cap: 2, maxAttempts: 3 });
+    const r = s.release({ taskId: t.id, requeue: true, reason: "worked in topic top-1", by: "system" });
+    expect(r.status).toBe("todo");
+    expect(r.assignedTopicId).toBeNull();
+    expect(r.dispatchState).toBe("queued");
+    expect(r.dispatchAttempts).toBe(1); // preserved so the retry cap still bites
+    expect(s.get(t.id)!.comments.some((c) => c.content.includes("top-1"))).toBe(true);
+  });
+
+  test("requeue=false → parked in backlog with binding cleared", () => {
+    const t = s.create({ projectId: PID, text: "w", status: "todo" });
+    s.claim({ taskId: t.id, topicId: "top-1", cap: 2, maxAttempts: 3 });
+    const r = s.release({ taskId: t.id, requeue: false, reason: "gave up" });
+    expect(r.status).toBe("backlog");
+    expect(r.assignedTopicId).toBeNull();
+    expect(r.dispatchState).toBeNull();
+  });
+});
+
+describe("board settings", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("defaults when no row exists (auto off, cap 2, worktree on)", () => {
+    const bs = s.getBoardSettings(PID);
+    expect(bs.autoDispatch).toBe(false);
+    expect(bs.maxAgents).toBe(2);
+    expect(bs.dispatchEffort).toBe("medium");
+    expect(bs.dispatchUseWorktree).toBe(true);
+  });
+
+  test("upsert persists + clamps + reads back", () => {
+    const bs = s.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 99, dispatchTimeoutMin: 20 });
+    expect(bs.autoDispatch).toBe(true);
+    expect(bs.maxAgents).toBe(10); // clamped 1..10
+    expect(s.getBoardSettings(PID).autoDispatch).toBe(true);
+  });
+
+  test("rejects an invalid effort", () => {
+    expect(() => s.updateBoardSettings(PID, { dispatchEffort: "turbo" })).toThrow(TaskServiceError);
   });
 });
