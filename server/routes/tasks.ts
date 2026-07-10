@@ -20,6 +20,7 @@
 import type { AppContext, RouteHandler } from "../types";
 import { getTerminalSessionById } from "./terminal";
 import { createTaskService, projectIdForPath, TaskServiceError } from "../services/tasks";
+import type { TaskDispatcher } from "../services/task-dispatcher";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -28,7 +29,7 @@ const ERROR_STATUS: Record<string, number> = {
   agent_cannot_complete: 409,
 };
 
-export function createTasksRouter(ctx: AppContext): RouteHandler {
+export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey } = ctx;
   const svc = createTaskService(db);
 
@@ -170,6 +171,7 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
         if (method === "PATCH") {
           const body = (await readJSON(req)) as any;
           try {
+            const prevStatus = svc.get(taskId, { projectId })?.task.status;
             const task = svc.update({
               taskId, actor: "human", by: HUMAN, projectId,
               patch: {
@@ -182,6 +184,13 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
               },
             });
             broadcastToAll({ type: "task:updated", projectId, task });
+            // Auto-dispatch trigger: the human dragging a task INTO todo is the
+            // "vai" signal; dragging it back OUT while still queued cancels it.
+            // The dispatcher itself no-ops when auto_dispatch is off for the board.
+            if (dispatcher && prevStatus !== task.status) {
+              if (task.status === "todo") dispatcher.onEnterTodo(projectId, taskId);
+              else if (prevStatus === "todo") dispatcher.onLeaveTodo(taskId);
+            }
             return json(task);
           } catch (e) { return fail(e); }
         }

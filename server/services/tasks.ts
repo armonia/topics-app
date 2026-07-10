@@ -167,6 +167,8 @@ export interface TaskService {
   claim(args: { taskId: string; topicId: string; cap: number; maxAttempts: number; agentId?: string | null }): Task | null;
   /** Release a claimed task: clear the topic binding and requeue (`todo`) or park (`backlog`), with a note. */
   release(args: { taskId: string; requeue: boolean; reason?: string; by?: string }): Task;
+  /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
+  bindTopic(args: { taskId: string; topicId: string }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Read the per-board dispatch config (defaults when no row exists). */
@@ -412,6 +414,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
             status = ?, dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?`,
       ).run(status, state, reason ?? null, ts, taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    bindTopic({ taskId, topicId }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare("UPDATE tasks SET assigned_topic_id = ?, chat_id = ?, updated_at = ? WHERE id = ?")
+        .run(topicId, topicId, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 

@@ -30,6 +30,10 @@ import { createAgentsRouter } from "./server/routes/agents";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
+import { createTaskService } from "./server/services/tasks";
+import { createTaskDispatcher } from "./server/services/task-dispatcher";
+import { createDetachedTopic } from "./server/lib/session-control-core";
+import { buildProjectCandidates, resolveProjectPath } from "./server/services/project-path-resolver";
 import { createBrowserService } from "./server/browser-service";
 import { clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
@@ -293,7 +297,82 @@ const tagsRouter = createTagsRouter(ctx);
 const agentProfilesRouter = createAgentProfilesRouter(ctx);
 const dashboardRouter = createDashboardRouter(ctx);
 const processesRouter = createProcessesRouter(ctx);
-const tasksRouter = createTasksRouter(ctx);
+// ─── Task auto-dispatch (Kanban "drag → agent in a tab") ───────────────────
+// The dispatcher is the ONLY place that starts a headless agent turn from a
+// board gesture. All its host-specific wiring — the in-process turn runtime,
+// worktree creation, project-path resolution — is assembled here and injected,
+// keeping server/services/task-dispatcher.ts host-agnostic and unit-tested.
+const dispatcherSvc = createTaskService(ctx.db);
+const DISPATCH_WORKSPACE_DIR = join(ctx.OPENCLAW_DIR, "workspace");
+
+async function abortHeadlessTurn(sessionKey: string): Promise<void> {
+  const url = new URL("http://localhost/api/chat/abort");
+  try {
+    await topicsRouter(
+      new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionKey }) }),
+      url, "/api/chat/abort", "POST",
+    );
+  } catch { /* best-effort */ }
+}
+
+async function runHeadlessTurn(sessionKey: string, content: string, opts: { timeoutMs: number }): Promise<void> {
+  const url = new URL("http://localhost/api/chat");
+  const body = JSON.stringify({ sessionKey, messages: [{ role: "user", content }] });
+  const resp = await topicsRouter(
+    new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
+    url, "/api/chat", "POST",
+  );
+  if (!resp || !resp.body) return;
+  // The turn self-drives server-side (consumeGateway) whether or not we read the
+  // SSE mirror; we drain it only to learn when the turn ENDS (the reconciliation
+  // signal). A wall-clock backstop aborts a runaway turn.
+  const reader = resp.body.getReader();
+  let timedOut = false;
+  const deadline = setTimeout(() => {
+    timedOut = true;
+    abortHeadlessTurn(sessionKey).catch(() => {});
+    reader.cancel().catch(() => {});
+  }, opts.timeoutMs);
+  try { while (true) { const { done } = await reader.read(); if (done) break; } }
+  finally { clearTimeout(deadline); try { reader.releaseLock(); } catch { /* already released */ } }
+  if (timedOut) throw new Error("turn exceeded wall-clock timeout");
+}
+
+const taskDispatcher = createTaskDispatcher({
+  svc: dispatcherSvc,
+  resolveProject: (projectId) => {
+    const c = resolveProjectPath(
+      projectId,
+      buildProjectCandidates({ projectStore: ctx.projectStore, workspaceDir: DISPATCH_WORKSPACE_DIR }),
+    );
+    return c ? { path: c.path, projectStoreId: c.projectStoreId } : null;
+  },
+  createTopic: (o) => {
+    const { topic } = createDetachedTopic(
+      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt },
+      {
+        getTopicById: ctx.getTopicById,
+        loadTopics: ctx.loadTopics,
+        saveSingleTopic: ctx.saveSingleTopic,
+        slugify: ctx.slugify,
+        broadcastToAll: ctx.broadcastToAll,
+      },
+    );
+    return { topicId: topic.id, sessionKey: topic.sessionKey };
+  },
+  createWorktree: async (projectStoreId) => {
+    const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: "HEAD" });
+    const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, 120_000);
+    if (ready.status !== "ready") {
+      throw new Error(`worktree ${wt.id}: ${ready.status}${ready.errorMessage ? " " + ready.errorMessage : ""}`);
+    }
+    return ready.id;
+  },
+  runTurn: runHeadlessTurn,
+  broadcast: ctx.broadcastToAll,
+});
+
+const tasksRouter = createTasksRouter(ctx, taskDispatcher);
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
 startProcessDetection(ctx, getClaudeSessionsForDetection);
@@ -1090,6 +1169,16 @@ const staleStreamTimer = setInterval(() => {
   }
 }, STALE_STREAM_CHECK_INTERVAL_MS);
 
+// Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
+// agent turn died with the previous process; then poll to fill free slots on
+// boards with auto_dispatch on (also the safety net if a →todo hook is missed).
+// reconcile() is a no-op for boards with auto_dispatch off, so this is cheap.
+const DISPATCH_POLL_MS = 10_000;
+taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] boot reconcile failed", err));
+const dispatchTimer = setInterval(() => {
+  taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] poll reconcile failed", err));
+}, DISPATCH_POLL_MS);
+
 const proto = useTls ? "https" : "http";
 const wsProto = useTls ? "wss" : "ws";
 console.log(`🚀 Topics App running at ${proto}://localhost:${PORT}`);
@@ -1115,6 +1204,8 @@ async function gracefulShutdown(signal: string) {
   clearInterval(heartbeatTimer);
   clearInterval(wsHeartbeatTimer);
   clearInterval(staleStreamTimer);
+  clearInterval(dispatchTimer);
+  taskDispatcher.shutdown();
   stopHeartbeatChecker();      // agent FSM stale-checker (was an unstoppable leak)
   activityMonitor.destroy();   // closes the log fs.watch + batch/persist timers
   journalCollector.stop();     // clears the journal collection interval
