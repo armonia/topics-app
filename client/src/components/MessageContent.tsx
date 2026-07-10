@@ -2,7 +2,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown, { type Components } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { chatRemarkPlugins, chatRehypePlugins } from '../lib/markdownPlugins';
+import { highlightCode } from '../lib/syntaxHighlight';
+import 'katex/dist/katex.min.css';
 import { Copy, Check, CheckCheck, Download } from 'lucide-react';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
@@ -402,6 +404,47 @@ function getTextContent(node: React.ReactNode): string {
   return '';
 }
 
+// chat-rendering-parity CHAT-RND-03 — ```mermaid fences render as SVG diagrams.
+// The library (~1.3MB) loads lazily on the FIRST mermaid block only. parse()
+// runs before render() so invalid syntax (including still-streaming partial
+// blocks) degrades to the plain CodeBlock instead of injecting mermaid's own
+// error DOM. The 300ms debounce keeps streaming deltas from thrashing the
+// renderer; once the block stabilizes the diagram appears.
+const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string | null>(null);
+  const idRef = useRef(`mermaid-${Math.random().toString(36).slice(2, 10)}`);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const mermaid = (await import('mermaid')).default;
+        const dark = document.documentElement.classList.contains('dark');
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' });
+        await mermaid.parse(code);
+        const { svg: rendered } = await mermaid.render(idRef.current, code);
+        if (!cancelled) setSvg(rendered);
+      } catch {
+        if (!cancelled) setSvg(null);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [code]);
+  if (svg) {
+    return (
+      // XSS posture: the SVG comes from mermaid.render under
+      // securityLevel:'strict' — mermaid sanitizes internally (bundled
+      // DOMPurify, escaped labels, scripts/links disabled) and parse() ran
+      // first, so raw chat text never reaches this innerHTML.
+      <div
+        className="mermaid-block my-2 overflow-x-auto rounded-md bg-app-code-bg p-3 [&_svg]:max-w-full [&_svg]:h-auto"
+        data-testid="mermaid-diagram"
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+    );
+  }
+  return <CodeBlock className="language-mermaid">{code}</CodeBlock>;
+});
+
 // Code block with copy button, language badge, line numbers, collapsible, word wrap
 const CodeBlock = memo(function CodeBlock({ children, className }: { children: React.ReactNode; className?: string }) {
   const [copied, setCopied] = useState(false);
@@ -428,6 +471,15 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
     : textContent;
 
   const displayLines = displayContent.split('\n');
+
+  // chat-rendering-parity CHAT-RND-01 — syntax colors. Safe innerHTML by
+  // construction: hljs ESCAPES the source and only wraps tokens in class-only
+  // <span>s. null (unknown lang / oversize / tokenizer error) falls back to
+  // the plain text render below. Line-numbers mode stays plain (per-row table).
+  const highlightedHtml = useMemo(
+    () => (showLineNumbers ? null : highlightCode(displayContent, language)),
+    [displayContent, language, showLineNumbers],
+  );
 
   return (
     <div className="code-block-wrapper">
@@ -473,6 +525,8 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
                 ))}
               </tbody>
             </table>
+          ) : highlightedHtml ? (
+            <span dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
           ) : (
             displayContent
           )}
@@ -576,6 +630,10 @@ export const markdownComponents: Components = {
   pre: ({ children }) => {
     if (children && typeof children === 'object' && 'props' in children) {
       const codeProps = (children as { props: { className?: string; children?: React.ReactNode } }).props;
+      // ```mermaid → diagram (CHAT-RND-03); everything else stays a CodeBlock.
+      if (codeProps.className?.includes('language-mermaid')) {
+        return <MermaidBlock code={getTextContent(codeProps.children).replace(/\n$/, '')} />;
+      }
       return <CodeBlock className={codeProps.className}>{codeProps.children}</CodeBlock>;
     }
     return <CodeBlock>{children}</CodeBlock>;
@@ -686,7 +744,7 @@ function DiffBlocksWithApplyAll({ segments }: { segments: MessageSegment[] }) {
           <DiffBlock key={i} ref={(handle) => setRef(i, handle)} edit={segment.edit} />
         ) : (
           <div key={i} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
               {segment.content || ''}
             </ReactMarkdown>
           </div>
@@ -774,7 +832,7 @@ function renderContentWithInlineTools(
     if (segment) {
       elements.push(
         <div key={`seg-${i}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+          <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
             {segment}
           </ReactMarkdown>
         </div>
@@ -801,7 +859,7 @@ function renderContentWithInlineTools(
   if (remaining) {
     elements.push(
       <div key="seg-last" className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
           {remaining}
         </ReactMarkdown>
       </div>
@@ -996,7 +1054,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           }
           return (
             <div key={`g-tx-${g.idx}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
                 {text}
               </ReactMarkdown>
             </div>
@@ -1097,7 +1155,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
                 <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents)}</div>
               ) : (
                 <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
                     {cleanText}
                   </ReactMarkdown>
                 </div>

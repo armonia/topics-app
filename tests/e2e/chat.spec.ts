@@ -262,6 +262,46 @@ test.describe("Chat — Rich Content Rendering", () => {
     expect(await richElements.count()).toBeGreaterThan(0);
   });
 
+  test("renders syntax highlighting, KaTeX math and mermaid diagrams", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-RND-01/02/03" });
+    const richContent = [
+      "Codice:",
+      "```javascript",
+      "const x = 42; // answer",
+      "```",
+      "Formula: $$E = mc^2$$",
+      "Prezzo non-math: costa $5 e basta.",
+      "```mermaid",
+      "graph TD; A-->B;",
+      "```",
+    ].join("\n");
+    await page.route(/\/api\/history/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: {
+          messages: [
+            { id: "rnd-user-1", role: "user", content: "Mostra rendering", timestamp: new Date().toISOString() },
+            { id: "rnd-assistant-1", role: "assistant", content: richContent, timestamp: new Date().toISOString() },
+          ],
+        },
+      });
+    });
+    await goToApp(page);
+    await openTopic(page, /Web Search Test/);
+    await expect(page.locator(".message-content").first()).toBeVisible({ timeout: 15_000 });
+
+    // CHAT-RND-01 — hljs token spans present in the code block
+    await expect(page.locator(".code-block-wrapper .hljs-keyword").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".code-block-wrapper .hljs-comment").first()).toBeVisible();
+
+    // CHAT-RND-02 — display math rendered by KaTeX; single dollars stay text
+    await expect(page.locator(".message-content .katex").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("costa $5 e basta")).toBeVisible();
+
+    // CHAT-RND-03 — mermaid fence becomes an SVG diagram (lazy chunk)
+    await expect(page.locator('[data-testid="mermaid-diagram"] svg').first()).toBeVisible({ timeout: 20_000 });
+  });
+
   test("plan mode shows plan view with approve/reject", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-02" });
     // Intercept WebSocket to prevent real-time updates from resetting component state
@@ -457,9 +497,11 @@ test.describe("Message Action Toolbar", () => {
     const firstMessage = page.locator(".message-content").first();
     await expect(firstMessage).toBeVisible({ timeout: 15_000 });
 
-    // Dispatch mouseenter to trigger CSS group-hover (more reliable than hover())
-    await firstMessage.dispatchEvent("mouseenter");
-    await firstMessage.dispatchEvent("mouseover");
+    // REAL hover + REAL clicks (CHAT-REL-01). These used to be
+    // dispatchEvent() workarounds because the toolbar was clipped by its
+    // overflow-hidden containing block and real clicks landed on the previous
+    // row. Keeping them real is the regression guard for that fix.
+    await firstMessage.hover();
 
     // Verify action buttons become visible after hover
     // Multiple messages → multiple toolbars; use .first() for the hovered one
@@ -471,8 +513,8 @@ test.describe("Message Action Toolbar", () => {
     await expect(pinBtn).toBeVisible({ timeout: 5_000 });
     await expect(replyBtn).toBeVisible({ timeout: 5_000 });
 
-    // Click Copy (dispatchEvent bypasses the opacity-0 visibility check)
-    await copyBtn.dispatchEvent("click");
+    // Real click: fails if the toolbar is ever clipped/occluded again.
+    await copyBtn.click();
     const clipboard = await page.evaluate(() => navigator.clipboard.readText());
     expect(clipboard.length).toBeGreaterThan(0);
   });
@@ -486,17 +528,14 @@ test.describe("Message Action Toolbar", () => {
     const firstMessage = page.locator(".message-content").first();
     await expect(firstMessage).toBeVisible({ timeout: 15_000 });
 
-    // Dispatch mouseenter/mouseover to reveal CSS group-hover toolbar,
-    // then dispatchEvent("click") to bypass opacity-0 visibility check.
-    await firstMessage.dispatchEvent("mouseenter");
-    await firstMessage.dispatchEvent("mouseover");
+    // REAL hover + REAL click (CHAT-REL-01 regression guard — see toolbar test).
+    await firstMessage.hover();
     const pinBtn = page.getByRole("button", { name: "Pin message" }).first();
     await expect(pinBtn).toBeVisible({ timeout: 5_000 });
-    await pinBtn.dispatchEvent("click");
+    await pinBtn.click();
 
     // Visual verification: pin button should have yellow color class
-    await firstMessage.dispatchEvent("mouseenter");
-    await firstMessage.dispatchEvent("mouseover");
+    await firstMessage.hover();
     const pinBtnAfterPin = page.getByRole("button", { name: "Pin message" }).first();
     await expect(pinBtnAfterPin).toBeVisible({ timeout: 5_000 });
     // Pinned state: class contains "text-yellow-500" (not "hover:text-yellow-500")

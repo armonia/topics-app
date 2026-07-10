@@ -407,6 +407,23 @@ export function PanelGrid({
     return m;
   }, [naturalGridItems]);
 
+  // Read-time self-heal (CHAT-REL-02): `gridRows` absorbs naturalGridItems in a
+  // POST-render effect gated on isServerHydrated (additive sync below). On the
+  // very render where an item first appears — e.g. a fresh "New Chat" draft —
+  // or on a cold client whose hydrate hasn't flipped yet, gridRows can lack the
+  // item's key entirely. Rendering straight from gridRows then paints NOTHING:
+  // the app looks blank (no other tabs) or the click looks like a no-op (other
+  // tabs present) while the pane store already holds the pane. Derive the rows
+  // the RENDER uses by appending a synthetic row for any item key missing from
+  // every row and cellStack; the additive sync persists the real row next tick
+  // and converges with what was already painted (same key → no remount).
+  const effectiveGridRows = useMemo<PanelGridRow[]>(() => {
+    const present = collectAllPresentKeys(gridRows);
+    const missing = naturalGridItems.map(i => i.key).filter(k => !present.has(k));
+    if (missing.length === 0) return gridRows;
+    return [...gridRows, { itemKeys: missing, widths: missing.map(() => 1 / missing.length) }];
+  }, [gridRows, naturalGridItems]);
+
   // Weighted "equalize": a cell that hosts a PROJECT with internal splits should
   // claim more of the row/column than a single-pane cell, so that double-clicking
   // an outer divider makes the LEAF panes equal — not the top-level cells. Each
@@ -2043,7 +2060,7 @@ export function PanelGrid({
   // (vertical sub-stacks aren't represented); enough to orient "which pane in
   // the grid is this". Omitted for single-cell grids. Memoized so
   // `renderGroupForKey` keeps a stable identity across renders.
-  const splitRowWidths = useMemo(() => gridRows.map((r) => r.widths), [gridRows]);
+  const splitRowWidths = useMemo(() => effectiveGridRows.map((r) => r.widths), [effectiveGridRows]);
   const hasGridSplit = useMemo(() => splitRowWidths.reduce((a, r) => a + r.length, 0) > 1, [splitRowWidths]);
 
   // "Reimposta pannelli" — COLLAPSE the whole standalone grid to ONE full cell.
@@ -2181,7 +2198,7 @@ export function PanelGrid({
         if (projectPath) out.set(projectPath, desc);
       }
     };
-    gridRows.forEach((row, rowIdx) => {
+    effectiveGridRows.forEach((row, rowIdx) => {
       row.itemKeys.forEach((key, colIdx) => {
         assign(key, rowIdx, colIdx);
         // Vertical sub-stack items share the host cell's coordinates.
@@ -2190,7 +2207,7 @@ export function PanelGrid({
       });
     });
     return out;
-  }, [hasGridSplit, gridRows, itemMap, splitRowWidths, gridRowHeights]);
+  }, [hasGridSplit, effectiveGridRows, itemMap, splitRowWidths, gridRowHeights]);
   useEffect(() => {
     publishSplitPositions(topicPositions);
   }, [topicPositions, publishSplitPositions]);
@@ -2295,9 +2312,9 @@ export function PanelGrid({
   // leaves here — they live inside their host cell's <CellSubStack>).
   const keyPos = useMemo<ReadonlyMap<string, [number, number]>>(() => {
     const m = new Map<string, [number, number]>();
-    gridRows.forEach((row, r) => row.itemKeys.forEach((k, c) => { if (!m.has(k)) m.set(k, [r, c]); }));
+    effectiveGridRows.forEach((row, r) => row.itemKeys.forEach((k, c) => { if (!m.has(k)) m.set(k, [r, c]); }));
     return m;
-  }, [gridRows]);
+  }, [effectiveGridRows]);
 
   // Shallow tree, 1:1 with gridRows (never drops/reorders rows or columns, so the
   // tree path === gridRows index). Missing / duplicate slots become inert
@@ -2307,11 +2324,11 @@ export function PanelGrid({
   const treeRoot = useMemo<LayoutNode | null>(
     () =>
       buildShallowGridTree(
-        gridRows.map((r) => ({ keys: r.itemKeys, widths: r.widths })),
+        effectiveGridRows.map((r) => ({ keys: r.itemKeys, widths: r.widths })),
         gridRowHeights,
         (key) => itemMap.has(key),
       ),
-    [gridRows, gridRowHeights, itemMap],
+    [effectiveGridRows, gridRowHeights, itemMap],
   );
 
   // Divider drag → shift weight on the matching gridRows band, preserving
@@ -2360,7 +2377,7 @@ export function PanelGrid({
     // the half-cell promised a per-column split the drop never performed.
     const showSplitRegion = zone === 'left' || zone === 'right'
       || (isTabTarget && (zone === 'top' || zone === 'bottom'));
-    const stack = gridRows[rowIdx]?.cellStacks?.[key];
+    const stack = effectiveGridRows[rowIdx]?.cellStacks?.[key];
     const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx);
     return (
       <div
@@ -2391,7 +2408,7 @@ export function PanelGrid({
         ) : primaryGroup}
       </div>
     );
-  }, [itemMap, keyPos, gridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive]);
+  }, [itemMap, keyPos, effectiveGridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive]);
 
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
@@ -2548,11 +2565,11 @@ export function PanelGrid({
           onEqualize={handleTreeEqualize}
           gutter={1}
         />
-      ) : gridRows.map((row, rowIdx) => (
+      ) : effectiveGridRows.map((row, rowIdx) => (
         <Fragment key={rowIdx}>
           <div
             className={`flex ${isMobile ? 'flex-col' : 'flex-row'} min-h-0 min-w-0 overflow-hidden`}
-            style={{ flex: `${gridRowHeights[rowIdx] ?? 1 / gridRows.length} 1 0%` }}
+            style={{ flex: `${gridRowHeights[rowIdx] ?? 1 / effectiveGridRows.length} 1 0%` }}
             data-panel-row={rowIdx}
           >
             {row.itemKeys.map((key, colIdx) => {

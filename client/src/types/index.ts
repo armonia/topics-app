@@ -831,6 +831,17 @@ export interface WSBrowserForceOpenMessage {
   url: string;
 }
 /**
+ * Remote pane close (close_browser_pane MCP tool / REST): every window that
+ * renders `browser:<contextId>` closes it through its NORMAL close flow (same
+ * as the tab's X — closedStack tombstone, membership persist, native
+ * teardown), so live clients converge instead of clobbering a server-side
+ * state edit back. Windows that don't own the pane ignore the frame.
+ */
+export interface WSBrowserClosePaneMessage {
+  type: 'browser:close-pane';
+  contextId: string;
+}
+/**
  * Pane / sidebar UI state replicated across windows (Phase 30 PANE-02).
  * Split into init (full snapshot keyed by store key) vs updated (single
  * key/value pair) so consumers can narrow without optional-field casts.
@@ -1011,6 +1022,7 @@ export type WSMessage =
   | WSBrowserNavigateMessage
   | WSBrowserOpenNearPaneMessage
   | WSBrowserForceOpenMessage
+  | WSBrowserClosePaneMessage
   | WSUIStateInitMessage
   | WSUIStateUpdatedMessage
   | WSProjectMessage

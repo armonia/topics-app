@@ -1013,9 +1013,23 @@ const server = Bun.serve<WSData>({
               console.warn(`[WS][browser] dispatchInput failed for ${ctxId}:`, err.message)
             );
           } else if (parsed.type === 'nav' && parsed.phase === 'request') {
-            browserService.navigate(ctxId, parsed.url).then(() => {
-              sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'response' });
-            }).catch(err => console.warn(`[WS][browser] navigate failed for ${ctxId}:`, err.message));
+            browserService.navigate(ctxId, parsed.url).then((r) => {
+              // goto failures resolve with `error` (page stayed on the old
+              // URL); launch failures reject below. Both must reach the pane
+              // as phase 'error' — a bare 'response' here made every failed
+              // navigation invisible (BRW-REL-02).
+              if (r.error) {
+                sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'error', error: r.error });
+              } else {
+                sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'response' });
+              }
+            }).catch(err => {
+              const msg = err instanceof Error ? (err.message.split('\n')[0] || 'Browser failed to start') : String(err);
+              console.warn(`[WS][browser] navigate failed for ${ctxId}:`, msg);
+              try {
+                sendBrowserWsMessage(ws, { type: 'nav', url: parsed.url, phase: 'error', error: msg });
+              } catch { /* socket gone — nothing to surface to */ }
+            });
           } else if (parsed.type === 'take_control') {
             // Phase 30 BROWSER-CHAT-04 — user reclaimed control. Force-release the
             // lock with an eager agent_active=false broadcast. The agent's in-flight
