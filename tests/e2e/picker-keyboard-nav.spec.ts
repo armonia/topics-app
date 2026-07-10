@@ -95,4 +95,38 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     const data = await all.json();
     expect(data.topics[topicId].model ?? null).toBeNull();
   });
+
+  test("CHAT-EFFORT-01: effort-tier badge visible in group row and collapsed button", async ({ page, request }) => {
+    // Clean override so the collapsed button reflects the effective provider.
+    await request.patch(`/api/topics/${topicId}`, {
+      data: { provider: null, model: null },
+    });
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+
+    const picker = page.getByTestId("provider-model-picker");
+    await picker.waitFor({ state: "visible", timeout: 10_000 });
+    await picker.click();
+    const popover = page.locator('[data-popover="provider-model-picker"]');
+    await popover.waitFor({ state: "visible", timeout: 5_000 });
+
+    // The isolated test server has no effort env overrides, so claude-code
+    // resolves to the default tier "xhigh". If claude-code isn't ready in
+    // this env there is no group row to assert on — skip like the nav test.
+    const claudeBadge = popover.getByTestId("effort-tier-claude-code");
+    if ((await claudeBadge.count()) === 0) {
+      test.skip(true, "claude-code not ready in this env — no tier row to assert");
+    }
+    await expect(claudeBadge).toHaveText("xhigh");
+    // The badge must coexist with (not replace) the Default pill on the row.
+    await expect(popover.getByText("Default", { exact: true })).toBeVisible();
+
+    // Collapsed button: claude-code is the only ready provider in the test
+    // env, so the effective selection lands there and the badge shows too.
+    await page.keyboard.press("Escape");
+    await expect(popover).toHaveCount(0, { timeout: 5_000 });
+    await expect(picker.getByTestId("effort-tier-badge")).toHaveText("xhigh");
+  });
 });

@@ -12,6 +12,7 @@
 import { EventEmitter } from "node:events";
 import { listProviders, getProvider, getDefaultProviderName } from "./index";
 import type { ProvidersSnapshot, ProviderSnapshotEntry, ProviderRequirement } from "./types";
+import { resolveClaudeEffort, resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 
 const SNAPSHOT_TTL_MS = 5 * 60 * 1000;
 
@@ -25,6 +26,17 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 function labelFor(name: string): string {
   return PROVIDER_LABELS[name] ?? name;
+}
+
+/**
+ * Effort/reasoning tier Topics forces at spawn for this provider's sessions —
+ * the same resolvers the spawn paths call, so the badge always matches what a
+ * NEW session would actually get.
+ */
+function effortTierFor(name: string): string | undefined {
+  if (name === "claude-code") return resolveClaudeEffort() ?? undefined;
+  if (name === "codex") return resolveCodexReasoningEffort() ?? undefined;
+  return undefined;
 }
 
 export class ProviderSnapshotManager extends EventEmitter {
@@ -125,6 +137,7 @@ export class ProviderSnapshotManager extends EventEmitter {
         models,
         requirements,
         lastError: diag?.lastError,
+        effortTier: effortTierFor(name),
         fetchedAt: new Date().toISOString(),
       };
     } catch (err) {
