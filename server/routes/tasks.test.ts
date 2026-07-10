@@ -10,9 +10,18 @@ function freshDb(): Database {
     status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
     kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
     chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0
+    claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0,
+    assigned_agent_id TEXT, in_progress_at TEXT,
+    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
+  db.run(`CREATE TABLE board_settings (
+    project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
+    require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
+    only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
+    auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
+    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20
+  )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL, mentions TEXT, created_at TEXT NOT NULL
@@ -69,11 +78,11 @@ describe("tasks router (session-scoped)", () => {
     router = createTasksRouter(makeCtx(db, broadcasts));
   });
 
-  test("POST create → 201, todo, broadcasts task:created", async () => {
+  test("POST create → 201, backlog (agents create into intake, not the run-queue), broadcasts task:created", async () => {
     const resp = (await call(router, "POST", "/api/sessions/s1/tasks", { text: "Build it", priority: 3 }))!;
     expect(resp.status).toBe(201);
     const task = await resp.json();
-    expect(task.status).toBe("todo");
+    expect(task.status).toBe("backlog");
     expect(task.text).toBe("Build it");
     expect(task.projectId.startsWith("one-")).toBe(true); // projectId = basename(projectPath) + hash
     expect(broadcasts.some(b => b.type === "task:created")).toBe(true);
@@ -195,5 +204,32 @@ describe("board router (human, project-scoped)", () => {
     const done = await (await call(router, "GET", "/api/all-boards/tasks?status=done"))!.json();
     expect(done.tasks.length).toBe(1);
     expect(done.tasks[0].projectId).toBe("pX");
+  });
+});
+
+describe("board settings route", () => {
+  let db: Database; let broadcasts: any[]; let router: any;
+  beforeEach(() => { db = freshDb(); broadcasts = []; router = createTasksRouter(makeCtx(db, broadcasts)); });
+
+  test("GET returns defaults (auto off, cap 2)", async () => {
+    const s = await (await call(router, "GET", "/api/boards/pX/settings"))!.json();
+    expect(s.autoDispatch).toBe(false);
+    expect(s.maxAgents).toBe(2);
+  });
+
+  test("PATCH upserts + broadcasts board:settings", async () => {
+    const resp = (await call(router, "PATCH", "/api/boards/pX/settings", { autoDispatch: true, maxAgents: 3 }))!;
+    expect(resp.status).toBe(200);
+    const s = await resp.json();
+    expect(s.autoDispatch).toBe(true);
+    expect(s.maxAgents).toBe(3);
+    expect(broadcasts.some((b) => b.type === "board:settings" && b.projectId === "pX")).toBe(true);
+    // persisted
+    expect((await (await call(router, "GET", "/api/boards/pX/settings"))!.json()).autoDispatch).toBe(true);
+  });
+
+  test("PATCH rejects an invalid effort with 400", async () => {
+    const resp = (await call(router, "PATCH", "/api/boards/pX/settings", { dispatchEffort: "turbo" }))!;
+    expect(resp.status).toBe(400);
   });
 });

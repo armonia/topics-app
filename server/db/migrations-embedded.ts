@@ -35,6 +35,7 @@ import m026 from "./migrations/027-claude-session-tracker.sql" with { type: "tex
 import m027 from "./migrations/028-terminal-parent-session-key.sql" with { type: "text" };
 import m028 from "./migrations/029-terminal-session-type-check.sql" with { type: "text" };
 import m029 from "./migrations/030-terminal-session-name-source.sql" with { type: "text" };
+import m030 from "./migrations/031-task-dispatch.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -74,4 +75,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 28, name: "028-terminal-parent-session-key.sql", sql: m027 },
   { version: 29, name: "029-terminal-session-type-check.sql", sql: m028 },
   { version: 30, name: "030-terminal-session-name-source.sql", sql: m029 },
+  { version: 31, name: "031-task-dispatch.sql", sql: m030 },
 ];
