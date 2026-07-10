@@ -104,3 +104,50 @@ export function createTopicCore(
   });
   return { topic: newTopic };
 }
+
+export interface DetachedTopicOptions {
+  name: string;
+  /** Bind the topic to a project (its agent turn runs in this project's cwd). */
+  projectPath?: string;
+  /** Run the agent inside this git worktree instead of the project root. */
+  worktreeId?: string;
+  /** Per-topic system prompt (e.g. the task-scoped instructions). */
+  systemPrompt?: string;
+}
+
+/**
+ * Create a NEW chat topic WITHOUT switching to it — emits only `topic:created`,
+ * never `topic:switch`, so it appears as a background tab without stealing focus.
+ * Used by the task dispatcher, which needs a topic bound to an explicit project
+ * (and optionally a worktree) with no "current" topic to inherit from.
+ */
+export function createDetachedTopic(
+  opts: DetachedTopicOptions,
+  deps: SessionControlDeps,
+): { topic: Topic } {
+  const data = deps.loadTopics();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const newTopic: Topic = {
+    id,
+    name: opts.name,
+    slug: deps.slugify(opts.name),
+    parentId: null,
+    links: [],
+    sessionKey: "topic:" + id.slice(0, 8),
+    color: "#5865f2",
+    icon: "MessageSquare",
+    createdAt: now,
+    updatedAt: now,
+    archived: false,
+    systemPrompt: opts.systemPrompt ?? "",
+    contextFiles: [],
+    pinnedMessages: [],
+    sortOrder: Object.keys(data.topics).length,
+  } as Topic;
+  if (opts.projectPath) newTopic.projectPath = opts.projectPath;
+  if (opts.worktreeId) newTopic.worktreeId = opts.worktreeId;
+  deps.saveSingleTopic(newTopic);
+  deps.broadcastToAll({ type: "topic:created", topic: newTopic });
+  return { topic: newTopic };
+}

@@ -32,6 +32,10 @@ export interface BoardTask {
   createdAt: string;
   completedAt: string | null;
   updatedAt: string;
+  /** Topic (chat tab) the dispatched agent works this task in, if any. */
+  assignedTopicId: string | null;
+  /** null = not dispatched; queued | starting | working | needs_input. */
+  dispatchState: string | null;
 }
 
 export interface TaskComment {
@@ -66,6 +70,38 @@ export function boardIdForPath(projectPath: string): string {
   return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
 }
 
+/**
+ * Parse a task comment for an agent "question block" — the convention the
+ * dispatcher's kickoff tells the agent to use when it needs a human decision:
+ *
+ *   ```question
+ *   Which auth approach?
+ *   - JWT in an httpOnly cookie
+ *   - Short-lived bearer token
+ *   ```
+ *
+ * Returns the question + the (possibly empty) option list, or null when the text
+ * has no such block. Pure + exported so the "Serve te" card can render a
+ * quick-reply and a bun:test can pin the format.
+ */
+export function parseQuestionBlock(text: string): { question: string; options: string[] } | null {
+  if (!text) return null;
+  const m = text.match(/```question\s*\n([\s\S]*?)```/);
+  if (!m) return null;
+  const options: string[] = [];
+  const qLines: string[] = [];
+  for (const raw of m[1].split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const opt = line.match(/^[-*]\s+(.*)$/);
+    if (opt) options.push(opt[1].trim());
+    else qLines.push(line);
+  }
+  const question = qLines.join(' ').trim();
+  if (!question) return null;
+  return { question, options };
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`/api${path}`, {
     ...init,
@@ -95,6 +131,26 @@ export interface UpdateTaskBody {
   kanbanOrder?: number;
 }
 
+/** Per-board dispatch config (server: board_settings). */
+export interface BoardSettings {
+  projectId: string;
+  autoDispatch: boolean;
+  maxAgents: number;
+  dispatchEffort: string;
+  dispatchUseWorktree: boolean;
+  dispatchTimeoutMin: number;
+  requireApprovalForDone: boolean;
+  requireReviewBeforeDone: boolean;
+}
+
+export interface BoardSettingsPatch {
+  autoDispatch?: boolean;
+  maxAgents?: number;
+  dispatchEffort?: string;
+  dispatchUseWorktree?: boolean;
+  dispatchTimeoutMin?: number;
+}
+
 const enc = encodeURIComponent;
 
 export const boardApi = {
@@ -119,4 +175,8 @@ export const boardApi = {
     req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions }) }),
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment }) }),
+  getSettings: (projectId: string) =>
+    req<BoardSettings>(`/boards/${enc(projectId)}/settings`),
+  updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
+    req<BoardSettings>(`/boards/${enc(projectId)}/settings`, { method: 'PATCH', body: JSON.stringify(patch) }),
 };

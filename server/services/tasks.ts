@@ -44,6 +44,10 @@ export interface Task {
   updatedAt: string;
   claudeTaskId: string | null;
   assignedTopicId: string | null;
+  /** null = never dispatched; queued | starting | working | needs_input. */
+  dispatchState: string | null;
+  dispatchAttempts: number;
+  dispatchError: string | null;
 }
 
 export interface TaskComment {
@@ -82,6 +86,31 @@ export interface ListTasksInput {
   projectId?: string;
   status?: TaskStatus;
 }
+
+/** Per-board dispatch config (mirrors the `board_settings` row). */
+export interface BoardSettings {
+  projectId: string;
+  autoDispatch: boolean;
+  /** Concurrency cap = max tasks running an agent at once on this board. */
+  maxAgents: number;
+  dispatchEffort: string;
+  dispatchUseWorktree: boolean;
+  dispatchTimeoutMin: number;
+  requireApprovalForDone: boolean;
+  requireReviewBeforeDone: boolean;
+}
+
+export interface UpdateBoardSettingsPatch {
+  autoDispatch?: boolean;
+  maxAgents?: number;
+  dispatchEffort?: string;
+  dispatchUseWorktree?: boolean;
+  dispatchTimeoutMin?: number;
+}
+
+const VALID_EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);
+const clampInt = (n: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
 
 /** Recoverable, structured error — the route maps `.code` to an HTTP status. */
 export class TaskServiceError extends Error {
@@ -128,6 +157,24 @@ export interface TaskService {
   reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   archive(args: { taskId: string; projectId?: string }): Task;
+  /**
+   * Atomically claim a `todo` task for dispatch: bind it to a topic, move it to
+   * `in_progress`, and bump the attempt counter — but only if a slot is free
+   * (running < cap), it's still `todo`, unclaimed, and under the retry cap.
+   * Returns the claimed Task, or null if the claim didn't apply (no slot / lost
+   * the race / attempts exhausted). The single write path for `assigned_topic_id`.
+   */
+  claim(args: { taskId: string; topicId: string; cap: number; maxAttempts: number; agentId?: string | null }): Task | null;
+  /** Release a claimed task: clear the topic binding and requeue (`todo`) or park (`backlog`), with a note. */
+  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string }): Task;
+  /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
+  bindTopic(args: { taskId: string; topicId: string }): Task;
+  /** Update just the dispatch state/error (queued|starting|working|needs_input). */
+  setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
+  /** Read the per-board dispatch config (defaults when no row exists). */
+  getBoardSettings(projectId: string): BoardSettings;
+  /** Upsert the per-board dispatch config. */
+  updateBoardSettings(projectId: string, patch: UpdateBoardSettingsPatch): BoardSettings;
 }
 
 export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskService {
@@ -152,6 +199,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       updatedAt: r.updated_at,
       claudeTaskId: r.claude_task_id ?? null,
       assignedTopicId: r.assigned_topic_id ?? null,
+      dispatchState: r.dispatch_state ?? null,
+      dispatchAttempts: r.dispatch_attempts ?? 0,
+      dispatchError: r.dispatch_error ?? null,
     };
   }
 
@@ -312,7 +362,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
 
       const target: TaskStatus = decision === "approve" ? "done" : "in_progress";
-      db.prepare("UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?")
+      // Clear the dispatch chip on the human decision: an approved (done) card must
+      // not keep a stale "working"/"serve te" chip, and a rejected one is about to
+      // be re-kicked by the dispatcher (resume sets "working" itself).
+      db.prepare("UPDATE tasks SET status = ?, completed_at = ?, dispatch_state = NULL, updated_at = ? WHERE id = ?")
         .run(target, target === "done" ? ts : null, ts, taskId);
       return rowToTask(getTaskRow(taskId));
     },
@@ -325,6 +378,97 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const ts = now();
       db.prepare("UPDATE tasks SET archived = 1, updated_at = ? WHERE id = ?").run(ts, taskId);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    claim({ taskId, topicId, cap, maxAttempts, agentId }): Task | null {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // Concurrency cap: count tasks already running an agent (in_progress + bound
+      // to a topic) on this board. The task itself is still `todo` here, so it is
+      // not in the count. bun:sqlite is synchronous + single-process, so this
+      // read-then-CAS is atomic w.r.t. other claims.
+      const running = (db.prepare(
+        "SELECT COUNT(*) AS c FROM tasks WHERE project_id = ? AND status = 'in_progress' AND assigned_topic_id IS NOT NULL AND archived = 0",
+      ).get(row.project_id) as any).c as number;
+      if (running >= cap) return null;
+      const ts = now();
+      const res = db.prepare(
+        `UPDATE tasks
+            SET assigned_topic_id = ?, assigned_agent_id = ?, status = 'in_progress',
+                in_progress_at = ?, dispatch_state = 'starting',
+                dispatch_attempts = dispatch_attempts + 1, dispatch_error = NULL, updated_at = ?
+          WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND dispatch_attempts < ?`,
+      ).run(topicId, agentId ?? null, ts, ts, taskId, maxAttempts);
+      if (res.changes !== 1) return null; // lost the race / not todo / attempts exhausted
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    release({ taskId, requeue, reason, by }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // Note first (so the "worked in topic X" trail survives clearing the link).
+      if (reason && reason.trim()) {
+        try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }
+      }
+      const ts = now();
+      const status: TaskStatus = requeue ? "todo" : "backlog";
+      const state = requeue ? "queued" : null;
+      db.prepare(
+        `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+            status = ?, dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?`,
+      ).run(status, state, reason ?? null, ts, taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    bindTopic({ taskId, topicId }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare("UPDATE tasks SET assigned_topic_id = ?, chat_id = ?, updated_at = ? WHERE id = ?")
+        .run(topicId, topicId, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    setDispatchState({ taskId, state, error }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare("UPDATE tasks SET dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?")
+        .run(state, error ?? null, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    getBoardSettings(projectId: string): BoardSettings {
+      const r = db.prepare("SELECT * FROM board_settings WHERE project_id = ?").get(projectId) as any;
+      return {
+        projectId,
+        autoDispatch: r ? !!r.auto_dispatch : false,
+        maxAgents: r ? (r.max_agents ?? 2) : 2,
+        dispatchEffort: r?.dispatch_effort ?? "medium",
+        dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
+        dispatchTimeoutMin: r?.dispatch_timeout_min ?? 20,
+        requireApprovalForDone: r ? !!r.require_approval_for_done : false,
+        requireReviewBeforeDone: r ? !!r.require_review_before_done : false,
+      };
+    },
+
+    updateBoardSettings(projectId: string, patch: UpdateBoardSettingsPatch): BoardSettings {
+      if (!projectId) throw new TaskServiceError("invalid_input", "projectId is required");
+      if (patch.dispatchEffort !== undefined && !VALID_EFFORT.has(patch.dispatchEffort)) {
+        throw new TaskServiceError("invalid_input", `invalid effort "${patch.dispatchEffort}"`);
+      }
+      // Ensure a row exists. Seed max_agents at the dispatch default (2), NOT the
+      // legacy board_settings column default (5) — otherwise merely toggling
+      // auto_dispatch would materialise the row at cap 5 and silently over-run the
+      // "2" shown in the panel. INSERT OR IGNORE only sets it on first creation.
+      db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 2)").run(projectId);
+      const sets: string[] = [];
+      const params: any[] = [];
+      if (patch.autoDispatch !== undefined) { sets.push("auto_dispatch = ?"); params.push(patch.autoDispatch ? 1 : 0); }
+      if (patch.maxAgents !== undefined) { sets.push("max_agents = ?"); params.push(clampInt(patch.maxAgents, 1, 10)); }
+      if (patch.dispatchEffort !== undefined) { sets.push("dispatch_effort = ?"); params.push(patch.dispatchEffort); }
+      if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }
+      if (patch.dispatchTimeoutMin !== undefined) { sets.push("dispatch_timeout_min = ?"); params.push(clampInt(patch.dispatchTimeoutMin, 1, 120)); }
+      if (sets.length) db.prepare(`UPDATE board_settings SET ${sets.join(", ")} WHERE project_id = ?`).run(...params, projectId);
+      return this.getBoardSettings(projectId);
     },
   };
 }
