@@ -152,9 +152,22 @@ export function UpdaterToast() {
   // Anchor above the version chip when it's in the DOM ("sopra la versione");
   // otherwise fall back to the bottom-right corner. Reading the anchor's rect at
   // render mirrors the status dropdown in SidebarStatusBar.
+  //
+  // Two viewport guards (BRW-REL-03 — the anchored math once put the toast at
+  // x=−80, an invisible error): a COLLAPSED sidebar keeps the chip in the DOM
+  // as a narrow icon in the left rail, where right-anchoring pushes the toast
+  // off the LEFT edge → treat a narrow anchor as "no anchor" (corner fallback);
+  // and clamp `right` so the toast's worst-case width (max-w-xs = 320px) stays
+  // inside the viewport even for anchors near the left edge.
   const anchor = document.querySelector<HTMLElement>(VERSION_ANCHOR_SELECTOR);
-  if (anchor) {
-    const r = anchor.getBoundingClientRect();
+  const anchorRect = anchor?.getBoundingClientRect();
+  const usableAnchor = anchorRect && anchorRect.width >= 40 ? anchorRect : null;
+  if (usableAnchor) {
+    const TOAST_MAX_WIDTH = 320; // Tailwind max-w-xs
+    const right = Math.max(
+      8,
+      Math.min(window.innerWidth - usableAnchor.right, window.innerWidth - TOAST_MAX_WIDTH - 8),
+    );
     return createPortal(
       <div
         role="status"
@@ -162,8 +175,8 @@ export function UpdaterToast() {
         className="max-w-xs"
         style={{
           position: 'fixed',
-          bottom: window.innerHeight - r.top + 6,
-          right: window.innerWidth - r.right,
+          bottom: window.innerHeight - usableAnchor.top + 6,
+          right,
           zIndex: Z_POPOVER,
         }}
       >

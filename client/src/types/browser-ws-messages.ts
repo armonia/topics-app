@@ -57,7 +57,10 @@ const inputMessageSchema = z.object({
 const navMessageSchema = z.object({
   type: z.literal('nav'),
   url: z.string(),
-  phase: z.enum(['request', 'response']),
+  // 'error' (server -> client): goto/launch failed; `error` carries the short
+  // reason the panel renders with Retry (BRW-REL-02). Mirrors server schema.
+  phase: z.enum(['request', 'response', 'error']),
+  error: z.optional(z.string()),
 });
 
 const agentActiveMessageSchema = z.object({

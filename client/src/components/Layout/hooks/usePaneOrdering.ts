@@ -102,7 +102,8 @@ function findGlobalBrowserPaneId(): string | null {
  * Singleton reducer shared by `ensureBrowserPane` op and the WS
  * browser:navigate listener. Keeps the swap/reuse/create logic DRY.
  */
-function browserSingletonReducer(
+// Exported for the co-located bun:test unit (pure function).
+export function browserSingletonReducer(
   prev: string[],
   contextId?: string,
 ): { next: string[]; resolvedId: string } {
@@ -111,16 +112,19 @@ function browserSingletonReducer(
   if (targetId && prev.includes(targetId)) {
     return { next: prev, resolvedId: targetId };
   }
-  // 2. Any browser pane exists in THIS instance's ordered ids.
-  const existing = prev.find(id => isBrowserPaneId(id));
-  if (existing) {
-    if (targetId) {
-      return {
-        next: prev.map(id => (id === existing ? targetId : id)),
-        resolvedId: targetId,
-      };
+  // 1b. contextId given but no exact match → CREATE `browser:<ctx>` (case 3).
+  // This used to rebind whatever browser pane the group already had onto the
+  // new contextId — the second chat tab silently STOLE the first chat's
+  // browser (pane, URL, CDP target). One browser per CONTEXT, mirroring the
+  // project path's ensureBrowserPaneAndNavigate fix; the group can now host
+  // multiple browser tabs, one per spawning context.
+  // 2. Any browser pane exists in THIS instance's ordered ids — reuse it, but
+  // ONLY for context-less (legacy) opens.
+  if (!targetId) {
+    const existing = prev.find(id => isBrowserPaneId(id));
+    if (existing) {
+      return { next: prev, resolvedId: existing };
     }
-    return { next: prev, resolvedId: existing };
   }
   // 2b. A browser pane already exists ELSEWHERE in the app — e.g. one was solo'd
   // into another cell, or this is a solo'd chat cell whose `prev` only holds its
@@ -437,9 +441,15 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
     const handler = (e: Event) => {
       const ce = e as CustomEvent<{ topicId?: string; url?: string }>;
       if (!ce.detail?.url) return;
-      if (hasProjectPaneRef.current) return; // Project window owns its panes
+      // Ownership: with a topicId, MEMBERSHIP decides (the reducer below bails
+      // unless the topic is a tab of THIS group), so a project-owned topic is
+      // never hijacked here. The old blanket "any project pane open → bail"
+      // orphaned the event for STANDALONE topics whenever a project tab was
+      // also open: /browser became a silent no-op (audit 2026-07-10,
+      // CHAT-REL-03). The blanket bail survives only for topic-less events,
+      // whose producer we can't attribute.
+      if (!ce.detail.topicId && hasProjectPaneRef.current) return;
       const navigateUrl: string = resolveBrowserNavigateUrl(ce.detail.url);
-      onBrowserNavigateUrl(navigateUrl);
       setOrderedIds(prev => {
         if (ce.detail?.topicId && !prev.includes(ce.detail.topicId)) return prev;
         // For a chat topic the browser contextId IS the topicId
@@ -448,7 +458,10 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
         // the id the agent's tools resolve to.
         const { next, resolvedId } = browserSingletonReducer(prev, ce.detail?.topicId);
         if (resolvedId) {
-          queueMicrotask(() => { onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
+          // URL seed happens here, AFTER this group claimed the event via the
+          // membership check above — seeding before the claim leaked the URL
+          // into groups that then bailed.
+          queueMicrotask(() => { onBrowserNavigateUrl(navigateUrl); onFocusPanel(resolvedId); requestBrowserSolo(resolvedId); });
           persistBrowserPane(resolvedId);
           persistBrowserPaneUrl(resolvedId, navigateUrl);
           const ctx = getBrowserContextFromPaneId(resolvedId);

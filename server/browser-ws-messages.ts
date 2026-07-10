@@ -57,11 +57,18 @@ const inputMessageSchema = z.object({
   payload: inputPayloadSchema,
 });
 
-/** Both directions: request from either side, response broadcast */
+/** Both directions: request from either side, response broadcast.
+ *  phase 'error' (server -> client) carries a failed goto/launch: `error` is a
+ *  short human-readable reason the panel renders with a Retry affordance —
+ *  without it a refused connection / missing Chromium left the pane silently
+ *  on the previous page or on an infinite "Starting browser…". Additive:
+ *  older clients that only know request/response fail zod-parse on 'error'
+ *  and drop the frame, which degrades to the previous (silent) behaviour. */
 const navMessageSchema = z.object({
   type: z.literal('nav'),
   url: z.string(),
-  phase: z.enum(['request', 'response']),
+  phase: z.enum(['request', 'response', 'error']),
+  error: z.string().optional(),
 });
 
 /** Server -> client: lock state for the UI overlay in RemoteBrowserPanel */
