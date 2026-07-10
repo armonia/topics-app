@@ -70,6 +70,38 @@ export function boardIdForPath(projectPath: string): string {
   return dirName + '-' + Math.abs(hash).toString(36).slice(0, 6);
 }
 
+/**
+ * Parse a task comment for an agent "question block" — the convention the
+ * dispatcher's kickoff tells the agent to use when it needs a human decision:
+ *
+ *   ```question
+ *   Which auth approach?
+ *   - JWT in an httpOnly cookie
+ *   - Short-lived bearer token
+ *   ```
+ *
+ * Returns the question + the (possibly empty) option list, or null when the text
+ * has no such block. Pure + exported so the "Serve te" card can render a
+ * quick-reply and a bun:test can pin the format.
+ */
+export function parseQuestionBlock(text: string): { question: string; options: string[] } | null {
+  if (!text) return null;
+  const m = text.match(/```question\s*\n([\s\S]*?)```/);
+  if (!m) return null;
+  const options: string[] = [];
+  const qLines: string[] = [];
+  for (const raw of m[1].split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const opt = line.match(/^[-*]\s+(.*)$/);
+    if (opt) options.push(opt[1].trim());
+    else qLines.push(line);
+  }
+  const question = qLines.join(' ').trim();
+  if (!question) return null;
+  return { question, options };
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`/api${path}`, {
     ...init,

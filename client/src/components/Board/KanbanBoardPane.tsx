@@ -12,7 +12,7 @@ import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, Po
 import { Loader2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import {
-  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL,
+  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
 } from '../../lib/board';
 
@@ -210,7 +210,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
   return (
     <div ref={setNodeRef} className={`flex w-72 shrink-0 flex-col rounded-lg border ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-neutral-300">{STATUS_LABEL[status]}</span>
+        <span className="text-xs font-semibold uppercase tracking-wide text-neutral-300">{status === 'review' ? 'Serve te' : STATUS_LABEL[status]}</span>
         <span className="rounded bg-white/10 px-1.5 text-xs text-neutral-400">{tasks.length}</span>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
@@ -249,11 +249,38 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
   // column's overflow before).
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
 
+  // "Serve te" quick-reply: for an agent-driven task in review, lazily load the
+  // thread and surface a pending question block (if the agent left one) so the
+  // human can answer with a click straight from the card.
+  const [pending, setPending] = useState<{ question: string; options: string[] } | null>(null);
+  const [freeText, setFreeText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
+  useEffect(() => {
+    if (!isAgentReview) { setPending(null); return; }
+    let alive = true;
+    boardApi.get(task.projectId, task.id)
+      .then(({ comments }) => {
+        if (!alive) return;
+        const last = comments[comments.length - 1];
+        setPending(last ? parseQuestionBlock(last.content) : null);
+      })
+      .catch(() => { if (alive) setPending(null); });
+    return () => { alive = false; };
+    // Re-check when the task changes (a re-kick bumps updatedAt).
+  }, [isAgentReview, task.projectId, task.id, task.updatedAt]);
+
   // Route mutations by the task's own projectId (works in the global board too).
-  const review = async (decision: 'approve' | 'reject') => {
-    try { await boardApi.review(task.projectId, task.id, decision); onRefetch(); }
+  const review = async (decision: 'approve' | 'reject', comment?: string) => {
+    if (busy) return;
+    setBusy(true);
+    try { await boardApi.review(task.projectId, task.id, decision, comment); setPending(null); setFreeText(''); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'review failed'); }
+    finally { setBusy(false); }
   };
+  // Answering a question re-kicks the same agent tab (server routes reject →
+  // dispatcher.resume), so the answer is a reject carrying the human's choice.
+  const answer = (text: string) => review('reject', text);
   const archive = async () => {
     try { await boardApi.archive(task.projectId, task.id); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'archive failed'); }
@@ -290,12 +317,46 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
           ><ArrowUpRight className="h-3 w-3" /> apri tab</button>
         )}
       </div>
-      {task.status === 'review' && (
-        <div className="mt-2 flex gap-1 pl-4">
-          <button onClick={(e) => { e.stopPropagation(); review('approve'); }} className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] text-white hover:bg-emerald-500">
+      {task.status === 'review' && pending && (
+        <div className="mt-2 space-y-1.5 pl-4" onClick={(e) => e.stopPropagation()}>
+          <p className="text-[11px] leading-snug text-rose-200">{pending.question}</p>
+          {pending.options.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {pending.options.map((opt, i) => (
+                <button
+                  key={i} disabled={busy}
+                  onClick={() => answer(opt)}
+                  className="rounded bg-white/10 px-2 py-0.5 text-[11px] text-neutral-100 hover:bg-white/20 disabled:opacity-50"
+                >{opt}</button>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-1">
+            <input
+              value={freeText} disabled={busy}
+              onChange={(e) => setFreeText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); answer(freeText.trim()); } }}
+              placeholder="Rispondi…"
+              className="min-w-0 flex-1 rounded bg-black/30 px-2 py-1 text-[11px] text-neutral-100 outline-none placeholder:text-neutral-500"
+            />
+            <button
+              disabled={busy || !freeText.trim()} onClick={() => answer(freeText.trim())}
+              className="flex items-center gap-1 rounded bg-sky-500/80 px-2 py-1 text-[11px] text-white hover:bg-sky-500 disabled:opacity-50"
+            ><Send className="h-3 w-3" /></button>
+            <button
+              disabled={busy} onClick={() => review('approve')}
+              title="Accetta e completa il task"
+              className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-1 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
+            ><ShieldCheck className="h-3 w-3" /></button>
+          </div>
+        </div>
+      )}
+      {task.status === 'review' && !pending && (
+        <div className="mt-2 flex gap-1 pl-4" onClick={(e) => e.stopPropagation()}>
+          <button disabled={busy} onClick={() => review('approve')} className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50">
             <ShieldCheck className="h-3 w-3" /> Approva
           </button>
-          <button onClick={(e) => { e.stopPropagation(); review('reject'); }} className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-neutral-200 hover:bg-white/20">
+          <button disabled={busy} onClick={() => review('reject')} className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-neutral-200 hover:bg-white/20 disabled:opacity-50">
             <ShieldX className="h-3 w-3" /> Rifiuta
           </button>
         </div>

@@ -135,12 +135,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
         const decision = body?.decision === "approve" ? "approve" : body?.decision === "reject" ? "reject" : null;
         if (!decision) return json({ error: "decision must be 'approve' or 'reject'", code: "invalid_input" }, 400);
         try {
+          const comment = typeof body?.comment === "string" ? body.comment : undefined;
           const task = svc.reviewDecision({
-            taskId: bReview.taskId, by: HUMAN, decision,
-            comment: typeof body?.comment === "string" ? body.comment : undefined,
+            taskId: bReview.taskId, by: HUMAN, decision, comment,
             projectId: bReview.projectId,
           });
           broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task });
+          // Reject re-kicks the SAME agent tab with the human's feedback (a
+          // "Serve te" answer routes through here too), so the conversation
+          // resumes instead of a fresh agent spawning. reviewDecision already
+          // moved it back to in_progress.
+          if (dispatcher && decision === "reject" && task.assignedTopicId) {
+            void dispatcher.resume(bReview.taskId, comment ?? "");
+          }
           return json(task);
         } catch (e) { return fail(e); }
       }

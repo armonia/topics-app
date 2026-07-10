@@ -229,6 +229,34 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(0);
   });
 
+  it("resume re-kicks the SAME topic with the human message", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-42", attempts: 1 });
+
+    const p = h.dispatcher.resume("t1", "usa l'opzione B");
+    await flush();
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].sessionKey).toBe("topic:" + "topic-42".slice(0, 8)); // derived, same tab
+    expect(h.turns[0].content).toContain("usa l'opzione B");
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    // Agent finishes back into review.
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await p;
+    await flush();
+    expect(h.task("t1")!.status).toBe("review");
+    expect(h.dispatcher.isInFlight("t1")).toBe(false);
+  });
+
+  it("resume is a no-op when the task has no bound topic", async () => {
+    const h = harness();
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: null });
+    await h.dispatcher.resume("t1", "hey");
+    await flush();
+    expect(h.turns.length).toBe(0);
+  });
+
   it("reconcile requeues an orphaned in-progress task", async () => {
     const h = harness();
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 1 });

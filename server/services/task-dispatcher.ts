@@ -63,6 +63,13 @@ export interface TaskDispatcher {
   onEnterTodo(projectId: string, taskId: string): void;
   /** Human moved a task OUT of todo before it claimed → cancel the pending launch. */
   onLeaveTodo(taskId: string): void;
+  /**
+   * Re-kick the task's EXISTING topic with a human message (a "Serve te" answer
+   * or a review rejection). The caller has already moved the task back to
+   * `in_progress` (via reviewDecision); this resumes the same agent tab so the
+   * conversation continues instead of spawning a fresh one.
+   */
+  resume(taskId: string, humanMessage: string): Promise<void>;
   /** Boot + periodic sweep: requeue orphaned in-progress tasks, then tick every board. */
   reconcile(): Promise<void>;
   /** Cancel all timers (test teardown / shutdown). */
@@ -119,7 +126,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "- Lavora SOLO questo task, in questa working directory.",
         "- Tieni la comunicazione minima: brevi commenti di stato ai milestone, non log verbosi.",
         `- Quando il lavoro è completo sposta il task in \`review\` con: update_task(task_id="${task.id}", project_id="${task.projectId}", status="review"). NON puoi portarlo a \`done\` (serve l'ok umano).`,
-        "- Se ti serve una decisione umana per procedere, fermati, lascia la domanda in un commento chiaro e metti comunque il task in `review`.",
+        "- Se ti serve una decisione umana per procedere, metti il task in `review` e lascia la domanda in un commento in QUESTO formato (così l'umano risponde con un click dalla board):",
+        "  ```question",
+        "  <la domanda in una riga>",
+        "  - <opzione 1>",
+        "  - <opzione 2>",
+        "  ```",
         "Inizia ora.",
       ].join("\n"),
     );
@@ -206,6 +218,35 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
     // Human moved it elsewhere (backlog/todo/done) mid-turn → just drop our chip.
     try { emit(deps.svc.setDispatchState({ taskId, state: null })); } catch { /* best-effort */ }
+  }
+
+  function buildResume(task: Task, humanMessage: string): string {
+    return [
+      `Aggiornamento umano sul task \`${task.id}\`:`,
+      humanMessage.trim() || "(nessun testo, prosegui col tuo giudizio)",
+      "",
+      `Prosegui il lavoro. Quando è di nuovo pronto per la revisione: update_task(task_id="${task.id}", project_id="${task.projectId}", status="review").`,
+    ].join("\n");
+  }
+
+  async function resume(taskId: string, humanMessage: string): Promise<void> {
+    const t = deps.svc.get(taskId)?.task;
+    // The caller (reviewDecision reject) has already moved it to in_progress and
+    // it must still be bound to its topic. Anything else = nothing to resume.
+    if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
+    if (inFlight.has(taskId)) return;
+    const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
+    inFlight.set(taskId, { sessionKey });
+    try {
+      emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
+      let timeoutMin = 20;
+      try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
+      try { await deps.runTurn(sessionKey, buildResume(t, humanMessage), { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
+      catch (err) { log(`resume turn failed for ${taskId}`, err); }
+      onTurnEnd(taskId);
+    } finally {
+      inFlight.delete(taskId);
+    }
   }
 
   async function tick(projectId: string): Promise<void> {
@@ -302,5 +343,5 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     graceTimers.clear();
   }
 
-  return { tick, onEnterTodo, onLeaveTodo, reconcile, shutdown, isInFlight: (id) => inFlight.has(id) };
+  return { tick, onEnterTodo, onLeaveTodo, resume, reconcile, shutdown, isInFlight: (id) => inFlight.has(id) };
 }
