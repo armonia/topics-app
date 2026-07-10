@@ -12,11 +12,13 @@ name: Auto-bump patch
 # message: a squash-merge concatenates the branch's commit messages into the
 # body, so a PR that merely mentions the loop guard would be skipped by accident.
 #
-# Shipping to users (optional): if a repo secret RELEASE_PAT is set, the new
-# version is also tagged `tauri-v<version>`, which triggers tauri-release.yml to
-# build the installers + updater manifest — so every merge auto-updates everyone.
-# Without the PAT the version still bumps; only the installer build stays manual
-# (the default token can't fire the tag-triggered release workflow).
+# This workflow only bumps — it never builds or ships. Shipping installers is a
+# deliberate act: run `scripts/ship.sh`, which tags `tauri-v<version>` from your
+# own git credential and so fires tauri-release.yml (CI's GITHUB_TOKEN can't
+# trigger a tag workflow, which is why the release step lives locally, not here —
+# and needs no repo PAT). Rationale: a full 3-OS installer build on every merge
+# would burn the macOS runner budget; ship when a version is actually worth
+# pushing to users.
 on:
   push:
     branches: [main]
@@ -31,15 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          # A PAT (if present) lets the pushed tag trigger tauri-release.yml;
-          # otherwise fall back to the built-in token (bump + commit only).
-          token: ${{ secrets.RELEASE_PAT || github.token }}
 
       - name: Bump patch across lockstep files
         id: bump
@@ -54,11 +51,3 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore(release): bump v${VERSION}"
           git push origin "HEAD:${BRANCH}"
-
-      - name: Tag → trigger release (only when a PAT can fire it)
-        if: ${{ env.RELEASE_PAT != '' }}
-        env:
-          VERSION: ${{ steps.bump.outputs.version }}
-        run: |
-          git tag "tauri-v${VERSION}"
-          git push origin "tauri-v${VERSION}"
