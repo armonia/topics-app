@@ -362,7 +362,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
 
       const target: TaskStatus = decision === "approve" ? "done" : "in_progress";
-      db.prepare("UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?")
+      // Clear the dispatch chip on the human decision: an approved (done) card must
+      // not keep a stale "working"/"serve te" chip, and a rejected one is about to
+      // be re-kicked by the dispatcher (resume sets "working" itself).
+      db.prepare("UPDATE tasks SET status = ?, completed_at = ?, dispatch_state = NULL, updated_at = ? WHERE id = ?")
         .run(target, target === "done" ? ts : null, ts, taskId);
       return rowToTask(getTaskRow(taskId));
     },
@@ -452,8 +455,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchEffort !== undefined && !VALID_EFFORT.has(patch.dispatchEffort)) {
         throw new TaskServiceError("invalid_input", `invalid effort "${patch.dispatchEffort}"`);
       }
-      // Ensure a row exists (columns are NOT NULL with defaults → project_id-only insert is valid).
-      db.prepare("INSERT OR IGNORE INTO board_settings (project_id) VALUES (?)").run(projectId);
+      // Ensure a row exists. Seed max_agents at the dispatch default (2), NOT the
+      // legacy board_settings column default (5) — otherwise merely toggling
+      // auto_dispatch would materialise the row at cap 5 and silently over-run the
+      // "2" shown in the panel. INSERT OR IGNORE only sets it on first creation.
+      db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 2)").run(projectId);
       const sets: string[] = [];
       const params: any[] = [];
       if (patch.autoDispatch !== undefined) { sets.push("auto_dispatch = ?"); params.push(patch.autoDispatch ? 1 : 0); }

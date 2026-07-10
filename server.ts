@@ -368,6 +368,7 @@ const taskDispatcher = createTaskDispatcher({
     }
     return ready.id;
   },
+  deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   runTurn: runHeadlessTurn,
   broadcast: ctx.broadcastToAll,
 });

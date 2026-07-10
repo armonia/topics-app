@@ -40,14 +40,14 @@ const PID = "alpha-abc123";
 let seq = 0;
 function seedTask(
   db: Database,
-  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; createdAt?: string } = {},
+  o: { id?: string; status?: string; attempts?: number; assignedTopicId?: string | null; dispatchState?: string | null; createdAt?: string } = {},
 ): string {
   const id = o.id ?? `t${++seq}`;
   const ts = o.createdAt ?? new Date(Date.now() + seq).toISOString();
   db.run(
-    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, PID, "task " + id, o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null],
+    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, PID, "task " + id, o.status ?? "todo", ts, ts, o.attempts ?? 0, o.assignedTopicId ?? null, o.dispatchState ?? null],
   );
   return id;
 }
@@ -137,7 +137,8 @@ describe("task-dispatcher", () => {
     await flush();
     const t = h.task("t1")!;
     expect(t.status).toBe("review");
-    expect(t.assignedTopicId).toBe("topic-1"); // binding preserved for the human
+    expect(t.assignedTopicId).toBe("topic-1");   // binding preserved for the human
+    expect(t.dispatchState).toBe("needs_input");  // chip flips to "serve te", not stale "working"
     expect(h.dispatcher.isInFlight("t1")).toBe(false);
   });
 
@@ -257,9 +258,9 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(0);
   });
 
-  it("reconcile requeues an orphaned in-progress task", async () => {
+  it("reconcile requeues an orphaned (mid-dispatch) in-progress task", async () => {
     const h = harness();
-    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 1 });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 1, dispatchState: "working" });
     await h.dispatcher.reconcile();
     await flush();
     const t = h.task("t1")!;
@@ -269,9 +270,47 @@ describe("task-dispatcher", () => {
 
   it("reconcile parks an orphan whose attempts are exhausted", async () => {
     const h = harness();
-    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 3 });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 3, dispatchState: "working" });
     await h.dispatcher.reconcile();
     await flush();
     expect(h.task("t1")!.status).toBe("backlog"); // parked
+  });
+
+  it("reconcile leaves a human-moved bound task alone (chip not active)", async () => {
+    // A human dragged a review/done card (dispatch_state null) into In Progress —
+    // it's bound but NOT a dead dispatch, so reconcile must not "orphan" it.
+    const h = harness();
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: null });
+    await h.dispatcher.reconcile();
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");
+    expect(t.assignedTopicId).toBe("topic-live");
+  });
+
+  it("launch parks (not requeues) when setup fails and attempts are exhausted", async () => {
+    const h = harness({ createWorktree: async () => { throw new Error("git worktree add failed"); } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 2 }); // claim bumps to 3 = RETRY_CAP
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");   // parked, not stranded in todo
+    expect(t.dispatchError).toContain("fallito");
+    expect(h.turns.length).toBe(0);
+  });
+
+  it("onEnterTodo re-dispatches a task dragged back from review (clears stale binding)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    // Bound task now sitting in todo (human dragged it back from review).
+    seedTask(h.db, { id: "t1", status: "todo", assignedTopicId: "topic-old", dispatchState: "needs_input" });
+    h.dispatcher.onEnterTodo(PID, "t1");
+    // Binding cleared immediately so it's eligible for a fresh claim.
+    expect(h.task("t1")!.assignedTopicId).toBeNull();
+    await new Promise((r) => setTimeout(r, 40));
+    await flush();
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.task("t1")!.assignedTopicId).toBe("topic-1"); // fresh topic, not the old one
   });
 });

@@ -322,4 +322,20 @@ describe("board settings", () => {
   test("rejects an invalid effort", () => {
     expect(() => s.updateBoardSettings(PID, { dispatchEffort: "turbo" })).toThrow(TaskServiceError);
   });
+
+  test("enabling auto-dispatch alone keeps the cap at 2 (not the legacy column default 5)", () => {
+    const bs = s.updateBoardSettings(PID, { autoDispatch: true });
+    expect(bs.maxAgents).toBe(2);
+    expect(s.getBoardSettings(PID).maxAgents).toBe(2);
+  });
+
+  test("reviewDecision clears the dispatch chip on approve", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    // Drive it to review with a dispatch chip set, then approve.
+    s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "review" } });
+    s.setDispatchState({ taskId: t.id, state: "needs_input" });
+    const done = s.reviewDecision({ taskId: t.id, by: "u", decision: "approve" });
+    expect(done.status).toBe("done");
+    expect(done.dispatchState).toBeNull();
+  });
 });

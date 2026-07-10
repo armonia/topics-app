@@ -47,6 +47,8 @@ export interface DispatcherDeps {
    * provide worktrees at all (tests / degraded mode).
    */
   createWorktree?: (projectStoreId: string) => Promise<string>;
+  /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
+  deleteWorktree?: (worktreeId: string) => Promise<void>;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number }) => Promise<void>;
   /** Broadcast a WS message so live boards reflect chip/state changes. */
@@ -80,6 +82,11 @@ export interface TaskDispatcher {
 
 const CHIP_QUEUED = "queued";
 const CHIP_WORKING = "working";
+const CHIP_NEEDS_INPUT = "needs_input";
+// The two states that mean "a dispatch turn is genuinely live" — reconcile only
+// requeues orphans in these states, so a human dragging a review/done task into
+// In Progress (dispatch_state null/needs_input) is never falsely "orphaned".
+const ACTIVE_DISPATCH_STATES = new Set([CHIP_WORKING, "starting"]);
 
 /** Persistent role for the task-scoped topic (the per-turn task rides in the user message). */
 const ROLE_PROMPT =
@@ -188,20 +195,45 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         log(`turn failed for task ${taskId}`, err);
       }
       onTurnEnd(taskId);
+      // The worktree holds the agent's work: keep it when the task advanced to
+      // review/done (it's the deliverable), delete it when the attempt was
+      // discarded (requeued/parked) so retries don't orphan a worktree each time.
+      const after = deps.svc.get(taskId)?.task?.status;
+      if (worktreeId && (after === "todo" || after === "backlog")) await cleanupWorktree(worktreeId);
     } catch (err) {
       log(`launch failed for task ${taskId}`, err);
-      try { emit(deps.svc.release({ taskId, requeue: true, reason: "Avvio agent fallito, rimesso in coda." })); }
-      catch { /* best-effort */ }
+      // Setup threw (worktree/topic/bind). Park if attempts are exhausted, else
+      // requeue — mirror onTurnEnd so a flaky setup can't strand a task in todo.
+      try {
+        const exhausted = (deps.svc.get(taskId)?.task?.dispatchAttempts ?? RETRY_CAP) >= RETRY_CAP;
+        emit(deps.svc.release({
+          taskId,
+          requeue: !exhausted,
+          reason: exhausted
+            ? "Avvio agent fallito ripetutamente. Parcheggiato in backlog."
+            : "Avvio agent fallito, rimesso in coda.",
+        }));
+      } catch { /* best-effort */ }
+      if (worktreeId) await cleanupWorktree(worktreeId);
     } finally {
       inFlight.delete(taskId);
     }
+  }
+
+  async function cleanupWorktree(worktreeId: string): Promise<void> {
+    if (!deps.deleteWorktree) return;
+    try { await deps.deleteWorktree(worktreeId); }
+    catch (err) { log(`worktree cleanup failed for ${worktreeId}`, err); }
   }
 
   function onTurnEnd(taskId: string): void {
     const cur = deps.svc.get(taskId)?.task;
     if (!cur) return;
     if (cur.status === "review") {
-      // Agent finished or asked for input → it's the human's now. Leave binding.
+      // Agent finished or asked for input → it's the human's now. Flip the chip to
+      // "serve te" (not a stale "working") and keep the binding for the deep-link
+      // and the resume-on-answer path.
+      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_NEEDS_INPUT })); } catch { /* best-effort */ }
       return;
     }
     if (cur.status === "in_progress") {
@@ -267,6 +299,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
     for (const t of todos) {
       if (inFlight.has(t.id)) continue;
+      // Respect the grace debounce: a task still inside its window is claimed by
+      // its OWN scheduled tick (which deletes the timer first), never by a poll
+      // firing mid-grace — otherwise a quick drag-through could still spawn.
+      if (graceTimers.has(t.id)) continue;
       // Claim binds to a PLACEHOLDER topic id; the real topic is created in
       // launch() and the binding overwritten via bindTopic().
       const claimed = deps.svc.claim({
@@ -290,8 +326,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // `queued` chip from lingering on a board that never dispatches.)
     try { if (!deps.svc.getBoardSettings(projectId).autoDispatch) return; } catch { return; }
     // Show "queued" immediately; the claim waits out the grace window so a quick
-    // drag-through never spawns.
-    try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED })); } catch { /* task may have moved */ }
+    // drag-through never spawns. If the task still carries a topic binding (it was
+    // dispatched before and dragged back from review/done), clear the binding via
+    // release so it's eligible for a FRESH dispatch — otherwise the tick filter
+    // skips it and the chip would strand on "queued" forever.
+    try {
+      const t = deps.svc.get(taskId)?.task;
+      if (t?.assignedTopicId) emit(deps.svc.release({ taskId, requeue: true }));
+      else emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED }));
+    } catch { /* task may have moved */ }
     const timer = setTimeout(() => {
       graceTimers.delete(taskId);
       void tick(projectId).catch((err) => log(`tick after grace failed for ${projectId}`, err));
@@ -318,6 +361,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     for (const t of running) {
       if (!t.assignedTopicId) continue;
       if (inFlight.has(t.id)) continue; // we own it, leave it
+      // Only requeue tasks that were genuinely mid-dispatch (starting/working) when
+      // the process died. A human who drags a review/done card (chip null or
+      // needs_input) into In Progress is NOT an orphan — leave it be.
+      if (!ACTIVE_DISPATCH_STATES.has(t.dispatchState ?? "")) continue;
       const requeue = t.dispatchAttempts < RETRY_CAP;
       try {
         emit(deps.svc.release({
