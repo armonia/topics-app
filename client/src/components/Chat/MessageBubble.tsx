@@ -148,7 +148,9 @@ export const MessageBubble = memo(function MessageBubble({
     >
       {/* Date separator */}
       {dateSep && (
-        <div className="flex items-center gap-3 my-3">
+        // pointer-events-none: purely decorative; must never win hit-tests
+        // against the floating message-action toolbars that overlap this row.
+        <div className="flex items-center gap-3 my-3 pointer-events-none">
           <div className="flex-1 h-px bg-app-border" />
           <span className="text-[11px] font-medium text-app-text-muted uppercase tracking-wider">{dateSep}</span>
           <div className="flex-1 h-px bg-app-border" />
@@ -159,7 +161,13 @@ export const MessageBubble = memo(function MessageBubble({
         className={`group flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} ${!grouped ? 'message-appear' : ''} ${grouped && isCompact ? 'mt-0.5' : ''}`}
       >
         <div
-          className={`relative flex flex-col min-w-0 overflow-hidden`}
+          // NO overflow-hidden here: this div is the containing block of the
+          // absolutely-positioned hover toolbar below (`bottom-full` = above the
+          // top edge), so clipping here made the toolbar invisible AND
+          // unclickable — clicks fell through to the previous list row. Content
+          // clipping lives on the inner bubble div (which has its own
+          // overflow-hidden + overflow-wrap), so wide code/links still wrap.
+          className={`relative flex flex-col min-w-0`}
           style={{ maxWidth: isMobile ? 'calc(100vw - 5rem)' : '85%' }}
         >
           {/* Floating action toolbar */}

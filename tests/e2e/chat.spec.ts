@@ -457,9 +457,11 @@ test.describe("Message Action Toolbar", () => {
     const firstMessage = page.locator(".message-content").first();
     await expect(firstMessage).toBeVisible({ timeout: 15_000 });
 
-    // Dispatch mouseenter to trigger CSS group-hover (more reliable than hover())
-    await firstMessage.dispatchEvent("mouseenter");
-    await firstMessage.dispatchEvent("mouseover");
+    // REAL hover + REAL clicks (CHAT-REL-01). These used to be
+    // dispatchEvent() workarounds because the toolbar was clipped by its
+    // overflow-hidden containing block and real clicks landed on the previous
+    // row. Keeping them real is the regression guard for that fix.
+    await firstMessage.hover();
 
     // Verify action buttons become visible after hover
     // Multiple messages → multiple toolbars; use .first() for the hovered one
@@ -471,8 +473,8 @@ test.describe("Message Action Toolbar", () => {
     await expect(pinBtn).toBeVisible({ timeout: 5_000 });
     await expect(replyBtn).toBeVisible({ timeout: 5_000 });
 
-    // Click Copy (dispatchEvent bypasses the opacity-0 visibility check)
-    await copyBtn.dispatchEvent("click");
+    // Real click: fails if the toolbar is ever clipped/occluded again.
+    await copyBtn.click();
     const clipboard = await page.evaluate(() => navigator.clipboard.readText());
     expect(clipboard.length).toBeGreaterThan(0);
   });
@@ -486,17 +488,14 @@ test.describe("Message Action Toolbar", () => {
     const firstMessage = page.locator(".message-content").first();
     await expect(firstMessage).toBeVisible({ timeout: 15_000 });
 
-    // Dispatch mouseenter/mouseover to reveal CSS group-hover toolbar,
-    // then dispatchEvent("click") to bypass opacity-0 visibility check.
-    await firstMessage.dispatchEvent("mouseenter");
-    await firstMessage.dispatchEvent("mouseover");
+    // REAL hover + REAL click (CHAT-REL-01 regression guard — see toolbar test).
+    await firstMessage.hover();
     const pinBtn = page.getByRole("button", { name: "Pin message" }).first();
     await expect(pinBtn).toBeVisible({ timeout: 5_000 });
-    await pinBtn.dispatchEvent("click");
+    await pinBtn.click();
 
     // Visual verification: pin button should have yellow color class
-    await firstMessage.dispatchEvent("mouseenter");
-    await firstMessage.dispatchEvent("mouseover");
+    await firstMessage.hover();
     const pinBtnAfterPin = page.getByRole("button", { name: "Pin message" }).first();
     await expect(pinBtnAfterPin).toBeVisible({ timeout: 5_000 });
     // Pinned state: class contains "text-yellow-500" (not "hover:text-yellow-500")
