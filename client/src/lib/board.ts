@@ -72,9 +72,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
   const text = await resp.text().catch(() => '');
-  let parsed: any;
+  let parsed: unknown;
   try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }
-  if (!resp.ok) throw new Error(parsed?.error || text || resp.statusText);
+  if (!resp.ok) throw new Error((parsed as { error?: string } | undefined)?.error || text || resp.statusText);
   return parsed as T;
 }
 

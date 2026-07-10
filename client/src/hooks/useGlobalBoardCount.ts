@@ -25,6 +25,7 @@ export function useGlobalBoardCount(
     }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { refresh(); }, [refresh]);
 
   useEffect(() => {

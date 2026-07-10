@@ -58,9 +58,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage }: Prop
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg) => {
-      const t = (msg as any)?.type as string | undefined;
-      if (t === 'task:created' || t === 'task:updated' || t === 'task:deleted') {
-        if (mode === 'all' || (msg as any).projectId === undefined || (msg as any).projectId === projectId) refetch();
+      const m = msg as { type?: string; projectId?: string };
+      if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
+        if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) refetch();
       }
     });
   }, [onMessage, projectId, refetch, mode]);
@@ -279,6 +279,7 @@ function TaskDetail({ projectId, taskId, onClose, onChanged }: {
       setTask(task); setComments(comments);
     } catch { /* closed or gone */ }
   }, [projectId, taskId]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { load(); }, [load]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [comments.length]);
 
