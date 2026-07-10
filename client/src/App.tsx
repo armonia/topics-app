@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, lazy, Suspense, type Componen
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2 } from 'lucide-react';
 import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
+import { useClaudeEventNotifications } from './hooks/useClaudeEventNotifications';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { SidebarTab } from './types';
@@ -332,6 +333,10 @@ function App() {
   // Live count of active (non-done) tasks across all projects — gates the
   // "Board generale" sidebar row and shows its badge.
   const boardTaskCount = useGlobalBoardCount(onWSMessage);
+
+  // Native desktop banner for P0/P1 Claude session events (replaces the
+  // stop-hook's osascript banner — no more Apple Events / iTunes prompt).
+  useClaudeEventNotifications(onWSMessage);
 
   // Wire up chat stream handler to WebSocket (enables cross-window streaming)
   useEffect(() => {

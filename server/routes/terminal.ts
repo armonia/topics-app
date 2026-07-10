@@ -1,10 +1,8 @@
 import type { AppContext, RouteHandler } from "../types";
-import { spawn, execFile } from "child_process";
-import { resolve, join, basename } from "path";
+import { spawn } from "child_process";
+import { resolve, basename } from "path";
 import { createInterface } from "readline";
 import { getDatabase } from "../db";
-import { tmpdir } from "os";
-import { writeFile } from "fs/promises";
 import { createHash } from "crypto";
 import net from "net";
 import fs from "fs";
@@ -1872,34 +1870,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
     // Cleanup: delete dormant sessions older than 1 hour (lazy, on each GET sessions call)
     // (This runs in the GET /api/terminal/sessions handler above, no separate endpoint needed)
 
-    // Paste image: save to temp file and copy to macOS system clipboard
-    if (method === "POST" && pathname === "/api/terminal/paste-image") {
-      const body = await readJSON(req).catch(() => ({}));
-      const { dataUrl, sessionId } = body;
-      if (!dataUrl || !sessionId) return errorResponse(400, "Missing dataUrl or sessionId");
-
-      const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
-      if (!match) return errorResponse(400, "Invalid data URL");
-      const mimeType = match[1];
-      const ext = mimeType === "image/png" ? "png" : mimeType === "image/jpeg" ? "jpg" : "png";
-      const buffer = Buffer.from(match[2], "base64");
-
-      const filename = `claude-paste-${Date.now()}.${ext}`;
-      const filePath = join(tmpdir(), filename);
-      await writeFile(filePath, buffer);
-
-      if (process.platform === "darwin") {
-        const appleClass = ext === "png" ? "PNGf" : "JPEG";
-        const script = `set the clipboard to (read (POSIX file "${filePath}") as «class ${appleClass}»)`;
-        try {
-          await new Promise<void>((resolve, reject) => {
-            execFile("osascript", ["-e", script], (err) => err ? reject(err) : resolve());
-          });
-        } catch (e) {}
-      }
-
-      return json({ ok: true, filePath });
-    }
+    // (Image paste is now handled entirely client-side: the terminal pane writes
+    // the pasted image to the system clipboard natively — NSPasteboard under
+    // Tauri, the browser Clipboard API on the web — then sends Ctrl+V. The old
+    // server endpoint used `osascript`, which triggered a macOS "control
+    // iTunes/Music" Automation prompt; it has been removed.)
 
     // --- Sub-agent orchestrator: /api/sessions/:sessionKey/agents/* ----------
     // :sessionKey is the CALLER (parent) — the MCP bridge passes the caller's
