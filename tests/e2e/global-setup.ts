@@ -190,6 +190,32 @@ async function globalSetup() {
     }
   }
 
+  // Hard-wipe the SQLite DB so every full run starts from a pristine schema.
+  //
+  // This is the ROOT fix for cross-run pollution. `DELETE /api/topics/:id` is a
+  // SOFT delete — it only sets archived=true (server/routes/topics.ts) — so the
+  // old DELETE-based cleanup below never actually removed anything. Archived
+  // rows accumulate across runs, and `GET /api/topics` still returns them, so
+  // helpers.ts `ensureTopicVisible` (which resolves a topic id by name-regex and
+  // then UNARCHIVES every match) resurrects them: e.g. `/Input Feature Test/`
+  // matched 4 stale copies → strict-mode violation. A blank DB removes the whole
+  // class: no stale topics, no archived baselines (Web Search Test), no orphan
+  // panes in ui_state. The server recreates the schema on boot (server/db.ts
+  // `new Database(dbPath)` + CREATE TABLE IF NOT EXISTS), and seedBaselineData()
+  // re-seeds Web Search Test / Best Ramen fresh + non-archived every run.
+  const dataDir = process.env.DATA_DIR || "/tmp/topics-test-data";
+  for (const f of ["topics.db", "topics.db-wal", "topics.db-shm"]) {
+    const p = join(dataDir, f);
+    try {
+      if (existsSync(p)) {
+        rmSync(p, { force: true });
+        console.log(`[global-setup] Wiped stale test DB file: ${p}`);
+      }
+    } catch (err) {
+      console.warn(`[global-setup] Failed to wipe ${p}: ${(err as Error).message}`);
+    }
+  }
+
   // Start isolated test server
   await startTestServer();
 

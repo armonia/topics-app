@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2 } from 'lucide-react';
+import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { SidebarTab } from './types';
@@ -75,6 +76,7 @@ const RemoteAccessPanel = lazy(() => import('./components/Sidebar/RemoteAccessPa
 // BrowserSidebarControl replaced by useBrowserContexts hook + unified TopicTree
 const AgentAssignPanel = lazy(() => import('./components/Agents/AgentAssignPanel').then(m => ({ default: m.AgentAssignPanel })));
 const TOPICS_MENU_PAGES = [
+  { id: 'board' as const, icon: LayoutGrid, label: 'Board generale' },
   { id: 'dashboard' as const, icon: BarChart3, label: 'Statistics' },
   { id: 'cron' as const, icon: Timer, label: 'Cron Jobs' },
 ];
@@ -326,6 +328,10 @@ function App() {
   } = useChat();
 
   const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage } = useWebSocket();
+
+  // Live count of active (non-done) tasks across all projects — gates the
+  // "Board generale" sidebar row and shows its badge.
+  const boardTaskCount = useGlobalBoardCount(onWSMessage);
 
   // Wire up chat stream handler to WebSocket (enables cross-window streaming)
   useEffect(() => {
@@ -909,6 +915,8 @@ function App() {
             projectOpenPanes={projectOpenPanes}
             pinnedItems={sidebar.pinnedItems}
             onTogglePin={handleTogglePin}
+            boardTaskCount={boardTaskCount}
+            onOpenBoard={() => handleOpenAsPage('board')}
           />
           )}
           </ErrorBoundary>

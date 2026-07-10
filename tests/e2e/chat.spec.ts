@@ -1,8 +1,9 @@
 import { expect, type APIRequestContext } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
-import { goToApp, openTestChat, openTopic } from "./helpers";
+import { goToApp, openTestChat, openTopic, ensureTopicVisible } from "./helpers";
 import { mockChatStream, unmockChatStream } from "./helpers/sse-helpers";
-import { createTopic, deleteTopic, patchTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { seedMessage } from "./helpers/seed-messages";
 
 test.describe.serial("Chat", () => {
   let testTopicId: string;
@@ -59,7 +60,7 @@ test.describe.serial("Chat", () => {
     await openTopic(page, /Web Search Test/);
 
     // Wait for at least one message to appear
-    const messages = page.locator(".message-appear");
+    const messages = page.locator(".message-content");
     await expect(messages.first()).toBeVisible({ timeout: 15_000 });
     const firstTopicCount = await messages.count();
     expect(firstTopicCount).toBeGreaterThan(0);
@@ -119,33 +120,45 @@ test.describe.serial("Chat", () => {
     await expect(page.locator('[role="main"]')).not.toBeEmpty();
   });
 
-  test("scroll-to-bottom button works", async ({ page, chatPage }) => {
+  test("scroll-to-bottom button works", async ({ page, chatPage, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-03" });
-    await goToApp(page);
-    await openTopic(page, /Web Search Test/);
+    // The shared "Web Search Test" seed is too short to overflow the redesigned
+    // list (footer spacer + increaseViewportBy), so the scroll-to-bottom button
+    // never appears. Seed a fresh topic with enough messages to overflow it.
+    const sbTopicName = `chat-sb-${Date.now()}`;
+    const sbTopic = await createTopic(request, sbTopicName);
+    for (let i = 0; i < 20; i++) {
+      await request.post(`http://localhost:13334/api/topics/${sbTopic.id}/system-message`, {
+        data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
+        ignoreHTTPSErrors: true,
+      });
+    }
+    try {
+      await goToApp(page);
+      await openTopic(page, new RegExp(sbTopicName));
 
-    // Wait for messages to load
-    const messages = page.locator(".message-appear");
-    await expect(messages.first()).toBeVisible({ timeout: 15_000 });
+      // Wait for messages to load
+      await expect(page.locator(".message-content").first()).toBeVisible({ timeout: 15_000 });
 
-    // Scroll message list to top
-    await chatPage.messageList.evaluate((el) => (el.scrollTop = 0));
+      // Scroll the Virtuoso scroller to the top
+      const scroller = page.locator("[data-virtuoso-scroller]").first();
+      await scroller.evaluate((el) => { el.scrollTop = 0; });
 
-    // Scroll-to-bottom button should appear
-    await expect(chatPage.scrollToBottomButton).toBeVisible({
-      timeout: 5_000,
-    });
+      // Scroll-to-bottom button should appear
+      await expect(chatPage.scrollToBottomButton).toBeVisible({ timeout: 8_000 });
 
-    // Click it
-    await chatPage.scrollToBottomButton.click();
-
-    // Wait for scroll animation to complete, then verify scrolled down
-    await expect
-      .poll(
-        () => chatPage.messageList.evaluate((el) => el.scrollTop),
-        { timeout: 5_000 }
-      )
-      .toBeGreaterThan(0);
+      // Click it — the list should return to the bottom (150px = app threshold,
+      // MessageList.tsx:412)
+      await chatPage.scrollToBottomButton.click();
+      await expect
+        .poll(
+          () => scroller.evaluate((el) => Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight)),
+          { timeout: 8_000 }
+        )
+        .toBeLessThan(150);
+    } finally {
+      await deleteTopic(request, sbTopic.id);
+    }
   });
 
   test("auto-scrolls to bottom on new streamed message", async ({ page, chatPage }) => {
@@ -164,33 +177,29 @@ test.describe.serial("Chat", () => {
       userMessage: "Test auto-scroll",
     });
 
-    // Record scroll position before sending
-    const scrollBefore = await chatPage.messageList.evaluate(
-      (el) => el.scrollTop
-    );
-
-    // Send a message (triggers mocked SSE response)
+    // The topic starts empty, so Virtuoso's scroller isn't mounted yet — there
+    // is no scroll position to record before sending. Send first (which mounts
+    // the list), then assert the at-bottom invariant.
     await textarea.fill("Test auto-scroll");
     await textarea.press("Control+Enter");
 
     // Wait for assistant response to appear
     await expect(
-      page.locator(".message-appear").filter({ hasText: "auto-scroll to bottom" })
+      page.locator(".message-content").filter({ hasText: "auto-scroll to bottom" })
     ).toBeVisible({ timeout: 15_000 });
 
-    // Verify the message list scrolled down (scrollTop increased or is at bottom)
+    // After a new streamed message the list must rest at (or within 50px of) the
+    // bottom. messageList resolves to the Virtuoso scroller ([data-virtuoso-scroller]).
     await expect.poll(
       async () => {
-        const el = chatPage.messageList;
-        const { scrollTop, scrollHeight, clientHeight } = await el.evaluate(
+        const { scrollTop, scrollHeight, clientHeight } = await chatPage.messageList.evaluate(
           (e) => ({
             scrollTop: e.scrollTop,
             scrollHeight: e.scrollHeight,
             clientHeight: e.clientHeight,
           })
         );
-        // Either scrolled further than before, or at/near the bottom
-        return scrollTop + clientHeight >= scrollHeight - 50 || scrollTop > scrollBefore;
+        return scrollTop + clientHeight >= scrollHeight - 50;
       },
       { message: "Message list should auto-scroll to bottom on new message" }
     ).toBe(true);
@@ -246,7 +255,7 @@ test.describe("Chat — Rich Content Rendering", () => {
     await openTopic(page, /Web Search Test/);
 
     // Wait for messages to load
-    await expect(page.locator(".message-appear").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".message-content").first()).toBeVisible({ timeout: 15_000 });
 
     // Structural: at least one rich HTML element across all visible message content (D-05)
     const richElements = page.locator(".message-content p, .message-content strong, .message-content code, .message-content pre, .message-content ul, .message-content ol, .message-content a, .message-content h1, .message-content h2, .message-content h3");
@@ -297,6 +306,7 @@ test.describe("Chat — Rich Content Rendering", () => {
     await goToApp(page);
 
     // Open test chat
+    await ensureTopicVisible(page, /Web Search Test/);
     const chatItem = page.getByRole("treeitem", { name: /Web Search Test/ });
     await chatItem.waitFor({ state: "visible", timeout: 10_000 });
     await chatItem.click({ force: true });
@@ -366,6 +376,7 @@ test.describe("Chat — Rich Content Rendering", () => {
     });
 
     await goToApp(page);
+    await ensureTopicVisible(page, /Web Search Test/);
     const chatItem = page.getByRole("treeitem", { name: /Web Search Test/ });
     await chatItem.waitFor({ state: "visible", timeout: 10_000 });
     await chatItem.click({ force: true });
@@ -413,6 +424,7 @@ test.describe("Chat — Rich Content Rendering", () => {
     });
 
     await goToApp(page);
+    await ensureTopicVisible(page, /Web Search Test/);
     const chatItem = page.getByRole("treeitem", { name: /Web Search Test/ });
     await chatItem.waitFor({ state: "visible", timeout: 10_000 });
     await chatItem.click({ force: true });
@@ -438,7 +450,7 @@ test.describe("Message Action Toolbar", () => {
     await openTopic(page, /Web Search Test/);
 
     // Wait for first message to be visible
-    const firstMessage = page.locator(".message-appear").first();
+    const firstMessage = page.locator(".message-content").first();
     await expect(firstMessage).toBeVisible({ timeout: 15_000 });
 
     // Dispatch mouseenter to trigger CSS group-hover (more reliable than hover())
@@ -467,7 +479,7 @@ test.describe("Message Action Toolbar", () => {
     await openTopic(page, /Web Search Test/);
 
     // Wait for messages to load
-    const firstMessage = page.locator(".message-appear").first();
+    const firstMessage = page.locator(".message-content").first();
     await expect(firstMessage).toBeVisible({ timeout: 15_000 });
 
     // Dispatch mouseenter/mouseover to reveal CSS group-hover toolbar,
@@ -525,68 +537,75 @@ test.describe("Message Action Toolbar", () => {
 });
 
 test.describe("Message Branching", () => {
-  test("message branching shows navigation arrows after edit", async ({ page }) => {
+  test("branch navigation arrows switch between edit branches", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-03" });
     test.slow();
-    await goToApp(page);
-    const textarea = await openTestChat(page);
 
-    // First, send a message with mocked SSE response
-    await mockChatStream(page, { chunks: ["Hello ", "from ", "branch 1!"], userMessage: "Test message for branching" });
-    await textarea.fill("Test message for branching");
-    await textarea.press("Control+Enter");
+    // Editing a message forks a sibling user branch and streams a new assistant
+    // reply. The streaming half needs a provider-backed edit endpoint, which the
+    // isolated test server has no upstream for — so we seed the *exact* persisted
+    // shape an edit produces and drive the branch-navigation UI + real
+    // switch-branch endpoint against it. loadActiveThread reports siblingCount
+    // from the number of children sharing a parent; two ROOT user messages
+    // (parent_id NULL) with distinct branch_index (0, 1), each with its own
+    // assistant child, yields siblingCount=2 on the active root → the arrows show.
+    const topic = await createTopic(request, "Branch Nav " + Date.now());
+    const sk = `topic:${topic.id.slice(0, 8)}`;
+    try {
+      const base = Date.now();
+      // Branch 0 (default-active): original user message + assistant reply.
+      const u0 = await seedMessage(request, {
+        sessionKey: sk, role: "user", branchIndex: 0,
+        content: "Test message for branching",
+        timestamp: new Date(base - 5000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk, role: "assistant", parentId: u0.id, branchIndex: 0,
+        content: "Hello from branch 1!",
+        timestamp: new Date(base - 4000).toISOString(),
+      });
+      // Branch 1 (sibling root): the edited user message + its assistant reply.
+      const u1 = await seedMessage(request, {
+        sessionKey: sk, role: "user", branchIndex: 1,
+        content: "Edited message for branching",
+        timestamp: new Date(base - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk, role: "assistant", parentId: u1.id, branchIndex: 0,
+        content: "Hello from branch 2!",
+        timestamp: new Date(base - 2000).toISOString(),
+      });
 
-    // Wait for the user message and response to appear
-    const userMessage = page.locator(".message-appear").filter({ hasText: "Test message for branching" });
-    await expect(userMessage).toBeVisible({ timeout: 15_000 });
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(topic.name));
 
-    // Wait for assistant response to appear
-    const assistantResponse = page.locator(".message-appear").filter({ hasText: "branch 1" });
-    await expect(assistantResponse).toBeVisible({ timeout: 15_000 });
+      // Default active root branch is 0 → the first branch's user message shows.
+      await expect(
+        page.locator(".message-content").filter({ hasText: "Test message for branching" })
+      ).toBeVisible({ timeout: 15_000 });
 
-    // Remove the first route to set up a new mock for the edit response
-    await unmockChatStream(page);
+      // Branch navigation renders on the user message whenever siblingCount > 1
+      // (not hover-gated — MessageBubble.tsx:240). Prev is disabled on branch 0.
+      const prevBranchBtn = page.getByRole("button", { name: "Previous branch" });
+      const nextBranchBtn = page.getByRole("button", { name: "Next branch" });
+      await expect(prevBranchBtn.first()).toBeVisible({ timeout: 10_000 });
+      await expect(nextBranchBtn.first()).toBeVisible({ timeout: 10_000 });
 
-    // Now hover over the user message to reveal the edit button
-    await userMessage.hover();
-    const editBtn = page.getByRole("button", { name: "Edit message" });
-    await expect(editBtn).toBeVisible({ timeout: 5_000 });
-    await editBtn.click();
+      // Counter reads "1/2" on the first branch.
+      const branchCounter = page.locator("span").filter({ hasText: /^\d+\/\d+$/ });
+      await expect(branchCounter.first()).toHaveText("1/2", { timeout: 5_000 });
 
-    // The message content should now be in the textarea for editing
-    // Verify editing indicator is visible
-    await expect(page.getByText("Editing message")).toBeVisible({ timeout: 5_000 });
-
-    // Mock SSE for the second branch response
-    await mockChatStream(page, { chunks: ["Hello ", "from ", "branch 2!"], userMessage: "Edited message for branching" });
-
-    // Clear and type new content, then submit
-    await textarea.fill("Edited message for branching");
-    await textarea.press("Control+Enter");
-
-    // Wait for the edited message to appear
-    const editedMessage = page.locator(".message-appear").filter({ hasText: "Edited message for branching" });
-    await expect(editedMessage).toBeVisible({ timeout: 15_000 });
-
-    // Branch navigation should now appear on the user message (siblingCount > 1)
-    // Look for "Previous branch" and "Next branch" buttons
-    const prevBranchBtn = page.getByRole("button", { name: "Previous branch" });
-    const nextBranchBtn = page.getByRole("button", { name: "Next branch" });
-
-    await expect(prevBranchBtn.first()).toBeVisible({ timeout: 10_000 });
-    await expect(nextBranchBtn.first()).toBeVisible({ timeout: 10_000 });
-
-    // Verify branch counter shows expected format (e.g., "2/2")
-    const branchCounter = page.locator("span").filter({ hasText: /^\d+\/\d+$/ });
-    await expect(branchCounter.first()).toBeVisible({ timeout: 5_000 });
-    const counterText = await branchCounter.first().textContent();
-    expect(counterText).toMatch(/^\d+\/\d+$/);
-
-    // Click Previous branch to switch to first branch
-    await prevBranchBtn.first().click();
-
-    // Verify content changes to the first branch
-    await expect(page.locator(".message-appear").filter({ hasText: "Test message for branching" })).toBeVisible({ timeout: 10_000 });
+      // Switching to the next branch surfaces the edited sibling (real
+      // switch-branch endpoint → getActiveThread re-hydrate) and bumps the counter.
+      await nextBranchBtn.first().click();
+      await expect(
+        page.locator(".message-content").filter({ hasText: "Edited message for branching" })
+      ).toBeVisible({ timeout: 10_000 });
+      await expect(branchCounter.first()).toHaveText("2/2", { timeout: 5_000 });
+    } finally {
+      await deleteTopic(request, topic.id);
+    }
   });
 });
 
@@ -601,6 +620,23 @@ test.describe.serial("Chat Input Features", () => {
     topicId = topic.id;
   });
 
+  test.beforeEach(async ({ request }) => {
+    // Start each test with a CLEAN pane store. These tests share ONE server
+    // (persisted pane-store), so a pane opened by an earlier test in this serial
+    // block (e.g. the baseline "Web Search Test" pane, or this topic's own chat)
+    // survives into the next test's hydrate. That leftover pane causes page-wide
+    // selectors (`input[type=file]`, `textbox[Message input]`, `getByText`) to
+    // resolve to MULTIPLE elements — and when the @-mention test then PATCHes a
+    // live projectPath onto an already-open chat, the transform duplicates the
+    // pane into two identical copies (strict-mode violation). Resetting both the
+    // v2 pane store and the legacy openPanels to empty makes each test open
+    // exactly ONE pane via openTopic.
+    await resetPaneStore(request, []);
+    await request
+      .put(`http://localhost:13334/api/ui-state/panels`, { data: { openPanels: [] }, ignoreHTTPSErrors: true })
+      .catch(() => {});
+  });
+
   test.afterAll(async ({ request }) => {
     if (topicId) {
       await deleteTopic(request, topicId);
@@ -611,17 +647,28 @@ test.describe.serial("Chat Input Features", () => {
     test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     await goToApp(page);
     await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp("Input Feature Test"));
+    // Match the FULL unique name (incl. timestamp), not the "Input Feature Test"
+    // prefix: on a retry the serial group's beforeAll re-runs and mints a new
+    // timestamped topic, leaving the prior one live in the DB. A prefix regex
+    // matches both → ensureTopicVisible seeds both → strict-mode violation.
+    await openTopic(page, new RegExp(topicName));
 
     const textarea = page.getByRole("textbox", { name: /Message input/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
 
+    // Scope to THIS topic's pane: a baseline "Web Search Test" pane persists in
+    // the server pane-store from earlier tests, so it stays mounted (keep-alive)
+    // alongside the topic under test. Each ChatPanel carries its own hidden
+    // `input[type="file"]`, so a page-wide selector resolves to 2 elements
+    // (strict-mode violation). The pane root is
+    // `role="region" aria-label="<topic.name> panel"` (ChatPanel.tsx:173).
+    const pane = page.getByRole("region", { name: new RegExp(`${topicName} panel`) });
     // Use setInputFiles on the hidden file input to attach a file (D-08: real upload)
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = pane.locator('input[type="file"]');
     await fileInput.setInputFiles("tests/e2e/fixtures/test-upload.txt");
 
     // Verify pending file preview shows the filename in the input area
-    await expect(page.getByText("test-upload.txt")).toBeVisible({ timeout: 5_000 });
+    await expect(pane.getByText("test-upload.txt")).toBeVisible({ timeout: 5_000 });
   });
 
   test("@-mention autocomplete shows file suggestions", async ({
@@ -631,7 +678,11 @@ test.describe.serial("Chat Input Features", () => {
     test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     await goToApp(page);
     await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp("Input Feature Test"));
+    // Match the FULL unique name (incl. timestamp), not the "Input Feature Test"
+    // prefix: on a retry the serial group's beforeAll re-runs and mints a new
+    // timestamped topic, leaving the prior one live in the DB. A prefix regex
+    // matches both → ensureTopicVisible seeds both → strict-mode violation.
+    await openTopic(page, new RegExp(topicName));
 
     const textarea = page.getByRole("textbox", { name: /Message input/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
@@ -668,7 +719,11 @@ test.describe.serial("Chat Input Features", () => {
     test.info().annotations.push({ type: "spec", description: "CHAT-04" });
     await goToApp(page);
     await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp("Input Feature Test"));
+    // Match the FULL unique name (incl. timestamp), not the "Input Feature Test"
+    // prefix: on a retry the serial group's beforeAll re-runs and mints a new
+    // timestamped topic, leaving the prior one live in the DB. A prefix regex
+    // matches both → ensureTopicVisible seeds both → strict-mode violation.
+    await openTopic(page, new RegExp(topicName));
 
     const textarea = page.getByRole("textbox", { name: /Message input/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });
@@ -721,7 +776,11 @@ test.describe.serial("Chat Input Features", () => {
 
     await goToApp(page);
     await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp("Input Feature Test"));
+    // Match the FULL unique name (incl. timestamp), not the "Input Feature Test"
+    // prefix: on a retry the serial group's beforeAll re-runs and mints a new
+    // timestamped topic, leaving the prior one live in the DB. A prefix regex
+    // matches both → ensureTopicVisible seeds both → strict-mode violation.
+    await openTopic(page, new RegExp(topicName));
 
     const textarea = page.getByRole("textbox", { name: /Message input/ });
     await textarea.waitFor({ state: "visible", timeout: 15_000 });

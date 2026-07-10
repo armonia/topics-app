@@ -23,7 +23,14 @@ test.describe("Push Notifications (CMD-02)", () => {
     await expect(pushLabel).toHaveCount(0);
   });
 
-  test("CMD-02-02: denied permission shows blocked message", async ({ page, settingsPage }) => {
+  // Web Push UI was intentionally removed in the redesign (GlobalSettings.tsx:902 —
+  // the `/api/push/*` + usePushNotifications infrastructure is left in place, but the
+  // PushNotificationsToggle is no longer rendered). CMD-02-01 (asserts the label is
+  // ABSENT) is the current-truth test and passes. CMD-02-02..05 assert the removed
+  // "Push Notifications" label / Enable-Disable buttons are PRESENT, so they can never
+  // pass against the shipped UI. Kept as documented skips (not deleted) so the coverage
+  // returns verbatim if Web Push is ever re-surfaced.
+  test.skip("CMD-02-02: denied permission shows blocked message", async ({ page, settingsPage }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-02" });
 
     // Simulate push support but denied permission
@@ -63,7 +70,7 @@ test.describe("Push Notifications (CMD-02)", () => {
     await expect(settingsPage.panel.locator("text=blocked by your browser")).toBeVisible();
   });
 
-  test("CMD-02-03: subscribe flow fetches VAPID key and registers", async ({ page, settingsPage }) => {
+  test.skip("CMD-02-03: subscribe flow fetches VAPID key and registers", async ({ page, settingsPage }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-02" });
 
     let vapidFetched = false;
@@ -141,7 +148,7 @@ test.describe("Push Notifications (CMD-02)", () => {
     expect(subscribeCalled).toBe(true);
   });
 
-  test("CMD-02-04: unsubscribe flow sends unsubscribe request", async ({ page, settingsPage }) => {
+  test.skip("CMD-02-04: unsubscribe flow sends unsubscribe request", async ({ page, settingsPage }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-02" });
 
     let unsubscribeCalled = false;
@@ -201,7 +208,7 @@ test.describe("Push Notifications (CMD-02)", () => {
     expect(unsubscribeCalled).toBe(true);
   });
 
-  test("CMD-02-05: subscribe error is handled gracefully", async ({ page, settingsPage }) => {
+  test.skip("CMD-02-05: subscribe error is handled gracefully", async ({ page, settingsPage }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-02" });
 
     // Mock push support with default permission

@@ -140,39 +140,43 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   });
 
   test('Sidebar toggle does not cause content shift', async ({ page }) => {
-    // Must open a topic first — toggle button is in the topbar which only appears with tabs
+    // Must open a topic first — the sidebar toggle only matters with tabs open.
     const topics = page.getByRole('treeitem');
     if (await topics.count() > 0) {
       await topics.first().click();
       await page.waitForTimeout(1500);
     }
 
-    const toggleBtn = page.getByTitle('Toggle sidebar');
-    await expect(toggleBtn, 'Toggle sidebar button must exist (requires open tab)').toHaveCount(1);
-
-    // Verify sidebar is visible before toggle
-    const sidebar = page.locator('nav, [role="navigation"], .sidebar').first();
-    const sidebarBefore = await sidebar.isVisible();
+    // The redesign removed the persistent "Toggle sidebar" button: the sidebar is
+    // position:fixed with a CONSTANT width and collapses via a composited
+    // translateX(-100%) (App.tsx:746-758), so there is no width reflow and no
+    // always-present toggle button — collapse/expand is driven by ⌘B
+    // (useKeyboardShortcuts: isMod && key === 'b' → toggleSidebar). We therefore
+    // toggle via keyboard and detect state by the sidebar sliding OFF-SCREEN
+    // (x goes negative), not by visibility (translateX keeps it "visible").
+    const sidebar = page.locator('[aria-label="Topics sidebar"]').first();
+    await expect(sidebar).toBeVisible();
+    const xBefore = (await sidebar.boundingBox())?.x ?? 0;
 
     await page.waitForTimeout(1000); // video: show sidebar state BEFORE
     await page.screenshot({ path: 'test-results/sidebar-BEFORE-toggle.png' });
 
-    // Toggle sidebar
+    // Toggle sidebar (⌘B)
     const cls = await measureCLS(page, async () => {
-      await toggleBtn.click();
+      await page.keyboard.press('Meta+b');
       await page.waitForTimeout(1500); // video: show state AFTER toggle
     });
     expect(cls).toBeLessThan(0.1);
 
     await page.screenshot({ path: 'test-results/sidebar-AFTER-toggle.png' });
 
-    // Verify sidebar actually changed state
-    const sidebarAfter = await sidebar.isVisible().catch(() => false);
-    expect(sidebarBefore !== sidebarAfter, 'Sidebar visibility should change after toggle').toBeTruthy();
+    // Verify sidebar actually changed state — it slid off-screen (x < before).
+    const xAfter = (await sidebar.boundingBox())?.x ?? xBefore;
+    expect(xAfter, 'Sidebar should slide off-screen (x decreases) on collapse').toBeLessThan(xBefore);
 
     // Toggle back
     await page.waitForTimeout(500);
-    await toggleBtn.click();
+    await page.keyboard.press('Meta+b');
     await page.waitForTimeout(1500); // video: show sidebar restored
 
     await page.screenshot({ path: 'test-results/sidebar-AFTER-restore.png' });

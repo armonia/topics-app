@@ -109,7 +109,7 @@ export interface UseProjectLayoutArgs {
   focusedPanelId: string | null;
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
-  pendingTerminalType?: 'shell' | 'claude-code' | 'codex';
+  pendingTerminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode';
   onPendingPaneConsumed?: () => void;
   pendingFocusTopicId?: string | null;
   // Group the chat should land in (set when the user clicks a specific tab
@@ -381,6 +381,13 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     const syncTerminals = (rawSessions: { id: string; cwd: string; name: string; type: string }[]) => {
       const sessions = rawSessions.filter(isTerminalSession);
       const sessionIds = new Set(sessions.map(s => s.id));
+      // Live name from the roster, keyed by session id. The server owns the
+      // title (auto-derived from the claude/codex transcript or the opencode DB,
+      // or a user rename), so this lets an existing project tab relabel when its
+      // name lands — a tab spawned as "opencode"/"Claude Code" doesn't stay
+      // generic. (The standalone bar already recomputes titles every render;
+      // only the project layout set the title once at creation and never again.)
+      const nameById = new Map(sessions.map(s => [s.id, s.name] as const));
       const seen = seenTerminalSessionIdsRef.current;
       for (const id of sessionIds) seen.add(id);
       // A NON-EMPTY roster proves the server is up and reconcile has populated
@@ -420,6 +427,15 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           // while the roster is empty/unproven — see terminalReconcile for why
           // this stops a refresh from losing live tabs.
           return shouldKeepRestoredTerminalPane(sid, sessionIds, seen, rosterAuthoritative);
+        });
+        // Relabel existing terminal tabs from the live roster. Returns the same
+        // object when unchanged, so the identity check below still short-circuits
+        // a no-op broadcast into a no-render.
+        updated = updated.map(p => {
+          if (p.type !== 'terminal') return p;
+          const sid = getTerminalSessionFromPaneId(p.id) || '';
+          const name = nameById.get(sid);
+          return name && name !== p.title ? { ...p, title: name } : p;
         });
         const existingTermIds = new Set(
           updated.filter(p => p.type === 'terminal').map(p => getTerminalSessionFromPaneId(p.id)),

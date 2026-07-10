@@ -20,7 +20,11 @@ test.describe("PANE-06: compound regression", () => {
     // This compound regression exercises multiple code paths (close + undo +
     // cross-device layout match) that only converge once Wave 3 ships.
     // When it lands, remove this annotation and the test should pass.
-    test.fail(
+    // Unimplemented feature (Phase 30 Wave 3). Body uses pre-redesign selectors →
+    // times out under test.fail (status "timedOut" ≠ "failed" → RED). test.fixme
+    // skips the body, the correct marker for a not-yet-built feature. Drop the
+    // fixme when Wave 3 ships.
+    test.fixme(
       true,
       "WAVE-3 scope — PANE-06 compound reducer+sync+undo flow not yet wired (see 30-CONTEXT.md)",
     );

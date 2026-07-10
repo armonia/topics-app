@@ -257,7 +257,7 @@ export interface UsePanelLifecycleReturn {
     handleQuickCreateTerminal: (termType?: TerminalAgentType, skipPermissions?: boolean, opts?: { role?: 'master'; name?: string }) => Promise<string | null>;
     handleCloseTerminal: (sessionId: string) => Promise<void>;
     handleTerminalClick: (sessionId: string, sessionName: string) => void;
-    handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'cron') => void;
+    handleOpenAsPage: (type: 'activity' | 'agents' | 'dashboard' | 'cron' | 'board') => void;
     handleExternalDrop: () => void;
     handleReopenClosedTab: (record: ClosedTabRecord) => Promise<void>;
     handleProjectActiveTopicChange: (projectPath: string, topicId: string | null) => void;
@@ -844,7 +844,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const [previewPanelId, setPreviewPanelId] = useState<string | null>(null);
 
   // ---- handleOpenAsPage ----
-  const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'cron') => {
+  const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'cron' | 'board') => {
     const id = utilityPanelId(type);
     // Register in the pane store BEFORE pushing into openPanels —
     // otherwise Effect A reconciles openPanels back to the store-known

@@ -51,6 +51,7 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   agents:        { icon: 'Cpu',           label: 'Agents',       color: '#8b5cf6', singleton: true },
   dashboard:     { icon: 'BarChart3',     label: 'Dashboard',    color: '#f59e0b', singleton: true },
   kanban:        { icon: 'Kanban',        label: 'Board',        color: '#10b981', singleton: true, addableScopes: ['project'] },
+  board:         { icon: 'Kanban',        label: 'Board generale', color: '#10b981', singleton: true },
   cron:          { icon: 'Clock',         label: 'Cron',         color: '#f59e0b', singleton: true },
   project:       { icon: 'FolderOpen',   label: 'Project',       color: '#10b981', singleton: false },
   'process-log':    { icon: 'Terminal',     label: 'Process',       color: '#8b5cf6' },

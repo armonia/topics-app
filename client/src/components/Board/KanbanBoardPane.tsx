@@ -17,7 +17,10 @@ import {
 } from '../../lib/board';
 
 interface Props {
-  projectPath: string;
+  /** Absent in the global ('Board generale') pane — there is no single project. */
+  projectPath?: string;
+  /** Global cross-project board: locks to 'all' mode, no project column, no add. */
+  global?: boolean;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
@@ -25,10 +28,13 @@ const PRIORITY_DOT: Record<number, string> = {
   0: 'bg-neutral-400', 1: 'bg-sky-400', 2: 'bg-emerald-400', 3: 'bg-amber-400', 4: 'bg-rose-500',
 };
 
-export function KanbanBoardPane({ projectPath, onMessage }: Props) {
-  const projectId = useMemo(() => boardIdForPath(projectPath), [projectPath]);
+export function KanbanBoardPane({ projectPath, global = false, onMessage }: Props) {
+  const projectId = useMemo(() => (projectPath ? boardIdForPath(projectPath) : ''), [projectPath]);
+  // The project/all toggle only makes sense inside a project window. The global
+  // pane has no project, so it locks to 'all'.
+  const canToggle = !!projectPath && !global;
   // 'project' = this project only · 'all' = the global cross-project board.
-  const [mode, setMode] = useState<'project' | 'all'>('project');
+  const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,17 +111,23 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      {/* Scope toggle: this project vs. the global cross-project board. */}
+      {/* Header: a project/all toggle inside a project, a static label globally. */}
       <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-3 py-1.5">
-        <button
-          onClick={() => setMode('project')}
-          className={`rounded px-2 py-0.5 text-xs ${mode === 'project' ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
-        >Questo progetto</button>
-        <button
-          onClick={() => setMode('all')}
-          className={`rounded px-2 py-0.5 text-xs ${mode === 'all' ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
-        >Tutti i progetti</button>
-        {mode === 'all' && <span className="ml-auto text-[11px] text-neutral-500">board generale · {tasks.length} task</span>}
+        {canToggle ? (
+          <>
+            <button
+              onClick={() => setMode('project')}
+              className={`rounded px-2 py-0.5 text-xs ${mode === 'project' ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+            >Questo progetto</button>
+            <button
+              onClick={() => setMode('all')}
+              className={`rounded px-2 py-0.5 text-xs ${mode === 'all' ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+            >Tutti i progetti</button>
+          </>
+        ) : (
+          <span className="text-xs font-semibold text-neutral-200">Board generale</span>
+        )}
+        {mode === 'all' && <span className="ml-auto text-[11px] text-neutral-500">{tasks.length} task · tutti i progetti</span>}
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>

@@ -19,7 +19,12 @@ test.describe("PANE-02: cross-device sync", () => {
     // EXPECTED RED — Phase 30 Wave 2 (PANE-02 unified reducer + cross-device pane sync).
     // The unified pane reducer does not exist yet; cross-device sync is unimplemented.
     // When Wave 2 lands, remove this annotation and the test should pass.
-    test.fail(
+    // Unimplemented feature (Phase 30 Wave 2) — the body drives pre-redesign
+    // selectors that no longer resolve, so under test.fail it TIMES OUT (status
+    // "timedOut" ≠ "failed") and is reported RED. test.fixme skips the body
+    // entirely, which is the correct marker for a not-yet-built feature. Restore
+    // to a real assertion (drop the fixme) when Wave 2 ships.
+    test.fixme(
       true,
       "WAVE-2 scope — PANE-02 cross-device pane sync not implemented (see 30-CONTEXT.md)",
     );

@@ -7,7 +7,6 @@
  * See tests/e2e/CONVENTIONS.md for full conventions.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, createTerminalSession, deleteTerminalSession, resetPaneStore } from "./helpers/api-fixtures";
 import { countColDividers, getVisibleTabLabels } from "./helpers/layout";
 
@@ -51,15 +50,20 @@ async function seedAndLoad(page: Page, panelIds: string[], opts?: { gridRows?: u
     soloTopicIds: opts?.soloTopicIds ?? [],
   };
   await page.evaluate(({ panels, grid }) => {
-    // Clear all layout-related keys first to avoid stale data from prior tests
+    // Clear all layout-related keys first to avoid stale data from prior tests.
+    // usePanelGridPersistence reads/writes the PER-SPACE key
+    // (`topics-panel-grid-layout:space:default`) FIRST, base key only as
+    // fallback — so both must be cleared or a prior test's solo layout survives.
     localStorage.removeItem("topics-open-panels");
     localStorage.removeItem("topics-focused-panel");
     localStorage.removeItem("topics-panel-grid-layout");
+    localStorage.removeItem("topics-panel-grid-layout:space:default");
     sessionStorage.removeItem("topics-open-panels");
-    // Then set the fresh seeded state
+    // Then set the fresh seeded state (mirror to the per-space key).
     localStorage.setItem("topics-open-panels", JSON.stringify(panels));
     sessionStorage.setItem("topics-open-panels", JSON.stringify(panels));
     localStorage.setItem("topics-panel-grid-layout", JSON.stringify(grid));
+    localStorage.setItem("topics-panel-grid-layout:space:default", JSON.stringify(grid));
   }, { panels: panelIds, grid: gridData });
 
   // 3. Now navigate to the app — it will read localStorage for grid state
@@ -90,7 +94,7 @@ async function rightClickTabAndSelect(page: Page, tabIndex: number, menuText: st
   const tab = page.locator('[role="main"] [draggable="true"]').nth(tabIndex);
   await expect(tab).toBeVisible({ timeout: 5000 });
   await tab.click({ button: "right" });
-  const menu = page.locator(".fixed.z-\\[9999\\]");
+  const menu = page.locator('[role="menu"]');
   await expect(menu).toBeVisible({ timeout: 3000 });
   const btn = menu.getByText(menuText, { exact: true });
   await expect(btn).toBeVisible({ timeout: 3000 });
@@ -102,7 +106,7 @@ async function rightClickTabHasOption(page: Page, tabIndex: number, menuText: st
   const tab = page.locator('[role="main"] [draggable="true"]').nth(tabIndex);
   await expect(tab).toBeVisible({ timeout: 5000 });
   await tab.click({ button: "right" });
-  const menu = page.locator(".fixed.z-\\[9999\\]");
+  const menu = page.locator('[role="menu"]');
   await expect(menu).toBeVisible({ timeout: 3000 });
   const btn = menu.getByText(menuText, { exact: true });
   const visible = await btn.isVisible().catch(() => false);
@@ -118,19 +122,6 @@ async function countRowDividers(page: Page): Promise<number> {
 /** Count panel tab bars */
 async function countTabBars(page: Page): Promise<number> {
   return page.locator('[data-testid="panel-tab-bar"]').count();
-}
-
-/** Get tab labels in a specific tab bar */
-async function getTabBarLabels(page: Page, barIndex: number): Promise<string[]> {
-  const bar = page.locator('[data-testid="panel-tab-bar"]').nth(barIndex);
-  const tabs = bar.locator('.truncate.flex-1');
-  const count = await tabs.count();
-  const labels: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const text = await tabs.nth(i).textContent();
-    if (text) labels.push(text.trim());
-  }
-  return labels;
 }
 
 // ─── Test Data ───────────────────────────────────────────────────────────────
@@ -219,7 +210,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     const tabs = page.locator('[role="main"] [draggable="true"]');
     await expect(tabs.first()).toBeVisible({ timeout: 5000 });
     await tabs.first().click({ button: "right" });
-    const menu = page.locator(".fixed.z-\\[9999\\]");
+    const menu = page.locator('[role="menu"]');
     await expect(menu).toBeVisible({ timeout: 3000 });
 
     const splitDown = menu.getByText("Split Down", { exact: true });
@@ -386,7 +377,7 @@ test.describe("C: Grid Collapse and Resize", () => {
 
     // After closing, no more row dividers
     await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);
-    expect(await countTabBars(page)).toBe(1);
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(1);
   });
 
   test("C10: close panels in 2x2 grid until 1 remains — fills entire area", async ({ page }) => {
@@ -412,8 +403,8 @@ test.describe("C: Grid Collapse and Resize", () => {
     }
 
     // No dividers remain
-    expect(await countColDividers(page)).toBe(0);
-    expect(await countRowDividers(page)).toBe(0);
+    await expect.poll(() => countColDividers(page), { timeout: 5000 }).toBe(0);
+    await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);
     await expect(page.locator('[role="main"]')).toBeVisible();
   });
 });
@@ -541,9 +532,11 @@ test.describe("E: Un-solo Mechanism", () => {
       data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
     });
     await page.evaluate(() => {
-      localStorage.setItem("topics-panel-grid-layout", JSON.stringify({
-        gridRows: [], gridRowHeights: [], soloTopicIds: [],
-      }));
+      const empty = JSON.stringify({ gridRows: [], gridRowHeights: [], soloTopicIds: [] });
+      localStorage.setItem("topics-panel-grid-layout", empty);
+      // readPersisted reads the per-space key FIRST; without clearing it the
+      // first load's solo:A layout survives the reload and E15 sees 2 tab bars.
+      localStorage.setItem("topics-panel-grid-layout:space:default", empty);
     });
 
     const panelsFetch = page.waitForResponse(
@@ -567,7 +560,7 @@ test.describe("E: Un-solo Mechanism", () => {
 // =============================================================================
 
 test.describe("F: Cross-Position Operations", () => {
-  test("F16: drag tab from right panel to left panel tab bar", async ({ page }) => {
+  test("F16: drag tab from right panel to left panel tab bar", async () => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     test.fixme(true, "Cross-group DnD via HTML5 drag events is unreliable in headless Playwright — needs custom dnd-kit pointer event integration");
   });
@@ -652,8 +645,8 @@ test.describe("G: Persistence Edge Cases", () => {
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await waitForTabs(page);
 
-    expect(await countTabBars(page)).toBe(beforeBars);
-    expect(await countRowDividers(page)).toBe(beforeRowDivs);
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(beforeBars);
+    await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(beforeRowDivs);
   });
 
   test("G20: create split, close one panel, reload — reduced layout correct", async ({ page }) => {
@@ -744,6 +737,14 @@ test.describe("H: Mixed Pane Types in Split", () => {
     const session = await createTerminalSession(request, { name: "EC-Mixed-Term" });
     termSessionId = session.id;
 
+    // Pin enableNewChat OFF: this test asserts the "silent solo" fallback, which
+    // only happens when `onNewChat` is unwired. The app default is now ON
+    // (chat runs on the local subscription), so splitting a lone pane would
+    // otherwise spawn a companion chat and add a tab. Pin the OFF path here.
+    await page.addInitScript(() =>
+      localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: false })),
+    );
+
     const [idA] = topicIds;
 
     // First: verify topic tab has split option
@@ -753,7 +754,7 @@ test.describe("H: Mixed Pane Types in Split", () => {
     expect(topicHasSplit, "Topic tab should have Split Right").toBe(true);
 
     // Second: splitting the ONLY pane of the pool (a lone terminal) is the
-    // legacy "silent solo" fallback when `enableNewChat` is off (default):
+    // legacy "silent solo" fallback when `enableNewChat` is off (pinned above):
     // no companion pane spawns, so nothing visibly changes — the pane must
     // survive unharmed with its single tab bar (no empty pool cell, no
     // lost tab). PanelGrid.handleSplitPane documents this fallback.
@@ -783,12 +784,13 @@ test.describe("H: Mixed Pane Types in Split", () => {
     await rightClickTabAndSelect(page, 0, "Split Right");
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBeGreaterThanOrEqual(2);
 
-    // Terminal should still be visible somewhere
-    const allLabels = await getVisibleTabLabels(page);
-    const termVisible = allLabels.some(l =>
-      l.includes("Terminal") || l.includes("Shell") || l.includes("EC-Mixed")
-    );
-    expect(termVisible, "Terminal should still be visible after splitting a topic").toBe(true);
+    // Terminal should still be visible in the main area. Assert by the pane's
+    // STABLE testid, not a label substring: shell tabs auto-name to basename(cwd)
+    // (e.g. "tmp"), never the session name, so a label match is fragile.
+    // pane-tab-<id> (PaneTabBar) is the pane's real tab button.
+    await expect(
+      page.locator(`[role="main"] [data-testid="pane-tab-${termPaneId}"]`)
+    ).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -811,7 +813,7 @@ test.describe("I: Full Lifecycle Regression", () => {
     const tabs = page.locator('[role="main"] [draggable="true"]');
     if (await tabs.count() > 2) {
       await tabs.nth(0).click({ button: "right" });
-      const menu = page.locator(".fixed.z-\\[9999\\]");
+      const menu = page.locator('[role="menu"]');
       if (await menu.isVisible().catch(() => false)) {
         const splitDown = menu.getByText("Split Down", { exact: true });
         if (await splitDown.isVisible().catch(() => false)) {
@@ -839,7 +841,7 @@ test.describe("I: Full Lifecycle Regression", () => {
     const firstTab = page.locator('[role="main"] [draggable="true"]').first();
     if (await firstTab.isVisible().catch(() => false)) {
       await firstTab.click({ button: "right" });
-      const menu = page.locator(".fixed.z-\\[9999\\]");
+      const menu = page.locator('[role="menu"]');
       if (await menu.isVisible().catch(() => false)) {
         const closeOthers = menu.getByText("Close Others", { exact: true });
         if (await closeOthers.isVisible().catch(() => false)) {
@@ -876,7 +878,7 @@ test.describe("I: Full Lifecycle Regression", () => {
 // =============================================================================
 
 test.describe("J: Reimposta pannelli (flatten)", () => {
-  test("J25: nested grid (2 rows + cellStack) flattens to one row of equal cells, no tab closes", async ({ page }) => {
+  test("J25: nested grid (2 rows + cellStack) collapses to one tabbed cell, no tab closes", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten)" });
     const [idA, idB, idC, idD] = topicIds;
     // 2 rows; row 0 col 0 hosts a vertical sub-stack (standalone + solo:C).
@@ -900,29 +902,18 @@ test.describe("J: Reimposta pannelli (flatten)", () => {
 
     await rightClickTabAndSelect(page, 0, "Reimposta pannelli");
 
-    // One row: stack dissolved into top-level columns, rows merged.
+    // Collapse (abfa87f9): every side-by-side column AND vertical stack folds
+    // into the single 'standalone' pool cell, where the panes live as TABS —
+    // no row/col dividers, ONE tab bar / ONE cell, but every tab preserved.
     await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);
-    await expect.poll(() => countColDividers(page), { timeout: 5000 }).toBe(3);
-    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(4);
-    expect(await countTabs(page), "flatten must not close any tab").toBe(tabsBefore);
+    await expect.poll(() => countColDividers(page), { timeout: 5000 }).toBe(0);
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(1);
+    expect(await countTabs(page), "collapse must not close any tab").toBe(tabsBefore);
 
-    // Equal-width cells (visual order preserved by the walk) — measure boxes.
-    const cells = page.locator('[role="main"] [data-panel-cell]');
-    await expect(cells).toHaveCount(4, { timeout: 5000 });
-    const widths: number[] = [];
-    for (let i = 0; i < 4; i++) {
-      const b = await cells.nth(i).boundingBox();
-      expect(b, `cell ${i} should have a bounding box`).not.toBeNull();
-      widths.push(b!.width);
-    }
-    const maxDiff = Math.max(...widths) - Math.min(...widths);
-    expect(maxDiff, "flattened cells should be equal width (±2px)").toBeLessThanOrEqual(2);
-    // No post-reset width flicker: the auto-equalize effects see equal widths
-    // and a single equal row and must leave them untouched.
-    const b0 = await cells.first().boundingBox();
-    expect(Math.abs(b0!.width - widths[0]), "no width flicker after the reset").toBeLessThanOrEqual(2);
+    // Exactly one cell now hosts all four panes as tabs.
+    await expect(page.locator('[role="main"] [data-panel-cell]')).toHaveCount(1, { timeout: 5000 });
 
-    // Reload — the flat layout persists through the existing persistence
+    // Reload — the collapsed layout persists through the existing persistence
     // helper (usePanelGridPersistence); asserted via the UI, not a raw key.
     const panelsFetch = page.waitForResponse(
       r => r.url().includes("/api/ui-state/panels") && r.status() === 200,
@@ -933,17 +924,17 @@ test.describe("J: Reimposta pannelli (flatten)", () => {
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await waitForTabs(page, 4);
     await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);
-    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(4);
+    await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(1);
   });
 
   test("J26: already-flat layout hides the 'Reimposta pannelli' menu entry", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten)" });
     const [idA, idB] = topicIds;
-    await seedAndLoad(page, [idA, idB], {
-      soloTopicIds: [idB],
-      gridRows: [{ itemKeys: ["standalone", `solo:${idB}`], widths: [0.5, 0.5] }],
-      gridRowHeights: [1],
-    });
+    // Already-flat = the single 'standalone' pool cell holding both panes as
+    // tabs (no solo extraction, no split). isGridCollapsed is true for exactly
+    // this shape (PanelGrid.tsx:2060), so 'Reimposta pannelli' must be hidden.
+    // A SPLIT seed would make canFlattenGrid true and SHOW the entry instead.
+    await seedAndLoad(page, [idA, idB]);
     await waitForTabs(page, 2);
 
     const hasReset = await rightClickTabHasOption(page, 0, "Reimposta pannelli");
@@ -977,11 +968,15 @@ test.describe("J: Reimposta pannelli (flatten)", () => {
       await expect(xterm, "terminal should render before the reset").toBeVisible({ timeout: 15000 });
 
       await rightClickTabAndSelect(page, 0, "Reimposta pannelli");
+      // Collapse to the single pool cell: no dividers, one tab bar (abfa87f9).
       await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);
-      await expect.poll(() => countColDividers(page), { timeout: 5000 }).toBe(1);
+      await expect.poll(() => countColDividers(page), { timeout: 5000 }).toBe(0);
+      await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(1);
 
       // Remount-survival: the terminal pane re-mounts its renderer and the
-      // tab stays open (PTY survives — lossless reattach, no dead-end).
+      // tab stays open (PTY survives — lossless reattach, no dead-end). It was
+      // the active tab (tab 0) before the reset and stays active in the pool,
+      // so its body (only the active tab renders) still shows the .xterm.
       expect(await countTabs(page), "no tab may close on reset").toBe(2);
       await expect(page.locator('[role="main"] .xterm').first(), "terminal must still render after the reset").toBeVisible({ timeout: 15000 });
     } finally {

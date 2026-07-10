@@ -306,7 +306,7 @@ test.describe("Tab Drag — Real DnD", () => {
     const soloTab = secondBar.locator('[draggable="true"]').first();
     await expect(soloTab).toBeVisible({ timeout: 3000 });
     await soloTab.click({ button: "right" });
-    const menu = page.locator(".fixed.z-\\[9999\\]");
+    const menu = page.locator('[role="menu"]');
     await expect(menu).toBeVisible({ timeout: 3000 });
     await menu.getByText("Close now", { exact: true }).click();
 

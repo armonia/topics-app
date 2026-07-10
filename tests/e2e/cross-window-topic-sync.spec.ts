@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import { goToApp } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { goToApp, ensureTopicVisible } from "./helpers";
+import { createTopic, deleteTopic, seedProjectInnerChats } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -82,14 +82,31 @@ test.describe.serial("Cross-window topic + message sync", () => {
     // Pre-seed a topic in the project so window B has the project open.
     const seedName = `XWin Seed ${Date.now()}`;
     const seed = await createTopic(request, seedName, { projectPath });
+    // A project-bound topic renders as a sidebar CHILD only while it has an open
+    // inner tab (buildSidebarItems), and that inner layout lives server-side under
+    // `topics-project-panes-<hash>` (union-hydrated on every reload). A fresh
+    // Playwright context has no localStorage to supply it, so without this the
+    // seed topic never appears under window B's project accordion. Seed it as an
+    // open inner chat so both windows surface the project row + this child.
+    await seedProjectInnerChats(request, projectPath, [seed.id]);
 
     let newTopicId = "";
     try {
       await goToApp(pageA);
       await goToApp(pageB);
 
-      // Open the project on window B by clicking the seed topic
-      // (this brings the project pane into view).
+      // The seeded topic has a projectPath, so window B nests it under its
+      // project accordion (collapsed by default) — the top-level treeitem never
+      // renders until the group is expanded. Wait for the project row, expand it
+      // if collapsed, THEN click the seed topic to bring the project pane in view.
+      const projectName = projectPath.split("/").pop()!;
+      await expect(
+        pageB.getByRole("button", { name: `${projectName} project` }).first(),
+      ).toBeVisible({ timeout: 10000 });
+      const expandProject = pageB.getByRole("button", { name: `Expand ${projectName}` }).first();
+      if (await expandProject.isVisible().catch(() => false)) {
+        await expandProject.click();
+      }
       await expect(
         pageB.getByRole("treeitem", { name: new RegExp(seedName) }),
       ).toBeVisible({ timeout: 10000 });
@@ -188,12 +205,20 @@ test.describe.serial("Cross-window topic + message sync", () => {
     const page = await ctx.newPage();
 
     try {
+      // The "+ Add pane → New Chat" entry point is gated behind the paid
+      // `enableNewChat` setting (default OFF — a new chat drives a paid provider
+      // turn). Opt in before first paint so the button renders (App.tsx:1017
+      // passes onNewChat={undefined} when disabled → PaneTabBar omits it).
+      await page.addInitScript(() =>
+        localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: true })),
+      );
       await goToApp(page);
 
       // Open an existing topic first so the standalone chat group renders
       // (the "+ Add pane" button only appears when the group is mounted).
       // Then click + → New Chat to trigger the App-level draft creation
       // path that broke ("apro fuori da un progetto, si chiude subito").
+      await ensureTopicVisible(page, /Web Search Test/);
       await page
         .getByRole("treeitem", { name: /Web Search Test/ })
         .first()
@@ -303,12 +328,35 @@ test.describe.serial("Cross-window topic + message sync", () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     try {
+      // The App-level "New Chat" entry point is gated behind the paid
+      // `enableNewChat` setting (default OFF — a new chat drives a paid provider
+      // turn). Opt in before first paint so the menu item renders (App.tsx wires
+      // onNewChat={undefined} when disabled → PaneAddMenu omits the row).
+      // Mirrors the sibling :197 setup.
+      await page.addInitScript(() =>
+        localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: true })),
+      );
       await goToApp(page);
 
-      // Click the top-bar "New" button + select "New Chat" — this is the exact
-      // path the user reported broken.
-      await page.getByRole("button", { name: "New" }).first().click();
-      await page.getByRole("button", { name: "New Chat" }).first().click();
+      // Open an existing topic so the standalone chat group (and its "Add pane"
+      // button) mount, then + → New Chat to create the App-level draft — the
+      // exact path the "nuova chat App-level si chiude subito" report broke.
+      // (The prior top-bar "New" button was removed; the add-pane trigger now
+      // carries title="Add pane", and New Chat lives inside its menu.)
+      await ensureTopicVisible(page, /Web Search Test/);
+      await page
+        .getByRole("treeitem", { name: /Web Search Test/ })
+        .first()
+        .dblclick();
+      await expect(page.locator('[role="main"]')).toBeVisible({ timeout: 10000 });
+
+      const addPaneBtn = page.getByTitle("Add pane").first();
+      await expect(addPaneBtn).toBeVisible({ timeout: 10000 });
+      await addPaneBtn.click();
+
+      const newChatBtn = page.getByRole("button", { name: /New Chat/ }).first();
+      await expect(newChatBtn).toBeVisible({ timeout: 5000 });
+      await newChatBtn.click();
 
       // Confirm the draft tab rendered before the broadcast lands.
       const draftTab = page

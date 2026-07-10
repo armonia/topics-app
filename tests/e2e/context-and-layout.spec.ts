@@ -49,15 +49,18 @@ test.describe("Layout Persistence", () => {
     if (!textarea) { test.skip(); return; }
     await page.waitForTimeout(3000); // Wait for debounced server save
 
+    // Since Phase 30, pane persistence lives in pane-store-v2 (a reducer
+    // snapshot returned inside an envelope { value, payload_version, server_seq }),
+    // not the legacy top-level openPanels array. Assert the panes map is populated.
     const serverState = await page.evaluate(async () => {
-      const res = await fetch("/api/ui-state/panels");
+      const res = await fetch("/api/ui-state/pane-store-v2");
       if (!res.ok) return null;
       return res.json();
     });
     expect(serverState).not.toBeNull();
-    expect(serverState.openPanels).toBeDefined();
-    expect(Array.isArray(serverState.openPanels)).toBeTruthy();
-    expect(serverState.openPanels.length).toBeGreaterThan(0);
+    expect(serverState.value).toBeDefined();
+    expect(serverState.value.panes).toBeDefined();
+    expect(Object.keys(serverState.value.panes).length).toBeGreaterThan(0);
   });
 
   test("panel order persisted to server", async ({ page }) => {
@@ -163,7 +166,7 @@ test.describe("Message Content Rendering", () => {
     const textarea = await openAnyTopic(page);
     if (!textarea) { test.skip(); return; }
 
-    const messages = page.locator("div.message-appear");
+    const messages = page.locator("div.message-content");
     await messages.first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
 
     // Verify no JS errors crashed the page

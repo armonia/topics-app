@@ -33,7 +33,19 @@ function grepOutsidePaneState(pattern: string): string[] {
     .split("\n")
     .filter(Boolean)
     .filter((l) => !l.startsWith("client/src/state/pane/"))
-    .filter((l) => !l.includes("PANE-01-ALLOWED"));
+    .filter((l) => !l.includes("PANE-01-ALLOWED"))
+    // Drop full-line comments — a JSDoc/`//` mention of a banned key is
+    // documentation, not a real access. grep lines are `path:lineno:content`;
+    // strip the `path:lineno:` prefix, then apply the same comment test as
+    // INFRA-06 above. Real violations are always non-comment code.
+    .filter((l) => {
+      const content = l.replace(/^[^:]*:\d+:/, "").trim();
+      return (
+        !content.startsWith("//") &&
+        !content.startsWith("*") &&
+        !content.startsWith("/*")
+      );
+    });
 }
 
 test.describe("INFRA-01: dnd-helper functions are importable", () => {
@@ -152,8 +164,11 @@ test.describe("INFRA-07: structural data-testids are present in source", () => {
     );
     expect(chatInputSrc).toContain('data-testid="chat-message-input"');
 
+    // ConnectionStatus.tsx was removed in 8daa9b5b (refactor(ui): simplify
+    // connection status indicator); the testid now lives on the sidebar status
+    // bar's gateway button.
     const connStatusSrc = fs.readFileSync(
-      path.join(clientSrc, "components/Layout/ConnectionStatus.tsx"),
+      path.join(clientSrc, "components/Sidebar/SidebarStatusBar.tsx"),
       "utf-8"
     );
     expect(connStatusSrc).toContain('data-testid="connection-status"');

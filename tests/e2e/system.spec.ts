@@ -1,9 +1,14 @@
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { mockOpenClawAvailable } from "./helpers/openclaw";
 
 test.describe("System & Infrastructure", () => {
   test("WebSocket connects and shows status", async ({ page }) => {
+    // The Online/Offline label on the status button renders only when openclaw
+    // is available (SidebarStatusBar: `openclawAvailable ? … : dot-only`); the
+    // isolated test server reports openclaw unconfigured, so stub it.
+    await mockOpenClawAvailable(page);
     await goToApp(page);
 
     // Accept "Online", "Connecting", or "Offline" — gateway may not be available on test server
@@ -14,6 +19,7 @@ test.describe("System & Infrastructure", () => {
   });
 
   test("status bar shows system info", async ({ page }) => {
+    await mockOpenClawAvailable(page);
     await goToApp(page);
 
     const statusBtn = page.getByRole("button", { name: /Online|Connecting|Offline/ });

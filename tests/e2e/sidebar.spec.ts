@@ -5,6 +5,8 @@ import {
   deleteTopic,
   createTerminalSession,
   deleteTerminalSession,
+  deleteAllTerminalSessions,
+  resetPaneStore,
 } from "./helpers/api-fixtures";
 
 const created: { topics: string[]; terminals: string[] } = {
@@ -320,6 +322,12 @@ test.describe("Sidebar — Fissati (pinning)", () => {
 
   test.beforeAll(async ({ request }) => {
     await resetSidebarState(request);
+    // Isolate from prior specs' pollution: the pane store converges by UNION on
+    // hydrate, so any leftover panes / terminal sessions would surface as stray
+    // tabs and make the exact tab-visibility assertions below order-dependent.
+    // Start from an empty layout with no live PTYs.
+    await deleteAllTerminalSessions(request);
+    await resetPaneStore(request, []);
   });
 
   test.afterAll(async ({ request }) => {

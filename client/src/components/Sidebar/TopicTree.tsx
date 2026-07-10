@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -91,7 +91,7 @@ export interface TopicTreeProps {
   terminalSessions?: TerminalSessionInfo[];
   browserContexts?: BrowserContextInfo[];
   onTerminalClick?: (sessionId: string, sessionName: string) => void;
-  onNewTerminal?: (type: 'shell' | 'claude-code' | 'codex', skipPermissions?: boolean) => void;
+  onNewTerminal?: (type: 'shell' | 'claude-code' | 'codex' | 'opencode', skipPermissions?: boolean) => void;
   onCloseTerminal?: (sessionId: string) => void;
   onOpenAsProject?: (path: string) => void;
   onOpenBrowser?: (contextId: string) => void;
@@ -111,6 +111,11 @@ export interface TopicTreeProps {
   /** Pin/unpin an item ("Fissa" / "Rimuovi dai Fissati") — App-level wrapper
    *  owns the unpin-while-closed archive semantics. */
   onTogglePin?: (id: string) => void;
+  /** Active (non-done) task count across all projects. When > 0, a
+   *  "Board generale" row is shown above the Fissati block. */
+  boardTaskCount?: number;
+  /** Opens the global board pane (the '__board__' utility tab). */
+  onOpenBoard?: () => void;
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
@@ -152,6 +157,8 @@ export function TopicTree({
   projectOpenPanes = {},
   pinnedItems = [],
   onTogglePin,
+  boardTaskCount = 0,
+  onOpenBoard,
 }: TopicTreeProps) {
   // Claude "yolo" toggle state lives inside <PaneAddMenu> now (via
   // useClaudeSkipPermissions in PaneAddMenuItems). No longer threaded
@@ -705,6 +712,22 @@ export function TopicTree({
         className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
         style={{ paddingBlock: ROW_INSET - 1 }}
       >
+        {/* Board generale — a fast-access row above the Fissati block, shown
+            only when there is active (non-done) work across all projects. */}
+        {boardTaskCount > 0 && onOpenBoard && (
+          <button
+            type="button"
+            onClick={onOpenBoard}
+            data-testid="sidebar-board-generale"
+            className="w-full flex items-center gap-1.5 px-3 h-8 mb-1 select-none text-app-text hover:bg-app-hover transition-colors"
+          >
+            <LayoutGrid size={13} className="flex-shrink-0 text-emerald-400" />
+            <span className="text-[12px] font-medium flex-1 text-left">Board generale</span>
+            <span className="ml-auto min-w-[16px] h-[16px] flex items-center justify-center bg-emerald-500 text-white text-[9px] font-bold rounded-full leading-none px-1">
+              {boardTaskCount}
+            </span>
+          </button>
+        )}
         {viewMode === 'timeline' ? (
           // Timeline: the Fissati block first (user pin order), then the flat
           // list sorted by activity. Pinned rows keep badges/attention fills —
@@ -844,6 +867,11 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   // finished), or null. The fill only shows on an UNfocused row (focus clears it).
   const attentionTier = useTerminalAttentionTier(s.id);
   const onFill = attentionTier !== null && !isFocused;
+  // Split schematic, same as chat rows (TopicItem) and projects. The standalone
+  // terminal pane is published in SplitPositionContext under its pane-id
+  // `terminal:<id>` (PanelGrid keys every open pane by paneId), so a topicless
+  // terminal — which has no topic UUID key — still resolves its cell here.
+  const splitPosition = useSplitPosition(`terminal:${s.id}`);
 
   return (
     <div
@@ -891,6 +919,16 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
         <TerminalStreamingSpinner sessionId={s.id} className="ml-0.5" />
         <NotificationBadge count={notificationCount} className="ml-0.5" variant={onFill ? 'onFill' : 'default'} />
       </button>
+
+      {/* Split schematic — same placement/treatment as the chat row's minimap. */}
+      {splitPosition && (
+        <SplitMiniMap
+          rows={splitPosition.rows}
+          rowHeights={splitPosition.rowHeights}
+          active={splitPosition.active}
+          className={`flex-shrink-0 mr-1.5 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+        />
+      )}
 
       {/* Pinned ("Fissato") trailing glyph — mirrors the chat row's rail. */}
       {pinned && (

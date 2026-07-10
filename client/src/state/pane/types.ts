@@ -20,6 +20,7 @@ export type PaneType =
   | 'agents'
   | 'dashboard'
   | 'kanban'
+  | 'board'
   | 'project'
   | 'process-log'
   | 'session-viewer'
@@ -85,7 +86,7 @@ export interface Pane {
   color?: string;
   processId?: string;
   sessionKey?: string;
-  terminalType?: 'shell' | 'claude-code' | 'codex';
+  terminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode';
   /**
    * Spazio (workspace) membership. Absent ⟺ the default space
    * (DEFAULT_SPACE_ID) — old snapshots hydrate unchanged. SYNCED per-pane and
@@ -150,7 +151,7 @@ export interface ProjectLayout {
 export interface ClosedTerminalMeta {
   sessionId?: string;
   cwd?: string;
-  sessionType?: 'shell' | 'claude-code' | 'codex';
+  sessionType?: 'shell' | 'claude-code' | 'codex' | 'opencode';
   name?: string;
   claudeSessionId?: string;
   skipPermissions?: boolean;

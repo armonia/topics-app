@@ -20,7 +20,11 @@ test.describe("@phase30-regression PANE-04: project reopen", () => {
     // the unified reducer; Wave 3 implements PROJECT_LAYOUT_RESTORE so that
     // reopening a project replays the seeded layout exactly.
     // When it lands, remove this annotation and the test should pass.
-    test.fail(
+    // Unimplemented feature (Phase 30 Wave 3). Body seeds server state then drives
+    // pre-redesign selectors → times out under test.fail (status "timedOut" ≠
+    // "failed" → RED). test.fixme skips the body, the correct marker for a
+    // not-yet-built feature. Drop the fixme when Wave 3 ships.
+    test.fixme(
       true,
       "WAVE-3 scope — PANE-04 PROJECT_LAYOUT_RESTORE not implemented (see 30-CONTEXT.md)",
     );

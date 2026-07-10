@@ -8,8 +8,9 @@
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
-import { mockHangingStream } from "./helpers/sse-helpers";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+
+const BASE = "http://localhost:13334";
 
 test.describe("Cross-Feature Interactions", () => {
   // CROSS-01: Topic switch preserves chat scroll position
@@ -17,19 +18,27 @@ test.describe("Cross-Feature Interactions", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-01" });
-    // Use "Web Search Test" (known to have messages) as topicA
-    // Create a fresh topic as topicB for switching
+    // Own both topics: a fresh topicA seeded with messages (instead of the shared
+    // "Web Search Test" seed, whose sidebar visibility is reset by parallel workers)
+    // plus an empty topicB for switching.
     const ts = Date.now();
+    const topicA = await createTopic(page.request, `E2E-CrossA-${ts}`);
+    for (let i = 0; i < 8; i++) {
+      await page.request.post(`${BASE}/api/topics/${topicA.id}/system-message`, {
+        data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(4)}` },
+        ignoreHTTPSErrors: true,
+      });
+    }
     const topicB = await createTopic(page.request, `E2E-CrossB-${ts}`);
 
     try {
       await goToApp(page);
 
-      // Open topicA (Web Search Test) -- known to have messages
-      await openTopic(page, /Web Search Test/);
+      // Open topicA (freshly seeded) -- known to have messages
+      await openTopic(page, new RegExp(`E2E-CrossA-${ts}`));
 
       // Wait for messages to render
-      const messages = page.locator(".message-appear");
+      const messages = page.locator(".message-content");
       await expect(messages.first()).toBeVisible({ timeout: 15_000 });
 
       // Get the message list container for scroll manipulation
@@ -63,8 +72,8 @@ test.describe("Cross-Feature Interactions", () => {
       await openTopic(page, new RegExp(`E2E-CrossB-${ts}`));
       await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10_000 });
 
-      // Switch back to topicA (Web Search Test)
-      await openTopic(page, /Web Search Test/);
+      // Switch back to topicA (freshly seeded)
+      await openTopic(page, new RegExp(`E2E-CrossA-${ts}`));
 
       // Wait for messages to reappear
       await expect(messages.first()).toBeVisible({ timeout: 15_000 });
@@ -94,6 +103,7 @@ test.describe("Cross-Feature Interactions", () => {
       // works without errors. The annotation documents actual behavior.
       expect(typeof scrollTopAfter).toBe("number");
     } finally {
+      await deleteTopic(page.request, topicA.id);
       await deleteTopic(page.request, topicB.id);
     }
   });
@@ -111,6 +121,9 @@ test.describe("Cross-Feature Interactions", () => {
     const topic = await createTopic(page.request, `E2E-Cross03-${ts}`);
 
     try {
+      // Clear panes leaked by earlier specs so exactly one chat pane (hence one
+      // Message-input textarea) exists after openTopic.
+      await resetPaneStore(page.request, []).catch(() => {});
       await goToApp(page);
 
       // Dismiss any dialogs/palettes
@@ -134,6 +147,32 @@ test.describe("Cross-Feature Interactions", () => {
         await treeitem.dblclick();
         await textarea.waitFor({ state: "visible", timeout: 10_000 });
       }
+
+      // openclaw is unavailable on the isolated test server, so a real send never
+      // streams. Fake a stuck stream: deliver ONE content delta with NO
+      // "data: [DONE]" terminator. The client only clears `partial` on [DONE],
+      // and the inline streaming indicator only renders once content has started
+      // (empty partials show none) — so this keeps the indicator visible.
+      await page.route("**/api/chat", async (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        await route.fulfill({
+          status: 200,
+          headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+          body:
+            `data: ${JSON.stringify({
+              choices: [{ index: 0, delta: { content: "Streaming a long answer about the history of computing…" } }],
+            })}\n\n`,
+        });
+      });
+      // After the stream body ends (no [DONE]) the client syncs history via
+      // POST /api/history/:sessionKey and REPLACES the session messages with the
+      // finalized server copy — which would drop the partial + its indicator.
+      // Hang that sync so the partial (and the indicator) stays put while we
+      // exercise the command palette.
+      await page.route(/\/api\/history\//, async (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        await new Promise(() => {}); // never resolves
+      });
 
       // Send a real message that will trigger actual streaming from the server
       await textarea.click();
@@ -175,9 +214,11 @@ test.describe("Cross-Feature Interactions", () => {
         });
       }
 
-      // Wait for streaming to finish to avoid interfering with other tests
+      // Cleanup: the stream is intentionally stalled and never completes, so a
+      // long wait here is pure dead time (the topic is deleted in `finally` and
+      // each test gets a fresh page anyway). Keep it short — it's best-effort.
       await chatPage.streamingIndicator
-        .waitFor({ state: "hidden", timeout: 60_000 })
+        .waitFor({ state: "hidden", timeout: 3_000 })
         .catch(() => {});
     } finally {
       await deleteTopic(page.request, topic.id);
@@ -227,7 +268,7 @@ test.describe("Cross-Feature Interactions", () => {
       await expect(messageList).toBeVisible({ timeout: 15_000 });
 
       // Wait for at least one message to render
-      await expect(page.locator(".message-appear").first()).toBeVisible({
+      await expect(page.locator(".message-content").first()).toBeVisible({
         timeout: 10_000,
       });
 
@@ -368,13 +409,23 @@ test.describe("Cross-Feature Interactions", () => {
     settingsPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
+    // Own a fresh seeded topic instead of the shared "Web Search Test" seed
+    // (its sidebar visibility is reset by parallel workers on the test server).
+    const ts = Date.now();
+    const topic = await createTopic(page.request, `E2E-Cross06-${ts}`);
+    for (let i = 0; i < 6; i++) {
+      await page.request.post(`${BASE}/api/topics/${topic.id}/system-message`, {
+        data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
+        ignoreHTTPSErrors: true,
+      });
+    }
     await goToApp(page);
 
     // Open a topic to get chat panel visible with content
-    await openTopic(page, /Web Search Test/);
+    await openTopic(page, new RegExp(`E2E-Cross06-${ts}`));
 
     // Wait for messages to render
-    const messages = page.locator(".message-appear");
+    const messages = page.locator(".message-content");
     await expect(messages.first()).toBeVisible({ timeout: 15_000 });
 
     // Record state before theme toggle: visible panels, message count
@@ -441,6 +492,8 @@ test.describe("Cross-Feature Interactions", () => {
       : settingsPage.panel.getByRole("button", { name: "System" });
     await restoreBtn.click();
     await page.locator(".fixed.inset-0.z-50").click({ position: { x: 10, y: 10 } });
+
+    await deleteTopic(page.request, topic.id);
   });
 
   // CROSS-07: Mobile responsive layout transitions
@@ -449,13 +502,23 @@ test.describe("Cross-Feature Interactions", () => {
     layoutPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
+    // Own a fresh seeded topic instead of the shared "Web Search Test" seed
+    // (its sidebar visibility is reset by parallel workers on the test server).
+    const ts = Date.now();
+    const topic = await createTopic(page.request, `E2E-Cross07-${ts}`);
+    for (let i = 0; i < 6; i++) {
+      await page.request.post(`${BASE}/api/topics/${topic.id}/system-message`, {
+        data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
+        ignoreHTTPSErrors: true,
+      });
+    }
     // Start at desktop size
     await page.setViewportSize({ width: 1280, height: 800 });
     await goToApp(page);
 
     // Open a topic so we have content
-    await openTopic(page, /Web Search Test/);
-    await expect(page.locator(".message-appear").first()).toBeVisible({ timeout: 15_000 });
+    await openTopic(page, new RegExp(`E2E-Cross07-${ts}`));
+    await expect(page.locator(".message-content").first()).toBeVisible({ timeout: 15_000 });
 
     // Verify desktop layout: sidebar visible, main content visible
     await expect(layoutPage.sidebar).toBeVisible({ timeout: 5_000 });
@@ -536,12 +599,14 @@ test.describe("Cross-Feature Interactions", () => {
     );
 
     // Verify messages are still visible (content survived transitions)
-    await expect(page.locator(".message-appear").first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".message-content").first()).toBeVisible({ timeout: 5_000 });
 
     test.info().annotations.push({
       type: "responsive",
       description: `Desktop->Mobile->Desktop transition complete. Sidebar: ${desktopSidebarWidth}px -> mobile -> ${restoredSidebarWidth}px`,
     });
+
+    await deleteTopic(page.request, topic.id);
   });
 });
 
@@ -552,10 +617,20 @@ test.describe("Cross-Feature Interactions", () => {
 test.describe("WS Reconnection", () => {
   test("CROSS-02: WebSocket reconnection restores panel states without duplicates", async ({
     page,
-    layoutPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     test.slow(); // Reconnection with backoff takes time
+
+    // Own a fresh seeded topic instead of the shared "Web Search Test" seed
+    // (its sidebar visibility is reset by parallel workers on the test server).
+    const ts = Date.now();
+    const topic = await createTopic(page.request, `E2E-Cross02-${ts}`);
+    for (let i = 0; i < 8; i++) {
+      await page.request.post(`${BASE}/api/topics/${topic.id}/system-message`, {
+        data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
+        ignoreHTTPSErrors: true,
+      });
+    }
 
     // Set up WS interception BEFORE navigation to capture the main /ws connection.
     // Track both the WebSocketRoute (client-side) and server connection objects.
@@ -573,10 +648,10 @@ test.describe("WS Reconnection", () => {
     await goToApp(page);
 
     // Open a topic to have visible panels/content
-    await openTopic(page, /Web Search Test/);
+    await openTopic(page, new RegExp(`E2E-Cross02-${ts}`));
 
     // Wait for content to render
-    const messages = page.locator(".message-appear");
+    const messages = page.locator(".message-content");
     await expect(messages.first()).toBeVisible({ timeout: 15_000 });
 
     // Record panel state before disconnect
@@ -608,12 +683,14 @@ test.describe("WS Reconnection", () => {
       expect(serverConnections.length).toBeGreaterThan(connectionsBefore);
     }).toPass({ timeout: 20_000 });
 
-    // After reconnection, wait for connection status to show Connected
-    await expect(layoutPage.connectionStatus).toHaveAttribute(
-      "aria-label",
-      /Connected/,
-      { timeout: 20_000 }
-    );
+    // After reconnection the realtime WS status returns to "connected". The
+    // redesigned status bar only renders the ws-connection-status warning WHILE
+    // not connected (connecting/reconnecting/offline) — per its "only show live
+    // signals" convention — so "connected" means that warning is gone. The
+    // authoritative reconnection proof is the new server WS above.
+    await expect(page.locator('[data-testid="ws-connection-status"]')).toBeHidden({
+      timeout: 20_000,
+    });
 
     // Verify panels restored: tab count matches (no panels lost or duplicated)
     if (tabBarExists && tabCountBefore > 0) {
@@ -638,5 +715,7 @@ test.describe("WS Reconnection", () => {
       type: "ws-reconnection",
       description: `WS reconnected (${connectionsBefore}->${serverConnections.length} connections). Tabs: ${tabCountBefore} preserved. Sidebar items: ${sidebarCountBefore}->${sidebarCountAfter}.`,
     });
+
+    await deleteTopic(page.request, topic.id);
   });
 });

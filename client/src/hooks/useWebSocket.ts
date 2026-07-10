@@ -36,6 +36,11 @@ export function useWebSocket(): UseWebSocketReturn {
   // pins the first closure; routing through a ref always invokes the latest
   // `connect` and removes the use-before-declare.
   const connectRef = useRef<() => void>(() => {});
+  // Remember the last focused topic so onopen can re-announce it to the server.
+  // A `focus` frame sent while the socket wasn't OPEN is dropped by sendWS below
+  // and never retried — the server then keeps counting the focused topic as
+  // unread (phantom badge on the topic the user is actively looking at).
+  const lastFocusTopicRef = useRef<string | null>(null);
 
   const clearOfflineTimer = useCallback(() => {
     if (offlineTimerRef.current) {
@@ -79,6 +84,18 @@ export function useWebSocket(): UseWebSocketReturn {
         }));
       } catch {
         // Best-effort; if send fails the server proceeds without handshake info.
+      }
+
+      // Re-announce the focused topic (see lastFocusTopicRef) so per-client focus
+      // survives a reconnect — or an initial focus that raced ahead of OPEN and
+      // got dropped by sendWS. Without this the server keeps the focused topic
+      // marked unread. Skipped when no topic is focused (ref null after blur).
+      if (lastFocusTopicRef.current) {
+        try {
+          ws.send(JSON.stringify({ type: 'focus', topicId: lastFocusTopicRef.current }));
+        } catch {
+          // Best-effort; the next focus effect re-sends on the live socket.
+        }
       }
 
       // Start ping interval
@@ -223,9 +240,13 @@ export function useWebSocket(): UseWebSocketReturn {
     // groups. The next server `unread:updated` reconciles to truth, so the
     // optimistic zero is safe (self-heals if a message lands in the same tick).
     const m = message as unknown as { type?: string; topicId?: string | null };
-    if (m.type === 'focus' && m.topicId) {
-      const tid = m.topicId;
-      setUnreadData(prev => (prev[tid]?.unreadCount ? { ...prev, [tid]: { ...prev[tid], unreadCount: 0 } } : prev));
+    if (m.type === 'focus') {
+      // Track the focused topic so onopen can re-announce it after a reconnect.
+      lastFocusTopicRef.current = m.topicId ?? null;
+      if (m.topicId) {
+        const tid = m.topicId;
+        setUnreadData(prev => (prev[tid]?.unreadCount ? { ...prev, [tid]: { ...prev[tid], unreadCount: 0 } } : prev));
+      }
     }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));

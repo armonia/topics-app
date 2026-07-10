@@ -52,7 +52,7 @@ export class TabSyncPage {
     await expect(addPaneBtn.first()).toBeVisible({ timeout: 5000 });
     await addPaneBtn.first().click();
 
-    const addMenu = this.page.locator(".fixed.z-\\[9999\\]");
+    const addMenu = this.page.locator('[data-testid="pane-add-menu"]').first();
     await expect(addMenu).toBeVisible({ timeout: 5000 });
 
     const menuButtons = addMenu.locator("button");

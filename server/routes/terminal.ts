@@ -14,6 +14,7 @@ import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
 import { deriveCodexSessionTitle } from "../lib/codex-transcript-title";
+import { discoverOpencodeSessionId, deriveOpencodeSessionTitle } from "../lib/opencode-session";
 import { classifyFrame, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
@@ -36,7 +37,7 @@ interface TerminalSession {
   cols: number;
   rows: number;
   topicId?: string;
-  type: 'shell' | 'claude-code' | 'claude-code-team' | 'codex';
+  type: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' | 'opencode';
   skipPermissions: boolean;
   claudeSessionId?: string;
   /** OS pid of the PTY's root process (reported by the bridge on create /
@@ -151,6 +152,11 @@ function markTerminalActivity(id: string) {
     // no-op once the user renamed the tab. Best-effort, never throws.
     if (session.type === 'codex' && session.claudeSessionId) {
       try { autoNameCodexSession(session.claudeSessionId); } catch { /* best-effort */ }
+    } else if (session.type === 'opencode') {
+      // opencode has no hooks and mints its session id + AI title only after the
+      // first prompt, so busy→idle is its turn boundary: (lazily) discover the
+      // opencode session and pull its title. No captured id needed up-front.
+      try { autoNameOpencodeSession(session.id); } catch { /* best-effort */ }
     }
   }, TERMINAL_IDLE_MS);
 }
@@ -879,7 +885,7 @@ export async function getTerminalBuffer(sessionId: string): Promise<string> {
 }
 
 // --- Session management ---
-async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string, nameSource: 'default' | 'auto' | 'user' = 'default'): Promise<TerminalSession> {
+async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' | 'opencode' = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string, nameSource: 'default' | 'auto' | 'user' = 'default'): Promise<TerminalSession> {
   let file: string;
   let args: string[];
   const isClaudeKind = sessionType === 'claude-code' || sessionType === 'claude-code-team';
@@ -962,6 +968,25 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     } else {
       args = [];
     }
+  } else if (sessionType === 'opencode') {
+    // opencode (open-source agent CLI) pinned to the free Cerebras provider
+    // (GLM-4.7 — quasi-Opus, no-train). Two things it needs that the launchd
+    // server's bare env lacks: CEREBRAS_API_KEY (the user keeps it in ~/.zshrc)
+    // and Homebrew on PATH (opencode lives in /opt/homebrew/bin). So we launch
+    // it inside a login+interactive shell that sources the user's profile —
+    // exactly what happens when they type `opencode` in their own terminal —
+    // and `exec` hands the PTY straight to opencode. No session tracking, no
+    // MCP bridge: like codex/shell, opencode carries no claude_session_id.
+    // Default to gemma-4-31b (instruct, NOT a reasoning model). The Cerebras
+    // reasoning models on this account (zai-glm-4.7, gpt-oss-120b) make opencode
+    // replay an unsupported `reasoning_content` field and 400 on the 2nd turn —
+    // reproduced even on opencode 1.17.17 + @ai-sdk/cerebras. Gemma emits no
+    // reasoning trace, so multi-turn is bug-proof (verified). Weaker than GLM,
+    // but reliable; switch to zai-glm-4.7 manually inside opencode when the
+    // upstream reasoning-replay fix lands. Model catalog is account-specific
+    // (GET /v1/models): only gemma-4-31b / gpt-oss-120b / zai-glm-4.7 here.
+    file = process.env.SHELL || '/bin/zsh';
+    args = ['-lic', 'exec opencode -m cerebras/gemma-4-31b'];
   } else if (command) {
     const parts = command.split(" ");
     file = parts[0];
@@ -990,6 +1015,11 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // minimal PATH (no Homebrew), so a bare `codex` would ENOENT silently.
     // HOME pinned to the real home for the same reason as claude — codex reads
     // its auth/config from ~/.codex and would lose it under a sandbox HOME.
+    env = { PATH: augmentPath(), HOME: realHome() };
+  } else if (sessionType === 'opencode') {
+    // HOME → real home so the login shell reads the user's ~/.zshrc (where
+    // CEREBRAS_API_KEY + Homebrew PATH live) and opencode finds its config at
+    // ~/.config/opencode. PATH augmented as a belt-and-suspenders fallback.
     env = { PATH: augmentPath(), HOME: realHome() };
   }
 
@@ -1175,8 +1205,14 @@ export function sweepAutoNameClaudeSessions(): void {
 // keep a low-frequency net running so a session that never gets a hook still
 // picks up its title within a minute. Unref'd — never holds the process open.
 const AUTO_NAME_SWEEP_MS = 45_000;
-setTimeout(() => { try { sweepAutoNameClaudeSessions(); } catch { /* best-effort */ } }, 8_000).unref?.();
-setInterval(() => { try { sweepAutoNameClaudeSessions(); } catch { /* best-effort */ } }, AUTO_NAME_SWEEP_MS).unref?.();
+setTimeout(() => {
+  try { sweepAutoNameClaudeSessions(); } catch { /* best-effort */ }
+  try { sweepAutoNameOpencodeSessions(); } catch { /* best-effort */ }
+}, 8_000).unref?.();
+setInterval(() => {
+  try { sweepAutoNameClaudeSessions(); } catch { /* best-effort */ }
+  try { sweepAutoNameOpencodeSessions(); } catch { /* best-effort */ }
+}, AUTO_NAME_SWEEP_MS).unref?.();
 
 /**
  * Auto-label a Codex terminal tab from its rollout's user prompts (Codex has no
@@ -1213,6 +1249,61 @@ export function autoNameCodexSession(codexRolloutId: string): void {
     console.warn(`[Terminal] codex auto-name persist failed for ${target.id}:`, e);
   }
   broadcastTerminalSessions();
+}
+
+/**
+ * Auto-label an opencode terminal tab from the AI title opencode itself wrote
+ * into its SQLite `session` row. Unlike claude (hooks) and codex (rollout id
+ * captured post-spawn), opencode's session id + title only exist AFTER the first
+ * user prompt, so this takes the TERMINAL session id and lazily discovers the
+ * opencode `ses_…` id (by cwd + recency) the first time it can, stashing it on
+ * the resumable-pointer slot (`claudeSessionId`) for O(1) lookups thereafter.
+ * Driven by the busy→idle turn boundary (opencode has no hooks) + the sweep.
+ * No-ops until a real (non-placeholder) title exists, when unchanged, or once the
+ * user renamed the tab. Best-effort — never throws into the caller.
+ */
+export function autoNameOpencodeSession(terminalSessionId: string): void {
+  const target = sessions.get(terminalSessionId);
+  if (!target || target.type !== "opencode" || target.nameSource === "user") return;
+
+  let ocId = target.claudeSessionId;
+  if (!ocId) {
+    const sinceMs = Date.parse(target.createdAt) || 0;
+    ocId = discoverOpencodeSessionId({ cwd: target.cwd, sinceMs }) ?? undefined;
+    if (!ocId) return; // opencode hasn't minted a session row yet (no prompt sent)
+    target.claudeSessionId = ocId;
+    try {
+      getDatabase().run("UPDATE terminal_sessions SET claude_session_id = ? WHERE id = ?", [ocId, target.id]);
+    } catch (e) {
+      console.warn(`[Terminal] opencode session-id persist failed for ${target.id}:`, e);
+    }
+  }
+
+  const title = deriveOpencodeSessionTitle(ocId);
+  if (!title || title === target.name) return;
+
+  target.name = title;
+  target.nameSource = "auto";
+  try {
+    getDatabase().run(
+      "UPDATE terminal_sessions SET name = ?, name_source = 'auto' WHERE id = ?",
+      [title, target.id],
+    );
+  } catch (e) {
+    console.warn(`[Terminal] opencode auto-name persist failed for ${target.id}:`, e);
+  }
+  broadcastTerminalSessions();
+}
+
+/** Safety-net sweep for opencode tabs (analogue of sweepAutoNameClaudeSessions):
+ *  opencode's AI title can land a few seconds AFTER the busy→idle that triggered
+ *  the first attempt, so a low-frequency re-check catches it. Idempotent. */
+export function sweepAutoNameOpencodeSessions(): void {
+  for (const s of sessions.values()) {
+    if (s.type === "opencode" && s.nameSource !== "user") {
+      try { autoNameOpencodeSession(s.id); } catch { /* best-effort */ }
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1519,10 +1610,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       // Backward-compatible agent choice: absent/unknown `type` = shell, and
       // the pre-existing types behave exactly as before. 'codex' spawns the
       // OpenAI CLI interactively (see createSession).
-      const sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' =
+      const sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' | 'opencode' =
         body.type === 'claude-code-team' ? 'claude-code-team' :
         body.type === 'claude-code' ? 'claude-code' :
-        body.type === 'codex' ? 'codex' : 'shell';
+        body.type === 'codex' ? 'codex' :
+        body.type === 'opencode' ? 'opencode' : 'shell';
       const skipPermissions = body.skipPermissions !== false;
 
       try {

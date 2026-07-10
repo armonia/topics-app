@@ -62,7 +62,7 @@ export interface ProjectWindowPaneProps {
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
-  pendingTerminalType?: 'shell' | 'claude-code' | 'codex';
+  pendingTerminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode';
   onPendingPaneConsumed?: () => void;
   // groupId = the tab bar whose "+ new chat" was clicked, so the chat lands there
   onNewChat?: (groupId?: string) => void;

@@ -79,8 +79,16 @@ export async function createTopic(
 }
 
 /** Make a topic visible in the unified timeline sidebar by pre-seeding both
- *  the legacy openPanels endpoint AND the Phase 30 pane-store-v2 snapshot. */
-async function seedTopicIntoSidebar(request: APIRequestContext, topicId: string): Promise<void> {
+ *  the legacy openPanels endpoint AND the Phase 30 pane-store-v2 snapshot.
+ *  Exported so helpers.ts can self-heal baseline topics (e.g. "Web Search Test")
+ *  that global-setup creates via raw POST — which does NOT open a tab.
+ *
+ *  `minSeq` floors the written snapshot's lastSeq. When self-healing AFTER a
+ *  client has already loaded, the reload's warm-hydrate replays that client's
+ *  localStorage snapshot; the server write only wins the LWW gate if its seq
+ *  strictly exceeds the local one. Pass the live client's local lastSeq here so
+ *  the seed outranks it. Unused (0) at creation time, when no client is up. */
+export async function seedTopicIntoSidebar(request: APIRequestContext, topicId: string, minSeq = 0): Promise<void> {
   // --- Legacy panels endpoint (pre-Phase-30 clients) ---
   try {
     const cur = await request.get(`${BASE}/api/ui-state/panels`, { ignoreHTTPSErrors: true });
@@ -134,7 +142,7 @@ async function seedTopicIntoSidebar(request: APIRequestContext, topicId: string)
     }
     if (!Array.isArray(snapshot.groupOrder)) snapshot.groupOrder = ['group:default'];
     if (!snapshot.groupOrder.includes('group:default')) snapshot.groupOrder.unshift('group:default');
-    snapshot.lastSeq = (snapshot.lastSeq ?? 0) + 1;
+    snapshot.lastSeq = Math.max(snapshot.lastSeq ?? 0, minSeq) + 1;
 
     await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
       data: snapshot,
@@ -272,6 +280,26 @@ export async function patchTopic(
     ignoreHTTPSErrors: true,
   });
   if (!res.ok()) throw new Error(`Failed to patch topic: ${res.status()}`);
+}
+
+/**
+ * Unarchive (re-open) a topic. The server models archive/unarchive on the
+ * `DELETE /api/topics/:id` route with a `{ archived }` body (see topics.ts —
+ * DELETE with `archived:false` re-opens; the PATCH route ignores `archived`).
+ * This mirrors the client's `topicsApi.archive(id, false)`. Needed because the
+ * e2e DB persists across runs, so a baseline topic a prior spec closed stays
+ * archived — and archived standalone chats are filtered out of the sidebar.
+ */
+export async function unarchiveTopic(
+  request: APIRequestContext,
+  id: string
+): Promise<void> {
+  await request
+    .delete(`${BASE}/api/topics/${id}`, {
+      data: { archived: false },
+      ignoreHTTPSErrors: true,
+    })
+    .catch(() => { /* best-effort — waitFor downstream surfaces failure */ });
 }
 
 export async function deleteTopic(
@@ -480,6 +508,62 @@ export async function deleteAllTerminalSessions(request: APIRequestContext): Pro
       }
     }
   } catch { /* dormant endpoint optional */ }
+}
+
+/**
+ * Reset the persisted per-project pane layout (`topics-project-panes-<hash>`)
+ * for `projectPath` to EMPTY.
+ *
+ * Why this exists: the e2e test DB persists across runs (DATA_DIR=/tmp/
+ * topics-test-data), and the project-panes sync channel is UNION-ADDITIVE on
+ * hydrate (projectLayoutSync — the GET hydrate re-adds server panes on every
+ * reload). So terminal panes opened by prior runs (or by a prior retry attempt)
+ * stay persisted under this key and get union-added back into a fresh page, so
+ * a test that opens N terminals sees N + <stale> tabs. Any test asserting an
+ * exact terminal-tab count on a shared project (e.g. /tmp) must clear this key
+ * first. The hash matches client `projectHash` in
+ * client/src/state/pane/adapters/projectLayoutSync.ts.
+ */
+export async function resetProjectPanes(
+  request: APIRequestContext,
+  projectPath: string,
+): Promise<void> {
+  await request.put(`${BASE}/api/ui-state/${projectPanesKey(projectPath)}`, {
+    data: { nonChatPanes: [], openChatTopicIds: [] },
+    ignoreHTTPSErrors: true,
+  });
+}
+
+/** Compute the persisted per-project pane-layout ui-state key for `projectPath`.
+ *  Must match client `projectHash` in
+ *  client/src/state/pane/adapters/projectLayoutSync.ts. */
+function projectPanesKey(projectPath: string): string {
+  let hash = 0;
+  for (let i = 0; i < projectPath.length; i++) {
+    hash = projectPath.charCodeAt(i) + ((hash << 5) - hash);
+    hash = hash & hash;
+  }
+  return `topics-project-panes-${Math.abs(hash).toString(36)}`;
+}
+
+/**
+ * Seed a project's INNER layout so `topicIds` render as OPEN chat tabs inside the
+ * project window. buildSidebarItems only lists a project's child chat when it has
+ * an open inner tab (or a notification/pin), and that inner layout is persisted
+ * server-side under `topics-project-panes-<hash>` and UNION-hydrated on every
+ * reload (projectLayoutSync) — so a fresh Playwright context (which has no
+ * localStorage) still picks it up. Needed for cross-window tests that must see a
+ * project's child chat in a second window without first opening it there by hand.
+ */
+export async function seedProjectInnerChats(
+  request: APIRequestContext,
+  projectPath: string,
+  topicIds: string[],
+): Promise<void> {
+  await request.put(`${BASE}/api/ui-state/${projectPanesKey(projectPath)}`, {
+    data: { nonChatPanes: [], openChatTopicIds: [...topicIds] },
+    ignoreHTTPSErrors: true,
+  });
 }
 
 // --- Cleanup helper ---

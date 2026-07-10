@@ -270,13 +270,14 @@ test.describe("Tab Notification Badges", () => {
     await page.locator(`[data-pane-id="${topicB.id}"]`).click();
   }
 
-  test("TAB-BADGE-10: agents pane badges on approval:created", async ({ page }) => {
+  test("TAB-BADGE-10: agents pane badges on agent:nudge", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-BADGE-10" });
     const ws = await interceptWebSocket(page);
     await goWithTwoTabsPlusExtra(page, "__agents__", "agents");
 
-    // B is focused; agents pane is inactive → should badge
-    ws.send({ type: "approval:created", projectId: "p1", approval: { id: "a1" } });
+    // B is focused; agents pane is inactive → should badge.
+    // useTabNotifications handles agent:nudge; approval:created only drives a browser push.
+    ws.send({ type: "agent:nudge", projectId: "p1", agentId: "a1" });
 
     const agentsTab = page.locator(`[data-pane-id="__agents__"]`);
     const badge = agentsTab.locator("span.rounded-full.bg-primary");
