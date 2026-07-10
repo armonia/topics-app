@@ -74,7 +74,10 @@ export interface BrowserService {
   createContext(id: string, opts?: { viewport?: { width: number; height: number }; persistCookies?: boolean }): Promise<void>;
   destroyContext(id: string): Promise<void>;
   getOrCreate(id: string): Promise<BrowserContextEntry>;
-  navigate(id: string, url: string): Promise<{ url: string; title: string }>;
+  /** `error` present when goto failed (refused connection, DNS, timeout…):
+   *  the page then still reports the PREVIOUS url/title, so callers must
+   *  surface the failure instead of treating the stale shape as success. */
+  navigate(id: string, url: string): Promise<{ url: string; title: string; error?: string }>;
   goBack(id: string): Promise<{ url: string; title: string }>;
   goForward(id: string): Promise<{ url: string; title: string }>;
   reload(id: string): Promise<void>;
@@ -586,9 +589,13 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
 
     async navigate(id, url) {
       const entry = await service.getOrCreate(id);
+      let navError: string | undefined;
       try {
         await entry.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
       } catch (err: any) {
+        // Don't swallow: the page is still on the previous URL, so returning
+        // the plain shape reads as success and the pane shows nothing.
+        navError = err?.message ? String(err.message).split('\n')[0] : 'Navigation failed';
         console.warn(`[BrowserService] Navigate warning for ${id}:`, err.message);
       }
       entry.url = entry.page.url();
@@ -603,7 +610,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           console.warn(`[BrowserService] onNavigate callback failed for ${id}:`, err.message);
         }
       }
-      return { url: entry.url, title: entry.title };
+      return navError
+        ? { url: entry.url, title: entry.title, error: navError }
+        : { url: entry.url, title: entry.title };
     },
 
     async goBack(id) {

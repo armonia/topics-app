@@ -19,6 +19,8 @@ interface RemoteBrowserState {
   connected: boolean;
   screenshotSrc: string | null;
   error: string | null;
+  /** URL whose navigation produced `error` — the Retry affordance re-sends it. */
+  errorUrl: string | null;
   connectionState: ConnectionState;
   lastClickPos: { x: number; y: number; t: number } | null;
   // Phase 30 BROWSER-CHAT-04 — agent lock + select-element state.
@@ -138,6 +140,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     connected: false,
     screenshotSrc: null,
     error: null,
+    errorUrl: null,
     connectionState: 'connecting',
     lastClickPos: null,
     agentActive: false,
@@ -175,7 +178,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     loadingWatchdogRef.current = setTimeout(() => {
       loadingWatchdogRef.current = null;
       if (!mountedRef.current) return;
-      setState(s => (s.loading ? { ...s, loading: false } : s));
+      // Lost completion signal: say so (BRW-REL-02) — silently flipping the
+      // spinner off left the pane looking idle on whatever page it had.
+      setState(s => (s.loading
+        ? { ...s, loading: false, error: 'Navigation timed out (no response from browser)', errorUrl: s.url || null }
+        : s));
     }, NAV_LOADING_TIMEOUT_MS);
   }, [clearLoadingWatchdog]);
   const lastScrollRef = useRef<number>(0);
@@ -288,7 +295,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     ws.onopen = () => {
       if (!mountedRef.current) return;
       updateConnectionState('connected');
-      setState(s => ({ ...s, error: null }));
+      // Don't clear `error` here: it's a NAVIGATION error now (BRW-REL-02),
+      // owned by navigate()/nav-response. Clearing on (re)connect let the WS
+      // retry churn wipe the strip milliseconds after a failed nav set it.
       if (fallbackTimerRef.current) {
         clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = null;
@@ -336,7 +345,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
           case 'nav':
             if (msg.phase === 'response') {
               clearLoadingWatchdog();
-              setState(s => ({ ...s, url: msg.url, loading: false }));
+              setState(s => ({ ...s, url: msg.url, loading: false, error: null, errorUrl: null }));
+            } else if (msg.phase === 'error') {
+              // Failed goto/launch: the page is still on the previous URL —
+              // surface the reason instead of silently clearing the spinner
+              // (BRW-REL-02). Cleared by the next successful nav/response.
+              clearLoadingWatchdog();
+              setState(s => ({ ...s, loading: false, error: msg.error || 'Navigation failed', errorUrl: msg.url }));
             }
             break;
           case 'console':
@@ -426,7 +441,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // --- Interaction handlers ---
 
   const navigate = useCallback((url: string) => {
-    setState(s => ({ ...s, loading: true, url }));
+    setState(s => ({ ...s, loading: true, url, error: null, errorUrl: null }));
     armLoadingWatchdog();
     markActive();
     if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
