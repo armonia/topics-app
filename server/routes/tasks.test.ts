@@ -181,4 +181,19 @@ describe("board router (human, project-scoped)", () => {
     const resp = (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/review`, { decision: "maybe" }))!;
     expect(resp.status).toBe(400);
   });
+
+  test("GET /api/all-boards/tasks is the global cross-project feed", async () => {
+    await call(router, "POST", "/api/boards/pX/tasks", { text: "in X" });
+    await call(router, "POST", "/api/boards/pY/tasks", { text: "in Y" });
+    const resp = (await call(router, "GET", "/api/all-boards/tasks"))!;
+    expect(resp.status).toBe(200);
+    const { tasks } = await resp.json();
+    expect(tasks.length).toBe(2);
+    expect(new Set(tasks.map((t: any) => t.projectId))).toEqual(new Set(["pX", "pY"]));
+    // status filter still applies across projects
+    await call(router, "PATCH", `/api/boards/pX/tasks/${tasks.find((t:any)=>t.projectId==='pX').id}`, { status: "done" });
+    const done = await (await call(router, "GET", "/api/all-boards/tasks?status=done"))!.json();
+    expect(done.tasks.length).toBe(1);
+    expect(done.tasks[0].projectId).toBe("pX");
+  });
 });

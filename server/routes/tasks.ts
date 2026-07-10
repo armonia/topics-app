@@ -58,7 +58,17 @@ export function createTasksRouter(ctx: AppContext): RouteHandler {
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped).
     const isSession = pathname.startsWith("/api/sessions/");
     const isBoard = pathname.startsWith("/api/boards/");
-    if (!isSession && !isBoard) return null;
+    const isAllBoards = pathname === "/api/all-boards/tasks";
+    if (!isSession && !isBoard && !isAllBoards) return null;
+
+    // GET /api/all-boards/tasks — the global cross-project feed (human overview).
+    // Read-only: per-task mutations still go to /api/boards/:projectId/... using
+    // each task's own projectId.
+    if (isAllBoards && method === "GET") {
+      const status = new URL(req.url).searchParams.get("status") || undefined;
+      try { return json({ tasks: svc.list({ scope: "all", status: status as any }) }); }
+      catch (e) { return fail(e); }
+    }
 
     // ── Human board API (project-scoped, actor="human") ─────────────────────
     // The board UI knows its projectId and drives these directly. A human MAY

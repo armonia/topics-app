@@ -100,6 +100,13 @@ const enc = encodeURIComponent;
 export const boardApi = {
   list: (projectId: string, status?: TaskStatus) =>
     req<{ tasks: BoardTask[] }>(`/boards/${enc(projectId)}/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
+  /**
+   * The global cross-project feed (GET /api/all-boards/tasks). Read-only list;
+   * each task carries its own `projectId`, so per-task mutations route back
+   * through the normal project-scoped endpoints via that id.
+   */
+  listAll: (status?: TaskStatus) =>
+    req<{ tasks: BoardTask[] }>(`/all-boards/tasks${status ? `?status=${status}` : ''}`).then(r => r.tasks),
   create: (projectId: string, body: CreateTaskBody) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
   get: (projectId: string, taskId: string) =>

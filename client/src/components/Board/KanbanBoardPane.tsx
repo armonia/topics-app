@@ -27,6 +27,8 @@ const PRIORITY_DOT: Record<number, string> = {
 
 export function KanbanBoardPane({ projectPath, onMessage }: Props) {
   const projectId = useMemo(() => boardIdForPath(projectPath), [projectPath]);
+  // 'project' = this project only · 'all' = the global cross-project board.
+  const [mode, setMode] = useState<'project' | 'all'>('project');
   const [tasks, setTasks] = useState<BoardTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,27 +36,28 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
 
   const refetch = useCallback(async () => {
     try {
-      setTasks(await boardApi.list(projectId));
+      setTasks(mode === 'all' ? await boardApi.listAll() : await boardApi.list(projectId));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load board');
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, mode]);
 
   useEffect(() => { setLoading(true); refetch(); }, [refetch]);
 
-  // Live updates: refetch on any task:* event for this project.
+  // Live updates. In 'all' mode any task event is relevant; in 'project' mode
+  // only events for this project (or project-less broadcasts) trigger a refetch.
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg) => {
       const t = (msg as any)?.type as string | undefined;
       if (t === 'task:created' || t === 'task:updated' || t === 'task:deleted') {
-        if ((msg as any).projectId === undefined || (msg as any).projectId === projectId) refetch();
+        if (mode === 'all' || (msg as any).projectId === undefined || (msg as any).projectId === projectId) refetch();
       }
     });
-  }, [onMessage, projectId, refetch]);
+  }, [onMessage, projectId, refetch, mode]);
 
   const byStatus = useMemo(() => {
     const m: Record<TaskStatus, BoardTask[]> = { backlog: [], todo: [], in_progress: [], review: [], done: [] };
@@ -70,9 +73,11 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
   const moveTo = useCallback(async (task: BoardTask, status: TaskStatus) => {
     if (task.status === status) return;
     patchLocal(task.id, { status }); // optimistic
-    try { await boardApi.update(projectId, task.id, { status }); }
+    // Route by the task's OWN projectId so this works identically in the global
+    // ('all') board, where cards come from many projects.
+    try { await boardApi.update(task.projectId, task.id, { status }); }
     catch (e) { setError(e instanceof Error ? e.message : 'update failed'); refetch(); }
-  }, [projectId, patchLocal, refetch]);
+  }, [patchLocal, refetch]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -100,6 +105,18 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
+      {/* Scope toggle: this project vs. the global cross-project board. */}
+      <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-3 py-1.5">
+        <button
+          onClick={() => setMode('project')}
+          className={`rounded px-2 py-0.5 text-xs ${mode === 'project' ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+        >Questo progetto</button>
+        <button
+          onClick={() => setMode('all')}
+          className={`rounded px-2 py-0.5 text-xs ${mode === 'all' ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+        >Tutti i progetti</button>
+        {mode === 'all' && <span className="ml-auto text-[11px] text-neutral-500">board generale · {tasks.length} task</span>}
+      </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
         <div className="flex h-full gap-3 overflow-x-auto p-3">
@@ -110,7 +127,8 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
               tasks={byStatus[status]}
               onOpen={setSelectedId}
               onCreate={(text) => create(status, text)}
-              projectId={projectId}
+              canCreate={mode === 'project'}
+              showProject={mode === 'all'}
               onError={setError}
               onRefetch={refetch}
             />
@@ -129,7 +147,7 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
       </DndContext>
       {selected && (
         <TaskDetail
-          projectId={projectId}
+          projectId={selected.projectId}
           taskId={selected.id}
           onClose={() => setSelectedId(null)}
           onChanged={refetch}
@@ -140,9 +158,9 @@ export function KanbanBoardPane({ projectPath, onMessage }: Props) {
 }
 
 // ── Column ────────────────────────────────────────────────────────────────
-function Column({ status, tasks, onOpen, onCreate, projectId, onError, onRefetch }: {
+function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: (id: string) => void; onCreate: (text: string) => void;
-  projectId: string; onError: (e: string) => void; onRefetch: () => void;
+  canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -157,9 +175,9 @@ function Column({ status, tasks, onOpen, onCreate, projectId, onError, onRefetch
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
         {tasks.map((t) => (
-          <Card key={t.id} task={t} onOpen={onOpen} projectId={projectId} onError={onError} onRefetch={onRefetch} />
+          <Card key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} />
         ))}
-        {adding ? (
+        {!canCreate ? null : adding ? (
           <div className="rounded-md border border-white/10 bg-white/5 p-2">
             <textarea
               autoFocus value={text} onChange={(e) => setText(e.target.value)}
@@ -182,8 +200,8 @@ function Column({ status, tasks, onOpen, onCreate, projectId, onError, onRefetch
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────
-function Card({ task, onOpen, projectId, onError, onRefetch }: {
-  task: BoardTask; onOpen: (id: string) => void; projectId: string;
+function Card({ task, onOpen, showProject, onError, onRefetch }: {
+  task: BoardTask; onOpen: (id: string) => void; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void;
 }) {
   // Visual drag is handled by the board-level DragOverlay, so the source card
@@ -191,14 +209,17 @@ function Card({ task, onOpen, projectId, onError, onRefetch }: {
   // column's overflow before).
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
 
+  // Route mutations by the task's own projectId (works in the global board too).
   const review = async (decision: 'approve' | 'reject') => {
-    try { await boardApi.review(projectId, task.id, decision); onRefetch(); }
+    try { await boardApi.review(task.projectId, task.id, decision); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'review failed'); }
   };
   const archive = async () => {
-    try { await boardApi.archive(projectId, task.id); onRefetch(); }
+    try { await boardApi.archive(task.projectId, task.id); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'archive failed'); }
   };
+  // Human-readable project label = the dirName prefix before the id hash.
+  const projectLabel = task.projectId.replace(/-[^-]+$/, '');
 
   return (
     <div
@@ -213,7 +234,8 @@ function Card({ task, onOpen, projectId, onError, onRefetch }: {
           <Trash2 className="h-3.5 w-3.5 text-neutral-500 hover:text-rose-400" />
         </button>
       </div>
-      <div className="mt-1.5 flex items-center gap-2 pl-4">
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-4">
+        {showProject && <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">{projectLabel}</span>}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
       </div>
       {task.status === 'review' && (
