@@ -257,7 +257,7 @@ export async function dispatchBrowserToolCallByContext(
       return nativeVisionOp(toolName, args, contextId);
     }
     // Login-state ops split across the seam the same way: handle persistence
-    // (Topics + Jarvis stores) and Chrome Keychain decryption stay server-side,
+    // (Topics + external stores) and Chrome Keychain decryption stay server-side,
     // only the pane-local cookie/localStorage legs are delegated.
     if (isNativeStateOp(toolName)) {
       return nativeStateOp(toolName, args, contextId);
@@ -294,7 +294,7 @@ export async function dispatchBrowserToolCallByContext(
       return handleBrowserSaveState(browserService, contextId, args as { handle?: string });
     case "browser_load_state":
       // Args validated by handler
-      return handleBrowserLoadState(browserService, contextId, args as { handle?: string; from_jarvis?: boolean });
+      return handleBrowserLoadState(browserService, contextId, args as { handle?: string; from_external?: boolean; from_jarvis?: boolean });
     case "browser_screenshot":
       // Args validated by handler
       return handleBrowserScreenshot(browserService, contextId, args as { full_page?: boolean });

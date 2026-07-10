@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.1.6"
+version = "2.1.7"
 description = "Topics — low-footprint desktop shell (Tauri)"
 authors = ["Armonia <hi@armonia.io>"]
 license = "MIT"
@@ -78,7 +78,7 @@ block = "0.1"
 # post UNNotificationRequests ourselves and request authorization at setup.
 # Versions pin the objc2 stack already in the tree (transitive from tauri/wry).
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSError"] }
+objc2-foundation = { version = "0.3", features = ["NSBundle", "NSString", "NSError", "NSData"] }
 block2 = "0.6"
 objc2-user-notifications = { version = "0.3", features = [
     "UNUserNotificationCenter",

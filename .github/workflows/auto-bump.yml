@@ -1,0 +1,64 @@
+name: Auto-bump patch
+
+# Every push to main auto-increments the PATCH (the z in x.y.z) in lockstep
+# across package.json / tauri.conf.json / Cargo.toml and commits it back, so the
+# repo version is always ahead of the last shipped one without a manual
+# chore(release) step.
+#
+# Loop safety: the bump commit itself starts with "chore(release):" (and carries
+# [skip-bump]), so the `if` below skips it — the workflow never bumps its own
+# bump. (The default GITHUB_TOKEN also cannot trigger another workflow run, a
+# second layer of protection.)
+#
+# Shipping to users (optional): if a repo secret RELEASE_PAT is set, the new
+# version is also tagged `tauri-v<version>`, which triggers tauri-release.yml to
+# build the installers + updater manifest — so every merge auto-updates everyone.
+# Without the PAT the version still bumps; only the installer build stays manual
+# (the default token can't fire the tag-triggered release workflow).
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: auto-bump-main
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: >-
+      !startsWith(github.event.head_commit.message, 'chore(release):')
+      && !contains(github.event.head_commit.message, '[skip-bump]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          # A PAT (if present) lets the pushed tag trigger tauri-release.yml;
+          # otherwise fall back to the built-in token (bump + commit only).
+          token: ${{ secrets.RELEASE_PAT || github.token }}
+
+      - name: Bump patch across lockstep files
+        id: bump
+        run: echo "version=$(bash scripts/bump-version.sh patch)" >> "$GITHUB_OUTPUT"
+
+      - name: Commit the bump back to main
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): bump v${VERSION} [skip-bump]"
+          git push origin "HEAD:${BRANCH}"
+
+      - name: Tag → trigger release (only when a PAT can fire it)
+        if: ${{ env.RELEASE_PAT != '' }}
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git tag "tauri-v${VERSION}"
+          git push origin "tauri-v${VERSION}"

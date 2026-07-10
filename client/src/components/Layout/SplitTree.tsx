@@ -23,6 +23,7 @@
  */
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { type LayoutNode, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
+import { gapHasDivider } from './splitDivider';
 
 export interface SplitTreeProps {
   node: LayoutNode;
@@ -73,13 +74,21 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
       }}
     >
       {node.children.map((child, i) => {
+        // Only a gap BETWEEN two visible (weight > 0) siblings carries a
+        // divider. A dedup'd/placeholder cell collapses to weight 0 (see
+        // buildShallowGridTree's `__skip:` leaves): rendering a divider next to
+        // a zero-width cell puts a dead, zero-width grab strip ON TOP of the
+        // adjacent real divider's band — the real resizer then reads as "lost"
+        // (unhittable). `dividerIdx` stays `i - 1` so it still maps onto the
+        // host's full weight band (which includes the zero entry).
+        const showGap = gapHasDivider(node.children, i);
         // A host-supplied divider takes precedence; it returns null to defer to
         // the built-in one. The host gets (path, dividerIdx=i-1, dir) so it can
         // map the gap back to its own model (e.g. legacy rowIdx/colIdx).
-        const custom = i > 0 && renderDivider ? renderDivider({ path, dividerIdx: i - 1, dir: node.dir }) : null;
+        const custom = showGap && renderDivider ? renderDivider({ path, dividerIdx: i - 1, dir: node.dir }) : null;
         return (
           <React.Fragment key={keyFor(child.node, i)}>
-            {i > 0 && (custom ?? (
+            {showGap && (custom ?? (
               <Divider
                 dir={node.dir}
                 gutter={gutter}

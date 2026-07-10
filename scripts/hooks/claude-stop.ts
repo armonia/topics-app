@@ -25,7 +25,6 @@
 import { appendFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { spawn } from "node:child_process";
 
 const TOPICS_HOME = process.env.TOPICS_HOME || join(homedir(), ".topics");
 const EVENTS_PATH = join(TOPICS_HOME, "events.jsonl");
@@ -62,26 +61,6 @@ function readStdin(): Promise<string> {
   });
 }
 
-function postDarwinNotification(severity: Severity, payload: ClaudeStopPayload) {
-  // macOS: post a DistributedNotification the Topics tray subscribes to.
-  // We use `osascript` for a user-visible notification too, but the
-  // distributed notification is the cheap real-time channel.
-  if (process.platform !== "darwin") return;
-  const title = severity === "P0" ? "Topics · Blocker"
-              : severity === "P1" ? "Topics · Awaiting Review"
-              : "Topics";
-  const message = payload.reason || (payload.cwd ? `in ${payload.cwd}` : "Session update");
-  const sound = severity === "P0" ? "Funk" : "";
-  const script = sound
-    ? `display notification ${JSON.stringify(message)} with title ${JSON.stringify(title)} sound name ${JSON.stringify(sound)}`
-    : `display notification ${JSON.stringify(message)} with title ${JSON.stringify(title)}`;
-  try {
-    spawn("/usr/bin/osascript", ["-e", script], { detached: true, stdio: "ignore" }).unref();
-  } catch {
-    // Non-fatal: notification is best-effort.
-  }
-}
-
 async function main() {
   try {
     const raw = await readStdin();
@@ -105,9 +84,11 @@ async function main() {
     };
     appendFileSync(EVENTS_PATH, JSON.stringify(event) + "\n");
 
-    if (severity === "P0" || severity === "P1") {
-      postDarwinNotification(severity, payload);
-    }
+    // No user-visible banner from here anymore: appending to events.jsonl is the
+    // whole job. The Topics app watches this file (server claude-events-watcher →
+    // WS "claude-event" → client), and shows the P0/P1 banner via its native
+    // notification path — so the hook no longer shells out to `osascript`
+    // (which was triggering a macOS "control iTunes/Music" Automation prompt).
 
     process.exit(0);
   } catch (err: any) {

@@ -37,7 +37,7 @@ export interface ClaudeCodeProviderConfig {
 
 // ============ Constants ============
 
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+const DEFAULT_MODEL = "claude-sonnet-5";
 const DEFAULT_PERMISSION_MODE = "bypassPermissions";
 
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;   // 15 min
@@ -940,10 +940,15 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   async listModels(): Promise<string[]> {
+    // Current models the installed CLI accepts (aliases `opus`/`sonnet`/`haiku`/
+    // `fable` resolve to these). Full names, not aliases, to match the other
+    // providers' id lists and the token-based fast-models/snapshot guard.
+    // THIS is the single list to update when Anthropic ships new model names.
     const all = [
-      "claude-sonnet-4-6",
-      "claude-opus-4-7",
+      "claude-opus-4-8",
+      "claude-sonnet-5",
       "claude-haiku-4-5",
+      "claude-fable-5",
     ];
     // Surface the configured model first so the snapshot's effective default
     // (clients use models[0]) reflects the user's settings.json choice. We

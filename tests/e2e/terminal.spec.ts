@@ -5,8 +5,23 @@ import {
   deleteTopic,
   listTerminalSessions,
   deleteTerminalSession,
+  deleteAllTerminalSessions,
+  resetProjectPanes,
 } from "./helpers/api-fixtures";
 import { goToApp } from "./helpers";
+
+// The e2e DB persists across runs (DATA_DIR=/tmp/topics-test-data) and the
+// per-project pane channel is union-additive on hydrate, so terminal panes
+// opened by a prior run — or a prior RETRY of the same test — stay persisted
+// under /tmp's `topics-project-panes-<hash>` key and are re-added into a fresh
+// page. That made TERM-01 pick up a DEAD stale pane (empty → no prompt) and
+// TERM-04 count 3–6 tabs instead of 2. Reset the shared /tmp project layout +
+// kill all live sessions before EVERY test in this file so each starts from a
+// known-empty terminal state (retry-safe: beforeEach re-runs on each attempt).
+test.beforeEach(async ({ request }) => {
+  await deleteAllTerminalSessions(request);
+  await resetProjectPanes(request, "/tmp");
+});
 
 test.describe.serial("Terminal", () => {
   // Use /tmp which always exists. On macOS, /tmp symlinks to /private/tmp.
@@ -223,9 +238,11 @@ test.describe.serial("Terminal", () => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
     await navigateAndOpenTerminal(page, terminalPage);
 
-    // Locate the Shell tab in the pane tab bar
+    // Locate the Shell tab in the pane tab bar. Post-redesign the shell tab is
+    // auto-named basename(cwd) (server/routes/terminal.ts:1019-1022), never "Shell",
+    // so match by the terminal pane-tab testid instead of the literal title.
     const tabBar = page.locator('[data-testid="panel-tab-bar"]').last();
-    const shellTab = tabBar.locator("div").filter({ hasText: /^Shell$/ }).first();
+    const shellTab = tabBar.locator('[data-testid^="pane-tab-terminal:"]').first();
     await expect(shellTab).toBeVisible();
 
     // Hover over the Shell tab to reveal the close button
@@ -320,10 +337,22 @@ test.describe("Terminal Reconnect", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
     // Set up WS interception BEFORE navigation to capture terminal WS connections
-    const serverConnections: { close: () => void }[] = [];
+    type WsRoute = {
+      close: (options?: { code?: number; reason?: string }) => void | Promise<void>;
+    };
+    const serverConnections: WsRoute[] = [];
+    // We drive the disconnect from the CLIENT side (below), so keep the page-
+    // side routes too. Closing the SERVER route does not reliably surface a
+    // close event to the browser's WebSocket under Playwright's proxy (the
+    // custom close code isn't propagated), so the client never sees the drop
+    // and never reconnects. Closing the CLIENT route makes the page's socket
+    // fire `onclose` with our non-1000 code — exactly a real network drop —
+    // which is what SingleTerminalPane's auto-reconnect keys off.
+    const clientConnections: WsRoute[] = [];
     await page.routeWebSocket(/\/ws\/terminal\//, (ws) => {
       const server = ws.connectToServer();
       serverConnections.push(server);
+      clientConnections.push(ws);
       // Transparent proxy — pass through all messages
       ws.onMessage((msg) => server.send(msg));
       server.onMessage((msg) => ws.send(msg));
@@ -389,9 +418,11 @@ test.describe("Terminal Reconnect", () => {
     const connectionsBefore = serverConnections.length;
     expect(connectionsBefore).toBeGreaterThanOrEqual(1);
 
-    // Trigger disconnect by closing the server-side connection
-    const lastServer = serverConnections[serverConnections.length - 1];
-    lastServer.close();
+    // Trigger disconnect by closing the CLIENT-side connection with a non-1000
+    // code. Code 1000 is treated as a clean PTY-exit and the client will NOT
+    // reconnect (SingleTerminalPane.tsx:376-382); 1001 forces auto-reconnect.
+    const lastClient = clientConnections[clientConnections.length - 1];
+    await lastClient.close({ code: 1001, reason: "e2e-disconnect" });
 
     // Wait for client to auto-reconnect — a new server connection should appear
     await expect(async () => {
@@ -514,7 +545,7 @@ test.describe("Terminal Multi-Instance", () => {
     // Terminal panes have title "Shell" and show in the last panel-tab-bar
     const tabBar = page.locator('[data-testid="panel-tab-bar"]').last();
     // Each pane tab is a div containing a span with the pane title; filter those with "Shell"
-    const shellTabs = tabBar.locator('div').filter({ hasText: /^Shell$/ });
+    const shellTabs = tabBar.locator('[data-testid^="pane-tab-terminal:"]');
     await expect(shellTabs).toHaveCount(2, { timeout: 5000 });
 
     // Switch to terminal 1 by clicking the first Shell tab

@@ -160,6 +160,14 @@ function flushNowKeepalive(): void {
     clearTimeout(timer);
     timer = null;
   }
+  // Same boot-time hydrate guard as the debounced PUT (initServerSync) and
+  // flushPaneStoreNow: until the server has hydrated us, the store is the
+  // empty default (or a warm local-snapshot) and is NOT authoritative. A
+  // teardown that fires pre-hydrate — a fast reload/nav storm, or a page that
+  // closes before the WS `ui-state:init` lands — would otherwise PUT that
+  // empty snapshot and clobber the server's good copy (the exact reload-storm
+  // pathology the debounce guard fixed, minus this path). Skip the flush.
+  if (!hasReceivedServerHydrate()) return;
   const snap = selectSyncableSnapshot(usePaneStore.getState());
   void (async () => {
     try {
@@ -196,6 +204,9 @@ function flushNowBeacon(): void {
     clearTimeout(timer);
     timer = null;
   }
+  // Same boot-time hydrate guard as flushNowKeepalive — a pre-hydrate pagehide
+  // must not beacon the empty default store over the server's authoritative copy.
+  if (!hasReceivedServerHydrate()) return;
   const snap = selectSyncableSnapshot(usePaneStore.getState());
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
     try {

@@ -200,11 +200,11 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
     name: "browser_save_state",
     description:
-      "Export this pane's authenticated state (cookies + localStorage) under a handle — a PORTABLE login cache that browser_load_state and Jarvis can reuse. Save right after a login while still ON the site; pass extra `origins` for token-in-localStorage SPAs (Firebase/Supabase/Auth0).",
+      "Export this pane's authenticated state (cookies + localStorage) under a handle — a PORTABLE login cache that browser_load_state and a configured external browser tool can reuse. Save right after a login while still ON the site; pass extra `origins` for token-in-localStorage SPAs (Firebase/Supabase/Auth0).",
     schema: {
       type: "object",
       properties: {
-        handle: { type: "string", description: "Name to store the login under (reusable here and by Jarvis)." },
+        handle: { type: "string", description: "Name to store the login under (reusable here and by an external browser tool)." },
       },
       required: ["handle"],
     },
@@ -213,12 +213,12 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
     name: "browser_load_state",
     description:
-      "Seed this pane from a saved login handle (injects cookies + localStorage, then returns to the page — now logged in). Reuse an existing local login cache without re-authenticating. Set from_jarvis:true to load a handle saved by a Jarvis browser session.",
+      "Seed this pane from a saved login handle (injects cookies + localStorage, then returns to the page — now logged in). Reuse an existing local login cache without re-authenticating. Set from_external:true to load a handle saved by a configured external browser tool.",
     schema: {
       type: "object",
       properties: {
         handle: { type: "string", description: "A saved login handle to inject." },
-        from_jarvis: { type: "boolean", description: "Load from a Jarvis-saved state of this handle." },
+        from_external: { type: "boolean", description: "Load from an external browser tool's saved state of this handle." },
       },
       required: ["handle"],
     },

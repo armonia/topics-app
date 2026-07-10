@@ -1066,6 +1066,44 @@ fn notify(app: tauri::AppHandle, title: String, body: String) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
+/// Write a PNG image to the system clipboard natively via `NSPasteboard`.
+///
+/// Replaces the server-side `osascript 'set the clipboard to (read … as
+/// «class PNGf»)'` path used by terminal image-paste, which was firing a macOS
+/// "control iTunes/Music" Automation prompt. This sends no Apple Events — it
+/// talks to AppKit's pasteboard directly — so the prompt is gone. The client
+/// calls this under Tauri; the plain web build uses `navigator.clipboard`.
+#[tauri::command]
+fn set_clipboard_image(bytes: Vec<u8>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::{class, msg_send, runtime::AnyObject};
+        use objc2_foundation::{NSData, NSString};
+        if bytes.is_empty() {
+            return Err("empty image".into());
+        }
+        unsafe {
+            let data = NSData::with_bytes(&bytes);
+            let ty = NSString::from_str("public.png");
+            let pb: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
+            if pb.is_null() {
+                return Err("no general pasteboard".into());
+            }
+            let _: () = msg_send![pb, clearContents];
+            let ok: bool = msg_send![pb, setData: &*data, forType: &*ty];
+            if !ok {
+                return Err("NSPasteboard setData failed".into());
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = bytes;
+        Err("clipboard image write is macOS-only".into())
+    }
+}
+
 /// One attention row for the dynamic tray menu: a chat topic needing the user,
 /// clickable to jump straight to it (Electron parity: the tray listed unread
 /// topics that navigate on click).
@@ -5312,6 +5350,7 @@ pub fn run() {
             set_traffic_lights,
             set_theme,
             notify,
+            set_clipboard_image,
             set_app_status,
             vibrancy_set_regions,
             vibrancy_animate_regions,

@@ -112,16 +112,18 @@ export function recomputeDefault(): boolean {
   const currentOk = _defaultName && _providers.get(_defaultName)?.connected === true;
   if (currentOk) return false;
 
-  // Preference order — prefer self-contained providers (claude SDK / openai)
-  // before CLI-pool providers and finally openclaw, so a flaky gateway
-  // never silently becomes the default chat target. openclaw stays available
-  // for users who explicitly select it on a topic; this only changes the
-  // *fallback* picked when the previous default is offline.
+  // Preference order — subscription-first: prefer the providers whose usage is
+  // included in the user's Claude/ChatGPT subscription (the local `claude-code`
+  // and `codex` CLIs) over the metered API-key paths (`claude` SDK, `openai`),
+  // and keep `openclaw` last so a flaky gateway never silently becomes the
+  // default chat target. This only picks the *fallback* default when the
+  // previous one is offline; an explicit `AI_PROVIDER` env and per-topic
+  // `provider` always win over this order.
   const PROVIDER_PREFERENCE_ORDER = [
-    "claude",
-    "openai",
     "claude-code",
     "codex",
+    "claude",
+    "openai",
     "openclaw",
   ];
   const preferred = PROVIDER_PREFERENCE_ORDER.find(

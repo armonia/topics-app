@@ -1,5 +1,6 @@
 import { test as base, type Page } from "@playwright/test";
 import { goToApp } from "../helpers";
+import { resetPaneStore, seedProjectPane } from "../helpers/api-fixtures";
 
 export class FileExplorerPage {
   constructor(private page: Page) {}
@@ -14,6 +15,18 @@ export class FileExplorerPage {
    * 4. Waiting for the file tree to become visible
    */
   async gotoProject(projectPath: string, topicName?: string | RegExp) {
+    // Clear panes leaked by earlier specs (the shared pane-store-v2 UNIONs in
+    // on hydrate) so only OUR project pane tiles, THEN seed OUR project pane.
+    // The tab-driven sidebar only surfaces a project row while its pane is open
+    // (`hasProjectTab`) or a child topic has an open tab — but this spec's topic
+    // is PROJECT-LINKED, and usePanelLifecycle purges project-linked topic ids
+    // from the open set (they live INSIDE the project window), so seeding the
+    // child topic never surfaces the row. Seed the `project:<path>` pane itself,
+    // exactly like the UI does when you open a project. Note: a single open
+    // project still legitimately renders two file trees (sidebar + files pane) —
+    // the `fileTree` getter scopes to the first to stay strict-mode safe.
+    await resetPaneStore(this.page.request, []).catch(() => {});
+    await seedProjectPane(this.page.request, projectPath).catch(() => {});
     await goToApp(this.page);
 
     // Expand the Projects section if collapsed
@@ -57,7 +70,11 @@ export class FileExplorerPage {
   // --- File Tree ---
 
   get fileTree() {
-    return this.page.locator('[data-testid="file-tree"]');
+    // A project window shows TWO legitimate file trees: the ProjectSidebar's
+    // compact tree AND the ProjectWindow's `files` pane tree — both carry
+    // data-testid="file-tree". Scope to the first so the locator is strict-safe;
+    // both are fully interactive (same component, same context menu).
+    return this.page.locator('[data-testid="file-tree"]').first();
   }
 
   getTreeItem(name: string) {

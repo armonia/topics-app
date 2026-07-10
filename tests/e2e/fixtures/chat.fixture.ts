@@ -8,7 +8,12 @@ export class ChatPage {
   }
 
   get messageList() {
-    return this.page.locator('[data-testid="chat-message-list"]');
+    // react-virtuoso (4.18.1) does NOT forward the data-testid prop passed to
+    // <Virtuoso>, so [data-testid="chat-message-list"] never exists. The real
+    // scrolling element is Virtuoso's internal scroller, tagged with the
+    // [data-virtuoso-scroller] attribute (same one chat.spec's scroll-to-bottom
+    // test targets). It only exists once the list is non-empty (Virtuoso mounts).
+    return this.page.locator("[data-virtuoso-scroller]").first();
   }
 
   get streamingIndicator() {

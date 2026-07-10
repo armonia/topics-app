@@ -12,6 +12,7 @@ import { goToApp, openTopic } from "./helpers";
 import {
   createTopic,
   deleteTopic,
+  resetPaneStore,
 } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { dndReorder } from "./helpers/dnd-helpers";
@@ -225,11 +226,22 @@ test.describe("Topic Management - Settings & Organization", () => {
 
   test("TOPIC-09: project folder expand and collapse", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
+    // Default sidebar viewMode is 'timeline' → no section-header buttons. Seed
+    // grouped view so the collapsible section headers render (beforeAll creates
+    // 3 chats, so the Chats section exists).
+    await page.addInitScript(() => localStorage.setItem('topics-sidebar-state', JSON.stringify({ viewMode: 'grouped', expandedNodes: [], showArchived: false, pinnedItems: [] })));
+    // useSidebarState fetches the server `sidebar-state` on mount and OVERRIDES
+    // the localStorage seed above (isFromServerRef). The shared test DB usually
+    // holds a `timeline` value, so seed grouped on the SERVER too — otherwise no
+    // section headers render and the "Chats section" button never appears.
+    await page.request.put("http://localhost:13334/api/ui-state/sidebar-state", {
+      data: { viewMode: "grouped", showArchived: false, expandedNodes: [], pinnedItems: [] },
+    });
     await goToApp(page);
 
-    // Locate the Projects section button
+    // Locate the Chats section button
     const projectsBtn = page
-      .getByRole("button", { name: /Projects/ })
+      .getByRole("button", { name: /Chats section/ })
       .first();
     await expect(projectsBtn).toBeVisible({ timeout: 10000 });
 
@@ -280,6 +292,15 @@ test.describe("Topic Management - Settings & Organization", () => {
     // Intercept WebSocket BEFORE page.goto() — keeps real connection alive + allows injection
     const ws = await interceptWebSocket(page);
 
+    // Reset the authoritative pane-store to EXACTLY [alpha, beta] so hydrate yields
+    // a clean two-tab layout (one active). In the accumulated shared-DB state Alpha
+    // could hydrate as an open/visible pane (or a split alongside Beta) — and the
+    // client suppresses the unread badge for a topic whose pane is currently shown,
+    // so the injected unread:updated would never paint. With this reset, clicking
+    // Beta activates Beta and leaves Alpha an INACTIVE tab (still a sidebar row),
+    // which is the precondition the badge assertion needs.
+    await resetPaneStore(page.request, [alphaId, betaId]).catch(() => {});
+
     // Navigate to the app
     await goToApp(page);
 
@@ -309,8 +330,10 @@ test.describe("Topic Management - Settings & Organization", () => {
     const alphaTopic = page.getByRole("treeitem", { name: new RegExp(`E2E-Alpha-${TS}`) });
     await alphaTopic.waitFor({ state: "visible", timeout: 10000 });
 
-    // The unread badge shows the count inside a styled span
-    const badge = alphaTopic.locator("span").filter({ hasText: "3" });
+    // The unread badge shows the count inside a styled span. Target by aria-label
+    // (NotificationBadge renders aria-label=`${count} unread`) — the broad
+    // span+hasText:"3" also matched the topic-name span (strict-mode violation).
+    const badge = alphaTopic.locator('span[aria-label="3 unread"]');
     await expect(badge).toBeVisible({ timeout: 5000 });
   });
 
@@ -343,10 +366,11 @@ test.describe("Topic Management - Settings & Organization", () => {
     const betaAfterColor = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
     await betaAfterColor.click();
 
-    // Verify accent border color: #059669 = rgb(5, 150, 105)
-    const accentBorder = betaAfterColor.locator('div[style*="background"]').first();
+    // Verify topic color: #059669 = rgb(5, 150, 105). Post-redesign the color
+    // lives on the TopicIcon svg via inline style, not a colored accent div.
+    const accentBorder = betaAfterColor.locator('svg[style*="color"]').first();
     await expect(accentBorder).toBeVisible({ timeout: 5000 });
-    await expect(accentBorder).toHaveCSS("background-color", "rgb(5, 150, 105)");
+    await expect(accentBorder).toHaveCSS("color", "rgb(5, 150, 105)");
 
     // Reload and verify persistence
     await page.reload();
@@ -355,12 +379,15 @@ test.describe("Topic Management - Settings & Organization", () => {
 
     // Click to focus again to show the accent border
     await betaAfterReload.click();
-    const accentAfterReload = betaAfterReload.locator('div[style*="background"]').first();
+    const accentAfterReload = betaAfterReload.locator('svg[style*="color"]').first();
     await expect(accentAfterReload).toBeVisible({ timeout: 5000 });
-    await expect(accentAfterReload).toHaveCSS("background-color", "rgb(5, 150, 105)");
+    await expect(accentAfterReload).toHaveCSS("color", "rgb(5, 150, 105)");
   });
 
-  test("TOPIC-12: drag-reorder using dnd-helpers persists across reload", async ({
+  // Manual topic drag-reorder was dropped in the redesign (no DndContext / no
+  // /api/topics/reorder client call). Skipped as removed-feature; restore
+  // verbatim if reorder is re-wired.
+  test.skip("TOPIC-12: drag-reorder using dnd-helpers persists across reload", async ({
     page, request,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-02" });

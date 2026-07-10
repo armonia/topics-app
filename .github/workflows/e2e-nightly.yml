@@ -1,0 +1,71 @@
+name: E2E nightly (full suite)
+
+# The full Playwright suite — including the heavy/perf/network/two-window and
+# reload-persistence specs that ci.yml's PR gate skips (E2E_TIER=pr). Runs on a
+# schedule so those keep real coverage without blocking every PR, plus on-demand
+# via the Actions "Run workflow" button. Sharded for a reasonable turnaround.
+on:
+  schedule:
+    - cron: "17 3 * * *" # 03:17 UTC daily (off-peak, off the :00 mark)
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-full:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (node-pty native bridge used by the server)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      - name: Build client
+        run: bun run build:client
+
+      - name: Install Playwright browsers (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Resolve Chromium path (Linux)
+        id: chromium
+        run: |
+          bin="$(find "$HOME/.cache/ms-playwright" -maxdepth 3 -type f -name chrome -path '*chrome-linux*' | sort -V | tail -1)"
+          test -x "$bin"
+          echo "path=$bin" >> "$GITHUB_OUTPUT"
+
+      # No E2E_TIER → the FULL suite (nothing ignored, @nightly tests included).
+      - name: Run E2E tests (Playwright, full)
+        run: npx playwright test --shard=${{ matrix.shard }}/4
+        env:
+          CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-nightly-shard-${{ matrix.shard }}
+          path: test-results/html-report
+          retention-days: 7

@@ -116,7 +116,7 @@ export interface UsePaneLifecycleArgs {
   /** Returns the new pane id (or null on failure) so handleAddPane can route
    *  the pane into the split cell whose "+" was clicked. Legacy void-returning
    *  callers stay assignable. */
-  onCreateTerminal?: (type: 'shell' | 'claude-code' | 'codex', skipPermissions?: boolean) => void | Promise<string | null>;
+  onCreateTerminal?: (type: 'shell' | 'claude-code' | 'codex' | 'opencode', skipPermissions?: boolean) => void | Promise<string | null>;
   /** Merge a pane into this group's split cell (PanelGrid.handleMergeIntoCell).
    *  Used by handleAddPane when `gridItemKey` is a solo cell — without it a
    *  pane created from a split cell's "+" lands in the main standalone pool. */

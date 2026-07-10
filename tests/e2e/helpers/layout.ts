@@ -1,6 +1,6 @@
 /**
  * Layout / tab-bar test helpers shared across grid-split, layout-edge-cases,
- * regression-fixes, split-screen-sync, and tab-drag-regression specs.
+ * regression-fixes, and split-screen-sync specs.
  *
  * Extracted from four near-identical copies (see git history) — keep this
  * the single source for these three so future specs don't re-fork them.
