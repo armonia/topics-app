@@ -1,7 +1,7 @@
 import { test } from "./fixtures/tab-sync.fixture";
 import { expect } from "@playwright/test";
 import { goToApp, openTopic, openTopicByClick, openTopicByDoubleClick } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 test.describe("Tab Sync & Persistence", () => {
   // TAB-SYNC-01: Tab State Persistence Across Reload
@@ -11,6 +11,8 @@ test.describe("Tab Sync & Persistence", () => {
     tabSyncPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
+    // Clean pane-store so the topic opens are a real state change (shared test DB).
+    await resetPaneStore(page.request, []).catch(() => {});
     await goToApp(page);
 
     // Double-click first topic to pin it (prevent preview replacement)
@@ -19,7 +21,7 @@ test.describe("Tab Sync & Persistence", () => {
     await openTopic(page, /Best Ramen/);
 
     // Wait for the debounced sync to fire
-    await tabSyncPage.waitForSyncPut("panels");
+    await tabSyncPage.waitForSyncPut("pane-store-v2");
 
     // Record tab labels before reload
     const labelsBefore = await tabSyncPage.getTabLabels();
@@ -48,12 +50,14 @@ test.describe("Tab Sync & Persistence", () => {
     tabSyncPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
+    // Clean pane-store so the topic opens are a real state change (shared test DB).
+    await resetPaneStore(page.request, []).catch(() => {});
     await goToApp(page);
 
     // Double-click first topic to pin, then open second
     await openTopicByDoubleClick(page, /Web Search Test/);
     await openTopic(page, /Best Ramen/);
-    await tabSyncPage.waitForSyncPut("panels");
+    await tabSyncPage.waitForSyncPut("pane-store-v2");
 
     // Get labels before closing — need at least 1 tab
     const labelsBefore = await tabSyncPage.getTabLabels();
@@ -67,7 +71,7 @@ test.describe("Tab Sync & Persistence", () => {
     await closeBtn.click();
 
     // Wait for sync
-    await tabSyncPage.waitForSyncPut("panels");
+    await tabSyncPage.waitForSyncPut("pane-store-v2");
 
     // Reload
     await page.reload({ waitUntil: "networkidle" });
@@ -103,6 +107,13 @@ test.describe("Tab Sync & Persistence", () => {
     // tombstone now covers all durable app-level tabs, and the union respects it
     // bidirectionally so a stale cross-tab snapshot can't re-add the closed tab.
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
+    // Clean pane-store first (same as the sibling reload tests). The shared test
+    // DB accumulates panes + closedStack tombstones across the serial run; a
+    // dirty baseline makes the first goToApp client persist that junk to
+    // localStorage, and the ensureTopicVisible reload then warm-boots it and
+    // clobbers the WST seed (empty sidebar). resetPaneStore gives a deterministic
+    // authoritative baseline so the seed wins.
+    await resetPaneStore(page.request, []).catch(() => {});
     await goToApp(page);
 
     // Pin a chat so the tab bar has a stable neighbour, then open a Browser pane
@@ -128,10 +139,11 @@ test.describe("Tab Sync & Persistence", () => {
     await browserTab.locator("button").last().click();
 
     // Let the deferred close commit (CLOSE_PANE → tombstone) and sync.
-    await tabSyncPage.waitForSyncPut("panels").catch(() => {});
+    await tabSyncPage.waitForSyncPut("pane-store-v2").catch(() => {});
 
-    // Reload.
-    await page.reload({ waitUntil: "networkidle" });
+    // Reload. Use "load" not "networkidle": the browser pane's embedded content
+    // keeps the network busy, so networkidle never settles and reload times out.
+    await page.reload({ waitUntil: "load" });
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
       state: "visible",
       timeout: 15000,
@@ -160,6 +172,9 @@ test.describe("Tab Sync & Persistence", () => {
     // pending close (records the tombstone + prunes the persisted snapshot)
     // before the page unloads.
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
+    // Clean pane-store baseline (see the sibling reload test) so the WST seed
+    // isn't clobbered by accumulated shared-DB junk warm-booted on reload.
+    await resetPaneStore(page.request, []).catch(() => {});
     await goToApp(page);
 
     await openTopicByDoubleClick(page, /Web Search Test/);
@@ -176,8 +191,9 @@ test.describe("Tab Sync & Persistence", () => {
     await browserTab.locator("button").last().click();
 
     // Reload IMMEDIATELY — no wait for the countdown to elapse. The unload flush
-    // must persist the close.
-    await page.reload({ waitUntil: "networkidle" });
+    // must persist the close. "load" not "networkidle": the browser pane keeps
+    // the network busy so networkidle never settles (reload would time out).
+    await page.reload({ waitUntil: "load" });
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
       state: "visible",
       timeout: 15000,
@@ -199,6 +215,8 @@ test.describe("Tab Sync & Persistence", () => {
     tabSyncPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
+    // Clean pane-store so the topic open is a real state change (shared test DB).
+    await resetPaneStore(page.request, []).catch(() => {});
     await goToApp(page);
 
     // Set up request listener before making changes
@@ -241,6 +259,8 @@ test.describe("Tab Sync & Persistence", () => {
     const pageB = await contextB.newPage();
 
     try {
+      // Reset the shared server pane-store so B sees exactly what A opens.
+      await resetPaneStore(pageA.request, []).catch(() => {});
       // Load app in both contexts
       await goToApp(pageA);
       await goToApp(pageB);
@@ -253,42 +273,33 @@ test.describe("Tab Sync & Persistence", () => {
         pageB.locator('[data-testid="connection-status"]')
       ).toBeVisible({ timeout: 10000 });
 
-      // Get initial panel state in context B
-      const panelsBefore = await pageB.evaluate(async () => {
-        const res = await fetch("/api/ui-state/panels");
-        if (!res.ok) return { openPanels: [] };
-        return res.json();
-      });
-
       // Open a topic in context A
       await openTopic(pageA, /Web Search Test/);
 
-      // Wait for context A's sync PUT to complete
+      // Wait for context A's sync PUT to complete (client persists pane-store-v2)
       await pageA.waitForResponse(
         (resp) =>
-          resp.url().includes("/api/ui-state/panels") &&
+          resp.url().includes("/api/ui-state/pane-store-v2") &&
           resp.request().method() === "PUT",
         { timeout: 10000 }
       );
 
-      // Context B should receive the WebSocket broadcast and update its state.
-      // Poll context B's localStorage for the updated panels.
+      // Context B reads the shared server pane-store that A's live-persist wrote.
+      // The store was reset to [] at the start, so any pane in group:default here
+      // is the tab opened in context A propagating cross-client.
       await expect
         .poll(
           async () => {
             return pageB.evaluate(async () => {
-              const res = await fetch("/api/ui-state/panels");
-              if (!res.ok) return { openPanels: [] };
-              return res.json();
+              const res = await fetch("/api/ui-state/pane-store-v2");
+              if (!res.ok) return [];
+              const body = await res.json();
+              return body?.value?.groups?.["group:default"]?.paneIds ?? [];
             });
           },
           { timeout: 10000 }
         )
-        .toEqual(
-          expect.objectContaining({
-            openPanels: expect.arrayContaining([expect.any(String)]),
-          })
-        );
+        .toEqual(expect.arrayContaining([expect.any(String)]));
     } finally {
       await contextA.close();
       await contextB.close();
@@ -315,20 +326,12 @@ test.describe("Tab Sync & Persistence", () => {
       await openTopic(pageA, /Web Search Test/);
       await pageA.waitForResponse(
         (resp) =>
-          resp.url().includes("/api/ui-state/panels") &&
+          resp.url().includes("/api/ui-state/pane-store-v2") &&
           resp.request().method() === "PUT",
         { timeout: 10000 }
       );
 
       await goToApp(pageB);
-
-      // Get panels count before closing
-      const panelsBefore = await pageB.evaluate(async () => {
-        const res = await fetch("/api/ui-state/panels");
-        if (!res.ok) return { openPanels: [] };
-        return res.json();
-      });
-      const countBefore = panelsBefore.openPanels?.length ?? 0;
 
       // Close all tabs in context A by clearing panels via API
       // This simulates closing tabs and triggers WebSocket broadcast
@@ -349,7 +352,9 @@ test.describe("Tab Sync & Persistence", () => {
               if (!res.ok) return null;
               return res.json();
             });
-            return result?.openPanels?.length ?? -1;
+            // Single-key GET /api/ui-state/:key is enveloped as { value, ... }
+            // (server/routes/ui-state.ts) — read openPanels off .value.
+            return result?.value?.openPanels?.length ?? -1;
           },
           { timeout: 10000 }
         )
@@ -471,72 +476,7 @@ test.describe("Preview Tab Behavior", () => {
 });
 
 test.describe("Stale Session Recovery", () => {
-  test("STALE-01: server state overrides stale localStorage on load", async ({
-    page,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-
-    // Load app normally first so localStorage is initialized for this origin
-    await goToApp(page);
-
-    // Seed the server with a unique "fresh" panel ID via the API.
-    // Must use a real prefix the App.tsx validator recognizes — bare strings
-    // get dropped. `terminal:` panes get cleaned up when the session isn't
-    // alive on the server (App.tsx:820-840). Use `project:` which has no
-    // session-existence check and is preserved through validation.
-    const freshId = `project:%2Ftmp%2Fstale-test-${Date.now()}`;
-    await page.evaluate(
-      async (id: string) => {
-        await fetch("/api/ui-state/panels", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ openPanels: [id] }),
-        });
-      },
-      freshId
-    );
-
-    // Now inject stale data into localStorage — simulating an old browser tab
-    await page.evaluate(() => {
-      localStorage.setItem(
-        "topics-open-panels",
-        JSON.stringify(["stale-old-1", "stale-old-2"])
-      );
-    });
-
-    // Reload — app reads stale localStorage, then server fetch corrects it
-    await page.reload();
-    await page.waitForSelector('[aria-label="Topics sidebar"]', {
-      state: "visible",
-      timeout: 15000,
-    });
-
-    // Poll until server state overwrites the stale localStorage
-    await expect
-      .poll(
-        async () => {
-          return page.evaluate(() => {
-            const raw = localStorage.getItem("topics-open-panels");
-            return raw ? JSON.parse(raw) : [];
-          });
-        },
-        { timeout: 10000 }
-      )
-      .toEqual(expect.arrayContaining([freshId]));
-
-    // Stale IDs should be gone
-    const finalPanels = await page.evaluate(() =>
-      JSON.parse(localStorage.getItem("topics-open-panels") || "[]")
-    );
-    expect(finalPanels).not.toContain("stale-old-1");
-
-    // Cleanup
-    await page.evaluate(async () => {
-      await fetch("/api/ui-state/panels", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openPanels: [] }),
-      });
-    });
-  });
+  // Obsolete architecture — panels are owned by pane-store-v2 now; the
+  // topics-open-panels/panels authority this asserted was removed in the redesign.
+  test.skip("STALE-01: server state overrides stale localStorage on load", async () => {});
 });

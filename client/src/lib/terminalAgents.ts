@@ -19,13 +19,14 @@
 
 /** Interactive pty session kinds the user can create from the add menu.
  *  `claude-code-team` exists server-side but is not user-creatable here. */
-export type TerminalAgentType = 'shell' | 'claude-code' | 'codex';
+export type TerminalAgentType = 'shell' | 'claude-code' | 'codex' | 'opencode';
 
 /** Display name → also the default session/pane title. */
 export const TERMINAL_AGENT_LABELS: Record<TerminalAgentType, string> = {
   shell: 'Shell',
   'claude-code': 'Claude Code',
   codex: 'Codex',
+  opencode: 'opencode',
 };
 
 /**
@@ -34,7 +35,9 @@ export const TERMINAL_AGENT_LABELS: Record<TerminalAgentType, string> = {
  * the same default the server applies, so client and server always agree.
  */
 export function normalizeTerminalAgent(subType?: string): TerminalAgentType {
-  return subType === 'claude-code' || subType === 'codex' ? subType : 'shell';
+  return subType === 'claude-code' || subType === 'codex' || subType === 'opencode'
+    ? subType
+    : 'shell';
 }
 
 /**

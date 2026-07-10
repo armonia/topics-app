@@ -67,7 +67,13 @@ export class ClaudeProvider implements AIProvider {
   }
 
   get connected(): boolean {
-    return this.client !== null;
+    // A client built with an empty/missing key is NOT usable: `new Anthropic({})`
+    // still yields a non-null client, so keying "connected" off `this.client`
+    // alone made a keyless SDK provider look ready and let `recomputeDefault()`
+    // keep it as the default — every topic then dispatched to it and got a 401
+    // ("No response received"). Require an actual key so an unconfigured claude
+    // provider is honestly disconnected and the subscription-backed CLI wins.
+    return this.client !== null && Boolean(this.config.apiKey);
   }
 
   // --- Lifecycle ---

@@ -184,23 +184,29 @@ export class ContextPage {
       .getByRole("textbox", { name: /Message input/ })
       .waitFor({ state: "visible", timeout: 10_000 });
 
-    // Open the Context Inspector:
-    // Try the direct button first (visible without tab bar header)
+    // Open the Context Inspector. The trigger depends on layout:
+    //  1. Split/project panes render a per-pane header with a "Context
+    //     Inspector" (Layers) button (only when `!headerLeft`).
+    //  2. The single-window layout hides that header button; the trigger
+    //     lives in the ChatInput action bar as the context-budget ring
+    //     (`[data-testid="chat-input-context-ring"]`). The ring SVG itself
+    //     carries `cursor-pointer` ONLY when handed an onClick — here the
+    //     wrapping button owns the click, so `svg.cursor-pointer` matches
+    //     nothing. Target the button's stable testid instead.
     const directBtn = this.page.locator(
       'button[title="Context Inspector"]',
     );
+    const inputRing = this.page
+      .locator('[data-testid="chat-input-context-ring"]')
+      .first();
     if (
       (await directBtn.count()) > 0 &&
-      (await directBtn.isVisible())
+      (await directBtn.first().isVisible())
     ) {
-      await directBtn.click();
+      await directBtn.first().click();
     } else {
-      // In tab-bar mode, click the context ring SVG.
-      // Wait for context percentage to load and ring to render.
-      const ring = this.page.locator("svg.cursor-pointer").first();
-      await ring.waitFor({ state: "visible", timeout: 10_000 });
-      // Use force:true since ring is tiny and may be partially overlapped
-      await ring.click({ force: true });
+      await inputRing.waitFor({ state: "visible", timeout: 10_000 });
+      await inputRing.click();
     }
 
     // Wait for inspector panel to be visible (use first() since
@@ -216,7 +222,9 @@ export class ContextPage {
    * Mock the /api/context/analyze endpoint with deterministic data.
    * Must be called BEFORE page.goto().
    */
-  async mockContextAnalyze(data = MOCK_CONTEXT_ANALYSIS) {
+  async mockContextAnalyze(
+    data: typeof MOCK_CONTEXT_ANALYSIS | typeof MOCK_HIGH_BUDGET_ANALYSIS = MOCK_CONTEXT_ANALYSIS,
+  ) {
     await this.page.route("**/api/context/analyze*", async (route) => {
       await route.fulfill({
         status: 200,
@@ -242,7 +250,6 @@ export class ContextPage {
     // GET /api/memory/:topicId
     await this.page.route("**/api/memory/*", async (route) => {
       const method = route.request().method();
-      const url = route.request().url();
 
       if (method === "GET") {
         await route.fulfill({

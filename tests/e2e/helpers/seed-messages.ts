@@ -21,6 +21,8 @@ export interface SeedMessageOpts {
   thinking?: string;
   id?: string;
   parentId?: string;
+  /** Branch index for sibling messages under the same parent (default 0). */
+  branchIndex?: number;
   timestamp?: string;
   // Slice 7 — per-message footer metadata. All optional; null/missing means
   // the row renders no footer.

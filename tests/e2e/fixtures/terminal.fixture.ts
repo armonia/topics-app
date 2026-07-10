@@ -6,12 +6,15 @@ export class TerminalPage {
   get panel() { return this.page.locator('[data-testid="terminal-panel"]'); }
   get emptyState() { return this.page.locator('[data-testid="terminal-empty-state"]'); }
   get tabBar() { return this.page.locator('[data-testid="terminal-tab-bar"]'); }
-  get xtermRows() { return this.page.locator('.xterm-rows'); }
+  // Inactive panes stay MOUNTED with display:none, so a bare `.xterm-rows`
+  // (or `.first()`) can resolve to a hidden leftover pane. Scope to :visible so
+  // locators always land on the terminal that's actually on screen.
+  get xtermRows() { return this.page.locator('.xterm-rows:visible'); }
   get newTerminalBtn() { return this.page.locator('[data-testid="terminal-new-btn"]'); }
 
   /** Get visible xterm rows scoped to the active (displayed) terminal */
   get activeXtermRows() {
-    return this.page.locator('.xterm-rows').first();
+    return this.page.locator('.xterm-rows:visible').first();
   }
 
   /** Get all terminal text from the active terminal */
@@ -32,7 +35,7 @@ export class TerminalPage {
   /** Click terminal to ensure it has focus before typing.
    *  xterm.js v6 uses .xterm-screen as the interactive layer above .xterm-rows */
   async focus() {
-    await this.page.locator('.xterm-screen').first().click();
+    await this.page.locator('.xterm-screen:visible').first().click();
   }
 
   /** Open a new shell terminal via the "+" button dropdown */

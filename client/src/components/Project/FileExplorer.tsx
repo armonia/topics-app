@@ -869,6 +869,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
 
   const handleDrop = useCallback(async (e: React.DragEvent, node: FileNode) => {
     e.preventDefault();
+    // A node consumed this drop — stop it bubbling to the scroll container's
+    // handleRootDrop, which would upload the same files a second time to the
+    // project root (files landing in both the target dir AND root).
+    e.stopPropagation();
     setDragOverPath(null);
     externalDragRef.current = false;
     setIsExternalDrag(false);

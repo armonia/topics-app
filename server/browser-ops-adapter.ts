@@ -43,7 +43,7 @@ export interface BrowserOps {
    *  fixed default, or a resized/restored pane clicks the wrong spot. */
   viewport(): Promise<{ width: number; height: number }>;
 
-  // --- Ref-based parity surface (vendored Jarvis snapshot model) ---
+  // --- Ref-based parity surface (vendored companion snapshot model) ---
   /** Compact ref-based a11y snapshot; stamps `data-topics-ref` on the page. */
   snapshot(opts?: { max?: number }): Promise<Snapshot>;
   /** Act on the element carrying `data-topics-ref="ref"` from the latest snapshot. */
@@ -60,7 +60,7 @@ export interface BrowserOps {
    *  already idle, so it only costs time when something is actually in flight. */
   settle?(opts?: { timeout?: number }): Promise<void>;
 
-  // --- Login-state sharing (Jarvis-interop via Playwright storageState) ---
+  // --- Login-state sharing (external-tool interop via Playwright storageState) ---
   /** Export the live context's cookies + visited-origin localStorage. */
   exportStorageState(): Promise<StorageState>;
   /** Inject a saved storageState (cookies + localStorage) into the live pane. */

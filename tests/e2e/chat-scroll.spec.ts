@@ -41,9 +41,11 @@ test.describe("Chat scroll behavior", () => {
       return;
     }
 
-    // Verify we're at the bottom
+    // Verify we're at the bottom (150px tolerance matches the app's own
+    // at-bottom threshold — MessageList.tsx:412 — the redesign lands ~1 short
+    // message short of a tight 60px window).
     const isAtBottom = await scroller.evaluate((el) => {
-      return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 60;
+      return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 150;
     });
     expect(isAtBottom).toBe(true);
 
@@ -56,9 +58,10 @@ test.describe("Chat scroll behavior", () => {
     // Wait for the message to appear and auto-scroll
     await page.waitForTimeout(2000);
 
-    // Should still be at the bottom
+    // Should still be at the bottom (150px tolerance = app threshold,
+    // MessageList.tsx:412)
     const stillAtBottom = await scroller.evaluate((el) => {
-      return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 60;
+      return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 150;
     });
     expect(stillAtBottom).toBe(true);
   });

@@ -472,16 +472,18 @@ export async function handleBrowserSaveState(
 export async function handleBrowserLoadState(
   service: BrowserService,
   contextId: string,
-  args: { handle?: string; from_jarvis?: boolean }
+  args: { handle?: string; from_external?: boolean; from_jarvis?: boolean }
 ): Promise<{ ok: true; handle: string; source: string; cookies: number; origins: number } | { error: string }> {
   if (typeof args?.handle !== "string" || !args.handle.trim()) {
     throw new Error("browser_load_state: 'handle' (string) is required");
   }
   const handle = safeHandle(args.handle);
-  const loaded = loadStateFromStores(handle, { fromJarvis: !!args.from_jarvis });
+  // `from_jarvis` accepted as a deprecated alias of `from_external`.
+  const fromExternal = !!(args.from_external ?? args.from_jarvis);
+  const loaded = loadStateFromStores(handle, { fromExternal });
   if (!loaded) {
     return {
-      error: `browser_load_state: no saved state for handle "${handle}"${args.from_jarvis ? " in the Jarvis store" : ""}.`,
+      error: `browser_load_state: no saved state for handle "${handle}"${fromExternal ? " in the external store" : ""}.`,
     };
   }
   console.log(`[BrowserTools] browser_load_state(${contextId}, ${handle}, source=${loaded.source})`);

@@ -7,7 +7,7 @@
  *   5. Auto-solo: new terminal gets its own grid cell
  */
 import { test, expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -73,6 +73,8 @@ test.describe("Tab System Reliability", () => {
         const dt = new DataTransfer();
         dt.setData('application/x-pane-tab', 'test-tab');
         dt.setData('application/x-panel-id', 'test-panel');
+        // PanelGrid dragover bails unless the standalone scope marker is present.
+        dt.setData('application/x-pane-scope-yiyksu', '1');
         el.dispatchEvent(new DragEvent('dragover', {
           bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y,
         }));
@@ -114,6 +116,8 @@ test.describe("Tab System Reliability", () => {
       await page.request.put(`${BASE}/api/ui-state/panels`, {
         data: { openPanels: [t1.id, t2.id, t3.id] },
       });
+      // Reset the authoritative pane-store so hydrate unions to exactly these 3.
+      await resetPaneStore(page.request, [t1.id, t2.id, t3.id]).catch(() => {});
       await gotoAndWait(page);
 
       const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
@@ -156,21 +160,67 @@ test.describe("Tab System Reliability", () => {
     const page = await ctx.newPage();
     try {
       await page.request.put(`${BASE}/api/ui-state/panels`, { data: { openPanels: [t.id] } });
+      // Reset the authoritative pane-store so hydrate unions to exactly this topic.
+      await resetPaneStore(page.request, [t.id]).catch(() => {});
       await gotoAndWait(page);
-      // Wait for client to focus the topic (ChatPane sends 'focus' on mount).
-      await page.waitForTimeout(500);
+
+      // Deterministically establish focus. The server only skips the unread
+      // increment while some client has `focusedTopicId === t` (server.ts:972 sets
+      // it on the WS `focus` frame that ChatPane emits on mount + activation). A
+      // bare 500ms wait races that mount under full-suite load — if the pane never
+      // mounts, focus is never sent and the increment fires. So wait for t's
+      // ChatPane to actually mount (its Message input is visible), opening the tab
+      // from the sidebar if hydrate didn't auto-activate it.
+      const input = page.getByRole("textbox", { name: /Message input/ });
+      if (!(await input.isVisible().catch(() => false))) {
+        await page.getByRole("treeitem", { name: /FocusedUnreadTest/ }).first().click().catch(() => {});
+      }
+      await expect(input).toBeVisible({ timeout: 15000 });
+
+      // Deterministic focus barrier. ChatPane emits the `focus` WS frame on mount,
+      // but that frame is async and unordered vs the HTTP POST below — under full-
+      // suite load it can reach the server AFTER the system-message POST, so the
+      // unread-skip (server.ts:972 sets ws.data.focusedTopicId) hasn't taken effect
+      // and the count increments (flaky afterCount=1). Open a test-owned WS that
+      // sends the SAME `focus` frame a real client sends, then a `ping`; a `pong`
+      // on the SAME connection proves the server processed `focus` first (frames
+      // are handled in-order per connection). The socket stays open (stashed on
+      // window) so this client keeps t focused across the POST.
+      await page.evaluate(
+        (topicId) =>
+          new Promise<void>((resolve, reject) => {
+            const ws = new WebSocket(location.origin.replace(/^http/, "ws") + "/ws");
+            (window as unknown as { __focusWs?: WebSocket }).__focusWs = ws;
+            const timer = setTimeout(() => reject(new Error("focus barrier timeout")), 10000);
+            ws.onopen = () => {
+              ws.send(JSON.stringify({ type: "focus", topicId }));
+              ws.send(JSON.stringify({ type: "ping" }));
+            };
+            ws.onmessage = (ev) => {
+              try {
+                if (JSON.parse(ev.data as string)?.type === "pong") {
+                  clearTimeout(timer);
+                  resolve();
+                }
+              } catch { /* ignore non-JSON frames */ }
+            };
+            ws.onerror = () => { clearTimeout(timer); reject(new Error("focus barrier ws error")); };
+          }),
+        t.id,
+      );
 
       const before = (await request.get(`${BASE}/api/unread`).then(r => r.json())) as Record<string, { unreadCount?: number }>;
       const beforeCount = before[t.id]?.unreadCount ?? 0;
 
-      // Post a system message via API. Client is focused on t, so
-      // updateUnreadCount should skip the increment.
+      // Post a system message via API. A client (the focus-barrier WS above) has
+      // t focused, so updateUnreadCount must skip the increment. The server
+      // mutates unread synchronously inside the POST handler, so once this
+      // resolves the count is final — no post-hoc wait needed.
       const msgRes = await request.post(`${BASE}/api/topics/${t.id}/system-message`, {
         data: { content: "focused-unread-test" },
       });
       expect(msgRes.ok()).toBe(true);
 
-      await page.waitForTimeout(300);
       const after = (await request.get(`${BASE}/api/unread`).then(r => r.json())) as Record<string, { unreadCount?: number }>;
       const afterCount = after[t.id]?.unreadCount ?? 0;
       expect(afterCount).toBe(beforeCount);

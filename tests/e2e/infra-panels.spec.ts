@@ -1,6 +1,6 @@
 import { test } from "./fixtures/infra.fixture";
 import { expect } from "@playwright/test";
-import { MOCK_CRON_JOBS, MOCK_WEBHOOKS, MOCK_TUNNEL_ACTIVE, MOCK_TUNNEL_INACTIVE, MOCK_SYSTEM_STATUS } from "./fixtures/infra.fixture";
+import { MOCK_TUNNEL_ACTIVE, MOCK_TUNNEL_INACTIVE } from "./fixtures/infra.fixture";
 
 test.describe("Cron Jobs Panel", () => {
   test("CRON-01: Panel renders job list with enabled/disabled sections", async ({
@@ -107,7 +107,10 @@ test.describe("Cron Jobs Panel", () => {
   });
 });
 
-test.describe("Webhooks Panel", () => {
+// Skip motivato: la WebhooksPanel è stata rimossa dal client (nessun componente
+// né voce di menu). Gli endpoint /api/webhooks e i relativi mock restano per un
+// eventuale ripristino, ma non esiste più una UI da pilotare.
+test.describe.skip("Webhooks Panel", () => {
   test("WEBHOOK-01: Panel renders webhook list", async ({
     page,
     infraPage,
@@ -316,44 +319,53 @@ test.describe("System Status Panel", () => {
     await page.goto("/");
     await infraPage.openSystemStatusPanel();
 
-    // Gateway row with "Online"
-    await expect(page.getByText("Gateway")).toBeVisible();
-    await expect(page.getByText("Online").first()).toBeVisible();
+    // Scope every assertion to the dropdown: "Server" also labels the PerfSection
+    // RSS block in this same portal, "Online"/"2m" also appear in the sidebar
+    // status-bar + version block — a bare getByText hits 2 elements (strict-mode).
+    const statusPanel = page.locator(".glass-surface").filter({ hasText: "Gateway" });
 
-    // Server row with uptime (120000ms = 2m) — use exact match to avoid "2m ago" collision
-    await expect(page.getByText("Server")).toBeVisible();
-    await expect(page.getByText("2m", { exact: true })).toBeVisible();
+    // Gateway row (OpenClaw-gated — mockSystemStatus enables it) → Online, 42ms.
+    await expect(statusPanel.getByText("Gateway")).toBeVisible();
+    await expect(statusPanel.getByText("Online")).toBeVisible();
 
-    // Memory row with MB value
-    await expect(page.getByText("Memory")).toBeVisible();
-    await expect(page.getByText("256 MB", { exact: true })).toBeVisible();
+    // Server uptime row (120000ms = 2m). "Server" is also the PerfSection RSS
+    // label in this dropdown, so identify the row by its unique "uptime" detail.
+    await expect(statusPanel.getByText("uptime")).toBeVisible();
+    await expect(statusPanel.getByText("2m", { exact: true })).toBeVisible();
 
-    // Cron Jobs row
-    await expect(page.getByText("Cron Jobs")).toBeVisible();
-    await expect(page.getByText("2/3")).toBeVisible();
+    // Cron Jobs row (OpenClaw-gated), enabled/total = 2/3
+    await expect(statusPanel.getByText("Cron Jobs")).toBeVisible();
+    await expect(statusPanel.getByText("2/3")).toBeVisible();
+
+    // Archiviati row: totalCount(12) − activeCount(5) = 7, detail "12 totali".
+    // (The old Memory / "256 MB" row was moved into the PerfSection block above
+    // this panel — SystemStatusPanel no longer repeats it.)
+    await expect(statusPanel.getByText("Archiviati")).toBeVisible();
+    await expect(statusPanel.getByText("12 totali")).toBeVisible();
   });
 
-  test("STATUS-02: Connection metrics row shows WS, Streams, Topics", async ({
+  test("STATUS-02: Panel shows the open-tabs and archive metric rows", async ({
     page,
     infraPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "SYSTEM-01" });
+    // The old WS/Streams/Topics "connections" row was removed by the panel
+    // redesign — it was server-wide plumbing the user couldn't act on and the
+    // two numbers contradicted each other. It was replaced by honest per-window
+    // metrics: "Tab aperti" (every open pane kind) and "Archiviati".
     await infraPage.mockSystemStatus();
     await page.goto("/");
     await infraPage.openSystemStatusPanel();
 
-    // Connection metrics labels with numeric values
-    const statusPanel = page.locator(".bg-surface").filter({ hasText: "Gateway" });
+    // The dropdown is a portalled ".glass-surface" container (SidebarStatusBar).
+    const statusPanel = page.locator(".glass-surface").filter({ hasText: "Gateway" });
 
-    // WS clients count
-    await expect(statusPanel.getByText("WS")).toBeVisible();
-    await expect(statusPanel.locator("text=WS").locator("..").getByText("2")).toBeVisible();
+    // Open-tabs row (paneStore-driven count).
+    await expect(statusPanel.getByText("Tab aperti")).toBeVisible();
 
-    // Streams
-    await expect(statusPanel.getByText("Streams")).toBeVisible();
-
-    // Topics
-    await expect(statusPanel.getByText("Topics")).toBeVisible();
+    // Archive row: 12 total − 5 active = 7 archived, detail "12 totali".
+    await expect(statusPanel.getByText("Archiviati")).toBeVisible();
+    await expect(statusPanel.getByText("12 totali")).toBeVisible();
   });
 
   test("STATUS-03: Restart button requires double-click confirmation", async ({

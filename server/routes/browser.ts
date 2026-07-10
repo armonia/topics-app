@@ -243,9 +243,11 @@ export function createBrowserRouter(
     const agentLoadStateMatch = matchRoute(pathname, "/api/browsers/:id/agent/load-state");
     if (agentLoadStateMatch && method === "POST") {
       try {
-        const body = (await req.json().catch(() => ({}))) as { handle?: unknown; from_jarvis?: unknown };
+        const body = (await req.json().catch(() => ({}))) as { handle?: unknown; from_external?: unknown; from_jarvis?: unknown };
         const result = await handleBrowserLoadState(browserService, agentLoadStateMatch.id, {
           handle: typeof body.handle === "string" ? body.handle : undefined,
+          from_external: typeof body.from_external === "boolean" ? body.from_external : undefined,
+          // Deprecated alias, still accepted for back-compat.
           from_jarvis: typeof body.from_jarvis === "boolean" ? body.from_jarvis : undefined,
         });
         return json(result);

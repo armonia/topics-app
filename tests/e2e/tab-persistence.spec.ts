@@ -5,7 +5,7 @@
  * archived topics are still cleaned up correctly.
  */
 import { test, expect } from "@playwright/test";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 const TS = Date.now();
@@ -24,10 +24,17 @@ test.afterAll(async ({ request }) => {
 });
 
 /** Set up panels via API and navigate */
-async function goWithPanels(page: import("@playwright/test").Page, panels: string[], focused?: string) {
+async function goWithPanels(page: import("@playwright/test").Page, panels: string[]) {
   await page.request.put(`${BASE}/api/ui-state/panels`, {
     data: { openPanels: panels },
   });
+  // Since Phase 30 the client hydrates tabs from the pane-store snapshot and
+  // UNIONS it with openPanels, so stale panes accumulated in the shared test DB
+  // (this serial suite runs one DB the whole way through) leak in as extra/ghost
+  // tabs — and a low inner lastSeq lets them outrank this seed. Reset the
+  // AUTHORITATIVE pane channel to EXACTLY these panels so the reload renders a
+  // deterministic tab set.
+  await resetPaneStore(page.request, panels).catch(() => {});
   const panelsFetch = page.waitForResponse(
     (r) => r.url().includes("/api/ui-state/panels") && r.status() === 200,
     { timeout: 10000 }

@@ -541,7 +541,7 @@ test.describe("Grid Split System", () => {
       expect(afterRowDividers, 'Split Down should create a row-resize divider').toBeGreaterThan(initialRowDividers);
     });
 
-    test("GRID-02c: Split Down survives a page reload (persistence)", async ({ page }) => {
+    test("GRID-02c: Split Down survives a page reload (persistence) @nightly", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (persistence)" });
       await goToApp(page);
       await openTwoTopics(page);
@@ -714,7 +714,7 @@ test.describe("Grid Split System", () => {
       expect(Math.abs(topAfterEqualize - half), 'double-click should equalize the two rows to ~50/50').toBeLessThan(40);
     });
 
-    test("GRID-04: Split layout persists after page reload", async ({ page }) => {
+    test("GRID-04: Split layout persists after page reload @nightly", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openTwoTopics(page);

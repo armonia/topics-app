@@ -1,4 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
+import { mockOpenClawAvailable, openTopicsMenuItem } from "../helpers/openclaw";
 
 /**
  * Mock data for infrastructure panel E2E tests.
@@ -117,32 +118,53 @@ export class InfraPage {
   // --- Navigation helpers ---
 
   async openCronPanel() {
-    await this.page.locator('button[title="Cron Jobs"]').click();
-    // Wait for panel content to appear (portaled to body)
-    await this.page.locator(".bg-surface >> text=Refresh").first().waitFor({ state: "visible", timeout: 10_000 });
-  }
-
-  async openWebhooksPanel() {
-    await this.page.locator('button[title="Webhooks"]').click();
-    await this.page.locator('[data-testid="webhooks-panel"]').waitFor({ state: "visible", timeout: 10_000 });
+    // Cron Jobs moved into the "Settings & Tools" (Topics ▾) menu and is gated
+    // on `openclawAvailable` (stubbed in mockCronJobs). Open via the menu, then
+    // wait for the pane's "Refresh" button.
+    await openTopicsMenuItem(this.page, "Cron Jobs");
+    await this.page
+      .getByRole("button", { name: "Refresh" })
+      .first()
+      .waitFor({ state: "visible", timeout: 10_000 });
   }
 
   async openRemoteAccessPanel() {
-    await this.page.locator('button[title="Remote Access"]').click();
-    // Wait for either active tunnel URL or "No active tunnel" text
-    await this.page.locator(".bg-surface >> text=/No active tunnel|Disable Tunnel|Enable Tailscale/").first().waitFor({ state: "visible", timeout: 10_000 });
+    // Remote Access is a "Settings & Tools" menu entry that expands an anchored
+    // popover (RemoteAccessPanel) — not openclaw-gated.
+    await openTopicsMenuItem(this.page, "Remote Access");
+    await this.page
+      .locator("text=/No active tunnel|Disable Tunnel|Enable Tailscale/")
+      .first()
+      .waitFor({ state: "visible", timeout: 10_000 });
   }
 
   async openSystemStatusPanel() {
-    await this.page.locator('button[title="System Status"]').click();
-    // Wait for the status panel content (portaled to body)
-    await this.page.locator(".bg-surface >> text=Gateway").waitFor({ state: "visible", timeout: 10_000 });
+    // System Status is the sidebar status-bar gateway button (bottom-left),
+    // whose title starts with "Performance". Clicking it opens SystemStatusPanel.
+    await this.page.locator('button[title^="Performance"]').first().click();
+    await this.page
+      .locator("text=Gateway")
+      .first()
+      .waitFor({ state: "visible", timeout: 10_000 });
+  }
+
+  /**
+   * The Webhooks panel was removed from the client (no component, no menu
+   * entry). The "Webhooks Panel" describe in infra-panels.spec.ts is
+   * `test.describe.skip`-ped; this stub only exists so those skipped bodies
+   * still typecheck. If you un-skip them, restore the UI first.
+   */
+  async openWebhooksPanel(): Promise<never> {
+    throw new Error("WebhooksPanel was removed from the client (no UI to open).");
   }
 
   // --- Mock methods (call BEFORE page.goto) ---
 
   async mockCronJobs(jobs = MOCK_CRON_JOBS) {
     let currentJobs = [...jobs];
+
+    // The Cron Jobs menu entry is OpenClaw-gated.
+    await mockOpenClawAvailable(this.page);
 
     await this.page.route("**/api/cron/jobs", async (route) => {
       const method = route.request().method();
@@ -322,6 +344,11 @@ export class InfraPage {
   }
 
   async mockSystemStatus(status = MOCK_SYSTEM_STATUS) {
+    // SystemStatusPanel gates its Gateway, Cron Jobs and Restart rows behind
+    // openclawAvailable (they're OpenClaw-only). A meaningful "system status"
+    // is the OpenClaw-connected state, so enable it here — otherwise the panel
+    // renders only Server/Tab aperti/Archiviati and the gated rows never mount.
+    await mockOpenClawAvailable(this.page);
     await this.page.route("**/api/system/status", async (route) => {
       await route.fulfill({
         status: 200,

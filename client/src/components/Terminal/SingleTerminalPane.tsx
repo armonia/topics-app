@@ -6,6 +6,8 @@ import { Copy, Check, RotateCw, Clock } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
+import { isTauri } from '../../lib/shell';
+import { tauriInvoke } from '../../lib/shell/tauri';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished, useTerminalReloading, useTerminalWorkingRing } from '../../state/signals';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
@@ -282,19 +284,30 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       const blob = imageItem.getAsFile();
       if (!blob) return;
 
-      // Convert to base64 data URL
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const dataUrl = reader.result as string;
+      // Put the pasted image on the system clipboard NATIVELY, then send Ctrl+V
+      // so Claude Code reads it. No server round-trip and no `osascript` (which
+      // was triggering a macOS "control iTunes/Music" Automation prompt):
+      //   • Tauri  → NSPasteboard via the set_clipboard_image command
+      //   • Web    → the browser Clipboard API
+      void (async () => {
+        const writeViaBrowser = async () => {
+          const type = blob.type || 'image/png';
+          await navigator.clipboard.write([new ClipboardItem({ [type]: blob })]);
+        };
         try {
-          // Upload to server — saves temp file and copies to macOS clipboard
-          await fetch('/api/terminal/paste-image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dataUrl, sessionId }),
-          });
-
-          // Send Ctrl+V (0x16) to the PTY to trigger Claude Code's clipboard read
+          if (isTauri) {
+            // Native NSPasteboard. Falls back to the browser Clipboard API when
+            // the command isn't present yet (app built before this change), so
+            // paste keeps working without waiting for an app rebuild.
+            try {
+              const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+              await tauriInvoke('set_clipboard_image', { bytes });
+            } catch {
+              await writeViaBrowser();
+            }
+          } else {
+            await writeViaBrowser();
+          }
           const activeWs = termRef.current?.ws;
           if (activeWs && activeWs.readyState === WebSocket.OPEN) {
             activeWs.send('\x16');
@@ -302,8 +315,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         } catch (err) {
           console.error('Image paste failed:', err);
         }
-      };
-      reader.readAsDataURL(blob);
+      })();
     };
 
     el.addEventListener('paste', handleImagePaste as unknown as EventListener, true);

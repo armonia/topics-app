@@ -73,7 +73,7 @@ export class LayoutPage {
 
   /** Get context menu item texts after a right-click (portaled to body) */
   async getContextMenuItems(): Promise<string[]> {
-    const menu = this.page.locator(".fixed.z-\\[9999\\]");
+    const menu = this.page.locator('[role="menu"]').first();
     await expect(menu).toBeVisible({ timeout: 5000 });
     const buttons = menu.locator("button");
     const count = await buttons.count();

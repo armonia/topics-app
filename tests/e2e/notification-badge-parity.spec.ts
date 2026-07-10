@@ -7,7 +7,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { interceptWebSocket } from "./helpers/ws-helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 const TS = Date.now();
 const BASE = "http://localhost:13334";
@@ -52,6 +52,10 @@ test.describe("Notification badge parity (tab bar ≡ sidebar)", () => {
     await page.request.put(`${BASE}/api/ui-state/panel-order`, {
       data: { order: [topicA.id, topicB.id], pinned: [topicA.id, topicB.id] },
     });
+    // Reset the authoritative pane channel to EXACTLY these two topics — legacy
+    // openPanels is UNIONED with pane-store-v2 on hydrate, so stale panes from
+    // the shared test DB otherwise leak in as extra tabs and shift the badges.
+    await resetPaneStore(page.request, [topicA.id, topicB.id]).catch(() => {});
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
       state: "visible",

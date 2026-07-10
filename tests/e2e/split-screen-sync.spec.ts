@@ -231,7 +231,7 @@ test.describe("Split Screen Sync & Correctness", () => {
     for (let n = await projectTabs.count(); n < 2; n++) {
       if ((await projectAdd.count()) === 0) break;
       await projectAdd.last().click();
-      const addMenu = page.locator(".fixed.z-\\[9999\\]");
+      const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
       await expect(addMenu).toBeVisible({ timeout: 5000 });
       // Same pane type twice (first non-Chat entry, e.g. Shell) so both land
       // in ONE group — Split Right needs a 2-tab group to split out of.
@@ -256,7 +256,7 @@ test.describe("Split Screen Sync & Correctness", () => {
     if ((await tabs.count()) >= 2) {
       // Split Right within project
       await tabs.first().click({ button: "right" });
-      const menu = page.locator(".fixed.z-\\[9999\\]");
+      const menu = page.locator('[role="menu"]').first();
       await expect(menu).toBeVisible({ timeout: 5000 });
       const splitBtn = menu
         .locator("button")
@@ -389,7 +389,7 @@ test.describe("Split Screen Sync & Correctness", () => {
       const addPaneBtn = page.getByTitle("Add pane");
       if ((await addPaneBtn.count()) > 0) {
         await addPaneBtn.first().click();
-        const addMenu = page.locator(".fixed.z-\\[9999\\]");
+        const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
         await expect(addMenu).toBeVisible({ timeout: 5000 });
         const menuButtons = addMenu.locator("button");
         for (let i = 0; i < (await menuButtons.count()); i++) {
@@ -410,7 +410,7 @@ test.describe("Split Screen Sync & Correctness", () => {
     {
       // Split Right first
       await tabs.first().click({ button: "right" });
-      let menu = page.locator(".fixed.z-\\[9999\\]");
+      let menu = page.locator('[role="menu"]').first();
       await expect(menu).toBeVisible({ timeout: 3000 });
       let splitRightBtn = menu
         .locator("button")
@@ -425,7 +425,7 @@ test.describe("Split Screen Sync & Correctness", () => {
       const allTabs = page.locator('[role="main"] [draggable="true"]');
       if ((await allTabs.count()) >= 2) {
         await allTabs.nth(1).click({ button: "right" });
-        menu = page.locator(".fixed.z-\\[9999\\]");
+        menu = page.locator('[role="menu"]').first();
         await expect(menu).toBeVisible({ timeout: 3000 });
         const splitDownBtn = menu
           .locator("button")
@@ -524,6 +524,10 @@ test.describe("Split Screen Sync & Correctness", () => {
         })
         .catch(() => {}),
     ]);
+    // Reset the authoritative pane channel to EXACTLY these three topics —
+    // legacy openPanels is UNIONED with pane-store-v2 on hydrate, so stale panes
+    // from the shared test DB otherwise leak in as extra tabs.
+    await resetPaneStore(page.request, [idA, idB, idC]).catch(() => {});
 
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', {

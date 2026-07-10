@@ -2,9 +2,9 @@
  * Native-pane login-state shapes + helpers (Tauri).
  *
  * The server persists login state as Playwright `storageState` JSON
- * (server/browser-login-state.ts) — the SAME format the Electron/CDP path and
- * the Jarvis daemon read/write, so a handle saved on any surface loads on any
- * other. The native pane's Rust cookie commands speak that SAME storageState
+ * (server/browser-login-state.ts) — the SAME format the CDP path and an
+ * optional external companion browser tool read/write, so a handle saved on any
+ * surface loads on any other. The native pane's Rust cookie commands speak that SAME storageState
  * cookie shape (`browser_pane_get_cookies` returns a JSON string of them;
  * `browser_pane_set_cookies` takes them directly — see the `CookieJson` struct
  * in desktop-tauri/src-tauri/src/lib.rs, which mirrors `StorageCookie`). So no
