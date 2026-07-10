@@ -8,7 +8,7 @@
  * "lost" (unhittable). gapHasDivider is the pure predicate that suppresses it.
  */
 import { describe, expect, it } from "bun:test";
-import { gapHasDivider } from "./SplitTree";
+import { gapHasDivider } from "./splitDivider";
 import { leaf, type SplitChild } from "../../state/layout/layoutTree";
 
 const child = (weight: number, id = `p${weight}`): SplitChild => ({ weight, node: leaf(id) });

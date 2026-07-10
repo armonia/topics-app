@@ -22,7 +22,8 @@
  * deleting it breaks all tiling.
  */
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { type LayoutNode, type SplitChild, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
+import { type LayoutNode, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
+import { gapHasDivider } from './splitDivider';
 
 export interface SplitTreeProps {
   node: LayoutNode;
@@ -121,17 +122,6 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
  *  browser reload, lost chat draft). Index matches the legacy `key={rowIdx}`. */
 function keyFor(node: LayoutNode, index: number): string {
   return isLeaf(node) ? `leaf:${node.id}` : `split:${index}`;
-}
-
-/** Whether the gap BEFORE child `i` should render a resize divider. A divider
- *  is meaningful only between two visible siblings, so it renders iff `i > 0`
- *  and BOTH the child at `i` and its predecessor have weight > 0. A dedup'd or
- *  empty-row placeholder collapses to weight 0 (`buildShallowGridTree`); a
- *  divider adjacent to that zero-width cell is a dead grab strip that overlaps —
- *  and masks — the neighbouring real divider, which is how a resizer goes
- *  "missing". Exported for unit tests. */
-export function gapHasDivider(children: readonly SplitChild[], i: number): boolean {
-  return i > 0 && (children[i]?.weight ?? 0) > 0 && (children[i - 1]?.weight ?? 0) > 0;
 }
 
 interface DividerProps {
