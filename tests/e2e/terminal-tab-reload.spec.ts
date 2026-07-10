@@ -117,16 +117,31 @@ test.describe.serial("Terminal tab reload", () => {
 
   test("'Ricarica' is NOT shown for a non-terminal (chat) tab", async ({
     page,
+    request,
   }) => {
-    await goToApp(page);
-    await openTopic(page, topicName);
-    // The chat pane tab carries data-testid `pane-tab-chat:<topicId>`.
-    const chatTab = page.locator(`[data-testid="pane-tab-chat:${topicId}"]`);
-    await chatTab.waitFor({ state: "visible", timeout: 10_000 });
-    await chatTab.click({ button: "right" });
-    // The menu opens (a known item is present) but the reload item is NOT.
-    await expect(page.getByText("Close now")).toBeVisible();
-    await expect(page.getByTitle(/^Riavvia la sessione/)).toHaveCount(0);
+    // Use a dedicated STANDALONE chat here. The describe's shared topic is
+    // project-linked (projectPath=/tmp), and a project-nested topic can't be
+    // surfaced as a standalone sidebar treeitem — usePanelLifecycle purges
+    // project-topic ids from openPanels (they live INSIDE the project window),
+    // so openTopic() could never open its tab. This test only needs *a* chat
+    // pane to prove its context menu offers no reload item.
+    const chatName = `e2e-term-reload-chat-${Date.now()}`;
+    const chat = await createTopic(request, chatName);
+    try {
+      await goToApp(page);
+      await openTopic(page, chatName);
+      // A chat pane tab carries data-testid `pane-tab-<topicId>` (bare UUID —
+      // only terminal/project/browser panes get a type prefix; see
+      // PaneTabBar `pane-tab-${pane.id}` and seedTopicIntoSidebar's id=topicId).
+      const chatTab = page.getByTestId(`pane-tab-${chat.id}`);
+      await chatTab.waitFor({ state: "visible", timeout: 10_000 });
+      await chatTab.click({ button: "right" });
+      // The menu opens (a known item is present) but the reload item is NOT.
+      await expect(page.getByText("Close now")).toBeVisible();
+      await expect(page.getByTitle(/^Riavvia la sessione/)).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, chat.id);
+    }
   });
 
   // Checklist point 10: rinomina tab terminale — the terminal tab context menu
@@ -148,14 +163,14 @@ test.describe.serial("Terminal tab reload", () => {
     // Right-click → "Rinomina" is present for terminal tabs. Disambiguate via
     // its unique title (the sidebar chat rename uses the English "Rename").
     await tab.click({ button: "right" });
-    const rinomina = page.getByTitle("Rinomina questa sessione");
+    const rinomina = page.getByTitle("Rinomina questa scheda");
     await expect(rinomina, "terminal tab menu must offer Rinomina").toBeVisible({
       timeout: 3_000,
     });
     await rinomina.click();
 
     // The inline editor expands in place inside the portaled menu.
-    const editor = page.locator('input[placeholder="Nome sessione"]');
+    const editor = page.locator('input[placeholder="Nuovo nome"]');
     await expect(editor, "inline rename editor must appear").toBeVisible({
       timeout: 2_000,
     });

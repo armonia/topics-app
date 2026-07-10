@@ -201,7 +201,9 @@ test.describe("PanelGrid: resize works after split", () => {
     await expect(firstTab).toBeVisible({ timeout: 5000 });
     await firstTab.click({ button: "right" });
 
-    const menu = page.locator(".fixed.z-\\[9999\\]");
+    // Pane context menu moved from a `.z-[9999]` class to an inline zIndex +
+    // role="menu" (PaneTabBar.tsx). Target the menu role.
+    const menu = page.getByRole("menu");
     await expect(menu).toBeVisible({ timeout: 3000 });
     const splitBtn = menu.getByText("Split Right", { exact: true });
     await expect(splitBtn).toBeVisible({ timeout: 3000 });

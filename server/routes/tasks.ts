@@ -1,0 +1,265 @@
+/**
+ * tasks.ts (route) — session-scoped task API for the MCP/agent surface.
+ *
+ * Rebuilds the task endpoints removed with the Master/Board subsystem
+ * (commits 42e92c1d + 827f6b6e), but session-scoped instead of
+ * `/api/projects/:id/...` or `/api/boards/...`: the caller is a Claude session
+ * (`--session-key`), so the server derives the project AND the agent identity
+ * from it — the agent never passes (or can spoof) a project id or author.
+ *
+ * Two surfaces, one service (server/services/tasks.ts):
+ *   - `/api/sessions/:key/...` — the AGENT surface (MCP). actor="agent": can
+ *     reach `review` but never `done` (the human review gate). Project + author
+ *     are derived from the session key, never passed by the caller.
+ *   - `/api/boards/:projectId/...` — the HUMAN board surface (the board UI).
+ *     actor="human": may move to `done`, archive, and approve/reject reviews.
+ *
+ * Both go through the service's projectId guard, so a caller can only touch
+ * tasks on the project it named/owns (no cross-project IDOR).
+ */
+import type { AppContext, RouteHandler } from "../types";
+import { getTerminalSessionById } from "./terminal";
+import { createTaskService, projectIdForPath, TaskServiceError } from "../services/tasks";
+
+const ERROR_STATUS: Record<string, number> = {
+  not_found: 404,
+  invalid_input: 400,
+  invalid_transition: 400,
+  agent_cannot_complete: 409,
+};
+
+export function createTasksRouter(ctx: AppContext): RouteHandler {
+  const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey } = ctx;
+  const svc = createTaskService(db);
+
+  /**
+   * Resolve the board project id + a display author from a session key. Works
+   * for BOTH a chat topic bound to a project and a Claude terminal tab (which
+   * has a cwd but no chat topic). Returns null when the session is unbound.
+   */
+  function resolveSession(sessionKey: string): { projectId: string; author: string } | null {
+    const topic = getTopicBySessionKey(sessionKey);
+    if (topic?.projectPath) {
+      return { projectId: projectIdForPath(topic.projectPath), author: topic.name?.trim() || "claude" };
+    }
+    const term = getTerminalSessionById(sessionKey);
+    if (term?.cwd) {
+      return { projectId: projectIdForPath(term.cwd), author: (term.name || "").trim() || "claude" };
+    }
+    return null;
+  }
+
+  function fail(e: unknown): Response {
+    if (e instanceof TaskServiceError) return json({ error: e.message, code: e.code }, ERROR_STATUS[e.code] ?? 400);
+    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+
+  return async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+    // Fast reject: only task paths — agent (session-scoped) or human (board-scoped).
+    const isSession = pathname.startsWith("/api/sessions/");
+    const isBoard = pathname.startsWith("/api/boards/");
+    const isAllBoards = pathname === "/api/all-boards/tasks";
+    if (!isSession && !isBoard && !isAllBoards) return null;
+
+    // GET /api/all-boards/tasks — the global cross-project feed (human overview).
+    // Read-only: per-task mutations still go to /api/boards/:projectId/... using
+    // each task's own projectId.
+    if (isAllBoards && method === "GET") {
+      const status = new URL(req.url).searchParams.get("status") || undefined;
+      try { return json({ tasks: svc.list({ scope: "all", status: status as any }) }); }
+      catch (e) { return fail(e); }
+    }
+
+    // ── Human board API (project-scoped, actor="human") ─────────────────────
+    // The board UI knows its projectId and drives these directly. A human MAY
+    // move a task to 'done' (the review gate only blocks agents), archive it,
+    // and approve/reject a pending review.
+    if (isBoard) {
+      const HUMAN = "user";
+
+      const bCol = matchRoute(pathname, "/api/boards/:projectId/tasks");
+      if (bCol) {
+        const projectId = bCol.projectId;
+        if (method === "GET") {
+          const status = new URL(req.url).searchParams.get("status") || undefined;
+          try { return json({ tasks: svc.list({ scope: "project", projectId, status: status as any }) }); }
+          catch (e) { return fail(e); }
+        }
+        if (method === "POST") {
+          const body = (await readJSON(req)) as any;
+          try {
+            const task = svc.create({
+              projectId,
+              text: body?.text,
+              description: body?.description ?? null,
+              priority: typeof body?.priority === "number" ? body.priority : undefined,
+              assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
+              status: typeof body?.status === "string" ? body.status : undefined,
+            });
+            broadcastToAll({ type: "task:created", projectId, task });
+            return json(task, 201);
+          } catch (e) { return fail(e); }
+        }
+        return null;
+      }
+
+      const bReview = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/review");
+      if (bReview && method === "POST") {
+        const body = (await readJSON(req)) as any;
+        const decision = body?.decision === "approve" ? "approve" : body?.decision === "reject" ? "reject" : null;
+        if (!decision) return json({ error: "decision must be 'approve' or 'reject'", code: "invalid_input" }, 400);
+        try {
+          const task = svc.reviewDecision({
+            taskId: bReview.taskId, by: HUMAN, decision,
+            comment: typeof body?.comment === "string" ? body.comment : undefined,
+            projectId: bReview.projectId,
+          });
+          broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task });
+          return json(task);
+        } catch (e) { return fail(e); }
+      }
+
+      const bComments = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/comments");
+      if (bComments && method === "POST") {
+        const body = (await readJSON(req)) as any;
+        try {
+          const comment = svc.addComment({
+            taskId: bComments.taskId, author: HUMAN, content: body?.content,
+            mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
+            projectId: bComments.projectId,
+          });
+          const task = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
+          broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task });
+          return json(comment, 201);
+        } catch (e) { return fail(e); }
+      }
+
+      const bItem = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId");
+      if (bItem) {
+        const { projectId, taskId } = bItem;
+        if (method === "GET") {
+          const got = svc.get(taskId, { projectId });
+          if (!got) return json({ error: "task not found", code: "not_found" }, 404);
+          return json(got);
+        }
+        if (method === "PATCH") {
+          const body = (await readJSON(req)) as any;
+          try {
+            const task = svc.update({
+              taskId, actor: "human", by: HUMAN, projectId,
+              patch: {
+                status: typeof body?.status === "string" ? body.status : undefined,
+                priority: typeof body?.priority === "number" ? body.priority : undefined,
+                assignedTo: typeof body?.assignee === "string" ? body.assignee : undefined,
+                text: typeof body?.text === "string" ? body.text : undefined,
+                description: body?.description !== undefined ? body.description : undefined,
+                kanbanOrder: typeof body?.kanbanOrder === "number" ? body.kanbanOrder : undefined,
+              },
+            });
+            broadcastToAll({ type: "task:updated", projectId, task });
+            return json(task);
+          } catch (e) { return fail(e); }
+        }
+        if (method === "DELETE") {
+          try {
+            const task = svc.archive({ taskId, projectId });
+            broadcastToAll({ type: "task:deleted", projectId, taskId });
+            return json({ ok: true, task });
+          } catch (e) { return fail(e); }
+        }
+        return null;
+      }
+      return null;
+    }
+
+    // POST/GET /api/sessions/:sessionKey/tasks
+    const collection = matchRoute(pathname, "/api/sessions/:sessionKey/tasks");
+    if (collection) {
+      const sk = decodeURIComponent(collection.sessionKey);
+      const sess = resolveSession(sk);
+      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+
+      if (method === "GET") {
+        const params = new URL(req.url).searchParams;
+        const scope = params.get("scope") === "all" ? "all" : "project";
+        const status = params.get("status") || undefined;
+        try {
+          const tasks = svc.list({ scope, projectId: sess.projectId, status: status as any });
+          return json({ tasks });
+        } catch (e) { return fail(e); }
+      }
+      if (method === "POST") {
+        const body = (await readJSON(req)) as any;
+        try {
+          const task = svc.create({
+            projectId: sess.projectId,
+            text: body?.text,
+            description: body?.description ?? null,
+            priority: typeof body?.priority === "number" ? body.priority : undefined,
+            assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
+            idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
+          });
+          broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
+          return json(task, 201);
+        } catch (e) { return fail(e); }
+      }
+      return null;
+    }
+
+    // POST /api/sessions/:sessionKey/tasks/:taskId/comments
+    const commentsRoute = matchRoute(pathname, "/api/sessions/:sessionKey/tasks/:taskId/comments");
+    if (commentsRoute && method === "POST") {
+      const sk = decodeURIComponent(commentsRoute.sessionKey);
+      const sess = resolveSession(sk);
+      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const body = (await readJSON(req)) as any;
+      try {
+        const comment = svc.addComment({
+          taskId: commentsRoute.taskId,
+          author: sess.author,
+          content: body?.content,
+          mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
+          projectId: sess.projectId,
+        });
+        const task = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task;
+        broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+        return json(comment, 201);
+      } catch (e) { return fail(e); }
+    }
+
+    // GET/PATCH /api/sessions/:sessionKey/tasks/:taskId
+    const item = matchRoute(pathname, "/api/sessions/:sessionKey/tasks/:taskId");
+    if (item) {
+      const sk = decodeURIComponent(item.sessionKey);
+      const sess = resolveSession(sk);
+      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+
+      if (method === "GET") {
+        const got = svc.get(item.taskId, { projectId: sess.projectId });
+        if (!got) return json({ error: "task not found", code: "not_found" }, 404);
+        return json(got);
+      }
+      if (method === "PATCH") {
+        const body = (await readJSON(req)) as any;
+        try {
+          const task = svc.update({
+            taskId: item.taskId,
+            actor: "agent",
+            by: sess.author,
+            projectId: sess.projectId,
+            patch: {
+              status: typeof body?.status === "string" ? body.status : undefined,
+              priority: typeof body?.priority === "number" ? body.priority : undefined,
+              assignedTo: typeof body?.assignee === "string" ? body.assignee : undefined,
+            },
+          });
+          broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+          return json(task);
+        } catch (e) { return fail(e); }
+      }
+      return null;
+    }
+
+    return null;
+  };
+}

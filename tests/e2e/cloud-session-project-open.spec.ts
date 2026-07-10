@@ -21,7 +21,7 @@
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 
 test.describe("cloud session opens as a Topics project", () => {
@@ -32,6 +32,12 @@ test.describe("cloud session opens as a Topics project", () => {
     const ts = Date.now().toString(36);
     const projectPath = `/tmp/e2e-cloud-proj-${ts}`;
     const projectPaneId = `project:${encodeURIComponent(projectPath)}`;
+
+    // Own the (single, server-synced) pane channel with a clean baseline before
+    // seeding/navigating — otherwise a concurrent worker's higher-server_seq PUT
+    // HYDRATE-clobbers the project pane this test injects via the WS frames below.
+    // Reset BEFORE createTopic so createTopic re-seeds the topic (keeps it visible).
+    await resetPaneStore(request, []);
 
     // A standalone cloud session, not yet scoped to a project.
     const topic = await createTopic(request, `E2E-CloudSession-${ts}`);

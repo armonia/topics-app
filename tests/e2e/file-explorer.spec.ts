@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/file-explorer.fixture";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { execSync } from "child_process";
 import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "fs";
 
@@ -53,6 +53,22 @@ test.describe("File Explorer & Git", () => {
       projectPath: tmpDir,
     });
     topicId = topic.id;
+  });
+
+  test.beforeEach(async ({ request }) => {
+    // Hermetic isolation. The test server's `pane-store-v2` is a single,
+    // server-synced key shared across the whole run. Without a reset, a project
+    // pane opened by a prior spec (e.g. context-settings' `/tmp/topics-test-data`)
+    // — or a prior test in this file that left >1 pane open — bleeds in on
+    // hydrate, so gotoProject ends up with TWO project panes and every singleton
+    // locator (breadcrumb-nav, git-changes, the "Processes" button) hits a
+    // strict-mode "resolved to 2 elements".
+    //
+    // Reset to EXACTLY this spec's seeded topic chat pane (not empty: the
+    // sidebar only surfaces the project row while its pane is open OR a child
+    // topic has an open tab, so an empty store would hide the project header
+    // gotoProject clicks). gotoProject then opens exactly one project pane.
+    if (topicId) await resetPaneStore(request, [topicId]).catch(() => {});
   });
 
   test.afterAll(async ({ request }) => {
@@ -328,8 +344,11 @@ test.describe("File Explorer & Git", () => {
     // Click the package.json tab container to switch to it
     await packageTabContainer.click();
 
-    // Verify package.json breadcrumb is visible (confirming it's the active pane)
-    const breadcrumb = page.locator('[data-testid="breadcrumb-nav"]');
+    // Verify package.json breadcrumb is visible (confirming it's the active
+    // pane). Two file panes are mounted (pinned package.json + preview
+    // newfile.txt); inactive panes are kept alive via display:none, so scope to
+    // the visible one or the unscoped locator matches both (strict-mode clash).
+    const breadcrumb = page.locator('[data-testid="breadcrumb-nav"]:visible');
     await expect(breadcrumb).toContainText("package.json");
 
     // Close the newfile.txt tab by clicking its X close button
@@ -367,8 +386,12 @@ test.describe("File Explorer & Git", () => {
     await expect(indexItem).toBeVisible();
     await indexItem.click();
 
-    // Wait for breadcrumb to appear in the file pane
-    const breadcrumb = page.locator('[data-testid="breadcrumb-nav"]');
+    // Wait for breadcrumb to appear in the file pane. A file opened by an
+    // earlier test (package.json, from FILE-05) can still be mounted as an
+    // inactive editor pane (kept alive via display:none), so the unscoped
+    // testid matches two breadcrumbs — scope to the visible (active) one, which
+    // is the index.ts file we just opened.
+    const breadcrumb = page.locator('[data-testid="breadcrumb-nav"]:visible');
     await expect(breadcrumb).toBeVisible({ timeout: 5000 });
 
     // Breadcrumb should show path segments including "src" and "index.ts"
@@ -415,8 +438,11 @@ test.describe("File Explorer & Git", () => {
     await expect(indexItem).toBeVisible();
     await indexItem.click();
 
-    // Wait for breadcrumb to appear
-    const breadcrumb = page.locator('[data-testid="breadcrumb-nav"]');
+    // Wait for breadcrumb to appear. Scope to `:visible`: opening index.ts can
+    // leave a prior editor tab (e.g. package.json) mounted-but-hidden, so a bare
+    // selector resolves to 2 breadcrumb-nav elements (strict-mode violation).
+    // Only the active editor's breadcrumb is visible.
+    const breadcrumb = page.locator('[data-testid="breadcrumb-nav"]:visible');
     await expect(breadcrumb).toBeVisible({ timeout: 5000 });
     await expect(breadcrumb).toContainText("index.ts");
 
@@ -440,14 +466,15 @@ test.describe("File Explorer & Git", () => {
     // Close the dropdown by clicking the segment again
     await srcSegment.click();
 
-    // Now open a different file at root level: README.md
+    // Now open a different file at root level: package.json (README.md is
+    // deleted in beforeAll to seed FILE-13's "D" status, so it's absent).
     const readmeItem = fileExplorerPage.fileTree.getByRole("treeitem", {
-      name: /README\.md/,
+      name: /package\.json/,
     });
     await readmeItem.click();
 
-    // Wait for breadcrumb to update to README.md path (root level)
-    await expect(breadcrumb).toContainText("README.md");
+    // Wait for breadcrumb to update to the root-level file path
+    await expect(breadcrumb).toContainText("package.json");
 
     // The breadcrumb now shows a root-level path, so the directory context is different
     // Click the first segment (project root) to open its dropdown
@@ -472,9 +499,11 @@ test.describe("File Explorer & Git", () => {
     test.info().annotations.push({ type: "spec", description: "FILE-01" });
     await fileExplorerPage.gotoProject(tmpDir, topicName);
 
-    // Open files rapidly in quick succession: README.md, package.json, then src/index.ts
+    // Open files rapidly in quick succession: newfile.txt, package.json, then
+    // src/index.ts (README.md is deleted in beforeAll to seed FILE-13, so use
+    // newfile.txt as the first of the three distinct rapid opens).
     const readmeItem = fileExplorerPage.fileTree.getByRole("treeitem", {
-      name: /README\.md/,
+      name: /newfile\.txt/,
     });
     await readmeItem.click();
 
@@ -609,8 +638,11 @@ test.describe("File Explorer & Git", () => {
     // src/index.ts was modified (from beforeAll setup) -- find it in the changes list
     // In compact mode, changed files are inside the git-changes section
     // Click on the file text (not buttons) to trigger handleFileClick which opens diff
-    const stagedSection = gitChanges.locator("text=Staged");
-    await expect(stagedSection.first()).toBeVisible({ timeout: 10000 });
+    // All fixture changes are unstaged (nothing is `git add`-ed), so GitChanges
+    // renders only the "Changes (n)" header — the "Staged (n)" header is gated
+    // on stagedFiles.length > 0. Wait for the section that actually renders.
+    const changesSection = gitChanges.locator("text=Changes");
+    await expect(changesSection.first()).toBeVisible({ timeout: 10000 });
 
     // Find the file row for index.ts within git changes -- click the filename text
     const indexFileRow = gitChanges.locator('[title="src/index.ts"]');
@@ -877,9 +909,12 @@ test.describe("File Explorer & Git", () => {
       await gitHeader.click();
     }
 
-    // Wait for Staged section and find index.ts file
-    const stagedSection = gitChanges.locator("text=Staged");
-    await expect(stagedSection.first()).toBeVisible({ timeout: 10000 });
+    // Find index.ts file in the changes list.
+    // All fixture changes are unstaged (nothing is `git add`-ed), so GitChanges
+    // renders only the "Changes (n)" header — the "Staged (n)" header is gated
+    // on stagedFiles.length > 0. Wait for the section that actually renders.
+    const changesSection = gitChanges.locator("text=Changes");
+    await expect(changesSection.first()).toBeVisible({ timeout: 10000 });
 
     const indexFileRow = gitChanges.locator('[title="src/index.ts"]');
     await expect(indexFileRow.first()).toBeVisible({ timeout: 5000 });

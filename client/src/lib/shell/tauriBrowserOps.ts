@@ -15,7 +15,7 @@
  *
  * The login-state ops (save_state / load_state / import_chrome) split across the
  * delegation seam like browser_upload: the SERVER keeps everything that needs its
- * stack (handle persistence in the Topics+Jarvis stores, Chrome-cookie Keychain
+ * stack (handle persistence in the Topics + external stores, Chrome-cookie Keychain
  * decryption — see server/browser-native-state.ts) and delegates only the
  * pane-local legs here: the cookie store via the native `browser_pane_get_cookies`
  * / `browser_pane_set_cookies` commands (which speak the SAME Playwright
@@ -341,7 +341,7 @@ export async function executeNativeBrowserOp(
         // CURRENT origin's localStorage via eval (a WKWebView can only execute in
         // the loaded page — same practical scope as the other surfaces, hence the
         // shared "save while ON the site" guidance). The server persists the
-        // returned StorageState under the handle in the Topics+Jarvis stores
+        // returned StorageState under the handle in the Topics + external stores
         // (browser-native-state.ts): the pane has no disk access.
         const raw = await invoke<string>('browser_pane_get_cookies', { id });
         let cookies: StorageCookie[] = [];
@@ -365,7 +365,7 @@ export async function executeNativeBrowserOp(
       }
       case 'browser_load_state': {
         // APPLY leg only: the server already resolved the handle (Topics →
-        // Jarvis fallback) and delegated with the state inlined. Mirror of the
+        // external fallback) and delegated with the state inlined. Mirror of the
         // server's applyStateToPage: cookies (batch → per-cookie fallback), then
         // per-http(s)-origin localStorage (requires visiting the origin), then
         // back to the original page — now authenticated.

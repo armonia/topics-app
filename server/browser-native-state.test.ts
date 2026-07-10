@@ -21,17 +21,22 @@ function scriptedRegistry(script: Record<string, { result?: unknown; error?: str
 
 let dir: string;
 let prevDataDir: string | undefined;
+let prevExternalDir: string | undefined;
 let prevJarvisDir: string | undefined;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "native-state-"));
   prevDataDir = process.env.DATA_DIR;
+  prevExternalDir = process.env.TOPICS_EXTERNAL_STATES_DIR;
   prevJarvisDir = process.env.JARVIS_STATES_DIR;
   process.env.DATA_DIR = join(dir, "data");
-  process.env.JARVIS_STATES_DIR = join(dir, "jarvis");
+  process.env.TOPICS_EXTERNAL_STATES_DIR = join(dir, "external");
+  delete process.env.JARVIS_STATES_DIR;
 });
 afterEach(() => {
   if (prevDataDir === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = prevDataDir;
+  if (prevExternalDir === undefined) delete process.env.TOPICS_EXTERNAL_STATES_DIR;
+  else process.env.TOPICS_EXTERNAL_STATES_DIR = prevExternalDir;
   if (prevJarvisDir === undefined) delete process.env.JARVIS_STATES_DIR;
   else process.env.JARVIS_STATES_DIR = prevJarvisDir;
   rmSync(dir, { recursive: true, force: true });
@@ -54,11 +59,11 @@ test("save_state delegates the export leg and persists to BOTH stores (handler-s
   const out = await nativeStateOp("browser_save_state", { handle: "example" }, "ctx", { registry });
   expect(out).toEqual({ ok: true, handle: "example", cookies: 1, origins: 1, localStorageCaptured: true });
   expect(seen).toEqual([{ tool: "browser_save_state", args: {} }]);
-  // Dual-write: Topics store + Jarvis store, same storageState JSON.
+  // Dual-write: Topics store + external store, same storageState JSON.
   const topics = JSON.parse(readFileSync(join(dir, "data", "browser-state", "_handles", "example.json"), "utf8"));
-  const jarvis = JSON.parse(readFileSync(join(dir, "jarvis", "example.json"), "utf8"));
+  const external = JSON.parse(readFileSync(join(dir, "external", "example.json"), "utf8"));
   expect(topics).toEqual(STATE as never);
-  expect(jarvis).toEqual(STATE as never);
+  expect(external).toEqual(STATE as never);
 });
 
 test("save_state without localStorage carries the save-while-on-the-site warning", async () => {

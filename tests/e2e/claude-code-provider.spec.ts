@@ -108,9 +108,11 @@ test.describe.serial("Claude Code Provider", () => {
     await textarea.fill("show me index.ts");
     await textarea.press("Enter");
 
-    // Verify the text content appeared
+    // Verify the text content appeared. The trailing "." is split off by
+    // MessageContent at contentOffset 29 (…"for you" + ToolCallBadge(Read) + "."),
+    // so it isn't contiguous — assert the substring WITHOUT the final period.
     await expect(page.locator("body")).toContainText(
-      "Let me read that file for you.",
+      "Let me read that file for you",
       { timeout: 15_000 }
     );
 
@@ -148,7 +150,10 @@ test.describe.serial("Claude Code Provider", () => {
           name: "Bash",
           args: { command: "npm test" },
           result: "PASS src/index.test.ts\n  3 tests passed",
-          contentOffset: 20,
+          // Split just before the final period (like the Read sibling at
+          // offset 29): "Running the tests now" + Bash card + ".". Offset 20
+          // would split mid-word ("no|w"), leaving no contiguous text to match.
+          contentOffset: 21,
         },
       ],
       userMessage: "run the tests",
@@ -158,8 +163,10 @@ test.describe.serial("Claude Code Provider", () => {
     await textarea.fill("run the tests");
     await textarea.press("Enter");
 
+    // Trailing "." is split off by the tool card (see contentOffset above),
+    // so assert the substring WITHOUT the final period.
     await expect(page.locator("body")).toContainText(
-      "Running the tests now.",
+      "Running the tests now",
       { timeout: 15_000 }
     );
 
@@ -217,8 +224,11 @@ test.describe.serial("Claude Code Provider", () => {
     await textarea.fill("read nonexistent file");
     await textarea.press("Enter");
 
+    // The trailing "." is split off by the inline Read card (contentOffset:38
+    // lands the card between "failed" and "."), so the sentence never appears
+    // WITH the period in the DOM — assert without it (matches the bash sibling).
     await expect(page.locator("body")).toContainText(
-      "I tried to read the file but it failed.",
+      "I tried to read the file but it failed",
       { timeout: 15_000 }
     );
 

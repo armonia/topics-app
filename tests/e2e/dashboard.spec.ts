@@ -1,7 +1,17 @@
 import { test } from "./fixtures/dashboard.fixture";
 import { expect } from "@playwright/test";
+import { resetPaneStore } from "./helpers/api-fixtures";
 
 test.describe("Dashboard & Analytics", () => {
+  // Clear panes leaked by earlier specs (the shared pane-store-v2 UNIONs in on
+  // hydrate). The dashboard opens as an overlay over whatever panes are tiled;
+  // leaked project panes bring their own title="Refresh" (GitChanges,
+  // FileExplorer, ProjectSidebar) which collide with the journal's Refresh in
+  // DASH-23. An empty store leaves only the dashboard's own controls.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, []).catch(() => {});
+  });
+
   test("DASH-01: KPI cards render with data", async ({
     page,
     dashboardPage,
@@ -290,9 +300,8 @@ test.describe("Dashboard & Analytics", () => {
 
     await page.goto("/");
 
-    // Open activity feed via sidebar button
-    const activityBtn = page.locator('button[title="Activity"]');
-    await activityBtn.click();
+    // Open activity feed via the Topics ▾ menu
+    await dashboardPage.openActivityFeed();
 
     // Wait for either the Live tab (activity loaded) or empty state
     const liveTab = dashboardPage.activityFeed.getByRole("button", { name: "Live" });
@@ -525,15 +534,19 @@ test.describe("Dashboard & Analytics", () => {
     dashboardPage,
   }) => {
     test.info().annotations.push({ type: "spec", description: "DASH-02" });
-    // Mock SSE endpoint to abort (simulates connection failure)
+    // Seed OpenClaw availability (so the Activity menu entry renders) + a
+    // default SSE route, then override the stream with an abort to simulate a
+    // connection failure. Playwright matches routes most-recent-first, so the
+    // abort registered here wins over mockActivityStream's fulfilling route.
+    await dashboardPage.mockActivityStream([]);
     await page.route("**/api/activity/stream", async (route) => {
       await route.abort("connectionrefused");
     });
     await page.goto("/");
 
-    // Open activity feed manually (without waiting for Live tab, since connection fails)
-    const activityBtn = page.locator('button[title="Activity"]');
-    await activityBtn.click();
+    // Open activity feed via the Topics ▾ menu. The Live/Digest tab bar renders
+    // regardless of connection state, so openActivityFeed still resolves.
+    await dashboardPage.openActivityFeed();
 
     // Should show "disconnected" indicator text
     await expect(page.getByText("disconnected").first()).toBeVisible({ timeout: 10_000 });

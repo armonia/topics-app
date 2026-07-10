@@ -1,4 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
+import { mockOpenClawAvailable, openTopicsMenuItem } from "../helpers/openclaw";
 
 /**
  * Deterministic mock data for dashboard E2E tests.
@@ -138,9 +139,11 @@ export class DashboardPage {
    * Waits for the Live/Digest tab bar to become visible as confirmation.
    */
   async openActivityFeed() {
-    const activityBtn = this.page.locator('button[title="Activity"]');
-    await activityBtn.click();
-    // Wait for the activity feed to render by checking for its tab bar
+    // Activity moved from a standalone header button into the "Settings &
+    // Tools" (Topics ▾) dropdown and is gated on `openclawAvailable` (stubbed
+    // in mockActivityStream). Open the menu, click the "Activity" row, then
+    // wait for the Live/Digest tab bar to confirm the pane rendered.
+    await openTopicsMenuItem(this.page, "Activity");
     await this.liveFeedTab.waitFor({ state: "visible", timeout: 10_000 });
   }
 
@@ -198,6 +201,10 @@ export class DashboardPage {
       title: string;
     }>,
   ) {
+    // The Activity feed (and its Journal "Digest" tab) is an OpenClaw-gated
+    // surface — its Topics-menu entry only renders when openclaw is available.
+    await mockOpenClawAvailable(this.page);
+
     await this.page.route("**/api/activity/stream", async (route) => {
       const body = `data: ${JSON.stringify({ type: "init", events })}\n\n`;
       await route.fulfill({

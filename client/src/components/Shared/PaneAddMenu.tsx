@@ -255,6 +255,17 @@ export function PaneAddMenuItems({
                 <CodexIcon size={iconSize} className="flex-shrink-0" />
                 <span className="flex-1 text-left">Codex</span>
               </button>
+              <button
+                onClick={choose(() => onAddPane('terminal', 'opencode'))}
+                className={ROW_CLASS}
+                data-testid="pane-add-menu-opencode"
+              >
+                {/* opencode → Cerebras GLM-4.7 (quasi-Opus, gratis). Teal accent
+                    (#0f8f80) matches the fallback dashboard; Cpu icon nods to
+                    Cerebras silicon. See lib/terminalAgents.ts + server. */}
+                <Cpu size={iconSize} className="flex-shrink-0" style={{ color: '#0f8f80' }} />
+                <span className="flex-1 text-left">opencode</span>
+              </button>
             </Fragment>
           );
         }

@@ -1,13 +1,14 @@
 import { lazy, Suspense } from 'react';
-import { X, Activity, Cpu, BarChart3, BookOpen, Timer } from 'lucide-react';
+import { X, Activity, Cpu, BarChart3, BookOpen, Timer, Kanban } from 'lucide-react';
 import type { WSMessage } from '../../types';
 
 const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then(m => ({ default: m.ActivityFeedPanel })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
 const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
+const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
 
-export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'journal' | 'cron';
+export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'journal' | 'cron' | 'board';
 
 export const UTILITY_PREFIX = '__';
 
@@ -33,6 +34,7 @@ const CONFIG: Record<UtilityPanelType, { icon: typeof Activity; label: string; c
   dashboard:     { icon: BarChart3,  label: 'Statistics',   color: '#10b981' },
   journal:       { icon: BookOpen,   label: 'Journal',     color: '#f59e0b' },
   cron:          { icon: Timer,      label: 'Cron Jobs',   color: '#6366f1' },
+  board:         { icon: Kanban,     label: 'Board generale', color: '#10b981' },
 };
 
 const Spinner = <div className="flex items-center justify-center h-full"><div className="w-4 h-4 border-2 border-app-border-light border-t-primary rounded-full animate-spin" /></div>;
@@ -79,6 +81,7 @@ export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTo
           {type === 'agents' && <AgentsPane onNavigateToTopic={onNavigateToTopic} onMessage={onMessage} />}
           {type === 'dashboard' && <DashboardPane onMessage={onMessage} />}
           {type === 'cron' && <CronJobsPanel />}
+          {type === 'board' && <KanbanBoardPane global onMessage={onMessage} />}
         </Suspense>
       </div>
     </div>

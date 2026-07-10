@@ -1,14 +1,23 @@
-import { test, LayoutPage } from "./fixtures/layout.fixture";
+import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
 
 let projectTopicId: string | null = null;
-// Use a unique root path (not under /tmp) so it gets its own sidebar button
-const PROJECT_PATH = `/Users/e2e-project-tabs-${Date.now()}`;
+// A REAL directory: project-internal Shell/terminal panes cd into projectPath,
+// so a non-existent path makes them exit code 1 ("failed launch") within ms —
+// the pane vanishes before a split can build a 2-tab group. Unique folder name
+// keeps its own sidebar button.
+const PROJECT_PATH = `/tmp/e2e-project-tabs-${Date.now()}`;
 
 test.describe("Project Tabs", () => {
   test.beforeAll(async ({ request }) => {
+    mkdirSync(PROJECT_PATH, { recursive: true });
+    writeFileSync(
+      `${PROJECT_PATH}/package.json`,
+      JSON.stringify({ name: "e2e-project-tabs" }, null, 2)
+    );
     const topic = await createTopic(request, "E2E-ProjectTabs", {
       projectPath: PROJECT_PATH,
     });
@@ -19,6 +28,19 @@ test.describe("Project Tabs", () => {
     if (projectTopicId) {
       await deleteTopic(request, projectTopicId);
     }
+    rmSync(PROJECT_PATH, { recursive: true, force: true });
+  });
+
+  test.beforeEach(async ({ page }) => {
+    // Hermetic surface: wipe panes leaked by earlier specs (the shared
+    // pane-store-v2 UNIONs on hydrate) so only OUR project tiles, then seed the
+    // `project:<path>` pane. The tab-driven sidebar only shows a project row
+    // while its pane is open (`hasProjectTab`) or a child topic has an open tab —
+    // but this spec's topic is PROJECT-LINKED, and usePanelLifecycle purges
+    // project-linked topic ids from the open set, so seeding the topic never
+    // surfaces the row. Seed the project pane itself, exactly like the UI does.
+    await resetPaneStore(page.request, []).catch(() => {});
+    await seedProjectPane(page.request, PROJECT_PATH).catch(() => {});
   });
 
   /** Open the e2e project by clicking its sidebar button.
@@ -36,8 +58,6 @@ test.describe("Project Tabs", () => {
       }
     }
 
-    // The folder name is the last segment of PROJECT_PATH
-    const folderName = PROJECT_PATH.split("/").pop() || "";
     // Match by the beginning of the folder name (before timestamp)
     const btn = page
       .locator('[aria-label="Topics sidebar"] button')
@@ -91,7 +111,7 @@ test.describe("Project Tabs", () => {
     await expect(addPaneBtn.first()).toBeVisible({ timeout: 5000 });
     await addPaneBtn.first().click();
 
-    const addMenu = page.locator(".fixed.z-\\[9999\\]");
+    const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
     await expect(addMenu).toBeVisible({ timeout: 5000 });
     const menuButtons = addMenu.locator("button");
     expect(await menuButtons.count()).toBeGreaterThan(0);
@@ -137,7 +157,7 @@ test.describe("Project Tabs", () => {
       const addPaneBtn = page.getByTitle("Add pane");
       if ((await addPaneBtn.count()) > 0) {
         await addPaneBtn.first().click();
-        const addMenu = page.locator(".fixed.z-\\[9999\\]");
+        const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
         await expect(addMenu).toBeVisible({ timeout: 5000 });
         const menuButtons = addMenu.locator("button");
         for (let i = 0; i < (await menuButtons.count()); i++) {
@@ -175,7 +195,7 @@ test.describe("Project Tabs", () => {
     const addPaneBtn = page.getByTitle("Add pane");
     if ((await addPaneBtn.count()) > 0) {
       await addPaneBtn.first().click();
-      const addMenu = page.locator(".fixed.z-\\[9999\\]");
+      const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
       await expect(addMenu).toBeVisible({ timeout: 5000 });
       const menuButtons = addMenu.locator("button");
       for (let i = 0; i < (await menuButtons.count()); i++) {
@@ -192,7 +212,7 @@ test.describe("Project Tabs", () => {
 
     if (countBefore >= 2) {
       await tabs.last().click({ button: "right" });
-      const menu = page.locator(".fixed.z-\\[9999\\]");
+      const menu = page.locator('[role="menu"]');
       await expect(menu).toBeVisible({ timeout: 5000 });
       const closeBtn = menu
         .locator("button")
@@ -218,39 +238,56 @@ test.describe("Project Tabs", () => {
     await goToApp(page);
     await openTestProject(page);
 
-    const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
-    const tabs = tabBar.locator('[draggable="true"]');
-    await expect(tabs.first()).toBeVisible({ timeout: 10000 });
-
-    // Listen for project layout save before adding pane
-    const savePromise = page.waitForResponse(
-      (resp) =>
-        resp.url().includes("/api/ui-state/project-layout") &&
-        resp.request().method() === "PUT" &&
-        resp.status() === 200,
-      { timeout: 10000 }
-    );
-
-    // Add a pane
-    const addPaneBtn = page.getByTitle("Add pane");
-    if ((await addPaneBtn.count()) > 0) {
-      await addPaneBtn.first().click();
-      const addMenu = page.locator(".fixed.z-\\[9999\\]");
-      await expect(addMenu).toBeVisible({ timeout: 5000 });
-      const menuButtons = addMenu.locator("button");
-      for (let i = 0; i < (await menuButtons.count()); i++) {
-        const text = ((await menuButtons.nth(i).textContent()) || "").trim();
-        if (/Terminal|Shell/i.test(text) && !/Chat/i.test(text)) {
-          await menuButtons.nth(i).click();
-          break;
-        }
+    // The freshly-seeded project opens EMPTY ("No chats open") — there is no
+    // internal draggable tab yet. Add a pane through the PROJECT-INTERNAL (+)
+    // (.last(); .first() is the top-level bar whose (+) spawns a STANDALONE pane
+    // that does NOT persist to topics-project-panes-<hash>). Only the
+    // project-internal (+) writes nonChatPanes (confirmed via diagnostic).
+    const addPaneBtn = page.getByTitle("Add pane").last();
+    await expect(addPaneBtn).toBeVisible({ timeout: 10000 });
+    await addPaneBtn.click();
+    const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
+    await expect(addMenu).toBeVisible({ timeout: 5000 });
+    const menuButtons = addMenu.locator("button");
+    for (let i = 0; i < (await menuButtons.count()); i++) {
+      const text = ((await menuButtons.nth(i).textContent()) || "").trim();
+      if (/Terminal|Shell/i.test(text) && !/Chat/i.test(text)) {
+        await menuButtons.nth(i).click();
+        break;
       }
     }
 
-    await savePromise;
+    // Project tab persistence is DEVICE-LOCAL now: savePersistedTabState writes
+    // `topics-project-panes-<hash>` to localStorage — the old
+    // `PUT /api/ui-state/project-layout` never fires. Poll the localStorage key
+    // until it reflects the added non-chat pane before reloading.
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            let max = 0;
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i)!;
+              if (!k.startsWith("topics-project-")) continue;
+              try {
+                const v = JSON.parse(localStorage.getItem(k) || "{}");
+                const panes = Array.isArray(v?.nonChatPanes) ? v.nonChatPanes : [];
+                if (panes.length > max) max = panes.length;
+              } catch {
+                /* not JSON */
+              }
+            }
+            return max;
+          }),
+        { timeout: 10000 }
+      )
+      .toBeGreaterThanOrEqual(1);
 
-    // Reload
-    await page.reload({ waitUntil: "networkidle" });
+    // Reload. Use "load" (not "networkidle"): we JUST spawned a Shell whose
+    // PTY/WS streams the prompt, so the network never goes idle for 500ms and
+    // "networkidle" would stall until the test timeout. The explicit sidebar
+    // wait below is the real readiness gate.
+    await page.reload({ waitUntil: "load" });
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
       state: "visible",
       timeout: 15000,
@@ -275,33 +312,53 @@ test.describe("Project Tabs", () => {
     await goToApp(page);
     await openTestProject(page);
 
-    const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
-    const tabs = tabBar.locator('[draggable="true"]');
-    await expect(tabs.first()).toBeVisible({ timeout: 10000 });
+    // Scope to the project window's INNER group bars (data-group-id `group:*`,
+    // set by GroupLayout). Bar 0 in the page is the standalone POOL bar —
+    // right-clicking ITS first tab would split the project PANE in the top-level
+    // grid instead of splitting inside the project window. A fresh project opens
+    // with an EMPTY placeholder group whose bar has NO group id yet ("No chats
+    // open", zero tabs); populated `group:*` bars only appear once panes exist.
+    // Mirrors split-screen-sync.spec's proven pattern.
+    const projectBars = page.locator(
+      '[data-testid="panel-tab-bar"][data-group-id^="group:"]'
+    );
+    const projectTabs = projectBars.locator('[draggable="true"]');
+    const projectAdd = page
+      .locator(
+        '[data-testid="panel-tab-bar"]:not([data-group-id="standalone"]):not([data-group-id^="solo:"])'
+      )
+      .getByTitle("Add pane");
 
-    // Add second tab if needed
-    if ((await tabs.count()) < 2) {
-      const addPaneBtn = page.getByTitle("Add pane");
-      if ((await addPaneBtn.count()) > 0) {
-        await addPaneBtn.first().click();
-        const addMenu = page.locator(".fixed.z-\\[9999\\]");
-        await expect(addMenu).toBeVisible({ timeout: 5000 });
-        await addMenu.locator("button").first().click();
+    // Build up to 2 project-internal panes in ONE group (Split Right needs a
+    // 2-tab group to split out of).
+    for (let n = await projectTabs.count(); n < 2; n++) {
+      if ((await projectAdd.count()) === 0) break;
+      await projectAdd.last().click();
+      const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
+      await expect(addMenu).toBeVisible({ timeout: 5000 });
+      const menuButtons = addMenu.locator("button");
+      let clicked = false;
+      for (let i = 0; i < (await menuButtons.count()); i++) {
+        const text = ((await menuButtons.nth(i).textContent()) || "").trim();
+        if (!/Chat/i.test(text)) {
+          await menuButtons.nth(i).click();
+          clicked = true;
+          break;
+        }
       }
+      if (!clicked) {
+        await page.keyboard.press("Escape");
+        break;
+      }
+      await expect
+        .poll(() => projectTabs.count(), { timeout: 5000 })
+        .toBeGreaterThan(n);
     }
 
+    const tabs = projectBars.first().locator('[draggable="true"]');
     if ((await tabs.count()) >= 2) {
-      // Set up save listener BEFORE triggering split
-      const savePromise = page.waitForResponse(
-        (resp) =>
-          resp.url().includes("/api/ui-state/project-layout") &&
-          resp.request().method() === "PUT" &&
-          resp.status() === 200,
-        { timeout: 15000 }
-      );
-
       await tabs.first().click({ button: "right" });
-      const menu = page.locator(".fixed.z-\\[9999\\]");
+      const menu = page.locator('[role="menu"]').first();
       await expect(menu).toBeVisible({ timeout: 5000 });
       const splitBtn = menu
         .locator("button")
@@ -311,22 +368,47 @@ test.describe("Project Tabs", () => {
       if ((await splitBtn.count()) > 0) {
         await splitBtn.click();
 
-        // Wait for split to render (2+ tab bars) — may not happen if only 1 pane
-        const splitRendered = await page
-          .locator('[data-testid="panel-tab-bar"]')
+        // Wait for split to render — a SECOND project-internal group bar.
+        const splitRendered = await projectBars
           .nth(1)
           .waitFor({ state: "visible", timeout: 5000 })
           .then(() => true)
           .catch(() => false);
         if (!splitRendered) {
-          // Split didn't produce 2 tab bars — skip rest of test
+          // Split didn't produce 2 groups — skip rest of test
           return;
         }
 
-        // Wait for debounced save (2s debounce)
-        await savePromise;
+        // Project split GEOMETRY is DEVICE-LOCAL now: savePersistedLayoutState
+        // writes `topics-project-layout-<hash>` to localStorage — the old
+        // `PUT /api/ui-state/project-layout` never fires. Poll the localStorage
+        // key until it reflects the 2-group split before reloading.
+        await expect
+          .poll(
+            async () =>
+              page.evaluate(() => {
+                for (let i = 0; i < localStorage.length; i++) {
+                  const k = localStorage.key(i)!;
+                  if (!k.startsWith("topics-project-layout-")) continue;
+                  try {
+                    const v = JSON.parse(localStorage.getItem(k) || "{}");
+                    const rows = Array.isArray(v?.rows) ? v.rows : [];
+                    const groups = rows.flatMap(
+                      (r: { groupIds?: string[] }) => r.groupIds ?? []
+                    );
+                    if (groups.length >= 2) return true;
+                  } catch {
+                    /* not JSON */
+                  }
+                }
+                return false;
+              }),
+            { timeout: 10000 }
+          )
+          .toBe(true);
 
-        await page.reload({ waitUntil: "networkidle" });
+        // "load" not "networkidle": live Shell PTY/WS keeps the network busy.
+        await page.reload({ waitUntil: "load" });
         await page.waitForSelector('[aria-label="Topics sidebar"]', {
           state: "visible",
           timeout: 15000,
@@ -334,12 +416,9 @@ test.describe("Project Tabs", () => {
 
         await openTestProject(page);
 
-        await expect(
-          page.locator('[data-testid="panel-tab-bar"]').first()
-        ).toBeVisible({ timeout: 10000 });
-        expect(
-          await page.locator('[data-testid="panel-tab-bar"]').count()
-        ).toBeGreaterThanOrEqual(1);
+        // The split (two project-internal groups) is restored from the
+        // device-local layout key → a SECOND group bar reappears.
+        await expect(projectBars.nth(1)).toBeVisible({ timeout: 10000 });
       }
     }
   });

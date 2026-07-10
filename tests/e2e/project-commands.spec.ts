@@ -1,8 +1,10 @@
 /**
  * E2E tests for /project slash commands (create, open, info).
  *
- * These commands are handled server-side and return synthetic SSE responses,
- * so no AI mocking is needed — we test against the real server.
+ * These commands are intercepted CLIENT-side in ChatPane (commandApi.project →
+ * POST /api/command), and the result renders in the command-result BANNER
+ * (a `font-mono` row that auto-dismisses after ~5s) — NOT as a `.message-content`
+ * chat message. No AI mocking is needed; we test against the real server.
  */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
@@ -52,9 +54,30 @@ async function openTopicAnywhere(
     found = await item.waitFor({ state: "visible", timeout: 5000 }).then(() => true).catch(() => false);
   }
 
-  if (!found) throw new Error(`Could not find topic matching ${name} in sidebar`);
+  if (found) {
+    await item.click();
+    await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
+    return;
+  }
 
-  await item.click();
+  // Fallback: a project-BOUND topic is absorbed into its project window and no
+  // longer renders as a standalone sidebar treeitem. buildSidebarItems only
+  // lists a project's child chat when it has an OPEN inner tab (or a
+  // notification / pin), and the project's inner-pane layout is localStorage-
+  // scoped — which does NOT survive a fresh Playwright context (each test gets
+  // a new context, so a reload restores the project window with "No chats
+  // open"). Open the topic via the ⌘K command palette instead: its
+  // onOpenTopic → handleTopicClick opens the project window AND focuses this
+  // topic's chat inside it (usePanelLifecycle.ts:1097 — setPendingProjectFocus).
+  await page.keyboard.press("Meta+k");
+  const overlay = page.locator('[data-testid="command-palette"]');
+  await overlay.waitFor({ state: "visible", timeout: 5000 });
+  const query = typeof name === "string" ? name : name.source;
+  await overlay.getByRole("textbox").fill(query);
+  const option = overlay.getByRole("option", { name }).first();
+  await option.waitFor({ state: "visible", timeout: 5000 });
+  await option.click();
+  await overlay.waitFor({ state: "hidden", timeout: 5000 });
   await page.locator('[role="main"]').waitFor({ state: "visible", timeout: 10000 });
 }
 
@@ -109,7 +132,10 @@ test.describe.serial("Project Commands", () => {
 
     await sendCommand(page, "/project open /nonexistent/path/e2e-test");
 
-    const errorMsg = page.locator(".message-content").filter({ hasText: /Directory not found/ });
+    // A failed slash command renders in the command-result banner (ChatPane —
+    // red `font-mono` row), NOT as a `.message-content` chat message. Target the
+    // error text wherever it lands (it auto-dismisses after 5s, so poll fast).
+    const errorMsg = page.getByText(/Project not found/i).first();
     await expect(errorMsg).toBeVisible({ timeout: 10_000 });
   });
 
@@ -120,7 +146,9 @@ test.describe.serial("Project Commands", () => {
 
     await sendCommand(page, "/project");
 
-    const infoMsg = page.locator(".message-content").filter({ hasText: /No project bound/ });
+    // Result renders in the command-result banner (regex = substring match over
+    // the whitespace-pre-wrapped banner text), not a `.message-content` message.
+    const infoMsg = page.getByText(/No project bound/i).first();
     await expect(infoMsg).toBeVisible({ timeout: 10_000 });
   });
 
@@ -131,19 +159,27 @@ test.describe.serial("Project Commands", () => {
 
     await sendCommand(page, `/project create ${testProjectName}`);
 
-    const successMsg = page.locator(".message-content").filter({
-      hasText: new RegExp(`Created project.*${testProjectName}`),
-    });
-    await expect(successMsg).toBeVisible({ timeout: 10_000 });
+    // `/project create` binds the topic and FOCUSES the new project
+    // (bindTopicToProject(..., { focus: true })), which transforms the standalone
+    // chat pane into a project window — unmounting the transient command-result
+    // banner almost immediately (it never paints a frame Playwright can catch).
+    // So assert the DURABLE, authoritative outcome — which is exactly this test's
+    // contract ("creates directory and binds to topic"): the topic→project
+    // binding (the poll also gates on the async create finishing) + the dir and
+    // CLAUDE.md on disk.
+    await expect
+      .poll(
+        async () => {
+          const res = await page.request.get(`${BASE}/api/topics`);
+          const data = await res.json();
+          return data.topics[topicId]?.projectPath;
+        },
+        { timeout: 10_000 }
+      )
+      .toBe(testProjectDir);
 
-    // Verify directory was created on disk
     expect(existsSync(testProjectDir)).toBe(true);
     expect(existsSync(join(testProjectDir, "CLAUDE.md"))).toBe(true);
-
-    // Verify topic was bound (check via API)
-    const res = await page.request.get(`${BASE}/api/topics`);
-    const data = await res.json();
-    expect(data.topics[topicId]?.projectPath).toBe(testProjectDir);
   });
 
   test("AC-2: /project create with existing name shows error", async ({ page }) => {
@@ -153,7 +189,8 @@ test.describe.serial("Project Commands", () => {
 
     await sendCommand(page, `/project create ${testProjectName}`);
 
-    const errorMsg = page.locator(".message-content").filter({ hasText: /already exists/ });
+    // 409 → error banner via errMessage(e) = server's `error` string.
+    const errorMsg = page.getByText(/already exists/i).first();
     await expect(errorMsg).toBeVisible({ timeout: 10_000 });
   });
 
@@ -164,7 +201,7 @@ test.describe.serial("Project Commands", () => {
 
     await sendCommand(page, "/project");
 
-    const currentMsg = page.locator(".message-content").filter({ hasText: /Current project/ });
+    const currentMsg = page.getByText(/Current project/i).first();
     await expect(currentMsg).toBeVisible({ timeout: 10_000 });
   });
 
@@ -178,14 +215,20 @@ test.describe.serial("Project Commands", () => {
 
     await sendCommand(page, `/project open ${testProjectName}`);
 
-    const successMsg = page.locator(".message-content").filter({
-      hasText: new RegExp(`Opened project.*${testProjectName}`),
-    });
-    await expect(successMsg).toBeVisible({ timeout: 10_000 });
-
-    const res = await page.request.get(`${BASE}/api/topics`);
-    const data = await res.json();
-    expect(data.topics[topicId]?.projectPath).toBe(testProjectDir);
+    // Like create, `/project open` binds + FOCUSES the project, transforming the
+    // pane and unmounting the transient banner before it can be asserted. Assert
+    // the durable binding (which is this test's contract: "binds existing project
+    // by name"); the poll also gates on the async open completing.
+    await expect
+      .poll(
+        async () => {
+          const res = await page.request.get(`${BASE}/api/topics`);
+          const data = await res.json();
+          return data.topics[topicId]?.projectPath;
+        },
+        { timeout: 10_000 }
+      )
+      .toBe(testProjectDir);
   });
 
   test("AC-4: /project open binds by absolute path", async ({ page, request }) => {
@@ -198,16 +241,18 @@ test.describe.serial("Project Commands", () => {
 
     await sendCommand(page, `/project open ${testProjectDir}`);
 
-    // Wait for the response to appear (may match previous "Opened project" too)
-    const allMsgs = page.locator(".message-content").filter({
-      hasText: new RegExp(`Opened project.*${testProjectName}`),
-    });
-    // At least 2 should exist now (from AC-3 + AC-4)
-    await expect(allMsgs.last()).toBeVisible({ timeout: 10_000 });
-
-    // Verify binding via API
-    const res = await page.request.get(`${BASE}/api/topics`);
-    const data = await res.json();
-    expect(data.topics[topicId]?.projectPath).toBe(testProjectDir);
+    // `/project open <abs path>` binds + FOCUSES the project, transforming the
+    // pane and unmounting the transient banner. Assert the durable binding — the
+    // real proof of "bind by absolute path".
+    await expect
+      .poll(
+        async () => {
+          const res = await page.request.get(`${BASE}/api/topics`);
+          const data = await res.json();
+          return data.topics[topicId]?.projectPath;
+        },
+        { timeout: 10_000 }
+      )
+      .toBe(testProjectDir);
   });
 });

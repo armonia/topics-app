@@ -211,6 +211,26 @@ export function MessageList({
     }
   }, [filteredMessages, _currentStreaming]);
 
+  // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
+  // NOT active — an inbound system message, or a peer's message in a shared
+  // topic — and the user is parked at the bottom. Virtuoso's followOutput
+  // ('smooth') is unreliable for this case: the appended item's height is
+  // measured a frame late, so 'smooth' lands short and leaves the view scrolled
+  // up with an unread banner (chat-scroll.spec:29). Mirror the streaming effect
+  // and pin the scroller DOM element directly once the list has grown.
+  const prevAppendLenRef = useRef(filteredMessages.length);
+  useEffect(() => {
+    const grew = filteredMessages.length > prevAppendLenRef.current;
+    prevAppendLenRef.current = filteredMessages.length;
+    if (grew && !_currentStreaming && !isScrolledUpRef.current) {
+      activateScrollGuard();
+      requestAnimationFrame(() => {
+        const el = scrollerElRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    }
+  }, [filteredMessages, _currentStreaming, activateScrollGuard]);
+
   // Detect new messages while scrolled up
   useEffect(() => {
     if (currentMessages.length > prevMsgCountRef.current && isScrolledUp) {
@@ -243,8 +263,10 @@ export function MessageList({
         if (target > 0 && Math.abs(el.scrollTop - target) > 2) {
           el.scrollTop = target;
           // Match the "scrolled up" state so autoscroll heuristics know we
-          // are intentionally not at the bottom. 50 px matches the
-          // Virtuoso `atBottomThreshold` prop below.
+          // are intentionally not at the bottom. A restored undo offset uses a
+          // tight 50 px band (independent of the looser 150 px atBottomThreshold
+          // used for the live bottom-follow) so a deliberate restore isn't
+          // rounded back to the bottom.
           if (el.scrollHeight - target - el.clientHeight > 50) {
             isScrolledUpRef.current = true;
             setIsScrolledUp(true);
@@ -400,7 +422,15 @@ export function MessageList({
           data={filteredMessages}
           initialTopMostItemIndex={filteredMessages.length - 1}
           followOutput={_currentStreaming ? false : 'smooth'}
-          atBottomThreshold={50}
+          // 150 (not 50) so the redesign's initial bottom-anchor — which
+          // settles ~1 short message (≈60–150px) above the true bottom as
+          // Virtuoso lazily remeasures item heights — still counts as
+          // "at bottom". At 50px that lag latched isScrolledUpRef=true, which
+          // permanently suppressed the append-auto-scroll effect (a new inbound
+          // message no longer stuck to the bottom — chat-scroll.spec:29). This
+          // matches the 150px "genuinely scrolled up" cutoff in
+          // atBottomStateChange below and the app's own at-bottom tolerance.
+          atBottomThreshold={150}
           atBottomStateChange={(atBottom) => {
             // During scroll guard, only suppress brief false "not at bottom" reports
             // (the bounce), but allow genuine user scroll-up to be detected

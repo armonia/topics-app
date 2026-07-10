@@ -1730,7 +1730,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       try {
         db.prepare(`
           INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
-          VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, 0, NULL, NULL, $timestamp, $sort_order, $parent_id, 0, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
+          VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $media, 0, NULL, NULL, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
         `).run({
           $id: id,
           $session_key: body.sessionKey,
@@ -1742,6 +1742,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           $timestamp: timestamp,
           $sort_order: sortOrder,
           $parent_id: body.parentId || null,
+          // Branch index — defaults to 0 (linear thread). Tests seed sibling
+          // branches (same parent, distinct index) to exercise the branch-
+          // navigation UI without driving a provider-backed edit.
+          $branch_index: typeof body.branchIndex === "number" ? body.branchIndex : 0,
           // Slice 7 — optional per-message footer fields. Tests use these to
           // exercise the MessageMetaFooter without driving a real provider.
           $latency_ms: typeof body.latencyMs === "number" ? body.latencyMs : null,

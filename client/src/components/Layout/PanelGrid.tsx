@@ -229,7 +229,7 @@ interface PanelGridProps {
   panelInitialTab?: Record<string, import('../../types').PanelTab>;
   onPanelInitialTabConsumed?: (topicId: string) => void;
   // Pending pane request for project windows
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' | 'codex' } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode' } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project
   onNewChatInProject?: (projectPath: string, groupId?: string) => void;
@@ -243,7 +243,7 @@ interface PanelGridProps {
   // Report all open pane IDs inside each project (for sidebar filtering)
   onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
   // Create a new terminal (delegates to App)
-  onCreateTerminal?: (type: 'shell' | 'claude-code' | 'codex', skipPermissions?: boolean) => void | Promise<string | null>;
+  onCreateTerminal?: (type: 'shell' | 'claude-code' | 'codex' | 'opencode', skipPermissions?: boolean) => void | Promise<string | null>;
   // Pending browser pane request (from sidebar) — contextId or null
   pendingBrowserPane?: string | null;
   onPendingBrowserPaneConsumed?: () => void;

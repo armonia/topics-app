@@ -6,41 +6,48 @@
  * backed by a behavioral expect().
  */
 import { test, expect } from '@playwright/test';
-import { createTopic, deleteTopic } from './helpers/api-fixtures';
+import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
 
 const BASE = 'http://localhost:13334';
 
-/** Width of the app-level sidebar, or 0 when collapsed (it stays in the DOM at width:0). */
-async function sidebarWidth(page: import('@playwright/test').Page): Promise<number> {
+/**
+ * Right edge (x + width) of the app-level sidebar, or 0 when it can't be measured.
+ * On desktop the sidebar keeps a CONSTANT width and collapses by sliding off-screen
+ * via translateX(-100%) (App.tsx:750-758), so the visible signal is its right edge:
+ * open → ≈ width (>100); collapsed → ≈ 0 (x goes negative, right edge lands at ~0).
+ */
+async function sidebarRightEdge(page: import('@playwright/test').Page): Promise<number> {
   const box = await page.locator('[aria-label="Topics sidebar"]').boundingBox();
-  return box?.width ?? 0;
+  return box ? box.x + box.width : 0;
 }
 
-test('Sidebar toggle — collapses to zero width and restores', async ({ page }) => {
+test('Sidebar toggle — collapses off-screen and restores', async ({ page }) => {
   await page.goto('/');
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'attached', timeout: 15000 });
   await page.waitForTimeout(500);
 
-  // BEFORE: sidebar open with real width.
-  const openWidth = await sidebarWidth(page);
-  expect(openWidth, 'sidebar should start open with a real width').toBeGreaterThan(100);
+  // BEFORE: sidebar open, right edge past its real width.
+  const openEdge = await sidebarRightEdge(page);
+  expect(openEdge, 'sidebar should start open with a real on-screen width').toBeGreaterThan(100);
   await page.screenshot({ path: 'test-results/sidebar-BEFORE-open.png', fullPage: false });
 
   // The sidebar is toggled with ⌘B (useKeyboardShortcuts → toggleSidebar); there
   // is no persistent toggle button (the "Expand sidebar" button only appears
   // while collapsed). The window-level keydown handler fires regardless of focus.
+  // Desktop collapse is a composited translateX(-100%), NOT a width change, so we
+  // assert the sidebar slid off-screen (right edge ≈ 0), not width→0.
   await page.keyboard.press('Meta+b');
   await page.waitForTimeout(800);
   await expect
-    .poll(() => sidebarWidth(page), { timeout: 4000 })
-    .toBeLessThan(10);
+    .poll(() => sidebarRightEdge(page), { timeout: 4000 })
+    .toBeLessThan(2);
   await page.screenshot({ path: 'test-results/sidebar-AFTER-closed.png', fullPage: false });
 
-  // Toggle back open → width restored.
+  // Toggle back open → slides back on-screen.
   await page.keyboard.press('Meta+b');
   await page.waitForTimeout(800);
   await expect
-    .poll(() => sidebarWidth(page), { timeout: 4000 })
+    .poll(() => sidebarRightEdge(page), { timeout: 4000 })
     .toBeGreaterThan(100);
   await page.screenshot({ path: 'test-results/sidebar-AFTER-reopened.png', fullPage: false });
 });
@@ -53,6 +60,9 @@ test('Topic switch — activating a second tab changes the active tab', async ({
       data: { openPanels: [t1.id, t2.id] },
       ignoreHTTPSErrors: true,
     });
+    // Clear the shared pane-store so tabs from prior specs don't UNION in as a
+    // 3rd tab (see resetPaneStore) — this test asserts EXACTLY 2 tabs.
+    await resetPaneStore(request, [t1.id, t2.id]).catch(() => {});
     await page.goto('/');
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 15000 });
 

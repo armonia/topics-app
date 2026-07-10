@@ -1,11 +1,17 @@
 import path from "node:path";
 import { test, expect } from "./fixtures/test-fixtures";
-import { createTopic, patchTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, patchTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 test.describe("Context, Memory & Settings", () => {
-  test.beforeEach(async ({ contextPage, page }) => {
+  test.beforeEach(async ({ contextPage, page, request }) => {
     // Create a dedicated test topic (non-project, standalone chat)
     await contextPage.createTestTopic();
+
+    // Clear the shared pane-store so panes leaked by earlier specs (which UNION
+    // in on hydrate) don't tile alongside this topic — otherwise the chat-input
+    // context ring resolves to a HIDDEN background pane and openContextInspector
+    // times out. Exactly this topic → one visible chat pane → one visible ring.
+    await resetPaneStore(request, [contextPage.topicId!]).catch(() => {});
 
     // Register mocks BEFORE navigation
     await contextPage.mockContextAnalyze();

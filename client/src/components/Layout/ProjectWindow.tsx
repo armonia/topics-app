@@ -36,6 +36,7 @@ const ActivityPane = lazy(() => import('../Sidebar/ActivityPane').then(m => ({ d
 const JournalPane = lazy(() => import('../Journal/JournalPane').then(m => ({ default: m.JournalPane })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
+const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 const ProcessLogPane = lazy(() => import('../Project/ProcessLogPane').then(m => ({ default: m.ProcessLogPane })));
 
@@ -61,7 +62,7 @@ export interface ProjectWindowPaneProps {
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
-  pendingTerminalType?: 'shell' | 'claude-code' | 'codex';
+  pendingTerminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode';
   onPendingPaneConsumed?: () => void;
   // groupId = the tab bar whose "+ new chat" was clicked, so the chat lands there
   onNewChat?: (groupId?: string) => void;
@@ -423,6 +424,12 @@ export function ProjectWindowPane({
         return (
           <LazyPane>
             <DashboardPane onMessage={onWSMessage} />
+          </LazyPane>
+        );
+      case 'kanban':
+        return (
+          <LazyPane>
+            <KanbanBoardPane projectPath={projectPath} onMessage={onWSMessage} />
           </LazyPane>
         );
       case 'process-log':

@@ -85,7 +85,10 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
     const readRow = assistant.locator('[data-testid="tool-call-row-tc-read-1"]');
     await expect(bashRow).toBeVisible();
     await expect(readRow).toBeVisible();
-    await expect(bashRow).toContainText("Bash");
+    // A Bash tool call renders under its canonical display label "Shell"
+    // (buildToolDisplayLabel → { name: 'Shell' } for a shell detail, toolDetail.ts:195),
+    // not the raw tool name "Bash".
+    await expect(bashRow).toContainText("Shell");
     await expect(readRow).toContainText("Read");
 
     // Both finished-state rows show the success check.
@@ -166,11 +169,14 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       const row = page.locator('[data-testid="tool-call-row-tc-expand"]');
       await row.waitFor({ state: "visible", timeout: 10_000 });
 
-      // Args/result are not in the DOM until the row is expanded.
-      await expect(row).not.toContainText("echo hello");
+      // The collapsed header shows the tool name + a command *preview* ("Shell"
+      // + "echo hello", buildToolDisplayLabel summary). The ShellCard body — the
+      // "$ command" line + "Output" section (ToolCards.tsx) — only mounts once
+      // the row expands, so the pre-expand invariant is "no Output body".
+      await expect(row).not.toContainText("Output");
       await row.locator("button").first().click();
-      await expect(row).toContainText("echo hello");
-      await expect(row).toContainText("Result");
+      await expect(row).toContainText("$ echo hello");
+      await expect(row).toContainText("Output");
     } finally {
       await deleteTopic(request, fresh.id);
     }

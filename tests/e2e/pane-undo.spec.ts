@@ -59,11 +59,24 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
     t2 = await createTopic(request, `Undo-B-${Date.now()}`);
     t3 = await createTopic(request, `Undo-C-${Date.now()}`);
 
-    // Seed messages into the middle topic so its chat is scrollable
-    await seedMessages(request, t2, 30);
+    // Seed messages into the middle topic so its chat is scrollable.
+    // seedMessages takes a topic ID string — passing the whole {id,name,slug}
+    // object coerces to "[object Object]" in the URL and 404s (no messages seeded).
+    await seedMessages(request, t2.id, 30);
+  });
 
-    // Seed pane-store-v2 with a clean reducer snapshot.
-    // The middle pane (t2) has scrollOffset=250 pre-seeded.
+  // Re-seed the pane layout before EVERY test — including retries. Playwright does
+  // NOT re-run beforeAll on a retry, so the first attempt's close/undo (or a
+  // cross-file teardown flush landing on the shared server) mutates the pane-store,
+  // and the retry would inherit that (observed: only t3 survives → 1 tab, not 3).
+  // Reading the current server lastSeq and writing +1 also outranks any snapshot
+  // accumulated by the long serial run. The middle pane (t2) keeps scrollOffset=250.
+  test.beforeEach(async ({ request }) => {
+    let lastSeq = 0;
+    try {
+      const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+      if (cur.ok()) lastSeq = (((await cur.json()) as { value?: { lastSeq?: number } })?.value?.lastSeq ?? 0);
+    } catch { /* fresh store */ }
     const snapshot = {
       panes: {
         [t1.id]: { id: t1.id, type: "chat", title: t1.name, topicId: t1.id },
@@ -87,7 +100,7 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
       projects: {},
       groupOrder: ["group:default"],
       closedStack: [],
-      lastSeq: 1,
+      lastSeq: lastSeq + 1,
     };
 
     await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
@@ -139,17 +152,24 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
     });
     // Replaces waitForTimeout(1500): wait for the chat scroll container to
     // mount before attempting to scroll it. Auto-retries, no fixed stall.
+    // Scope to `:visible` — with three tabs open, the two previously-activated
+    // panes (t1 + t2) keep their chat containers mounted; the inactive one is
+    // display:none, so a bare selector resolves to 2 elements (strict-mode
+    // violation). Only the ACTIVE pane's container (t2, just clicked) is visible,
+    // and that is the one we want to scroll.
     const scrollContainer = page.locator(
-      '[data-testid="chat-scroll-container"]',
+      '[data-testid="chat-scroll-container"]:visible',
     );
     await expect(scrollContainer).toBeVisible({ timeout: 10_000 });
 
     // Scroll the chat container to ~250px, then poll until the DOM reflects it.
-    // This replaces the implicit "did the scroll actually land" wait.
+    // This replaces the implicit "did the scroll actually land" wait. The DOM
+    // queries pick the VISIBLE container (offsetParent !== null) so we never
+    // set/read scrollTop on the hidden keep-alive pane.
     await page.evaluate(() => {
-      const outer = document.querySelector(
-        '[data-testid="chat-scroll-container"]',
-      ) as HTMLElement | null;
+      const outer = Array.from(
+        document.querySelectorAll('[data-testid="chat-scroll-container"]'),
+      ).find((el) => (el as HTMLElement).offsetParent !== null) as HTMLElement | null;
       if (outer) outer.scrollTop = 250;
       const virtuoso = outer?.querySelector(
         '[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]',
@@ -160,9 +180,14 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
       .poll(
         async () =>
           page.evaluate(() => {
-            const el = document.querySelector(
-              '[data-testid="chat-scroll-container"]',
-            ) as HTMLElement | null;
+            const outer = Array.from(
+              document.querySelectorAll('[data-testid="chat-scroll-container"]'),
+            ).find((e) => (e as HTMLElement).offsetParent !== null) as HTMLElement | null;
+            // Virtuoso owns the scroll: the outer wrapper has no overflow so its
+            // scrollTop clamps to 0. Read the inner scroller we actually set.
+            const el = (outer?.querySelector(
+              '[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]',
+            ) as HTMLElement | null) ?? outer;
             return el ? Math.round(el.scrollTop) : -1;
           }),
         { timeout: 3_000 },
@@ -215,26 +240,23 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
     ).toBe(t2.id);
 
     // Undo close via Cmd+Z (app-level UndoContext, NOT reopen-closed-tab event).
-    // Click the tab bar first to ensure focus is not in a text input.
-    // The 100ms stall is kept because there is no observable "focus landed"
-    // signal exposed to Playwright — focus state is internal to the active
-    // document, and hitting Meta+z against a still-transitioning focus target
-    // causes the shortcut to be swallowed by whatever element just blurred.
-    await tabBar.click({ position: { x: 5, y: 5 } });
-    await page.waitForTimeout(100); // no observable post-focus signal to poll
+    // Blur any focused element first so Meta+z reaches the global undo handler
+    // (it skips INPUT/TEXTAREA/contentEditable/.xterm/.cm-editor targets). A
+    // prior version clicked the tab bar at (5,5) "to move focus off inputs",
+    // but (5,5) lands on the FIRST tab's close button and enqueues a deferred
+    // close of t1 that commits 3 s later — silently destroying t1 and breaking
+    // the count/order assertions. Blur is precise and side-effect-free.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press("Meta+z");
 
     // Tab restored: 2 -> 3
     await expect(tabs).toHaveCount(3, { timeout: 10_000 });
 
-    // The restored tab (t2) should land at its original index (1). Review-
-    // round-12 B4: the prior assertion only checked `toBeVisible()`, so this
-    // test passed whether or not the restore actually worked — including the
-    // ghost-pane append-to-tail regression the second test.fail() documents.
-    // The strict-position check belongs in the PANE-03 fidelity test (below)
-    // because app-level undo does not yet dispatch UNDO_CLOSE on the reducer;
-    // here we at least assert the tab is actually present and we can activate
-    // it without a crash.
+    // The restored tab (t2) must be present and re-activatable without a crash.
+    // The app-level undo now dispatches UNDO_CLOSE (re-inserts at the recorded
+    // groupIndex) and marks the id restored so the standalone tab-ordering does
+    // NOT replace+close a bystander preview tab. The stricter cross-mount scroll
+    // fidelity assertion still lives in the PANE-03 fidelity test (below).
     const restoredTab = tabBar.locator(`[data-pane-id="${t2.id}"]`);
     await expect(restoredTab).toBeVisible({ timeout: 5_000 });
 
@@ -324,11 +346,10 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
     await middleTab.locator("button").last().click({ force: true });
     await expect(tabs).toHaveCount(2, { timeout: 5_000 });
 
-    // Undo — the 100ms stall before the keypress is retained: there is no
-    // observable signal for "focus landed on the tab bar", and without it
-    // Meta+z gets swallowed by the focus transition.
-    await tabBar.click({ position: { x: 5, y: 5 } });
-    await page.waitForTimeout(100); // no observable post-focus signal to poll
+    // Undo — blur any focused element so Meta+z reaches the global undo handler.
+    // (A prior version clicked the tab bar at (5,5), which lands on the first
+    // tab's close button and deferred-closes t1; blur is side-effect-free.)
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press("Meta+z");
     await expect(tabs).toHaveCount(3, { timeout: 10_000 });
 

@@ -44,6 +44,8 @@ const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then
 const JournalPanel = lazy(() => import('../Journal/JournalPanel').then(m => ({ default: m.JournalPanel })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
 const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => ({ default: m.DashboardPane })));
+const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
+const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
 const SessionViewerPane = lazy(() => import('../Agents/SessionViewerPane').then(m => ({ default: m.SessionViewerPane })));
 
 
@@ -77,7 +79,7 @@ interface StandaloneChatGroupProps {
   onNewChat?: () => void | Promise<unknown>;
   stopSession: (sessionKey: string) => boolean;
   // Pending pane request for project tabs
-  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' | 'codex' } | null;
+  pendingProjectPane?: { projectPath: string; type: import('../../types').PaneType; terminalSessionId?: string; terminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode' } | null;
   onPendingProjectPaneConsumed?: () => void;
   // Create new chat in a project (optional groupId = the tab bar clicked)
   onNewChatInProject?: (projectPath: string, groupId?: string) => void;
@@ -90,7 +92,7 @@ interface StandaloneChatGroupProps {
   onProjectOpenPanesChange?: (projectPath: string, paneIds: string[]) => void;
   // Create a new terminal (delegates to App). Returns the new pane id so the
   // "+" on a split cell's tab bar can re-target the pane into that cell.
-  onCreateTerminal?: (type: 'shell' | 'claude-code' | 'codex', skipPermissions?: boolean) => void | Promise<string | null>;
+  onCreateTerminal?: (type: 'shell' | 'claude-code' | 'codex' | 'opencode', skipPermissions?: boolean) => void | Promise<string | null>;
   // Report whether this group has utility panes (browser/terminal)
   onUtilityPaneChange?: (has: boolean) => void;
   // Pending browser pane request (from sidebar) — contextId or null
@@ -716,6 +718,8 @@ export function StandaloneChatGroup({
             />
           )}
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
+          {utilityType === 'cron' && <CronJobsPanel />}
+          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} />}
         </LazyPane>
       );
     }
