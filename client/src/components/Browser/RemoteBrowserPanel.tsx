@@ -1,5 +1,5 @@
 import { BrowserToolbar } from './BrowserToolbar';
-import { Globe, Loader2, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw } from 'lucide-react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
@@ -469,6 +469,29 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
           <span className={`w-1.5 h-1.5 rounded-full ${connectionDotClass}`} />
           {connectionLabel}
         </div>
+
+        {/* Navigation error strip (BRW-REL-02) — a failed goto/launch used to
+            be invisible (pane stayed on the previous page / infinite
+            "Starting browser…"). Cleared by the next navigation. */}
+        {browser.error && (
+          <div
+            className="absolute top-0 inset-x-0 z-20 flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-700 dark:text-red-300 text-[12px]"
+            data-testid="browser-nav-error"
+            role="alert"
+          >
+            <AlertTriangle size={13} className="flex-shrink-0" />
+            <span className="flex-1 min-w-0 truncate" title={browser.error}>{browser.error}</span>
+            {(browser.errorUrl || browser.url) && (
+              <button
+                onClick={() => browser.navigate(browser.errorUrl || browser.url)}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/15 hover:bg-red-500/25 font-medium transition-colors flex-shrink-0"
+              >
+                <RotateCw size={11} />
+                Riprova
+              </button>
+            )}
+          </div>
+        )}
 
         {browser.screenshotSrc && !(browser.connected && (!browser.url || browser.url === 'about:blank')) ? (
           <img

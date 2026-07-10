@@ -35,6 +35,15 @@ export interface ElectronUpdater {
 // deliberately avoids — see lib/shell/tauri.ts), so the bar stays indeterminate.
 let tauriStatus: UpdaterStatus = { state: 'idle' };
 const tauriListeners = new Set<(s: UpdaterStatus) => void>();
+// Set when the Tauri ACL denies updater_check: this webview isn't the main
+// window (browser panes load the client too and reach the IPC bridge, but
+// their capability set excludes the updater). The updater then doesn't exist
+// for this webview — every check becomes a silent no-op instead of an error
+// toast the user can't act on (BRW-REL-03).
+let tauriUpdaterDenied = false;
+function isAclDenial(e: unknown): boolean {
+  return /not allowed|acl/i.test(errText(e));
+}
 function setTauriStatus(next: UpdaterStatus): void {
   tauriStatus = next;
   for (const l of tauriListeners) { try { l(tauriStatus); } catch { /* listener threw — ignore */ } }
@@ -44,6 +53,7 @@ function errText(e: unknown): string {
 }
 const tauriUpdater: ElectronUpdater = {
   async checkForUpdates() {
+    if (tauriUpdaterDenied) return { ok: false, reason: 'updater unavailable in this webview' };
     setTauriStatus({ state: 'checking' });
     try {
       const info = await tauriInvoke<{ version: string } | null>('updater_check');
@@ -51,6 +61,11 @@ const tauriUpdater: ElectronUpdater = {
       setTauriStatus({ state: 'idle' });
       return { ok: true, reason: 'up-to-date' };
     } catch (e) {
+      if (isAclDenial(e)) {
+        tauriUpdaterDenied = true;
+        setTauriStatus({ state: 'idle' });
+        return { ok: false, reason: 'updater unavailable in this webview' };
+      }
       setTauriStatus({ state: 'error', error: errText(e) });
       return { ok: false, reason: errText(e) };
     }

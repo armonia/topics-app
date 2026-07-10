@@ -222,6 +222,7 @@ describe("handleMessage", () => {
     const names = tools.map((t) => t.name);
     expect(names).toEqual([
       "open_browser_pane",
+      "close_browser_pane",
       "import_chrome",
       // Ref-based browser tools — projected from browser-tool-spec.ts.
       "browser_observe",

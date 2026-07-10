@@ -461,6 +461,16 @@ const browserForceOpenSchema = z.object({
   url: z.string(),
 }).passthrough();
 
+// Remote pane close (close_browser_pane MCP tool / REST): whichever window
+// renders `browser:<contextId>` closes it through its normal close flow (X
+// button semantics — tombstone, persist, native teardown). Server-side state
+// edits can't do this: live clients re-persist their in-memory layout and
+// clobber the removal, so the CLIENT must originate the close.
+const browserClosePaneSchema = z.object({
+  type: z.literal('browser:close-pane'),
+  contextId: z.string(),
+}).passthrough();
+
 const clearSchema = z.object({
   type: z.literal('clear'),
 }).passthrough();
@@ -669,6 +679,7 @@ const OUTBOUND_SCHEMAS = {
   // Misc domain
   'browser:navigate': browserNavigateSchema,
   'browser:force-open': browserForceOpenSchema,
+  'browser:close-pane': browserClosePaneSchema,
   'clear': clearSchema,
   'cron:updated': cronUpdatedSchema,
   'gateway:status': gatewayStatusSchema,

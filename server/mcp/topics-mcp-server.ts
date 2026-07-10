@@ -61,6 +61,21 @@ const TOOLS = [
     },
   },
   {
+    name: "close_browser_pane",
+    description:
+      "Close the browser pane this session opened with open_browser_pane, in every window that shows it (clean close: same flow as the tab's X, undoable by the user). Use it to clean up after yourself when the browsing task is done and the pane is no longer needed. Pass contextId only to target a specific pane other than this session's own.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contextId: {
+          type: "string",
+          description:
+            "Optional explicit browser contextId to close. Omit to close this session's own pane (resolved server-side).",
+        },
+      },
+    },
+  },
+  {
     name: "import_chrome",
     description:
       "Sign the topic's browser pane into sites the user is ALREADY logged into in their real Chrome, by importing those cookies (macOS) — no per-site sign-in. Reads ONLY cookies, never saved passwords; the one-time macOS Keychain prompt is the user's consent. Open the pane first with open_browser_pane. Call with dry_run:true to list importable hosts (no prompt, no values), then pass the specific domains to import. For a fresh sign-in or registration instead, open the page with open_browser_pane and let the user complete it in the pane (it persists).",
@@ -377,6 +392,20 @@ export async function callOpenBrowserPane(
     url: typeof body.url === "string" ? body.url : toolArgs.url,
     title: typeof body.title === "string" ? body.title : "",
   };
+}
+
+export async function callCloseBrowserPane(
+  args: ParsedArgs,
+  toolArgs: { contextId?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const body: Record<string, unknown> = {};
+  if (typeof toolArgs?.contextId === "string" && toolArgs.contextId) body.contextId = toolArgs.contextId;
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/close-pane`;
+  const resp = await httpJson<{ ok?: boolean; contextId?: string; error?: string }>(
+    args, "POST", path, body, fetchImpl,
+  );
+  return `Closed browser pane${resp?.contextId ? ` (context ${resp.contextId})` : ""}`;
 }
 
 export async function callImportChrome(
@@ -833,6 +862,7 @@ const TOOL_HANDLERS: Record<
     const r = await callOpenBrowserPane(a, t as { url?: unknown });
     return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
   },
+  close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),
   import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown }),
   run_script: (a, t) => callRunScript(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
