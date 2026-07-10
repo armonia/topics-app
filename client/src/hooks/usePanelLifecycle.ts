@@ -1332,6 +1332,32 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     [],
   );
 
+  // Remote pane close (close_browser_pane MCP tool → POST browser/close-pane →
+  // `browser:close-pane` broadcast): whichever window renders `browser:<ctx>`
+  // closes it through the NORMAL close flow. Server-side membership edits
+  // can't do this — the keys are LWW documents live clients re-persist from
+  // memory, clobbering the removal back within seconds — so the close must
+  // originate in the owning client. Ownership-guarded on both surfaces:
+  //   - project windows: the existing `browser:request-close` DOM listener
+  //     (useProjectLayout) closes ONLY when its layout lists the pane;
+  //   - app level: close only when this window's store/tabs hold the id.
+  // Windows that don't own the pane no-op, so the broadcast is idempotent.
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      const m = msg as { type?: string; contextId?: string };
+      if (m.type !== 'browser:close-pane' || !m.contextId) return;
+      window.dispatchEvent(new CustomEvent('browser:request-close', {
+        detail: { contextId: m.contextId },
+      }));
+      const paneId = createPaneId('browser', m.contextId);
+      const state = usePaneStore.getState();
+      const atAppLevel = Object.values(state.groups).some(g => g.paneIds.includes(paneId));
+      if (atAppLevel || openPanelsRef.current.includes(paneId)) {
+        handleClosePanel(paneId);
+      }
+    });
+  }, [onWSMessage, handleClosePanel, openPanelsRef]);
+
   const handleProjectClick = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
     ensurePaneRegistered({ id: paneId, type: 'project', projectPath });

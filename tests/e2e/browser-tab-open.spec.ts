@@ -91,6 +91,40 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
     }
   });
 
+  test("BRW-REL: close_browser_pane remote close removes the pane in live clients", async ({ page, browserProcessPageV2, request }) => {
+    // The close must originate in the OWNING client (membership keys are LWW
+    // documents live clients re-persist — a server-side state edit gets
+    // clobbered back). POST browser/close-pane broadcasts `browser:close-pane`;
+    // the window that renders the pane closes it via its normal close flow.
+    await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockBrowserContexts([]);
+    await browserProcessPageV2.mockRemoteBrowserPane({
+      connected: true,
+      url: "about:blank",
+      hasScreenshot: true,
+    });
+
+    const topic = await createTopic(request, `E2E-RemoteClose-${Date.now()}`);
+    try {
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      // Chat-path mount: contextId === topic.id, the id the topic-form close
+      // endpoint resolves to.
+      await mountBrowserPaneViaEvent(page, topic.id);
+      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toBeVisible({ timeout: 10000 });
+
+      const res = await request.post(
+        `http://localhost:13334/api/topics/${topic.id}/browser/close-pane`,
+        { data: {} },
+      );
+      expect(res.ok()).toBeTruthy();
+
+      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toHaveCount(0, { timeout: 10000 });
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
   test("BROWSER-CHAT-04: /browser <url> slash command opens browser pane and navigates [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);

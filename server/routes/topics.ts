@@ -1386,6 +1386,44 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
+    // POST /api/topics/:id/browser/close-pane
+    // POST /api/sessions/:sessionKey/browser/close-pane
+    //
+    // Symmetric counterpart of open-pane (close_browser_pane MCP tool): asks
+    // every live window that renders `browser:<ctx>` to close it through its
+    // NORMAL close flow (X-button semantics). This must be client-originated:
+    // the membership keys are LWW documents that live clients re-persist from
+    // memory, so a server-side state edit gets clobbered back within seconds.
+    // Resolution mirrors open-pane (topic → topic.id, terminal → term-<id>);
+    // an explicit body.contextId wins (close a specific pane you spawned).
+    // Best-effort: the server-side headless context is destroyed too, so web
+    // clients don't keep streaming a pane that no window shows anymore.
+    {
+      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/close-pane");
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/close-pane");
+      if ((byTopic || bySession) && method === "POST") {
+        const body = (await readJSON(req)) as { contextId?: unknown } | null;
+        let ctxId = typeof body?.contextId === "string" && body.contextId ? body.contextId : "";
+        if (!ctxId) {
+          let topic: Topic | null = null;
+          if (byTopic) topic = getTopicById(byTopic.id);
+          else if (bySession) topic = getTopicBySessionKey(decodeURIComponent(bySession.sessionKey));
+          if (topic) {
+            ctxId = resolveContextIdForTopic(topic);
+          } else if (bySession) {
+            const term = getTerminalSessionById(decodeURIComponent(bySession.sessionKey));
+            if (term) ctxId = `term-${term.id}`;
+          }
+        }
+        if (!ctxId) return json({ error: "No browser context resolvable for this session (pass contextId)" }, 404);
+        broadcastToAll({ type: "browser:close-pane", contextId: ctxId });
+        if (browserService) {
+          try { await browserService.destroyContext(ctxId); } catch { /* no headless context — native-only pane */ }
+        }
+        return json({ ok: true, contextId: ctxId });
+      }
+    }
+
     // POST /api/sessions/:sessionKey/move-to-project
     //
     // Single authoritative op to relocate a Claude Code terminal tab INTO a

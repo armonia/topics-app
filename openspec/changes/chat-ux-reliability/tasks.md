@@ -61,6 +61,22 @@ Convenzione: `[ ]` da fare, `[x]` fatto+verificato.
   updater non disponibile per la webview (idle, no-retry), mai toast.
 - [x] F.3 Verifica live: client nel pane webview col bundle nuovo → nessun toast ACL.
 
+## Phase F2 — Chiusura remota pane (BRW-REL-04, aggiunta su richiesta)
+- [x] F2.1 Schema WS `browser:close-pane` (server + type client).
+- [x] F2.2 `POST /api/{topics/:id,sessions/:key}/browser/close-pane` — risoluzione
+  come open-pane, `contextId` esplicito vince; broadcast + destroy best-effort
+  del contesto headless.
+- [x] F2.3 Tool MCP `close_browser_pane` (simmetrico di open_browser_pane) +
+  unit tools/list aggiornato (64/64 verdi).
+- [x] F2.4 Handler client in usePanelLifecycle: ponte al listener
+  `browser:request-close` esistente (project windows) + chiusura app-level
+  ownership-guarded via handleClosePanel.
+- [x] F2.5 E2E "BRW-REL: close_browser_pane remote close" in
+  browser-tab-open.spec.ts — verde (mount → POST → tab sparita).
+- [x] F2.6 Verifica live standalone: pane aperto su web client reale → POST →
+  TAB CLOSED. NOTA: scoperto e annotato caso pre-esistente non coperto —
+  "Add pane → Browser" su client SENZA alcuna tab è un no-op (fuori scope qui).
+
 ## Phase G — Gate finale
 - [x] G.1 `tsc` client + typecheck server verdi (baseline 0); unit 4/4.
 - [x] G.2 E2E: chat.spec 13 passed (+1 env-skip); toolbar 2/2 con click reali.

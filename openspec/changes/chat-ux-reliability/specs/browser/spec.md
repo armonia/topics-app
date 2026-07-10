@@ -48,3 +48,22 @@ essere trattato come updater non disponibile senza mostrare alcun toast d'errore
 - **GIVEN** il client Topics caricato in una webview pane (ACL senza updater_check)
 - **WHEN** parte il boot-check updater
 - **THEN** nessun toast d'errore appare (updater silenziosamente non disponibile)
+
+### Requirement: BRW-REL-04 — Chiusura remota del pane browser
+
+Un agente (o il server) SHALL poter chiudere un pane browser per contextId in
+tutti i client vivi che lo mostrano, tramite il flusso di chiusura NORMALE del
+client (semantica del bottone X: tombstone, persist, teardown nativo) — mai via
+edit server-side dello stato (documenti LWW che i client vivi ri-persistono).
+Il tool MCP `close_browser_pane` è il simmetrico di `open_browser_pane`.
+
+#### Scenario: chiusura remota su client vivo
+- **GIVEN** un pane browser aperto in una finestra viva (ctx noto)
+- **WHEN** il server riceve POST browser/close-pane per quel ctx
+- **THEN** ogni finestra che renderizza `browser:<ctx>` lo chiude via flusso normale
+- **AND** le finestre che non lo possiedono ignorano il broadcast (idempotente)
+
+#### Scenario: risoluzione di sessione
+- **GIVEN** una sessione chat (ctx = topic.id) o terminale (ctx = term-<id>)
+- **WHEN** l'agente chiama `close_browser_pane` senza argomenti
+- **THEN** viene chiuso il pane della propria sessione
