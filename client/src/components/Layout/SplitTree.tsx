@@ -22,7 +22,7 @@
  * deleting it breaks all tiling.
  */
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { type LayoutNode, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
+import { type LayoutNode, type SplitChild, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
 
 export interface SplitTreeProps {
   node: LayoutNode;
@@ -73,13 +73,21 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
       }}
     >
       {node.children.map((child, i) => {
+        // Only a gap BETWEEN two visible (weight > 0) siblings carries a
+        // divider. A dedup'd/placeholder cell collapses to weight 0 (see
+        // buildShallowGridTree's `__skip:` leaves): rendering a divider next to
+        // a zero-width cell puts a dead, zero-width grab strip ON TOP of the
+        // adjacent real divider's band — the real resizer then reads as "lost"
+        // (unhittable). `dividerIdx` stays `i - 1` so it still maps onto the
+        // host's full weight band (which includes the zero entry).
+        const showGap = gapHasDivider(node.children, i);
         // A host-supplied divider takes precedence; it returns null to defer to
         // the built-in one. The host gets (path, dividerIdx=i-1, dir) so it can
         // map the gap back to its own model (e.g. legacy rowIdx/colIdx).
-        const custom = i > 0 && renderDivider ? renderDivider({ path, dividerIdx: i - 1, dir: node.dir }) : null;
+        const custom = showGap && renderDivider ? renderDivider({ path, dividerIdx: i - 1, dir: node.dir }) : null;
         return (
           <React.Fragment key={keyFor(child.node, i)}>
-            {i > 0 && (custom ?? (
+            {showGap && (custom ?? (
               <Divider
                 dir={node.dir}
                 gutter={gutter}
@@ -113,6 +121,17 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
  *  browser reload, lost chat draft). Index matches the legacy `key={rowIdx}`. */
 function keyFor(node: LayoutNode, index: number): string {
   return isLeaf(node) ? `leaf:${node.id}` : `split:${index}`;
+}
+
+/** Whether the gap BEFORE child `i` should render a resize divider. A divider
+ *  is meaningful only between two visible siblings, so it renders iff `i > 0`
+ *  and BOTH the child at `i` and its predecessor have weight > 0. A dedup'd or
+ *  empty-row placeholder collapses to weight 0 (`buildShallowGridTree`); a
+ *  divider adjacent to that zero-width cell is a dead grab strip that overlaps —
+ *  and masks — the neighbouring real divider, which is how a resizer goes
+ *  "missing". Exported for unit tests. */
+export function gapHasDivider(children: readonly SplitChild[], i: number): boolean {
+  return i > 0 && (children[i]?.weight ?? 0) > 0 && (children[i - 1]?.weight ?? 0) > 0;
 }
 
 interface DividerProps {
