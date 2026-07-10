@@ -1505,3 +1505,32 @@ html.electron-mac :has(> [data-testid="browser-native-panel"]) {
 .floating-splits [data-split-card] .cursor-row-resize:not(:hover) {
   background-color: var(--border);
 }
+
+/* chat-rendering-parity CHAT-RND-01 — hljs token palette, scoped to chat code
+ * blocks. The block surface is dark in BOTH themes (bg-app-code-bg +
+ * text-gray-100), so a single One-Dark-ish palette serves light and dark. */
+.code-block-wrapper .hljs-comment,
+.code-block-wrapper .hljs-quote { color: #7f848e; font-style: italic; }
+.code-block-wrapper .hljs-keyword,
+.code-block-wrapper .hljs-selector-tag,
+.code-block-wrapper .hljs-literal,
+.code-block-wrapper .hljs-type { color: #c678dd; }
+.code-block-wrapper .hljs-string,
+.code-block-wrapper .hljs-regexp,
+.code-block-wrapper .hljs-addition { color: #98c379; }
+.code-block-wrapper .hljs-number,
+.code-block-wrapper .hljs-symbol,
+.code-block-wrapper .hljs-bullet,
+.code-block-wrapper .hljs-meta { color: #d19a66; }
+.code-block-wrapper .hljs-title,
+.code-block-wrapper .hljs-title.function_ { color: #61afef; }
+.code-block-wrapper .hljs-attr,
+.code-block-wrapper .hljs-attribute,
+.code-block-wrapper .hljs-variable,
+.code-block-wrapper .hljs-template-variable,
+.code-block-wrapper .hljs-property { color: #e06c75; }
+.code-block-wrapper .hljs-built_in,
+.code-block-wrapper .hljs-title.class_ { color: #e5c07b; }
+.code-block-wrapper .hljs-deletion { color: #e06c75; }
+.code-block-wrapper .hljs-emphasis { font-style: italic; }
+.code-block-wrapper .hljs-strong { font-weight: 600; }

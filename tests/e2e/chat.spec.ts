@@ -262,6 +262,46 @@ test.describe("Chat — Rich Content Rendering", () => {
     expect(await richElements.count()).toBeGreaterThan(0);
   });
 
+  test("renders syntax highlighting, KaTeX math and mermaid diagrams", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-RND-01/02/03" });
+    const richContent = [
+      "Codice:",
+      "```javascript",
+      "const x = 42; // answer",
+      "```",
+      "Formula: $$E = mc^2$$",
+      "Prezzo non-math: costa $5 e basta.",
+      "```mermaid",
+      "graph TD; A-->B;",
+      "```",
+    ].join("\n");
+    await page.route(/\/api\/history/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        json: {
+          messages: [
+            { id: "rnd-user-1", role: "user", content: "Mostra rendering", timestamp: new Date().toISOString() },
+            { id: "rnd-assistant-1", role: "assistant", content: richContent, timestamp: new Date().toISOString() },
+          ],
+        },
+      });
+    });
+    await goToApp(page);
+    await openTopic(page, /Web Search Test/);
+    await expect(page.locator(".message-content").first()).toBeVisible({ timeout: 15_000 });
+
+    // CHAT-RND-01 — hljs token spans present in the code block
+    await expect(page.locator(".code-block-wrapper .hljs-keyword").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".code-block-wrapper .hljs-comment").first()).toBeVisible();
+
+    // CHAT-RND-02 — display math rendered by KaTeX; single dollars stay text
+    await expect(page.locator(".message-content .katex").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("costa $5 e basta")).toBeVisible();
+
+    // CHAT-RND-03 — mermaid fence becomes an SVG diagram (lazy chunk)
+    await expect(page.locator('[data-testid="mermaid-diagram"] svg').first()).toBeVisible({ timeout: 20_000 });
+  });
+
   test("plan mode shows plan view with approve/reject", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-02" });
     // Intercept WebSocket to prevent real-time updates from resetting component state
