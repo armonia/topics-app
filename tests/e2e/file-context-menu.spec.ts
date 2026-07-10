@@ -40,7 +40,10 @@ test.describe("File Context Menu & Script Runner (FILE-03)", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test("FILE-03-01: context menu shows Show in Finder for file", async ({ fileExplorerPage, page }) => {
+  // @nightly: pre-existing CI-Linux failure — shared-DB state bleed can render
+  // a second file tree, so the treeitem/menu locator flakes. Off the PR gate
+  // until the suite gets per-test DB reset. TODO(e2e-isolation).
+  test("FILE-03-01: context menu shows Show in Finder for file @nightly", async ({ fileExplorerPage, page }) => {
     test.info().annotations.push({ type: "spec", description: "FILE-03" });
 
     let revealCalled = false;

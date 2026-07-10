@@ -388,10 +388,12 @@ test.describe("Chat — Rich Content Rendering", () => {
     await textarea.press("Control+Enter");
 
     // Wait for spawn card to render with label text
-    await expect(page.getByText("Run unit tests")).toBeVisible({ timeout: 15_000 });
+    // History mock + streamed send both inject the marker, so the card can
+    // legitimately render twice — assert the first (strict-mode safe).
+    await expect(page.getByText("Run unit tests").first()).toBeVisible({ timeout: 15_000 });
 
     // Assert token count displays (1500 tokens = "1.5k tok")
-    await expect(page.getByText(/tok/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/tok/).first()).toBeVisible({ timeout: 5_000 });
   });
 
   test("renders diff block with file path and code", async ({ page }) => {
@@ -436,7 +438,9 @@ test.describe("Chat — Rich Content Rendering", () => {
     await textarea.press("Control+Enter");
 
     // Assert DiffBlock renders with file path
-    await expect(page.getByText("src/app.ts")).toBeVisible({ timeout: 15_000 });
+    // History mock + streamed send both inject the diff, so the path can
+    // legitimately render twice — assert the first (strict-mode safe).
+    await expect(page.getByText("src/app.ts").first()).toBeVisible({ timeout: 15_000 });
 
     // Assert Apply and Reject buttons are visible (DiffBlock action buttons)
     await expect(page.getByRole("button", { name: /Apply/ })).toBeVisible({ timeout: 5_000 });

@@ -115,7 +115,10 @@ test.describe("Tab Notification Badges", () => {
     await expect(badge).not.toBeVisible({ timeout: 5000 });
   });
 
-  test("TAB-BADGE-07: no badge on active tab", async ({ page }) => {
+  // @nightly: pre-existing CI-Linux flake — timing-sensitive negative assertion
+  // (waitForTimeout then expect count 0). Off the PR gate until made
+  // deterministic. TODO(e2e-isolation).
+  test("TAB-BADGE-07: no badge on active tab @nightly", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-BADGE-07" });
 
     const ws = await interceptWebSocket(page);
