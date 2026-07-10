@@ -1,24 +1,94 @@
 name: Release (Tauri)
 
-# Opt-in Tauri desktop release. Tag `tauri-vX.Y.Z` (matching the "version" in
-# desktop-tauri/src-tauri/tauri.conf.json) to build + publish the Tauri installers
-# and the auto-update manifest:
-#   git tag tauri-v0.1.0 && git push origin tauri-v0.1.0
+# Builds the Tauri desktop installers (macOS Universal + Windows + Linux) and the
+# `latest.json` auto-update manifest, and PUBLISHES them to a GitHub Release so
+# the signed auto-updater picks them up immediately.
 #
-# Kept on a SEPARATE tag namespace from the Electron release (`v*`) during the
-# migration, so shipping Tauri is deliberate while it's not yet the production
-# shell. Once Tauri takes over, switch the trigger to `v*` so both shells (or just
-# Tauri) release in lockstep on one tag.
+# Three-stage on purpose (create-release → build matrix → publish):
+#   • create-release makes ONE draft release up front and hands its id to the
+#     builders. The old single-stage matrix had all three OS jobs call
+#     tauri-action's own createRelease for the same tag concurrently — a race that
+#     started returning 403 "Resource not accessible by integration" (the token
+#     has contents:write and `gh api` create works fine; the concurrent
+#     create-a-release calls do not). Creating once, then uploading by releaseId,
+#     removes the race.
+#   • publish flips the draft to published only AFTER every OS built, so a
+#     half-built version never goes live.
+#
+# Fired three ways:
+#   • After every merge to main: auto-bump.yml calls this as a reusable workflow
+#     (workflow_call) with the freshly-bumped commit + tag → every version ships
+#     to everyone automatically. The build runs INSIDE the human-merge run on
+#     purpose: CI's built-in GITHUB_TOKEN can't trigger a tag- or dispatch-driven
+#     workflow, and we deliberately use no repo PAT.
+#   • `scripts/ship.sh` (or a hand-pushed `tauri-vX.Y.Z` tag) — one-off release.
+#   • workflow_dispatch — manual (re-)run from the Actions tab.
 on:
   push:
     tags: ['tauri-v*']
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit/branch to build (blank = this ref)'
+        required: false
+        default: ''
+      tag:
+        description: 'Release tag, e.g. tauri-v2.1.9 (blank = this ref name)'
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit SHA to build (the bumped commit)'
+        required: true
+        type: string
+      tag:
+        description: 'Release tag to publish, e.g. tauri-v2.1.9'
+        required: true
+        type: string
 
 permissions:
-  contents: write # GITHUB_TOKEN creates the GitHub Release
+  contents: write # GITHUB_TOKEN creates + publishes the GitHub Release
 
 jobs:
-  release:
+  # Create (or reuse) the single draft release for this version and export its id.
+  # Uses `gh api` — proven to work with the run's contents:write token — instead of
+  # tauri-action's own createRelease, and does it once to avoid the matrix race.
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.mk.outputs.release_id }}
+    steps:
+      - name: Create or reuse the draft release
+        id: mk
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # tag: explicit on workflow_call (github.ref_name is "main" there); the
+          # ref name on a tag push / dispatch. commitish: the exact commit to tag
+          # (the bumped commit on workflow_call; the tag's own commit otherwise).
+          TAG: ${{ inputs.tag || github.ref_name }}
+          COMMITISH: ${{ inputs.ref || github.sha }}
+        run: |
+          set -euo pipefail
+          id="$(gh api "repos/$REPO/releases" \
+                 --jq "map(select(.tag_name==\"$TAG\")) | .[0].id // empty")"
+          if [ -z "$id" ]; then
+            id="$(gh api -X POST "repos/$REPO/releases" \
+                    -f tag_name="$TAG" \
+                    -f target_commitish="$COMMITISH" \
+                    -f name="Topics (Tauri) $TAG" \
+                    -F draft=true -F prerelease=false --jq .id)"
+            echo "Created draft release $id for $TAG @ $COMMITISH"
+          else
+            echo "Reusing existing draft release $id for $TAG"
+          fi
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
@@ -33,8 +103,16 @@ jobs:
           # (takes 2 and 3 of tauri-v2.1.0). deb+rpm don't use linuxdeploy.
           - { os: ubuntu-latest, args: '--bundles deb,rpm' }
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     steps:
+      # workflow_call passes the bumped commit SHA; a tag push resolves the tag;
+      # dispatch uses its (optional) input or the selected ref. inputs.* is the
+      # trusted output of auto-bump (git rev-parse) or a manual dispatch — never
+      # external/untrusted content, so it's safe in ref:.
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -105,7 +183,7 @@ jobs:
           bun install --frozen-lockfile
           bun run build
 
-      - name: Build & publish Tauri (signed + notarized when secrets present)
+      - name: Build Tauri + upload to the draft release (signed when secrets present)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -133,8 +211,29 @@ jobs:
           # restore the env lines here.
         with:
           projectPath: desktop-tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Topics (Tauri) ${{ github.ref_name }}'
+          # Upload into the pre-made draft (by id) — no per-job createRelease, no
+          # race. tagName keeps the updater artifact naming tied to the version;
+          # releaseDraft: true because the target release is still a draft here
+          # (the publish job flips it live once every OS has uploaded).
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          tagName: ${{ inputs.tag || github.ref_name }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  # Flip the draft to published — only reached if every matrix build succeeded, so
+  # a partially-built version never goes live to the auto-updater.
+  publish:
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ID: ${{ needs.create-release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "repos/$REPO/releases/$ID" -F draft=false -f make_latest=true --jq '.html_url'
