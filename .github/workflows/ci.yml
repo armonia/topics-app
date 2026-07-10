@@ -76,6 +76,12 @@ jobs:
   # the check job above, which parses every spec but runs none of them.
   e2e:
     runs-on: ubuntu-latest
+    # PR gate tier (E2E_TIER=pr): fast, deterministic subset, sharded across
+    # parallel runners. The heavy/flaky/perf specs run in e2e-nightly.yml.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
 
@@ -130,15 +136,16 @@ jobs:
           echo "path=$bin" >> "$GITHUB_OUTPUT"
 
       - name: Run E2E tests (Playwright)
-        run: npx playwright test
+        run: npx playwright test --shard=${{ matrix.shard }}/4
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
+          E2E_TIER: pr
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: test-results/html-report
           retention-days: 7
 
