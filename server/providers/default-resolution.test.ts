@@ -19,6 +19,7 @@ import {
   getDefaultProviderName,
   listProviders,
 } from "./index";
+import { _resetCodexBinCache } from "../lib/codex-bin";
 
 function clearRegistry() {
   for (const { name } of listProviders()) removeProvider(name);
@@ -39,12 +40,23 @@ describe("ClaudeProvider.connected", () => {
 });
 
 describe("recomputeDefault — subscription-first", () => {
+  // codex.connected keys off a resolvable codex binary, which is present on a
+  // dev Mac but NOT on the Linux CI runner — that asymmetry made the "falls
+  // back to codex" case pass locally and fail in CI. Pin CODEX_BIN to a file
+  // that always exists so codex is deterministically connected here.
+  let prevCodexBin: string | undefined;
   beforeEach(() => {
     delete process.env.AI_PROVIDER;
+    prevCodexBin = process.env.CODEX_BIN;
+    process.env.CODEX_BIN = process.execPath;
+    _resetCodexBinCache();
     clearRegistry();
   });
   afterEach(() => {
     delete process.env.AI_PROVIDER;
+    if (prevCodexBin === undefined) delete process.env.CODEX_BIN;
+    else process.env.CODEX_BIN = prevCodexBin;
+    _resetCodexBinCache();
     clearRegistry();
   });
 
