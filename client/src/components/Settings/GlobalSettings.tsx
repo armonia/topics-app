@@ -322,10 +322,10 @@ interface FeaturesSectionProps {
 }
 
 /**
- * Features — opt-in capabilities that carry a cost. Right now this is the
- * "New Chat" gate: creating a fresh chat drives a paid provider turn (the
- * subscription only works through an interactive PTY), so it ships OFF and the
- * user enables it deliberately, fully aware it's billable.
+ * Features — capabilities the user can turn off. The "New Chat" gate ships ON:
+ * structured chat runs on the local `claude-code` CLI, whose usage is included
+ * in the Claude Pro/Max subscription (not metered API credits — verified
+ * 2026-07). The toggle stays so anyone who wants to hide the entry points can.
  */
 function FeaturesSection({ settings, onChange }: FeaturesSectionProps) {
   return (
@@ -334,14 +334,15 @@ function FeaturesSection({ settings, onChange }: FeaturesSectionProps) {
         <label className="flex items-center gap-2 text-[13px] font-medium text-app-text mb-1">
           <MessageSquarePlus size={14} />
           New Chat
-          <span className="ml-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
-            Paid
+          <span className="ml-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400">
+            Subscription
           </span>
         </label>
         <p className="text-[12px] text-app-text-muted mb-3">
-          Allow creating new chats (the “New Chat” button, ⌘⇧N, and the ⌘K
-          palette). Each new chat starts a billable provider turn, so this is
-          off by default — enable it only if you have a paid plan.
+          Show the “New Chat” entry points (the button, ⌘⇧N, and the ⌘K
+          palette). Chat runs on your local Claude CLI login, so it uses your
+          Claude subscription — no metered API cost. On by default; turn it off
+          to hide the entry points.
         </p>
 
         <ToggleRow
