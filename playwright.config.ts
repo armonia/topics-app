@@ -24,6 +24,14 @@ const NIGHTLY_ONLY_SPECS = [
   "cross-window-topic-sync",
   "split-screen-sync",
   "pane-server-migration",
+  // The file-explorer family shares one project/DB across tests; on CI Linux
+  // the accumulated state renders a second tree, so treeitem locators resolve
+  // to >1 element and the failure cascades test-to-test (quarantining one just
+  // shifts it to the next). Off the PR gate as a class until the suite gets
+  // per-test DB isolation. TODO(e2e-isolation).
+  "file-explorer",
+  "file-context-menu",
+  "file-external-drop",
 ].map((name) => `**/${name}.spec.ts`);
 
 export default defineConfig({

@@ -26,10 +26,7 @@ test.describe("External File Drop", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // @nightly: pre-existing CI-Linux flake — synthetic DragEvent/DataTransfer
-  // doesn't reliably drive the dragover ring class in headless Chromium. Off
-  // the PR gate until the gesture is simulated deterministically. TODO(e2e-isolation).
-  test("EXTDROP-01: dragover on directory shows visual indicator @nightly", async ({ fileExplorerPage, page }) => {
+  test("EXTDROP-01: dragover on directory shows visual indicator", async ({ fileExplorerPage, page }) => {
     await fileExplorerPage.gotoProject(tmpDir, topicName);
     await expect(fileExplorerPage.fileTree).toBeVisible();
 
