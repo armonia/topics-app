@@ -1905,6 +1905,167 @@ fn browser_take_download_events(id: String) -> Vec<DownloadEventMsg> {
     }
 }
 
+// ── Navigation failures ──────────────────────────────────────────────────────
+// wry 0.55 bridges no WKNavigationDelegate failure callback (its delegate class
+// implements decidePolicy/didCommit/didFinish only), so a failed load left the
+// pane silently on the previous page: nav "success" was a blind 700ms spinner
+// client-side. We add `webView:didFailProvisionalNavigation:withError:` and
+// `webView:didFailNavigation:withError:` to wry's delegate CLASS at runtime —
+// class_addMethod, no swizzle needed since the selectors are verified absent —
+// and queue the failures per pane, drained by the client's state poll exactly
+// like the download queue above.
+#[derive(Clone, Serialize)]
+struct NavErrorMsg {
+    url: String,
+    description: String,
+    code: i64,
+    // Pane this failure belongs to — internal scoping only, like DownloadEventMsg.
+    #[serde(skip)]
+    pane_id: String,
+}
+
+static NAV_ERROR_EVENTS: std::sync::Mutex<Vec<NavErrorMsg>> = std::sync::Mutex::new(Vec::new());
+
+/// WKWebView pointer → pane id. The navigation delegate CLASS is shared by every
+/// wry webview (main UI included), so the failure IMP must scope events to the
+/// browser panes it knows; unmapped pointers are silently ignored.
+#[cfg(target_os = "macos")]
+fn nav_pane_by_webview() -> &'static std::sync::Mutex<std::collections::HashMap<usize, String>> {
+    static M: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<usize, String>>> =
+        std::sync::OnceLock::new();
+    M.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn nav_did_fail_imp(
+    _this: &objc::runtime::Object,
+    _sel: objc::runtime::Sel,
+    webview: cocoa::base::id,
+    _navigation: cocoa::base::id,
+    error: cocoa::base::id,
+) {
+    nav_record_failure(webview, error);
+}
+
+/// Shared body for both did-fail selectors: filter the benign codes every real
+/// browser suppresses, then queue the failure for the owning pane's poll.
+#[cfg(target_os = "macos")]
+fn nav_record_failure(webview: cocoa::base::id, error: cocoa::base::id) {
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
+    use objc::{msg_send, sel, sel_impl};
+    let pane_id = match nav_pane_by_webview().lock() {
+        Ok(g) => match g.get(&(webview as usize)) {
+            Some(p) => p.clone(),
+            None => return, // main UI webview / unknown — not ours
+        },
+        Err(_) => return,
+    };
+    unsafe {
+        if error == nil {
+            return;
+        }
+        let domain = ns_string_to_rust(msg_send![error, domain]);
+        let code: i64 = msg_send![error, code];
+        // NSURLErrorDomain -999 = cancelled (a newer navigation superseded this
+        // one — fired on every rapid re-navigate); WebKitErrorDomain 102 = frame
+        // load interrupted (a download took the navigation over); 204 = plugin
+        // will handle load. None of these is a user-facing failure.
+        if domain == "NSURLErrorDomain" && code == -999 {
+            return;
+        }
+        if domain == "WebKitErrorDomain" && (code == 102 || code == 204) {
+            return;
+        }
+        let description = ns_string_to_rust(msg_send![error, localizedDescription]);
+        let user_info: id = msg_send![error, userInfo];
+        let mut url = String::new();
+        if user_info != nil {
+            let key: id = NSString::alloc(nil).init_str("NSErrorFailingURLStringKey");
+            let val: id = msg_send![user_info, objectForKey: key];
+            if val != nil {
+                url = ns_string_to_rust(val);
+            }
+        }
+        if let Ok(mut v) = NAV_ERROR_EVENTS.lock() {
+            // Bounded like DOWNLOAD_EVENTS: an unobserved pane must not leak.
+            if v.len() >= 64 {
+                let overflow = v.len() - 63;
+                v.drain(0..overflow);
+            }
+            v.push(NavErrorMsg { url, description, code, pane_id });
+        }
+    }
+}
+
+/// Register this pane's WKWebView in the pointer→pane map and, once per process,
+/// add the two did-fail methods to wry's shared navigation-delegate class.
+#[cfg(target_os = "macos")]
+fn install_nav_failure_hook(wv: &tauri::Webview, pane_id: &str) {
+    let pane = pane_id.to_string();
+    let _ = wv.with_webview(move |platform| unsafe {
+        use cocoa::base::{id, nil, BOOL, NO};
+        use objc::runtime::{Class, Object, Sel};
+        use objc::{msg_send, sel, sel_impl};
+        let wk = platform.inner() as id;
+        if wk == nil {
+            return;
+        }
+        if let Ok(mut g) = nav_pane_by_webview().lock() {
+            g.insert(wk as usize, pane.clone());
+        }
+        let delegate: id = msg_send![wk, navigationDelegate];
+        if delegate == nil {
+            return;
+        }
+        static INSTALL: std::sync::Once = std::sync::Once::new();
+        INSTALL.call_once(|| {
+            // If a future wry ever implements these selectors itself, adding
+            // would need a swizzle instead — skip and keep wry's behaviour
+            // rather than fight it (the client then simply sees no nav errors,
+            // the pre-existing state).
+            let responds: BOOL = msg_send![
+                delegate,
+                respondsToSelector: sel!(webView:didFailProvisionalNavigation:withError:)
+            ];
+            if responds != NO {
+                return;
+            }
+            let cls: &Class = msg_send![delegate, class];
+            let imp: extern "C" fn(&Object, Sel, id, id, id) = nav_did_fail_imp;
+            let types = std::ffi::CString::new("v@:@@@").expect("static types str");
+            let cls_ptr = cls as *const Class as *mut Class;
+            objc::runtime::class_addMethod(
+                cls_ptr,
+                sel!(webView:didFailProvisionalNavigation:withError:),
+                std::mem::transmute(imp),
+                types.as_ptr(),
+            );
+            objc::runtime::class_addMethod(
+                cls_ptr,
+                sel!(webView:didFailNavigation:withError:),
+                std::mem::transmute(imp),
+                types.as_ptr(),
+            );
+        });
+    });
+}
+
+/// Drain queued navigation failures for `id`'s pane — same scoped-drain contract
+/// as browser_take_download_events. Non-macOS builds have no hook installed, so
+/// the queue is simply always empty there.
+#[tauri::command]
+fn browser_take_nav_errors(id: String) -> Vec<NavErrorMsg> {
+    match NAV_ERROR_EVENTS.lock() {
+        Ok(mut v) => {
+            let (mine, rest): (Vec<_>, Vec<_>) = v.drain(..).partition(|e| e.pane_id == id);
+            *v = rest;
+            mine
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Injected before any page script, on every navigation: a tiny console proxy so
 /// the toolbar's console badge can show page log/warn/error counts (WKWebView has
 /// no console-message delegate bridged). Buffers into `window.__topicsConsole`,
@@ -2419,6 +2580,7 @@ fn browser_open(
     #[cfg(target_os = "macos")]
     if let Some(wv) = app.get_webview(&label) {
         disable_layer_implicit_animations(&wv);
+        install_nav_failure_hook(&wv, &id);
         if let Some((win_w, win_h)) = webview_window_logical_size(&wv) {
             // Card radius unknown at create; the client's first bounds push carries it.
             apply_browser_corner_mask(&wv, &id, x, y, width, height, win_w, win_h, 0.0);
@@ -2502,6 +2664,15 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     if let Ok(mut g) = browser_corner_cache().lock() {
         g.remove(&id);
+    }
+    // Unmap the dead WKWebView pointer (by pane value — the pointer itself is
+    // gone with the close) and drop any queued failures nobody will drain.
+    #[cfg(target_os = "macos")]
+    if let Ok(mut g) = nav_pane_by_webview().lock() {
+        g.retain(|_, v| v != &id);
+    }
+    if let Ok(mut v) = NAV_ERROR_EVENTS.lock() {
+        v.retain(|e| e.pane_id != id);
     }
     Ok(())
 }
@@ -5396,6 +5567,7 @@ pub fn run() {
             #[cfg(debug_assertions)]
             focus_report,
             browser_take_download_events,
+            browser_take_nav_errors,
             updater_check,
             updater_install,
             window_detach,
