@@ -3,6 +3,7 @@
 #   - package.json                              ("version")
 #   - desktop-tauri/src-tauri/tauri.conf.json   ("version")
 #   - desktop-tauri/src-tauri/Cargo.toml        (the [package] version line)
+#   - desktop-tauri/src-tauri/Cargo.lock        (the [[package]] "app" stanza)
 #
 # Surgical text replacement (not a JSON re-serialize), so only the version
 # string changes and every file keeps its exact formatting → minimal diff.
@@ -26,6 +27,7 @@ if part not in ("patch", "minor", "major"):
 PKG = "package.json"
 TAURI = "desktop-tauri/src-tauri/tauri.conf.json"
 CARGO = "desktop-tauri/src-tauri/Cargo.toml"
+LOCK = "desktop-tauri/src-tauri/Cargo.lock"
 
 # Read the current version from package.json (the canonical source).
 cur = re.search(r'"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)"', open(PKG).read())
@@ -51,6 +53,11 @@ sub_once(TAURI, r'("version"\s*:\s*")\d+\.\d+\.\d+(")', rf'\g<1>{new}\g<2>')
 # Cargo.toml: a line-anchored `version = "X.Y.Z"` = the [package] version
 # (dependency versions are inline `name = { version = "…" }`, never line-start).
 sub_once(CARGO, r'(?m)^(version\s*=\s*")\d+\.\d+\.\d+(")', rf'\g<1>{new}\g<2>')
+# Cargo.lock: keep the "app" package stanza in lockstep too. Without this
+# every bump leaves the lock one version behind, and the NEXT local
+# `cargo build`/`cargo check` rewrites it as uncommitted noise (a dirty
+# Cargo.lock rode along in two PRs before this).
+sub_once(LOCK, r'(?m)^(name = "app"\nversion = ")\d+\.\d+\.\d+(")', rf'\g<1>{new}\g<2>')
 
 print(new)
 PY
