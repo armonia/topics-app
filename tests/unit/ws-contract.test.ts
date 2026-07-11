@@ -184,7 +184,9 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     );
     if (!nav) throw new Error('nav variant missing');
     const sig = objectSignature(nav);
-    expect(sig.enums.phase).toEqual(['request', 'response']);
+    // 'error' joined with web-path nav-error surfacing (PR #8): the server
+    // resolves goto/launch failures as an error-phase frame the pane renders.
+    expect(sig.enums.phase).toEqual(['error', 'request', 'response']);
   });
 
   test('console.level enum is locked', () => {

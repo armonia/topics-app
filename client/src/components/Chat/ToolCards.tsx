@@ -234,10 +234,19 @@ export function TodoCard({ items }: { items: Array<{ content: string; status: 'p
 
 // ── Sub-agent (Task) ────────────────────────────────────────────────────────
 
-export function SubAgentCard({ subAgentType, description, actions, result }: {
+export function SubAgentCard({ subAgentType, description, actions, result, isRunning }: {
   subAgentType?: string; description?: string;
   actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
   result?: string;
+  /**
+   * From the parent ToolCall's own status, not derived from actions[].
+   * Background/async agent runs finalize (success/error) without ever
+   * streaming parent_tool_use_id-tagged events through SidechainTracker,
+   * so actions[] can stay empty forever even after the row settles — fall
+   * back to "no activity captured" instead of "starting…" once isRunning
+   * is false, so the card doesn't look stuck.
+   */
+  isRunning?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
@@ -249,7 +258,9 @@ export function SubAgentCard({ subAgentType, description, actions, result }: {
         </div>
       )}
       {actions.length === 0 ? (
-        <div className="text-[11px] italic text-app-text-muted">Sub-agent starting…</div>
+        <div className="text-[11px] italic text-app-text-muted">
+          {isRunning ? 'Sub-agent starting…' : (result ? null : 'No activity captured.')}
+        </div>
       ) : (
         <div>
           <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">
@@ -357,7 +368,7 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
 
 // ── Dispatcher ──────────────────────────────────────────────────────────────
 
-export function ToolCardBody({ detail, isError }: { detail: ToolCallDetail; isError?: boolean }) {
+export function ToolCardBody({ detail, isError, isRunning }: { detail: ToolCallDetail; isError?: boolean; isRunning?: boolean }) {
   switch (detail.type) {
     case 'shell':
       return <ShellCard command={detail.command} cwd={detail.cwd} output={detail.output} exitCode={detail.exitCode} isError={isError} />;
@@ -374,7 +385,7 @@ export function ToolCardBody({ detail, isError }: { detail: ToolCallDetail; isEr
     case 'todo':
       return <TodoCard items={detail.items} />;
     case 'sub_agent':
-      return <SubAgentCard subAgentType={detail.subAgentType} description={detail.description} actions={detail.actions} result={detail.result} />;
+      return <SubAgentCard subAgentType={detail.subAgentType} description={detail.description} actions={detail.actions} result={detail.result} isRunning={isRunning} />;
     case 'plan':
       return <PlanCard text={detail.text} />;
     case 'mcp':

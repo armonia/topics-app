@@ -75,6 +75,15 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
     return 'Model';
   }, [effective, override]);
 
+  // Effort/reasoning tier the server forces on the ACTIVE provider's sessions
+  // (read-only policy, e.g. `--effort xhigh` for claude-code). Shown as a
+  // badge next to the model name; absent for providers without a tier.
+  const activeEffortTier = useMemo(() => {
+    const name = effective?.provider ?? override?.provider;
+    if (!name) return null;
+    return entries.find((e) => e.name === name)?.effortTier ?? null;
+  }, [effective, override, entries]);
+
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
     return entries
@@ -156,6 +165,15 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
       >
         <Zap size={11} />
         <span className="max-w-[160px] truncate">{buttonLabel}</span>
+        {activeEffortTier && (
+          <span
+            data-testid="effort-tier-badge"
+            className="text-[9px] uppercase tracking-wide bg-primary/15 text-primary px-1 rounded flex-shrink-0"
+            title={`Effort tier Topics forces for this provider's sessions: ${activeEffortTier}`}
+          >
+            {activeEffortTier}
+          </span>
+        )}
       </button>
 
       {open && popoverPos && createPortal(
@@ -271,6 +289,15 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                   <div className="flex items-center gap-1.5 px-2.5 py-1">
                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-500" />
                     <span className="text-[11px] font-semibold text-app-text">{label}</span>
+                    {entry.effortTier && (
+                      <span
+                        data-testid={`effort-tier-${entry.name}`}
+                        className="text-[9px] uppercase tracking-wide text-app-text-muted border border-app-border px-1 rounded"
+                        title={`Effort tier Topics forces for ${label} sessions: ${entry.effortTier}`}
+                      >
+                        {entry.effortTier}
+                      </span>
+                    )}
                     {entry.isDefault && (
                       <span className="ml-auto text-[11px] bg-primary/20 text-primary px-1 rounded">Default</span>
                     )}
