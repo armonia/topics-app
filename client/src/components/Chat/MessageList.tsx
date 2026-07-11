@@ -146,12 +146,22 @@ export function MessageList({
     setTimeout(() => { scrollGuardRef.current = false; }, 600);
   }, []);
 
+  // True once THIS instance has watched a loadHistory cycle complete FOR THE
+  // CURRENT TOPIC — the only moment the thread is known authoritative. The
+  // palette-jump effect gates its "loaded thread lacks the id → drop the
+  // target" branch on it: on a slow machine the pane mounts with a transient
+  // non-empty STALE message set and loading=false, and consuming there threw
+  // the target away before the real history ever arrived (CI-only CMD-16
+  // failure). Reset on topic switch below.
+  const sawLoadCompleteRef = useRef(false);
+
   // Reset scroll state on topic switch
   useEffect(() => {
     if (prevTopicIdRef.current !== topic.id) {
       prevTopicIdRef.current = topic.id;
       needsScrollRef.current = true;
       isScrolledUpRef.current = false;
+      sawLoadCompleteRef.current = false;
       setIsScrolledUp(false);
       setNewMsgCount(0);
       setShowNewBanner(false);
@@ -185,6 +195,7 @@ export function MessageList({
   useEffect(() => {
     const wasLoading = prevLoadingRef.current;
     prevLoadingRef.current = currentLoading;
+    if (wasLoading && !currentLoading) sawLoadCompleteRef.current = true;
     if (wasLoading && !currentLoading && filteredMessages.length > 0) {
       // Pending palette jump wins over the bottom anchor — see the effect above.
       if (peekScrollToMessage(topic.id)) return;
@@ -218,12 +229,16 @@ export function MessageList({
     if (!targetId) return;
     const index = filteredMessages.findIndex((m) => m.id === targetId);
     if (index < 0) {
-      // Drop the target ONLY when a genuinely loaded thread lacks the id
-      // (inactive branch, deleted message). A mounted-but-never-loaded pane
-      // (keep-alive: 0 messages, loading=false) must NOT consume here — the
-      // palette's event fires against exactly that state, and eagerly
-      // dropping left nothing for the post-load pass (the TTL covers leaks).
-      if (!currentLoading && filteredMessages.length > 0) consumeScrollToMessage(topic.id);
+      // Drop the target ONLY when an AUTHORITATIVE thread lacks the id
+      // (inactive branch, deleted message) — i.e. this instance has watched a
+      // loadHistory cycle complete AND the result is non-empty. Both weaker
+      // states bit us live: a mounted-but-never-loaded keep-alive pane
+      // (0 messages, loading=false — the palette event fires against exactly
+      // that), and a slow-machine mount window holding a non-empty STALE set
+      // before loadHistory even started (CI-only). The TTL covers leaks.
+      if (sawLoadCompleteRef.current && !currentLoading && filteredMessages.length > 0) {
+        consumeScrollToMessage(topic.id);
+      }
       return;
     }
     // markFired, NOT consume: opening from the palette also fires a message
@@ -258,12 +273,23 @@ export function MessageList({
   useEffect(() => () => {
     if (jumpHighlightTimer.current) clearTimeout(jumpHighlightTimer.current);
   }, []);
-  // Latest-jump ref + scroller ResizeObserver: when a hidden pane (0-height
-  // scroller) becomes visible its scroller gains real height — retry the
-  // pending jump then. The ref avoids re-wiring the observer per render.
+  // Safety-net poll. The discrete triggers above (load transition, request
+  // event) each have real race windows around a palette-driven open: the
+  // event can fire against a hidden/unloaded pane, the load transition can
+  // land while the scroller has no layout yet, and slow machines widen every
+  // gap (CI-only failures). The poll closes them all: while a target is
+  // PENDING for this topic it re-tries every 150ms until the jump fires or
+  // the store purges the target (TTL / post-fire grace). Idle cost is one
+  // Map lookup per tick — the peek short-circuits before any DOM read.
   const tryScrollToTargetRef = useRef(tryScrollToTarget);
   tryScrollToTargetRef.current = tryScrollToTarget;
-  const jumpResizeObsRef = useRef<ResizeObserver | null>(null);
+  useEffect(() => {
+    const iv = window.setInterval(() => {
+      if (!peekScrollToMessage(topic.id)) return;
+      tryScrollToTargetRef.current();
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [topic.id]);
 
   // Force scroll anchor when streaming starts (user just sent a message).
   // When new items are added (user msg + assistant placeholder), Virtuoso may
@@ -513,19 +539,6 @@ export function MessageList({
           ref={virtuosoRef}
           scrollerRef={(ref) => {
             scrollerElRef.current = ref as HTMLElement | null;
-            // Re-arm the pending-jump retry on the (new) scroller. Fires on
-            // every size change; tryScrollToTarget no-ops unless a target is
-            // pending AND the scroller now has real height (pane just shown).
-            jumpResizeObsRef.current?.disconnect();
-            jumpResizeObsRef.current = null;
-            if (ref) {
-              const obs = new ResizeObserver(() => {
-                const el = scrollerElRef.current;
-                if (el && el.clientHeight > 0) tryScrollToTargetRef.current();
-              });
-              obs.observe(ref as Element);
-              jumpResizeObsRef.current = obs;
-            }
           }}
           data={filteredMessages}
           initialTopMostItemIndex={filteredMessages.length - 1}
