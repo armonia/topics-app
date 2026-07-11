@@ -724,13 +724,18 @@ fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
-        match app.get_window("main") {
-            Some(win) => {
-                eprintln!("[chrome] set_traffic_lights(visible={visible}) — applying to main window");
-                apply_traffic_lights(&win, visible);
+        // no_abort: apply_traffic_lights reaches the window dispatcher /
+        // ns_window — same poisoned-mutex SIGABRT class (see no_abort doc).
+        let _ = no_abort("set_traffic_lights", || {
+            match app.get_window("main") {
+                Some(win) => {
+                    eprintln!("[chrome] set_traffic_lights(visible={visible}) — applying to main window");
+                    apply_traffic_lights(&win, visible);
+                }
+                None => eprintln!("[chrome] set_traffic_lights(visible={visible}) — main window NOT found, no-op"),
             }
-            None => eprintln!("[chrome] set_traffic_lights(visible={visible}) — main window NOT found, no-op"),
-        }
+            Ok(())
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (app, visible);
@@ -776,10 +781,15 @@ fn set_theme(app: tauri::AppHandle, theme: String) {
     {
         use tauri::Manager;
         let dark = theme == "dark";
-        if let Some(win) = app.get_webview_window("main") {
-            let win2 = win.clone();
-            let _ = win.run_on_main_thread(move || apply_appearance(&win2, dark));
-        }
+        // no_abort: run_on_main_thread locks the window dispatcher — same
+        // poisoned-mutex SIGABRT class (see no_abort doc).
+        let _ = no_abort("set_theme", || {
+            if let Some(win) = app.get_webview_window("main") {
+                let win2 = win.clone();
+                let _ = win.run_on_main_thread(move || apply_appearance(&win2, dark));
+            }
+            Ok(())
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (app, theme);
@@ -1126,7 +1136,10 @@ struct StatusItem {
 #[tauri::command]
 fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
     #[cfg(target_os = "macos")]
-    {
+    // no_abort: run_on_main_thread + tray/menu mutations go through the
+    // window dispatcher — same poisoned-mutex SIGABRT class (see no_abort
+    // doc). Fires on every attention-status change.
+    let _ = no_abort("set_app_status", || {
         use tauri::menu::MenuBuilder;
         use tauri::Manager;
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
@@ -1171,7 +1184,8 @@ fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
             let _ = tray.set_title(title);
             let _ = tray.set_tooltip(Some(tip));
         }
-    }
+        Ok(())
+    });
     #[cfg(not(target_os = "macos"))]
     let _ = (app, count, items);
 }
@@ -1561,7 +1575,20 @@ fn vibrancy_animate_regions(window: tauri::Window, regions: Vec<VibRegion>, dura
     #[cfg(target_os = "macos")]
     {
         let win = window.clone();
-        let _ = window.run_on_main_thread(move || apply_vibrancy_animation(&win, regions, duration_ms, timing));
+        // no_abort ×2: `run_on_main_thread` locks the window dispatcher on
+        // THIS thread (poisoned-mutex → SIGABRT class, see no_abort doc) and
+        // the closure runs inside the main runloop's FFI boundary where an
+        // unwind also aborts. This fires on every sidebar toggle.
+        let _ = no_abort("vibrancy_animate_regions", || {
+            window
+                .run_on_main_thread(move || {
+                    let _ = no_abort("vibrancy_animate_regions.main", || {
+                        apply_vibrancy_animation(&win, regions, duration_ms, timing);
+                        Ok(())
+                    });
+                })
+                .map_err(|e| e.to_string())
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (window, regions, duration_ms, timing);
@@ -1581,7 +1608,19 @@ fn vibrancy_set_regions(window: tauri::Window, regions: Vec<VibRegion>) {
     #[cfg(target_os = "macos")]
     {
         let win = window.clone();
-        let _ = window.run_on_main_thread(move || apply_vibrancy_regions(&win, regions));
+        // no_abort ×2 — same rationale as vibrancy_animate_regions, but this
+        // one fires per FRAME during drag/resize: the highest-frequency
+        // dispatcher caller in the app.
+        let _ = no_abort("vibrancy_set_regions", || {
+            window
+                .run_on_main_thread(move || {
+                    let _ = no_abort("vibrancy_set_regions.main", || {
+                        apply_vibrancy_regions(&win, regions);
+                        Ok(())
+                    });
+                })
+                .map_err(|e| e.to_string())
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (window, regions);
@@ -2576,6 +2615,12 @@ fn browser_open_inner(
                                 p.push((url_s.clone(), id, saved.clone(), dl_pane_id.clone()));
                             }
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
+                                // Bounded like DOWNLOAD_PENDING: a pane that downloads
+                                // and closes before anyone polls its id must not leak.
+                                if v.len() >= 64 {
+                                    let overflow = v.len() - 63;
+                                    v.drain(0..overflow);
+                                }
                                 v.push(DownloadEventMsg {
                                     kind: "start".into(),
                                     id: id.to_string(),
@@ -2600,6 +2645,10 @@ fn browser_open_inner(
                                 }
                             };
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
+                                if v.len() >= 64 {
+                                    let overflow = v.len() - 63;
+                                    v.drain(0..overflow);
+                                }
                                 v.push(DownloadEventMsg {
                                     kind: "done".into(),
                                     id: id.to_string(),
@@ -2741,6 +2790,11 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
     if let Ok(mut v) = NAV_ERROR_EVENTS.lock() {
         v.retain(|e| e.pane_id != id);
     }
+    // Symmetric with NAV_ERROR_EVENTS: drop queued download events nobody
+    // will drain (browser_take_download_events only ever polls live ids).
+    if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
+        v.retain(|e| e.pane_id != id);
+    }
     Ok(())
 }
 
@@ -2762,8 +2816,6 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String, preserve_focus: bool) -> Re
         use cocoa::base::{id, nil};
         use cocoa::foundation::NSString;
         use objc::{class, msg_send, sel, sel_impl};
-        use std::ffi::CStr;
-        use std::os::raw::c_char;
         unsafe fn id_to_string(obj: cocoa::base::id) -> String {
             use cocoa::base::nil;
             use objc::{msg_send, sel, sel_impl};
@@ -3390,6 +3442,7 @@ fn browser_release_focus_inner(app: tauri::AppHandle) -> Result<(), String> {
 /// while driving 6 real sidebar collapse/expands (via the diagnostic global App.tsx
 /// exposes), then posts a frame-timing summary to `fps_report`. A composited
 /// translateX (overlay mode) should yield ~60fps with zero dropped frames.
+#[cfg(debug_assertions)]
 const FPS_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3420,6 +3473,7 @@ const FPS_SELFTEST_JS: &str = r#"(async function(){
 /// throughout. A divider drag moves browser panes (instant via NSNull) and resizes the
 /// flex cells; terminals coalesce their fits to the drag end — so this should hold ~60fps
 /// with zero dropped frames. Posts to `fps_report`.
+#[cfg(debug_assertions)]
 const SPLIT_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3482,6 +3536,7 @@ const SPLIT_SELFTEST_JS: &str = r#"(async function(){
 /// path the "browser won't open" report was about actually works (the occlusion
 /// freeze is covered separately by browserOcclusion unit tests). Headless-safe:
 /// IPC invokes don't need the window visible, and about:blank needs no network/cert.
+#[cfg(debug_assertions)]
 const BROWSER_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3518,6 +3573,7 @@ const BROWSER_SELFTEST_JS: &str = r#"(async function(){
 /// per-frame budget consumer: if it's well under 8.3ms (120Hz) the split can't drop
 /// frames. Also times the sidebar toggle's synchronous reflow (its animation is
 /// compositor-only). Posts to `fps_report`.
+#[cfg(debug_assertions)]
 const COST_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3564,6 +3620,7 @@ const COST_SELFTEST_JS: &str = r#"(async function(){
 /// the content; (2) WebKit must render a VISIBLE scrollbar colour at rest (the global
 /// `scrollbar-color: transparent transparent` hid them until hover on the Tauri build).
 /// Posts a findings object to the same `fps_report` sink.
+#[cfg(debug_assertions)]
 const BUGFIX_VERIFY_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3607,6 +3664,7 @@ const BUGFIX_VERIFY_JS: &str = r#"(async function(){
 /// a screenshot burst can confirm a native browser pane's left edge stays glued to the
 /// sidebar's right edge throughout the slide (the per-frame rAF reposition in
 /// NativeBrowserPlaceholder) instead of trailing it. Needs a browser pane in the layout.
+#[cfg(debug_assertions)]
 const SLIDE_DEMO_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3797,6 +3855,7 @@ fn focus_grab_window_inner(app: tauri::AppHandle) -> Result<String, String> {
 /// `browser_release_focus` → read (expect responder == main view). Posts a verdict to
 /// `focus_report`. Proves the tab strip's focus-reclaim works at the AppKit level with
 /// zero OS input synthesis.
+#[cfg(debug_assertions)]
 const FOCUS_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function inv(c,a){return window.__TAURI_INTERNALS__.invoke(c,a||{})}
@@ -4457,12 +4516,18 @@ async fn window_detach(
 #[tauri::command]
 fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
     use tauri::Manager;
-    if let Some(w) = app.get_webview_window(&label) {
-        ensure_window_visible(&w);
-        true
-    } else {
-        false
-    }
+    // no_abort: ensure_window_visible is a chain of window-dispatcher calls
+    // (show/unminimize/outer_position/set_focus…) — same poisoned-mutex
+    // SIGABRT class as the browser_* commands (see no_abort doc).
+    no_abort("window_focus_label", || {
+        if let Some(w) = app.get_webview_window(&label) {
+            ensure_window_visible(&w);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    })
+    .unwrap_or(false)
 }
 
 /// Close the window that invoked this command. WKWebView's `window.close()` is a
@@ -4471,7 +4536,12 @@ fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
 /// which the extractor silently rejects once a window is multi-webview).
 #[tauri::command]
 fn window_close_self(window: tauri::Window) {
-    let _ = window.close();
+    // no_abort: window.close() goes through the window dispatcher — a
+    // poisoned dispatcher mutex would otherwise abort the whole app on the
+    // next detached-window close (see no_abort doc).
+    let _ = no_abort("window_close_self", || {
+        window.close().map_err(|e| e.to_string())
+    });
 }
 
 // ───────────────────────── Dev hot-reload (disk-serve) ─────────────────────────
@@ -4731,6 +4801,19 @@ fn serve_tauri_asset(
     // embedded protocol emits.
     const WINDOW_ORIGIN: &str = "tauri://localhost";
 
+    // Panic-free fallback. This handler runs on WKURLSchemeHandler's SYNC callback —
+    // the same non-unwind FFI boundary `no_abort` guards (a panic here abort()s the
+    // WHOLE app, and this is the highest-traffic path in the file: every page/JS/CSS/
+    // image load hits it). The response-builder `.unwrap()`s below must degrade to a
+    // 500, never unwind. Built via `Response::new` + `status_mut` so there is no
+    // builder `Result` to unwrap — this cannot itself panic.
+    fn asset_fallback() -> tauri::http::Response<std::borrow::Cow<'static, [u8]>> {
+        let mut resp =
+            tauri::http::Response::new(std::borrow::Cow::Borrowed(&b"asset error"[..]));
+        *resp.status_mut() = tauri::http::StatusCode::INTERNAL_SERVER_ERROR;
+        resp
+    }
+
     let uri = request.uri().to_string();
     let path = asset_request_path(&uri);
 
@@ -4742,7 +4825,7 @@ fn serve_tauri_asset(
                 .header(CONTENT_TYPE, mime)
                 .header("Access-Control-Allow-Origin", WINDOW_ORIGIN)
                 .body(std::borrow::Cow::Owned(bytes))
-                .unwrap();
+                .unwrap_or_else(|_| asset_fallback());
         }
     }
 
@@ -4757,14 +4840,16 @@ fn serve_tauri_asset(
             if let Some(csp) = &asset.csp_header {
                 builder = builder.header("Content-Security-Policy", csp);
             }
-            builder.body(std::borrow::Cow::Owned(asset.bytes)).unwrap()
+            builder
+                .body(std::borrow::Cow::Owned(asset.bytes))
+                .unwrap_or_else(|_| asset_fallback())
         }
         None => tauri::http::Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(CONTENT_TYPE, "text/plain")
             .header("Access-Control-Allow-Origin", WINDOW_ORIGIN)
             .body(std::borrow::Cow::Borrowed(&b"asset not found"[..]))
-            .unwrap(),
+            .unwrap_or_else(|_| asset_fallback()),
     }
 }
 
@@ -5132,6 +5217,7 @@ pub fn run() {
             // OFF unless TOPICS_FPS_SELFTEST is set. The `fps_report` sink command is
             // debug-only (see its #[cfg(debug_assertions)]), so this probe only works
             // in debug builds even when the env var is set in release.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_FPS_SELFTEST").is_ok() {
                 eprintln!("[fps-selftest] armed");
                 let handle = app.handle().clone();
@@ -5182,6 +5268,7 @@ pub fn run() {
 
             // Env-gated polish-bug verifier: drives the dropdown/sidebar and dumps
             // DOM findings to /tmp/topics-fps-selftest.json. OFF unless set.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_BUGFIX_VERIFY").is_ok() {
                 eprintln!("[bugfix-verify] armed");
                 let handle = app.handle().clone();
@@ -5207,6 +5294,7 @@ pub fn run() {
 
             // Env-gated SLOW-MOTION sidebar slide: stretch the slide so a capture burst
             // can confirm the native browser pane tracks the sidebar edge. OFF unless set.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_SLIDE_DEMO").is_ok() {
                 eprintln!("[slide-demo] armed");
                 let handle = app.handle().clone();
@@ -5224,6 +5312,7 @@ pub fn run() {
             }
 
             // Env-gated SPLIT-resize FPS self-test: drive a divider drag and sample rAF.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_SPLIT_SELFTEST").is_ok() {
                 eprintln!("[split-selftest] armed");
                 let handle = app.handle().clone();
@@ -5254,6 +5343,7 @@ pub fn run() {
 
             // Env-gated COST self-test: measure per-frame style+layout cost of a split-drag
             // (+ sidebar toggle reflow) — empirical, works headless (no rAF/visibility needed).
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_COST_SELFTEST").is_ok() {
                 eprintln!("[cost-selftest] armed");
                 let handle = app.handle().clone();
@@ -5277,6 +5367,7 @@ pub fn run() {
 
             // Env-gated BROWSER self-test: open a native pane, eval into it, close it —
             // confirms the browser open→eval path end-to-end (no window visibility needed).
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_BROWSER_SELFTEST").is_ok() {
                 eprintln!("[browser-selftest] armed");
                 let handle = app.handle().clone();
@@ -5332,6 +5423,7 @@ pub fn run() {
             // (grab to a browser pane → release → assert it returned to the main webview),
             // writing the verdict to /tmp/topics-focus-selftest.json. OFF unless
             // TOPICS_FOCUS_SELFTEST is set. Needs a browser pane in the restored layout.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_FOCUS_SELFTEST").is_ok() {
                 eprintln!("[focus-selftest] armed");
                 let handle = app.handle().clone();

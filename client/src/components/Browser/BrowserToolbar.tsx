@@ -173,7 +173,7 @@ export function BrowserToolbar({
     });
   }, [onRegisterFocus]);
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
+  const handleSubmit = useCallback((e: React.SubmitEvent) => {
     e.preventDefault();
     let finalUrl = editUrl.trim();
     if (finalUrl && !finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {

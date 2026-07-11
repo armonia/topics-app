@@ -845,6 +845,16 @@ export interface WSBrowserClosePaneMessage {
   contextId: string;
 }
 /**
+ * Remote pane focus (browser_focus_tab MCP tool / REST): every window that
+ * renders `browser:<contextId>` brings that tab to the front (activates it in
+ * its group / surfaces it if backgrounded). Same client-originated, idempotent
+ * model as close-pane — windows that don't own the pane ignore the frame.
+ */
+export interface WSBrowserFocusPaneMessage {
+  type: 'browser:focus-pane';
+  contextId: string;
+}
+/**
  * Pane / sidebar UI state replicated across windows (Phase 30 PANE-02).
  * Split into init (full snapshot keyed by store key) vs updated (single
  * key/value pair) so consumers can narrow without optional-field casts.
@@ -1026,6 +1036,7 @@ export type WSMessage =
   | WSBrowserOpenNearPaneMessage
   | WSBrowserForceOpenMessage
   | WSBrowserClosePaneMessage
+  | WSBrowserFocusPaneMessage
   | WSUIStateInitMessage
   | WSUIStateUpdatedMessage
   | WSProjectMessage

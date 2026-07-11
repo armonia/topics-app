@@ -718,6 +718,14 @@ pub fn run() {
             Ok(c) => c,
             Err(_) => continue,
         };
+        // broadcast() holds the clients lock while write_all-ing to every
+        // stream: without a write timeout ONE client that stops draining its
+        // socket (suspended app, wedged peer) blocks that write forever WITH
+        // the lock held — freezing PTY delivery for every terminal, since
+        // each session's reader_loop serialises on the same lock. A healthy
+        // local consumer drains in microseconds; 2s only trips on a wedged
+        // one, which then just loses output instead of taking the app down.
+        let _ = write_half.set_write_timeout(Some(Duration::from_secs(2)));
         shared.clients.lock_ok().insert(cid, write_half);
         eprintln!(
             "[PTY Bridge] Client connected ({} total)",

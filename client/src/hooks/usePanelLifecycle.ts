@@ -1358,6 +1358,33 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
   }, [onWSMessage, handleClosePanel, openPanelsRef]);
 
+  // Remote pane FOCUS (browser_focus_tab MCP tool → POST browser/focus-pane →
+  // `browser:focus-pane` broadcast): whichever window renders `browser:<ctx>`
+  // brings that tab to the front. Mirror of the close-pane path, idempotent:
+  //   - project windows: the `browser:request-focus` DOM listener
+  //     (useProjectLayout) activates the pane in its group when its layout
+  //     owns it;
+  //   - app level: if this window's store/tabs hold the id, surface it (add to
+  //     openPanels if backgrounded) and mark it focused.
+  // Windows that don't own the pane no-op, so the broadcast is safe to fan out.
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      const m = msg as { type?: string; contextId?: string };
+      if (m.type !== 'browser:focus-pane' || !m.contextId) return;
+      window.dispatchEvent(new CustomEvent('browser:request-focus', {
+        detail: { contextId: m.contextId },
+      }));
+      const paneId = createPaneId('browser', m.contextId);
+      const state = usePaneStore.getState();
+      const atAppLevel = Object.values(state.groups).some(g => g.paneIds.includes(paneId));
+      if (atAppLevel || openPanelsRef.current.includes(paneId)) {
+        // Ensure a backgrounded tab is actually open before focusing it.
+        setOpenPanels(prev => prev.includes(paneId) ? prev : [...prev, paneId]);
+        setFocusedPanelId(paneId);
+      }
+    });
+  }, [onWSMessage, openPanelsRef, setOpenPanels, setFocusedPanelId]);
+
   const handleProjectClick = useCallback((projectPath: string) => {
     const paneId = createPaneId('project', projectPath);
     ensurePaneRegistered({ id: paneId, type: 'project', projectPath });

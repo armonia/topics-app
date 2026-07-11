@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, lazy, Suspense, type ComponentType } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2 } from 'lucide-react';
 import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
@@ -169,11 +169,18 @@ function App() {
   // more popped-out topics). `?topics=a,b,c` is the current contract; `?topic=`
   // (singular) stays as a back-compat alias. The window boots showing exactly
   // these topics and skips pane-store sync (see usePanelLifecycle isDetached).
-  const urlParams = new URLSearchParams(window.location.search);
-  const detachedTopicIds = (urlParams.get('topics') ?? urlParams.get('topic'))
-    ?.split(',')
-    .map((t) => decodeURIComponent(t).trim())
-    .filter(Boolean) ?? [];
+  // The query string is fixed for a window's lifetime, so parse it ONCE. App
+  // re-renders on every useChat state change (i.e. every WS/SSE chunk); computing
+  // this in the render body re-parsed the URL and allocated a fresh array on each
+  // one. It feeds a lazy useState initializer downstream (runs once), so a stable
+  // reference costs nothing and drops the per-chunk churn.
+  const detachedTopicIds = useMemo(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    return (urlParams.get('topics') ?? urlParams.get('topic'))
+      ?.split(',')
+      .map((t) => decodeURIComponent(t).trim())
+      .filter(Boolean) ?? [];
+  }, []);
   const detachedTopicId = detachedTopicIds[0] ?? null;
   const isDetached = detachedTopicIds.length > 0;
 

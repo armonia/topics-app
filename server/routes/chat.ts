@@ -875,9 +875,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // migration to the target topic was removed with the markers.)
 
             // Media detection
-            setTimeout(() => {
+            setTimeout(async () => {
               try {
-                const newMedia = findNewMediaFiles(requestStartMs);
+                const newMedia = await findNewMediaFiles(requestStartMs);
                 if (newMedia.length > 0 && sessionKey) {
                   updateLastMessageWithMedia(sessionKey, newMedia);
                   broadcastToAll({ type: "message:media", sessionKey, topicId: matchedTopic?.id, media: newMedia });
@@ -1387,7 +1387,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         try {
           const abortController = new AbortController();
           const timeoutId = setTimeout(() => abortController.abort(), 300000);
-          const requestStartMs = Date.now();
 
           let resp: Response;
           if (topicProvider.streamHTTP) {

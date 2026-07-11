@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, unlinkSync, renameSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, unlinkSync, renameSync } from "fs";
+import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { watchGitDir } from "../git-watcher";
@@ -166,26 +167,31 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       }
 
       interface FileNode { name: string; type: "file" | "dir"; path: string; size?: number; modified?: string; children?: FileNode[]; }
-      function readDirRecursive(dir: string, currentDepth: number): FileNode[] {
+      // Async walk (fs.promises): the old readdirSync + per-entry statSync ran
+      // inside the request handler and stalled Bun's single event loop for the
+      // whole scan — a large directory (monorepo folder) queued every other
+      // client's requests and WS traffic behind it. Sequential awaits keep the
+      // ordering identical while yielding the loop between syscalls.
+      async function readDirRecursive(dir: string, currentDepth: number): Promise<FileNode[]> {
         const result: FileNode[] = [];
         try {
-          const entries = readdirSync(dir, { withFileTypes: true });
+          const entries = await readdirAsync(dir, { withFileTypes: true });
           entries.sort((a, b) => { if (a.isDirectory() && !b.isDirectory()) return -1; if (!a.isDirectory() && b.isDirectory()) return 1; return a.name.localeCompare(b.name); });
           for (const entry of entries) {
             if (shouldExclude(entry.name)) continue;
             const fullPath = join(dir, entry.name);
             if (entry.isDirectory()) {
               const node: FileNode = { name: entry.name, type: "dir", path: fullPath };
-              if (currentDepth < depth) node.children = readDirRecursive(fullPath, currentDepth + 1);
+              if (currentDepth < depth) node.children = await readDirRecursive(fullPath, currentDepth + 1);
               result.push(node);
             } else if (entry.isFile()) {
-              try { const stats = statSync(fullPath); result.push({ name: entry.name, type: "file", path: fullPath, size: stats.size, modified: stats.mtime.toISOString() }); } catch { result.push({ name: entry.name, type: "file", path: fullPath }); }
+              try { const stats = await statAsync(fullPath); result.push({ name: entry.name, type: "file", path: fullPath, size: stats.size, modified: stats.mtime.toISOString() }); } catch { result.push({ name: entry.name, type: "file", path: fullPath }); }
             }
           }
         } catch {}
         return result;
       }
-      return json(readDirRecursive(resolvedPath, 1));
+      return json(await readDirRecursive(resolvedPath, 1));
     }
 
     // --- File search (grep) ---
@@ -549,10 +555,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Get diff stat for staged + unstaged
         const statProc = Bun.spawn(["git", "diff", "--stat", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statText = (await new Response(statProc.stdout).text()).trim();
-        // Also get untracked files
-        const untrackedProc = Bun.spawn(["git", "ls-files", "--others", "--exclude-standard"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        const untrackedText = (await new Response(untrackedProc.stdout).text()).trim();
-        // Get status porcelain for changed files
+        // Get status porcelain for changed files (untracked included as "??")
         const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statusText = (await new Response(statusProc.stdout).text()).trim();
         const lines = statusText.split("\n").filter(Boolean);
@@ -956,10 +959,12 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const allExcludes = new Set([...DEFAULT_EXCLUDES, ...gitignorePatterns]);
 
       const files: string[] = [];
-      function walkFlat(dir: string) {
+      // Async walk — same event-loop rationale as readDirRecursive above: this
+      // powers file search over a whole project tree, the largest scan in the file.
+      async function walkFlat(dir: string): Promise<void> {
         if (files.length >= maxFiles) return;
         try {
-          const entries = readdirSync(dir, { withFileTypes: true });
+          const entries = await readdirAsync(dir, { withFileTypes: true });
           for (const entry of entries) {
             if (files.length >= maxFiles) return;
             if (allExcludes.has(entry.name)) continue;
@@ -972,7 +977,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
             if (skip) continue;
             const fullPath = join(dir, entry.name);
             if (entry.isDirectory()) {
-              walkFlat(fullPath);
+              await walkFlat(fullPath);
             } else if (entry.isFile()) {
               // resolvedPath is guaranteed non-null (guarded at the top of the
               // handler); TS just loses the narrowing inside this closure.
@@ -981,7 +986,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
           }
         } catch {}
       }
-      walkFlat(resolvedPath);
+      await walkFlat(resolvedPath);
       return json({ files });
     }
 
@@ -1195,7 +1200,6 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const hunkRegex = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm;
         let match;
         while ((match = hunkRegex.exec(diff)) !== null) {
-          const oldStart = parseInt(match[1], 10);
           const oldCount = match[2] !== undefined ? parseInt(match[2], 10) : 1;
           const newStart = parseInt(match[3], 10);
           const newCount = match[4] !== undefined ? parseInt(match[4], 10) : 1;

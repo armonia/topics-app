@@ -162,6 +162,7 @@ describe('outbound registry contract', () => {
       'agents:spawned',
       'agents:stopped',
       'browser:close-pane',
+      'browser:focus-pane',
       'browser:force-open',
       'browser:navigate',
       'chat:archived',
@@ -243,9 +244,10 @@ describe('outbound registry contract', () => {
 
   // presence:windows joined the outbound registry in 724284d3 (cross-window
   // presence protocol), taking the count from 81 → 82; browser:close-pane
-  // joined with the remote pane-close capability (PR #8), 82 → 83.
-  test('all 83 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(83);
+  // joined with the remote pane-close capability (PR #8), 82 → 83;
+  // browser:focus-pane joined with the "manage any tab" capability, 83 → 84.
+  test('all 84 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(84);
   });
 });
 

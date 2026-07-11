@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync, renameSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from "fs";
 import { readFileSync } from "fs";
+import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { timingSafeEqual } from "crypto";
 import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
@@ -162,6 +163,8 @@ export function createAppContext(baseDir: string): AppContext {
     // Messages
     getMessages: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order ASC`),
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    getLastAssistantMessage: db.prepare(`SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1`),
+    appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
       INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
@@ -1099,13 +1102,14 @@ export function createAppContext(baseDir: string): AppContext {
   ];
   const MEDIA_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "mp3", "wav", "ogg", "m4a", "aac", "opus", "webm", "mp4", "pdf"]);
 
-  function findNewMediaFiles(sinceMs: number): string[] {
+  // Runs 1s after EVERY completed stream (chat.ts), over media dirs that are
+  // never pruned — async fs so the growing scan never blocks the event loop.
+  async function findNewMediaFiles(sinceMs: number): Promise<string[]> {
     const results: string[] = [];
     const seen = new Set<string>();
     for (const dir of MEDIA_SCAN_DIRS) {
-      if (!existsSync(dir)) continue;
       try {
-        const entries = readdirSync(dir, { withFileTypes: true });
+        const entries = await readdirAsync(dir, { withFileTypes: true });
         for (const entry of entries) {
           if (entry.isDirectory()) continue;
           const ext = extname(entry.name).toLowerCase().replace(".", "");
@@ -1113,26 +1117,20 @@ export function createAppContext(baseDir: string): AppContext {
           const fullPath = join(dir, entry.name);
           if (seen.has(fullPath)) continue;
           seen.add(fullPath);
-          try { const stat = statSync(fullPath); if (stat.mtimeMs >= sinceMs) results.push(fullPath); } catch {}
+          try { const stat = await statAsync(fullPath); if (stat.mtimeMs >= sinceMs) results.push(fullPath); } catch {}
         }
-      } catch {}
+      } catch {} // dir missing or unreadable — skip
     }
     return results;
   }
 
   function updateLastMessageWithMedia(sessionKey: string, mediaPaths: string[]): void {
-    const row = stmts.getLastMessage.get(sessionKey) as any;
+    // Targeted lookup — the previous version fetched the WHOLE session just to
+    // walk backwards to the newest assistant row.
+    const row = stmts.getLastAssistantMessage.get(sessionKey) as any;
     if (!row) return;
-    // Walk backwards to find the last assistant message
-    const rows = stmts.getMessages.all(sessionKey) as any[];
-    for (let i = rows.length - 1; i >= 0; i--) {
-      if (rows[i].role === "assistant") {
-        const mediaLines = mediaPaths.map((p: string) => `\nMEDIA:${p}`).join("");
-        const newContent = (rows[i].content || '') + mediaLines;
-        db.prepare("UPDATE messages SET content = ? WHERE id = ?").run(newContent, rows[i].id);
-        break;
-      }
-    }
+    const mediaLines = mediaPaths.map((p: string) => `\nMEDIA:${p}`).join("");
+    stmts.appendMessageContent.run((row.content || '') + mediaLines, row.id);
   }
 
   function logRequest(method: string, path: string, status: number, startTime: number): void {
