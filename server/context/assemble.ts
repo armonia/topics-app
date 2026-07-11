@@ -284,32 +284,61 @@ function readSafe(filePath: string): string | null {
   }
 }
 
-function pushOpenClawInformationalBlocks(blocks: SystemBlock[], ctx: AppContext): void {
-  const workspaceDir = join(ctx.OPENCLAW_DIR, "workspace");
+// ── Filesystem snapshot cache ───────────────────────────────────────────────
+// assembleTopicContext runs on EVERY production send (chat.ts). The OpenClaw
+// workspace files, the recursive memory-tree walk and the project template
+// reads are fs-derived inputs that change rarely compared to message cadence,
+// yet they were re-read synchronously per message on Bun's single event loop
+// (the memory tree in particular grows daily and the walk is unbounded).
+// Snapshot them for a few seconds instead. Tests bypass the cache: fixtures
+// write files and assemble immediately, so even seconds of staleness would
+// couple tests that share a tmpdir.
+const FS_SNAPSHOT_TTL_MS = 10_000;
 
+function fsCacheEnabled(): boolean {
+  return process.env.NODE_ENV !== "test";
+}
+
+interface WorkspaceSnapshot {
+  at: number;
+  files: Array<{ name: string; path: string; content: string }>;
+  memTokens: number;
+  memoryDir: string;
+}
+const workspaceSnapshots = new Map<string, WorkspaceSnapshot>();
+
+interface TemplateSnapshot {
+  at: number;
+  listing: string;
+  files: Array<{ name: string; displayName: string; path: string; content: string }>;
+}
+const templateSnapshots = new Map<string, TemplateSnapshot>();
+
+/** Both maps are keyed by absolute dir paths; the workspace one holds a single
+ *  entry in practice (OPENCLAW_DIR is fixed), the template one grows with the
+ *  distinct project roots a user touches. Cap defensively rather than LRU —
+ *  a full rebuild is what every call did before this cache existed. */
+function boundedSet<K, V>(map: Map<K, V>, key: K, value: V): void {
+  if (map.size > 100) map.clear();
+  map.set(key, value);
+}
+
+function getWorkspaceSnapshot(workspaceDir: string): WorkspaceSnapshot {
+  const now = Date.now();
+  const hit = workspaceSnapshots.get(workspaceDir);
+  if (hit && fsCacheEnabled() && now - hit.at < FS_SNAPSHOT_TTL_MS) return hit;
+
+  const files: WorkspaceSnapshot["files"] = [];
   for (const name of OPENCLAW_WORKSPACE_FILES) {
     const filePath = join(workspaceDir, name);
     const content = readSafe(filePath);
     if (content === null) continue;
-    blocks.push({
-      id: `openclaw:${name}`,
-      label: name,
-      category: "openclaw",
-      content,
-      tokens: estimateTokens(content),
-      enabled: true,         // Always enabled — toggling has no effect since we don't emit it.
-      countInBudget: true,
-      sourceUri: filePath,
-      editable: false,
-      injectedByTopicsApp: false,
-    });
+    files.push({ name, path: filePath, content });
   }
 
-  // Memory tree aggregate — informational, not counted in budget by default
-  // (mirrors the legacy `/api/context/analyze` behaviour).
   const memoryDir = join(workspaceDir, "memory");
+  let memTokens = 0;
   if (existsSync(memoryDir)) {
-    let memTokens = 0;
     const visit = (dir: string) => {
       try {
         for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -329,20 +358,80 @@ function pushOpenClawInformationalBlocks(blocks: SystemBlock[], ctx: AppContext)
       }
     };
     visit(memoryDir);
-    if (memTokens > 0) {
-      blocks.push({
-        id: "openclaw:memory-tree",
-        label: "OpenClaw Memory Archive",
-        category: "openclaw",
-        content: "",                // We don't materialise the tree contents here.
-        tokens: memTokens,
-        enabled: true,
-        countInBudget: false,
-        sourceUri: memoryDir,
-        editable: false,
-        injectedByTopicsApp: false,
-      });
+  }
+
+  const snap: WorkspaceSnapshot = { at: now, files, memTokens, memoryDir };
+  boundedSet(workspaceSnapshots, workspaceDir, snap);
+  return snap;
+}
+
+function getTemplateSnapshot(projectDir: string): TemplateSnapshot {
+  const now = Date.now();
+  const hit = templateSnapshots.get(projectDir);
+  if (hit && fsCacheEnabled() && now - hit.at < FS_SNAPSHOT_TTL_MS) return hit;
+
+  let listing = "";
+  try {
+    const entries = readdirSync(projectDir, { withFileTypes: true }).slice(0, 30);
+    listing = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).join(", ");
+  } catch {
+    /* leave empty — adapter falls back to plain awareness statement */
+  }
+
+  const files: TemplateSnapshot["files"] = [];
+  for (const name of PROJECT_TEMPLATE_FILES) {
+    let filePath = join(projectDir, name);
+    let displayName = name;
+    if (!existsSync(filePath) && name === "CLAUDE.md") {
+      const altPath = join(projectDir, ".claude", "CLAUDE.md");
+      if (existsSync(altPath)) {
+        filePath = altPath;
+        displayName = ".claude/CLAUDE.md";
+      }
     }
+    const content = readSafe(filePath);
+    if (content === null) continue;
+    files.push({ name, displayName, path: filePath, content });
+  }
+
+  const snap: TemplateSnapshot = { at: now, listing, files };
+  boundedSet(templateSnapshots, projectDir, snap);
+  return snap;
+}
+
+function pushOpenClawInformationalBlocks(blocks: SystemBlock[], ctx: AppContext): void {
+  const snap = getWorkspaceSnapshot(join(ctx.OPENCLAW_DIR, "workspace"));
+
+  for (const file of snap.files) {
+    blocks.push({
+      id: `openclaw:${file.name}`,
+      label: file.name,
+      category: "openclaw",
+      content: file.content,
+      tokens: estimateTokens(file.content),
+      enabled: true,         // Always enabled — toggling has no effect since we don't emit it.
+      countInBudget: true,
+      sourceUri: file.path,
+      editable: false,
+      injectedByTopicsApp: false,
+    });
+  }
+
+  // Memory tree aggregate — informational, not counted in budget by default
+  // (mirrors the legacy `/api/context/analyze` behaviour).
+  if (snap.memTokens > 0) {
+    blocks.push({
+      id: "openclaw:memory-tree",
+      label: "OpenClaw Memory Archive",
+      category: "openclaw",
+      content: "",                // We don't materialise the tree contents here.
+      tokens: snap.memTokens,
+      enabled: true,
+      countInBudget: false,
+      sourceUri: snap.memoryDir,
+      editable: false,
+      injectedByTopicsApp: false,
+    });
   }
 }
 
@@ -407,16 +496,12 @@ function pushProjectTemplateBlocks(
   const projectLabelPath = topic.projectPath || projectDir;
   const awarenessBase = `You are working in the project "${projectName}" at ${projectLabelPath}.`;
 
-  // Pre-compute the "Project root files: a, b/, c" listing once. The adapter
-  // consults `adapterHints.projectListing` at compose time iff no template
-  // files end up enabled — mirrors the legacy fallback in `streamEditResponse`.
-  let projectListing = "";
-  try {
-    const entries = readdirSync(projectDir, { withFileTypes: true }).slice(0, 30);
-    projectListing = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).join(", ");
-  } catch {
-    /* leave empty — adapter falls back to plain awareness statement */
-  }
+  // Snapshot carries the "Project root files: a, b/, c" listing plus the
+  // template file contents. The adapter consults `adapterHints.projectListing`
+  // at compose time iff no template files end up enabled — mirrors the legacy
+  // fallback in `streamEditResponse`.
+  const snap = getTemplateSnapshot(projectDir);
+  const projectListing = snap.listing;
 
   // Synthetic project-awareness block — always emitted when projectDir
   // resolves. Content is the bare statement; the adapter appends either
@@ -435,28 +520,17 @@ function pushProjectTemplateBlocks(
     adapterHints: projectListing ? { projectListing } : undefined,
   });
 
-  for (const name of PROJECT_TEMPLATE_FILES) {
-    let filePath = join(projectDir, name);
-    let displayName = name;
-    if (!existsSync(filePath) && name === "CLAUDE.md") {
-      const altPath = join(projectDir, ".claude", "CLAUDE.md");
-      if (existsSync(altPath)) {
-        filePath = altPath;
-        displayName = ".claude/CLAUDE.md";
-      }
-    }
-    const content = readSafe(filePath);
-    if (content === null) continue;
-    const id = `template:${name}`;
+  for (const file of snap.files) {
+    const id = `template:${file.name}`;
     blocks.push({
       id,
-      label: displayName,
+      label: file.displayName,
       category: "template",
-      content,
-      tokens: estimateTokens(content),
+      content: file.content,
+      tokens: estimateTokens(file.content),
       enabled: isEnabled(id),
       countInBudget: true,
-      sourceUri: filePath,
+      sourceUri: file.path,
       editable: false,
       injectedByTopicsApp: true,
     });
