@@ -1,9 +1,9 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
-import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
-import { highlightCode } from '../lib/syntaxHighlight';
+import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
 import { Copy, Check, CheckCheck, Download } from 'lucide-react';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
@@ -475,9 +475,12 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   // construction: hljs ESCAPES the source and only wraps tokens in class-only
   // <span>s. null (unknown lang / oversize / tokenizer error) falls back to
   // the plain text render below. Line-numbers mode stays plain (per-row table).
+  // hljs is lazy (first code block kicks off the chunk): hljsReady flips once
+  // when the tokenizers land so already-rendered plain blocks re-highlight.
+  const hljsReady = useSyncExternalStore(subscribeHighlighter, highlighterReady);
   const highlightedHtml = useMemo(
     () => (showLineNumbers ? null : highlightCode(displayContent, language)),
-    [displayContent, language, showLineNumbers],
+    [displayContent, language, showLineNumbers, hljsReady],
   );
 
   return (
