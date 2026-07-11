@@ -323,6 +323,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       contexts.clear();
       targetIds.clear();
       screencastSessions.clear();
+      agentActionHints.clear();
     });
     return browser;
   }
@@ -534,6 +535,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         // closed context that getOrCreate would later hand back.
         contexts.delete(id);
         targetIds.delete(id);
+        agentActionHints.delete(id);
         await context.close().catch(() => {});
         throw err;
       }
@@ -557,6 +559,11 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       try { await entry.context.close(); } catch {}
       contexts.delete(id);
       targetIds.delete(id);
+      // Tie the agent-action hint's lifetime to the context: a context torn down
+      // mid-action (or without a trailing agent_active=false broadcast) would
+      // otherwise leave a stale entry that never gets deleted, growing the Map
+      // unbounded over the process lifetime as contexts churn.
+      agentActionHints.delete(id);
       // Flush per-context caches (e.g. the browser_observe element cache).
       // Without this, the cleanup-timer auto-close + a later getOrCreate(id)
       // recreate a blank context under the same id while a stale IndexedElement[]
@@ -577,6 +584,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         try { entry.autoSaveCleanup?.(); } catch { /* ignore */ }
         contexts.delete(id);
         targetIds.delete(id);
+        agentActionHints.delete(id);
         entry = undefined;
       }
       if (!entry) {
