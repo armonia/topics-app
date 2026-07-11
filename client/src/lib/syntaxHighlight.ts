@@ -1,52 +1,41 @@
 /**
  * chat-rendering-parity CHAT-RND-01 — syntax highlighting for chat code blocks.
  *
- * highlight.js CORE + a curated language set (not the 190-language full build):
- * the chat renders arbitrary assistant output, so we register the languages that
- * actually appear in coding sessions and degrade to plain text for the rest.
- * No auto-detection: it's slow on every streaming delta and unreliable on the
- * short snippets chat produces — an explicit fence language or nothing.
+ * Lazy facade over `syntaxHighlightLangs.ts` (hljs core + curated languages).
+ * The tokenizers are ~100KB min and were shipping in the boot-path main chunk;
+ * now they load on the FIRST code block with a fence language — the same
+ * pattern ChatMarkdown.tsx uses for katex. Until the module lands,
+ * `highlightCode` returns null (plain render) and components re-render via
+ * `subscribeHighlighter`/`highlighterReady` (useSyncExternalStore-shaped).
  */
-import hljs from 'highlight.js/lib/core';
-import javascript from 'highlight.js/lib/languages/javascript';
-import typescript from 'highlight.js/lib/languages/typescript';
-import python from 'highlight.js/lib/languages/python';
-import bash from 'highlight.js/lib/languages/bash';
-import json from 'highlight.js/lib/languages/json';
-import yaml from 'highlight.js/lib/languages/yaml';
-import xml from 'highlight.js/lib/languages/xml';
-import css from 'highlight.js/lib/languages/css';
-import rust from 'highlight.js/lib/languages/rust';
-import go from 'highlight.js/lib/languages/go';
-import java from 'highlight.js/lib/languages/java';
-import sql from 'highlight.js/lib/languages/sql';
-import markdown from 'highlight.js/lib/languages/markdown';
-import diff from 'highlight.js/lib/languages/diff';
-import c from 'highlight.js/lib/languages/c';
-import cpp from 'highlight.js/lib/languages/cpp';
-import php from 'highlight.js/lib/languages/php';
-import ruby from 'highlight.js/lib/languages/ruby';
-import swift from 'highlight.js/lib/languages/swift';
+type Hljs = typeof import('./syntaxHighlightLangs').default;
 
-hljs.registerLanguage('javascript', javascript);
-hljs.registerLanguage('typescript', typescript);
-hljs.registerLanguage('python', python);
-hljs.registerLanguage('bash', bash);
-hljs.registerLanguage('json', json);
-hljs.registerLanguage('yaml', yaml);
-hljs.registerLanguage('xml', xml);
-hljs.registerLanguage('css', css);
-hljs.registerLanguage('rust', rust);
-hljs.registerLanguage('go', go);
-hljs.registerLanguage('java', java);
-hljs.registerLanguage('sql', sql);
-hljs.registerLanguage('markdown', markdown);
-hljs.registerLanguage('diff', diff);
-hljs.registerLanguage('c', c);
-hljs.registerLanguage('cpp', cpp);
-hljs.registerLanguage('php', php);
-hljs.registerLanguage('ruby', ruby);
-hljs.registerLanguage('swift', swift);
+let hljs: Hljs | null = null;
+let loadPromise: Promise<void> | null = null;
+const listeners = new Set<() => void>();
+
+function ensureHljsLoaded(): void {
+  if (hljs || loadPromise) return;
+  loadPromise = import('./syntaxHighlightLangs')
+    .then((m) => {
+      hljs = m.default;
+      listeners.forEach((l) => l());
+    })
+    .catch(() => {
+      loadPromise = null; // chunk fetch failed (offline?) — retry on next block
+    });
+}
+
+/** useSyncExternalStore subscribe — fires once when the tokenizers land. */
+export function subscribeHighlighter(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => { listeners.delete(cb); };
+}
+
+/** useSyncExternalStore snapshot. */
+export function highlighterReady(): boolean {
+  return hljs !== null;
+}
 
 /** Common fence aliases → registered language names. */
 const LANG_ALIASES: Record<string, string> = {
@@ -70,11 +59,16 @@ const MAX_HIGHLIGHT_CHARS = 50_000;
 
 /**
  * Highlighted HTML for `code`, or null when the block must stay plain
- * (unknown language, oversize, or tokenizer failure). hljs escapes the source
+ * (unknown language, oversize, tokenizer failure, or tokenizers still
+ * loading — in which case the load is kicked off). hljs escapes the source
  * while tokenizing, so the returned HTML is safe to inject.
  */
 export function highlightCode(code: string, lang: string): string | null {
   if (!lang || code.length > MAX_HIGHLIGHT_CHARS) return null;
+  if (!hljs) {
+    ensureHljsLoaded();
+    return null;
+  }
   const resolved = LANG_ALIASES[lang.toLowerCase()] ?? lang.toLowerCase();
   if (!hljs.getLanguage(resolved)) return null;
   try {

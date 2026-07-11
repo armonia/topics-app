@@ -43,6 +43,15 @@ export function createAgentProfilesRouter(ctx: AppContext): RouteHandler {
     cleanOldHeartbeats: db.prepare(`
       DELETE FROM heartbeats WHERE timestamp < datetime('now', '-7 days')
     `),
+
+    // Session timeline (hoisted like everything else here — these were ad-hoc
+    // db.prepare() calls inside the GET handler, recompiled per request)
+    getHeartbeatsBySessionKey: db.prepare(`SELECT * FROM heartbeats WHERE session_key = ? ORDER BY timestamp ASC`),
+    getActionsByAgentInRange: db.prepare(`
+      SELECT * FROM agent_actions_log
+      WHERE agent_id = ? AND created_at >= ? AND created_at <= ?
+      ORDER BY created_at ASC
+    `),
   };
 
   function rowToProfile(row: any) {
@@ -271,20 +280,14 @@ export function createAgentProfilesRouter(ctx: AppContext): RouteHandler {
         const dbSession = stmts.getSessionByKey.get(sessionKey) as any;
 
         // Get heartbeats for this session_key
-        const heartbeats = db.prepare(
-          `SELECT * FROM heartbeats WHERE session_key = ? ORDER BY timestamp ASC`
-        ).all(sessionKey) as any[];
+        const heartbeats = stmts.getHeartbeatsBySessionKey.all(sessionKey) as any[];
 
         // Get agent actions if we have an agent_id and time range
         let actions: any[] = [];
         if (dbSession?.agent_id) {
           const startedAt = dbSession.started_at;
           const endedAt = dbSession.completed_at || new Date().toISOString();
-          actions = db.prepare(
-            `SELECT * FROM agent_actions_log
-             WHERE agent_id = ? AND created_at >= ? AND created_at <= ?
-             ORDER BY created_at ASC`
-          ).all(dbSession.agent_id, startedAt, endedAt) as any[];
+          actions = stmts.getActionsByAgentInRange.all(dbSession.agent_id, startedAt, endedAt) as any[];
         }
 
         // Build timeline events

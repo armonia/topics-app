@@ -858,6 +858,13 @@ const server = Bun.serve<WSData>({
         const onFrame = (data: string, metadata: { timestamp: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number }) => {
           // Backpressure: if the WS isn't OPEN (1), drop the frame.
           if (ws.readyState !== 1) return;
+          // Backpressure #2 — congested link: the CDP screencast keeps producing at
+          // full local rate and its frame ACK fires on receipt (decoupled from this
+          // send), so a slow viewer (mobile PWA on a bad link) would otherwise pile
+          // frames unbounded in the server-side WS send buffer. DROP instead of
+          // queue: for a LIVE view the freshest frame once the buffer drains is what
+          // matters, not a stale backlog. ~1MB ≈ tens of q70 JPEG frames of slack.
+          if (ws.getBufferedAmount() > 1_000_000) return;
           sendBrowserWsMessage(ws, {
             type: 'frame',
             data,

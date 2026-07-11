@@ -14,6 +14,19 @@ rust-version = "1.77.2"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# Release profile tuned for a low-footprint shell: fat LTO + single codegen unit
+# maximise cross-crate optimisation (this ships infrequently, from CI, so the
+# longer link is fine), and `strip` drops debug symbols for a smaller binary.
+# opt-level stays at the release default (3) — this is an IPC/UI shell, but there
+# is no reason to trade away runtime speed. `panic` is deliberately left at the
+# default `unwind`: the `no_abort`/`catch_unwind` machinery that guards the
+# WKURLSchemeHandler + IPC FFI boundaries against poisoned-mutex SIGABRTs REQUIRES
+# unwinding — `panic = "abort"` would silently defeat it. Do not add it.
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
+
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 

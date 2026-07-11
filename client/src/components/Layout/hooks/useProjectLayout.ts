@@ -633,10 +633,28 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     };
     window.addEventListener('browser:request-close', closeHandler);
 
+    // Page/agent-initiated focus (browser_focus_tab): activate the pane in its
+    // group if THIS project owns it (same ownership guard as close). Reuses the
+    // exact "activate existing browser" mutation from the open-and-navigate path.
+    const focusHandler = (e: Event) => {
+      const ctx = (e as CustomEvent<{ contextId?: string }>).detail?.contextId;
+      if (!ctx) return;
+      const paneId = createPaneId('browser', ctx);
+      const pane = panesRef.current.find(p => p.id === paneId);
+      if (!pane) return; // not ours — another surface owns it
+      const grp = groupsRef.current.find(g => g.paneIds.includes(paneId));
+      if (grp) {
+        setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: paneId } : g)));
+        setFocusedGroupId(grp.id);
+      }
+    };
+    window.addEventListener('browser:request-focus', focusHandler);
+
     return () => {
       unsubWS();
       window.removeEventListener('browser:open-and-navigate', domHandler);
       window.removeEventListener('browser:request-close', closeHandler);
+      window.removeEventListener('browser:request-focus', focusHandler);
     };
     // handleAddPaneToGroupRef is read via ref to avoid re-registering on every
     // render. Deps are the stable identity inputs only.
