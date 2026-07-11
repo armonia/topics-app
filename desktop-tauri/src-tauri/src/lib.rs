@@ -2816,8 +2816,6 @@ fn eval_js_blocking(wv: &tauri::Webview, js: String, preserve_focus: bool) -> Re
         use cocoa::base::{id, nil};
         use cocoa::foundation::NSString;
         use objc::{class, msg_send, sel, sel_impl};
-        use std::ffi::CStr;
-        use std::os::raw::c_char;
         unsafe fn id_to_string(obj: cocoa::base::id) -> String {
             use cocoa::base::nil;
             use objc::{msg_send, sel, sel_impl};
