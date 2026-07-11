@@ -415,6 +415,19 @@ html, body {
   animation: messageAppear 0.2s ease-out;
 }
 
+/* Palette jump: transient flash on the message row a ⌘K search hit landed on.
+   Background-only (no transform) so Virtuoso's row measurements stay stable. */
+@keyframes msgJumpFlash {
+  0% { background-color: var(--primary-medium); }
+  60% { background-color: var(--primary-light); }
+  100% { background-color: transparent; }
+}
+
+.chat-msg-jump-highlight {
+  animation: msgJumpFlash 2.4s ease-out;
+  border-radius: 8px;
+}
+
 /* Skeleton loading animation */
 @keyframes shimmer {
   0% { background-position: -200% 0; }

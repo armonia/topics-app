@@ -1,6 +1,8 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/command-palette.fixture";
 import { createTopic, cleanupAll, deleteTopic, patchTopic } from "./helpers/api-fixtures";
+import { seedMessage } from "./helpers/seed-messages";
+import { ensureTopicVisible } from "./helpers";
 
 test.describe("Command Palette", () => {
   const TS = Date.now();
@@ -305,6 +307,56 @@ test.describe("Command Palette", () => {
     await messageOption.click();
 
     await expect(commandPalettePage.overlay).toBeHidden();
+  });
+
+  // CMD-16: clicking a message hit scrolls the opened chat to that message.
+  // Real end-to-end path (no search mock): seeded SQLite messages → POST
+  // /api/search returns messageId → palette registers the jump target →
+  // MessageList scrolls the virtualized row into view and flashes the
+  // [data-jump-highlight] marker on it.
+  test("CMD-16: message hit jumps the chat to the exact message", async ({
+    commandPalettePage,
+    page,
+    request,
+  }) => {
+    // The create response carries sessionKey ("topic:" + id.slice(0,8) — NOT
+    // the full id); the fixture's return type just narrows it away.
+    const topic = (await createTopic(
+      request,
+      `E2E-CmdJump-${TS}`
+    )) as unknown as { id: string; sessionKey: string };
+    topicIds.push(topic.id);
+    const sessionKey = topic.sessionKey;
+    // The needle sits EARLY in a long thread so the default open-at-bottom
+    // anchor cannot show it by accident — only a real jump makes it visible.
+    // Messages MUST be chained via parentId: unparented seeds become parallel
+    // ROOT BRANCHES and loadActiveThread would surface only the first one.
+    const needle = `aardvark-jump-needle-${TS}`;
+    for (let i = 0; i < 30; i++) {
+      await seedMessage(request, {
+        sessionKey,
+        role: i % 2 ? "assistant" : "user",
+        content: i === 2 ? `the ${needle} is right here` : `filler message ${i} — nothing to see`,
+        id: `jump-${TS}-${i}`,
+        parentId: i === 0 ? undefined : `jump-${TS}-${i - 1}`,
+      });
+    }
+    await ensureTopicVisible(page, new RegExp(`E2E-CmdJump-${TS}`));
+
+    await commandPalettePage.search(needle);
+    await expect(commandPalettePage.overlay.getByText(/Messaggi/i)).toBeVisible();
+    const hit = commandPalettePage.overlay
+      .getByRole("option")
+      .filter({ hasText: needle })
+      .first();
+    await hit.click();
+    await expect(commandPalettePage.overlay).toBeHidden();
+
+    // The jump target row scrolls into view and carries the transient
+    // highlight marker (2.4s window — ample for expect's polling).
+    const highlighted = page.locator('[data-jump-highlight="true"]');
+    await expect(highlighted).toBeVisible();
+    await expect(highlighted).toContainText(needle);
   });
 
   // CMD-10: Theme cycles through modes (light -> dark -> system -> light)

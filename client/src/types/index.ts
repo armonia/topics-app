@@ -355,6 +355,9 @@ export interface UploadResponse {
 }
 
 export interface SearchResult {
+  /** SQLite message id when the hit comes from the live messages table;
+   *  null for legacy JSONL transcript hits (no stable id → open only). */
+  messageId: string | null;
   sessionKey: string;
   topicId: string | null;
   topicName: string;

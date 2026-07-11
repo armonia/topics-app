@@ -1160,7 +1160,7 @@ export function createAppContext(baseDir: string): AppContext {
       const like = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
       const rows = db
         .prepare(
-          `SELECT session_key, role, content, timestamp FROM messages
+          `SELECT id, session_key, role, content, timestamp FROM messages
            WHERE content LIKE ? ESCAPE '\\'
            ORDER BY timestamp DESC LIMIT ?`,
         )
@@ -1169,6 +1169,9 @@ export function createAppContext(baseDir: string): AppContext {
         const topic = sessionToTopic[row.session_key];
         if (!topic) continue; // orphaned session — nothing to open from the palette
         results.push({
+          // messageId lets the palette scroll the opened topic to the hit;
+          // legacy JSONL results below have no stable id (null → open only).
+          messageId: row.id,
           sessionKey: row.session_key,
           topicId: topic.id,
           topicName: topic.name,
@@ -1209,7 +1212,7 @@ export function createAppContext(baseDir: string): AppContext {
                     if (typeof msg.content === "string") text = msg.content;
                     else if (Array.isArray(msg.content)) text = msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
                     if (text.toLowerCase().includes(lowerQuery)) {
-                      results.push({ sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
+                      results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
                       if (results.length >= limit) return results;
                     }
                   }
