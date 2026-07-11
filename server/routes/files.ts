@@ -555,10 +555,7 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         // Get diff stat for staged + unstaged
         const statProc = Bun.spawn(["git", "diff", "--stat", "HEAD"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statText = (await new Response(statProc.stdout).text()).trim();
-        // Also get untracked files
-        const untrackedProc = Bun.spawn(["git", "ls-files", "--others", "--exclude-standard"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
-        const untrackedText = (await new Response(untrackedProc.stdout).text()).trim();
-        // Get status porcelain for changed files
+        // Get status porcelain for changed files (untracked included as "??")
         const statusProc = Bun.spawn(["git", "status", "--porcelain"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe" });
         const statusText = (await new Response(statusProc.stdout).text()).trim();
         const lines = statusText.split("\n").filter(Boolean);
@@ -1203,7 +1200,6 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
         const hunkRegex = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm;
         let match;
         while ((match = hunkRegex.exec(diff)) !== null) {
-          const oldStart = parseInt(match[1], 10);
           const oldCount = match[2] !== undefined ? parseInt(match[2], 10) : 1;
           const newStart = parseInt(match[3], 10);
           const newCount = match[4] !== undefined ? parseInt(match[4], 10) : 1;
