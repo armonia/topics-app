@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync, statSync, readdirSync, unlinkSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
+import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
@@ -18,6 +19,14 @@ interface ScriptProcess {
   output: string[];       // circular buffer lines
   outputBytes: number;
   proc: ReturnType<typeof Bun.spawn> | null;
+  /** Byte size of the on-disk .log — tracked in memory so the per-chunk write
+   *  path never stats the file. The log is per-processId (unique per spawn),
+   *  so it always starts at 0. Not persisted. */
+  logBytes?: number;
+  /** Per-process async write chain: keeps chunk appends + rotation ordered
+   *  without blocking the event loop (the old appendFileSync/statSync ran on
+   *  EVERY stdout/stderr chunk of every tracked script). Not persisted. */
+  logQueue?: Promise<void>;
   /** 'script' = launched by Topics (run_script / UI), output captured. 'detected'
    *  = a listening server found under a Claude PTY that Topics did NOT spawn, so
    *  we have its pid/ports but not its stdout. Defaults to 'script'. */
@@ -397,30 +406,44 @@ function addToRecent(sp: ScriptProcess) {
 
 function appendOutput(sp: ScriptProcess, text: string) {
   if (!text) return;
+  // Ring buffer, bulk eviction: push everything, then splice ONE run off the
+  // front until back under the cap. The old per-line `Array.shift()` loop was
+  // O(n) per evicted line (each shift re-indexes the whole array) on the hot
+  // per-chunk path of every tracked script. Keeps the original semantics:
+  // newest lines win, and a single line larger than the cap is kept alone.
   const lines = text.split("\n");
-  for (const line of lines) {
-    if (sp.outputBytes + line.length > MAX_OUTPUT_BYTES) {
-      while (sp.output.length > 0 && sp.outputBytes + line.length > MAX_OUTPUT_BYTES) {
-        const removed = sp.output.shift()!;
-        sp.outputBytes -= removed.length;
-      }
+  for (const line of lines) sp.outputBytes += line.length;
+  sp.output.push(...lines);
+  if (sp.outputBytes > MAX_OUTPUT_BYTES) {
+    let drop = 0;
+    let freed = 0;
+    while (drop < sp.output.length - 1 && sp.outputBytes - freed > MAX_OUTPUT_BYTES) {
+      freed += sp.output[drop].length;
+      drop++;
     }
-    sp.output.push(line);
-    sp.outputBytes += line.length;
+    if (drop > 0) {
+      sp.output.splice(0, drop);
+      sp.outputBytes -= freed;
+    }
   }
-  // Persist to log file
-  try {
-    const logPath = join(getPersistDir(), "scripts", `${sp.processId}.log`);
-    appendFileSync(logPath, text);
-    // Rotation: if > 1MB, keep last 500KB
-    try {
-      const stat = statSync(logPath);
-      if (stat.size > 1024 * 1024) {
-        const content = readFileSync(logPath);
-        writeFileSync(logPath, content.slice(content.length - 500 * 1024));
+  // Persist to log file — async, serialized per process. The old
+  // appendFileSync + statSync (and readFileSync+writeFileSync on rotation)
+  // blocked Bun's single event loop once per stdout/stderr chunk. The chain
+  // keeps appends and rotation ordered; rotation is triggered off the
+  // in-memory byte counter, so the write path never stats the file.
+  const logPath = join(getPersistDir(), "scripts", `${sp.processId}.log`);
+  sp.logQueue = (sp.logQueue ?? Promise.resolve())
+    .then(async () => {
+      await appendFileAsync(logPath, text);
+      sp.logBytes = (sp.logBytes ?? 0) + Buffer.byteLength(text);
+      // Rotation: if > 1MB, keep last 500KB
+      if (sp.logBytes > 1024 * 1024) {
+        const content = await readFileAsync(logPath);
+        await writeFileAsync(logPath, content.subarray(Math.max(0, content.length - 500 * 1024)));
+        sp.logBytes = Math.min(content.length, 500 * 1024);
       }
-    } catch {}
-  } catch {}
+    })
+    .catch(() => {});
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
