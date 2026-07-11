@@ -724,13 +724,18 @@ fn set_traffic_lights(app: tauri::AppHandle, visible: bool) {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
-        match app.get_window("main") {
-            Some(win) => {
-                eprintln!("[chrome] set_traffic_lights(visible={visible}) — applying to main window");
-                apply_traffic_lights(&win, visible);
+        // no_abort: apply_traffic_lights reaches the window dispatcher /
+        // ns_window — same poisoned-mutex SIGABRT class (see no_abort doc).
+        let _ = no_abort("set_traffic_lights", || {
+            match app.get_window("main") {
+                Some(win) => {
+                    eprintln!("[chrome] set_traffic_lights(visible={visible}) — applying to main window");
+                    apply_traffic_lights(&win, visible);
+                }
+                None => eprintln!("[chrome] set_traffic_lights(visible={visible}) — main window NOT found, no-op"),
             }
-            None => eprintln!("[chrome] set_traffic_lights(visible={visible}) — main window NOT found, no-op"),
-        }
+            Ok(())
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (app, visible);
@@ -776,10 +781,15 @@ fn set_theme(app: tauri::AppHandle, theme: String) {
     {
         use tauri::Manager;
         let dark = theme == "dark";
-        if let Some(win) = app.get_webview_window("main") {
-            let win2 = win.clone();
-            let _ = win.run_on_main_thread(move || apply_appearance(&win2, dark));
-        }
+        // no_abort: run_on_main_thread locks the window dispatcher — same
+        // poisoned-mutex SIGABRT class (see no_abort doc).
+        let _ = no_abort("set_theme", || {
+            if let Some(win) = app.get_webview_window("main") {
+                let win2 = win.clone();
+                let _ = win.run_on_main_thread(move || apply_appearance(&win2, dark));
+            }
+            Ok(())
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (app, theme);
@@ -1126,7 +1136,10 @@ struct StatusItem {
 #[tauri::command]
 fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
     #[cfg(target_os = "macos")]
-    {
+    // no_abort: run_on_main_thread + tray/menu mutations go through the
+    // window dispatcher — same poisoned-mutex SIGABRT class (see no_abort
+    // doc). Fires on every attention-status change.
+    let _ = no_abort("set_app_status", || {
         use tauri::menu::MenuBuilder;
         use tauri::Manager;
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
@@ -1171,7 +1184,8 @@ fn set_app_status(app: tauri::AppHandle, count: u32, items: Vec<StatusItem>) {
             let _ = tray.set_title(title);
             let _ = tray.set_tooltip(Some(tip));
         }
-    }
+        Ok(())
+    });
     #[cfg(not(target_os = "macos"))]
     let _ = (app, count, items);
 }
@@ -1561,7 +1575,20 @@ fn vibrancy_animate_regions(window: tauri::Window, regions: Vec<VibRegion>, dura
     #[cfg(target_os = "macos")]
     {
         let win = window.clone();
-        let _ = window.run_on_main_thread(move || apply_vibrancy_animation(&win, regions, duration_ms, timing));
+        // no_abort ×2: `run_on_main_thread` locks the window dispatcher on
+        // THIS thread (poisoned-mutex → SIGABRT class, see no_abort doc) and
+        // the closure runs inside the main runloop's FFI boundary where an
+        // unwind also aborts. This fires on every sidebar toggle.
+        let _ = no_abort("vibrancy_animate_regions", || {
+            window
+                .run_on_main_thread(move || {
+                    let _ = no_abort("vibrancy_animate_regions.main", || {
+                        apply_vibrancy_animation(&win, regions, duration_ms, timing);
+                        Ok(())
+                    });
+                })
+                .map_err(|e| e.to_string())
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (window, regions, duration_ms, timing);
@@ -1581,7 +1608,19 @@ fn vibrancy_set_regions(window: tauri::Window, regions: Vec<VibRegion>) {
     #[cfg(target_os = "macos")]
     {
         let win = window.clone();
-        let _ = window.run_on_main_thread(move || apply_vibrancy_regions(&win, regions));
+        // no_abort ×2 — same rationale as vibrancy_animate_regions, but this
+        // one fires per FRAME during drag/resize: the highest-frequency
+        // dispatcher caller in the app.
+        let _ = no_abort("vibrancy_set_regions", || {
+            window
+                .run_on_main_thread(move || {
+                    let _ = no_abort("vibrancy_set_regions.main", || {
+                        apply_vibrancy_regions(&win, regions);
+                        Ok(())
+                    });
+                })
+                .map_err(|e| e.to_string())
+        });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (window, regions);
@@ -2576,6 +2615,12 @@ fn browser_open_inner(
                                 p.push((url_s.clone(), id, saved.clone(), dl_pane_id.clone()));
                             }
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
+                                // Bounded like DOWNLOAD_PENDING: a pane that downloads
+                                // and closes before anyone polls its id must not leak.
+                                if v.len() >= 64 {
+                                    let overflow = v.len() - 63;
+                                    v.drain(0..overflow);
+                                }
                                 v.push(DownloadEventMsg {
                                     kind: "start".into(),
                                     id: id.to_string(),
@@ -2600,6 +2645,10 @@ fn browser_open_inner(
                                 }
                             };
                             if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
+                                if v.len() >= 64 {
+                                    let overflow = v.len() - 63;
+                                    v.drain(0..overflow);
+                                }
                                 v.push(DownloadEventMsg {
                                     kind: "done".into(),
                                     id: id.to_string(),
@@ -2739,6 +2788,11 @@ fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> 
         g.retain(|_, v| v != &id);
     }
     if let Ok(mut v) = NAV_ERROR_EVENTS.lock() {
+        v.retain(|e| e.pane_id != id);
+    }
+    // Symmetric with NAV_ERROR_EVENTS: drop queued download events nobody
+    // will drain (browser_take_download_events only ever polls live ids).
+    if let Ok(mut v) = DOWNLOAD_EVENTS.lock() {
         v.retain(|e| e.pane_id != id);
     }
     Ok(())
@@ -4464,12 +4518,18 @@ async fn window_detach(
 #[tauri::command]
 fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
     use tauri::Manager;
-    if let Some(w) = app.get_webview_window(&label) {
-        ensure_window_visible(&w);
-        true
-    } else {
-        false
-    }
+    // no_abort: ensure_window_visible is a chain of window-dispatcher calls
+    // (show/unminimize/outer_position/set_focus…) — same poisoned-mutex
+    // SIGABRT class as the browser_* commands (see no_abort doc).
+    no_abort("window_focus_label", || {
+        if let Some(w) = app.get_webview_window(&label) {
+            ensure_window_visible(&w);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    })
+    .unwrap_or(false)
 }
 
 /// Close the window that invoked this command. WKWebView's `window.close()` is a
@@ -4478,7 +4538,12 @@ fn window_focus_label(app: tauri::AppHandle, label: String) -> bool {
 /// which the extractor silently rejects once a window is multi-webview).
 #[tauri::command]
 fn window_close_self(window: tauri::Window) {
-    let _ = window.close();
+    // no_abort: window.close() goes through the window dispatcher — a
+    // poisoned dispatcher mutex would otherwise abort the whole app on the
+    // next detached-window close (see no_abort doc).
+    let _ = no_abort("window_close_self", || {
+        window.close().map_err(|e| e.to_string())
+    });
 }
 
 // ───────────────────────── Dev hot-reload (disk-serve) ─────────────────────────
