@@ -89,7 +89,12 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
+          // Object-form entries match only the exact resolved module: bare
+          // 'react-dom' is a 1KB stub, the real renderer lives behind the
+          // 'react-dom/client' subpath (and JSX compiles to react/jsx-runtime).
+          // Without the subpaths the ~170KB renderer silently stays in the
+          // main chunk and react-vendor ships 3KB.
+          'react-vendor': ['react', 'react/jsx-runtime', 'react-dom', 'react-dom/client'],
           'markdown': ['react-markdown', 'remark-gfm'],
           'editor': ['@codemirror/view', '@codemirror/state', '@codemirror/language', '@codemirror/commands', '@codemirror/theme-one-dark'],
           'icons': ['lucide-react'],

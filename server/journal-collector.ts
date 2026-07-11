@@ -15,7 +15,6 @@ interface CollectorState {
 }
 
 export class JournalCollector {
-  private baseDir: string;
   private eventsDir: string;
   private digestsDir: string;
   private stateFile: string;
@@ -24,9 +23,9 @@ export class JournalCollector {
   private gatewayToken: string;
   private timer: ReturnType<typeof setInterval> | null = null;
   private eventCounter = 0;
+  private gatewayDown = false;
 
   constructor(baseDir: string, gatewayUrl: string, gatewayToken: string) {
-    this.baseDir = baseDir;
     this.eventsDir = join(baseDir, "journal", "events");
     this.digestsDir = join(baseDir, "journal", "digests");
     this.stateFile = join(baseDir, "journal", "state.json");
@@ -119,8 +118,14 @@ export class JournalCollector {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.gatewayToken}` },
         body: JSON.stringify({ tool: "sessions_list", args: { activeMinutes: 10, messageLimit: 5 } }),
+        // A hung gateway would otherwise pile up one pending collect() per tick.
+        signal: AbortSignal.timeout(15_000),
       });
       if (!resp.ok) return;
+      if (this.gatewayDown) {
+        this.gatewayDown = false;
+        console.log("[JournalCollector] Gateway reachable again, journal sync resumed");
+      }
 
       const data = await resp.json() as any;
       const sessions = data?.result?.sessions || [];
@@ -177,7 +182,12 @@ export class JournalCollector {
         this.saveState();
       }
     } catch (err) {
-      console.warn("[JournalCollector] Collection failed:", err);
+      // Log the outage once, not every 5-minute tick: a stopped gateway used to
+      // put a multi-line warn in the field logs per tick (thousands of lines).
+      if (!this.gatewayDown) {
+        this.gatewayDown = true;
+        console.warn("[JournalCollector] Gateway unreachable, suppressing repeats until it recovers:", err);
+      }
     }
   }
 }

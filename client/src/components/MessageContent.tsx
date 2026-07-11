@@ -1,10 +1,9 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
-import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, memo } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
 import { createPortal } from 'react-dom';
-import ReactMarkdown, { type Components } from 'react-markdown';
-import { chatRemarkPlugins, chatRehypePlugins } from '../lib/markdownPlugins';
-import { highlightCode } from '../lib/syntaxHighlight';
-import 'katex/dist/katex.min.css';
+import { type Components } from 'react-markdown';
+import { ChatMarkdown } from './ChatMarkdown';
+import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
 import { Copy, Check, CheckCheck, Download } from 'lucide-react';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
@@ -476,9 +475,12 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   // construction: hljs ESCAPES the source and only wraps tokens in class-only
   // <span>s. null (unknown lang / oversize / tokenizer error) falls back to
   // the plain text render below. Line-numbers mode stays plain (per-row table).
+  // hljs is lazy (first code block kicks off the chunk): hljsReady flips once
+  // when the tokenizers land so already-rendered plain blocks re-highlight.
+  const hljsReady = useSyncExternalStore(subscribeHighlighter, highlighterReady);
   const highlightedHtml = useMemo(
     () => (showLineNumbers ? null : highlightCode(displayContent, language)),
-    [displayContent, language, showLineNumbers],
+    [displayContent, language, showLineNumbers, hljsReady],
   );
 
   return (
@@ -744,9 +746,9 @@ function DiffBlocksWithApplyAll({ segments }: { segments: MessageSegment[] }) {
           <DiffBlock key={i} ref={(handle) => setRef(i, handle)} edit={segment.edit} />
         ) : (
           <div key={i} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-            <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
+            <ChatMarkdown components={markdownComponents}>
               {segment.content || ''}
-            </ReactMarkdown>
+            </ChatMarkdown>
           </div>
         )
       )}
@@ -832,9 +834,9 @@ function renderContentWithInlineTools(
     if (segment) {
       elements.push(
         <div key={`seg-${i}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-          <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
+          <ChatMarkdown components={markdownComponents}>
             {segment}
-          </ReactMarkdown>
+          </ChatMarkdown>
         </div>
       );
     }
@@ -859,9 +861,9 @@ function renderContentWithInlineTools(
   if (remaining) {
     elements.push(
       <div key="seg-last" className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-        <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
+        <ChatMarkdown components={markdownComponents}>
           {remaining}
-        </ReactMarkdown>
+        </ChatMarkdown>
       </div>
     );
   }
@@ -1054,9 +1056,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           }
           return (
             <div key={`g-tx-${g.idx}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-              <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
+              <ChatMarkdown components={markdownComponents}>
                 {text}
-              </ReactMarkdown>
+              </ChatMarkdown>
             </div>
           );
         })}
@@ -1155,9 +1157,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
                 <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents)}</div>
               ) : (
                 <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-                  <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
+                  <ChatMarkdown components={markdownComponents}>
                     {cleanText}
-                  </ReactMarkdown>
+                  </ChatMarkdown>
                 </div>
               )
             )}

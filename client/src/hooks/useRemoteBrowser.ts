@@ -151,6 +151,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
+  // Newest frame delivered so far. Frames after the first are direct
+  // `img.src` writes (no setState), so state.screenshotSrc goes stale by
+  // design — this ref lets a remounted <img> re-assert the newest frame
+  // instead of showing the stale first one until the page next repaints.
+  const lastFrameSrcRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pageScaleFactorRef = useRef<number>(1);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -335,11 +340,28 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             if (psf) {
               pageScaleFactorRef.current = psf;
             }
-            setState(s => ({
-              ...s,
-              screenshotSrc: `data:image/jpeg;base64,${msg.data}`,
-              ...(psf && psf !== s.pageScaleFactor ? { pageScaleFactor: psf } : {}),
-            }));
+            const src = `data:image/jpeg;base64,${msg.data}`;
+            // Steady-state frames are DIRECT DOM writes (same pattern as the
+            // drag paths in SplitTree/useGridResize): at ~15fps a setState
+            // here re-rendered the whole 667-line panel — 3 unmemoized
+            // toolbars included — per frame. React state only records the
+            // transitions that change WHAT renders: the first frame
+            // (placeholder → <img>) and a pageScaleFactor change (rare).
+            // Re-renders from other state leave the img alone because its
+            // src prop (the first-frame value) never changes.
+            lastFrameSrcRef.current = src;
+            const img = imgRef.current;
+            if (img) img.src = src;
+            setState(s => {
+              const firstFrame = s.screenshotSrc === null;
+              const psfChanged = !!psf && psf !== s.pageScaleFactor;
+              if (!firstFrame && !psfChanged) return s; // same ref: no render
+              return {
+                ...s,
+                ...(firstFrame ? { screenshotSrc: src } : {}),
+                ...(psfChanged ? { pageScaleFactor: psf } : {}),
+              };
+            });
             break;
           }
           case 'nav':
@@ -582,6 +604,15 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   const setSelectedElement = useCallback((el: SelectedElementInfo | null) => {
     setState(s => ({ ...s, selectedElement: el, selectMode: false }));
   }, []);
+
+  // After every commit: if the <img> (re)mounted it carries the stale
+  // state.screenshotSrc — re-assert the newest direct-written frame. A cheap
+  // string compare on the (now rare) panel renders, a write only on remount.
+  useEffect(() => {
+    const img = imgRef.current;
+    const last = lastFrameSrcRef.current;
+    if (img && last && img.src !== last) img.src = last;
+  });
 
   return useMemo(() => ({
     ...state,

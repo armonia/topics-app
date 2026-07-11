@@ -193,8 +193,12 @@ export const MessageBubble = memo(function MessageBubble({
           // unclickable — clicks fell through to the previous list row. Content
           // clipping lives on the inner bubble div (which has its own
           // overflow-hidden + overflow-wrap), so wide code/links still wrap.
+          //
+          // Only the user's own messages are boxed into a bubble, so only
+          // they need the 85% cap to look like a bubble; assistant replies
+          // have no card to constrain and get the full row width instead.
           className={`relative flex flex-col min-w-0`}
-          style={{ maxWidth: isMobile ? 'calc(100vw - 5rem)' : '85%' }}
+          style={{ maxWidth: isMobile ? 'calc(100vw - 5rem)' : (msg.role === 'user' ? '85%' : '100%') }}
         >
           {/* Floating action toolbar */}
           {!grouped && (
@@ -251,13 +255,17 @@ export const MessageBubble = memo(function MessageBubble({
             </div>
           ) : (
           <div
-            className={`px-3 py-2 text-[13px] leading-relaxed overflow-hidden ${
+            // Assistant replies are no longer wrapped in a card (no bg, no
+            // padding, no rounding) so long responses get the full row width
+            // to breathe — only the user's own messages keep the bubble
+            // look, and error messages keep the amber alert box.
+            className={`text-[13px] leading-relaxed overflow-hidden ${
               msg.role === 'user'
-                ? 'user-bubble bg-primary text-white shadow-sm'
+                ? `px-3 py-2 user-bubble bg-primary text-white shadow-sm ${grouped ? 'rounded-2xl rounded-tr-md' : 'rounded-2xl'}`
                 : msg.role === 'assistant' && msg.content.startsWith('⚠️')
-                  ? 'bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-700'
-                  : 'bg-app-hover text-app-text dark:bg-elevated'
-            } ${grouped ? (msg.role === 'user' ? 'rounded-2xl rounded-tr-md' : 'rounded-2xl rounded-tl-md') : 'rounded-2xl'}`}
+                  ? `px-3 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-700 ${grouped ? 'rounded-2xl rounded-tl-md' : 'rounded-2xl'}`
+                  : 'text-app-text'
+            }`}
             style={{ fontSize: `${fontSize}px`, overflowWrap: 'break-word', wordBreak: 'break-word' }}
           >
             <div className="message-content">

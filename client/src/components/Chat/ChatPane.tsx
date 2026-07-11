@@ -581,7 +581,7 @@ function ChatPaneComponent({
     });
   }, []);
 
-  const handleSendMessage = async (e?: React.FormEvent) => {
+  const handleSendMessage = async (e?: React.SubmitEvent) => {
     if (e) e.preventDefault();
     // Edit mode: submit the edit
     if (editingMessage) {
@@ -708,21 +708,39 @@ function ChatPaneComponent({
  * (getSessionMessages caches by source-array identity), so:
  *   - a chunk in another pane leaves THIS pane's resolved array untouched → skip;
  *   - a chunk in THIS pane's own session changes its array → re-render.
- * Any genuine prop change (topic rename, focus, chatError, loading/streaming
- * rebind at turn boundaries, ProjectWindow's per-render wrappedSendMessage for
- * preview panes) fails the shallow pass → re-render, so no pane goes stale.
+ * `isSessionLoading`/`isSessionStreaming` are the SAME trap: they're
+ * `useCallback(_, [loading])`/`[streaming]` over the whole-app
+ * `Record<sessionKey, boolean>`, so their identity rebinds whenever ANY
+ * session toggles — a shallow compare on the function would re-render every
+ * open pane on every other pane's turn boundary. We resolve them for THIS
+ * pane's sessionKey (the only key the component reads — lines 236-237) and
+ * compare the boolean, exactly like getSessionMessages.
+ *
+ * Any genuine prop change (topic rename, focus, chatError, ProjectWindow's
+ * per-render wrappedSendMessage for preview panes) fails the shallow pass →
+ * re-render, so no pane goes stale.
  */
+const RESOLVED_KEYS = new Set<keyof ChatPaneProps>([
+  'getSessionMessages',
+  'isSessionLoading',
+  'isSessionStreaming',
+]);
 function chatPanePropsEqual(prev: ChatPaneProps, next: ChatPaneProps): boolean {
   const keys = new Set<keyof ChatPaneProps>([
     ...(Object.keys(prev) as (keyof ChatPaneProps)[]),
     ...(Object.keys(next) as (keyof ChatPaneProps)[]),
   ]);
   for (const k of keys) {
-    if (k === 'getSessionMessages') continue; // compared via resolved messages below
+    if (RESOLVED_KEYS.has(k)) continue; // compared via resolved per-session values below
     if (prev[k] !== next[k]) return false;
   }
   // Reached only when topic (and thus sessionKey) is identical across renders.
-  return prev.getSessionMessages(prev.topic.sessionKey) === next.getSessionMessages(next.topic.sessionKey);
+  const sk = prev.topic.sessionKey;
+  return (
+    prev.getSessionMessages(sk) === next.getSessionMessages(sk) &&
+    prev.isSessionLoading(sk) === next.isSessionLoading(sk) &&
+    prev.isSessionStreaming(sk) === next.isSessionStreaming(sk)
+  );
 }
 
 export const ChatPane = memo(ChatPaneComponent, chatPanePropsEqual);

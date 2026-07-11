@@ -16,6 +16,8 @@ import { describe, test, expect } from "bun:test";
 import {
   parseArgs,
   callOpenBrowserPane,
+  callListBrowserTabs,
+  callFocusBrowserTab,
   callRunScript,
   callListProcesses,
   callReadProcessOutput,
@@ -194,6 +196,68 @@ describe("callOpenBrowserPane", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Multi-tab tools: list-tabs + focus-pane
+// ---------------------------------------------------------------------------
+
+describe("callListBrowserTabs", () => {
+  test("POSTs to the session-keyed list-tabs endpoint and returns the tabs JSON", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const tabs = [
+      { contextId: "t1", url: "https://a", title: "A", label: "Roadmap", kind: "topic", isOwn: true },
+    ];
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ tabs }), { status: 200 });
+    });
+    const text = await callListBrowserTabs(
+      { baseUrl: "http://localhost:3333", sessionKey: "topic:abc" },
+      {},
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://localhost:3333/api/sessions/topic%3Aabc/browser/list-tabs");
+    expect(seen.init?.method).toBe("POST");
+    expect(JSON.parse(text)).toEqual(tabs);
+  });
+
+  test("returns [] when the server omits tabs", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({}), { status: 200 }));
+    const text = await callListBrowserTabs({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl);
+    expect(JSON.parse(text)).toEqual([]);
+  });
+});
+
+describe("callFocusBrowserTab", () => {
+  test("POSTs an explicit contextId to the focus-pane endpoint", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ ok: true, contextId: "ctx-9" }), { status: 200 });
+    });
+    const text = await callFocusBrowserTab(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { contextId: "ctx-9" },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/s/browser/focus-pane");
+    expect(seen.init?.method).toBe("POST");
+    expect(seen.init?.body).toBe(JSON.stringify({ contextId: "ctx-9" }));
+    expect(text).toContain("ctx-9");
+  });
+
+  test("omits contextId from the body when none is given (focus own pane)", async () => {
+    let seenBody: string | undefined;
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seenBody = init?.body as string;
+      return new Response(JSON.stringify({ ok: true, contextId: "own" }), { status: 200 });
+    });
+    await callFocusBrowserTab({ baseUrl: "http://x", sessionKey: "s" }, {}, fetchImpl);
+    expect(seenBody).toBe(JSON.stringify({}));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleMessage — JSON-RPC routing
 // ---------------------------------------------------------------------------
 
@@ -223,6 +287,8 @@ describe("handleMessage", () => {
     expect(names).toEqual([
       "open_browser_pane",
       "close_browser_pane",
+      "browser_list_tabs",
+      "browser_focus_tab",
       "import_chrome",
       // Ref-based browser tools — projected from browser-tool-spec.ts.
       "browser_observe",
@@ -266,6 +332,17 @@ describe("handleMessage", () => {
     expect(tools.find((t) => t.name === "comment_task")!.inputSchema.required).toEqual(["task_id", "content"]);
   });
 
+  test("every bridged browser_* tool advertises an optional contextId arg", () => {
+    // The "manage any tab" seam: contextId is injected into every MCP browser
+    // tool by mcpBrowserTools(), and must never be required (own-pane is default).
+    const { mcpBrowserTools } = require("../browser-tool-spec");
+    const bridged = mcpBrowserTools() as Array<{ name: string; inputSchema: any }>;
+    for (const t of bridged) {
+      expect(t.inputSchema.properties.contextId?.type).toBe("string");
+      expect(t.inputSchema.required ?? []).not.toContain("contextId");
+    }
+  });
+
   test("tools/call routes run_script through the registry", async () => {
     // Patch global fetch since handleMessage doesn't take a fetchImpl.
     const orig = globalThis.fetch;
@@ -283,6 +360,35 @@ describe("handleMessage", () => {
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain("processId=p1");
       expect(seenUrl).toContain("/api/sessions/s/scripts/run");
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
+  test("tools/call forwards a browser tool's contextId override in the request body", async () => {
+    // The bridge forwards toolArgs verbatim, so a contextId targeting another tab
+    // rides in the POST body to /browser/get-text (the REST route extracts it).
+    const orig = globalThis.fetch;
+    let seenUrl = "";
+    let seenBody = "";
+    (globalThis as any).fetch = stubFetch(async (url, init) => {
+      seenUrl = String(url);
+      seenBody = (init?.body as string) ?? "";
+      return new Response(JSON.stringify({ text: "hi" }), { status: 200 });
+    });
+    try {
+      const resp = await handleMessage(
+        {
+          jsonrpc: "2.0",
+          id: 11,
+          method: "tools/call",
+          params: { name: "browser_get_text", arguments: { contextId: "other-tab", max: 500 } },
+        },
+        ARGS,
+      );
+      expect((resp!.result as any).isError).toBeUndefined();
+      expect(seenUrl).toContain("/api/sessions/s/browser/get-text");
+      expect(JSON.parse(seenBody)).toEqual({ contextId: "other-tab", max: 500 });
     } finally {
       (globalThis as any).fetch = orig;
     }

@@ -89,3 +89,23 @@ test('dispatch does NOT delegate an unregistered context (guard is a no-op for E
   // With no executor registered the guard is skipped; we assert that rather than
   // exercising the real CDP handler (which needs a full BrowserService).
 });
+
+// listDelegated() is the inventory seam the tab-inventory enumerates: every live
+// native pane is a key here. Order-independent (Map insertion order is stable but
+// callers dedupe/sort), so assert membership.
+test('listDelegated() enumerates registered contexts and drops them on unregister', () => {
+  const reg = createNativeDelegateRegistry();
+  expect(reg.listDelegated()).toEqual([]);
+  reg.register('ctx-a', () => {});
+  reg.register('ctx-b', () => {});
+  expect(new Set(reg.listDelegated())).toEqual(new Set(['ctx-a', 'ctx-b']));
+  reg.unregister('ctx-a');
+  expect(reg.listDelegated()).toEqual(['ctx-b']);
+});
+
+test('listDelegated() reflects a re-register from a new owner as one entry', () => {
+  const reg = createNativeDelegateRegistry();
+  reg.register('ctx', () => {}, 'sock-1');
+  reg.register('ctx', () => {}, 'sock-2'); // reconnect: overwrites send+owner
+  expect(reg.listDelegated()).toEqual(['ctx']);
+});

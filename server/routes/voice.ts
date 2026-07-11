@@ -33,12 +33,26 @@ export function createVoiceRouter(ctx: AppContext): RouteHandler {
         const tempWav = join(tmpDir, "out.wav");
         const buffer = await (audioFile as File).arrayBuffer();
         writeFileSync(tempWebm, Buffer.from(buffer));
-        const ffmpeg = Bun.spawnSync(["ffmpeg", "-i", tempWebm, "-ar", "16000", "-ac", "1", tempWav, "-y"], { timeout: 30000, stdout: "pipe", stderr: "pipe" });
-        if (ffmpeg.exitCode !== 0) throw new Error(`ffmpeg conversion failed: ${ffmpeg.stderr.toString()}`);
+        // Async subprocesses (not spawnSync): ffmpeg + whisper-cli can each run for
+        // seconds-to-tens-of-seconds on large-v3, and spawnSync froze Bun's single
+        // event loop for the WHOLE duration — every other HTTP request, WS message,
+        // and PTY relay stalled until transcription finished. `await` yields the loop
+        // so the rest of the server keeps serving. Streams are drained BEFORE awaiting
+        // exit so a full pipe buffer can't deadlock the child (same shape as runGit).
+        const ffmpeg = Bun.spawn(["ffmpeg", "-i", tempWebm, "-ar", "16000", "-ac", "1", tempWav, "-y"], { timeout: 30000, stdout: "pipe", stderr: "pipe" });
+        const [, ffErr] = await Promise.all([
+          new Response(ffmpeg.stdout).text(),
+          new Response(ffmpeg.stderr).text(),
+        ]);
+        if ((await ffmpeg.exited) !== 0) throw new Error(`ffmpeg conversion failed: ${ffErr}`);
         const whisperModel = process.env.WHISPER_MODEL_PATH || `${process.env.HOME || ""}/whisper-models/ggml-large-v3.bin`;
-        const whisper = Bun.spawnSync(["whisper-cli", "-m", whisperModel, "-l", "it", "-f", tempWav, "--no-timestamps"], { timeout: 60000, stdout: "pipe", stderr: "pipe" });
-        if (whisper.exitCode !== 0) throw new Error(`Whisper failed: ${whisper.stderr.toString()}`);
-        const transcript = whisper.stdout.toString().split("\n").filter((line: string) => !line.match(/^(whisper|ggml|system|main):/i) && line.trim()).join(" ").trim();
+        const whisper = Bun.spawn(["whisper-cli", "-m", whisperModel, "-l", "it", "-f", tempWav, "--no-timestamps"], { timeout: 60000, stdout: "pipe", stderr: "pipe" });
+        const [whisperOut, whisperErr] = await Promise.all([
+          new Response(whisper.stdout).text(),
+          new Response(whisper.stderr).text(),
+        ]);
+        if ((await whisper.exited) !== 0) throw new Error(`Whisper failed: ${whisperErr}`);
+        const transcript = whisperOut.split("\n").filter((line: string) => !line.match(/^(whisper|ggml|system|main):/i) && line.trim()).join(" ").trim();
         return json({ transcript });
       } catch (err: any) {
         console.error("STT error:", err);

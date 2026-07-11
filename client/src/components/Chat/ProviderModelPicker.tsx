@@ -164,7 +164,10 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         title="Provider & model"
       >
         <Zap size={11} />
-        <span className="max-w-[160px] truncate">{buttonLabel}</span>
+        {/* Shrinks further once the composer's @container (the pane width,
+            not the viewport) drops below 380px — keeps the effort badge and
+            the rest of the action bar reachable on a narrow tab. */}
+        <span className="max-w-[160px] @max-[380px]:max-w-[70px] truncate">{buttonLabel}</span>
         {activeEffortTier && (
           <span
             data-testid="effort-tier-badge"

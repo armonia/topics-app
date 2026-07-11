@@ -1444,15 +1444,17 @@ async function readAgentOutput(
   if (child.claudeSessionId) {
     const path = claudeTranscriptPath(child.cwd, child.claudeSessionId);
     try {
-      const size = fs.statSync(path).size;
+      // Polled repeatedly by the MCP orchestrator (one poll per monitored
+      // sub-agent) — async fs so growing transcripts never block the loop.
+      const size = (await fs.promises.stat(path)).size;
       let start = Number.isFinite(since) && since >= 0 ? since : 0;
       if (start > size) start = 0; // file truncated/rotated — re-read from top
       if (start === size) return { events: [], nextOffset: size, source: "jsonl" };
-      const fd = fs.openSync(path, "r");
+      const fd = await fs.promises.open(path, "r");
       try {
         const len = size - start;
         const buf = Buffer.alloc(len);
-        fs.readSync(fd, buf, 0, len, start);
+        await fd.read(buf, 0, len, start);
         const chunk = buf.toString("utf-8");
         const { lines, remainder } = splitJsonlChunk(chunk);
         // Re-read the partial last line next call by stopping the offset before it.
@@ -1471,7 +1473,7 @@ async function readAgentOutput(
         }
         return { events, nextOffset, source: "jsonl" };
       } finally {
-        fs.closeSync(fd);
+        await fd.close();
       }
     } catch {
       // No transcript yet → fall through to the raw buffer.

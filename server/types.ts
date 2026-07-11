@@ -398,7 +398,7 @@ export interface AppContext {
   resolveTopicCwd: (topic: import("./types").Topic | null | undefined) => string | null;
   getMimeType: (filepath: string) => string;
   isPathAllowed: (filepath: string) => boolean;
-  findNewMediaFiles: (sinceMs: number) => string[];
+  findNewMediaFiles: (sinceMs: number) => Promise<string[]>;
   updateLastMessageWithMedia: (sessionKey: string, mediaPaths: string[]) => void;
   atomicWriteJSON: (filepath: string, data: object) => void;
   logRequest: (method: string, path: string, status: number, startTime: number) => void;
