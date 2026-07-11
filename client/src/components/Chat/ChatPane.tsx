@@ -581,7 +581,7 @@ function ChatPaneComponent({
     });
   }, []);
 
-  const handleSendMessage = async (e?: React.FormEvent) => {
+  const handleSendMessage = async (e?: React.SubmitEvent) => {
     if (e) e.preventDefault();
     // Edit mode: submit the edit
     if (editingMessage) {

@@ -312,7 +312,7 @@ interface ChatInputProps {
   recordingTime: number;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
-  onSubmit: (e?: React.FormEvent) => void;
+  onSubmit: (e?: React.SubmitEvent) => void;
   /**
    * Abort the in-flight assistant turn. Wired to `useChat.stopSession` via
    * `ChatPane`. The unified composer button calls this when the agent owns
