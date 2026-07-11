@@ -87,6 +87,17 @@ export interface NativeBrowserHandle {
   reload(): Promise<void>;
   goHome(): Promise<void>;
   setBounds(bounds: { x: number; y: number; width: number; height: number }): void;
+  /** Optional — Tauri macOS only. Sidebar-slide handoff: commit `bounds` as the
+   *  pane's final slot in ONE IPC and let Core Animation slide the native view
+   *  from `fromDx` px away along the given duration/curve (the same the DOM
+   *  FLIP rides), instead of a per-frame setBounds chase. Resolves false when
+   *  the shell lacks the command — caller falls back to the poll. */
+  animateBounds?(
+    bounds: { x: number; y: number; width: number; height: number },
+    fromDx: number,
+    durationMs: number,
+    timing: [number, number, number, number],
+  ): Promise<boolean>;
   toggleDevTools(): Promise<void>;
   /** Find in page (Cmd+F). Pass empty string + findNext=false to clear. */
   findInPage(text: string, options?: { forward?: boolean; matchCase?: boolean; findNext?: boolean }): Promise<void>;
