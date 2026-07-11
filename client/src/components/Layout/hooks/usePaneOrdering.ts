@@ -228,6 +228,12 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
   const pinnedIdsRef = useRef(effectivePinnedIds);
   useEffect(() => { pinnedIdsRef.current = effectivePinnedIds; });
 
+  // Live mirror of orderedIds for callbacks that must RESOLVE synchronously
+  // (ensureBrowserPane) — a setState updater is not a synchronous read: React
+  // only evaluates it eagerly when the fiber has no pending work.
+  const orderedIdsRef = useRef(orderedIds);
+  useEffect(() => { orderedIdsRef.current = orderedIds; });
+
   // 6. Preview-replacement protocol — 3 refs + 2 effects, all co-located (B4).
   const prevTopicIdsRef = useRef(topicIds);
   const pendingCloseRef = useRef<string | null>(null);
@@ -357,12 +363,24 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
 
   // ops.ensureBrowserPane — single owner of the browser singleton (B2).
   const ensureBrowserPane = useCallback((contextId?: string): string => {
-    let resolvedId = '';
-    setOrderedIds(prev => {
-      const { next, resolvedId: rid } = browserSingletonReducer(prev, contextId);
-      resolvedId = rid;
-      return next;
-    });
+    // Resolve the pane id SYNCHRONOUSLY from the orderedIds mirror, never from
+    // inside the setState updater. The old pattern (`let resolvedId = '';
+    // setOrderedIds(prev => { …resolvedId = rid… })`) only worked when React
+    // evaluated the updater eagerly — true for a click into an idle group,
+    // FALSE in the mount-and-consume flow of a pending pane on an EMPTY client
+    // (effect 10 fires among the group's first-mount effects, the fiber has
+    // pending work, the updater is deferred): resolvedId stayed '', so no
+    // persist / no focus ran, the strict orderedIds validation dropped the new
+    // pane and the just-mounted group evaporated back to the Welcome screen —
+    // the "Add pane → Browser does nothing with zero tabs" bug.
+    const { resolvedId } = browserSingletonReducer(orderedIdsRef.current, contextId);
+    // Re-apply through the updater with the RESOLVED context so the state
+    // transition stays functional (safe against concurrent updates) AND
+    // deterministic — the no-context create path mints a fresh UUID per call,
+    // so re-running the reducer with the original `contextId` could mint a
+    // SECOND id different from the one we just persisted/focused.
+    const resolvedCtx = getBrowserContextFromPaneId(resolvedId) ?? contextId;
+    setOrderedIds(prev => browserSingletonReducer(prev, resolvedCtx).next);
     queueMicrotask(() => { if (resolvedId) onFocusPanel(resolvedId); });
     if (resolvedId) persistBrowserPane(resolvedId);
     return resolvedId;
