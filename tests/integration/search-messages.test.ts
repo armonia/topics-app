@@ -53,6 +53,9 @@ describe("searchTranscripts — SQLite messages", () => {
     }
     // Case-insensitive + both roles surfaced.
     expect(new Set(results.map((r: { role: string }) => r.role))).toEqual(new Set(["user", "assistant"]));
+    // SQLite hits carry the message id — the palette uses it to scroll the
+    // opened topic to the exact message (legacy JSONL hits get null instead).
+    expect(new Set(results.map((r: { messageId: string }) => r.messageId))).toEqual(new Set(["m1", "m2"]));
   });
 
   test("user-typed LIKE wildcards match literally", async () => {
