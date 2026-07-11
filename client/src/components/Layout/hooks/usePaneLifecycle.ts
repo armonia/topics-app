@@ -150,15 +150,22 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     const handler = findHandler(paneId);
     if (!handler) { onClosePanel(paneId); return; }
 
-    if (handler.localManaged) ordering.ops.removeLocalPane(paneId);
-    // Defer the server-side DELETE to the pending-action commit (3s after the
-    // user clicks X). Firing it inline would kill the PTY immediately and the
-    // xterm pane would print "[Session ended]" while the close countdown is
-    // still painting — looking to the user like the timer didn't apply.
-    onClosePanel(
-      paneId,
-      handler.sideEffect ? () => handler.sideEffect!(paneId) : undefined,
-    );
+    // Defer BOTH the local-ordering drop AND the server-side DELETE to the
+    // pending-action commit (3s after the X). The old flow dropped the tab
+    // from the local ordering UPFRONT ("so the tab bar updates without
+    // waiting") — but that erased the very tab that paints the countdown
+    // fill, while the CELL stayed in the layout until commit: a ghost pane
+    // with an invisible timer for 3s, reported live as "closing a
+    // floating-split tab takes forever to settle". Keeping the tab in place
+    // makes browser/viewer closes read exactly like chat closes (visible 3s
+    // fill on the tab, then the whole cell leaves in one step); cancelling
+    // the countdown leaves everything untouched. The server DELETE stays at
+    // commit too — inline it would kill the PTY immediately and the xterm
+    // pane would print "[Session ended]" mid-countdown.
+    onClosePanel(paneId, () => {
+      if (handler.localManaged) ordering.ops.removeLocalPane(paneId);
+      handler.sideEffect?.(paneId);
+    });
     if (handler.localManaged && activePaneId === paneId) {
       const remaining = validatedOrderedIds.filter((id) => id !== paneId);
       if (remaining.length > 0) onFocusPanel(remaining[0]);
