@@ -14,6 +14,7 @@ import { getTerminalSessionById } from "./terminal";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
+import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
 import { timingSafeEqualStr } from "../utils";
 
 /**
@@ -751,117 +752,21 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   }
 
   /**
-   * Relocate a Claude Code TERMINAL tab into a project window, server-side and
-   * de-duplicated. This is the shared core of POST
-   * /api/sessions/:sessionKey/move-to-project AND the terminal-tab fallback of
-   * the open-project / create-project handlers (a terminal tab has no chat
-   * topic, so bindTopicToProject can't move it — the pane lives in the app-level
-   * `pane-store-v2`, not in a topic).
-   *
-   * `projectDir` MUST already be a resolved, existing directory (callers resolve
-   * it with resolveProjectRef before calling). Steps:
-   *   1. splice the pane out of the app-level standalone store (`pane-store-v2`:
-   *      its `panes` entry + every `groups.*.paneIds` ref), capturing its full
-   *      pane object so the project membership carries the same shape;
-   *   2. add it to the project's server-synced membership
-   *      (`topics-project-panes-<projectHash(dir)>` → `nonChatPanes`), idempotent;
-   *   3. persist both ui_state writes with a fresh monotonic server_seq (BEGIN
-   *      IMMEDIATE so two writers can't collide on seq) and broadcast each so
-   *      live clients converge to exactly ONE instance.
-   *
-   * Does NOT broadcast `open-project` — the caller owns focus semantics (the
-   * move-to-project route and the open/create fallbacks all want it, but keeping
-   * it out of the helper lets a caller relocate without stealing focus if ever
-   * needed). Device-local split geometry (`project-layout-<hash>`) is untouched.
+   * Relocate a Claude Code TERMINAL tab into a project window — extracted to
+   * server/lib/relocate-pane.ts (unit-testable; the closure needed only db +
+   * broadcastToAll). The extraction rode along with the duplicate-tab fix:
+   * the splice now writes a durable TOMBSTONE, without which live clients'
+   * union-hydrate re-persisted the standalone tab right back (moved tab
+   * duplicated inside+outside the project, closes coupled). See the module
+   * header for the full story.
    */
-  function moveTerminalPaneToProject(
+  const moveTerminalPaneToProject = (
     term: { id: string; name?: string },
     projectDir: string,
-  ): { paneId: string; membershipKey: string } {
-    const paneId = `terminal:${term.id}`;
+  ): { paneId: string; membershipKey: string } =>
+    relocateTerminalPaneToProject(db, broadcastToAll, term, projectDir);
 
-    // djb2 — MUST match client projectHash() in
-    // client/src/state/pane/adapters/projectLayoutSync.ts so the membership key
-    // lines up with what the renderer reads.
-    const projectHash = (p: string): string => {
-      let h = 0;
-      for (let i = 0; i < p.length; i++) { h = p.charCodeAt(i) + ((h << 5) - h); h = h & h; }
-      return Math.abs(h).toString(36);
-    };
-    const membershipKey = `topics-project-panes-${projectHash(projectDir)}`;
-    const APP_KEY = "pane-store-v2";
-
-    const readUi = (key: string): Record<string, unknown> | null => {
-      const row = db.query("SELECT value FROM ui_state WHERE key = ?").get(key) as { value?: string } | undefined;
-      if (!row?.value) return null;
-      try { return JSON.parse(row.value) as Record<string, unknown>; } catch { return null; }
-    };
-    // Read-modify-write MUST be atomic: the reads below (APP_KEY, membershipKey)
-    // and the writes run inside ONE `BEGIN IMMEDIATE` txn so a concurrent
-    // ui-state PUT can't land between the read and the commit and get silently
-    // reverted (this write always wins on server_seq regardless of when it
-    // read). IMMEDIATE takes a RESERVED lock at txn start, so a second writer
-    // blocks until we commit and then reads our updated rows. Mirrors the
-    // single-transaction pattern in purgeTopicFromUiState.
-    const stamped = db.transaction(() => {
-      const writes: Array<{ key: string; value: unknown }> = [];
-
-      // 1. Splice the pane out of the app-level standalone store, capturing its
-      //    full pane object so the project membership carries the same shape.
-      let paneObj: Record<string, unknown> | null = null;
-      const app = readUi(APP_KEY);
-      if (app) {
-        const panes = app.panes as Record<string, Record<string, unknown>> | undefined;
-        if (panes && panes[paneId]) {
-          const { scrollOffset: _drop, ...rest } = panes[paneId];
-          paneObj = rest;
-          delete panes[paneId];
-        }
-        const groups = app.groups as Record<string, { paneIds?: string[] }> | undefined;
-        if (groups) {
-          for (const g of Object.values(groups)) {
-            if (g && Array.isArray(g.paneIds)) g.paneIds = g.paneIds.filter((x) => x !== paneId);
-          }
-        }
-        writes.push({ key: APP_KEY, value: app });
-      }
-
-      // 2. Add the pane to the project's server-synced membership (idempotent).
-      const mem = (readUi(membershipKey) as { nonChatPanes?: unknown[]; openChatTopicIds?: unknown[] } | null)
-        || { nonChatPanes: [], openChatTopicIds: [] };
-      if (!Array.isArray(mem.nonChatPanes)) mem.nonChatPanes = [];
-      if (!Array.isArray(mem.openChatTopicIds)) mem.openChatTopicIds = [];
-      if (!mem.nonChatPanes.some((p) => (p as { id?: string })?.id === paneId)) {
-        mem.nonChatPanes.push(paneObj || { id: paneId, type: "terminal", title: term.name || "Claude Code", preview: false, terminalType: "claude-code" });
-      }
-      writes.push({ key: membershipKey, value: mem });
-
-      // 3. Persist with fresh monotonic server_seq each, then return them for
-      //    broadcast after the txn commits.
-      const out: Array<{ key: string; value: unknown; seq: number }> = [];
-      for (const w of writes) {
-        const { maxSeq } = db.query("SELECT COALESCE(MAX(server_seq), 0) AS maxSeq FROM ui_state").get() as { maxSeq: number };
-        const seq = maxSeq + 1;
-        db.run(
-          `INSERT INTO ui_state (key, value, payload_version, server_seq, updated_at)
-           VALUES (?, ?, 2, ?, datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET
-             value = excluded.value, payload_version = 2,
-             server_seq = excluded.server_seq, updated_at = datetime('now')`,
-          [w.key, JSON.stringify(w.value), seq],
-        );
-        out.push({ key: w.key, value: w.value, seq });
-      }
-      return out;
-    }).immediate() as Array<{ key: string; value: unknown; seq: number }>;
-
-    for (const s of stamped) {
-      broadcastToAll({ type: "ui-state:updated", key: s.key, value: s.value, payload_version: 2, server_seq: s.seq });
-    }
-    return { paneId, membershipKey };
-  }
-
-  // Auto-naming endpoint extracted to its own router; it needs two closure
+  // Auto-naming endpoint extracted to its own router  // Auto-naming endpoint extracted to its own router; it needs two closure
   // helpers injected (they close over this scope), so it's instantiated here.
   const autoNameRouter = createAutoNameRouter(ctx, { resolveProvider, detectProjectPathFromMessages });
   const historyRouter = createHistoryRouter(ctx, { matchHistoryRoute, providerForSessionKey });
