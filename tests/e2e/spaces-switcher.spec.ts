@@ -16,7 +16,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -38,6 +38,17 @@ test.describe.serial("Spaces (Spazi) switcher", () => {
 
   /** Seed two standalone chat tabs open and navigate. */
   async function openTwoStandaloneTabs(page: Page) {
+    // PRISTINE pane-store reset first — including `spaces`, which the legacy
+    // key clears below never touched. This group is `.serial`: when a later
+    // test flakes (SPACE-03's chip-switch timing), Playwright retries the
+    // WHOLE group from SPACE-01 — which asserts "no switcher" and found the
+    // space its own previous pass had created. The retry could then never
+    // go green (observed as the shard-4 CI "flake": ✘ SPACE-03 → ✘ SPACE-01
+    // retry#1/#2). resetPaneStore writes a snapshot with no spaces key, so
+    // every (re)run starts from zero spaces. The two chat panes must be IN the
+    // snapshot (empty panes would out-rank the legacy `panels` key and the
+    // tabs would never render).
+    await resetPaneStore(page.request, [idA, idB]);
     await Promise.all([
       page.request.put(`${BASE}/api/ui-state/panels`, {
         data: { openPanels: [idA, idB] },
