@@ -75,6 +75,12 @@ export interface NativeBrowserHandle {
   frozenImage?: string | null;
   /** Favicon URL emitted by the page. Empty during navigation. */
   faviconUrl: string;
+  /** Optional — Tauri only. Last navigation failure (WKNavigationDelegate
+   *  did-fail, drained from the Rust queue). Cleared by the next navigate()
+   *  or by clearNavError(). Null on the web path (it has its own WS channel). */
+  navError?: { message: string; url: string } | null;
+  /** Optional — dismiss the navigation-error strip without navigating. */
+  clearNavError?(): void;
   navigate(url: string): Promise<void>;
   goBack(): Promise<void>;
   goForward(): Promise<void>;

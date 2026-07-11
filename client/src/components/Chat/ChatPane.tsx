@@ -61,6 +61,8 @@ export interface ChatPaneProps {
   onNavigateBrowser?: (url: string) => void;
   // Branching
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
+  deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   // Session viewer
   onOpenSessionViewer?: (sessionKey: string) => void;
@@ -75,7 +77,7 @@ function ChatPaneComponent({
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
-  editMessage, switchBranch, onOpenSessionViewer,
+  editMessage, regenerateMessage, deleteMessage, switchBranch, onOpenSessionViewer,
   aboveInputSlot,
 }: ChatPaneProps) {
   const toast = useToast();
@@ -505,6 +507,44 @@ function ChatPaneComponent({
     try { await memoryApi.appendToTopic(topic.id, snippet); } catch {}
   }, [topic.id]);
 
+  // Regenerate: fork a sibling assistant branch under the same user message
+  // and re-stream (the general "try again", not just the ⚠️-error retry). The
+  // old reply stays reachable via the branch arrows. Wired only while not
+  // streaming — see the MessageList prop below.
+  const handleRegenerateMessage = useCallback((msg: ChatMessage) => {
+    if (!regenerateMessage) return;
+    void regenerateMessage(topic.sessionKey, msg.id);
+  }, [regenerateMessage, topic.sessionKey]);
+
+  // Delete (message + descendant branches). Confirmation is the two-click arm
+  // in MessageBubble; here we just fire and let the returned thread replace
+  // the session state (useChat.deleteMessage).
+  const handleDeleteMessage = useCallback((msg: ChatMessage) => {
+    if (!deleteMessage) return;
+    void deleteMessage(topic.sessionKey, msg.id);
+  }, [deleteMessage, topic.sessionKey]);
+
+  // Export the ACTIVE thread as a Markdown download. Client-side on purpose:
+  // currentMessages already IS the active branch view the user is looking at.
+  const handleExportConversation = useCallback(() => {
+    const lines: string[] = [`# ${topic.name}`, ''];
+    for (const m of currentMessages) {
+      const who = m.role === 'user' ? 'You' : 'Assistant';
+      const when = m.timestamp ? ` — ${new Date(m.timestamp).toLocaleString()}` : '';
+      lines.push(`### ${who}${when}`, '', m.content || '', '');
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = (topic.name || 'conversation').replace(/[^\p{L}\p{N} _-]/gu, '').trim() || 'conversation';
+    a.href = url;
+    a.download = `${safeName} ${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [currentMessages, topic.name]);
+
   const handleEditMessage = useCallback((msg: ChatMessage) => {
     setEditingMessage(msg);
     setMessage(msg.content);
@@ -643,14 +683,14 @@ function ChatPaneComponent({
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} defaultProviderLabel={defaultProviderLabel} />
+        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} defaultProviderLabel={defaultProviderLabel} />
       </div>
     </div>
   );

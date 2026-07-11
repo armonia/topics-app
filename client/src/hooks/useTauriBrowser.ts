@@ -85,6 +85,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   const [title, setTitle] = useState('');
   const [faviconUrl, setFaviconUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  // Last navigation failure (Rust did-fail queue). Owned by navigate()/the
+  // drain poll below — NOT reset by the eval polls, which can't tell a failed
+  // load from "still showing the previous page".
+  const [navError, setNavError] = useState<{ message: string; url: string } | null>(null);
   const [consoleEntries, setConsoleEntries] = useState<BrowserConsoleEntry[]>([]);
   const [deviceMode, setDeviceMode] = useState<DeviceMode>('desktop');
   const [responsiveSize, setResponsiveSizeState] = useState<{ width: number; height: number } | null>(null);
@@ -347,12 +351,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       const norm = normalizeUrl(u);
       setUrl(norm === 'about:blank' ? '' : norm);
       setLoading(true);
+      setNavError(null); // a fresh attempt owns the strip
       await tauriInvoke('browser_navigate', { id, url: norm }).catch(() => {});
       // WKWebView load events aren't bridged yet — clear the spinner heuristically.
       window.setTimeout(() => setLoading(false), 700);
     },
     [id],
   );
+
+  const clearNavError = useCallback(() => setNavError(null), []);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -470,6 +477,36 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     const iv = window.setInterval(tick, 2500);
     return () => { stop = true; window.clearInterval(iv); };
   }, [id, ready, isVisible]);
+
+  // Navigation failures — drain the Rust did-fail queue (browser_take_nav_errors,
+  // scoped to this pane, same contract as the download queue). A pure mutex
+  // drain, NO page eval — so it works exactly when the eval polls can't: a page
+  // that never loaded, a hung host, a dead DNS name. Not gated on visibility
+  // (agent-driven navigations fail in background tabs too); ~zero cost per tick.
+  useEffect(() => {
+    if (!ready) return;
+    let stop = false;
+    const iv = window.setInterval(() => {
+      void tauriInvoke<Array<{ url: string; description: string; code: number }>>(
+        'browser_take_nav_errors',
+        { id },
+      )
+        .then((events) => {
+          if (stop || !events || events.length === 0) return;
+          const last = events[events.length - 1];
+          setNavError({
+            message: last.description || `Navigation failed (${last.code})`,
+            url: last.url,
+          });
+          setLoading(false); // the blind 700ms spinner must not outlive a known failure
+        })
+        .catch(() => {});
+    }, 1000);
+    return () => {
+      stop = true;
+      window.clearInterval(iv);
+    };
+  }, [id, ready]);
 
   // #3 instant focus-on-click. The 800ms data poll above ALSO detects clicks
   // into the native pane (the pointerdown bump → activate the tab), but at up to
@@ -765,6 +802,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     viewId,
     faviconUrl,
     frozenImage,
+    navError,
+    clearNavError,
     navigate,
     goBack,
     goForward,
@@ -792,6 +831,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     goToNavIndex,
   }), [
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
+    navError, clearNavError,
     navigate, goBack, goForward, reload, goHome, setBounds, toggleDevTools, findInPage, stopFind,
     setZoom, zoom, countMatches, inspectAt, selectMode, enterSelectMode, exitSelectMode,
     deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import type { Topic, ChatMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
@@ -39,12 +39,15 @@ function OverflowMenu({
   voiceCallSupported, sttSupported, currentStreaming, uploading,
   toggleCall, startRecording: _startRecording, stopRecording: _stopRecording, toggleListening, stopSpeaking, setAutoTTS,
   onSlashCommand,
+  onExport,
 }: {
   isCallActive: boolean; isRecording: boolean; isListening: boolean; isSpeaking: boolean; autoTTS: boolean;
   voiceCallSupported: boolean; sttSupported: boolean; currentStreaming: boolean; uploading: boolean;
   toggleCall: () => void; startRecording: () => void; stopRecording: () => void;
   toggleListening: () => void; stopSpeaking: () => void; setAutoTTS: React.Dispatch<React.SetStateAction<boolean>>;
   onSlashCommand: (cmd: string) => void;
+  /** Export the conversation as a Markdown download (absent → row hidden). */
+  onExport?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -135,6 +138,21 @@ function OverflowMenu({
           {isSpeaking ? 'Stop speaking' : autoTTS ? 'Auto-TTS (ON)' : 'Auto-TTS'}
           <span className="ml-auto text-[11px] text-app-text-muted">⌘⇧S</span>
         </button>
+        {onExport && (
+          <>
+            <div className="h-px bg-app-border my-1" />
+            <button
+              type="button"
+              onClick={() => { onExport(); setOpen(false); }}
+              className="w-full px-3 py-1.5 text-left flex items-center gap-2.5 text-[12px] transition-colors hover:bg-app-hover text-app-text"
+              data-testid="chat-export-conversation"
+            >
+              <Download size={14} />
+              Export conversation
+              <span className="ml-auto text-[11px] text-app-text-muted">.md</span>
+            </button>
+          </>
+        )}
       </Menu>
     </>
   );
@@ -321,6 +339,8 @@ interface ChatInputProps {
   setMentionedFiles: React.Dispatch<React.SetStateAction<MentionedFile[]>>;
   planMode?: boolean;
   onTogglePlanMode?: () => void;
+  /** Export the conversation as Markdown (composer ⋯ menu row). */
+  onExportConversation?: () => void;
   /**
    * Fast Mode toggle (openspec change `chat-fast-mode`). When ON, the chat
    * route uses the provider's native fast model (haiku / gpt-4o-mini / …).
@@ -377,6 +397,7 @@ export function ChatInput({
   setMentionedFiles,
   planMode,
   onTogglePlanMode,
+  onExportConversation,
   fastMode,
   onToggleFastMode,
   editingMessage,
@@ -962,6 +983,7 @@ export function ChatInput({
                 </button>
                 {!isMobile && (
                   <OverflowMenu
+                    onExport={onExportConversation}
                     isCallActive={isCallActive}
                     isRecording={isRecording}
                     isListening={isListening}

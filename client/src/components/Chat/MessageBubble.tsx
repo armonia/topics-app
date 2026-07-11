@@ -1,5 +1,5 @@
-import { memo, useState, useCallback, useRef } from 'react';
-import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight } from 'lucide-react';
+import { memo, useState, useCallback, useEffect, useRef } from 'react';
+import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import { MessageContent } from '../MessageContent';
 
@@ -75,6 +75,12 @@ interface MessageBubbleProps {
   onPlanReject?: () => void;
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
+  /** Regenerate this assistant reply as a sibling branch (host gates it off
+   *  while the session is streaming). */
+  onRegenerate?: (msg: ChatMessage) => void;
+  /** Delete this message + its descendant branches. Two-click confirm is
+   *  handled locally (the button arms, then fires). */
+  onDeleteMessage?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
@@ -97,6 +103,8 @@ export const MessageBubble = memo(function MessageBubble({
   onPlanReject,
   onRemember,
   onEdit,
+  onRegenerate,
+  onDeleteMessage,
   onSwitchBranch,
   onOpenSessionViewer,
   onMessage,
@@ -109,6 +117,24 @@ export const MessageBubble = memo(function MessageBubble({
   // Long-press state for touch devices
   const [showActions, setShowActions] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Two-click delete confirm: first click arms (button turns red "Delete?"),
+  // second click within the window fires. Auto-disarms after 3s so a stray
+  // click can't linger as a loaded gun.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const disarmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (disarmTimer.current) clearTimeout(disarmTimer.current); }, []);
+  const handleDeleteClick = useCallback(() => {
+    if (deleteArmed) {
+      if (disarmTimer.current) clearTimeout(disarmTimer.current);
+      setDeleteArmed(false);
+      onDeleteMessage?.(msg);
+      return;
+    }
+    setDeleteArmed(true);
+    if (disarmTimer.current) clearTimeout(disarmTimer.current);
+    disarmTimer.current = setTimeout(() => setDeleteArmed(false), 3000);
+  }, [deleteArmed, onDeleteMessage, msg]);
 
   const handleTouchStart = useCallback(() => {
     if (!isTouchDevice) return;
@@ -188,6 +214,33 @@ export const MessageBubble = memo(function MessageBubble({
               {msg.role === 'assistant' && onRemember && (
                 <button onClick={() => onRemember(msg)} className="w-7 h-7 flex items-center justify-center text-app-text-muted hover:text-purple-500 rounded" title="Remember this" aria-label="Save to memory">
                   <Brain size={14} />
+                </button>
+              )}
+              {msg.role === 'assistant' && onRegenerate && !msg.partial && (
+                <button
+                  onClick={() => onRegenerate(msg)}
+                  className={actionBtnClass}
+                  title="Regenerate"
+                  aria-label="Regenerate response"
+                  data-testid="msg-action-regenerate"
+                >
+                  <RotateCw size={14} />
+                </button>
+              )}
+              {onDeleteMessage && !msg.partial && (
+                <button
+                  onClick={handleDeleteClick}
+                  className={`h-7 flex items-center justify-center rounded transition-colors ${
+                    deleteArmed
+                      ? 'px-1.5 gap-1 text-red-600 dark:text-red-400 bg-red-500/10 text-[11px] font-medium'
+                      : 'w-7 text-app-text-muted hover:text-red-500'
+                  }`}
+                  title={deleteArmed ? 'Click again to delete' : 'Delete'}
+                  aria-label={deleteArmed ? 'Confirm delete' : 'Delete message'}
+                  data-testid="msg-action-delete"
+                >
+                  <Trash2 size={14} />
+                  {deleteArmed && 'Delete?'}
                 </button>
               )}
             </div>
