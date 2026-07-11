@@ -776,7 +776,11 @@ export function ChatInput({
       {/* Floating input card */}
       <form
         onSubmit={onSubmit}
-        className={`relative ${isMobile ? 'm-2' : 'm-3'} rounded-2xl shadow-md border ${planMode ? 'border-indigo-400 dark:border-indigo-500/50 focus-within:border-indigo-400' : 'border-app-border-light focus-within:border-primary'} bg-surface flex-shrink-0 transition-colors min-w-0 max-w-full`}
+        // @container: the action-bar row below keys its shrink/scroll
+        // behavior off THIS element's width (the pane/tab), not the
+        // viewport — panes can be resized far narrower than any viewport
+        // breakpoint would ever fire at.
+        className={`relative @container ${isMobile ? 'm-2' : 'm-3'} rounded-2xl shadow-md border ${planMode ? 'border-indigo-400 dark:border-indigo-500/50 focus-within:border-indigo-400' : 'border-app-border-light focus-within:border-primary'} bg-surface flex-shrink-0 transition-colors min-w-0 max-w-full`}
         style={{ maxWidth: '100%' }}
       >
         {isRecording ? (
@@ -897,9 +901,12 @@ export function ChatInput({
             <span id="chat-input-hint" className="sr-only">Press Enter to send, Shift+Enter for new line. Type / for commands.</span>
 
             {/* Row 2: Action bar */}
-            <div className={`flex items-center justify-between ${'px-1.5 pb-1.5'}`}>
-              {/* Left: tools */}
-              <div className="flex items-center gap-0.5">
+            <div className={`flex items-center gap-1 ${'px-1.5 pb-1.5'}`}>
+              {/* Left: tools. min-w-0 lets this cluster shrink below its
+                  content width; overflow-x-auto lets it scroll instead of
+                  clipping (or pushing Send off-row) once a narrow pane can't
+                  fit every icon. */}
+              <div className="flex items-center gap-0.5 min-w-0 flex-1 overflow-x-auto scrollbar-hide">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -966,8 +973,10 @@ export function ChatInput({
                 )}
               </div>
 
-              {/* Right: voice + send */}
-              <div className="flex items-center gap-0.5">
+              {/* Right: voice + send. flex-shrink-0: Send/Stop must never be
+                  the thing that gets squeezed on a narrow pane — the left
+                  cluster scrolls instead. */}
+              <div className="flex items-center gap-0.5 flex-shrink-0">
                 {/* Direct mic button — always visible on all screen sizes */}
                 <button
                   type="button"
