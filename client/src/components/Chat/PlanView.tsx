@@ -1,7 +1,6 @@
 import { useState, useMemo, memo } from 'react';
 import { Check, X, Play, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { chatRemarkPlugins, chatRehypePlugins } from '../../lib/markdownPlugins';
+import { ChatMarkdown } from '../ChatMarkdown';
 import { markdownComponents } from '../MessageContent';
 
 interface PlanStep {
@@ -103,9 +102,9 @@ export const PlanView = memo(function PlanView({ content, onApprove, onReject, i
       {expanded ? (
         /* Expanded: full markdown content */
         <div className="mb-3 prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-          <ReactMarkdown remarkPlugins={chatRemarkPlugins} rehypePlugins={chatRehypePlugins} components={markdownComponents}>
+          <ChatMarkdown components={markdownComponents}>
             {content}
-          </ReactMarkdown>
+          </ChatMarkdown>
         </div>
       ) : (
         <>
