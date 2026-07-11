@@ -50,16 +50,29 @@ import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
 // v2 (__tFocusHook2): the v1 gate only counted clicks with document.hasFocus()
 // ALREADY true — but the FIRST click into a non-key WKWebView is exactly what
 // makes it key, so hasFocus() was still false at pointerdown and the click
-// never counted: the user had to click TWICE to focus the pane's tab. v2 also
-// counts a click that ACQUIRES focus (re-check on a 0-tick after pointerdown).
-// Synthetic agent events stay excluded via isTrusted; pages that still carry
-// v1 just double-count hasFocus-true clicks, which is harmless — the consumer
-// is a change detector, not an accumulator.
+// never counted: the user had to click TWICE to focus the pane's tab. v2 tried
+// to also count a click that ACQUIRES focus by re-checking hasFocus() on a
+// setTimeout-0 after pointerdown — but WKWebView is multi-process: the web
+// content process only learns it's focused via an async IPC round-trip after
+// the view becomes first responder, so the 0-tick re-check almost always ran
+// BEFORE hasFocus() flipped true. First click still didn't count; two-press
+// survived v2 (reported live on 2.1.16).
+// v3 (__tFocusHook3): event-driven instead of a timing bet. A trusted
+// pointerdown without focus ARMS a short window (600ms); the first `focus`
+// event (window- or element-level, captured at window) inside that window
+// bumps and disarms. A WebKit stray pointerdown from a set_bounds slide under
+// a resting cursor arms but never focuses the view → disarms silently, so the
+// original anti-theft property is preserved. Synthetic agent events stay
+// excluded via isTrusted; pages that still carry v1/v2 just double-count
+// hasFocus-true clicks, which is harmless — the consumer is a change
+// detector, not an accumulator.
 const INSTALL_FOCUS_HOOK =
-  "if(!window.__tFocusHook2){window.__tFocusHook2=1;window.__topicsFocusBump=window.__topicsFocusBump||0;" +
+  "if(!window.__tFocusHook3){window.__tFocusHook3=1;window.__topicsFocusBump=window.__topicsFocusBump||0;" +
+  "var __tFocusArm=0;" +
   "addEventListener('pointerdown',function(e){if(!e.isTrusted)return;" +
   "if(document.hasFocus()){window.__topicsFocusBump++;return;}" +
-  "setTimeout(function(){if(document.hasFocus())window.__topicsFocusBump++},0);},true);}";
+  "__tFocusArm=Date.now()+600;},true);" +
+  "addEventListener('focus',function(){if(__tFocusArm&&Date.now()<=__tFocusArm){__tFocusArm=0;window.__topicsFocusBump++;}},true);}";
 
 /** Best-effort URL/search normalisation for the address bar. Full URLs pass
  *  through; a bare host gets https://; anything else becomes a web search. */
