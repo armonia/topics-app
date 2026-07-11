@@ -210,6 +210,8 @@ interface PanelGridProps {
   stopSession: (sessionKey: string) => boolean;
   sendMessage: (sessionKey: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   editMessage?: (sessionKey: string, messageId: string, newContent: string) => Promise<boolean>;
+  regenerateMessage?: (sessionKey: string, messageId: string) => Promise<boolean>;
+  deleteMessage?: (sessionKey: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sessionKey: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sessionKey: string) => Promise<boolean>;
   chatError: string | null;
@@ -282,6 +284,8 @@ export function PanelGrid({
   stopSession,
   sendMessage,
   editMessage,
+  regenerateMessage,
+  deleteMessage,
   switchBranch,
   loadHistory,
   chatError,
@@ -2227,6 +2231,8 @@ export function PanelGrid({
         stopSession={stopSession}
         sendMessage={sendMessage}
         editMessage={editMessage}
+        regenerateMessage={regenerateMessage}
+        deleteMessage={deleteMessage}
         switchBranch={switchBranch}
         loadHistory={loadHistory}
         chatError={chatError}
@@ -2275,7 +2281,7 @@ export function PanelGrid({
     [
       focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
       getSessionMessages, isSessionLoading,
-      isSessionStreaming, stopSession, sendMessage, editMessage, switchBranch,
+      isSessionStreaming, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch,
       loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
       onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed, onNewChat,
       pendingProjectPane, onPendingProjectPaneConsumed, onNewChatInProject,

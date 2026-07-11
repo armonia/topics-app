@@ -25,14 +25,32 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
   } = ctx;
   const { resolveProvider, updateUnreadCount } = deps;
 
-  async function streamEditResponse(sessionKey: string, newUserMsgId: string, userContent: string): Promise<Response> {
+  async function streamEditResponse(
+    sessionKey: string,
+    newUserMsgId: string,
+    userContent: string,
+    opts?: {
+      /**
+       * REGENERATE path: the anchor is an EXISTING user message whose active
+       * child (the old assistant reply) is still on the active thread — the
+       * model must not see its previous answer, so the prompt is truncated
+       * right after the anchor. The EDIT path needs no truncation: its anchor
+       * is a brand-new user message that IS the thread's tail.
+       */
+      truncateAfterAnchor?: boolean;
+    },
+  ): Promise<Response> {
     // O(1) lookup via UNIQUE index on session_key — replaces a full-table
     // scan that paid for every queued edit-stream.
     const matchedTopic = getTopicBySessionKey(sessionKey);
     const topicProvider = resolveProvider(matchedTopic);
 
     // Build the messages array from the active thread up to (and including) the new user message
-    const activeThread = loadActiveThread(sessionKey);
+    let activeThread = loadActiveThread(sessionKey);
+    if (opts?.truncateAfterAnchor) {
+      const anchorIdx = activeThread.findIndex(m => m.id === newUserMsgId);
+      if (anchorIdx >= 0) activeThread = activeThread.slice(0, anchorIdx + 1);
+    }
     const finalMessages: ChatMessage[] = activeThread.map(m => ({
       role: m.role,
       content: m.content,
@@ -284,6 +302,29 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
 
       // Now stream the assistant response under the new user message
       return await streamEditResponse(sessionKey, newUserMsg.id, body.content);
+    }
+
+    // Regenerate: fork a NEW assistant sibling under the same user message and
+    // re-stream — the general "try again" every LLM chat has, not just the
+    // ⚠️-error retry. Reuses the whole edit streaming pipeline; the only
+    // differences are (a) no new user message is created (the anchor is the
+    // regenerated reply's own parent) and (b) the prompt thread is truncated
+    // at the anchor so the model never sees the answer it's replacing.
+    // createBranchPartialMessage allocates the next branch index + activates
+    // it, so the old reply stays reachable via the sibling arrows.
+    const regenParams = matchRoute(pathname, "/api/messages/:id/regenerate");
+    if (regenParams && method === "POST") {
+      const msg = getMessageById(regenParams.id);
+      if (!msg) return json({ error: "message not found" }, 404);
+      if (msg.role !== "assistant") return json({ error: "only assistant messages can be regenerated" }, 400);
+      const sessionKey = getMessageSessionKey(regenParams.id);
+      if (!sessionKey) return json({ error: "session not found" }, 404);
+      if (isStreaming(sessionKey)) return json({ error: "a response is already streaming for this session" }, 409);
+      const anchorId = msg.parentId;
+      if (!anchorId) return json({ error: "message has no parent user message" }, 400);
+      const anchor = getMessageById(anchorId);
+      if (!anchor) return json({ error: "parent message not found" }, 404);
+      return await streamEditResponse(sessionKey, anchorId, anchor.content, { truncateAfterAnchor: true });
     }
 
     return null;

@@ -38,6 +38,8 @@ interface ChatPanelProps {
    */
   stopSession: (sk: string) => boolean;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
+  deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>; chatError: string | null;
   sendWS: (msg: WSMessage) => void; onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
@@ -70,7 +72,7 @@ interface ChatPanelProps {
 
 export function ChatPanel({
   topic, isFocused, onFocus, onClose, onDragStart, onToggleSidebar, isDragOver,
-  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession, sendMessage, editMessage, switchBranch, loadHistory,
+  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
   contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
@@ -286,6 +288,8 @@ export function ChatPanel({
                 stopSession={stopSession}
                 sendMessage={sendMessage}
                 editMessage={editMessage}
+                regenerateMessage={regenerateMessage}
+                deleteMessage={deleteMessage}
                 switchBranch={switchBranch}
                 loadHistory={loadHistory}
                 chatError={chatError}

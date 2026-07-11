@@ -226,6 +226,26 @@ export const chatApi = {
     return response.body;
   },
 
+  /** Regenerate an assistant reply — same SSE contract as editMessage. */
+  async regenerateMessage(messageId: string, signal?: AbortSignal): Promise<ReadableStream<Uint8Array> | null> {
+    const response = await fetch(`${API_BASE}/messages/${encodeURIComponent(messageId)}/regenerate`, {
+      method: 'POST',
+      signal,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(response.status, text || response.statusText);
+    }
+    return response.body;
+  },
+
+  /** Delete a message + its descendant branches; returns the repaired thread. */
+  async deleteMessage(messageId: string): Promise<{ messages: HistoryMessage[] }> {
+    return request<{ messages: HistoryMessage[] }>(`/messages/${encodeURIComponent(messageId)}`, {
+      method: 'DELETE',
+    });
+  },
+
   async switchBranch(messageId: string, branchIndex: number): Promise<{ messages: HistoryMessage[] }> {
     return request<{ messages: HistoryMessage[] }>(`/messages/${encodeURIComponent(messageId)}/switch-branch`, {
       method: 'POST',

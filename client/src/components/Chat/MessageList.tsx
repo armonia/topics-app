@@ -30,6 +30,8 @@ interface MessageListProps {
   onPlanReject?: () => void;
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
+  onRegenerate?: (msg: ChatMessage) => void;
+  onDeleteMessage?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onOpenSessionViewer?: (sessionKey: string) => void;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
@@ -71,6 +73,8 @@ export function MessageList({
   onPlanReject,
   onRemember,
   onEdit,
+  onRegenerate,
+  onDeleteMessage,
   onSwitchBranch,
   onOpenSessionViewer,
   onMessage,
@@ -475,6 +479,8 @@ export function MessageList({
                   onPlanReject={isLastAssistant ? onPlanReject : undefined}
                   onRemember={onRemember}
                   onEdit={onEdit}
+                  onRegenerate={onRegenerate}
+                  onDeleteMessage={onDeleteMessage}
                   onSwitchBranch={onSwitchBranch}
                   onOpenSessionViewer={onOpenSessionViewer}
                   onMessage={onMessage}
