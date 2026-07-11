@@ -836,3 +836,104 @@ test.describe.serial("Chat Input Features", () => {
     await expect(page.getByText("package.json")).toBeVisible({ timeout: 5_000 });
   });
 });
+
+test.describe("Conversation pack (CHAT-CONV)", () => {
+  test("delete removes a message via two-click confirm and survives reload", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-CONV-02" });
+    const topic = await createTopic(request, "Conv Delete " + Date.now());
+    const sk = `topic:${topic.id.slice(0, 8)}`;
+    try {
+      const base = Date.now();
+      const u0 = await seedMessage(request, {
+        sessionKey: sk, role: "user", branchIndex: 0,
+        content: "keep this question",
+        timestamp: new Date(base - 5000).toISOString(),
+      });
+      const a0 = await seedMessage(request, {
+        sessionKey: sk, role: "assistant", parentId: u0.id, branchIndex: 0,
+        content: "reply to be deleted",
+        timestamp: new Date(base - 4000).toISOString(),
+      });
+      void a0;
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(topic.name));
+
+      const target = page.locator(".message-content").filter({ hasText: "reply to be deleted" });
+      await expect(target).toBeVisible({ timeout: 15_000 });
+
+      // Two-click confirm: first click arms the button, second fires.
+      await target.hover();
+      const delBtn = page.getByTestId("msg-action-delete").last();
+      await expect(delBtn).toBeVisible({ timeout: 5_000 });
+      await delBtn.click();
+      await expect(delBtn).toContainText("Delete?", { timeout: 3_000 });
+      await delBtn.click();
+
+      await expect(target).toHaveCount(0, { timeout: 10_000 });
+      // Server truth: gone after a full reload too.
+      await page.reload();
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(topic.name));
+      await expect(
+        page.locator(".message-content").filter({ hasText: "keep this question" })
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(
+        page.locator(".message-content").filter({ hasText: "reply to be deleted" })
+      ).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, topic.id);
+    }
+  });
+
+  test("regenerate action is offered on assistant messages; export downloads the thread", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-CONV-01 / CHAT-CONV-03" });
+    const topic = await createTopic(request, "Conv Export " + Date.now());
+    const sk = `topic:${topic.id.slice(0, 8)}`;
+    try {
+      const base = Date.now();
+      const u0 = await seedMessage(request, {
+        sessionKey: sk, role: "user", branchIndex: 0,
+        content: "export me please",
+        timestamp: new Date(base - 5000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk, role: "assistant", parentId: u0.id, branchIndex: 0,
+        content: "exported answer body",
+        timestamp: new Date(base - 4000).toISOString(),
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(topic.name));
+
+      const assistantMsg = page.locator(".message-content").filter({ hasText: "exported answer body" });
+      await expect(assistantMsg).toBeVisible({ timeout: 15_000 });
+
+      // CHAT-CONV-01 (UI wiring): the regenerate action shows on hover of an
+      // assistant message. The streamed happy-path needs a live provider and
+      // is covered by the gateway-gated env, not here.
+      await assistantMsg.hover();
+      await expect(page.getByTestId("msg-action-regenerate").last()).toBeVisible({ timeout: 5_000 });
+
+      // CHAT-CONV-03: composer ⋯ menu → Export conversation → a .md download
+      // whose content carries the whole active thread.
+      await page.getByRole("button", { name: "Tools & commands" }).click();
+      const exportBtn = page.getByTestId("chat-export-conversation");
+      await expect(exportBtn).toBeVisible({ timeout: 5_000 });
+      const downloadP = page.waitForEvent("download", { timeout: 10_000 });
+      await exportBtn.click();
+      const download = await downloadP;
+      expect(download.suggestedFilename()).toMatch(/\.md$/);
+      const stream = await download.createReadStream();
+      const chunks: Buffer[] = [];
+      for await (const c of stream) chunks.push(c as Buffer);
+      const text = Buffer.concat(chunks).toString("utf-8");
+      expect(text).toContain("export me please");
+      expect(text).toContain("exported answer body");
+    } finally {
+      await deleteTopic(request, topic.id);
+    }
+  });
+});

@@ -64,6 +64,8 @@ interface StandaloneChatGroupProps {
   isSessionStreaming: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
+  deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
@@ -137,7 +139,7 @@ export function StandaloneChatGroup({
   topicIds, focusedPanelId,
   onFocusPanel, onClosePanel, onClosePanelImmediate, onDragStart,
   getSessionMessages, isSessionLoading, isSessionStreaming,
-  sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+  sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
   onNewChat, stopSession,
   pendingProjectPane, onPendingProjectPaneConsumed,
@@ -685,6 +687,8 @@ export function StandaloneChatGroup({
           stopSession={stopSession}
           sendMessage={sendMessage}
           editMessage={editMessage}
+          regenerateMessage={regenerateMessage}
+          deleteMessage={deleteMessage}
           switchBranch={switchBranch}
           loadHistory={loadHistory}
           chatError={chatError}
@@ -760,6 +764,8 @@ export function StandaloneChatGroup({
         stopSession={stopSession}
         sendMessage={wrappedSendMessage}
         editMessage={editMessage}
+        regenerateMessage={regenerateMessage}
+        deleteMessage={deleteMessage}
         switchBranch={switchBranch}
         loadHistory={loadHistory}
         chatError={chatError}
