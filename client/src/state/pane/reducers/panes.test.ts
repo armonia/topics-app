@@ -998,3 +998,46 @@ describe("HYDRATE_FROM_SNAPSHOT cross-client UNION (multi-client clobber)", () =
     expect(state.groups["group:proj"].paneIds).toContain("project:P");
   });
 });
+
+describe('CLOSE_PANE — entity-less refs (ghost tabs)', () => {
+  // -------------------------------------------------------------------------
+  // CLOSE_PANE on an ENTITY-LESS group ref — live incident 2026-07-11: a
+  // `__board__` id stranded in group:default.paneIds with no state.panes
+  // record rendered a ghost tab whose X was a hard no-op (the case bailed on
+  // `!pane`). Closing must degrade to purge semantics + a durable tombstone
+  // so a stale peer's union-hydrate can't resurrect the ref.
+  // -------------------------------------------------------------------------
+
+  test("CLOSE_PANE on an entity-less ref strips the ref and records a tombstone", () => {
+    const state = blankState();
+    state.groups["group:default"] = { id: "group:default", paneIds: ["__board__"], splitRatio: 0.5, splitAxis: "horizontal" };
+    state.groupOrder = ["group:default"];
+
+    paneReducer(state, {
+      type: "CLOSE_PANE",
+      payload: { id: "__board__", groupId: "group:default", groupIndex: 0 },
+    });
+
+    expect(state.groups["group:default"].paneIds).toEqual([]);
+    expect(typeof state.tombstones["__board__"]).toBe("number");
+    expect(state.closedStack.length).toBe(0); // nothing restorable
+  });
+
+  test("CLOSE_PANE on an entity-less ref in a NON-default group drops the emptied ghost group", () => {
+    const state = blankState();
+    state.groups["g9"] = { id: "g9", paneIds: ["__ghost__"], splitRatio: 0.5, splitAxis: "horizontal" };
+    state.groupOrder = ["g9"];
+    state.focusedPaneId = "__ghost__";
+
+    paneReducer(state, {
+      type: "CLOSE_PANE",
+      payload: { id: "__ghost__", groupId: "g9", groupIndex: 0 },
+    });
+
+    expect(state.groups["g9"]).toBeUndefined();
+    expect(state.groupOrder).toEqual([]);
+    expect(state.focusedPaneId).toBeNull();
+    expect(typeof state.tombstones["__ghost__"]).toBe("number");
+  });
+});
+

@@ -142,7 +142,29 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       const { id, groupId, groupIndex } = action.payload;
       const pane = state.panes[id];
       const group = state.groups[groupId];
-      if (!pane || !group) break;
+      if (!pane) {
+        // Entity-less group ref (corruption — observed live: `__board__`
+        // listed in group:default with no pane record, and the X did NOTHING
+        // because this case used to bail). The user's intent is unambiguous:
+        // strip the ref from every group (PURGE semantics — no closedStack
+        // record, there is no pane shape to restore) and write the durable
+        // tombstone so a stale peer's union-hydrate can't resurrect the ref.
+        const referenced = Object.values(state.groups).some((g) => g.paneIds.includes(id));
+        if (!referenced) break;
+        for (const [gid, g] of Object.entries(state.groups)) {
+          const idx = g.paneIds.indexOf(id);
+          if (idx >= 0) g.paneIds.splice(idx, 1);
+          if (g.paneIds.length === 0 && gid !== 'group:default') {
+            delete state.groups[gid];
+            const orderIdx = state.groupOrder.indexOf(gid);
+            if (orderIdx >= 0) state.groupOrder.splice(orderIdx, 1);
+          }
+        }
+        if (state.focusedPaneId === id) state.focusedPaneId = null;
+        recordTombstone(state, id, Date.now());
+        break;
+      }
+      if (!group) break;
       // `pane.scrollOffset` is device-local and MUST NOT be copied onto the
       // ClosedPaneRecord — otherwise it leaks cross-device: CLOSE_PANE fires
       // on device A, the record is synced (outbound path via

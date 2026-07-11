@@ -47,9 +47,19 @@ import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
  *  as the view re-attaches under the cursor on a non-key window, is not counted).
  *  Injected by both the READ (800ms) and FAST (120ms) polls; shared verbatim so
  *  whichever runs first installs the identical hook. */
+// v2 (__tFocusHook2): the v1 gate only counted clicks with document.hasFocus()
+// ALREADY true — but the FIRST click into a non-key WKWebView is exactly what
+// makes it key, so hasFocus() was still false at pointerdown and the click
+// never counted: the user had to click TWICE to focus the pane's tab. v2 also
+// counts a click that ACQUIRES focus (re-check on a 0-tick after pointerdown).
+// Synthetic agent events stay excluded via isTrusted; pages that still carry
+// v1 just double-count hasFocus-true clicks, which is harmless — the consumer
+// is a change detector, not an accumulator.
 const INSTALL_FOCUS_HOOK =
-  "if(!window.__tFocusHook){window.__tFocusHook=1;window.__topicsFocusBump=0;" +
-  "addEventListener('pointerdown',function(e){if(e.isTrusted&&document.hasFocus())window.__topicsFocusBump++},true);}";
+  "if(!window.__tFocusHook2){window.__tFocusHook2=1;window.__topicsFocusBump=window.__topicsFocusBump||0;" +
+  "addEventListener('pointerdown',function(e){if(!e.isTrusted)return;" +
+  "if(document.hasFocus()){window.__topicsFocusBump++;return;}" +
+  "setTimeout(function(){if(document.hasFocus())window.__topicsFocusBump++},0);},true);}";
 
 /** Best-effort URL/search normalisation for the address bar. Full URLs pass
  *  through; a bare host gets https://; anything else becomes a web search. */

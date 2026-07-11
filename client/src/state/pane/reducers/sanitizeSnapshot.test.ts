@@ -374,3 +374,26 @@ describe("sanitizeSnapshot (Spazi)", () => {
     expect((out as Record<string, unknown>).activeSpaceId).toBeUndefined();
   });
 });
+
+describe("entity-ref invariant — group refs without a pane record", () => {
+  test("prunes group paneIds that have no matching panes entry", () => {
+    const clean = sanitizeSnapshot({
+      panes: { p1: { id: "p1", type: "chat", topicId: "p1" } },
+      groups: {
+        "group:default": { id: "group:default", paneIds: ["p1", "__board__"], splitRatio: 0.5, splitAxis: "horizontal" },
+      },
+      server_seq: 7,
+    })!;
+    expect(clean.groups!["group:default"].paneIds).toEqual(["p1"]);
+  });
+
+  test("a groups-only partial (no panes map) is NOT emptied", () => {
+    const clean = sanitizeSnapshot({
+      groups: {
+        "group:default": { id: "group:default", paneIds: ["p1"], splitRatio: 0.5, splitAxis: "horizontal" },
+      },
+      server_seq: 7,
+    })!;
+    expect(clean.groups!["group:default"].paneIds).toEqual(["p1"]);
+  });
+});
