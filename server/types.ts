@@ -353,11 +353,6 @@ export interface AppContext {
    * deletes any topic missing from it (lost-update race).
    */
   saveSingleTopic: (topic: Topic) => void;
-  /**
-   * Delete a single topic by id with its child relations cascaded. Same
-   * race-safety reasoning as `saveSingleTopic`.
-   */
-  deleteTopicById: (id: string) => void;
   /** Constant-time topic lookup by id. Returns null if missing. */
   getTopicById: (id: string) => Topic | null;
   /** Constant-time topic lookup by sessionKey (UNIQUE column). */

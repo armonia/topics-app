@@ -7,6 +7,12 @@ import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { MessageBubble } from './MessageBubble';
 import { clampScrollOffset } from '../../state/pane/adapters';
+import {
+  SCROLL_TO_MESSAGE_EVENT,
+  peekScrollToMessage,
+  consumeScrollToMessage,
+  markScrollToMessageFired,
+} from '../../state/scrollToMessage';
 
 interface MessageListProps {
   isMobile: boolean;
@@ -140,12 +146,22 @@ export function MessageList({
     setTimeout(() => { scrollGuardRef.current = false; }, 600);
   }, []);
 
+  // True once THIS instance has watched a loadHistory cycle complete FOR THE
+  // CURRENT TOPIC — the only moment the thread is known authoritative. The
+  // palette-jump effect gates its "loaded thread lacks the id → drop the
+  // target" branch on it: on a slow machine the pane mounts with a transient
+  // non-empty STALE message set and loading=false, and consuming there threw
+  // the target away before the real history ever arrived (CI-only CMD-16
+  // failure). Reset on topic switch below.
+  const sawLoadCompleteRef = useRef(false);
+
   // Reset scroll state on topic switch
   useEffect(() => {
     if (prevTopicIdRef.current !== topic.id) {
       prevTopicIdRef.current = topic.id;
       needsScrollRef.current = true;
       isScrolledUpRef.current = false;
+      sawLoadCompleteRef.current = false;
       setIsScrolledUp(false);
       setNewMsgCount(0);
       setShowNewBanner(false);
@@ -154,9 +170,14 @@ export function MessageList({
     }
   }, [topic.id, activateScrollGuard]);
 
-  // Scroll to bottom after messages load for a new topic
+  // Scroll to bottom after messages load for a new topic.
+  // Skipped while a palette jump target is pending (peekScrollToMessage): the
+  // jump effect below positions the list instead — this effect's rAF would
+  // otherwise run AFTER the jump's scrollToIndex and drag it back to bottom,
+  // unmounting the virtualized target row (and its highlight) entirely.
   useEffect(() => {
     if (needsScrollRef.current && filteredMessages.length > 0 && !currentLoading) {
+      if (peekScrollToMessage(topic.id)) return;
       needsScrollRef.current = false;
       activateScrollGuard();
       virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
@@ -165,7 +186,7 @@ export function MessageList({
         if (el) el.scrollTop = el.scrollHeight;
       });
     }
-  }, [filteredMessages.length, currentLoading, activateScrollGuard]);
+  }, [filteredMessages.length, currentLoading, activateScrollGuard, topic.id]);
 
   // Scroll to bottom after loadHistory completes (loading: true → false).
   // On page refresh or tab switch, Virtuoso mounts at the bottom via
@@ -174,7 +195,10 @@ export function MessageList({
   useEffect(() => {
     const wasLoading = prevLoadingRef.current;
     prevLoadingRef.current = currentLoading;
+    if (wasLoading && !currentLoading) sawLoadCompleteRef.current = true;
     if (wasLoading && !currentLoading && filteredMessages.length > 0) {
+      // Pending palette jump wins over the bottom anchor — see the effect above.
+      if (peekScrollToMessage(topic.id)) return;
       activateScrollGuard();
       virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
       requestAnimationFrame(() => {
@@ -182,7 +206,90 @@ export function MessageList({
         if (el) el.scrollTop = el.scrollHeight;
       });
     }
-  }, [currentLoading, filteredMessages.length, activateScrollGuard]);
+  }, [currentLoading, filteredMessages.length, activateScrollGuard, topic.id]);
+
+  // ── Palette jump: scroll to a searched message ────────────────────────────
+  // A ⌘K message hit registers a pending target (scrollToMessage.ts) before
+  // opening the topic. Consume it here once the thread actually contains the
+  // id: scroll the row to center and flash a highlight. Declared AFTER the
+  // bottom-anchor effects above so, in the same commit, this scrollToIndex
+  // runs last and wins over the default "open at bottom".
+  const [jumpHighlightId, setJumpHighlightId] = useState<string | null>(null);
+  const jumpHighlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tryScrollToTarget = useCallback(() => {
+    // NEVER jump (or consume) while this pane is hidden: keep-alive keeps
+    // background tabs mounted with display:none, where Virtuoso's viewport is
+    // 0-high and renders NO rows — a jump there scrolls into the void and the
+    // target is lost before the pane ever becomes visible (the palette event
+    // fires exactly in that state when the hit's topic isn't the active tab).
+    // The scroller ResizeObserver below re-fires this when the pane shows.
+    const scroller = scrollerElRef.current;
+    if (!scroller || scroller.clientHeight === 0) return;
+    const targetId = peekScrollToMessage(topic.id);
+    if (!targetId) return;
+    const index = filteredMessages.findIndex((m) => m.id === targetId);
+    if (index < 0) {
+      // Drop the target ONLY when an AUTHORITATIVE thread lacks the id
+      // (inactive branch, deleted message) — i.e. this instance has watched a
+      // loadHistory cycle complete AND the result is non-empty. Both weaker
+      // states bit us live: a mounted-but-never-loaded keep-alive pane
+      // (0 messages, loading=false — the palette event fires against exactly
+      // that), and a slow-machine mount window holding a non-empty STALE set
+      // before loadHistory even started (CI-only). The TTL covers leaks.
+      if (sawLoadCompleteRef.current && !currentLoading && filteredMessages.length > 0) {
+        consumeScrollToMessage(topic.id);
+      }
+      return;
+    }
+    // markFired, NOT consume: opening from the palette also fires a message
+    // reload whose completion runs the bottom-anchor effects AFTER this jump —
+    // with the target consumed their peek-guard is gone and the list snaps
+    // back to the bottom (observed: scrollTop 0 → bottom within 100ms). The
+    // fired entry keeps those guards active for a short grace and lets the
+    // post-reload pass re-run this jump; the store purges it afterwards.
+    markScrollToMessageFired(topic.id);
+    activateScrollGuard();
+    // rAF so we land AFTER any bottom-anchor rAF a prior effect queued in this
+    // same frame (belt to the peek-guards' suspenders — event-path timing).
+    requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({ index, align: 'center' });
+    });
+    setJumpHighlightId(targetId);
+    if (jumpHighlightTimer.current) clearTimeout(jumpHighlightTimer.current);
+    jumpHighlightTimer.current = setTimeout(() => setJumpHighlightId(null), 2400);
+  }, [topic.id, filteredMessages, currentLoading, activateScrollGuard]);
+  useEffect(() => {
+    if (!currentLoading && filteredMessages.length > 0) tryScrollToTarget();
+  }, [currentLoading, filteredMessages.length, tryScrollToTarget]);
+  // Topic already open when the palette hit is clicked → no load transition
+  // fires, so the request event is the trigger.
+  useEffect(() => {
+    const onJump = (e: Event) => {
+      if ((e as CustomEvent<{ topicId?: string }>).detail?.topicId === topic.id) tryScrollToTarget();
+    };
+    window.addEventListener(SCROLL_TO_MESSAGE_EVENT, onJump);
+    return () => window.removeEventListener(SCROLL_TO_MESSAGE_EVENT, onJump);
+  }, [topic.id, tryScrollToTarget]);
+  useEffect(() => () => {
+    if (jumpHighlightTimer.current) clearTimeout(jumpHighlightTimer.current);
+  }, []);
+  // Safety-net poll. The discrete triggers above (load transition, request
+  // event) each have real race windows around a palette-driven open: the
+  // event can fire against a hidden/unloaded pane, the load transition can
+  // land while the scroller has no layout yet, and slow machines widen every
+  // gap (CI-only failures). The poll closes them all: while a target is
+  // PENDING for this topic it re-tries every 150ms until the jump fires or
+  // the store purges the target (TTL / post-fire grace). Idle cost is one
+  // Map lookup per tick — the peek short-circuits before any DOM read.
+  const tryScrollToTargetRef = useRef(tryScrollToTarget);
+  tryScrollToTargetRef.current = tryScrollToTarget;
+  useEffect(() => {
+    const iv = window.setInterval(() => {
+      if (!peekScrollToMessage(topic.id)) return;
+      tryScrollToTargetRef.current();
+    }, 150);
+    return () => window.clearInterval(iv);
+  }, [topic.id]);
 
   // Force scroll anchor when streaming starts (user just sent a message).
   // When new items are added (user msg + assistant placeholder), Virtuoso may
@@ -206,6 +313,10 @@ export function MessageList({
   // Uses isScrolledUpRef (not state) to avoid re-triggering on scroll changes.
   useEffect(() => {
     if (_currentStreaming && !isScrolledUpRef.current) {
+      // Pending palette jump wins over the streaming pin as well — the user
+      // explicitly asked to look at an older message; the pin resumes once
+      // the jump's short grace expires (scrollToMessage.ts).
+      if (peekScrollToMessage(topic.id)) return;
       requestAnimationFrame(() => {
         const el = scrollerElRef.current;
         if (el) {
@@ -213,7 +324,7 @@ export function MessageList({
         }
       });
     }
-  }, [filteredMessages, _currentStreaming]);
+  }, [filteredMessages, _currentStreaming, topic.id]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
@@ -227,13 +338,19 @@ export function MessageList({
     const grew = filteredMessages.length > prevAppendLenRef.current;
     prevAppendLenRef.current = filteredMessages.length;
     if (grew && !_currentStreaming && !isScrolledUpRef.current) {
+      // A pending palette jump vetoes this pin too: the jump's own load
+      // replaces 0 → N messages, which counts as "grew" here — and this
+      // effect is declared AFTER the jump effect, so its rAF ran last and
+      // dragged the fresh jump back to the bottom (the 4th and final
+      // bottom-anchor mechanism in the palette-jump bug chain).
+      if (peekScrollToMessage(topic.id)) return;
       activateScrollGuard();
       requestAnimationFrame(() => {
         const el = scrollerElRef.current;
         if (el) el.scrollTop = el.scrollHeight;
       });
     }
-  }, [filteredMessages, _currentStreaming, activateScrollGuard]);
+  }, [filteredMessages, _currentStreaming, activateScrollGuard, topic.id]);
 
   // Detect new messages while scrolled up
   useEffect(() => {
@@ -425,7 +542,18 @@ export function MessageList({
           }}
           data={filteredMessages}
           initialTopMostItemIndex={filteredMessages.length - 1}
-          followOutput={_currentStreaming ? false : 'smooth'}
+          // Callback form so a pending palette jump can veto the auto-follow:
+          // the load that the jump rides in replaces 0 → N messages, and with
+          // zero items Virtuoso considers itself trivially "at bottom" — the
+          // plain 'smooth' prop then animated to the bottom ~150ms AFTER the
+          // jump's scrollToIndex, silently undoing it (the final live bug in
+          // the palette-jump chain). Otherwise mirrors the old behavior:
+          // follow when at bottom and not streaming.
+          followOutput={(isAtBottom: boolean) => {
+            if (peekScrollToMessage(topic.id)) return false;
+            if (_currentStreaming) return false;
+            return isAtBottom ? 'smooth' : false;
+          }}
           // 150 (not 50) so the redesign's initial bottom-anchor — which
           // settles ~1 short message (≈60–150px) above the true bottom as
           // Virtuoso lazily remeasures item heights — still counts as
@@ -462,7 +590,13 @@ export function MessageList({
             // Only show plan approve/reject on the last assistant message
             const isLastAssistant = msg.role === 'assistant' && idx === filteredMessages.length - 1;
             return (
-              <div className={isMobile ? 'px-2' : 'px-4'}>
+              <div
+                className={
+                  (isMobile ? 'px-2' : 'px-4') +
+                  (msg.id === jumpHighlightId ? ' chat-msg-jump-highlight' : '')
+                }
+                data-jump-highlight={msg.id === jumpHighlightId ? 'true' : undefined}
+              >
                 <MessageBubble
                   msg={msg}
                   prev={prev}

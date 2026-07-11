@@ -12,6 +12,7 @@ import type { Topic, SearchResult } from '../../types';
 import type { ClosedTabRecord } from '../../state/pane/adapters';
 import { TopicIcon } from '@/lib/topicIcons';
 import { searchApi } from '../../lib/api';
+import { requestScrollToMessage } from '../../state/scrollToMessage';
 import { PANE_CONFIG } from '../../state/pane/adapters';
 import { MODAL_BACKDROP } from '../../lib/modalStyles';
 
@@ -138,7 +139,14 @@ export function CommandPalette({
                 description: `${r.topicName}${dateStr ? ' · ' + dateStr : ''}`,
                 icon: <TopicIcon name={r.topicIcon} size={14} />,
                 category: 'message' as const,
-                action: () => { onOpenTopic(r.topicId!); onClose(); },
+                action: () => {
+                  // Register the jump target BEFORE opening — a fresh mount's
+                  // load-complete pass must already find it (legacy JSONL hits
+                  // carry no id → plain open, as before).
+                  if (r.messageId) requestScrollToMessage(r.topicId!, r.messageId);
+                  onOpenTopic(r.topicId!);
+                  onClose();
+                },
                 _rawContent: r.content.slice(0, 200),
               };
             })
