@@ -35,6 +35,20 @@ const VERSION_ANCHOR_SELECTOR = '[data-version-anchor]';
 export function UpdaterToast() {
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });
   const [dismissed, setDismissed] = useState<boolean>(false);
+  // While the VersionPopover is open it OWNS the update surface: it anchors to
+  // the same version chip and carries the full check/download/install flow, so
+  // this toast rendering too stacked two update cards on top of each other
+  // ("due modali una nell'altra", reported live 2026-07-11) — every status
+  // change re-un-dismisses the toast, including the ones the popover's own
+  // buttons cause. Suppress the toast while the popover reports itself open.
+  const [versionPopoverOpen, setVersionPopoverOpen] = useState(false);
+  useEffect(() => {
+    const onPopover = (e: Event) => {
+      setVersionPopoverOpen(!!(e as CustomEvent<{ open?: boolean }>).detail?.open);
+    };
+    window.addEventListener('topics:version-popover', onPopover);
+    return () => window.removeEventListener('topics:version-popover', onPopover);
+  }, []);
 
   useEffect(() => {
     const api = getUpdaterApi();
@@ -78,7 +92,7 @@ export function UpdaterToast() {
     return () => window.removeEventListener('resize', onResize);
   }, [status.state]);
 
-  if (status.state === 'idle' || dismissed) return null;
+  if (status.state === 'idle' || dismissed || versionPopoverOpen) return null;
 
   const isReady = status.state === 'ready';
   const isError = status.state === 'error';
