@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 /**
  * System-prompt fragment appended to every Topics-launched Claude session
  * (interactive PTY terminals AND the headless chat provider).
@@ -52,4 +56,59 @@ export function resolveClaudeEffort(): string | null {
   const candidate =
     override || (process.env.CLAUDE_EFFORT ?? '').trim().toLowerCase() || 'xhigh';
   return VALID_CLAUDE_EFFORTS.has(candidate) ? candidate : null;
+}
+
+/**
+ * Reasoning-effort tier for Topics-launched Codex sessions — the Codex
+ * analogue of `resolveClaudeEffort()` above. Codex reads
+ * `model_reasoning_effort` from `~/.codex/config.toml`; we resolve a tier
+ * explicitly and pass it as a `-c model_reasoning_effort=<tier>` override so
+ * the value is deterministic under launchd AND surfaced in the provider
+ * snapshot (picker badge).
+ *
+ * Valid tiers, probed against codex-cli 0.144.0-alpha.4: the API enum is
+ * `none/minimal/low/medium/high/xhigh`; `ultra` is additionally accepted
+ * end-to-end on current ChatGPT-bound models (Codex itself writes it into the
+ * user config), so it is recognised here too.
+ *
+ * Resolution order: `TOPICS_CODEX_REASONING_EFFORT` (Topics override;
+ * "off"/"default" disables — NOT "none", which is a real Codex tier) →
+ * `CODEX_REASONING_EFFORT` (mirror the shell when present) → the user's own
+ * `~/.codex/config.toml` value (an explicit user choice like `ultra` must
+ * never be downgraded by our default) → `"xhigh"` (highest API-documented
+ * tier). Returns null when disabled or the value is not a recognised tier, in
+ * which case no override is passed and no badge is shown.
+ */
+const VALID_CODEX_REASONING_EFFORTS = new Set([
+  'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra',
+]);
+
+export function resolveCodexReasoningEffort(opts?: { configPath?: string }): string | null {
+  const override = (process.env.TOPICS_CODEX_REASONING_EFFORT ?? '').trim().toLowerCase();
+  if (override === 'off' || override === 'default') return null;
+  const candidate =
+    override ||
+    (process.env.CODEX_REASONING_EFFORT ?? '').trim().toLowerCase() ||
+    readCodexConfigReasoningEffort(opts?.configPath) ||
+    'xhigh';
+  return VALID_CODEX_REASONING_EFFORTS.has(candidate) ? candidate : null;
+}
+
+function readCodexConfigReasoningEffort(configPath?: string): string | null {
+  try {
+    const path = configPath ?? join(homedir(), '.codex', 'config.toml');
+    const text = readFileSync(path, 'utf8');
+    for (const raw of text.split('\n')) {
+      const line = raw.trim();
+      // Root-level key only: stop at the first table header — a
+      // `model_reasoning_effort` inside e.g. a profile table is not the
+      // value the bare CLI invocation would use.
+      if (line.startsWith('[')) break;
+      const m = line.match(/^model_reasoning_effort\s*=\s*"?([A-Za-z]+)"?/);
+      if (m) return m[1].toLowerCase();
+    }
+  } catch {
+    // No config / unreadable → fall through to the default tier.
+  }
+  return null;
 }

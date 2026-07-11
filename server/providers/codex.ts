@@ -30,6 +30,7 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { resolveCodexBin } from "../lib/codex-bin";
+import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { topicsMcpBridgeSpec } from "./claude-code";
 
 // ============ Config ============
@@ -323,6 +324,17 @@ export class CodexProvider implements AIProvider {
       args.push("-c", `mcp_servers.topics.args=${JSON.stringify(bridge.args)}`);
     } catch (err) {
       console.warn(`[codex] MCP bridge config failed for ${sessionKey}:`, err);
+    }
+
+    // Force the reasoning-effort tier explicitly — the codex mirror of the
+    // `--effort` flag claude-code sessions get. Deterministic under launchd
+    // and surfaced as the picker badge (snapshot-manager calls the same
+    // resolver). The resolver honours the user's own config.toml value, so
+    // this never downgrades an explicit user choice; null (disabled or
+    // unrecognised tier) means no override at all.
+    const reasoningEffort = resolveCodexReasoningEffort();
+    if (reasoningEffort) {
+      args.push("-c", `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`);
     }
 
     const child = spawn(bin, args, {

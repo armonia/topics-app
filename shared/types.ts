@@ -123,6 +123,13 @@ export interface ProviderSnapshotEntry {
   models: string[];
   requirements: ProviderRequirement[];
   lastError?: string;
+  /**
+   * Effort/reasoning tier Topics forces on this provider's sessions
+   * (claude-code `--effort`, codex `-c model_reasoning_effort`). Read-only
+   * server policy surfaced for the picker badge; absent when the provider
+   * has no such concept or the override is disabled.
+   */
+  effortTier?: string;
   /** ISO 8601 timestamp of when this entry was last refreshed. */
   fetchedAt: string;
 }

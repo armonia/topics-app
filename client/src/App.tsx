@@ -694,6 +694,8 @@ function App() {
     setShowNewTopic,
     setShowShortcuts,
     setShowFileSearch,
+    isSessionStreaming,
+    stopSession,
   });
 
   return (
