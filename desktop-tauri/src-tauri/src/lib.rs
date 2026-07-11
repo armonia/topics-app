@@ -3390,6 +3390,7 @@ fn browser_release_focus_inner(app: tauri::AppHandle) -> Result<(), String> {
 /// while driving 6 real sidebar collapse/expands (via the diagnostic global App.tsx
 /// exposes), then posts a frame-timing summary to `fps_report`. A composited
 /// translateX (overlay mode) should yield ~60fps with zero dropped frames.
+#[cfg(debug_assertions)]
 const FPS_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3420,6 +3421,7 @@ const FPS_SELFTEST_JS: &str = r#"(async function(){
 /// throughout. A divider drag moves browser panes (instant via NSNull) and resizes the
 /// flex cells; terminals coalesce their fits to the drag end — so this should hold ~60fps
 /// with zero dropped frames. Posts to `fps_report`.
+#[cfg(debug_assertions)]
 const SPLIT_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3482,6 +3484,7 @@ const SPLIT_SELFTEST_JS: &str = r#"(async function(){
 /// path the "browser won't open" report was about actually works (the occlusion
 /// freeze is covered separately by browserOcclusion unit tests). Headless-safe:
 /// IPC invokes don't need the window visible, and about:blank needs no network/cert.
+#[cfg(debug_assertions)]
 const BROWSER_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3518,6 +3521,7 @@ const BROWSER_SELFTEST_JS: &str = r#"(async function(){
 /// per-frame budget consumer: if it's well under 8.3ms (120Hz) the split can't drop
 /// frames. Also times the sidebar toggle's synchronous reflow (its animation is
 /// compositor-only). Posts to `fps_report`.
+#[cfg(debug_assertions)]
 const COST_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3564,6 +3568,7 @@ const COST_SELFTEST_JS: &str = r#"(async function(){
 /// the content; (2) WebKit must render a VISIBLE scrollbar colour at rest (the global
 /// `scrollbar-color: transparent transparent` hid them until hover on the Tauri build).
 /// Posts a findings object to the same `fps_report` sink.
+#[cfg(debug_assertions)]
 const BUGFIX_VERIFY_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3607,6 +3612,7 @@ const BUGFIX_VERIFY_JS: &str = r#"(async function(){
 /// a screenshot burst can confirm a native browser pane's left edge stays glued to the
 /// sidebar's right edge throughout the slide (the per-frame rAF reposition in
 /// NativeBrowserPlaceholder) instead of trailing it. Needs a browser pane in the layout.
+#[cfg(debug_assertions)]
 const SLIDE_DEMO_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function report(o){ try{window.__TAURI_INTERNALS__.invoke('fps_report',{result:JSON.stringify(o)})}catch(e){} }
@@ -3797,6 +3803,7 @@ fn focus_grab_window_inner(app: tauri::AppHandle) -> Result<String, String> {
 /// `browser_release_focus` → read (expect responder == main view). Posts a verdict to
 /// `focus_report`. Proves the tab strip's focus-reclaim works at the AppKit level with
 /// zero OS input synthesis.
+#[cfg(debug_assertions)]
 const FOCUS_SELFTEST_JS: &str = r#"(async function(){
   function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
   function inv(c,a){return window.__TAURI_INTERNALS__.invoke(c,a||{})}
@@ -4731,6 +4738,19 @@ fn serve_tauri_asset(
     // embedded protocol emits.
     const WINDOW_ORIGIN: &str = "tauri://localhost";
 
+    // Panic-free fallback. This handler runs on WKURLSchemeHandler's SYNC callback —
+    // the same non-unwind FFI boundary `no_abort` guards (a panic here abort()s the
+    // WHOLE app, and this is the highest-traffic path in the file: every page/JS/CSS/
+    // image load hits it). The response-builder `.unwrap()`s below must degrade to a
+    // 500, never unwind. Built via `Response::new` + `status_mut` so there is no
+    // builder `Result` to unwrap — this cannot itself panic.
+    fn asset_fallback() -> tauri::http::Response<std::borrow::Cow<'static, [u8]>> {
+        let mut resp =
+            tauri::http::Response::new(std::borrow::Cow::Borrowed(&b"asset error"[..]));
+        *resp.status_mut() = tauri::http::StatusCode::INTERNAL_SERVER_ERROR;
+        resp
+    }
+
     let uri = request.uri().to_string();
     let path = asset_request_path(&uri);
 
@@ -4742,7 +4762,7 @@ fn serve_tauri_asset(
                 .header(CONTENT_TYPE, mime)
                 .header("Access-Control-Allow-Origin", WINDOW_ORIGIN)
                 .body(std::borrow::Cow::Owned(bytes))
-                .unwrap();
+                .unwrap_or_else(|_| asset_fallback());
         }
     }
 
@@ -4757,14 +4777,16 @@ fn serve_tauri_asset(
             if let Some(csp) = &asset.csp_header {
                 builder = builder.header("Content-Security-Policy", csp);
             }
-            builder.body(std::borrow::Cow::Owned(asset.bytes)).unwrap()
+            builder
+                .body(std::borrow::Cow::Owned(asset.bytes))
+                .unwrap_or_else(|_| asset_fallback())
         }
         None => tauri::http::Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(CONTENT_TYPE, "text/plain")
             .header("Access-Control-Allow-Origin", WINDOW_ORIGIN)
             .body(std::borrow::Cow::Borrowed(&b"asset not found"[..]))
-            .unwrap(),
+            .unwrap_or_else(|_| asset_fallback()),
     }
 }
 
@@ -5132,6 +5154,7 @@ pub fn run() {
             // OFF unless TOPICS_FPS_SELFTEST is set. The `fps_report` sink command is
             // debug-only (see its #[cfg(debug_assertions)]), so this probe only works
             // in debug builds even when the env var is set in release.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_FPS_SELFTEST").is_ok() {
                 eprintln!("[fps-selftest] armed");
                 let handle = app.handle().clone();
@@ -5182,6 +5205,7 @@ pub fn run() {
 
             // Env-gated polish-bug verifier: drives the dropdown/sidebar and dumps
             // DOM findings to /tmp/topics-fps-selftest.json. OFF unless set.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_BUGFIX_VERIFY").is_ok() {
                 eprintln!("[bugfix-verify] armed");
                 let handle = app.handle().clone();
@@ -5207,6 +5231,7 @@ pub fn run() {
 
             // Env-gated SLOW-MOTION sidebar slide: stretch the slide so a capture burst
             // can confirm the native browser pane tracks the sidebar edge. OFF unless set.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_SLIDE_DEMO").is_ok() {
                 eprintln!("[slide-demo] armed");
                 let handle = app.handle().clone();
@@ -5224,6 +5249,7 @@ pub fn run() {
             }
 
             // Env-gated SPLIT-resize FPS self-test: drive a divider drag and sample rAF.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_SPLIT_SELFTEST").is_ok() {
                 eprintln!("[split-selftest] armed");
                 let handle = app.handle().clone();
@@ -5254,6 +5280,7 @@ pub fn run() {
 
             // Env-gated COST self-test: measure per-frame style+layout cost of a split-drag
             // (+ sidebar toggle reflow) — empirical, works headless (no rAF/visibility needed).
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_COST_SELFTEST").is_ok() {
                 eprintln!("[cost-selftest] armed");
                 let handle = app.handle().clone();
@@ -5277,6 +5304,7 @@ pub fn run() {
 
             // Env-gated BROWSER self-test: open a native pane, eval into it, close it —
             // confirms the browser open→eval path end-to-end (no window visibility needed).
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_BROWSER_SELFTEST").is_ok() {
                 eprintln!("[browser-selftest] armed");
                 let handle = app.handle().clone();
@@ -5332,6 +5360,7 @@ pub fn run() {
             // (grab to a browser pane → release → assert it returned to the main webview),
             // writing the verdict to /tmp/topics-focus-selftest.json. OFF unless
             // TOPICS_FOCUS_SELFTEST is set. Needs a browser pane in the restored layout.
+            #[cfg(debug_assertions)]
             if std::env::var("TOPICS_FOCUS_SELFTEST").is_ok() {
                 eprintln!("[focus-selftest] armed");
                 let handle = app.handle().clone();
