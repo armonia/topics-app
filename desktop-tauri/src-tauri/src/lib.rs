@@ -2412,6 +2412,35 @@ fn data_store_uuid_for(context_id: &str) -> [u8; 16] {
     out
 }
 
+/// Panic firewall for webview-dispatcher-touching SYNC commands.
+///
+/// tauri-runtime-wry's `WryWebviewDispatcher` methods all do
+/// `window_id.lock().unwrap()`; once ANY thread panics while holding that
+/// lock the mutex is poisoned and every later dispatcher call panics too.
+/// For a sync command the panic unwinds into wry's objc url_scheme_handler /
+/// `on_message` FFI boundary, where unwinding is forbidden → `abort()` kills
+/// the whole app (six identical SIGABRT reports 2026-07-10/11, stack:
+/// browser_open → browser_navigate → WryWebviewDispatcher::navigate →
+/// unwrap_failed; trigger = pane churn after a server kickstart). Catching
+/// HERE keeps the panic below that boundary: the command returns Err, the
+/// client surfaces/retries, and the pane self-heal path can recreate the
+/// webview — one broken pane instead of every tab dying at once. The global
+/// panic hook installed in `run()` still logs the payload first.
+fn no_abort<T>(label: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(r) => r,
+        Err(payload) => {
+            let msg = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "non-string panic payload".to_string());
+            eprintln!("[no-abort] {label}: {msg}");
+            Err(format!("{label} panicked: {msg}"))
+        }
+    }
+}
+
 /// Create (or, if it already exists, reuse) the native webview for a browser
 /// pane and place it at the given window-relative rect.
 ///
@@ -2425,6 +2454,22 @@ fn data_store_uuid_for(context_id: &str) -> [u8; 16] {
 /// (the WKWebViewConfiguration is consumed inside wry) until closed + reopened.
 #[tauri::command]
 fn browser_open(
+    app: tauri::AppHandle,
+    id: String,
+    url: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    isolate: Option<bool>,
+) -> Result<(), String> {
+    no_abort("browser_open", move || {
+        browser_open_inner(app, id, url, x, y, width, height, isolate)
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn browser_open_inner(
     app: tauri::AppHandle,
     id: String,
     url: String,
@@ -2592,6 +2637,10 @@ fn browser_open(
 /// Navigate an existing browser pane to a new URL.
 #[tauri::command]
 fn browser_navigate(app: tauri::AppHandle, id: String, url: String) -> Result<(), String> {
+    no_abort("browser_navigate", move || browser_navigate_inner(app, id, url))
+}
+
+fn browser_navigate_inner(app: tauri::AppHandle, id: String, url: String) -> Result<(), String> {
     use tauri::Manager;
     let wv = app
         .get_webview(&browser_label(&id))
@@ -2614,6 +2663,20 @@ fn browser_set_bounds(
     height: f64,
     // Rounded-card radius of the HOST pane (floating-splits cards) — 0/absent =
     // square unless window-flush. Optional so older bundles keep working.
+    radius: Option<f64>,
+) -> Result<(), String> {
+    no_abort("browser_set_bounds", move || {
+        browser_set_bounds_inner(app, id, x, y, width, height, radius)
+    })
+}
+
+fn browser_set_bounds_inner(
+    app: tauri::AppHandle,
+    id: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
     radius: Option<f64>,
 ) -> Result<(), String> {
     use tauri::Manager;
@@ -2653,6 +2716,10 @@ fn browser_set_bounds(
 /// Destroy a browser pane's native webview.
 #[tauri::command]
 fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    no_abort("browser_close", move || browser_close_inner(app, id))
+}
+
+fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
     use tauri::Manager;
     if let Some(wv) = app.get_webview(&browser_label(&id)) {
         wv.close().map_err(|e| e.to_string())?;
@@ -3193,11 +3260,13 @@ async fn browser_pane_set_cookies(
 /// cross-platform `webview.eval()` (no native bridge needed).
 #[tauri::command]
 fn browser_exec_js(app: tauri::AppHandle, id: String, js: String) -> Result<(), String> {
-    use tauri::Manager;
-    let wv = app
-        .get_webview(&browser_label(&id))
-        .ok_or("no such browser pane")?;
-    wv.eval(&js).map_err(|e| e.to_string())
+    no_abort("browser_exec_js", move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&browser_label(&id))
+            .ok_or("no such browser pane")?;
+        wv.eval(&js).map_err(|e| e.to_string())
+    })
 }
 
 /// Native WKWebView history nav — REAL `goBack`/`goForward`/`reload` (vs the old
@@ -3227,37 +3296,43 @@ fn wk_nav(wv: &tauri::Webview, which: u8) {
 /// Real "Back" — WKWebView document history (not a JS re-nav).
 #[tauri::command]
 fn browser_back(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    use tauri::Manager;
-    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
-    #[cfg(target_os = "macos")]
-    wk_nav(&wv, 0);
-    #[cfg(not(target_os = "macos"))]
-    let _ = wv;
-    Ok(())
+    no_abort("browser_back", move || {
+        use tauri::Manager;
+        let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+        #[cfg(target_os = "macos")]
+        wk_nav(&wv, 0);
+        #[cfg(not(target_os = "macos"))]
+        let _ = wv;
+        Ok(())
+    })
 }
 
 /// Real "Forward" — WKWebView document history.
 #[tauri::command]
 fn browser_forward(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    use tauri::Manager;
-    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
-    #[cfg(target_os = "macos")]
-    wk_nav(&wv, 1);
-    #[cfg(not(target_os = "macos"))]
-    let _ = wv;
-    Ok(())
+    no_abort("browser_forward", move || {
+        use tauri::Manager;
+        let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+        #[cfg(target_os = "macos")]
+        wk_nav(&wv, 1);
+        #[cfg(not(target_os = "macos"))]
+        let _ = wv;
+        Ok(())
+    })
 }
 
 /// Real "Reload" — WKWebView reload (preserves history position, vs re-navigate).
 #[tauri::command]
 fn browser_reload(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    use tauri::Manager;
-    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
-    #[cfg(target_os = "macos")]
-    wk_nav(&wv, 2);
-    #[cfg(not(target_os = "macos"))]
-    let _ = wv;
-    Ok(())
+    no_abort("browser_reload", move || {
+        use tauri::Manager;
+        let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+        #[cfg(target_os = "macos")]
+        wk_nav(&wv, 2);
+        #[cfg(not(target_os = "macos"))]
+        let _ = wv;
+        Ok(())
+    })
 }
 
 /// Toggle the pane's Web Inspector (DevTools). Uses Tauri's own
@@ -3265,14 +3340,16 @@ fn browser_reload(app: tauri::AppHandle, id: String) -> Result<(), String> {
 /// release too) — no private API. Opens Safari's Web Inspector for the pane.
 #[tauri::command]
 fn browser_toggle_devtools(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    use tauri::Manager;
-    let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
-    if wv.is_devtools_open() {
-        wv.close_devtools();
-    } else {
-        wv.open_devtools();
-    }
-    Ok(())
+    no_abort("browser_toggle_devtools", move || {
+        use tauri::Manager;
+        let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
+        if wv.is_devtools_open() {
+            wv.close_devtools();
+        } else {
+            wv.open_devtools();
+        }
+        Ok(())
+    })
 }
 
 /// Return AppKit first-responder to the MAIN webview (the React chrome). A native
@@ -3282,6 +3359,10 @@ fn browser_toggle_devtools(app: tauri::AppHandle, id: String) -> Result<(), Stri
 /// worst case it's a no-op. macOS only.
 #[tauri::command]
 fn browser_release_focus(app: tauri::AppHandle) -> Result<(), String> {
+    no_abort("browser_release_focus", move || browser_release_focus_inner(app))
+}
+
+fn browser_release_focus_inner(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
@@ -3575,6 +3656,10 @@ fn fps_report(result: String) -> Result<(), String> {
 /// accessibility / synthetic-input permission. macOS only.
 #[tauri::command]
 fn focus_read(app: tauri::AppHandle) -> Result<String, String> {
+    no_abort("focus_read", move || focus_read_inner(app))
+}
+
+fn focus_read_inner(app: tauri::AppHandle) -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = app;
@@ -3624,6 +3709,10 @@ fn focus_read(app: tauri::AppHandle) -> Result<String, String> {
 #[cfg(debug_assertions)]
 #[tauri::command]
 fn focus_grab_browser(app: tauri::AppHandle, id: String) -> Result<String, String> {
+    no_abort("focus_grab_browser", move || focus_grab_browser_inner(app, id))
+}
+
+fn focus_grab_browser_inner(app: tauri::AppHandle, id: String) -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app, id);
@@ -3666,6 +3755,10 @@ fn focus_grab_browser(app: tauri::AppHandle, id: String) -> Result<String, Strin
 #[cfg(debug_assertions)]
 #[tauri::command]
 fn focus_grab_window(app: tauri::AppHandle) -> Result<String, String> {
+    no_abort("focus_grab_window", move || focus_grab_window_inner(app))
+}
+
+fn focus_grab_window_inner(app: tauri::AppHandle) -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = app;
@@ -3921,6 +4014,10 @@ fn ensure_window_visible(win: &tauri::WebviewWindow) {
 /// the next load, so the client reloads after setting it. macOS only.
 #[tauri::command]
 fn browser_set_user_agent(app: tauri::AppHandle, id: String, ua: String) -> Result<(), String> {
+    no_abort("browser_set_user_agent", move || browser_set_user_agent_inner(app, id, ua))
+}
+
+fn browser_set_user_agent_inner(app: tauri::AppHandle, id: String, ua: String) -> Result<(), String> {
     use tauri::Manager;
     let wv = app.get_webview(&browser_label(&id)).ok_or("no such browser pane")?;
     #[cfg(target_os = "macos")]
@@ -4077,15 +4174,17 @@ async fn browser_nav_entries(app: tauri::AppHandle, id: String) -> Result<String
 /// Jump to an absolute back/forward history index.
 #[tauri::command]
 fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<(), String> {
-    use tauri::Manager;
-    let wv = app
-        .get_webview(&browser_label(&id))
-        .ok_or("no such browser pane")?;
-    #[cfg(target_os = "macos")]
-    go_to_index_blocking(&wv, index);
-    #[cfg(not(target_os = "macos"))]
-    let _ = (wv, index);
-    Ok(())
+    no_abort("browser_go_to_index", move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&browser_label(&id))
+            .ok_or("no such browser pane")?;
+        #[cfg(target_os = "macos")]
+        go_to_index_blocking(&wv, index);
+        #[cfg(not(target_os = "macos"))]
+        let _ = (wv, index);
+        Ok(())
+    })
 }
 
 /// Map a keyDown chord to the JS that re-dispatches it as a synthetic keydown on
@@ -4671,6 +4770,36 @@ fn serve_tauri_asset(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Field diagnostics for the poisoned-mutex aborts (see `no_abort`): every
+    // Rust panic on ANY thread — including tokio task panics that are
+    // otherwise swallowed silently, the likely lock POISONERS — is appended to
+    // ~/Library/Logs/Topics-rust-panics.log before the default hook runs. The
+    // crash report only ever shows the LAST panic (the abort); this log is the
+    // only way to see the FIRST one, i.e. who actually poisoned the lock.
+    {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if let Some(home) = std::env::var_os("HOME") {
+                let path = std::path::PathBuf::from(home).join("Library/Logs/Topics-rust-panics.log");
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let thread = std::thread::current();
+                let line = format!(
+                    "[epoch {ts}] v{} thread '{}': {info}\n",
+                    env!("CARGO_PKG_VERSION"),
+                    thread.name().unwrap_or("<unnamed>"),
+                );
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+                    let _ = f.write_all(line.as_bytes());
+                }
+            }
+            default_hook(info);
+        }));
+    }
+
     // Dev-serve state resolved ONCE, lazily, on the first asset request (the config
     // dir needs an AppHandle, only available inside the protocol/setup — and
     // config-defined windows build BEFORE the setup closure runs, so we can't

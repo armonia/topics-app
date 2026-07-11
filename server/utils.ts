@@ -3,7 +3,6 @@ import { readFileSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
-import type { Database } from "bun:sqlite";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import type {
   WSData, StoredMessage, ToolCall, Topic, TopicsData, UnreadData,
@@ -16,7 +15,6 @@ import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
-import { clearSnapshots } from "./context/snapshots";
 import { parseToolCallDetail } from "./schemas/tool-call-detail";
 import { validateOutbound } from "./schemas/ws-outbound";
 
@@ -147,8 +145,6 @@ export function createAppContext(baseDir: string): AppContext {
       INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, fast_mode, worktree_id, initial_message, archived, created_at, updated_at)
       VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $fast_mode, $worktree_id, $initial_message, $archived, $created_at, $updated_at)
     `),
-    deleteTopic: db.prepare(`DELETE FROM topics WHERE id = ?`),
-
     // Topic relations
     deleteTopicLinks: db.prepare(`DELETE FROM topic_links WHERE source_id = ?`),
     insertTopicLink: db.prepare(`INSERT OR IGNORE INTO topic_links (source_id, target_id) VALUES (?, ?)`),
@@ -341,47 +337,6 @@ export function createAppContext(baseDir: string): AppContext {
         for (const src of topic.disabledContextSources) stmts.insertTopicDisabledSource.run(topic.id, src);
       }
     })();
-  }
-
-  /**
-   * Delete a single topic, its child relations, and all per-session data
-   * (messages, active branch pointers, claude-code session id) cascaded by
-   * sessionKey. Wrapped in one transaction so a half-deleted topic can't
-   * leave orphans visible to a concurrent reader.
-   *
-   * The `messages` table can't have a real FK to `topics` because not all
-   * sessionKeys are topic-owned (terminals, agents, telegram bridges all
-   * share the same column), so we sweep explicitly here. The
-   * `claude_code_sessions` table DOES have FK CASCADE (migration 023) — the
-   * explicit DELETE here is redundant when foreign_keys=ON but cheap and
-   * defensive against a future config drift.
-   */
-  function deleteTopicById(id: string): void {
-    // Resolve the topic's sessionKey BEFORE the transaction so we can sweep
-    // by session_key inside the same atomic write.
-    const row = stmts.getTopicById.get(id) as { session_key?: string } | undefined;
-    const sessionKey = row?.session_key;
-    db.transaction(() => {
-      stmts.deleteTopicLinks.run(id);
-      stmts.deleteTopicContextFiles.run(id);
-      stmts.deleteTopicPinnedMessages.run(id);
-      stmts.deleteTopicDisabledSources.run(id);
-      if (sessionKey) {
-        // Sweep messages and active branch pointers — these reference
-        // session_key (no FK), so SQLite won't cascade them automatically.
-        stmts.deleteMessagesBySession.run(sessionKey);
-        stmts.deleteActiveBranchesBySession.run(sessionKey);
-        // Defense-in-depth: drop the claude_code_sessions row even if FK
-        // CASCADE happens to be disabled in this build.
-        db.prepare("DELETE FROM claude_code_sessions WHERE session_key = ?").run(sessionKey);
-      }
-      stmts.deleteTopic.run(id);
-    })();
-    // Drop the in-memory context-envelope ring for this topic. Without this,
-    // every deleted topic left up to RING_SIZE full envelopes (message history
-    // + system block) pinned in the process-global Map for the server's whole
-    // lifetime — a real leak under the app's low-RAM constraint.
-    clearSnapshots(id);
   }
 
   // --- Helper: Convert SQLite message row to StoredMessage ---
@@ -585,7 +540,8 @@ export function createAppContext(baseDir: string): AppContext {
    * mutate disjoint fields, and save — the second save would overwrite the
    * first's mutation with stale values. This function is kept ONLY for
    * out-of-tree consumers (CLI tooling, tests) and now upserts without
-   * deleting absent topics. Hard deletes go through `deleteTopicById`.
+   * deleting absent topics. Topics are never hard-deleted (archive-only
+   * state model — see project memory `topic-state-model`).
    */
   function saveTopics(data: TopicsData): void {
     db.transaction(() => {
@@ -1204,7 +1160,7 @@ export function createAppContext(baseDir: string): AppContext {
       const like = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
       const rows = db
         .prepare(
-          `SELECT session_key, role, content, timestamp FROM messages
+          `SELECT id, session_key, role, content, timestamp FROM messages
            WHERE content LIKE ? ESCAPE '\\'
            ORDER BY timestamp DESC LIMIT ?`,
         )
@@ -1213,6 +1169,9 @@ export function createAppContext(baseDir: string): AppContext {
         const topic = sessionToTopic[row.session_key];
         if (!topic) continue; // orphaned session — nothing to open from the palette
         results.push({
+          // messageId lets the palette scroll the opened topic to the hit;
+          // legacy JSONL results below have no stable id (null → open only).
+          messageId: row.id,
           sessionKey: row.session_key,
           topicId: topic.id,
           topicName: topic.name,
@@ -1253,7 +1212,7 @@ export function createAppContext(baseDir: string): AppContext {
                     if (typeof msg.content === "string") text = msg.content;
                     else if (Array.isArray(msg.content)) text = msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
                     if (text.toLowerCase().includes(lowerQuery)) {
-                      results.push({ sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
+                      results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
                       if (results.length >= limit) return results;
                     }
                   }
@@ -1372,7 +1331,7 @@ export function createAppContext(baseDir: string): AppContext {
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, wsClients,
     broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, isTopicFocused,
-    loadTopics, saveTopics, saveSingleTopic, deleteTopicById,
+    loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
