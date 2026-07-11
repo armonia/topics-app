@@ -364,6 +364,21 @@ export function sanitizeSnapshot(raw: unknown): SanitizedSnapshot | null {
     const g = sanitizeGroups(raw.groups);
     if (g) out.groups = g;
   }
+  // Entity-ref invariant: every group paneId must have a matching `panes`
+  // record. An entity-less ref renders a ghost tab whose X used to be a
+  // no-op (CLOSE_PANE bails without the pane record — observed live with a
+  // `__board__` ref stranded in group:default). Prune violations at the
+  // door, but ONLY when the payload carried both maps — a groups-only
+  // partial must not be emptied against an absent panes map.
+  if (out.panes && out.groups) {
+    const panes = out.panes;
+    for (const [key, g] of Object.entries(out.groups)) {
+      const kept = g.paneIds.filter((id) => Boolean(panes[id]));
+      if (kept.length !== g.paneIds.length) {
+        out.groups[key] = { ...g, paneIds: kept };
+      }
+    }
+  }
   if (Array.isArray(raw.groupOrder)) {
     out.groupOrder = raw.groupOrder.filter((x): x is string => typeof x === 'string');
   }

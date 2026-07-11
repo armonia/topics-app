@@ -181,6 +181,22 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when navigateUrl changes
   }, [navigateUrl]);
 
+  // Fresh/EMPTY pane → put the caret in the URL bar so the user can type
+  // immediately (audit 2026-07-11: opening a browser tab focused NOTHING —
+  // activeElement stayed on the "+" trigger). Re-arms when the pane becomes
+  // visible again while still empty; a pane with a page loaded keeps focus
+  // wherever the user put it. The 50ms defer lets BrowserToolbar register
+  // its focus fn (onRegisterFocus) after first paint.
+  const urlBarAutoFocusedRef = useRef(false);
+  useEffect(() => {
+    const empty = !browser.url || browser.url === 'about:blank';
+    if (!isVisible || !empty) { urlBarAutoFocusedRef.current = false; return; }
+    if (urlBarAutoFocusedRef.current) return;
+    urlBarAutoFocusedRef.current = true;
+    const t = setTimeout(() => focusUrlBarRef.current?.(), 50);
+    return () => clearTimeout(t);
+  }, [isVisible, browser.url]);
+
   // Keyboard shortcuts (Chrome parity), mirroring the Electron native panel:
   // Cmd+L focus url · Cmd+R reload · Cmd+[ back · Cmd+] forward · Cmd+F find ·
   // Cmd+(+/-/0) zoom. Skip when typing in a different text field.
@@ -335,6 +351,19 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
 
+  // Same fresh/empty-pane URL-bar autofocus as the Tauri branch — see the
+  // comment there. Wired through the toolbar's onRegisterFocus below.
+  const focusUrlBarRef = useRef<(() => void) | null>(null);
+  const urlBarAutoFocusedRef = useRef(false);
+  useEffect(() => {
+    const empty = !browser.url || browser.url === 'about:blank';
+    if (!isVisible || !empty) { urlBarAutoFocusedRef.current = false; return; }
+    if (urlBarAutoFocusedRef.current) return;
+    urlBarAutoFocusedRef.current = true;
+    const t = setTimeout(() => focusUrlBarRef.current?.(), 50);
+    return () => clearTimeout(t);
+  }, [isVisible, browser.url]);
+
   // React to external navigateUrl prop
   useEffect(() => {
     if (navigateUrl) {
@@ -483,6 +512,7 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
         canGoForward={true}
         loading={browser.loading}
         history={history}
+        onRegisterFocus={(fn) => { focusUrlBarRef.current = fn; }}
         onBackToSpawner={backToSpawner?.onBackToSpawner}
         spawnerLabel={backToSpawner?.spawnerLabel}
         agentActive={browser.agentActive}
