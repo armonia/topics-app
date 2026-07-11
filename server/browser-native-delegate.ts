@@ -53,6 +53,10 @@ export interface NativeDelegateRegistry {
   resolveOp(res: BrowserOpResult): void;
   /** Count of registered contexts (introspection / tests). */
   size(): number;
+  /** Ids of every currently client-delegated (live native) pane. This map IS
+   *  the inventory of live WKWebView panes — every native pane registers here on
+   *  mount — so the tab-inventory (browser-tab-inventory.ts) enumerates it. */
+  listDelegated(): string[];
 }
 
 export interface CreateRegistryOpts {
@@ -134,6 +138,9 @@ export function createNativeDelegateRegistry(opts: CreateRegistryOpts = {}): Nat
     },
     size() {
       return senders.size;
+    },
+    listDelegated() {
+      return [...senders.keys()];
     },
   };
 }

@@ -471,6 +471,15 @@ const browserClosePaneSchema = z.object({
   contextId: z.string(),
 }).passthrough();
 
+// Remote pane focus (browser_focus_tab MCP tool / REST): whichever window
+// renders `browser:<contextId>` brings that tab to the front. Same client-
+// originated model as close-pane — tab activation is device-local UI state, so
+// the CLIENT applies it; non-owning windows no-op (idempotent broadcast).
+const browserFocusPaneSchema = z.object({
+  type: z.literal('browser:focus-pane'),
+  contextId: z.string(),
+}).passthrough();
+
 const clearSchema = z.object({
   type: z.literal('clear'),
 }).passthrough();
@@ -680,6 +689,7 @@ const OUTBOUND_SCHEMAS = {
   'browser:navigate': browserNavigateSchema,
   'browser:force-open': browserForceOpenSchema,
   'browser:close-pane': browserClosePaneSchema,
+  'browser:focus-pane': browserFocusPaneSchema,
   'clear': clearSchema,
   'cron:updated': cronUpdatedSchema,
   'gateway:status': gatewayStatusSchema,

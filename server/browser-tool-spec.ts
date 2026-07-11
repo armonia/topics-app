@@ -275,6 +275,20 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   },
 ];
 
+/**
+ * Optional `contextId` argument injected into every MCP browser tool at
+ * projection time (see `mcpBrowserTools`) so the agent can target a DIFFERENT
+ * pane than its own — the one thing that turns these from "my pane" tools into
+ * "any tab" tools. Injected once here rather than hand-added to all 11 specs:
+ * zero per-tool drift, and the passthrough surface (SDK chat, topic-bound by
+ * design) intentionally never gets it. Pure data — keeps this module import-free.
+ */
+export const CONTEXT_ID_PROP = {
+  type: "string",
+  description:
+    "Optional: target a DIFFERENT browser pane by its contextId (get one from browser_list_tabs). Omit to use this session's own pane.",
+} as const;
+
 /** Map a `browser_*` tool name to its REST endpoint slug (kebab, no prefix). */
 export function toolNameToEndpoint(name: string): string {
   return name.replace(/^browser_/, "").replace(/_/g, "-");
@@ -293,7 +307,9 @@ export const BRIDGED_BROWSER_ENDPOINTS: Record<string, string> = Object.fromEntr
   ]),
 );
 
-/** Project to the MCP `tools/list` shape (name, description, inputSchema). */
+/** Project to the MCP `tools/list` shape (name, description, inputSchema).
+ *  Every MCP tool gets the optional `contextId` arg injected (CONTEXT_ID_PROP)
+ *  so it can target any tab; `required` is untouched (contextId is optional). */
 export function mcpBrowserTools(): Array<{
   name: string;
   description: string;
@@ -302,6 +318,9 @@ export function mcpBrowserTools(): Array<{
   return BROWSER_TOOL_SPECS.filter((s) => s.surfaces.mcp).map((s) => ({
     name: s.name,
     description: s.description,
-    inputSchema: s.schema,
+    inputSchema: {
+      ...s.schema,
+      properties: { ...s.schema.properties, contextId: CONTEXT_ID_PROP },
+    },
   }));
 }

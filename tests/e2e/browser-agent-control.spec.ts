@@ -176,6 +176,66 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
     }
   });
 
+  test("manage any tab: list-tabs discovers another topic's pane + contextId targets it cross-session [BROWSER-CHAT-03 / @plan-30-05]", async ({ request }) => {
+    // The MCP bridge is token-gated. The Playwright process shares the spawned
+    // test server's env, so read the SAME token it was started with (falls back
+    // to the start-test-server.sh default).
+    const gw = {
+      "Content-Type": "application/json",
+      "x-gateway-token": process.env.GATEWAY_TOKEN ?? "test-token",
+    };
+    const topic = await createTopic(request, `E2E-AnyTab-${Date.now()}`);
+    const ctxId = topic.id;
+    // A session that owns NO pane of its own — it must still be able to list and
+    // drive OTHER tabs. `own` resolves to null for this bogus session key.
+    const lister = `e2e-lister-${Date.now()}`;
+    try {
+      // Open a browser pane for topic A (creates a CDP context browserService tracks).
+      const openRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/open`, {
+        data: { url: "https://example.com" },
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(openRes.ok()).toBe(true);
+
+      // list-tabs from the pane-less lister session surfaces topic A's tab.
+      const listRes = await request.post(`${BASE}/api/sessions/${lister}/browser/list-tabs`, {
+        data: {}, headers: gw,
+      });
+      expect(listRes.ok()).toBe(true);
+      const { tabs } = (await listRes.json()) as {
+        tabs: Array<{ contextId: string; url: string; label: string; kind: string; isOwn: boolean }>;
+      };
+      const a = tabs.find((t) => t.contextId === ctxId);
+      expect(a).toBeTruthy();
+      expect(a!.kind).toBe("topic");
+      expect(a!.label).toBe(topic.name);
+      expect(a!.url).toMatch(/example\.com/);
+      expect(a!.isOwn).toBe(false); // not the lister's own pane
+
+      // Cross-session drive: get-text against topic A via the contextId override.
+      const txtRes = await request.post(`${BASE}/api/sessions/${lister}/browser/get-text`, {
+        data: { contextId: ctxId }, headers: gw,
+      });
+      expect(txtRes.ok()).toBe(true);
+      const txt = (await txtRes.json()) as { text?: string };
+      expect(typeof txt.text).toBe("string");
+      expect(txt.text!.length).toBeGreaterThan(0);
+
+      // An unknown contextId is rejected (never upserts a phantom context) and
+      // the error lists the live ids so the agent can recover.
+      const bogusRes = await request.post(`${BASE}/api/sessions/${lister}/browser/get-text`, {
+        data: { contextId: "nope-does-not-exist" }, headers: gw,
+      });
+      expect(bogusRes.status()).toBe(404);
+      const bogus = (await bogusRes.json()) as { error?: string };
+      expect(bogus.error).toMatch(/unknown contextId/i);
+      expect(bogus.error).toContain(ctxId);
+    } finally {
+      await request.delete(`${BASE}/api/browsers/${ctxId}`).catch(() => {});
+      await deleteTopic(request, ctxId).catch(() => {});
+    }
+  });
+
   test("OpenClaw bridge removed - 4 grep gates return 0 [BROWSER-CHAT-03 / @plan-30-05]", async () => {
     const src = readFileSync("server/routes/topics.ts", "utf-8");
     expect((src.match(/browserTargetIdCache/g) ?? []).length).toBe(0);

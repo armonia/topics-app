@@ -10,6 +10,8 @@ import { createChatRouter } from "./chat";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
+import { nativeDelegateRegistry } from "../browser-native-delegate";
+import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { getTerminalSessionById } from "./terminal";
 import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
@@ -239,6 +241,39 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       if (term) return { contextId: `term-${term.id}`, topic: null };
     }
     return null;
+  }
+
+  /**
+   * Build the injected deps for the tab inventory (browser-tab-inventory.ts)
+   * from the live singletons. `fetchNativeStatus` calls the native registry
+   * DIRECTLY (not through dispatchBrowserToolCallByContext) so listing tabs
+   * doesn't flash the agent-active pill on every open pane. Requires a live
+   * browserService for CDP contexts (callers 503 when it's absent).
+   */
+  function buildTabDeps(svc: BrowserService): TabInventoryDeps {
+    return {
+      listDelegated: () => nativeDelegateRegistry.listDelegated(),
+      listContexts: () => (svc.listContexts?.() ?? []).map((c) => ({ id: c.id, url: c.url, title: c.title })),
+      getTopicById,
+      findTopicByContextId: (contextId) => {
+        for (const t of Object.values(loadTopics().topics)) {
+          if (t.browserState?.contextId === contextId) return t;
+        }
+        return null;
+      },
+      getTerminalSessionById: (id) => {
+        const t = getTerminalSessionById(id);
+        return t ? { id: t.id, name: t.name, cwd: t.cwd } : undefined;
+      },
+      fetchNativeStatus: async (contextId) => {
+        if (!nativeDelegateRegistry.isDelegated(contextId)) return null;
+        const res = await nativeDelegateRegistry.delegateOp(contextId, "browser_status", {});
+        if (res && typeof res === "object" && !("error" in res)) {
+          return res as { url?: string; title?: string };
+        }
+        return null;
+      },
+    };
   }
 
   // ── Sub-agent completion polling via JSONL transcript ──────────────────
@@ -1573,14 +1608,34 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const tok = req.headers.get("x-gateway-token") || "";
         if (!process.env.GATEWAY_TOKEN || !timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN)) return json({ error: "unauthorized" }, 401);
         if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
-        const target = resolveBrowserContext(byTopic, bySession);
-        if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first)" }, 404);
+        // Read the body FIRST so an explicit `contextId` override can retarget any
+        // live tab (the "manage any tab" capability) — and so a pane-less session
+        // can still drive another tab. `contextId` is stripped before dispatch so
+        // it never leaks into a tool handler's args.
         const body = ((await readJSON(req)) as Record<string, unknown> | null) ?? {};
+        const override = typeof body.contextId === "string" && body.contextId ? body.contextId : null;
+        delete body.contextId;
+        let contextId: string;
+        if (override) {
+          // Validate against the live inventory: an unknown contextId would
+          // otherwise make getOrCreateContext upsert a phantom headless context.
+          const live = collectLiveContextIds(buildTabDeps(browserService));
+          if (!live.has(override)) {
+            return json({
+              error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.`,
+            }, 404);
+          }
+          contextId = override;
+        } else {
+          const target = resolveBrowserContext(byTopic, bySession);
+          if (!target) return json({ error: "No browser pane bound to this session (open a browser pane first, or pass contextId from browser_list_tabs)" }, 404);
+          contextId = target.contextId;
+        }
         try {
           const result = await dispatchBrowserToolCallByContext(
             toolName,
             body,
-            target.contextId,
+            contextId,
             browserService,
           ) as Record<string, unknown> & { error?: string };
           if (result?.error) return json({ error: result.error }, 502);
@@ -1588,6 +1643,65 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         } catch (e: unknown) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 500);
         }
+      }
+    }
+
+    // POST /api/{topics/:id,sessions/:sessionKey}/browser/list-tabs
+    // Inventory of EVERY live browser tab (all topics/terminals/windows), not
+    // just this session's own — the discovery half of "manage any tab". Bespoke
+    // (not in BRIDGED_BROWSER_ENDPOINTS): it's inventory-scoped and needs `isOwn`
+    // computed from the caller's own contextId, so it doesn't fit the per-context
+    // dispatcher. Token-gated like the bridge (it exposes urls/titles of every
+    // pane). A pane-less caller still lists (no 404 on a null own-context).
+    {
+      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/list-tabs");
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/list-tabs");
+      if ((byTopic || bySession) && method === "POST") {
+        const tok = req.headers.get("x-gateway-token") || "";
+        if (!process.env.GATEWAY_TOKEN || !timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN)) return json({ error: "unauthorized" }, 401);
+        if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
+        const own = resolveBrowserContext(byTopic, bySession)?.contextId ?? null;
+        try {
+          const tabs = await listBrowserTabs(buildTabDeps(browserService), own);
+          return json({ tabs });
+        } catch (e: unknown) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+        }
+      }
+    }
+
+    // POST /api/{topics/:id,sessions/:sessionKey}/browser/focus-pane
+    // Bring a browser tab to the front in whichever window shows it — the
+    // management half of "manage any tab". Mirrors close-pane's broadcast path
+    // (browser:focus-pane → usePanelLifecycle → useProjectLayout activation);
+    // client-originated because tab-activation is device-local UI state. An
+    // explicit body.contextId wins (VALIDATED against the live inventory —
+    // focusing a dead pane is meaningless); else own via topic/term-<id>.
+    {
+      const byTopic = matchRoute(pathname, "/api/topics/:id/browser/focus-pane");
+      const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/focus-pane");
+      if ((byTopic || bySession) && method === "POST") {
+        const tok = req.headers.get("x-gateway-token") || "";
+        if (!process.env.GATEWAY_TOKEN || !timingSafeEqualStr(tok, process.env.GATEWAY_TOKEN)) return json({ error: "unauthorized" }, 401);
+        if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
+        const body = (await readJSON(req)) as { contextId?: unknown } | null;
+        const override = typeof body?.contextId === "string" && body.contextId ? body.contextId : null;
+        let ctxId: string;
+        if (override) {
+          const live = collectLiveContextIds(buildTabDeps(browserService));
+          if (!live.has(override)) {
+            return json({
+              error: `unknown contextId '${override}'. Live tabs: ${[...live].join(", ") || "(none)"}. Call browser_list_tabs for the current list.`,
+            }, 404);
+          }
+          ctxId = override;
+        } else {
+          const target = resolveBrowserContext(byTopic, bySession);
+          if (!target) return json({ error: "No browser pane bound to this session (pass contextId from browser_list_tabs)" }, 404);
+          ctxId = target.contextId;
+        }
+        broadcastToAll({ type: "browser:focus-pane", contextId: ctxId });
+        return json({ ok: true, contextId: ctxId });
       }
     }
 

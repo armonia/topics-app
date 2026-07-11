@@ -76,6 +76,28 @@ const TOOLS = [
     },
   },
   {
+    name: "browser_list_tabs",
+    description:
+      "List EVERY live browser tab/pane in the app (all topics, terminals, windows), not just this session's own. Returns for each: contextId, url, title, a friendly label, kind (topic|terminal|other), and isOwn. Use a returned contextId as the optional `contextId` argument of any browser_* tool (or close_browser_pane / browser_focus_tab) to work with THAT tab. This is how you inspect or drive a pane the user opened elsewhere.",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "browser_focus_tab",
+    description:
+      "Bring a browser tab to the front in whichever window shows it (activates its tab). Pass a contextId from browser_list_tabs to focus that tab; omit to focus this session's own pane. Use it to surface the tab you're about to work on so the user can watch.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contextId: {
+          type: "string",
+          description:
+            "Optional contextId (from browser_list_tabs) of the tab to focus. Omit to focus this session's own pane.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: "import_chrome",
     description:
       "Sign the topic's browser pane into sites the user is ALREADY logged into in their real Chrome, by importing those cookies (macOS) — no per-site sign-in. Reads ONLY cookies, never saved passwords; the one-time macOS Keychain prompt is the user's consent. Open the pane first with open_browser_pane. Call with dry_run:true to list importable hosts (no prompt, no values), then pass the specific domains to import. For a fresh sign-in or registration instead, open the page with open_browser_pane and let the user complete it in the pane (it persists).",
@@ -406,6 +428,30 @@ export async function callCloseBrowserPane(
     args, "POST", path, body, fetchImpl,
   );
   return `Closed browser pane${resp?.contextId ? ` (context ${resp.contextId})` : ""}`;
+}
+
+export async function callListBrowserTabs(
+  args: ParsedArgs,
+  _toolArgs: Record<string, unknown>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/list-tabs`;
+  const body = await httpJson<{ tabs?: unknown[] }>(args, "POST", path, {}, fetchImpl);
+  return JSON.stringify(body?.tabs ?? [], null, 2);
+}
+
+export async function callFocusBrowserTab(
+  args: ParsedArgs,
+  toolArgs: { contextId?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const reqBody: Record<string, unknown> = {};
+  if (typeof toolArgs?.contextId === "string" && toolArgs.contextId) reqBody.contextId = toolArgs.contextId;
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/browser/focus-pane`;
+  const resp = await httpJson<{ ok?: boolean; contextId?: string; error?: string }>(
+    args, "POST", path, reqBody, fetchImpl,
+  );
+  return `Focused browser pane${resp?.contextId ? ` (context ${resp.contextId})` : ""}`;
 }
 
 export async function callImportChrome(
@@ -863,6 +909,8 @@ const TOOL_HANDLERS: Record<
     return `Opened browser pane at ${r.url}` + (r.title ? ` (title: ${r.title})` : "");
   },
   close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),
+  browser_list_tabs: (a, t) => callListBrowserTabs(a, t),
+  browser_focus_tab: (a, t) => callFocusBrowserTab(a, t as { contextId?: unknown }),
   import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown }),
   run_script: (a, t) => callRunScript(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
