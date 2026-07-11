@@ -21,7 +21,7 @@ import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { isDesktop, isTauri } from '../lib/shell';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
-import { isProjectPaneId, getProjectPathFromPaneId, type ClosedTabRecord } from '../state/pane/adapters';
+import { isProjectPaneId, getProjectPathFromPaneId, getSessionKeyFromViewerPaneId, type ClosedTabRecord } from '../state/pane/adapters';
 import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
 
 export interface UseKeyboardShortcutsArgs {
@@ -49,6 +49,10 @@ export interface UseKeyboardShortcutsArgs {
   handleReopenClosedTab: (record: ClosedTabRecord) => void;
   /** Recently-closed tabs, newest first. Snapshot — mirrored into a ref. */
   closedTabs: ClosedTabRecord[];
+  /** Session-key selector — read fresh via ref, not mirrored as a snapshot. */
+  isSessionStreaming: (sessionKey: string) => boolean;
+  /** Aborts the current turn (SIGINT-style) without killing the session. */
+  stopSession: (sessionKey: string) => boolean;
   // Modal setters (React useState setters — stable identity).
   setShowSearch: Dispatch<SetStateAction<boolean>>;
   /** Palette scope — ⌘K opens 'all', ⌘F opens 'projects' (jump to project). */
@@ -128,6 +132,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     handleClosePanel, toggleSidebar,
     setFocusedPanelId, handleReopenClosedTab,
     setShowSearch, setSearchScope, setShowNewTopic, setShowShortcuts, setShowFileSearch,
+    isSessionStreaming, stopSession,
   } = args;
 
   useEffect(() => {
@@ -337,6 +342,23 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         if (m.showShortcuts) { setShowShortcuts(false); e.preventDefault(); return; }
         if (m.showSearch) { setShowSearch(false); e.preventDefault(); return; }
         if (m.showNewTopic) { setShowNewTopic(false); e.preventDefault(); return; }
+
+        // No modal to close — mirror claude-code's Esc: interrupt the
+        // focused panel's running turn (SIGINT-style, session stays alive).
+        // Only fires while the panel is actually streaming, so a bare Esc
+        // elsewhere (nothing open, nothing running) stays a no-op like today.
+        // "session-viewer:<sessionKey>" panes (embedded view of another
+        // session, e.g. inside a project sub-pane) need the prefix stripped
+        // — the sessionKey lives in the map, the paneId doesn't.
+        const focusedPanelId = focusedPanelIdRef.current;
+        const sessionKey = focusedPanelId
+          ? (getSessionKeyFromViewerPaneId(focusedPanelId) ?? focusedPanelId)
+          : null;
+        if (sessionKey && isSessionStreaming(sessionKey)) {
+          e.preventDefault();
+          stopSession(sessionKey);
+          return;
+        }
       }
     };
 
@@ -354,6 +376,8 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
     setShowShortcuts,
     setShowFileSearch,
     setFocusedPanelId,
+    isSessionStreaming,
+    stopSession,
   ]);
 
 }

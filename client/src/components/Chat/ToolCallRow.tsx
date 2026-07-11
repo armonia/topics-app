@@ -116,7 +116,7 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
               The agent is asking for input but this view has no session context. Reload to answer.
             </div>
           ) : (
-            <ToolCardBody detail={detail} isError={isError} />
+            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} />
           )}
           {toolCall.userResponse && status !== 'waiting_for_input' && (
             <div className="mt-1.5 text-[11px] text-app-text-muted">

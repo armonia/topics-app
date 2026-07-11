@@ -3929,7 +3929,15 @@ fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<
 fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, chars: &str, key_code: u16) -> Option<String> {
     // Tab == keyCode 48. Standard cycle: ⌃Tab, ⌃⇧Tab, ⌘⇧Tab (⌘Tab is macOS).
     let is_tab = key_code == 48;
-    let key: &str = if is_tab && (ctrl || (cmd && shift)) {
+    // Escape == keyCode 53. Bare key, no modifier — mirrors claude-code's Esc:
+    // interrupts the focused panel's running turn. Handled here too because a
+    // focused child WKWebView (embedded browser pane) swallows it just like
+    // every other chord below; without this, Esc only stops streaming when
+    // the main renderer itself holds focus.
+    let is_escape = key_code == 53;
+    let key: &str = if is_escape && !cmd && !ctrl && !shift {
+        "Escape"
+    } else if is_tab && (ctrl || (cmd && shift)) {
         "Tab"
     } else if cmd && !ctrl {
         match chars {
@@ -4046,6 +4054,13 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
                     if let Some(mw) = app.get_webview("main") {
                         let _ = mw.eval(&js);
                     }
+                }
+                // Bare Esc is forwarded best-effort (interrupt a streaming turn)
+                // but must ALSO reach the focused page: unlike the ⌘-chords the
+                // page has first-class uses for Esc (close dialogs, cancel).
+                // The renderer side no-ops unless a session is streaming.
+                if key_code == 53 && !cmd && !ctrl && !shift {
+                    return event;
                 }
                 return nil; // swallow — the page must not also act on the chord
             }

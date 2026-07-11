@@ -20,7 +20,7 @@ import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../provide
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
-import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
+import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort, resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 
 interface TerminalSession {
   id: string;
@@ -966,6 +966,12 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     } else {
       args = [];
     }
+    // Same explicit reasoning-effort override the chat path passes (see
+    // providers/codex.ts): deterministic tier under launchd, and the user's
+    // own config.toml value wins over our default. `-c` is a global codex
+    // flag, valid after `resume` too.
+    const codexEffort = resolveCodexReasoningEffort();
+    if (codexEffort) args.push('-c', `model_reasoning_effort=${JSON.stringify(codexEffort)}`);
   } else if (sessionType === 'opencode') {
     // opencode (open-source agent CLI) pinned to the free Cerebras provider
     // (GLM-4.7 — quasi-Opus, no-train). Two things it needs that the launchd
