@@ -64,9 +64,17 @@ export function useTopics() {
         }
         return prev;
       });
-      // Auto-retry once after timeout or network error
+      // Auto-retry once after timeout or network error. Engine spread:
+      // Chromium says "Failed to fetch", Firefox "NetworkError", WebKit
+      // (the Tauri WKWebView shell!) says "Load failed" — missing that last
+      // one meant a desktop client that hiccuped during a server restart
+      // NEVER retried: the "Using cached data" notice stuck forever while
+      // the WS was already reconnected (reported live 2026-07-11).
       const message = typeof errLike.message === 'string' ? errLike.message : '';
-      const isNetworkError = message.includes('Failed to fetch') || message.includes('NetworkError');
+      const isNetworkError =
+        message.includes('Failed to fetch') ||
+        message.includes('NetworkError') ||
+        message.includes('Load failed');
       if (isTimeout || isNetworkError) {
         setTimeout(() => loadTopics(), 3000);
       }
