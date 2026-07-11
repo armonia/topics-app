@@ -181,6 +181,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     // same context joins the set (instead of stealing the single onFrame), and
     // the session is torn down only when the LAST viewer detaches.
     subscribers: Set<ScreencastOnFrame>;
+    // The opts the stream was started with — resize() restarts the screencast
+    // with the same format/quality but the NEW viewport-derived dims.
+    opts?: { format?: 'jpeg' | 'png'; quality?: number; maxWidth?: number; maxHeight?: number; everyNthFrame?: number };
   }>();
   let browser: Browser | null = null;
   // Single-flight launch guard: in-flight chromium.launch() promise, shared by
@@ -771,6 +774,29 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       const entry = await service.getOrCreate(id);
       await entry.page.setViewportSize({ width, height });
       touchActivity(entry);
+      // Live screencast: Page.startScreencast locks maxWidth/maxHeight at start
+      // time, so after an enlarge the stream stayed capped at the OLD dims —
+      // blurry upscaled frames until the WS reconnected. Restart the cast on the
+      // SAME CDP session (the Page.screencastFrame listener and the subscriber
+      // fan-out stay attached) with dims re-derived from the new viewport.
+      // Explicit caller-set maxWidth/maxHeight (a deliberate clamp) is preserved.
+      const session = screencastSessions.get(id);
+      if (session) {
+        try {
+          await session.cdpSession.send("Page.stopScreencast");
+          await session.cdpSession.send("Page.startScreencast", {
+            format: session.opts?.format ?? "jpeg",
+            quality: session.opts?.quality ?? 70,
+            maxWidth: session.opts?.maxWidth ?? width,
+            maxHeight: session.opts?.maxHeight ?? height,
+            everyNthFrame: session.opts?.everyNthFrame ?? 2,
+          });
+        } catch (err: any) {
+          // Page/browser closing mid-resize — non-fatal, the old stream (or its
+          // teardown path) still owns cleanup.
+          console.warn(`[BrowserService] screencast restart on resize failed for ${id}:`, err.message);
+        }
+      }
     },
 
     isLaunched() {
@@ -920,7 +946,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         return;
       }
 
-      screencastSessions.set(id, { cdpSession, subscribers: new Set([onFrame]) });
+      screencastSessions.set(id, { cdpSession, subscribers: new Set([onFrame]), opts });
       console.log(`[BrowserService] Screencast started for ${id} (q=${opts?.quality ?? 70}, everyNthFrame=${opts?.everyNthFrame ?? 2})`);
     },
 
