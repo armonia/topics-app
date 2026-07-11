@@ -47,6 +47,13 @@ export interface Topic {
    */
   model?: string | null;
   /**
+   * Per-topic reasoning-effort tier override (migration 033). One of
+   * low/medium/high/xhigh/max. NULL = no override → the provider's global
+   * default (shown as the picker's `effortTier` badge). Mirrors
+   * `server/types.ts:Topic.effort`.
+   */
+  effort?: string | null;
+  /**
    * Fast Mode toggle (migration 024). When `true`, the chat route uses the
    * provider's native "fast model" (e.g. claude-haiku, gpt-4o-mini) for
    * this topic's turns unless the user has set an explicit model override
@@ -285,6 +292,13 @@ export interface UpdateTopicRequest {
   provider?: string | null;
   /** Set to a model id to persist as the topic's last-used model; null clears. */
   model?: string | null;
+  /**
+   * Set the per-topic reasoning-effort tier (migration 033). One of
+   * low/medium/high/xhigh/max; null/""/"default" clears the override. The
+   * server validates the tier, forces an idle CLI respawn so it applies on the
+   * next turn, and broadcasts `topic:updated` for cross-window sync.
+   */
+  effort?: string | null;
   /**
    * Set Fast Mode for this topic. Persists; null/undefined leaves it unchanged.
    * The server broadcasts `topic:updated` so other open windows for the same

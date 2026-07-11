@@ -315,6 +315,24 @@ function getOrCreateClaudeSessionId(sessionKey: string): { id: string; isNew: bo
 }
 
 /**
+ * Read the per-topic reasoning-effort override (migration 033) for a session.
+ * Returns null when there's no topic, no override, or the DB isn't ready — in
+ * every case the caller falls back to the global env-resolved default via
+ * `resolveClaudeEffort(null)`. Kept as a narrow single-column read (not the
+ * full `getTopicBySessionKey`) to avoid a circular import with utils.ts.
+ */
+function getTopicEffortForSession(sessionKey: string): string | null {
+  try {
+    const row = getDatabase()
+      .prepare("SELECT effort FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { effort?: string | null } | undefined;
+    return row?.effort ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Forget the persisted Claude session UUID for a sessionKey. Called when the
  * CLI signals the on-disk session file is gone (missing/corrupted/upgrade) so
  * the next spawn starts fresh with `--session-id` instead of looping on a
@@ -858,6 +876,26 @@ export class ClaudeCodeProvider implements AIProvider {
     });
   }
 
+  // --- Config refresh ---
+
+  /**
+   * Force the next turn for `sessionKey` to respawn the CLI child so it picks
+   * up a changed per-topic config (migration 033 effort tier — the flags are
+   * fixed at spawn time, see `spawnPersistentProcess`). Safe: the respawn uses
+   * `--resume`, so the model's memory is reloaded losslessly (identical to an
+   * inactivity/crash respawn). No-op while a turn is streaming — killing mid-
+   * stream would drop the partial; the change then applies on the next natural
+   * respawn instead. Idempotent: nothing to do if no process is pooled.
+   */
+  refreshSessionConfig(sessionKey: string): void {
+    const pp = this.processes.get(sessionKey);
+    if (!pp) return;
+    if (pp.streamHandler) return; // live turn — apply on next respawn
+    console.log(`[claude-code] refreshSessionConfig: dropping idle process for ${sessionKey} to pick up new config`);
+    this.killProcess(pp);
+    this.processes.delete(sessionKey);
+  }
+
   // --- Abort ---
 
   async abort(sessionKey: string, _runId?: string): Promise<void> {
@@ -1000,9 +1038,11 @@ export class ClaudeCodeProvider implements AIProvider {
       "--permission-mode", permissionMode,
       "--verbose",
       "--model", model,
-      // Match the effort tier a Warp shell would use ("ultracode" = xhigh);
-      // without this the spawn falls back to settings.json effortLevel (low).
-      ...((): string[] => { const e = resolveClaudeEffort(); return e ? ["--effort", e] : []; })(),
+      // Effort tier: a per-topic override (migration 033, set via the picker's
+      // effort selector) wins; otherwise match the Warp default ("ultracode" =
+      // xhigh). Without this the spawn falls back to settings.json effortLevel
+      // (low). Resolved fresh per spawn, so a change respawn picks up the tier.
+      ...((): string[] => { const e = resolveClaudeEffort(getTopicEffortForSession(sessionKey)); return e ? ["--effort", e] : []; })(),
       "--setting-sources", "user,project,local",
       "--mcp-config", mcpConfigPath,
       // When we scoped the global fleet into the config above, tell the CLI to

@@ -50,7 +50,14 @@ export const TOPICS_AGENT_SYSTEM_PROMPT = [
  */
 const VALID_CLAUDE_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
-export function resolveClaudeEffort(): string | null {
+export function resolveClaudeEffort(topicOverride?: string | null): string | null {
+  // A valid per-topic override (migration 033, set via the model-picker's
+  // effort selector) wins over every env-based default. Anything else
+  // (null/empty/unknown tier) falls through to the global resolution below,
+  // so clearing the topic override restores the env default.
+  const perTopic = (topicOverride ?? '').trim().toLowerCase();
+  if (perTopic && VALID_CLAUDE_EFFORTS.has(perTopic)) return perTopic;
+
   const override = (process.env.TOPICS_CLAUDE_EFFORT ?? '').trim().toLowerCase();
   if (override === 'off' || override === 'none' || override === 'default') return null;
   const candidate =

@@ -143,8 +143,8 @@ export function createAppContext(baseDir: string): AppContext {
     getAllTopicAssignedAgents: db.prepare(`SELECT a.topic_id, a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id`),
 
     insertTopic: db.prepare(`
-      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, fast_mode, worktree_id, initial_message, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $fast_mode, $worktree_id, $initial_message, $archived, $created_at, $updated_at)
+      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, worktree_id, initial_message, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $effort, $fast_mode, $worktree_id, $initial_message, $archived, $created_at, $updated_at)
     `),
     // Topic relations
     deleteTopicLinks: db.prepare(`DELETE FROM topic_links WHERE source_id = ?`),
@@ -244,6 +244,9 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.autonomy_level && row.autonomy_level !== 'ask') topic.autonomyLevel = row.autonomy_level;
     if (row.provider) topic.provider = row.provider;
     if (row.model) topic.model = row.model;
+    // effort (migration 033). Per-topic reasoning-tier override; NULL omitted so
+    // legacy rows fall back to the global env-resolved default at spawn time.
+    if (row.effort) topic.effort = row.effort;
     // fast_mode (migration 024). 1 = enabled, 0/NULL = disabled (default).
     // Only attached when truthy so legacy rows (pre-migration, before backfill)
     // round-trip through inspector serializers unchanged.
@@ -301,6 +304,9 @@ export function createAppContext(baseDir: string): AppContext {
         $autonomy_level: topic.autonomyLevel || 'ask',
         $provider: topic.provider || null,
         $model: topic.model || null,
+        // effort column (migration 033). NULL = no per-topic override → global
+        // default resolved at spawn time. Stored as-is (low/medium/high/xhigh/max).
+        $effort: topic.effort || null,
         // fast_mode column gets 0/1 — SQLite has no native boolean. Coerce
         // here so callers can pass `undefined` (legacy topics) and still get
         // the schema's NOT NULL DEFAULT 0 guarantee.

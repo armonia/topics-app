@@ -354,6 +354,9 @@ interface ChatInputProps {
   onCancelEdit?: () => void;
   providerOverride?: { provider: string; model: string } | null;
   onProviderOverrideChange?: (override: { provider: string; model: string } | null) => void;
+  /** Per-topic effort-tier override (migration 033). null = provider default. */
+  effort?: string | null;
+  onEffortChange?: (effort: string | null) => void;
   defaultProviderLabel?: string;
   onOpenSettings?: () => void;
 }
@@ -404,6 +407,8 @@ export function ChatInput({
   onCancelEdit,
   providerOverride,
   onProviderOverrideChange,
+  effort,
+  onEffortChange,
   defaultProviderLabel,
   onOpenSettings,
 }: ChatInputProps) {
@@ -968,6 +973,8 @@ export function ChatInput({
                     override={providerOverride ?? null}
                     defaultProviderLabel={defaultProviderLabel}
                     onChange={onProviderOverrideChange}
+                    effort={effort ?? null}
+                    onEffortChange={onEffortChange}
                     onOpenSettings={onOpenSettings}
                   />
                 )}
