@@ -203,6 +203,19 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   // Anchor captured at click (not read from a ref during render) so the popover
   // positions against the live button without tripping react-hooks/refs.
   const [versionAnchor, setVersionAnchor] = useState<HTMLButtonElement | null>(null);
+  // Tell the UpdaterToast the popover owns the update surface right now. Both
+  // anchor to the SAME version chip, so a status change while the popover is
+  // open (e.g. its own "Controlla aggiornamenti" flipping state) popped the
+  // toast directly on top of it — two nested update cards (reported live
+  // 2026-07-11). The toast suppresses itself while this reports open.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('topics:version-popover', { detail: { open: showVersionPopover } }));
+    return () => {
+      if (showVersionPopover) {
+        window.dispatchEvent(new CustomEvent('topics:version-popover', { detail: { open: false } }));
+      }
+    };
+  }, [showVersionPopover]);
 
   // While the dropdown is open, hold the FPS monitor in its live (continuous,
   // 1Hz) cadence so the sparkline updates in real time. It drops back to cheap
