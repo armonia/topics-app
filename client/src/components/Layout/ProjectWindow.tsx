@@ -54,6 +54,8 @@ export interface ProjectWindowPaneProps {
   stopSession: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
+  deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
@@ -81,7 +83,7 @@ export function ProjectWindowPane({
   projectPath, focusedPanelId,
   onFocusPanel, onClosePanel: _onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
-  sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+  sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
   onActiveTopicChange, onOpenPanesChange,
@@ -312,6 +314,8 @@ export function ProjectWindowPane({
             stopSession={stopSession}
             sendMessage={wrappedSendMessage}
             editMessage={editMessage}
+            regenerateMessage={regenerateMessage}
+            deleteMessage={deleteMessage}
             switchBranch={switchBranch}
             loadHistory={loadHistory}
             chatError={chatError}
@@ -444,7 +448,7 @@ export function ProjectWindowPane({
   }, [
     topics, focusedPanelId, projectPath, wrapperPaneId,
     getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
-    sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+    sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
     handleOpenFile, pinPaneById, onFocusPanel, browserNavigateUrl,
   ]);
 
@@ -543,6 +547,8 @@ interface ProjectWindowProps {
   stopSession: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
+  regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
+  deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
   switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sk: string) => Promise<boolean>;
   chatError: string | null;
@@ -562,7 +568,7 @@ export function ProjectWindow({
   projectPath, topicIds, focusedPanelId,
   onFocusPanel, onClosePanel,
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
-  sendMessage, editMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
+  sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat,
   onAcceptTopicDrop,
 }: ProjectWindowProps) {
@@ -627,6 +633,8 @@ export function ProjectWindow({
         stopSession={stopSession}
         sendMessage={sendMessage}
         editMessage={editMessage}
+        regenerateMessage={regenerateMessage}
+        deleteMessage={deleteMessage}
         switchBranch={switchBranch}
         loadHistory={loadHistory}
         chatError={chatError}

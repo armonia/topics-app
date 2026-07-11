@@ -1193,7 +1193,41 @@ export function createAppContext(baseDir: string): AppContext {
     const sessionToTopic: Record<string, Topic> = {};
     for (const topic of Object.values(topicsData.topics)) { sessionToTopic[topic.sessionKey] = topic; }
 
-    // Search gateway JSONL files (as before)
+    // 1) SQLite `messages` — the store the chat actually WRITES. Despite the
+    // "hybrid" label above, this half was never implemented: the function only
+    // scanned the legacy gateway JSONL transcripts below, so every message of a
+    // current chat topic was unfindable from ⌘K (the palette's "Messaggi"
+    // section stayed empty for fresh content). LIKE is case-insensitive for
+    // ASCII, matching the JSONL path's lowercase comparison; user-typed
+    // wildcards are escaped so they match literally.
+    try {
+      const like = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const rows = db
+        .prepare(
+          `SELECT session_key, role, content, timestamp FROM messages
+           WHERE content LIKE ? ESCAPE '\\'
+           ORDER BY timestamp DESC LIMIT ?`,
+        )
+        .all(like, limit) as any[];
+      for (const row of rows) {
+        const topic = sessionToTopic[row.session_key];
+        if (!topic) continue; // orphaned session — nothing to open from the palette
+        results.push({
+          sessionKey: row.session_key,
+          topicId: topic.id,
+          topicName: topic.name,
+          topicIcon: topic.icon || "MessageSquare",
+          role: row.role,
+          content: row.content,
+          timestamp: row.timestamp,
+        });
+        if (results.length >= limit) return results;
+      }
+    } catch (err) {
+      console.warn("[Search] messages table query failed:", err);
+    }
+
+    // 2) Legacy gateway JSONL transcripts (pre-SQLite sessions).
     const sessionsStorePath = join(SESSIONS_DIR, "sessions.json");
     if (existsSync(sessionsStorePath)) {
       try {
@@ -1283,9 +1317,17 @@ export function createAppContext(baseDir: string): AppContext {
 
   function createBranchPartialMessage(sessionKey: string, parentId: string): StoredMessage {
     const maxOrder = (stmts.getMaxSortOrder.get(sessionKey) as any).max_order;
+    // Allocate the next branch index under the parent, like createBranchMessage.
+    // This used to hardcode 0 — correct on the EDIT path (the parent is a
+    // brand-new user message with no children) but colliding on REGENERATE,
+    // where the anchor user message already has the original assistant reply
+    // at index 0: two children with the same branch_index break both
+    // loadActiveThread's selection and the sibling arrows.
+    const maxBranch = (stmts.getMaxBranchIndex.get(parentId) as any).max_idx;
+    const branchIndex = maxBranch + 1;
     const stored: StoredMessage = {
       id: crypto.randomUUID(), role: "assistant", content: "", timestamp: new Date().toISOString(),
-      partial: true, streamedAt: new Date().toISOString(), parentId, branchIndex: 0,
+      partial: true, streamedAt: new Date().toISOString(), parentId, branchIndex,
     };
     stmts.insertMessage.run({
       $id: stored.id,
@@ -1301,9 +1343,12 @@ export function createAppContext(baseDir: string): AppContext {
       $timestamp: stored.timestamp,
       $sort_order: maxOrder + 1,
       $parent_id: parentId,
-      $branch_index: 0,
+      $branch_index: branchIndex,
       ...metaParams({}),
     });
+    // The fresh branch is what the user asked for — make it the active one
+    // (no-op semantics when it's the parent's only child, index 0).
+    stmts.upsertActiveBranch.run(parentId, sessionKey, branchIndex);
     return stored;
   }
 

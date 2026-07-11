@@ -308,6 +308,8 @@ function App() {
   const {
     sendMessage,
     editMessage,
+    regenerateMessage,
+    deleteMessage,
     switchBranch,
     stopSession,
     getSessionMessages,
@@ -1011,6 +1013,8 @@ function App() {
           stopSession={stopSession}
           sendMessage={sendMessage}
           editMessage={editMessage}
+          regenerateMessage={regenerateMessage}
+          deleteMessage={deleteMessage}
           switchBranch={switchBranch}
           loadHistory={loadHistory}
           chatError={chatError}

@@ -1284,10 +1284,20 @@ export function useChat() {
   }, [resetStreamTimeout, messagesRef]);
 
   /** Edit a user message — creates a new branch and streams the assistant response. */
-  const editMessage = useCallback(async (sessionKey: string, messageId: string, newContent: string): Promise<boolean> => {
+  /**
+   * Shared SSE runner for the branch-forking endpoints (edit + regenerate).
+   * Both fork a sibling on the server and stream the fresh assistant reply
+   * over SSE with the identical wire shape — the only difference is which
+   * endpoint opens the stream, so that's the injected part.
+   */
+  const runBranchStream = useCallback(async (
+    sessionKey: string,
+    openStream: (signal: AbortSignal) => Promise<ReadableStream<Uint8Array> | null>,
+    label: string,
+  ): Promise<boolean> => {
     // Prevent concurrent edits/sends for the same session
     if (isSendLocked(sessionKey)) {
-      console.warn(`[useChat] editMessage blocked — already sending for ${sessionKey}`);
+      console.warn(`[useChat] ${label} blocked — already sending for ${sessionKey}`);
       return false;
     }
     acquireSendLock(sessionKey);
@@ -1301,7 +1311,7 @@ export function useChat() {
       setStreaming(prev => ({ ...prev, [sessionKey]: true }));
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
 
-      const stream = await chatApi.editMessage(messageId, newContent, abortController.signal);
+      const stream = await openStream(abortController.signal);
       if (!stream) throw new Error('No stream received');
 
       // Reload the full thread from server (the edit endpoint created the branch)
@@ -1390,8 +1400,8 @@ export function useChat() {
       return true;
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return true;
-      console.error('Failed to edit message:', err);
-      setError(err instanceof Error ? err.message : 'Failed to edit message');
+      console.error(`Failed to ${label}:`, err);
+      setError(err instanceof Error ? err.message : `Failed to ${label}`);
       return false;
     } finally {
       releaseSendLock(sessionKey); // Release send lock
@@ -1402,6 +1412,51 @@ export function useChat() {
       delete abortControllersRef.current[sessionKey];
     }
   }, [addMessage, appendToLastMessage, updateLastMessage, loadHistory]);
+
+  const editMessage = useCallback(
+    (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>
+      runBranchStream(sessionKey, (signal) => chatApi.editMessage(messageId, newContent, signal), 'edit message'),
+    [runBranchStream],
+  );
+
+  /** Regenerate an assistant reply: fork a sibling branch under the same user
+   *  message and re-stream. The previous answer stays reachable via the
+   *  branch arrows — nothing is destroyed. */
+  const regenerateMessage = useCallback(
+    (sessionKey: string, messageId: string): Promise<boolean> =>
+      runBranchStream(sessionKey, (signal) => chatApi.regenerateMessage(messageId, signal), 'regenerate message'),
+    [runBranchStream],
+  );
+
+  /** Delete a message and its descendant branches; the server returns the
+   *  repaired active thread (same contract as switchBranch). */
+  const deleteMessage = useCallback(async (sessionKey: string, messageId: string): Promise<boolean> => {
+    try {
+      setError(null);
+      const response = await chatApi.deleteMessage(messageId);
+
+      const chatMessages: ChatMessage[] = (response.messages as HistoryMessage[])
+        .filter((msg) => !isContextMessage(msg.content))
+        .map((msg) => ({
+          ...msg,
+          id: msg.id || generateMessageId(),
+          content: cleanInvisibleMarkers(msg.content || ''),
+          timestamp: msg.timestamp || new Date().toISOString(),
+        }));
+
+      setMessages(prev => ({
+        ...prev,
+        [sessionKey]: chatMessages,
+      }));
+
+      cacheMessages(sessionKey, chatMessages);
+      return true;
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete message');
+      return false;
+    }
+  }, []);
 
   /** Switch to a different branch at a message fork point. */
   const switchBranch = useCallback(async (sessionKey: string, messageId: string, branchIndex: number): Promise<boolean> => {
@@ -1556,6 +1611,8 @@ export function useChat() {
   return {
     sendMessage,
     editMessage,
+    regenerateMessage,
+    deleteMessage,
     switchBranch,
     stopSession,
     getSessionMessages,

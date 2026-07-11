@@ -286,6 +286,40 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
           <button className={findBtn} title="Chiudi (Esc)" onClick={closeFind}><X size={14} aria-hidden /></button>
         </div>
       )}
+      {/* Navigation error strip — native-path parity with BRW-REL-02. Fed by the
+          Rust did-fail queue (browser_take_nav_errors). IN FLOW, not an absolute
+          overlay: the native WKWebView composites ABOVE the DOM, so an overlay
+          would be invisible — shrinking the placeholder repositions the native
+          view below the strip instead. The failed load leaves the previous page
+          alive, hence the explicit dismiss next to Riprova. */}
+      {browser.navError && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border-b border-red-500/30 text-red-700 dark:text-red-300 text-[12px] flex-shrink-0"
+          data-testid="browser-nav-error"
+          role="alert"
+        >
+          <AlertTriangle size={13} className="flex-shrink-0" />
+          <span className="flex-1 min-w-0 truncate" title={browser.navError.message}>
+            {browser.navError.message}
+          </span>
+          {(browser.navError.url || browser.url) && (
+            <button
+              onClick={() => browser.navigate(browser.navError!.url || browser.url)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/15 hover:bg-red-500/25 font-medium transition-colors flex-shrink-0"
+            >
+              <RotateCw size={11} />
+              Riprova
+            </button>
+          )}
+          <button
+            onClick={() => browser.clearNavError?.()}
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-red-500/15 transition-colors flex-shrink-0"
+            title="Chiudi"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
       <NativeBrowserPlaceholder browser={browser} isVisible={isVisible} />
       <DownloadStrip contextId={contextId} />
     </div>
