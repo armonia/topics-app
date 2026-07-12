@@ -176,6 +176,14 @@ export interface Topic {
   /** Last-used model for this topic. NULL = use the provider's default. */
   model?: string | null;
   /**
+   * Per-topic reasoning-effort tier override (migration 033). One of
+   * low/medium/high/xhigh/max. NULL = no override → the spawn falls back to the
+   * global env-resolved default (`resolveClaudeEffort()`). Applied as
+   * `--effort <tier>` on the next claude-code CLI spawn for this session; the
+   * chat route forces an idle respawn on change so it takes effect immediately.
+   */
+  effort?: string | null;
+  /**
    * Fast Mode toggle (migration 024). When `true`, the chat route asks the
    * provider to use its native "fast model" (e.g. claude-haiku, gpt-4o-mini)
    * for this topic's turns, unless a per-message or topic-persisted model

@@ -7,11 +7,13 @@ import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveCodexReasoningEffort } from './topics-agent-prompt';
+import { resolveCodexReasoningEffort, resolveClaudeEffort } from './topics-agent-prompt';
 
 const ENV_KEYS = ['TOPICS_CODEX_REASONING_EFFORT', 'CODEX_REASONING_EFFORT'] as const;
+const CLAUDE_ENV_KEYS = ['TOPICS_CLAUDE_EFFORT', 'CLAUDE_EFFORT'] as const;
 const savedEnv: Record<string, string | undefined> = {};
 for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
+for (const k of CLAUDE_ENV_KEYS) savedEnv[k] = process.env[k];
 
 const fixtureDir = mkdtempSync(join(tmpdir(), 'codex-effort-test-'));
 /** Path that never exists — forces the "no config" branch. */
@@ -25,10 +27,11 @@ function writeConfig(contents: string): string {
 
 beforeEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
+  for (const k of CLAUDE_ENV_KEYS) delete process.env[k];
 });
 
 afterAll(() => {
-  for (const k of ENV_KEYS) {
+  for (const k of [...ENV_KEYS, ...CLAUDE_ENV_KEYS]) {
     if (savedEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedEnv[k];
   }
@@ -80,5 +83,38 @@ describe('resolveCodexReasoningEffort', () => {
     delete process.env.TOPICS_CODEX_REASONING_EFFORT;
     const config = writeConfig('model_reasoning_effort = "galactic"\n');
     expect(resolveCodexReasoningEffort({ configPath: config })).toBeNull();
+  });
+});
+
+describe('resolveClaudeEffort — per-topic override (migration 033)', () => {
+  test('valid per-topic override wins over env default', () => {
+    process.env.CLAUDE_EFFORT = 'low';
+    expect(resolveClaudeEffort('max')).toBe('max');
+  });
+
+  test('per-topic override wins even over the Topics env override', () => {
+    process.env.TOPICS_CLAUDE_EFFORT = 'medium';
+    expect(resolveClaudeEffort('high')).toBe('high');
+  });
+
+  test('override is case/space-insensitive', () => {
+    expect(resolveClaudeEffort(' XHIGH ')).toBe('xhigh');
+  });
+
+  test('null / empty / unknown override falls through to env default', () => {
+    expect(resolveClaudeEffort(null)).toBe('xhigh'); // no env → Warp default
+    expect(resolveClaudeEffort('')).toBe('xhigh');
+    expect(resolveClaudeEffort('galactic')).toBe('xhigh');
+  });
+
+  test('no override + no env still yields the xhigh default', () => {
+    expect(resolveClaudeEffort()).toBe('xhigh');
+  });
+
+  test('env "off" disables when there is no valid per-topic override', () => {
+    process.env.TOPICS_CLAUDE_EFFORT = 'off';
+    expect(resolveClaudeEffort(null)).toBeNull();
+    // …but a valid per-topic override still wins over the "off" policy.
+    expect(resolveClaudeEffort('high')).toBe('high');
   });
 });
