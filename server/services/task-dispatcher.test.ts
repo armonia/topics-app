@@ -3,15 +3,20 @@ import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 
-// Self-contained schema (mirrors migrations 001 + 026 + 031, tasks-relevant subset).
+// Self-contained schema (mirrors migrations 001 + 026 + 031, tasks-relevant
+// subset). PRAGMA foreign_keys + the assigned_topic_id FK are faithful to prod
+// on purpose: the "pending:<taskId>" placeholder bug only reproduced with the
+// FK enforced.
 function freshDb(): Database {
   const db = new Database(":memory:");
+  db.run("PRAGMA foreign_keys = ON");
+  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
   db.run(`CREATE TABLE tasks (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
     status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
     kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
     chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0,
+    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT
   )`);
@@ -44,6 +49,8 @@ function seedTask(
 ): string {
   const id = o.id ?? `t${++seq}`;
   const ts = o.createdAt ?? new Date(Date.now() + seq).toISOString();
+  // FK: a seeded binding needs its topics row, like in prod.
+  if (o.assignedTopicId) db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [o.assignedTopicId]);
   db.run(
     `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -69,6 +76,9 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     createTopic: (opts) => {
       topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort });
       const n = topicsCreated.length;
+      // The real host persists the topic row; the FK on assigned_topic_id
+      // requires it to exist before bindTopic().
+      db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [`topic-${n}`]);
       return { topicId: `topic-${n}`, sessionKey: `topic:sk${n}` };
     },
     createWorktree: async (storeId) => { worktreesCreated.push(storeId); return `wt-${storeId}`; },
