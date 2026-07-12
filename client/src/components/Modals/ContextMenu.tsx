@@ -1,8 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { PenLine, Smile, Palette, Bot, Trash2, Pin, PinOff, ExternalLink, type LucideIcon } from 'lucide-react';
+import { PenLine, Palette, Bot, Trash2, Pin, PinOff, ExternalLink, type LucideIcon } from 'lucide-react';
 import type { Topic, UpdateTopicRequest } from '@/types';
-import { TOPIC_ICONS, getTopicIcon } from '@/lib/topicIcons';
 import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, Z_CONTEXT_MENU } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
 
@@ -29,7 +28,7 @@ const COLOR_OPTIONS = [
   '#16a34a', '#eab308',
 ];
 
-type SubMenu = 'none' | 'rename' | 'icon' | 'color' | 'confirm-delete';
+type SubMenu = 'none' | 'rename' | 'color' | 'confirm-delete';
 
 export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssignAgents, isPinned, onTogglePin, onPopOut }: ContextMenuProps) {
   const [subMenu, setSubMenu] = useState<SubMenu>('none');
@@ -76,7 +75,6 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
     onClose();
   };
 
-  const handleIconChange = async (icon: string) => { await onUpdate(topic.id, { icon }); onClose(); };
   const handleColorChange = async (color: string) => { await onUpdate(topic.id, { color }); onClose(); };
 
   const handleDelete = async () => { await onDelete(topic.id); onClose(); };
@@ -101,7 +99,6 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
       {subMenu === 'none' && (
         <>
           <MenuItem icon={PenLine} label="Rename" onClick={() => setSubMenu('rename')} />
-          <MenuItem icon={Smile} label="Change icon" onClick={() => setSubMenu('icon')} />
           <MenuItem icon={Palette} label="Change color" onClick={() => setSubMenu('color')} />
           {onTogglePin && (
             <MenuItem
@@ -142,29 +139,6 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
           <div className="flex justify-end gap-2 mt-2">
             <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Cancel</button>
             <button onClick={handleRename} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">Save</button>
-          </div>
-        </div>
-      )}
-
-      {subMenu === 'icon' && (
-        <div className="p-3">
-          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Choose icon</div>
-          <div className="grid grid-cols-6 gap-1">
-            {TOPIC_ICONS.map((name) => {
-              const Icon = getTopicIcon(name);
-              return (
-                <button
-                  key={name}
-                  onClick={() => handleIconChange(name)}
-                  aria-label={`Icon ${name}`}
-                  className={`w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-lg hover:bg-app-hover transition-colors ${
-                    topic.icon === name ? 'bg-primary/10 ring-2 ring-primary/50' : ''
-                  }`}
-                >
-                  <Icon size={16} className="text-app-text-secondary" />
-                </button>
-              );
-            })}
           </div>
         </div>
       )}

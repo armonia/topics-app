@@ -10,7 +10,7 @@ import { basename } from '../../lib/path-utils';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import type { Topic, SearchResult } from '../../types';
 import type { ClosedTabRecord } from '../../state/pane/adapters';
-import { TopicIcon } from '@/lib/topicIcons';
+import { resolveChatAgentBrand, useDefaultProvider, ChatAgentIcon } from '@/lib/chatProviderIcon';
 import { searchApi } from '../../lib/api';
 import { requestScrollToMessage } from '../../state/scrollToMessage';
 import { PANE_CONFIG } from '../../state/pane/adapters';
@@ -112,6 +112,9 @@ export function CommandPalette({
   const [searchResults, setSearchResults] = useState<CommandAction[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Chats brand by their provider (Claude / Codex mark), or nothing — resolved
+  // against the global default for `provider: null` topics. No decorative icons.
+  const defaultProvider = useDefaultProvider();
 
   // Debounced message search
   useEffect(() => {
@@ -137,7 +140,9 @@ export function CommandPalette({
                 id: `msg-${r.sessionKey}-${r.timestamp}`,
                 label: `${roleLabel}: ${truncated}`,
                 description: `${r.topicName}${dateStr ? ' · ' + dateStr : ''}`,
-                icon: <TopicIcon name={r.topicIcon} size={14} />,
+                // Message hits carry no provider on the wire; brand from the
+                // global default (Claude in a normal setup). No decorative icon.
+                icon: <ChatAgentIcon brand={resolveChatAgentBrand(undefined, defaultProvider)} size={14} />,
                 category: 'message' as const,
                 action: () => {
                   // Register the jump target BEFORE opening — a fresh mount's
@@ -158,7 +163,7 @@ export function CommandPalette({
       }
     }, 300);
     return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current); };
-  }, [query, onOpenTopic, onClose]);
+  }, [query, onOpenTopic, onClose, defaultProvider]);
 
   // Fetch flat file list when palette opens with a project path. Skipped in
   // projects scope (⌘F) — only project rows render there. Guard the payload:
@@ -279,14 +284,14 @@ export function CommandPalette({
           id: `topic-${topic.id}`,
           label: topic.name,
           description,
-          icon: <TopicIcon name={topic.icon} size={14} color={topic.color || undefined} />,
+          icon: <ChatAgentIcon brand={resolveChatAgentBrand(topic.provider, defaultProvider)} size={14} />,
           category: 'topic' as const,
           _ts: ts,
           action: () => { onOpenTopic(topic.id); onClose(); },
         };
       })
       .sort((a, b) => (b._ts || 0) - (a._ts || 0));
-  }, [topics, onOpenTopic, onClose]);
+  }, [topics, onOpenTopic, onClose, defaultProvider]);
 
   // ── Layout actions (searchable command rows, 'action' category) ─────────
   // "Reimposta pannelli" (collapse every split into one tabbed cell) and its

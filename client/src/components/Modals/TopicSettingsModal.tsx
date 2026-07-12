@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { X, FolderOpen, GitBranch } from 'lucide-react';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import type { Topic, UpdateTopicRequest, AutonomyLevel, Worktree } from '../../types';
-import { TOPIC_ICONS, getTopicIcon, TopicIcon } from '@/lib/topicIcons';
+import { resolveChatAgentBrand, useDefaultProvider, ChatAgentIcon } from '@/lib/chatProviderIcon';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { worktreesApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -25,7 +25,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [projectPath, setProjectPath] = useState(topic.projectPath || '');
   const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>(topic.autonomyLevel || 'ask');
   const [topicName, setTopicName] = useState(topic.name);
-  const [topicIcon, setTopicIcon] = useState(topic.icon);
   const [topicColor, setTopicColor] = useState(topic.color);
   const [systemPrompt, setSystemPrompt] = useState(topic.systemPrompt || '');
   const [contextFilesList, setContextFilesList] = useState<string[]>(topic.contextFiles || []);
@@ -33,8 +32,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [provider, setProvider] = useState<string | null>(topic.provider ?? null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [saved, setSaved] = useState(false);
-  const [showIconPicker, setShowIconPicker] = useState(false);
   const toast = useToast();
+  // Header glyph = the chat's provider brand (Claude / Codex), or nothing.
+  const agentBrand = resolveChatAgentBrand(topic.provider, useDefaultProvider());
   // Phase A · TOPIC-WT-03: read-only worktree info when topic is bound.
   const [worktree, setWorktree] = useState<Worktree | null>(null);
 
@@ -57,7 +57,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     setProjectPath(topic.projectPath || '');
     setAutonomyLevel(topic.autonomyLevel || 'ask');
     setTopicName(topic.name);
-    setTopicIcon(topic.icon);
     setTopicColor(topic.color);
     setSystemPrompt(topic.systemPrompt || '');
     setContextFilesList(topic.contextFiles || []);
@@ -88,7 +87,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     projectPath !== (topic.projectPath || '') ||
     autonomyLevel !== (topic.autonomyLevel || 'ask') ||
     topicName !== topic.name ||
-    topicIcon !== topic.icon ||
     topicColor !== topic.color ||
     systemPrompt !== (topic.systemPrompt || '') ||
     JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []) ||
@@ -106,7 +104,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     // throwing, so an unguarded await always looked like a successful save.
     const result = await onUpdate(topic.id, {
       name: topicName,
-      icon: topicIcon,
       color: topicColor,
       projectPath: projectPath.trim() || undefined,
       autonomyLevel,
@@ -176,7 +173,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <div className="flex items-center gap-2">
-            <TopicIcon name={topic.icon} size={16} color={topic.color || undefined} />
+            {agentBrand && <ChatAgentIcon brand={agentBrand} size={16} />}
             <h2 className="text-[15px] font-semibold text-app-text">{topic.name} Settings</h2>
           </div>
           <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close settings">
@@ -186,47 +183,17 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
-          {/* Name & Icon */}
+          {/* Name */}
           <div>
             <label className="block text-[13px] font-medium text-app-text mb-2">
-              Name & Icon
+              Name
             </label>
-            <div className="flex gap-2 mb-3">
-              <button
-                type="button"
-                onClick={() => setShowIconPicker(v => !v)}
-                className={`w-12 h-10 flex items-center justify-center border rounded-lg transition-colors ${
-                  showIconPicker ? 'border-primary bg-primary/10' : 'border-app-border-light bg-surface dark:bg-elevated hover:bg-app-hover'
-                }`}
-              >
-                <TopicIcon name={topicIcon} size={16} color={topicColor || undefined} />
-              </button>
-              <input
-                type="text"
-                value={topicName}
-                onChange={e => setTopicName(e.target.value)}
-                className="flex-1 px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
-              />
-            </div>
-            {showIconPicker && (
-              <div className="grid grid-cols-6 gap-1 p-3 border border-app-border-light rounded-lg bg-surface dark:bg-elevated">
-                {TOPIC_ICONS.map((name) => {
-                  const Icon = getTopicIcon(name);
-                  return (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => { setTopicIcon(name); setShowIconPicker(false); }}
-                      className={`w-10 h-10 md:w-8 md:h-8 flex items-center justify-center rounded-lg hover:bg-app-hover transition-colors ${
-                        topicIcon === name ? 'bg-primary/10 ring-2 ring-primary/50' : ''
-                      }`}
-                    >
-                      <Icon size={16} style={{ color: topicColor || undefined }} />
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <input
+              type="text"
+              value={topicName}
+              onChange={e => setTopicName(e.target.value)}
+              className="w-full px-3 py-2 border border-app-border-light rounded-lg text-[13px] bg-surface dark:bg-elevated text-app-text focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+            />
           </div>
 
           {/* Color */}
