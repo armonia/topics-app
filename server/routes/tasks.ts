@@ -17,6 +17,8 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
 import { getTerminalSessionById } from "./terminal";
 import { createTaskService, projectIdForPath, TaskServiceError } from "../services/tasks";
@@ -38,7 +40,14 @@ const ERROR_STATUS: Record<string, number> = {
  */
 const AGENT_COMMENT_MAX_CHARS = 600;
 
-export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher): RouteHandler {
+export interface TasksRouterOpts {
+  /** All project dirs the server knows (same union the dispatcher resolves against). */
+  listProjectDirs?: () => string[];
+  /** Workspace root for scaffolding a NEW project from the board. */
+  workspaceDir?: string;
+}
+
+export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey } = ctx;
   const svc = createTaskService(db);
 
@@ -70,16 +79,56 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped).
     const isSession = pathname.startsWith("/api/sessions/");
     const isBoard = pathname.startsWith("/api/boards/");
-    const isAllBoards = pathname === "/api/all-boards/tasks";
+    const isAllBoards = pathname.startsWith("/api/all-boards/");
     if (!isSession && !isBoard && !isAllBoards) return null;
 
     // GET /api/all-boards/tasks — the global cross-project feed (human overview).
     // Read-only: per-task mutations still go to /api/boards/:projectId/... using
     // each task's own projectId.
-    if (isAllBoards && method === "GET") {
+    if (pathname === "/api/all-boards/tasks" && method === "GET") {
       const status = new URL(req.url).searchParams.get("status") || undefined;
       try { return json({ tasks: svc.list({ scope: "all", status: status as any }) }); }
       catch (e) { return fail(e); }
+    }
+
+    // /api/all-boards/projects — the board index (task-detail project selector).
+    //   GET  → every project dir the server knows, as {projectId, name, path}
+    //          (projectId = the same hash the boards key on).
+    //   POST → scaffold a NEW workspace project (same contract as the session
+    //          create-project route: sanitized name, dir + CLAUDE.md, 409 on
+    //          collision) so "Nuovo progetto…" works from the board too.
+    if (pathname === "/api/all-boards/projects") {
+      if (method === "GET") {
+        const seen = new Set<string>();
+        const projects: Array<{ projectId: string; name: string; path: string }> = [];
+        let dirs: string[] = [];
+        try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+        for (const raw of dirs) {
+          if (typeof raw !== "string" || !raw.startsWith("/")) continue;
+          const path = raw.replace(/\/+$/, "");
+          if (!path || seen.has(path)) continue;
+          seen.add(path);
+          projects.push({ projectId: projectIdForPath(path), name: basename(path), path });
+        }
+        projects.sort((a, b) => a.name.localeCompare(b.name));
+        return json({ projects });
+      }
+      if (method === "POST") {
+        if (!opts?.workspaceDir) return json({ error: "workspace not configured", code: "invalid_input" }, 500);
+        const body = (await readJSON(req)) as any;
+        const safeName = (typeof body?.name === "string" ? body.name.trim() : "").replace(/[^a-zA-Z0-9_-]/g, "");
+        if (!safeName) return json({ error: "name (alphanumeric) is required", code: "invalid_input" }, 400);
+        const dir = join(opts.workspaceDir, safeName);
+        if (existsSync(dir)) {
+          return json({ error: `project "${safeName}" already exists`, code: "project_exists" }, 409);
+        }
+        try {
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(join(dir, "CLAUDE.md"), `# ${safeName}\n`);
+        } catch (e) { return fail(e); }
+        return json({ projectId: projectIdForPath(dir), name: safeName, path: dir }, 201);
+      }
+      return null;
     }
 
     // ── Human board API (project-scoped, actor="human") ─────────────────────
@@ -158,6 +207,26 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
           } catch (e) { return fail(e); }
         }
         return null;
+      }
+
+      // POST /api/boards/:projectId/tasks/:taskId/move — send the task (and its
+      // subtree) to another board. Both boards get a broadcast so the source
+      // drops the card and the target picks it up live.
+      const bMove = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/move");
+      if (bMove && method === "POST") {
+        const body = (await readJSON(req)) as any;
+        try {
+          const task = svc.moveToProject({
+            taskId: bMove.taskId,
+            projectId: bMove.projectId,
+            toProjectId: typeof body?.toProjectId === "string" ? body.toProjectId : "",
+          });
+          broadcastToAll({ type: "task:updated", projectId: bMove.projectId, task });
+          if (task.projectId !== bMove.projectId) {
+            broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+          }
+          return json(task);
+        } catch (e) { return fail(e); }
       }
 
       const bReview = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/review");
