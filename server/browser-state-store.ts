@@ -72,7 +72,51 @@ export async function loadStorageState(
   }
 }
 
+// ── Last-URL persistence ─────────────────────────────────────────────────────
+// A context recreated under the same id (server restart, inactivity reap)
+// comes up about:blank even though the PANE remembers its url — the page has
+// to come back by itself for browser tabs to match chat tabs ("riavvia l'app
+// e continua"). Stored next to storage.json so it shares the context's
+// storage lifecycle (survives destroyContext, removed with deleteStorageState).
+
+function lastUrlFile(topicId: string): string {
+  return join(topicDir(topicId), "last-url.json");
+}
+
+/** Only http(s) pages are worth restoring — about:blank / chrome-error /
+ *  devtools schemes would clobber the good url or fail to load. */
+function isRestorableUrl(url: unknown): url is string {
+  return typeof url === "string" && /^https?:\/\//.test(url);
+}
+
+/** Persist the context's last real page URL (best-effort, atomic). */
+export function saveLastUrl(topicId: string, url: string): void {
+  if (!isRestorableUrl(url)) return;
+  try {
+    const dir = topicDir(topicId);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    atomicWriteJSON(lastUrlFile(topicId), { url, updatedAt: new Date().toISOString() });
+  } catch (err) {
+    console.warn(`[browser-state-store] saveLastUrl(${topicId}) failed:`, err);
+  }
+}
+
+/** Read the persisted last URL for a context id (null when none/invalid). */
+export function loadLastUrl(topicId: string): string | null {
+  const file = lastUrlFile(topicId);
+  if (!existsSync(file)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf-8")) as { url?: unknown };
+    return isRestorableUrl(parsed.url) ? parsed.url : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteStorageState(topicId: string): Promise<void> {
+  // The last-url rides the same lifecycle as storage.json: an explicitly
+  // deleted state must not resurrect the old page on a future same-id context.
+  try { unlinkSync(lastUrlFile(topicId)); } catch {}
   const file = topicFile(topicId);
   const dir = topicDir(topicId);
   if (existsSync(file)) {
