@@ -486,6 +486,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "INSERT INTO task_comments (id, task_id, author, content, mentions, created_at) VALUES (?, ?, ?, ?, ?, ?)",
       ).run(id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, ts);
+      // The thread is part of the task: touch updated_at so live clients (open
+      // drawer, review card) see a change signal and refetch — without this, a
+      // new comment broadcasts task:updated but the payload looks identical.
+      db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, taskId);
       return rowToComment(db.prepare("SELECT * FROM task_comments WHERE id = ?").get(id));
     },
 
