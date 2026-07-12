@@ -269,6 +269,43 @@ describe("boundRootOf (dispatch root of a subtree)", () => {
   });
 });
 
+describe("moveToProject", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("moves the whole subtree; the root re-appends on the target board", () => {
+    const root = s.create({ projectId: "pA", text: "root" });
+    const step = s.create({ projectId: "pA", text: "step", status: "backlog", parentTaskId: root.id });
+    const sub = s.create({ projectId: "pA", text: "sub", status: "backlog", parentTaskId: step.id });
+    s.create({ projectId: "pB", text: "existing" }); // target board order 1
+    const moved = s.moveToProject({ taskId: root.id, toProjectId: "pB" });
+    expect(moved.projectId).toBe("pB");
+    expect(moved.kanbanOrder).toBe(2);
+    expect(s.get(step.id)!.task.projectId).toBe("pB");
+    expect(s.get(sub.id)!.task.projectId).toBe("pB");
+    expect(s.list({ scope: "project", projectId: "pA" }).length).toBe(0);
+  });
+
+  test("a subtask never moves alone (same-board parent invariant)", () => {
+    const root = s.create({ projectId: "pA", text: "root" });
+    const step = s.create({ projectId: "pA", text: "step", status: "backlog", parentTaskId: root.id });
+    expect(() => s.moveToProject({ taskId: step.id, toProjectId: "pB" })).toThrow(/subtask/);
+  });
+
+  test("a task with a live agent stays put", () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-1')");
+    const t = s.create({ projectId: "pA", text: "x", status: "in_progress" });
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1' WHERE id = ?").run(t.id);
+    expect(() => s.moveToProject({ taskId: t.id, toProjectId: "pB" })).toThrow(/live agent/);
+  });
+
+  test("same-board move is a no-op; projectId guard reports not_found", () => {
+    const t = s.create({ projectId: "pA", text: "x" });
+    expect(s.moveToProject({ taskId: t.id, toProjectId: "pA" }).projectId).toBe("pA");
+    expect(() => s.moveToProject({ taskId: t.id, toProjectId: "pB", projectId: "pWRONG" })).toThrow(/not found/);
+  });
+});
+
 describe("outputUrl (KANBAN-09 review panel)", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => { db = freshDb(); s = svc(db); });

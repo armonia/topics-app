@@ -332,6 +332,45 @@ describe("board router (human, project-scoped)", () => {
     expect(resumed.length).toBe(1);
   });
 
+  test("POST move relocates the task and broadcasts to BOTH boards", async () => {
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "wanderer" }))!.json();
+    broadcasts.length = 0;
+    const resp = (await call(router, "POST", `/api/boards/pX/tasks/${t.id}/move`, { toProjectId: "pY" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).projectId).toBe("pY");
+    const pids = broadcasts.filter((b) => b.type === "task:updated").map((b) => b.projectId);
+    expect(pids).toContain("pX");
+    expect(pids).toContain("pY");
+  });
+
+  test("GET /api/all-boards/projects hashes known dirs (dedup, sorted); POST scaffolds", async () => {
+    const { mkdtempSync, existsSync, readFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const ws = mkdtempSync(join(tmpdir(), "tasks-router-ws-"));
+    try {
+      const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+        listProjectDirs: () => ["/x/proj", "/x/proj/", "/y/alpha"],
+        workspaceDir: ws,
+      });
+      const list = await (await call(r, "GET", "/api/all-boards/projects"))!.json();
+      expect(list.projects.map((p: any) => p.name)).toEqual(["alpha", "proj"]);
+      // Same hash the boards key on (locked by the projectIdForPath test).
+      expect(list.projects[1].projectId).toBe("proj-xwac8t");
+
+      const created = (await call(r, "POST", "/api/all-boards/projects", { name: "nuovo-prog" }))!;
+      expect(created.status).toBe(201);
+      const proj = await created.json();
+      expect(proj.path).toBe(join(ws, "nuovo-prog"));
+      expect(existsSync(join(ws, "nuovo-prog", "CLAUDE.md"))).toBe(true);
+      expect(readFileSync(join(ws, "nuovo-prog", "CLAUDE.md"), "utf8")).toContain("nuovo-prog");
+      // Collision = 409, never a silent bind.
+      expect((await call(r, "POST", "/api/all-boards/projects", { name: "nuovo-prog" }))!.status).toBe(409);
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  });
+
   test("GET /api/all-boards/tasks is the global cross-project feed", async () => {
     await call(router, "POST", "/api/boards/pX/tasks", { text: "in X" });
     await call(router, "POST", "/api/boards/pY/tasks", { text: "in Y" });

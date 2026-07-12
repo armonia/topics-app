@@ -274,3 +274,23 @@ agent).
 - **WHEN** l'umano non ha espanso il dettaglio
 - **THEN** il dettaglio è un drawer a destra e la board resta visibile
 - **AND** l'espansione (persistente per client) mostra albero+thread a sinistra e output a destra
+
+L'intestazione del dettaglio SHALL mostrare il progetto del task come **selettore**:
+l'indice delle board risolvibili dal server (stessa UNION di path del dispatcher,
+`GET /api/all-boards/projects`) per spostare il task su un'altra board — l'intero
+sottoalbero viaggia insieme; un sottotask SHALL NOT spostarsi da solo e un task con un
+agent vivo SHALL restare fermo (motivo visibile). In coda al selettore: **Apri
+progetto** (apre/foca la finestra del progetto) e **Nuovo progetto…** (scaffold nel
+workspace — dir + CLAUDE.md, 409 su collisione — poi sposta il task lì). Titolo e
+descrizione SHALL essere editabili inline dal dettaglio senza layout shift.
+
+#### Scenario: spostare un task su un'altra board
+- **GIVEN** un task con sottotask sulla board A
+- **WHEN** l'umano sceglie la board B dal selettore del progetto
+- **THEN** task e sottoalbero compaiono sulla board B (root in coda) e spariscono da A
+- **AND** entrambe le board si aggiornano live
+
+#### Scenario: lo spostamento è guardato
+- **GIVEN** un sottotask, o un task con agent attivo
+- **WHEN** l'umano tenta lo spostamento
+- **THEN** l'operazione è rifiutata con il motivo (si sposta il root / prima chiudi il giro)

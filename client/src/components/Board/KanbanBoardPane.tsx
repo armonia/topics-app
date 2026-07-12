@@ -9,11 +9,13 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Bot, ChevronRight, ExternalLink, Loader2, Maximize2, Minimize2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ExternalLink, Loader2, Maximize2, Minimize2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
+import { Menu } from '../Shared/Menu';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
+  type BoardProjectRef,
 } from '../../lib/board';
 
 interface Props {
@@ -643,6 +645,56 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     if (e.key === 'Escape') { editCancelled.current = true; (e.target as HTMLElement).blur(); }
   };
 
+  // Project selector (header chip): move the task to another board, open the
+  // current project's window, or scaffold a new workspace project. The list is
+  // the server-resolvable board index — fetched lazily on first open.
+  const projChipRef = useRef<HTMLButtonElement>(null);
+  const [projMenuOpen, setProjMenuOpen] = useState(false);
+  const [projects, setProjects] = useState<BoardProjectRef[] | null>(null);
+  const [creatingProj, setCreatingProj] = useState(false);
+  const [newProjName, setNewProjName] = useState('');
+  const [projBusy, setProjBusy] = useState(false);
+
+  const openProjMenu = () => {
+    setProjMenuOpen(true);
+    if (projects === null) boardApi.projects().then(setProjects).catch(() => setProjects([]));
+  };
+  const currentProject = projects?.find((p) => p.projectId === task?.projectId) ?? null;
+  const projectLabel = currentProject?.name ?? (task ? task.projectId.replace(/-[^-]+$/, '') : '');
+  const moveBlocked = !task ? null
+    : task.parentTaskId ? 'I sottotask si spostano col loro task padre.'
+    : task.assignedTopicId || ['queued', 'starting', 'working'].includes(task.dispatchState ?? '')
+      ? "C'è un agent attivo sul task: chiudi prima il giro."
+      : null;
+
+  const doMove = async (p: BoardProjectRef) => {
+    if (projBusy || !task) return;
+    setProjBusy(true);
+    try {
+      await boardApi.move(task.projectId, taskId, p.projectId);
+      setError(null); setProjMenuOpen(false); onChanged();
+    } catch (e) { showError(e); }
+    finally { setProjBusy(false); }
+  };
+  const doOpenProject = () => {
+    if (!currentProject) return;
+    window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath: currentProject.path } }));
+    setProjMenuOpen(false);
+  };
+  const doCreateProject = async () => {
+    const name = newProjName.trim();
+    if (!name || projBusy || !task) return;
+    setProjBusy(true);
+    try {
+      const created = await boardApi.createProject(name);
+      setProjects((prev) => (prev ? [...prev, created].sort((a, b) => a.name.localeCompare(b.name)) : prev));
+      await boardApi.move(task.projectId, taskId, created.projectId);
+      setError(null); setNewProjName(''); setCreatingProj(false); setProjMenuOpen(false);
+      onChanged();
+    } catch (e) { showError(e); }
+    finally { setProjBusy(false); }
+  };
+
   const doneCount = children.filter((c) => c.status === 'done').length;
 
   return (
@@ -655,6 +707,84 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           {task ? <StatusIcon status={task.status} /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {task ? (task.status === 'review' ? 'Serve te' : STATUS_LABEL[task.status]) : 'Carico…'}
         </span>
+        {task && (
+          <button
+            ref={projChipRef}
+            onClick={openProjMenu}
+            data-testid="task-project-chip"
+            title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
+            className="flex min-w-0 max-w-[10rem] items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300 hover:bg-emerald-500/25"
+          >
+            <span className="truncate">{projectLabel}</span>
+            <ChevronDown className="h-3 w-3 shrink-0" />
+          </button>
+        )}
+        <Menu
+          open={projMenuOpen}
+          anchorRef={projChipRef}
+          onClose={() => { setProjMenuOpen(false); setCreatingProj(false); }}
+          minWidth={230}
+        >
+          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Sposta su…</p>
+          {moveBlocked && <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p>}
+          <div className="max-h-60 overflow-y-auto">
+            {projects === null ? (
+              <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
+            ) : projects.length === 0 ? (
+              <p className="px-2.5 py-2 text-xs text-neutral-500">Nessun progetto trovato.</p>
+            ) : projects.map((p) => {
+              const current = p.projectId === task?.projectId;
+              return (
+                <button
+                  key={p.projectId} role="menuitem"
+                  disabled={current || !!moveBlocked || projBusy}
+                  onClick={() => doMove(p)}
+                  title={p.path}
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                >
+                  <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                  {current && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              );
+            })}
+          </div>
+          <div className="my-1 border-t border-white/10" />
+          <button
+            role="menuitem" disabled={!currentProject}
+            onClick={doOpenProject}
+            title={currentProject ? `Apri la finestra di ${currentProject.name}` : 'Percorso del progetto non risolvibile'}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+          ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
+          {creatingProj ? (
+            <div className="flex items-center gap-1 px-2.5 py-1.5">
+              <input
+                autoFocus value={newProjName} disabled={projBusy}
+                onChange={(e) => setNewProjName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); doCreateProject(); }
+                  if (e.key === 'Escape') { setCreatingProj(false); setNewProjName(''); }
+                }}
+                placeholder="nome-progetto"
+                className="min-w-0 flex-1 rounded bg-white/5 px-1.5 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600"
+              />
+              {projBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />
+              ) : (
+                <button
+                  onClick={doCreateProject} disabled={!newProjName.trim()}
+                  className="rounded bg-emerald-500/80 px-1.5 py-1 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
+                >Crea</button>
+              )}
+            </div>
+          ) : (
+            <button
+              role="menuitem" disabled={!!moveBlocked || projBusy}
+              onClick={() => setCreatingProj(true)}
+              title={moveBlocked ?? 'Crea un nuovo progetto nel workspace e sposta qui il task'}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+            ><Plus className="h-3.5 w-3.5" /> Nuovo progetto…</button>
+          )}
+        </Menu>
         {task?.status === 'review' && (
           <div className="flex items-center gap-1">
             <button
