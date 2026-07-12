@@ -37,7 +37,7 @@ export interface DispatcherDeps {
    */
   resolveProject: (projectId: string) => { path: string; projectStoreId: string | null } | null;
   /** Create a detached, project-bound chat topic (no focus steal). */
-  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string }) => {
+  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string }) => {
     topicId: string;
     sessionKey: string;
   };
@@ -132,7 +132,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "Regole di lavoro:",
         "- Lavora SOLO questo task, in questa working directory.",
         "- Tieni la comunicazione minima: brevi commenti di stato ai milestone, non log verbosi.",
-        `- Quando il lavoro è completo sposta il task in \`review\` con: update_task(task_id="${task.id}", project_id="${task.projectId}", status="review"). NON puoi portarlo a \`done\` (serve l'ok umano).`,
+        `- Quando il lavoro è completo sposta il task in \`review\` con: update_task(task_id="${task.id}", status="review"). NON puoi portarlo a \`done\` (serve l'ok umano).`,
         "- Se ti serve una decisione umana per procedere, metti il task in `review` e lascia la domanda in un commento in QUESTO formato (così l'umano risponde con un click dalla board):",
         "  ```question",
         "  <la domanda in una riga>",
@@ -148,7 +148,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Launch one already-claimed task: (worktree?) → topic → turn → reconcile. */
   async function launch(
     taskId: string,
-    settings: { useWorktree: boolean; timeoutMin: number },
+    settings: { useWorktree: boolean; timeoutMin: number; effort: string },
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
     inFlight.set(taskId, { sessionKey: "" });
@@ -180,6 +180,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         projectPath: resolved.path,
         worktreeId,
         systemPrompt: ROLE_PROMPT,
+        effort: settings.effort,
       });
       inFlight.set(taskId, { sessionKey });
 
@@ -288,7 +289,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!settings.autoDispatch) return;
 
     const resolved = deps.resolveProject(projectId);
-    if (!resolved) { log(`cannot resolve project path for board ${projectId}`); return; }
 
     let todos: Task[];
     try { todos = deps.svc.list({ scope: "project", projectId, status: "todo" }); }
@@ -296,6 +296,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     todos = todos
       .filter((t) => !t.assignedTopicId && t.dispatchAttempts < RETRY_CAP)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    if (!resolved) {
+      // Auto-dispatch is ON but the board id can't be mapped back to a
+      // directory. Park the eligible todos with a visible reason instead of
+      // stranding them (chip "queued" forever) with only a server log.
+      log(`cannot resolve project path for board ${projectId}`);
+      for (const t of todos) {
+        if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
+        try {
+          emit(deps.svc.release({
+            taskId: t.id,
+            requeue: false,
+            reason:
+              "Auto-dispatch fermato: non riesco a risalire alla directory del progetto per questa board. " +
+              "Apri il progetto in una tab (o registralo) e riporta il task in Todo.",
+          }));
+        } catch { /* task may have moved */ }
+      }
+      return;
+    }
 
     for (const t of todos) {
       if (inFlight.has(t.id)) continue;
@@ -315,7 +335,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       clearGrace(t.id);
       emit(claimed); // chip → starting
       // Fire the launch; do NOT await (one board can fill multiple slots).
-      void launch(t.id, { useWorktree: settings.dispatchUseWorktree, timeoutMin: settings.dispatchTimeoutMin }, resolved);
+      void launch(t.id, {
+        useWorktree: settings.dispatchUseWorktree,
+        timeoutMin: settings.dispatchTimeoutMin,
+        effort: settings.dispatchEffort,
+      }, resolved);
     }
   }
 

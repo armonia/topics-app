@@ -58,7 +58,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const svc: TaskService = createTaskService(db);
   const events: any[] = [];
   const worktreesCreated: string[] = [];
-  const topicsCreated: { name: string; projectPath: string; worktreeId?: string }[] = [];
+  const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string }[] = [];
   const turns: { sessionKey: string; content: string }[] = [];
   let resolveTurn: (() => void) | null = null;
   let rejectTurn: ((e: unknown) => void) | null = null;
@@ -67,7 +67,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     svc,
     resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
     createTopic: (opts) => {
-      topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId });
+      topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort });
       const n = topicsCreated.length;
       return { topicId: `topic-${n}`, sessionKey: `topic:sk${n}` };
     },
@@ -298,6 +298,41 @@ describe("task-dispatcher", () => {
     expect(t.status).toBe("backlog");   // parked, not stranded in todo
     expect(t.dispatchError).toContain("fallito");
     expect(h.turns.length).toBe(0);
+  });
+
+  it("parks todos with a visible reason when the board can't be resolved", async () => {
+    const h = harness({ resolveProject: () => null });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo", dispatchState: "queued" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");                       // parked, not stranded on "queued"
+    expect(t.dispatchState).toBeNull();
+    expect(t.dispatchError).toContain("directory del progetto");
+    expect(h.turns.length).toBe(0);
+    // The reason is also in the thread, so the human sees WHY from the card.
+    const comments = h.svc.get("t1")!.comments;
+    expect(comments.some((c) => c.content.includes("directory del progetto"))).toBe(true);
+  });
+
+  it("passes the board's dispatch effort to the agent topic", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchEffort: "max" });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated[0].effort).toBe("max");
+  });
+
+  it("kickoff instructs update_task with the real tool signature (no project_id)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns[0].content).toContain('update_task(task_id="t1", status="review")');
+    expect(h.turns[0].content).not.toContain("project_id");
   });
 
   it("onEnterTodo re-dispatches a task dragged back from review (clears stale binding)", async () => {

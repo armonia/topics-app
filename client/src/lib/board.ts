@@ -36,6 +36,8 @@ export interface BoardTask {
   assignedTopicId: string | null;
   /** null = not dispatched; queued | starting | working | needs_input. */
   dispatchState: string | null;
+  /** Why the last dispatch attempt was released/parked (visible feedback). */
+  dispatchError: string | null;
 }
 
 export interface TaskComment {

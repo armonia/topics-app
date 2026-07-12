@@ -113,6 +113,8 @@ export interface DetachedTopicOptions {
   worktreeId?: string;
   /** Per-topic system prompt (e.g. the task-scoped instructions). */
   systemPrompt?: string;
+  /** Reasoning-effort tier for the topic's claude spawn (`--effort <tier>`, migration 033). */
+  effort?: string;
 }
 
 /**
@@ -147,6 +149,7 @@ export function createDetachedTopic(
   } as Topic;
   if (opts.projectPath) newTopic.projectPath = opts.projectPath;
   if (opts.worktreeId) newTopic.worktreeId = opts.worktreeId;
+  if (opts.effort) newTopic.effort = opts.effort;
   deps.saveSingleTopic(newTopic);
   deps.broadcastToAll({ type: "topic:created", topic: newTopic });
   return { topic: newTopic };

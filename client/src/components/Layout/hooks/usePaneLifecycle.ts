@@ -128,6 +128,11 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
       if (paneId && targetPrimary && onMergeIntoCell) {
         onMergeIntoCell(paneId, targetPrimary);
       }
+    } else if (type === 'board') {
+      // Utility pane (`__board__`) — owned by the App-level lifecycle hook
+      // (handleOpenAsPage). Event-based like `topics:open-project-picker`, so
+      // every "+" host opens it identically with no prop-threading.
+      window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'board' } }));
     }
   }, [ordering.ops, claudeSkipPermissions, onCreateTerminal, gridItemKey, onMergeIntoCell]);
 
