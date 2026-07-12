@@ -32,7 +32,7 @@ import {
   movePaneToSpace,
   nextSpaceName,
 } from './spaceHelpers';
-import { TopicIcon } from '../../lib/topicIcons';
+import { resolveChatAgentBrand, useDefaultProvider, ChatAgentIcon } from '../../lib/chatProviderIcon';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
@@ -174,6 +174,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // icon). Without this, every chat tab fell back to a generic MessageSquare
   // while the sidebar row showed the real icon — a jarring inconsistency.
   const topics = useTopics();
+  // Global default provider — a chat with `provider: null` resolves its brand
+  // (Claude / Codex mark, or none) against this. Lean selector: re-renders only
+  // when the default itself changes.
+  const defaultProvider = useDefaultProvider();
   // Authoritative claude-code detection: a terminal pane is a Claude Code
   // session if its persisted `terminalType` says so OR the live terminal
   // roster reports that session id as claude-code. The persisted field can be
@@ -817,10 +821,22 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 {/* Mono ink on purpose — OpenAI's brand is monochrome. */}
                 <CodexIcon size={14} />
               </span>
-            ) : pane.type === 'chat' && pane.topicId && topics[pane.topicId] ? (
-              <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
-                <TopicIcon name={topics[pane.topicId].icon} color={topics[pane.topicId].color || undefined} size={14} />
-              </span>
+            ) : pane.type === 'chat' ? (
+              // Chats read in the SAME functional language as every other tab:
+              // the glyph is the backing AI provider (Claude / Codex mark), or
+              // NOTHING — never a decorative picked icon. Drafts (no topicId
+              // yet) resolve against the global default, so a new chat brands
+              // as Claude immediately. A no-brand chat collapses to name-only,
+              // exactly like an icon-less project favicon. `Cloud` (OpenClaw) is
+              // marked by its own trailing badge below, so it renders no leading glyph.
+              (() => {
+                const brand = resolveChatAgentBrand(pane.topicId ? topics[pane.topicId]?.provider : undefined, defaultProvider);
+                return brand ? (
+                  <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
+                    <ChatAgentIcon brand={brand} size={14} />
+                  </span>
+                ) : null;
+              })()
             ) : pane.type === 'project' && pane.projectPath ? (
               // Same real project favicon the sidebar shows (GET /api/projects/icon),
               // with the SAME "no fake folder glyph" convention: projects WITHOUT a

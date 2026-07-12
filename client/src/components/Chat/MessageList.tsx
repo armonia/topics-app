@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
-import { TopicIcon } from '@/lib/topicIcons';
+import { resolveChatAgentBrand, useDefaultProvider, ChatAgentIcon } from '@/lib/chatProviderIcon';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
@@ -89,6 +89,10 @@ export function MessageList({
   initialScrollOffset,
   onScrollOffsetChange,
 }: MessageListProps) {
+  // Empty-conversation placeholder brands with the chat's provider (Claude /
+  // Codex mark), or nothing — never a decorative picked icon.
+  const defaultProvider = useDefaultProvider();
+  const agentBrand = resolveChatAgentBrand(topic.provider, defaultProvider);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
@@ -493,9 +497,11 @@ export function MessageList({
         </div>
       ) : filteredMessages.length === 0 ? (
         <div className={`text-center ${'py-3 px-3 md:py-8 md:px-4'}`}>
-          <div className="float-icon inline-block mb-3">
-            <TopicIcon name={topic.icon} size={36} color={topic.color || undefined} />
-          </div>
+          {agentBrand && (
+            <div className="float-icon inline-block mb-3">
+              <ChatAgentIcon brand={agentBrand} size={36} />
+            </div>
+          )}
           <p className="text-[14px] font-medium text-app-text-secondary">{topic.name}</p>
           {topic.systemPrompt && (
             <p className="text-[11px] text-purple-400 mt-1 flex items-center justify-center gap-1">

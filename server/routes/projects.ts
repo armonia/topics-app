@@ -176,6 +176,30 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
           addPath(row.cwd);
         }
       } catch {}
+      // Projects opened as WINDOWS (folder picker / sidebar) but never registered
+      // in projectStore, never linked to a topic, and with no terminal session in
+      // their dir are referenced ONLY in the client's persisted UI snapshots
+      // (sidebar `expandedNodes` + each window's project panes). Without this
+      // source the icon endpoint 403'd every such window, so its favicon never
+      // loaded — the "project icons no longer show" regression. Both encodings
+      // appear: pane ids encode the path (`project:%2FUsers%2F…`), sidebar
+      // expandedNodes store it raw (`project:/Users/…`); the token is realpath'd
+      // by addPath, so a non-existent match is dropped. Same boundary as the
+      // terminal-cwd source above — an attacker can't inject a ui_state row via
+      // this GET, so the union stays a real allowlist, not arbitrary client input.
+      try {
+        const projTokenRe = /project:((?:%2[Ff]|\/)[^"\\]*)/g;
+        for (const row of ctx.db.query("SELECT value FROM ui_state").all() as Array<{ value?: string }>) {
+          const v = row.value;
+          if (typeof v !== "string" || !v.includes("project:")) continue;
+          let m: RegExpExecArray | null;
+          while ((m = projTokenRe.exec(v)) !== null) {
+            let p = m[1];
+            try { p = decodeURIComponent(p); } catch { /* keep raw token */ }
+            addPath(p);
+          }
+        }
+      } catch {}
       if (!allowedRealDirs.has(realDir)) return new Response(null, { status: 403 });
       const iconFile = resolveProjectIcon(realDir);
       // Cache the "no icon" answer too so palette re-opens don't re-probe disk.
