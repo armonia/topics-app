@@ -315,20 +315,34 @@ function getOrCreateClaudeSessionId(sessionKey: string): { id: string; isNew: bo
 }
 
 /**
- * Read the per-topic reasoning-effort override (migration 033) for a session.
- * Returns null when there's no topic, no override, or the DB isn't ready — in
- * every case the caller falls back to the global env-resolved default via
- * `resolveClaudeEffort(null)`. Kept as a narrow single-column read (not the
- * full `getTopicBySessionKey`) to avoid a circular import with utils.ts.
+ * Read the per-topic spawn-time overrides for a session: reasoning-effort
+ * tier (migration 033) and model (migration 013, picked via the provider/model
+ * picker and PATCHed onto the topic). Both are fixed at CLI spawn time, so
+ * they're resolved fresh on every spawn and a PATCH-triggered respawn picks
+ * them up. Nulls fall back to the global defaults (env-resolved effort,
+ * `config.model`). `model` only applies when the topic's provider column
+ * actually resolves to this CLI provider — a stale model persisted under a
+ * different provider (openai, codex…) must not leak into `--model`. Kept as a
+ * narrow row read (not the full `getTopicBySessionKey`) to avoid a circular
+ * import with utils.ts.
  */
-function getTopicEffortForSession(sessionKey: string): string | null {
+function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null } {
   try {
     const row = getDatabase()
-      .prepare("SELECT effort FROM topics WHERE session_key = ? LIMIT 1")
-      .get(sessionKey) as { effort?: string | null } | undefined;
-    return row?.effort ?? null;
+      .prepare("SELECT effort, model, provider FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { effort?: string | null; model?: string | null; provider?: string | null } | undefined;
+    if (!row) return { effort: null, model: null };
+    const provider = row.provider ?? null;
+    const providerIsUs = provider === null || provider === "claude-code" || provider === "claude-code-team";
+    // Loose shape guard only (argv array — no shell involved): the CLI is the
+    // authority on which ids/aliases exist, and listModels() deliberately lets
+    // users pin future model names.
+    const model = providerIsUs && typeof row.model === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(row.model)
+      ? row.model
+      : null;
+    return { effort: row.effort ?? null, model };
   } catch {
-    return null;
+    return { effort: null, model: null };
   }
 }
 
@@ -1016,7 +1030,11 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   private spawnPersistentProcess(sessionKey: string): PersistentProcess {
-    const model = this.config.model ?? DEFAULT_MODEL;
+    // Per-topic overrides (model + effort) win over the global config; both
+    // are spawn-time CLI flags, so the PATCH handler forces a respawn via
+    // refreshSessionConfig when either changes.
+    const overrides = getTopicSpawnOverridesForSession(sessionKey);
+    const model = overrides.model ?? this.config.model ?? DEFAULT_MODEL;
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
     const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
@@ -1042,7 +1060,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // effort selector) wins; otherwise match the Warp default ("ultracode" =
       // xhigh). Without this the spawn falls back to settings.json effortLevel
       // (low). Resolved fresh per spawn, so a change respawn picks up the tier.
-      ...((): string[] => { const e = resolveClaudeEffort(getTopicEffortForSession(sessionKey)); return e ? ["--effort", e] : []; })(),
+      ...((): string[] => { const e = resolveClaudeEffort(overrides.effort); return e ? ["--effort", e] : []; })(),
       "--setting-sources", "user,project,local",
       "--mcp-config", mcpConfigPath,
       // When we scoped the global fleet into the config above, tell the CLI to

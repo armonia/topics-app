@@ -25,7 +25,10 @@ export function undoReducer(state: PaneState, action: PaneAction): void {
   if (paneWithoutScroll.spaceId && !isLiveSpaceId(paneWithoutScroll.spaceId, state.spaces)) {
     delete paneWithoutScroll.spaceId;
   }
-  state.panes[record.id] = { ...paneWithoutScroll };
+  // Undo is a closed→open transition — stamp the causal open timestamp so a
+  // stale peer's surviving marker for this id (union-merged tombstone maps
+  // never propagate deletions) loses the hydrate comparison to the restore.
+  state.panes[record.id] = { ...paneWithoutScroll, openedAt: Date.now() };
 
   // Undo re-opens the pane — retract its durable tombstone so the restored tab
   // isn't stripped on the next union hydrate (mirrors OPEN_PANE's clear).

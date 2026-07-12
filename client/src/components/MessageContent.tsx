@@ -9,7 +9,7 @@ import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
 import { basename } from '../lib/path-utils';
 import { openExternalOnce } from '../lib/openExternal';
-import { ToolCallBadge, PartialIndicator } from './MessageParts';
+import { PartialIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
@@ -785,11 +785,12 @@ function highlightMentions(text: string): (string | React.JSX.Element)[] {
   return parts.length > 0 ? parts : [text];
 }
 
-/** Split content into segments interleaved with inline tool call badges */
+/** Split content into segments interleaved with inline tool call rows */
 function renderContentWithInlineTools(
   cleanText: string,
   toolCalls: ToolCall[],
-  markdownComponents: Components
+  markdownComponents: Components,
+  sessionKey?: string
 ): React.ReactNode[] {
   // Separate tool calls with contentOffset (inline) from those without (legacy)
   const inlineTools = toolCalls
@@ -847,7 +848,7 @@ function renderContentWithInlineTools(
       const tcOffset = tc.contentOffset!;
       // This tool call belongs at or before this split point
       if (i + 1 >= splitPoints.length || tcOffset < splitPoints[i + 1]) {
-        elements.push(<ToolCallBadge key={`tc-${tc.id}`} toolCall={tc} compact />);
+        elements.push(<ToolCallRow key={`tc-${tc.id}`} toolCall={tc} sessionKey={sessionKey} />);
         toolIdx++;
       } else {
         break;
@@ -870,7 +871,7 @@ function renderContentWithInlineTools(
 
   // Any remaining tool calls (shouldn't happen, but safety)
   while (toolIdx < inlineTools.length) {
-    elements.push(<ToolCallBadge key={`tc-${inlineTools[toolIdx].id}`} toolCall={inlineTools[toolIdx]} compact />);
+    elements.push(<ToolCallRow key={`tc-${inlineTools[toolIdx].id}`} toolCall={inlineTools[toolIdx]} sessionKey={sessionKey} />);
     toolIdx++;
   }
 
@@ -1034,7 +1035,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             return (
               <div
                 key={`g-tools-${g.startIdx}`}
-                className="my-1 pl-2 border-l border-app-border/60 space-y-0"
+                className="my-1 space-y-px"
               >
                 {g.tools.map((b, j) => (
                   <ToolCallRow
@@ -1154,7 +1155,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               hasDiffBlocks(cleanText) ? (
                 <DiffBlocksWithApplyAll segments={parseMessageWithDiffs(cleanText)} />
               ) : hasInline ? (
-                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents)}</div>
+                <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents, sessionKey)}</div>
               ) : (
                 <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
                   <ChatMarkdown components={markdownComponents}>
