@@ -37,6 +37,8 @@ import {
   callCreateProject,
   callOpenProject,
   callMoveToProject,
+  callSendChatMessage,
+  callReadChatMessages,
   handleMessage,
 } from "./topics-mcp-server";
 
@@ -258,6 +260,96 @@ describe("callFocusBrowserTab", () => {
 });
 
 // ---------------------------------------------------------------------------
+// callSendChatMessage / callReadChatMessages
+// ---------------------------------------------------------------------------
+
+/** Build a fake SSE Response streaming OpenAI-shaped content deltas. */
+function sseResponse(deltas: string[]): Response {
+  const lines = deltas
+    .map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`)
+    .join("");
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(lines + "data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+  return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+}
+
+describe("callSendChatMessage", () => {
+  const A = { baseUrl: "http://x", sessionKey: "topic:mine" };
+
+  test("resolves the target topic's sessionKey, POSTs /api/chat, returns the concatenated reply", async () => {
+    let chatBody = "";
+    const fetchImpl = stubFetch(async (url, init) => {
+      const u = String(url);
+      if (u.endsWith("/api/topics")) {
+        return new Response(JSON.stringify({ topics: { t1: { sessionKey: "topic:target", name: "Target" } } }), { status: 200 });
+      }
+      if (u.endsWith("/api/chat")) {
+        chatBody = String(init?.body ?? "");
+        return sseResponse(["PONG", "-", "ok"]);
+      }
+      throw new Error(`unexpected url ${u}`);
+    });
+    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl);
+    expect(out).toBe("PONG-ok");
+    const parsed = JSON.parse(chatBody);
+    expect(parsed.sessionKey).toBe("topic:target");
+    expect(parsed.messages).toEqual([{ role: "user", content: "ping" }]);
+  });
+
+  test("refuses to message your own session (self-loop guard)", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ topics: { t1: { sessionKey: "topic:mine", name: "Me" } } }), { status: 200 }),
+    );
+    await expect(callSendChatMessage(A, { topic_id: "t1", message: "hi" }, fetchImpl)).rejects.toThrow(/own session/);
+  });
+
+  test("throws when the target topic is unknown", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ topics: {} }), { status: 200 }));
+    await expect(callSendChatMessage(A, { topic_id: "nope", message: "hi" }, fetchImpl)).rejects.toThrow(/not found/);
+  });
+
+  test("empty reply (tool-only turn) returns an inspect hint, not an error", async () => {
+    const fetchImpl = stubFetch(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/topics")) return new Response(JSON.stringify({ topics: { t1: { sessionKey: "topic:target", name: "T" } } }), { status: 200 });
+      return sseResponse([]);
+    });
+    const out = await callSendChatMessage(A, { topic_id: "t1", message: "go" }, fetchImpl);
+    expect(out).toMatch(/read_chat_messages/);
+  });
+
+  test("throws on missing topic_id / message", async () => {
+    const noop = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(callSendChatMessage(A, { message: "hi" }, noop)).rejects.toThrow(/topic_id/);
+    await expect(callSendChatMessage(A, { topic_id: "t1", message: "  " }, noop)).rejects.toThrow(/message/);
+  });
+});
+
+describe("callReadChatMessages", () => {
+  test("GETs the topic messages endpoint with a clamped limit and returns compact roles", async () => {
+    let seenUrl = "";
+    const fetchImpl = stubFetch(async (url) => {
+      seenUrl = String(url);
+      return new Response(JSON.stringify({ topicName: "T", messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "yo" }] }), { status: 200 });
+    });
+    const out = await callReadChatMessages({ baseUrl: "http://x", sessionKey: "s" }, { topic_id: "t1", limit: 999 }, fetchImpl);
+    expect(seenUrl).toContain("/api/topics/t1/messages?limit=200"); // clamped to 200
+    const parsed = JSON.parse(out);
+    expect(parsed.count).toBe(2);
+    expect(parsed.messages[1]).toEqual({ role: "assistant", content: "yo" });
+  });
+
+  test("throws on missing topic_id", async () => {
+    const noop = stubFetch(async () => new Response("{}", { status: 200 }));
+    await expect(callReadChatMessages({ baseUrl: "http://x", sessionKey: "s" }, {}, noop)).rejects.toThrow(/topic_id/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // handleMessage — JSON-RPC routing
 // ---------------------------------------------------------------------------
 
@@ -322,6 +414,8 @@ describe("handleMessage", () => {
       "new_topic",
       "create_project",
       "open_project",
+      "send_chat_message",
+      "read_chat_messages",
     ]);
     const browser = tools.find((t) => t.name === "open_browser_pane")!;
     expect(browser.inputSchema.required).toEqual(["url"]);
