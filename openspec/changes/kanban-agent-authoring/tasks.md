@@ -12,9 +12,12 @@ Convenzione: ogni Phase chiude con `cd client && tsc -b` verde + i test della Ph
 > claim atomico con cap, worktree di default, effort per-board, chip
 > queued/starting/working/needs_input + park visibile con motivo). Resolver board→dir
 > esteso a topic paths + terminal cwds, con auto-registrazione nel ProjectStore per i
-> worktree. 155 test verdi (service+dispatcher+routes+resolver+MCP), `tsc` ok. Delta
-> spec KANBAN-03/07 riallineati all'implementazione. Restano: E2E su :13334; refactor
-> DRY (0.4/0.5, rimandati).
+> worktree. 746 test verdi (schema test FK-fedele a prod: il claim ora è un puro CAS di
+> stato, niente placeholder topic), `tsc` ok. Awareness block worktree-aware (fix
+> isolamento agent). Delta spec KANBAN-03/07 riallineati all'implementazione. E2E
+> `tests/e2e/board.spec.ts` (7 scenari, verdi su :13334; BOARD-03 flaky-on-cold-start
+> coperto dal retry). Pipeline verificata dal vivo su :3333 (claim → worktree → agent →
+> review → approve → done). Restano: refactor DRY (0.4/0.5, rimandati).
 
 ## Phase 0 — Ricognizione & fondamenta (sblocca tutto)
 - [ ] 0.1 Localizzare in git (`refactor-master-into-kanban`) gli handler REST rimossi per
