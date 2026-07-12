@@ -29,8 +29,12 @@ Convenzione: ogni Phase chiude con `cd client && tsc -b` verde + i test della Ph
 > step done prima della review) e KANBAN-09 **superficie di review** (migration 035
 > `output_url` http(s)-only in iframe sandboxed; dettaglio = drawer di default ↔ wide
 > a due colonne con albero sottotask lazy + thread a bolle chat + Approva/Rifiuta nel
-> header; risposta dal drawer = reject+resume come la card). Restano: refactor DRY
-> (0.4/0.5, rimandati).
+> header; risposta dal drawer = reject+resume come la card). Terza tornata (2026-07-13):
+> consegna mai muta (`review_needs_summary` 409), thread per step (commento umano su
+> uno step con root in review = reject+resume con riferimento allo step, `boundRootOf`),
+> StatusIcon Linear-style su colonne/dettaglio/albero, identità agent neutra nelle
+> bolle (mai il nome-topic), loading ovunque, drawer live (`addComment` bumpa
+> `updated_at`). Restano: refactor DRY (0.4/0.5, rimandati).
 
 ## Phase 0 — Ricognizione & fondamenta (sblocca tutto)
 - [ ] 0.1 Localizzare in git (`refactor-master-into-kanban`) gli handler REST rimossi per

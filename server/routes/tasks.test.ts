@@ -277,6 +277,34 @@ describe("board router (human, project-scoped)", () => {
     expect(entered.length).toBe(1);
   });
 
+  test("comment on a STEP of a root in review re-kicks the agent (reject + resume with step ref)", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-x')");
+    const resumed: Array<[string, string]> = [];
+    const fake = {
+      onEnterTodo() {}, onLeaveTodo() {},
+      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
+    } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake);
+
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "deliverable", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-x' WHERE id = ?").run(root.id);
+    const step = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "step uno", status: "backlog", parentTaskId: root.id }))!.json();
+    await call(r, "PATCH", `/api/boards/pX/tasks/${root.id}`, { status: "review" }); // human hand-off
+
+    const resp = (await call(r, "POST", `/api/boards/pX/tasks/${step.id}/comments`, { content: "copri anche il caso B" }))!;
+    expect(resp.status).toBe(201);
+    expect(resumed.length).toBe(1);
+    expect(resumed[0][0]).toBe(root.id);
+    expect(resumed[0][1]).toContain("step uno");
+    expect(resumed[0][1]).toContain("copri anche il caso B");
+    // The root is back in the agent's hands…
+    const got = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(got.task.status).toBe("in_progress");
+    // …and a further step comment while it works does NOT re-kick again.
+    await call(r, "POST", `/api/boards/pX/tasks/${step.id}/comments`, { content: "nota a margine" });
+    expect(resumed.length).toBe(1);
+  });
+
   test("GET /api/all-boards/tasks is the global cross-project feed", async () => {
     await call(router, "POST", "/api/boards/pX/tasks", { text: "in X" });
     await call(router, "POST", "/api/boards/pY/tasks", { text: "in Y" });
