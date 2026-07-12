@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Bot, ChevronRight, ExternalLink, Info, Loader2, Maximize2, Minimize2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, ChevronRight, ExternalLink, Loader2, Maximize2, Minimize2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
@@ -73,6 +73,17 @@ function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: TaskStatus;
     </svg>
   );
 }
+
+/**
+ * Size a textarea to its content (and keep it sized while typing) so the
+ * click-to-edit swap <p> ↔ <textarea> never shifts the layout: same font,
+ * same padding, same height as the text it replaces.
+ */
+const autoGrow = (el: HTMLTextAreaElement | null) => {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+};
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
 const DISPATCH_CHIP: Record<string, { text: string; cls: string }> = {
@@ -698,33 +709,33 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             )}
             {editingTitle ? (
               <textarea
-                autoFocus value={titleDraft} rows={2}
-                onChange={(e) => setTitleDraft(e.target.value)}
+                autoFocus value={titleDraft} rows={1} ref={autoGrow}
+                onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
                 onBlur={saveTitle}
                 onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
-                className="-mx-1.5 w-[calc(100%+0.75rem)] resize-none rounded bg-white/5 px-1.5 py-1 text-sm text-neutral-100 outline-none"
+                className="-mx-1.5 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-neutral-100 outline-none"
               />
             ) : (
               <p
                 onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
                 title="Clicca per modificare il titolo"
-                className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm text-neutral-100 hover:bg-white/5"
+                className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-neutral-100 hover:bg-white/5"
               >{task?.text}</p>
             )}
             {editingDesc ? (
               <textarea
-                autoFocus value={descDraft} rows={3}
-                onChange={(e) => setDescDraft(e.target.value)}
+                autoFocus value={descDraft} rows={1} ref={autoGrow}
+                onChange={(e) => { setDescDraft(e.target.value); autoGrow(e.currentTarget); }}
                 onBlur={saveDesc}
                 onKeyDown={cancelKey}
                 placeholder="Descrizione…"
-                className="-mx-1.5 mt-1 w-[calc(100%+0.75rem)] resize-none rounded bg-white/5 px-1.5 py-1 text-xs text-neutral-300 outline-none"
+                className="-mx-1.5 mt-1 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-xs leading-4 text-neutral-300 outline-none"
               />
             ) : task?.description ? (
               <p
                 onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
                 title="Clicca per modificare la descrizione"
-                className="-mx-1.5 mt-1 cursor-text whitespace-pre-wrap rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-white/5"
+                className="-mx-1.5 mt-1 cursor-text whitespace-pre-wrap rounded px-1.5 py-0.5 text-xs leading-4 text-neutral-400 hover:bg-white/5"
               >{task.description}</p>
             ) : (
               <button
@@ -912,26 +923,29 @@ function commentTime(iso: string): string {
 }
 
 /**
- * One thread message, chat-shaped: the human's ('user') on the right in the
- * accent tint, agent/system on the left. The agent's identity is a NEUTRAL
- * "agent" chip (Bot icon) — never the raw author string, which for dispatched
- * agents is the topic name = the task title (rendering it as a username read
- * like a person called "Audit leggero del repo…"). Real author in the tooltip.
+ * One thread message. Only the HUMAN's messages are chat bubbles (right,
+ * accent tint); agent and system output is bare text on the left — no card, no
+ * author title (for dispatched agents the raw author is the topic name = the
+ * task title, so any label would read like a bogus username; it survives only
+ * in the tooltip). System notes are dimmed.
  */
 function CommentBubble({ comment }: { comment: TaskComment }) {
-  const mine = comment.author === 'user';
-  const system = comment.author === 'system';
+  if (comment.author !== 'user') {
+    const system = comment.author === 'system';
+    return (
+      <div className="pr-8" title={comment.author}>
+        <div className={`text-sm ${system ? 'text-neutral-500' : 'text-neutral-200'}`}>
+          <CommentBody content={comment.content} />
+        </div>
+        <p className="mt-0.5 text-[9px] text-neutral-600">{commentTime(comment.createdAt)}</p>
+      </div>
+    );
+  }
   return (
-    <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[88%] rounded-lg px-2.5 py-1.5 text-sm ${mine ? 'bg-sky-500/15' : system ? 'border border-white/10 bg-transparent' : 'bg-white/5'}`}>
-        {!mine && (
-          <p className="flex items-center gap-1 text-[10px] font-semibold text-neutral-400" title={comment.author}>
-            {system ? <Info className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
-            {system ? 'sistema' : 'agent'}
-          </p>
-        )}
+    <div className="flex justify-end">
+      <div className="max-w-[88%] rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-sm">
         <CommentBody content={comment.content} />
-        <p className={`mt-0.5 text-[9px] text-neutral-500 ${mine ? 'text-right' : ''}`}>{commentTime(comment.createdAt)}</p>
+        <p className="mt-0.5 text-right text-[9px] text-neutral-500">{commentTime(comment.createdAt)}</p>
       </div>
     </div>
   );
