@@ -1,31 +1,32 @@
-import { useState, useEffect } from 'react';
-import { getProjectName, hashToColor } from '../Layout/projectColors';
+import { useState, useEffect, type ReactNode } from 'react';
 
 /**
- * ProjectFavicon — a project's icon, resolved with a fixed priority:
- *   1. the REAL icon the folder ships (favicon.*, public/icon.*, a web
- *      manifest's icons[], or an index.html <link rel="icon">), served by
- *      GET /api/projects/icon;
- *   2. otherwise a MONOGRAM — the project's initial on a deterministic tint
- *      (hashToColor(path), the same hue the project tab/window uses). This is
- *      the "standard" every project falls back to, so a project is NEVER
- *      icon-less. (Earlier the fallback was nothing, which left most non-web
- *      folders blank — the user wants an icon on every project.)
- *
- * The monogram is NOT a generic folder glyph — it's a per-project identity mark
- * (initial + stable colour), the GitHub/Slack convention for entities without a
- * shipped avatar.
+ * ProjectFavicon — shows a project's real icon when its folder ships one
+ * (favicon.*, public/icon.*, a web manifest's icons[], or an index.html
+ * <link rel="icon">), resolved + served by GET /api/projects/icon. Projects
+ * without an icon (most non-web folders) render `fallback` (default: nothing),
+ * preserving the app's "no fake folder glyph" convention.
  */
 
-// Client-side cache of which project paths actually ship a real icon, so a
-// reload doesn't re-probe "this folder has no icon" from scratch (and doesn't
-// flash the monogram over a project that DOES have a favicon while the 404
-// round-trips). The server also caches its 404; this cache is purely so the
-// CLIENT skips the probe.
-//   - 'has'   → the folder ships an icon; render the <img>, reserve its slot.
-//   - 'none'  → no icon; render the monogram. Re-probed after NONE_TTL_MS so a
-//               folder that later gains a favicon shows it within a day.
-//   - unknown → probe: monogram now, swap to the real icon if it decodes.
+// Client-side cache of which project paths actually ship an icon. Without it,
+// every fresh load (e.g. an Electron app update / reload) re-discovers "this
+// folder has no icon" from scratch: the <img> mounts, reserves its width (and
+// briefly paints the broken-image glyph), then the 404 collapses it — a useless
+// empty-slot flash to the left of every icon-less folder. The server already
+// caches the 404; this cache is purely so the CLIENT doesn't re-flash on reload.
+//   - 'has'    → render the <img> and reserve its slot up-front (no shift when
+//                the cached icon decodes).
+//   - 'none'   → render nothing — no element, no width, no margin. Re-probed
+//                after NONE_TTL_MS so a folder that later gains a favicon shows
+//                it within a day.
+//   - unknown  → probe with a ZERO-width <img> (no reserved gap); promote to
+//                'has' on load or 'none' on error.
+// v2: the v1 cache was poisoned by transient server failures (a restart /
+// unreachable window made every favicon <img> error → cached 'none' for the
+// 12h TTL, so real icons vanished). Bumping the key drops those stale 'none'
+// entries so every project re-probes once against a healthy server. The
+// onError handler below now also refuses to persist 'none' on a non-404, so
+// this can't recur.
 const CACHE_KEY = 'topics-project-icon-cache-v2';
 const NONE_TTL_MS = 12 * 60 * 60 * 1000;
 type IconStatus = 'has' | 'none';
@@ -52,39 +53,16 @@ function remember(path: string, s: IconStatus): void {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch {}
 }
 
-/** Per-project initial on a deterministic tint — the standard shown when a
- *  project ships no real favicon/manifest icon. */
-function ProjectMonogram({ path, size, className = '' }: { path: string; size: number; className?: string }) {
-  const initial = (getProjectName(path).match(/[\p{L}\p{N}]/u)?.[0] || '?').toUpperCase();
-  return (
-    <span
-      aria-hidden="true"
-      className={`inline-flex items-center justify-center rounded-[3px] flex-shrink-0 font-semibold text-white select-none ${className}`}
-      style={{
-        width: size,
-        height: size,
-        background: hashToColor(path),
-        // A hair under the tile so a wide letter (M/W) never clips.
-        fontSize: Math.round(size * 0.6),
-        lineHeight: 1,
-        // hashToColor sits at 50% lightness — light for yellow/green hues — so a
-        // faint shadow keeps the white initial legible on every tint.
-        textShadow: '0 1px 1px rgba(0,0,0,0.35)',
-      }}
-    >
-      {initial}
-    </span>
-  );
-}
-
 export function ProjectFavicon({
   path,
   size = 14,
   className = '',
+  fallback = null,
 }: {
   path: string;
   size?: number;
   className?: string;
+  fallback?: ReactNode;
 }) {
   const [status, setStatus] = useState<IconStatus | 'unknown'>(() => (path ? resolveStatus(path) : 'none'));
   const [loaded, setLoaded] = useState(false);
@@ -93,46 +71,46 @@ export function ProjectFavicon({
   // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot re-resolve when a recycled row points at a new project path; converges immediately (deps = [path])
   useEffect(() => { setStatus(path ? resolveStatus(path) : 'none'); setLoaded(false); }, [path]);
 
-  if (!path) return null;
+  // Known icon-less (or no path) → render nothing at all: no element, so no
+  // reserved width and no margin to the left of the folder name.
+  if (!path || status === 'none') return <>{fallback}</>;
 
-  // No real icon → the standard monogram. No <img>, no probe.
-  if (status === 'none') return <ProjectMonogram path={path} size={size} className={className} />;
-
-  // 'has' or 'unknown': probe the real icon. The monogram shows underneath until
-  // the favicon decodes (so there's never a blank slot), then the <img> fades in
-  // over it; on a definitive 404 we drop to the monogram-only branch above. The
-  // wrapper carries an explicit size so it never collapses when the absolute
-  // <img> is the only remaining child.
+  // 'has' (cached) → reserve the slot immediately so a cached icon decodes with
+  // no layout shift. 'unknown' → zero width so an as-yet-unprobed folder that
+  // turns out icon-less never flashes a gap; it widens to `size` only once the
+  // image actually loads. opacity:0-until-load also hides the broken glyph that
+  // an erroring <img> would paint for a frame.
+  const reserve = status === 'has' || loaded;
   return (
-    <span
-      className={`relative inline-flex flex-shrink-0 ${className}`}
-      style={{ width: size, height: size }}
-    >
-      {!loaded && <ProjectMonogram path={path} size={size} />}
-      <img
-        src={`/api/projects/icon?path=${encodeURIComponent(path)}`}
-        width={size}
-        height={size}
-        alt=""
-        draggable={false}
-        className="rounded-[3px] object-contain absolute inset-0"
-        style={{ width: size, height: size, opacity: loaded ? 1 : 0 }}
-        onLoad={() => { setLoaded(true); setStatus('has'); remember(path, 'has'); }}
-        onError={() => {
-          // Drop to the monogram now, but DON'T blindly persist 'none': an <img>
-          // error can't tell a real 404 ("no icon") from a transient failure
-          // (server restarting / a momentarily-empty allowlist → 403). Persisting
-          // 'none' for a transient failure poisoned the cache and hid real
-          // favicons for the whole TTL. Verify with a fetch and remember 'none'
-          // ONLY on a definitive 404; anything else stays un-cached so the next
-          // mount re-probes once the server is healthy. Either way the monogram
-          // shows meanwhile, so the slot is never blank.
-          setStatus('none');
-          fetch(`/api/projects/icon?path=${encodeURIComponent(path)}`)
-            .then((r) => { if (r.status === 404) remember(path, 'none'); })
-            .catch(() => { /* unreachable → transient, leave the cache clean */ });
-        }}
-      />
-    </span>
+    <img
+      src={`/api/projects/icon?path=${encodeURIComponent(path)}`}
+      width={size}
+      height={size}
+      alt=""
+      draggable={false}
+      className={`rounded-[3px] object-contain flex-shrink-0 ${className}`}
+      style={{
+        opacity: loaded ? 1 : 0,
+        width: reserve ? size : 0,
+        // Suppress any caller margin (e.g. mr-0.5) while the slot is collapsed,
+        // so an unknown/icon-less folder takes ZERO horizontal footprint.
+        marginLeft: reserve ? undefined : 0,
+        marginRight: reserve ? undefined : 0,
+      }}
+      onLoad={() => { setLoaded(true); setStatus('has'); remember(path, 'has'); }}
+      onError={() => {
+        // Hide this slot now, but DON'T blindly persist 'none': an <img> error
+        // can't distinguish a real 404 ("no icon") from a transient failure
+        // (server restarting / unreachable, or a 403 during a momentarily-empty
+        // allowlist). Persisting 'none' for a transient failure poisoned the
+        // cache and hid real favicons for the whole TTL. Verify with a fetch and
+        // remember 'none' ONLY on a definitive 404; anything else stays
+        // un-cached so the next mount re-probes once the server is healthy.
+        setStatus('none');
+        fetch(`/api/projects/icon?path=${encodeURIComponent(path)}`)
+          .then((r) => { if (r.status === 404) remember(path, 'none'); })
+          .catch(() => { /* unreachable → transient, leave the cache clean */ });
+      }}
+    />
   );
 }
