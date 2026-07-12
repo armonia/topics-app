@@ -179,6 +179,25 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
           });
           const task = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
           broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task });
+          // Answering on a STEP is answering the agent: when the subtree's
+          // dispatch root sits in review ("serve te"), a human comment anywhere
+          // under it re-kicks the same agent tab with the step reference — the
+          // specific reply lives on the step's own thread, not necessarily on
+          // the main task's. Best-effort: the comment above is already saved.
+          try {
+            const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
+            if (dispatcher && root && root.status === "review" && root.assignedTopicId) {
+              const rejected = svc.reviewDecision({
+                taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId,
+              });
+              broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: rejected });
+              const text = typeof body?.content === "string" ? body.content : "";
+              const msg = root.id === bComments.taskId
+                ? text
+                : `Commento sul tuo sottotask "${(task?.text ?? "").slice(0, 60)}" (id=${bComments.taskId}): ${text}`;
+              void dispatcher.resume(root.id, msg);
+            }
+          } catch { /* the root may have moved meanwhile */ }
           return json(comment, 201);
         } catch (e) { return fail(e); }
       }

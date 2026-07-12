@@ -247,6 +247,28 @@ describe("own steps carve-out (KANBAN-08: the agent checks off its own checklist
   });
 });
 
+describe("boundRootOf (dispatch root of a subtree)", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("finds the bound ancestor from any depth (and self)", () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-1')");
+    const root = s.create({ projectId: PID, text: "deliverable", status: "in_progress" });
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1' WHERE id = ?").run(root.id);
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: root.id });
+    const sub = s.create({ projectId: PID, text: "sub-step", status: "backlog", parentTaskId: step.id });
+    expect(s.boundRootOf(sub.id)?.id).toBe(root.id);
+    expect(s.boundRootOf(step.id)?.id).toBe(root.id);
+    expect(s.boundRootOf(root.id)?.id).toBe(root.id); // self counts
+  });
+
+  test("null when nothing in the chain is bound", () => {
+    const a = s.create({ projectId: PID, text: "a" });
+    const b = s.create({ projectId: PID, text: "b", parentTaskId: a.id });
+    expect(s.boundRootOf(b.id)).toBeNull();
+  });
+});
+
 describe("outputUrl (KANBAN-09 review panel)", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => { db = freshDb(); s = svc(db); });
