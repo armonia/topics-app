@@ -213,12 +213,14 @@ const TOOLS = [
   },
   {
     name: "comment_task",
-    description: "Add a comment to a task's discussion thread (progress notes, questions, handoff). Signed as this agent server-side.",
+    description:
+      "Add a comment to a task's discussion thread (progress notes, questions, handoff). Signed as this agent server-side. To ask the human a decision, pass `options`: content becomes the question and the board renders one quick-reply button per option — then move the task to status 'review' so the human sees it.",
     inputSchema: {
       type: "object",
       properties: {
         task_id: { type: "string", description: "Task id from list_tasks." },
-        content: { type: "string", description: "Markdown comment body." },
+        content: { type: "string", description: "Markdown comment body — or, with `options`, the one-line question." },
+        options: { type: "array", items: { type: "string" }, description: "Answer choices for a human decision (renders quick-reply buttons on the board card). Omit for a plain comment." },
         mentions: { type: "array", items: { type: "string" }, description: "Optional @-mentions." },
       },
       required: ["task_id", "content"],
@@ -1005,7 +1007,7 @@ export async function callGetTask(
 
 export async function callCommentTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; content?: unknown; mentions?: unknown },
+  toolArgs: { task_id?: unknown; content?: unknown; mentions?: unknown; options?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
@@ -1016,9 +1018,16 @@ export async function callCommentTask(
   }
   const reqBody: Record<string, unknown> = { content: toolArgs.content };
   if (Array.isArray(toolArgs.mentions)) reqBody.mentions = toolArgs.mentions;
+  // Human-decision request: pass the choices as data — the SERVER composes the
+  // canonical question block, the model never hand-writes the markdown format.
+  const options = Array.isArray(toolArgs.options)
+    ? toolArgs.options.filter((o): o is string => typeof o === "string" && !!o.trim())
+    : [];
+  if (options.length > 0) reqBody.options = options;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}/comments`;
   const res = await httpJson<CommentResp>(args, "POST", path, reqBody, fetchImpl);
-  return `commented on ${toolArgs.task_id}${res?.id ? ` (${res.id})` : ""}`;
+  const suffix = options.length > 0 ? ` with ${options.length} quick-reply options` : "";
+  return `commented on ${toolArgs.task_id}${res?.id ? ` (${res.id})` : ""}${suffix}`;
 }
 
 /**

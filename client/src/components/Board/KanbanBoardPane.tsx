@@ -284,32 +284,34 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
   // column's overflow before).
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
 
-  // "Serve te" quick-reply: for an agent-driven task in review, lazily load the
-  // thread and surface a pending question block (if the agent left one) so the
-  // human can answer with a click straight from the card.
-  const [pending, setPending] = useState<{ question: string; options: string[] } | null>(null);
+  // "Serve te" context: for an agent-driven task in review, lazily load the
+  // thread and surface the LAST comment on the card — as a quick-reply with
+  // option buttons when it's a question block, as plain text otherwise. The
+  // human must never be asked Approva/Rifiuta blind: the agent's last word is
+  // always on the card (the thread stays in the drawer).
+  const [lastComment, setLastComment] = useState<TaskComment | null>(null);
   const [freeText, setFreeText] = useState('');
   const [busy, setBusy] = useState(false);
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   useEffect(() => {
-    if (!isAgentReview) { setPending(null); return; }
+    if (!isAgentReview) { setLastComment(null); return; }
     let alive = true;
     boardApi.get(task.projectId, task.id)
       .then(({ comments }) => {
         if (!alive) return;
-        const last = comments[comments.length - 1];
-        setPending(last ? parseQuestionBlock(last.content) : null);
+        setLastComment(comments[comments.length - 1] ?? null);
       })
-      .catch(() => { if (alive) setPending(null); });
+      .catch(() => { if (alive) setLastComment(null); });
     return () => { alive = false; };
     // Re-check when the task changes (a re-kick bumps updatedAt).
   }, [isAgentReview, task.projectId, task.id, task.updatedAt]);
+  const pending = lastComment ? parseQuestionBlock(lastComment.content) : null;
 
   // Route mutations by the task's own projectId (works in the global board too).
   const review = async (decision: 'approve' | 'reject', comment?: string) => {
     if (busy) return;
     setBusy(true);
-    try { await boardApi.review(task.projectId, task.id, decision, comment); setPending(null); setFreeText(''); onRefetch(); }
+    try { await boardApi.review(task.projectId, task.id, decision, comment); setLastComment(null); setFreeText(''); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'review failed'); }
     finally { setBusy(false); }
   };
@@ -358,10 +360,20 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
           ><ArrowUpRight className="h-3 w-3" /> apri tab</button>
         )}
       </div>
-      {task.status === 'review' && pending && (
+      {task.status === 'review' && isAgentReview && (
         <div className="mt-2 space-y-1.5 pl-4" onClick={(e) => e.stopPropagation()}>
-          <p className="text-[11px] leading-snug text-rose-200">{pending.question}</p>
-          {pending.options.length > 0 && (
+          {/* The agent's last word, ALWAYS on the card — a formatted question
+              with quick-reply buttons when it's a question block, plain text
+              otherwise. Approving/rejecting blind was the bug. */}
+          {pending ? (
+            <p className="text-[11px] leading-snug text-rose-200">{pending.question}</p>
+          ) : lastComment ? (
+            <p className="line-clamp-3 text-[11px] leading-snug text-neutral-300" title={lastComment.content}>
+              <span className="font-semibold text-neutral-400">{lastComment.author}: </span>
+              {lastComment.content}
+            </p>
+          ) : null}
+          {pending && pending.options.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {pending.options.map((opt, i) => (
                 <button
@@ -382,6 +394,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
             />
             <button
               disabled={busy || !freeText.trim()} onClick={() => answer(freeText.trim())}
+              title="Rispondi (l'agent riparte con la tua risposta)"
               className="flex items-center gap-1 rounded bg-sky-500/80 px-2 py-1 text-[11px] text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3 w-3" /></button>
             <button
@@ -389,10 +402,15 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
               title="Accetta e completa il task"
               className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-1 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
             ><ShieldCheck className="h-3 w-3" /></button>
+            <button
+              disabled={busy} onClick={() => review('reject')}
+              title="Rifiuta (l'agent riparte senza indicazioni)"
+              className="flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-[11px] text-neutral-200 hover:bg-white/20 disabled:opacity-50"
+            ><ShieldX className="h-3 w-3" /></button>
           </div>
         </div>
       )}
-      {task.status === 'review' && !pending && (
+      {task.status === 'review' && !isAgentReview && (
         <div className="mt-2 flex gap-1 pl-4" onClick={(e) => e.stopPropagation()}>
           <button disabled={busy} onClick={() => review('approve')} className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50">
             <ShieldCheck className="h-3 w-3" /> Approva
@@ -433,7 +451,7 @@ function TaskDetail({ projectId, taskId, onClose, onChanged }: {
   };
 
   return (
-    <div className="absolute inset-y-0 right-0 z-20 flex w-96 flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur">
+    <div data-testid="task-detail-drawer" className="absolute inset-y-0 right-0 z-20 flex w-96 flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur">
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
         <span className="text-xs uppercase tracking-wide text-neutral-400">{task ? STATUS_LABEL[task.status] : ''}</span>
         <button onClick={onClose} className="rounded p-1 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
@@ -447,7 +465,7 @@ function TaskDetail({ projectId, taskId, onClose, onChanged }: {
         {comments.map((c) => (
           <div key={c.id} className="text-sm">
             <span className="text-[11px] font-semibold text-neutral-400">{c.author}</span>
-            <p className="mt-0.5 whitespace-pre-wrap text-neutral-100">{c.content}</p>
+            <CommentBody content={c.content} />
           </div>
         ))}
         <div ref={bottomRef} />
@@ -459,6 +477,35 @@ function TaskDetail({ projectId, taskId, onClose, onChanged }: {
           className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-neutral-100 outline-none"
         />
         <button onClick={send} className="rounded bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500"><Send className="h-4 w-4" /></button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Comment body for the detail drawer. A question block renders as a styled
+ * decision request (question + option bullets) instead of raw ``` fences; any
+ * text around the block is kept. Answering stays on the card's quick-reply —
+ * the drawer is the reading surface.
+ */
+function CommentBody({ content }: { content: string }) {
+  const q = parseQuestionBlock(content);
+  if (!q) return <p className="mt-0.5 whitespace-pre-wrap text-neutral-100">{content}</p>;
+  const outside = content.replace(/```question[\s\S]*?```/, '').trim();
+  return (
+    <div className="mt-0.5 space-y-1">
+      {outside && <p className="whitespace-pre-wrap text-neutral-100">{outside}</p>}
+      <div className="rounded border border-rose-500/25 bg-rose-500/5 px-2 py-1.5">
+        <p className="text-[13px] leading-snug text-rose-200">{q.question}</p>
+        {q.options.length > 0 && (
+          <ul className="mt-1 space-y-0.5">
+            {q.options.map((opt, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-[12px] text-neutral-200">
+                <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-rose-300/70" />{opt}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
