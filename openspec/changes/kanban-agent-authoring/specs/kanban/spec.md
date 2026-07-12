@@ -80,6 +80,19 @@ SHALL spostare il task in `review` e registrare un'approvazione pendente. La tra
 `review → done` SHALL essere consentita solo a un attore umano. Un rifiuto SHALL riportare
 il task a `in_progress` e registrare un commento.
 
+Una consegna SHALL NOT essere muta: un agente non può portare un task in `review` se il
+thread non contiene almeno un suo commento (autore ≠ `user`/`system`) — la card in review
+mostra sempre l'ultima parola dell'agent (KANBAN-04) e senza commenti l'umano deciderebbe
+alla cieca. Il rifiuto (`review_needs_summary`, 409) SHALL istruire l'agent a postare una
+sintesi di 1-2 frasi e riprovare. Unica eccezione al gate `done`: gli **step propri**
+(KANBAN-08), che l'agent chiude direttamente.
+
+#### Scenario: la consegna muta è rifiutata
+- **GIVEN** un task lavorato da un agent senza alcun suo commento nel thread
+- **WHEN** l'agent chiama `update_task(status='review')`
+- **THEN** l'operazione è rifiutata (`review_needs_summary`) con istruzioni per la sintesi
+- **AND** dopo `comment_task(<sintesi>)` la stessa transizione riesce
+
 #### Scenario: l'agente consegna in Review, non in Done
 - **GIVEN** un task `in_progress` lavorato da un agente
 - **WHEN** l'agente chiama `update_task` con `status = done`

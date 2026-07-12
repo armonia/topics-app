@@ -404,6 +404,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
         // Agent entering review → open a pending review approval for the human.
         if (patch.status === "review" && actor === "agent" && current !== "review") {
+          // A delivery must never be mute: the review card surfaces the agent's
+          // last word (KANBAN-04 "mai alla cieca"), so a thread with zero agent
+          // comments would leave the human staring at bare Approva/Rifiuta.
+          // Coach a retry instead — same pattern as comment_too_long.
+          const own = (db.prepare(
+            "SELECT COUNT(*) AS c FROM task_comments WHERE task_id = ? AND author NOT IN ('user', 'system')",
+          ).get(taskId) as any).c as number;
+          if (own === 0) {
+            throw new TaskServiceError(
+              "review_needs_summary",
+              "post a short delivery summary first — comment_task with 1-2 sentences (what was done, where to look) — THEN set status='review'",
+            );
+          }
           db.prepare(
             `INSERT INTO approvals (id, task_id, requested_by, approval_type, from_status, to_status, status, created_at)
              VALUES (?, ?, ?, 'review', ?, 'done', 'pending', ?)`,
