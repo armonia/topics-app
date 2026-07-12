@@ -4,15 +4,19 @@ import { createTaskService, projectIdForPath, TaskServiceError, type TaskService
 
 // Minimal DDL — the subset of migration 001 + 026 the service touches. Kept in
 // sync with server/db/migrations/*.sql by intent; if the service starts using a
-// new column, add it here too.
+// new column, add it here too. PRAGMA foreign_keys + the assigned_topic_id FK
+// are deliberately faithful to prod: the "pending:<taskId>" placeholder bug
+// only reproduced with the FK enforced.
 function freshDb(): Database {
   const db = new Database(":memory:");
+  db.run("PRAGMA foreign_keys = ON");
+  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
   db.run(`CREATE TABLE tasks (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL, text TEXT NOT NULL, description TEXT,
     status TEXT NOT NULL DEFAULT 'todo', priority INTEGER NOT NULL DEFAULT 2,
     kanban_order INTEGER NOT NULL DEFAULT 0, assigned_to TEXT, fingerprint TEXT, due_date TEXT,
     chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
-    claude_task_id TEXT, assigned_topic_id TEXT, archived INTEGER NOT NULL DEFAULT 0,
+    claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT
   )`);
@@ -230,28 +234,39 @@ describe("claim (atomic dispatch)", () => {
 
   const todo = () => { const t = s.create({ projectId: PID, text: "w", status: "todo" }); return t; };
 
-  test("claims a todo task: binds topic, → in_progress, attempts=1", () => {
+  test("claims a todo task: → in_progress + 'starting', attempts=1, NO topic binding yet", () => {
     const t = todo();
-    const claimed = s.claim({ taskId: t.id, topicId: "top-1", cap: 2, maxAttempts: 3 });
+    const claimed = s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 });
     expect(claimed).not.toBeNull();
     expect(claimed!.status).toBe("in_progress");
-    expect(claimed!.assignedTopicId).toBe("top-1");
+    // The binding arrives via bindTopic() once the REAL topic exists —
+    // assigned_topic_id has a FK to topics(id), placeholders would violate it.
+    expect(claimed!.assignedTopicId).toBeNull();
     expect(claimed!.dispatchState).toBe("starting");
     expect(claimed!.dispatchAttempts).toBe(1);
   });
 
+  test("bindTopic attaches the real topic to a claimed task (FK enforced)", () => {
+    const t = todo();
+    s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 });
+    db.run("INSERT INTO topics (id) VALUES ('top-1')");
+    const bound = s.bindTopic({ taskId: t.id, topicId: "top-1" });
+    expect(bound.assignedTopicId).toBe("top-1");
+    // A topic id that does not exist must be rejected by the schema.
+    expect(() => s.bindTopic({ taskId: t.id, topicId: "pending:" + t.id })).toThrow();
+  });
+
   test("idempotent: a second claim on the same task returns null (no double dispatch)", () => {
     const t = todo();
-    expect(s.claim({ taskId: t.id, topicId: "top-1", cap: 2, maxAttempts: 3 })).not.toBeNull();
-    expect(s.claim({ taskId: t.id, topicId: "top-2", cap: 2, maxAttempts: 3 })).toBeNull();
-    // binding unchanged
-    expect(s.get(t.id)!.task.assignedTopicId).toBe("top-1");
+    expect(s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 })).not.toBeNull();
+    expect(s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 })).toBeNull();
+    expect(s.get(t.id)!.task.dispatchAttempts).toBe(1); // not double-counted
   });
 
   test("concurrency cap: no free slot → null, task stays todo", () => {
     const a = todo(); const b = todo();
-    expect(s.claim({ taskId: a.id, topicId: "top-a", cap: 1, maxAttempts: 3 })).not.toBeNull();
-    const bClaim = s.claim({ taskId: b.id, topicId: "top-b", cap: 1, maxAttempts: 3 });
+    expect(s.claim({ taskId: a.id, cap: 1, maxAttempts: 3 })).not.toBeNull();
+    const bClaim = s.claim({ taskId: b.id, cap: 1, maxAttempts: 3 });
     expect(bClaim).toBeNull();
     expect(s.get(b.id)!.task.status).toBe("todo");
     expect(s.get(b.id)!.task.dispatchAttempts).toBe(0); // not consumed when capped out
@@ -260,18 +275,18 @@ describe("claim (atomic dispatch)", () => {
   test("retry cap: attempts >= maxAttempts → null", () => {
     const t = todo();
     // burn attempts via claim+release(requeue) cycles
-    s.claim({ taskId: t.id, topicId: "x", cap: 5, maxAttempts: 2 });
+    s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
     s.release({ taskId: t.id, requeue: true });
-    s.claim({ taskId: t.id, topicId: "x", cap: 5, maxAttempts: 2 });
+    s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
     s.release({ taskId: t.id, requeue: true });
     // attempts now 2 == cap → refuse
     expect(s.get(t.id)!.task.dispatchAttempts).toBe(2);
-    expect(s.claim({ taskId: t.id, topicId: "x", cap: 5, maxAttempts: 2 })).toBeNull();
+    expect(s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 })).toBeNull();
   });
 
   test("only claims 'todo' — a backlog task is not eligible", () => {
     const t = s.create({ projectId: PID, text: "w", status: "backlog" });
-    expect(s.claim({ taskId: t.id, topicId: "x", cap: 5, maxAttempts: 3 })).toBeNull();
+    expect(s.claim({ taskId: t.id, cap: 5, maxAttempts: 3 })).toBeNull();
   });
 });
 
@@ -281,7 +296,9 @@ describe("release", () => {
 
   test("requeue=true → todo, binding cleared, attempts preserved, note posted", () => {
     const t = s.create({ projectId: PID, text: "w", status: "todo" });
-    s.claim({ taskId: t.id, topicId: "top-1", cap: 2, maxAttempts: 3 });
+    s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 });
+    db.run("INSERT INTO topics (id) VALUES ('top-1')");
+    s.bindTopic({ taskId: t.id, topicId: "top-1" });
     const r = s.release({ taskId: t.id, requeue: true, reason: "worked in topic top-1", by: "system" });
     expect(r.status).toBe("todo");
     expect(r.assignedTopicId).toBeNull();
@@ -292,7 +309,7 @@ describe("release", () => {
 
   test("requeue=false → parked in backlog with binding cleared", () => {
     const t = s.create({ projectId: PID, text: "w", status: "todo" });
-    s.claim({ taskId: t.id, topicId: "top-1", cap: 2, maxAttempts: 3 });
+    s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 });
     const r = s.release({ taskId: t.id, requeue: false, reason: "gave up" });
     expect(r.status).toBe("backlog");
     expect(r.assignedTopicId).toBeNull();

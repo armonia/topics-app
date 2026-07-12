@@ -158,13 +158,16 @@ export interface TaskService {
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
-   * Atomically claim a `todo` task for dispatch: bind it to a topic, move it to
-   * `in_progress`, and bump the attempt counter — but only if a slot is free
-   * (running < cap), it's still `todo`, unclaimed, and under the retry cap.
-   * Returns the claimed Task, or null if the claim didn't apply (no slot / lost
-   * the race / attempts exhausted). The single write path for `assigned_topic_id`.
+   * Atomically claim a `todo` task for dispatch: move it to `in_progress` and
+   * bump the attempt counter — but only if a slot is free (running < cap), it's
+   * still `todo`, unclaimed, and under the retry cap. Returns the claimed Task,
+   * or null if the claim didn't apply (no slot / lost the race / attempts
+   * exhausted). The status CAS (`todo → in_progress`) IS the claim token; the
+   * topic binding arrives later via bindTopic() once the real topic exists —
+   * `assigned_topic_id` has a FK to topics(id) (migration 026), so a
+   * placeholder id can never be written there.
    */
-  claim(args: { taskId: string; topicId: string; cap: number; maxAttempts: number; agentId?: string | null }): Task | null;
+  claim(args: { taskId: string; cap: number; maxAttempts: number; agentId?: string | null }): Task | null;
   /** Release a claimed task: clear the topic binding and requeue (`todo`) or park (`backlog`), with a note. */
   release(args: { taskId: string; requeue: boolean; reason?: string; by?: string }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
@@ -380,25 +383,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    claim({ taskId, topicId, cap, maxAttempts, agentId }): Task | null {
+    claim({ taskId, cap, maxAttempts, agentId }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
-      // Concurrency cap: count tasks already running an agent (in_progress + bound
-      // to a topic) on this board. The task itself is still `todo` here, so it is
-      // not in the count. bun:sqlite is synchronous + single-process, so this
-      // read-then-CAS is atomic w.r.t. other claims.
+      // Concurrency cap: count tasks already claimed by a dispatch (in_progress
+      // with a live dispatch chip) on this board. The task itself is still
+      // `todo` here, so it is not in the count. bun:sqlite is synchronous +
+      // single-process, so this read-then-CAS is atomic w.r.t. other claims.
       const running = (db.prepare(
-        "SELECT COUNT(*) AS c FROM tasks WHERE project_id = ? AND status = 'in_progress' AND assigned_topic_id IS NOT NULL AND archived = 0",
+        "SELECT COUNT(*) AS c FROM tasks WHERE project_id = ? AND status = 'in_progress' AND dispatch_state IN ('starting','working') AND archived = 0",
       ).get(row.project_id) as any).c as number;
       if (running >= cap) return null;
       const ts = now();
       const res = db.prepare(
         `UPDATE tasks
-            SET assigned_topic_id = ?, assigned_agent_id = ?, status = 'in_progress',
+            SET assigned_agent_id = ?, status = 'in_progress',
                 in_progress_at = ?, dispatch_state = 'starting',
                 dispatch_attempts = dispatch_attempts + 1, dispatch_error = NULL, updated_at = ?
           WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND dispatch_attempts < ?`,
-      ).run(topicId, agentId ?? null, ts, ts, taskId, maxAttempts);
+      ).run(agentId ?? null, ts, ts, taskId, maxAttempts);
       if (res.changes !== 1) return null; // lost the race / not todo / attempts exhausted
       return rowToTask(getTaskRow(taskId));
     },
