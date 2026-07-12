@@ -493,8 +493,17 @@ function pushProjectTemplateBlocks(
   const projectName = (topic.projectPath || projectDir).split("/").pop()
     || topic.projectPath
     || projectDir;
-  const projectLabelPath = topic.projectPath || projectDir;
-  const awarenessBase = `You are working in the project "${projectName}" at ${projectLabelPath}.`;
+  // The path in this sentence is LOAD-BEARING: the provider spawns every
+  // session in a global workspace cwd, so this block is how the agent learns
+  // where to work. It must be the RESOLVED cwd (worktree absPath when the
+  // topic is worktree-bound), not topic.projectPath — pointing a worktree-
+  // bound agent at the live repo is exactly the clobbering the worktree
+  // exists to prevent.
+  const isWorktreeBound = !!topic.worktreeId && projectDir !== topic.projectPath;
+  const awarenessBase = isWorktreeBound
+    ? `You are working in the project "${projectName}" inside an ISOLATED git worktree at ${projectDir}. ` +
+      `Do all your work in that directory — never in the project's main checkout.`
+    : `You are working in the project "${projectName}" at ${projectDir}.`;
 
   // Snapshot carries the "Project root files: a, b/, c" listing plus the
   // template file contents. The adapter consults `adapterHints.projectListing`
