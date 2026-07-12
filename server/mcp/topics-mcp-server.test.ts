@@ -800,6 +800,22 @@ describe("callCommentTask", () => {
       callCommentTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", content: "" }, fetchImpl),
     ).rejects.toThrow(/content.*required/i);
   });
+
+  test("forwards question options as structured data (server composes the block)", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "c1" }), { status: 201 });
+    });
+    const text = await callCommentTask(
+      { baseUrl: "http://x", sessionKey: "s" },
+      { task_id: "t1", content: "Quale approccio?", options: ["A", "  ", "B", 42 as unknown as string] },
+      fetchImpl,
+    );
+    // Non-string / blank entries dropped; the content stays the PLAIN question.
+    expect(seen.init?.body).toBe(JSON.stringify({ content: "Quale approccio?", options: ["A", "B"] }));
+    expect(text).toContain("2 quick-reply options");
+  });
 });
 
 // ---------------------------------------------------------------------------

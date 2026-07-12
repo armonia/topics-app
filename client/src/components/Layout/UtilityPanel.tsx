@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { X, Activity, Cpu, BarChart3, BookOpen, Timer, Kanban } from 'lucide-react';
 import type { WSMessage } from '../../types';
+import type { UtilityPanelType } from '../../state/pane/adapters/utilityPanelId';
 
 const ActivityFeedPanel = lazy(() => import('../Sidebar/ActivityFeedPanel').then(m => ({ default: m.ActivityFeedPanel })));
 const AgentsPane = lazy(() => import('../Agents/AgentsPane').then(m => ({ default: m.AgentsPane })));
@@ -8,25 +9,13 @@ const DashboardPane = lazy(() => import('../Dashboard/DashboardPane').then(m => 
 const CronJobsPanel = lazy(() => import('../Sidebar/CronJobsPanel').then(m => ({ default: m.CronJobsPanel })));
 const KanbanBoardPane = lazy(() => import('../Board/KanbanBoardPane').then(m => ({ default: m.KanbanBoardPane })));
 
-export type UtilityPanelType = 'activity' | 'agents' | 'dashboard' | 'journal' | 'cron' | 'board';
-
-export const UTILITY_PREFIX = '__';
-
-// eslint-disable-next-line react-refresh/only-export-components -- pure id-adapter helper shared across StandaloneChatGroup + pane hooks; colocated with the UtilityPanel component it describes, moving it would force edits to non-local importer files
-export function isUtilityPanelId(id: string): boolean {
-  return id.startsWith(UTILITY_PREFIX) && id.endsWith('__');
-}
-
-// eslint-disable-next-line react-refresh/only-export-components -- pure id-adapter helper shared across usePanelLifecycle; colocated with the UtilityPanel component it describes
-export function utilityPanelId(type: UtilityPanelType): string {
-  return `${UTILITY_PREFIX}${type}__`;
-}
-
-// eslint-disable-next-line react-refresh/only-export-components -- pure id-adapter helper shared across StandaloneChatGroup + useActivePaneState; colocated with the UtilityPanel component it describes
-export function parseUtilityPanelType(id: string): UtilityPanelType | null {
-  if (!isUtilityPanelId(id)) return null;
-  return id.slice(UTILITY_PREFIX.length, -2) as UtilityPanelType;
-}
+// Id helpers moved to their canonical PURE home (state/pane/adapters/
+// utilityPanelId.ts) so non-component modules (buildSidebarItems) can parse
+// utility ids without importing this component. Re-exported here so existing
+// importers keep working unchanged.
+// eslint-disable-next-line react-refresh/only-export-components -- pure re-export for back-compat with existing importers
+export { UTILITY_PREFIX, isUtilityPanelId, utilityPanelId, parseUtilityPanelType } from '../../state/pane/adapters/utilityPanelId';
+export type { UtilityPanelType } from '../../state/pane/adapters/utilityPanelId';
 
 const CONFIG: Record<UtilityPanelType, { icon: typeof Activity; label: string; color: string }> = {
   activity:      { icon: Activity,   label: 'Activity',    color: '#06b6d4' },

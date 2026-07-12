@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
-import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -28,7 +28,7 @@ import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
-import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_PX, ROW_INSET, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT, SELECTED_SURFACE } from '@/lib/selectionStyles';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
@@ -55,6 +55,7 @@ const TYPE_ICONS = {
   terminal: TerminalSquare,
   browser: Globe,
   project: FolderOpen,
+  utility: Wrench,
 } as const;
 
 const TYPE_LABELS: Record<SidebarItem['type'], string> = {
@@ -62,6 +63,14 @@ const TYPE_LABELS: Record<SidebarItem['type'], string> = {
   chat: 'Chats',
   terminal: 'Terminals',
   browser: 'Browsers',
+  utility: 'Strumenti',
+};
+
+// Utility-row glyphs, keyed by the icon NAME the builder lifts from
+// PANE_CONFIG — one lookup shared with the tab bar's config, no re-mapping
+// per utility type at the call sites.
+const UTILITY_ROW_ICONS: Record<string, LucideIcon> = {
+  Kanban, BarChart3, Activity, BookOpen, Cpu, Clock, LayoutGrid,
 };
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -324,7 +333,37 @@ export function TopicTree({
         return renderTerminalItem(item);
       case 'browser':
         return renderBrowserItem(item);
+      case 'utility':
+        return renderUtilityItem(item);
     }
+  };
+
+  // ── Utility item (Board generale, Statistics, …) ─────────────────────────
+  // Tab-driven row like every other type: shows while the `__<type>__` tab is
+  // open, focuses it on click. Opening goes through the same global event the
+  // "+" menus use (usePanelLifecycle listens and calls handleOpenAsPage, which
+  // is an idempotent open-or-focus).
+  const renderUtilityItem = (item: SidebarItem) => {
+    const Icon = UTILITY_ROW_ICONS[item.icon] ?? LayoutGrid;
+    const utilType = item.id.slice(2, -2);
+    const isFocused = focusedTopicId === item.id;
+    return (
+      <button
+        key={item.id}
+        type="button"
+        role="treeitem"
+        aria-selected={isFocused}
+        data-testid={`sidebar-utility-${utilType}`}
+        onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: utilType } }))}
+        className={`flex items-center gap-1.5 mx-1.5 my-px px-1.5 h-8 rounded-md select-none text-app-text transition-colors ${
+          isFocused ? SELECTED_SURFACE : 'hover:bg-app-hover'
+        }`}
+        style={{ width: 'calc(100% - 12px)' }}
+      >
+        <Icon size={13} className="flex-shrink-0 text-emerald-400" />
+        <span className="text-[12px] flex-1 text-left truncate">{item.name}</span>
+      </button>
+    );
   };
 
   // ── Chat item ────────────────────────────────────────────────────────────
@@ -766,7 +805,7 @@ export function TopicTree({
                   {renderSection('pinned', Pin, 'Fissati', pinnedBlock)}
                 </div>
               )}
-              {(['project', 'chat', 'terminal', 'browser'] as const).map(type => {
+              {(['project', 'chat', 'terminal', 'browser', 'utility'] as const).map(type => {
                 const items = groupedItems[type];
                 if (items.length === 0) return null;
                 return renderGroupSection(type, items);

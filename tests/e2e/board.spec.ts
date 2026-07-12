@@ -213,6 +213,50 @@ test.describe("Kanban board", () => {
     await expect(pill).toContainText("agent: off");
   });
 
+  test("BOARD-08: a question comment renders formatted in the drawer (no raw fences)", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-07" });
+    const text = `Question task ${Date.now()}`;
+    const task = await apiCreateTask(page.request, { text, status: "in_progress" });
+    // Agent surface with STRUCTURED options — the server composes the block.
+    const sessionKey = `topic:${projectTopicId!.slice(0, 8)}`;
+    const res = await page.request.post(
+      `${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/tasks/${task.id}/comments`,
+      { data: { content: "Quale opzione preferisci?", options: ["Opzione alfa", "Opzione beta"] } },
+    );
+    expect(res.status()).toBe(201);
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    // Open the detail drawer from the card.
+    await page.getByTestId("kanban-column-in_progress").getByText(text).click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer.getByText("Quale opzione preferisci?")).toBeVisible({ timeout: 10000 });
+    await expect(drawer.getByText("Opzione alfa")).toBeVisible();
+    await expect(drawer.getByText("Opzione beta")).toBeVisible();
+    // The raw fence must never reach the human.
+    await expect(drawer.getByText("```question")).not.toBeVisible();
+  });
+
+  test("BOARD-09: the open Board generale tab gets a sidebar row like every other tab", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
+    await resetPaneStore(page.request, []).catch(() => {});
+    await page.goto("/");
+
+    // Not open yet → no row.
+    await expect(page.getByTestId("sidebar-utility-board")).not.toBeVisible();
+
+    // Open from the standalone "+" menu.
+    await page.getByTestId("pane-add-menu-trigger").first().click();
+    await page.getByTestId("pane-add-menu-board").click();
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
+
+    // The tab now has a first-class sidebar row, focused.
+    const row = page.getByTestId("sidebar-utility-board");
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await expect(row).toHaveAttribute("aria-selected", "true");
+  });
+
   test("BOARD-07: Board generale opens from the standalone + menu and crosses projects", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-06" });
     // Seed tasks on TWO boards: the project one + a second ad-hoc board.

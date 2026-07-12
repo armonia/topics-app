@@ -152,7 +152,14 @@ export interface TaskService {
   get(taskId: string, opts?: { projectId?: string }): { task: Task; comments: TaskComment[] } | null;
   list(input: ListTasksInput): Task[];
   update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string }): Task;
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; projectId?: string }): TaskComment;
+  /**
+   * `questionOptions` turns the comment into a human-decision request: the
+   * SERVER composes the canonical ```question``` block (question = content,
+   * one `- option` per entry) so the board's quick-reply parser always gets a
+   * well-formed block — an LLM caller passes structured options and never
+   * reproduces markdown syntax by hand.
+   */
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; projectId?: string; questionOptions?: string[] }): TaskComment;
   /** Human-only review decision on a task sitting in `review`. */
   reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
@@ -322,9 +329,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    addComment({ taskId, author, content, mentions, projectId }): TaskComment {
-      const body = (content ?? "").trim();
+    addComment({ taskId, author, content, mentions, projectId, questionOptions }): TaskComment {
+      let body = (content ?? "").trim();
       if (!body) throw new TaskServiceError("invalid_input", "comment content is required");
+      // Canonical question block, composed HERE (single writer) — the caller
+      // passes the question as plain content + structured options; the exact
+      // fence/newline layout the quick-reply parser expects is never delegated
+      // to an LLM. A question inside `content` that already carries fences
+      // would nest ambiguously → reject as invalid input.
+      if (questionOptions && questionOptions.length > 0) {
+        const options = questionOptions.map((o) => String(o ?? "").trim()).filter(Boolean);
+        if (options.length === 0) throw new TaskServiceError("invalid_input", "question options are empty");
+        if (body.includes("```")) throw new TaskServiceError("invalid_input", "question content must not contain code fences");
+        body = ["```question", body.replace(/\r?\n/g, " ").trim(), ...options.map((o) => `- ${o}`), "```"].join("\n");
+      }
       const row = getTaskRow(taskId);
       // Same projectId guard as update() — no cross-project commenting.
       if (!row || (projectId && row.project_id !== projectId)) {
