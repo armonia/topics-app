@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   applyHook,
   applyJsonlEvent,
+  deriveTranscriptPath,
   markDormant,
   markPtyCrash,
   makeInitialState,
@@ -327,6 +328,172 @@ describe('applyJsonlEvent — replay path', () => {
     const s0 = freshState({ phase: 'completed', rev: 9 });
     const s1 = applyJsonlEvent(s0, { type: 'user', raw: {} }, T0 + TICK);
     expect(s1).toBe(s0);
+  });
+});
+
+describe('applyJsonlEvent — live tail semantics (wake-up + causal gate)', () => {
+  it('a user event wakes a parked session (awaiting-user → running)', () => {
+    // The Monitor / background-task / teammate wake-up: no hook fires for it,
+    // the transcript's user line is the only signal.
+    const s0 = freshState({ phase: 'awaiting-user', rev: 5, phaseUpdatedAt: T0 });
+    const s1 = applyJsonlEvent(s0, { type: 'user', ts: T0 + TICK, raw: {} }, T0 + 2 * TICK);
+    expect(s1.phase).toBe('running');
+    expect(s1.rev).toBe(6);
+  });
+
+  it('an assistant event revives ANY resting phase (its user line may have been gated)', () => {
+    for (const phase of ['awaiting-user', 'paused', 'dormant', 'starting'] as const) {
+      const s0 = freshState({ phase, rev: 5, phaseUpdatedAt: T0 });
+      const s1 = applyJsonlEvent(s0, { type: 'assistant', ts: T0 + TICK, raw: {} }, T0 + 2 * TICK);
+      expect(s1.phase).toBe('running');
+    }
+  });
+
+  it('an assistant event clears a stale pendingApproval when leaving paused', () => {
+    const s0 = freshState({
+      phase: 'paused', rev: 5, phaseUpdatedAt: T0,
+      pendingApproval: { kind: 'bash', prompt: 'run ls?', requestedAt: T0 - TICK },
+    });
+    const s1 = applyJsonlEvent(s0, { type: 'assistant', ts: T0 + TICK, raw: {} }, T0 + 2 * TICK);
+    expect(s1.phase).toBe('running');
+    expect(s1.pendingApproval).toBeUndefined();
+  });
+
+  it('an assistant event while already running is a no-op for the phase machine', () => {
+    const s0 = freshState({ phase: 'running', rev: 5, phaseUpdatedAt: T0 });
+    const s1 = applyJsonlEvent(s0, { type: 'assistant', ts: T0 + TICK, raw: {} }, T0 + 2 * TICK);
+    expect(s1.phase).toBe('running');
+    expect(s1.rev).toBe(5); // no transition — rev untouched
+  });
+
+  it('CAUSAL GATE: a line older than the last phase change is stale news (Stop-race)', () => {
+    // assistant line written at T1, Stop hook parked the session at T2 > T1,
+    // the tail reads the line at T2+ε — applying it blind would wrongly revive.
+    const s0 = freshState({ phase: 'awaiting-user', rev: 7, phaseUpdatedAt: T0 + 2 * TICK });
+    const s1 = applyJsonlEvent(s0, { type: 'assistant', ts: T0 + TICK, raw: {} }, T0 + 3 * TICK);
+    expect(s1).toBe(s0);
+  });
+
+  it('a line with the SAME timestamp as the phase change still applies (ms-collision)', () => {
+    const s0 = freshState({ phase: 'awaiting-user', rev: 7, phaseUpdatedAt: T0 });
+    const s1 = applyJsonlEvent(s0, { type: 'user', ts: T0, raw: {} }, T0 + TICK);
+    expect(s1.phase).toBe('running');
+  });
+
+  it('a line with NO timestamp applies ungated (legacy boot-replay behaviour)', () => {
+    const s0 = freshState({ phase: 'awaiting-user', rev: 7, phaseUpdatedAt: T0 + 2 * TICK });
+    const s1 = applyJsonlEvent(s0, { type: 'user', raw: {} }, T0 + 3 * TICK);
+    expect(s1.phase).toBe('running');
+  });
+
+  it('transitions stamp the EVENT time, so in-batch lines stay causally ordered', () => {
+    const s0 = freshState({ phase: 'awaiting-user', rev: 5, phaseUpdatedAt: T0 });
+    // One sweep reads three lines written at T+1, T+2, T+3 and applies them
+    // all with the same wall-clock `now` — event-time stamping is what lets
+    // each subsequent line pass the gate against its predecessor.
+    const readAt = T0 + 10 * TICK;
+    const s1 = applyJsonlEvent(s0, { type: 'user', ts: T0 + TICK, raw: {} }, readAt);
+    const s2 = applyJsonlEvent(s1, { type: 'tool_use', name: 'Bash', ts: T0 + 2 * TICK, raw: {} }, readAt);
+    const s3 = applyJsonlEvent(s2, { type: 'tool_result', ts: T0 + 3 * TICK, raw: {} }, readAt);
+    expect(s1.phaseUpdatedAt).toBe(T0 + TICK);
+    expect(s2.phase).toBe('tool-running');
+    expect(s2.lastTool?.startedAt).toBe(T0 + 2 * TICK);
+    expect(s3.phase).toBe('running');
+    expect(s3.phaseUpdatedAt).toBe(T0 + 3 * TICK);
+  });
+
+  it('a meta event never moves the phase', () => {
+    const s0 = freshState({ phase: 'awaiting-user', rev: 5, phaseUpdatedAt: T0 });
+    const s1 = applyJsonlEvent(s0, { type: 'meta', ts: T0 + TICK, raw: {} }, T0 + 2 * TICK);
+    expect(s1.phase).toBe('awaiting-user');
+    expect(s1.rev).toBe(5);
+  });
+});
+
+describe('parseJsonlLine — real transcript shapes (ground-truthed 2026-07-12)', () => {
+  const TS = '2026-07-11T18:51:27.237Z';
+  const TS_MS = Date.parse(TS);
+
+  it('extracts the line timestamp as epoch ms', () => {
+    const ev = parseJsonlLine(JSON.stringify({
+      type: 'assistant', timestamp: TS, message: { content: [{ type: 'text', text: 'ok' }] },
+    }))!;
+    expect(ev.type).toBe('assistant');
+    expect(ev.ts).toBe(TS_MS);
+  });
+
+  it('a typed human prompt is a wake-capable user event', () => {
+    const ev = parseJsonlLine(JSON.stringify({
+      type: 'user', timestamp: TS, promptSource: 'typed', origin: { kind: 'human' },
+      message: { role: 'user', content: 'riesci a vedere la chat?' },
+    }))!;
+    expect(ev.type).toBe('user');
+  });
+
+  it('a Monitor task-notification is a wake-capable user event', () => {
+    const ev = parseJsonlLine(JSON.stringify({
+      type: 'user', timestamp: TS, promptSource: 'system', origin: { kind: 'task-notification' },
+      message: { role: 'user', content: '<task-notification>\n<task-id>abc123</task-id>\n…' },
+    }))!;
+    expect(ev.type).toBe('user');
+  });
+
+  it('isMeta lines are meta (never a turn)', () => {
+    const ev = parseJsonlLine(JSON.stringify({
+      type: 'user', timestamp: TS, isMeta: true,
+      message: { role: 'user', content: 'A session-scoped Stop hook is now active…' },
+    }))!;
+    expect(ev.type).toBe('meta');
+  });
+
+  it('a compact summary is meta', () => {
+    const ev = parseJsonlLine(JSON.stringify({
+      type: 'user', timestamp: TS, isCompactSummary: true,
+      message: { role: 'user', content: 'This session is being continued from a previous conversation…' },
+    }))!;
+    expect(ev.type).toBe('meta');
+  });
+
+  it('a local slash-command echo is meta (no model turn follows)', () => {
+    const ev = parseJsonlLine(JSON.stringify({
+      type: 'user', timestamp: TS,
+      message: { role: 'user', content: '<command-name>/compact</command-name>\n<command-message>compact</command-message>' },
+    }))!;
+    expect(ev.type).toBe('meta');
+  });
+
+  it('a local-command caveat is meta', () => {
+    const ev = parseJsonlLine(JSON.stringify({
+      type: 'user', timestamp: TS, isMeta: true,
+      message: { role: 'user', content: '<local-command-caveat>Caveat: the messages below…</local-command-caveat>' },
+    }))!;
+    expect(ev.type).toBe('meta');
+  });
+
+  it('an interrupt marker is meta (user STOPPING a turn, not starting one)', () => {
+    const ev = parseJsonlLine(JSON.stringify({
+      type: 'user', timestamp: TS,
+      message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+    }))!;
+    expect(ev.type).toBe('meta');
+  });
+
+  it('tool_result classification wins over meta checks', () => {
+    const ev = parseJsonlLine(JSON.stringify({
+      type: 'user', timestamp: TS,
+      message: { role: 'user', content: [{ type: 'tool_result', content: 'ok' }] },
+    }))!;
+    expect(ev.type).toBe('tool_result');
+  });
+});
+
+describe('deriveTranscriptPath', () => {
+  it('encodes every non-alphanumeric character as a dash', () => {
+    expect(deriveTranscriptPath('/Users/z', '/Users/z/Projects/topics-app', 'sid-1'))
+      .toBe('/Users/z/.claude/projects/-Users-z-Projects-topics-app/sid-1.jsonl');
+    // Dots too — verified against real dirs (.claude → -claude, double dash).
+    expect(deriveTranscriptPath('/Users/z', '/Users/z/.claude/jarvis', 'sid-2'))
+      .toBe('/Users/z/.claude/projects/-Users-z--claude-jarvis/sid-2.jsonl');
   });
 });
 

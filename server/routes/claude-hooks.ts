@@ -148,6 +148,11 @@ export function createClaudeHooksRouter(
         lastHookAt: s.lastHookAt,
         error: s.error,
         updatedAt: s.updatedAt,
+        // Transcript pointer — which file the live JSONL tail follows and how
+        // far it has consumed. Diagnostic: lets `curl /api/claude-sessions`
+        // answer "is this session tail-covered?" without server logs.
+        jsonlPath: s.jsonlPath,
+        jsonlOffset: s.jsonlOffset,
       }));
       return json({ sessions });
     }
