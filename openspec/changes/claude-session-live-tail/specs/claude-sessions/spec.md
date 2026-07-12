@@ -33,6 +33,13 @@ The system SHALL continuously tail every live session's JSONL transcript (DB-bac
 - **WHEN** the first tail sweep runs
 - **THEN** only bytes appended after registration are ever read (offset snapped to N)
 
+#### Scenario: Human-input tools raise the amber, never the spinner (both paths converge)
+- **GIVEN** a session whose transcript gains an assistant line whose tool_use is `AskUserQuestion` or `ExitPlanMode`
+- **WHEN** the tail applies it (hooks present or not)
+- **THEN** the phase becomes `awaiting-approval` with the question/plan as `pendingApproval` — the same state the PreToolUse hook produces — never `tool-running`
+- **AND** subsequent assistant text lines (same-message blocks) do not demote `awaiting-approval`
+- **AND** the answer's `tool_result` line resolves it back to `running`
+
 ## MODIFIED Requirements
 
 ### Requirement: CCS-03 — Phase derivation from hooks

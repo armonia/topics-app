@@ -410,6 +410,65 @@ describe('applyJsonlEvent — live tail semantics (wake-up + causal gate)', () =
   });
 });
 
+describe('applyJsonlEvent — human-input tools raise the amber, never the spinner', () => {
+  it('an AskUserQuestion tool_use parks the session at awaiting-approval with the question as prompt', () => {
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0 });
+    const s1 = applyJsonlEvent(s0, {
+      type: 'tool_use', name: 'AskUserQuestion', ts: T0 + TICK,
+      input: { questions: [{ question: 'Quale approccio preferisci?' }] }, raw: {},
+    }, T0 + 2 * TICK);
+    expect(s1.phase).toBe('awaiting-approval');
+    expect(s1.pendingApproval?.prompt).toBe('Quale approccio preferisci?');
+    expect(s1.lastTool).toBeUndefined(); // waiting on the user, not running a tool
+  });
+
+  it('an ExitPlanMode tool_use parks at awaiting-approval with kind=plan', () => {
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0 });
+    const s1 = applyJsonlEvent(s0, {
+      type: 'tool_use', name: 'ExitPlanMode', ts: T0 + TICK, input: { plan: 'Il piano.' }, raw: {},
+    }, T0 + 2 * TICK);
+    expect(s1.phase).toBe('awaiting-approval');
+    expect(s1.pendingApproval?.kind).toBe('plan');
+    expect(s1.pendingApproval?.prompt).toBe('Il piano.');
+  });
+
+  it('an assistant line never demotes awaiting-approval (same-message text-block trap)', () => {
+    // The message that ASKED the question also carries text blocks whose lines
+    // land with timestamps a breath after the PreToolUse hook — they must not
+    // flip the amber "answer me" state back into a lying spinner.
+    const s0 = freshState({
+      phase: 'awaiting-approval', rev: 6, phaseUpdatedAt: T0,
+      pendingApproval: { kind: 'other', prompt: 'Q?', requestedAt: T0 },
+    });
+    const s1 = applyJsonlEvent(s0, { type: 'assistant', ts: T0 + TICK, raw: {} }, T0 + 2 * TICK);
+    expect(s1.phase).toBe('awaiting-approval');
+    expect(s1.rev).toBe(6);
+    expect(s1.pendingApproval?.prompt).toBe('Q?');
+  });
+
+  it('the answer’s tool_result resolves awaiting-approval back to running', () => {
+    const s0 = freshState({
+      phase: 'awaiting-approval', rev: 6, phaseUpdatedAt: T0,
+      pendingApproval: { kind: 'other', prompt: 'Q?', requestedAt: T0 },
+    });
+    const s1 = applyJsonlEvent(s0, { type: 'tool_result', ts: T0 + TICK, raw: {} }, T0 + 2 * TICK);
+    expect(s1.phase).toBe('running');
+    expect(s1.pendingApproval).toBeUndefined();
+  });
+
+  it('end-to-end through parseJsonlLine: the real assistant line shape raises the amber', () => {
+    const line = JSON.stringify({
+      type: 'assistant', timestamp: new Date(T0 + TICK).toISOString(),
+      message: { content: [{ type: 'tool_use', name: 'AskUserQuestion', input: { questions: [{ question: 'Procedo?' }] } }] },
+    });
+    const ev = parseJsonlLine(line)!;
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0 });
+    const s1 = applyJsonlEvent(s0, ev, T0 + 2 * TICK);
+    expect(s1.phase).toBe('awaiting-approval');
+    expect(s1.pendingApproval?.prompt).toBe('Procedo?');
+  });
+});
+
 describe('parseJsonlLine — real transcript shapes (ground-truthed 2026-07-12)', () => {
   const TS = '2026-07-11T18:51:27.237Z';
   const TS_MS = Date.parse(TS);
