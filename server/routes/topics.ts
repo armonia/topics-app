@@ -1027,6 +1027,23 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         }
         if (body.provider !== undefined) topic.provider = body.provider || null;
         if (body.model !== undefined) topic.model = body.model || null;
+        // Per-topic effort tier (migration 033). Accepts a valid tier, or
+        // null/""/"default" to clear the override (fall back to the global
+        // env-resolved default). Unknown tiers are rejected so a stale client
+        // can't persist garbage that silently disables the flag at spawn time.
+        let effortChanged = false;
+        if (body.effort !== undefined) {
+          const prev = topic.effort ?? null;
+          if (body.effort === null || body.effort === "" || body.effort === "default") {
+            topic.effort = null;
+          } else {
+            const tier = String(body.effort).trim().toLowerCase();
+            const VALID_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+            if (!VALID_EFFORTS.has(tier)) return json({ error: "invalid effort tier" }, 400);
+            topic.effort = tier;
+          }
+          effortChanged = (topic.effort ?? null) !== prev;
+        }
         // Fast Mode (migration 024). Accept boolean only; null/undefined leaves
         // the existing value alone. Coerce non-boolean truthy/falsy inputs
         // defensively so a stale client sending "false" string doesn't toggle.
@@ -1057,6 +1074,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         topic.updatedAt = new Date().toISOString();
         saveSingleTopic(topic);
         broadcastToAll({ type: "topic:updated", topic });
+        // Effort tier is fixed at CLI spawn time — drop the idle pooled process
+        // so the next turn respawns with the new `--effort`. Fire-and-forget:
+        // failures are non-fatal (the tier still applies on the next natural
+        // respawn) and must not block the PATCH response.
+        if (effortChanged) {
+          try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
+          catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
+        }
         return json(topic);
       }
 

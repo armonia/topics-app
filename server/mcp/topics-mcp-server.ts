@@ -338,6 +338,32 @@ const TOOLS = [
       required: ["ref"],
     },
   },
+  {
+    name: "send_chat_message",
+    description:
+      "Send a message to ANOTHER Topics chat (a conversation topic, NOT a browser tab) as the user, and return the assistant's reply. This drives the target topic's real chat provider end-to-end (the same path as typing in its composer): the message and reply are persisted and appear live in that topic's pane. Blocks until the reply completes (can take a while for long turns). Use to hand a task to another chat, ask it something, or steer it. Get topic ids from list_agents/the topic list; you cannot send to your OWN session (use a normal reply for that). If the reply is empty the turn may have only run tools — inspect with read_chat_messages.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        topic_id: { type: "string", description: "Target chat topic id (must not be your own session's topic)." },
+        message: { type: "string", description: "The user message to send into that chat." },
+      },
+      required: ["topic_id", "message"],
+    },
+  },
+  {
+    name: "read_chat_messages",
+    description:
+      "Read the recent conversation of a Topics chat topic (role + content of the last messages). Use to inspect what another chat said — e.g. after send_chat_message returned an empty reply (tool-only turn), or to catch up on a topic before messaging it. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        topic_id: { type: "string", description: "Chat topic id to read." },
+        limit: { type: "number", description: "Max messages to return from the end (default 30, max 200)." },
+      },
+      required: ["topic_id"],
+    },
+  },
 ];
 
 interface ParsedArgs {
@@ -740,6 +766,111 @@ export async function callOpenProject(
   return `opened project at ${body?.projectPath ?? toolArgs.ref}`;
 }
 
+/**
+ * POST /api/chat for a target sessionKey and read the SSE stream to completion,
+ * concatenating the assistant's text deltas. The chat route streams
+ * `data: {choices:[{delta:{content}}]}` lines (OpenAI-shaped) and terminates
+ * the HTTP response when the turn finalizes, so draining the body === waiting
+ * for the reply. Loopback TLS + gateway token mirror httpJson.
+ */
+async function postChatReadSSE(
+  args: ParsedArgs,
+  targetSessionKey: string,
+  message: string,
+  fetchImpl: typeof fetch,
+): Promise<string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
+  const resp = await fetchImpl(`${args.baseUrl}/api/chat`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ sessionKey: targetSessionKey, messages: [{ role: "user", content: message }] }),
+    ...loopbackTlsInit(),
+  });
+  if (!resp.ok || !resp.body) {
+    const t = await resp.text().catch(() => "");
+    throw new Error(`send_chat_message: chat request failed (HTTP ${resp.status}) ${t.slice(0, 200)}`);
+  }
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let out = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const j = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
+        const d = j?.choices?.[0]?.delta?.content;
+        if (d) out += d;
+      } catch { /* ignore non-JSON keep-alive lines */ }
+    }
+  }
+  return out.trim();
+}
+
+export async function callSendChatMessage(
+  args: ParsedArgs,
+  toolArgs: { topic_id?: unknown; message?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.topic_id !== "string" || !toolArgs.topic_id) {
+    throw new Error("send_chat_message: 'topic_id' (string) is required");
+  }
+  if (typeof toolArgs?.message !== "string" || !toolArgs.message.trim()) {
+    throw new Error("send_chat_message: 'message' (non-empty string) is required");
+  }
+  // Resolve the target topic → its sessionKey (topics carry non-derivable
+  // sessionKeys for adopted/cloud sessions, so look it up rather than compute).
+  const listing = await httpJson<{ topics?: Record<string, { sessionKey?: string; name?: string; archived?: boolean }> }>(
+    args, "GET", "/api/topics", undefined, fetchImpl,
+  );
+  const target = listing?.topics?.[toolArgs.topic_id];
+  if (!target?.sessionKey) {
+    throw new Error(`send_chat_message: topic '${toolArgs.topic_id}' not found`);
+  }
+  // Guard against self-loops: a session messaging itself would recurse.
+  if (target.sessionKey === args.sessionKey) {
+    throw new Error("send_chat_message: refusing to message your own session — reply normally instead");
+  }
+  const reply = await postChatReadSSE(args, target.sessionKey, toolArgs.message, fetchImpl);
+  if (!reply) {
+    return `Sent to "${target.name ?? toolArgs.topic_id}". The turn produced no text reply (it may have only run tools) — use read_chat_messages(topic_id="${toolArgs.topic_id}") to inspect.`;
+  }
+  return reply;
+}
+
+export async function callReadChatMessages(
+  args: ParsedArgs,
+  toolArgs: { topic_id?: unknown; limit?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.topic_id !== "string" || !toolArgs.topic_id) {
+    throw new Error("read_chat_messages: 'topic_id' (string) is required");
+  }
+  const limit = typeof toolArgs.limit === "number" && toolArgs.limit > 0
+    ? Math.min(Math.floor(toolArgs.limit), 200)
+    : 30;
+  const path = `/api/topics/${encodeURIComponent(toolArgs.topic_id)}/messages?limit=${limit}`;
+  const body = await httpJson<{ messages?: Array<{ role?: string; content?: string }>; topicName?: string }>(
+    args, "GET", path, undefined, fetchImpl,
+  );
+  const msgs = Array.isArray(body?.messages) ? body!.messages : [];
+  const compact = msgs.map((m) => ({
+    role: m.role ?? "?",
+    // Cap each message so a long transcript doesn't blow the tool-result budget.
+    content: (m.content ?? "").slice(0, 4000),
+  }));
+  return JSON.stringify({ topic: body?.topicName, count: compact.length, messages: compact }, null, 2);
+}
+
 export async function callListProcesses(
   args: ParsedArgs,
   _toolArgs: Record<string, unknown>,
@@ -929,6 +1060,8 @@ const TOOL_HANDLERS: Record<
   stop_agent: (a, t) => callStopAgent(a, t as { agent_id?: unknown }),
   switch_topic: (a, t) => callSwitchTopic(a, t as { topic_id?: unknown }),
   new_topic: (a, t) => callNewTopic(a, t as { title?: unknown }),
+  send_chat_message: (a, t) => callSendChatMessage(a, t as { topic_id?: unknown; message?: unknown }),
+  read_chat_messages: (a, t) => callReadChatMessages(a, t as { topic_id?: unknown; limit?: unknown }),
   create_project: (a, t) => callCreateProject(a, t as { name?: unknown }),
   open_project: (a, t) => callOpenProject(a, t as { ref?: unknown }),
 };
