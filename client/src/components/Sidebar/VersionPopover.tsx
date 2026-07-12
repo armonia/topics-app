@@ -63,6 +63,16 @@ export function VersionPopover({
 
   if (!anchorEl) return null;
   const rect = anchorEl.getBoundingClientRect();
+  // Left-align to the chip, but CLAMP so the fixed-width panel never spills off
+  // either edge. The chip sits at the bottom-LEFT of the sidebar; the previous
+  // right-anchoring (`right = innerWidth - rect.right`) pushed the 260px panel's
+  // left edge off-screen whenever the sidebar was narrow — the "dropdown esce
+  // fuori dallo schermo" bug. Clamped left keeps it fully visible at any width.
+  const POPOVER_W = 260;
+  const left = Math.min(
+    Math.max(8, rect.left),
+    Math.max(8, window.innerWidth - POPOVER_W - 8),
+  );
 
   return createPortal(
     <div
@@ -72,7 +82,7 @@ export function VersionPopover({
       style={{
         position: 'fixed',
         bottom: window.innerHeight - rect.top + 6,
-        right: Math.max(8, window.innerWidth - rect.right),
+        left,
         zIndex: Z_POPOVER,
       }}
     >
