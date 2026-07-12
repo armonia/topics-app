@@ -271,6 +271,21 @@ export function useChat() {
       if (newMessage.id && existing.some(m => m.id === newMessage.id)) {
         return prev;
       }
+      // Viewer-side reconcile: when a turn driven by ANOTHER client ends, the
+      // server broadcasts the PERSISTED assistant row (message:new, durable
+      // id) while this window still holds the WS-stream placeholder (partial,
+      // client-generated id) — so the id dedupe above can't match. Appending
+      // would duplicate the reply and orphan the placeholder on "Streaming…"
+      // forever. Merge into the placeholder instead: adopt the durable id and
+      // final content, keep the streamed blocks/toolCalls (the broadcast
+      // carries text only). Gated on `message.id` so synthetic id-less adds
+      // (e.g. agents:spawned markers) never clobber an in-flight placeholder.
+      const last = existing[existing.length - 1];
+      if (message.id && newMessage.role === 'assistant' && last?.role === 'assistant' && last.partial) {
+        const updated = [...existing];
+        updated[existing.length - 1] = { ...last, id: newMessage.id, content: newMessage.content, partial: false };
+        return { ...prev, [sessionKey]: updated };
+      }
       return {
         ...prev,
         [sessionKey]: [...existing, newMessage],

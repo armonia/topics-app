@@ -1034,7 +1034,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             return (
               <div
                 key={`g-tools-${g.startIdx}`}
-                className="my-1 pl-2 border-l border-app-border/60 space-y-0"
+                className="my-1 space-y-px"
               >
                 {g.tools.map((b, j) => (
                   <ToolCallRow

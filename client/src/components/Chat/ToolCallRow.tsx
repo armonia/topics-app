@@ -50,12 +50,14 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
   const isError = status === 'error';
 
   // Auto-open rows that NEED to be open: sub-agent (action log is the
-  // primary signal) and waiting_for_input (the form is the row's whole
-  // reason for showing). Honor user toggles afterwards.
+  // primary signal), waiting_for_input (the form is the row's whole
+  // reason for showing), and RUNNING tools — the open body is the live
+  // preview of what the agent is doing right now; it collapses back on
+  // completion so finished rows stay compact. Honor user toggles afterwards.
   const [userToggled, setUserToggled] = useState(false);
   const effectiveOpen = userToggled
     ? open
-    : (open || detail.type === 'sub_agent' || isWaiting);
+    : (open || detail.type === 'sub_agent' || isWaiting || isRunning);
 
   const onToggle = () => {
     setUserToggled(true);
@@ -63,7 +65,15 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
   };
 
   return (
-    <div data-testid={`tool-call-row-${toolCall.id}`} className="text-[12px]">
+    <div
+      data-testid={`tool-call-row-${toolCall.id}`}
+      className={`text-[12px] rounded-md transition-colors ${
+        // "In use" state must be unmissable: the active tool gets a soft
+        // primary tint + hairline ring (negative margin keeps the text
+        // column aligned with settled rows). Settled rows stay flat.
+        isRunning ? 'bg-primary/5 ring-1 ring-primary/10 -mx-1.5 px-1.5' : ''
+      }`}
+    >
       <button
         type="button"
         onClick={onToggle}
@@ -73,8 +83,8 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
         {/* `Icon` is a stable Lucide component from iconForDetail()'s static
             lookup, not one defined during render; createElement is the
             lint-clean equivalent of `<Icon/>` (react-hooks/static-components). */}
-        {createElement(Icon, { size: 13, className: 'text-app-text-muted flex-shrink-0' })}
-        <span className="font-mono text-app-text flex-shrink-0">{label ?? display.name}</span>
+        {createElement(Icon, { size: 13, className: `flex-shrink-0 ${isRunning ? 'text-primary' : 'text-app-text-muted'}` })}
+        <span className={`flex-shrink-0 font-medium ${isRunning ? 'text-primary' : 'text-app-text'}`}>{label ?? display.name}</span>
         {display.summary && (
           <span className="text-[11px] text-app-text-muted truncate font-mono">
             {display.summary}
@@ -87,7 +97,7 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
               banner inside the form. Falls back to spinner for the
               pending/running cases that still mean the agent is busy. */}
           {isWaiting && <HelpCircle size={11} className="text-amber-500" />}
-          {isRunning && <Loader2 size={11} className="animate-spin text-app-text-muted" />}
+          {isRunning && <Loader2 size={11} className="animate-spin text-primary" />}
           {status === 'success' && <Check size={11} className="text-green-500" />}
           {status === 'error' && <X size={11} className="text-red-500" />}
         </span>

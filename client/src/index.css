@@ -562,7 +562,11 @@ pre code {
 .prose h3 { font-size: 1.05em; font-weight: 600; margin: 0.3em 0; }
 .prose p { margin: 0.3em 0; line-height: 1.55; }
 .prose ul { list-style-type: disc; padding-left: 1.25em; margin: 0.3em 0; }
-.prose ol { list-style-type: decimal; padding-left: 1.25em; margin: 0.3em 0; }
+/* Ordered markers render OUTSIDE the content box (to the left, inside the
+   padding). 1.25em fits "1." but a two-digit "10." overflows past the ol's
+   left edge and gets clipped by the message container's overflow-hidden.
+   1.75em covers 2-digit markers at chat font sizes. */
+.prose ol { list-style-type: decimal; padding-left: 1.75em; margin: 0.3em 0; }
 .prose li { margin: 0.1em 0; }
 .prose blockquote {
   border-left: 2px solid var(--blockquote-border);
@@ -1150,6 +1154,27 @@ input[type="range"]::-webkit-slider-thumb {
 .anims-paused *::before,
 .anims-paused *::after {
   animation-play-state: paused !important;
+}
+/* …EXCEPT one-shot ENTRY animations, which are disabled outright instead.
+ * Pausing those freezes an element that mounts while the window is unfocused
+ * at keyframe 0 — for entries that start at opacity:0 (palette, new chat
+ * messages, pills) the element stays INVISIBLE until the window regains
+ * focus. Hits every remote-driven client (agent in a browser pane, phone PWA
+ * in the background) and any UI that appears from background events.
+ * `animation: none` (not play-state: running) is deliberate: Chrome throttles
+ * the animation clock in occluded tabs, so a "running" entry can still sit at
+ * frame 0 forever — skipping the animation jumps straight to the element's
+ * natural (final) styles with zero cost. Nobody is watching the entrance
+ * anyway. Add new one-shot entry classes HERE when you create them. */
+.anims-paused .message-appear,
+.anims-paused .command-palette-enter,
+.anims-paused .context-pill,
+.anims-paused .animate-timeline-in,
+.anims-paused .bottom-sheet,
+.anims-paused .animate-slide-up,
+.anims-paused .animate-bounce-once,
+.anims-paused .chat-msg-jump-highlight {
+  animation: none !important;
 }
 
 /* Material easing curves as CSS custom properties so components can opt in

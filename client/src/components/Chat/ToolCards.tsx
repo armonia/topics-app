@@ -26,7 +26,7 @@ export function ShellCard({ command, cwd, output, exitCode, isError }: {
         <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">
           {cwd ? `Command (cwd: ${cwd})` : 'Command'}
         </div>
-        <pre className="text-[11px] font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-blue-400/40">
+        <pre className="text-[11px] font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
           $ {command}
         </pre>
       </div>
@@ -300,7 +300,7 @@ export function PlanCard({ text }: { text: string }) {
   return (
     <div className="space-y-1.5">
       <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Proposed plan</div>
-      <pre className="text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-blue-400/40 max-h-80 overflow-auto">
+      <pre className="text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 max-h-80 overflow-auto">
         {text}
       </pre>
     </div>
