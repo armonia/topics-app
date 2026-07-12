@@ -844,7 +844,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   const [previewPanelId, setPreviewPanelId] = useState<string | null>(null);
 
   // ---- handleOpenAsPage ----
-  const handleOpenAsPage = useCallback((type: 'activity' | 'agents' | 'dashboard' | 'cron' | 'board') => {
+  type UtilityPageType = 'activity' | 'agents' | 'dashboard' | 'cron' | 'board';
+  const handleOpenAsPage = useCallback((type: UtilityPageType) => {
     const id = utilityPanelId(type);
     // Register in the pane store BEFORE pushing into openPanels —
     // otherwise Effect A reconciles openPanels back to the store-known
@@ -866,6 +867,19 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     }
     setFocusedPanelId(id);
   }, [isMobile, setSidebarCollapsed]);
+
+  // Utility panes opened from surfaces that don't get handleOpenAsPage as a
+  // prop (e.g. the standalone tab bar's "+" → Board generale). Event-based
+  // like `topics:open-project-picker`, so every host triggers it identically.
+  useEffect(() => {
+    const VALID = new Set<UtilityPageType>(['activity', 'agents', 'dashboard', 'cron', 'board']);
+    const onOpenUtility = (e: Event) => {
+      const type = (e as CustomEvent<{ type?: string }>).detail?.type as UtilityPageType | undefined;
+      if (type && VALID.has(type)) handleOpenAsPage(type);
+    };
+    window.addEventListener('topics:open-utility', onOpenUtility as EventListener);
+    return () => window.removeEventListener('topics:open-utility', onOpenUtility as EventListener);
+  }, [handleOpenAsPage]);
 
   // ---- 11-16. Per-cluster WS subscriptions (CRITIQUE C6) ----
 

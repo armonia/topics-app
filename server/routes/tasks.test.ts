@@ -191,6 +191,22 @@ describe("board router (human, project-scoped)", () => {
     expect(resp.status).toBe(400);
   });
 
+  test("create born in Todo signals the dispatcher like a drag (onEnterTodo)", async () => {
+    const entered: Array<[string, string]> = [];
+    const left: string[] = [];
+    const fakeDispatcher = {
+      onEnterTodo: (pid: string, tid: string) => entered.push([pid, tid]),
+      onLeaveTodo: (tid: string) => left.push(tid),
+    } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fakeDispatcher);
+    // Born in todo → same "vai" signal as a drag into Todo.
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "run me", status: "todo" }))!.json();
+    expect(entered).toEqual([["pX", t.id]]);
+    // Born in backlog (intake) → no signal.
+    await call(r, "POST", "/api/boards/pX/tasks", { text: "later", status: "backlog" });
+    expect(entered.length).toBe(1);
+  });
+
   test("GET /api/all-boards/tasks is the global cross-project feed", async () => {
     await call(router, "POST", "/api/boards/pX/tasks", { text: "in X" });
     await call(router, "POST", "/api/boards/pY/tasks", { text: "in Y" });

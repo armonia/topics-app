@@ -871,6 +871,8 @@ function App() {
                   );
                 } else if (type === 'browser') {
                   openBrowserPane(`new-${Date.now()}`);
+                } else if (type === 'board') {
+                  handleOpenAsPage('board');
                 }
               }}
               showShortcuts

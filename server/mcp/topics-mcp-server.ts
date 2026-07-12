@@ -172,7 +172,7 @@ const TOOLS = [
   {
     name: "create_task",
     description:
-      "Create a task on THIS session's project board (starts in Todo). The project is derived from the session — do not pass a project id. Pass idempotency_key to make retries safe (same key ⇒ same task, no duplicate).",
+      "Create a task on THIS session's project board. It lands in Backlog (intake): only a human moves it to Todo, which is what makes it eligible for auto-dispatch. The project is derived from the session — do not pass a project id. Pass idempotency_key to make retries safe (same key ⇒ same task, no duplicate).",
     inputSchema: {
       type: "object",
       properties: {
@@ -980,7 +980,7 @@ export async function callCreateTask(
   if (typeof toolArgs.idempotency_key === "string") reqBody.idempotency_key = toolArgs.idempotency_key;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks`;
   const res = await httpJson<CreateTaskResp>(args, "POST", path, reqBody, fetchImpl);
-  return `created task ${res?.id ?? "?"} [${res?.status ?? "todo"}]: ${toolArgs.text}`;
+  return `created task ${res?.id ?? "?"} [${res?.status ?? "backlog"}]: ${toolArgs.text}`;
 }
 
 export async function callGetTask(

@@ -9,10 +9,16 @@
  *
  * Sources of candidate paths:
  *  - the ProjectStore (registered projects — these carry the store UUID that
- *    the WorktreeManager requires), and
+ *    the WorktreeManager requires),
  *  - the OpenClaw `workspace/` scan (the same marker-based discovery
- *    topics.ts:getWorkspaceProjects uses — these are path-only, no store id, so
- *    they can be run in-place but not given a worktree).
+ *    topics.ts:getWorkspaceProjects uses), and
+ *  - every OTHER dir the server already references: topic `projectPath`s and
+ *    terminal-session cwds (injected as `extraPaths`). In this app most
+ *    projects are opened ad-hoc (folder picker, Claude terminals) and never
+ *    registered in the ProjectStore — without this union, their boards can
+ *    never dispatch (same rationale as the icon-allowlist union in
+ *    routes/projects.ts). Path-only candidates carry no store id, so they can
+ *    be run in-place but not given a worktree until registered.
  *
  * The pure `resolveProjectPath(id, candidates)` is unit-tested; the impure
  * `buildProjectCandidates` (fs + store reads) is assembled in server.ts.
@@ -61,8 +67,17 @@ function scanWorkspace(workspaceDir: string): string[] {
   }
 }
 
-/** Impure: collect all candidate projects (registered store rows first, then workspace scan). */
-export function buildProjectCandidates(deps: { projectStore: ProjectStore; workspaceDir: string }): ProjectCandidate[] {
+/**
+ * Impure: collect all candidate projects. Registered store rows first (they
+ * carry the store UUID), then the workspace scan, then any ad-hoc dirs the
+ * host already knows about (topic projectPaths, terminal cwds) — path-only.
+ */
+export function buildProjectCandidates(deps: {
+  projectStore: ProjectStore;
+  workspaceDir: string;
+  /** Ad-hoc dirs the server already references (topic paths, terminal cwds). */
+  extraPaths?: () => string[];
+}): ProjectCandidate[] {
   const seen = new Set<string>();
   const out: ProjectCandidate[] = [];
   for (const p of deps.projectStore.list()) {
@@ -70,10 +85,19 @@ export function buildProjectCandidates(deps: { projectStore: ProjectStore; works
     seen.add(p.path);
     out.push({ path: p.path, projectStoreId: p.id });
   }
-  for (const path of scanWorkspace(deps.workspaceDir)) {
-    if (seen.has(path)) continue;
+  const pathOnly = (path: string) => {
+    if (!path || seen.has(path)) return;
     seen.add(path);
     out.push({ path, projectStoreId: null });
+  };
+  for (const path of scanWorkspace(deps.workspaceDir)) pathOnly(path);
+  if (deps.extraPaths) {
+    let extras: string[] = [];
+    try { extras = deps.extraPaths(); } catch { /* best-effort source */ }
+    for (const path of extras) {
+      if (typeof path !== "string" || !path.startsWith("/")) continue;
+      pathOnly(path.replace(/\/+$/, ""));
+    }
   }
   return out;
 }

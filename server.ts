@@ -1,5 +1,5 @@
-import { join, resolve, sep } from "path";
-import { readFileSync } from "fs";
+import { basename, join, resolve, sep } from "path";
+import { existsSync, readFileSync } from "fs";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
@@ -338,14 +338,62 @@ async function runHeadlessTurn(sessionKey: string, content: string, opts: { time
   if (timedOut) throw new Error("turn exceeded wall-clock timeout");
 }
 
+// Ad-hoc dirs the server already references: topic projectPaths + terminal
+// cwds. Most boards belong to projects opened this way (folder picker, Claude
+// terminals) that were never registered in the ProjectStore — without these
+// the dispatcher can't map their board id back to a directory. Same union
+// rationale as the icon-allowlist gate in routes/projects.ts.
+function dispatchExtraPaths(): string[] {
+  const paths: string[] = [];
+  try {
+    for (const t of Object.values(ctx.loadTopics().topics)) {
+      const p = (t as { projectPath?: string }).projectPath;
+      if (p) paths.push(p);
+    }
+  } catch { /* best-effort source */ }
+  try {
+    for (const row of ctx.db.query("SELECT DISTINCT cwd FROM terminal_sessions").all() as Array<{ cwd?: string }>) {
+      if (row.cwd) paths.push(row.cwd);
+    }
+  } catch { /* best-effort source */ }
+  return paths;
+}
+
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
   resolveProject: (projectId) => {
     const c = resolveProjectPath(
       projectId,
-      buildProjectCandidates({ projectStore: ctx.projectStore, workspaceDir: DISPATCH_WORKSPACE_DIR }),
+      buildProjectCandidates({
+        projectStore: ctx.projectStore,
+        workspaceDir: DISPATCH_WORKSPACE_DIR,
+        extraPaths: dispatchExtraPaths,
+      }),
     );
-    return c ? { path: c.path, projectStoreId: c.projectStoreId } : null;
+    if (!c) return null;
+    // Worktrees require a ProjectStore row. Ad-hoc projects (path-only
+    // candidates) that are git repos get registered on demand, so the default
+    // "isola in un worktree" board setting actually works for them instead of
+    // parking every task with "progetto non registrato".
+    let storeId = c.projectStoreId;
+    if (!storeId && existsSync(join(c.path, ".git"))) {
+      try {
+        const existing = ctx.projectStore.getByPath(c.path);
+        if (existing) {
+          storeId = existing.id;
+        } else {
+          const name = basename(c.path);
+          let slug = ctx.projectStore.slugify(name);
+          // Slug is UNIQUE; a same-named project at another path gets a suffix.
+          if (ctx.projectStore.getBySlug(slug)) slug = `${slug}-${Date.now().toString(36)}`.slice(0, 64);
+          storeId = ctx.projectStore.create({ name, slug, path: c.path }).id;
+          console.log(`[dispatcher] auto-registered project "${name}" (${c.path}) for worktree dispatch`);
+        }
+      } catch (err) {
+        console.error(`[dispatcher] project auto-register failed for ${c.path}`, err);
+      }
+    }
+    return { path: c.path, projectStoreId: storeId };
   },
   createTopic: (o) => {
     const { topic } = createDetachedTopic(

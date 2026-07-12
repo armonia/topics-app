@@ -123,6 +123,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
               status: typeof body?.status === "string" ? body.status : undefined,
             });
             broadcastToAll({ type: "task:created", projectId, task });
+            // A task born directly in Todo is the same "vai" signal as a drag
+            // into Todo: same chip, same grace window — not a silent 10s wait
+            // for the reconcile poll. No-op when auto-dispatch is off.
+            if (dispatcher && task.status === "todo") dispatcher.onEnterTodo(projectId, task.id);
             return json(task, 201);
           } catch (e) { return fail(e); }
         }
