@@ -200,14 +200,15 @@ const TOOLS = [
   {
     name: "update_task",
     description:
-      "Update a task on THIS session's project board: status, priority, and/or assignee. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' — that is a human review gate. When your work is ready, set status='review'; a human approves it to 'done'.",
+      "Update a task on THIS session's project board: status, priority, assignee, and/or output_url. The project is derived from the session (no project id). NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. Set output_url (http/https) to give the reviewer something concrete to look at (dev server, rendered page, report).",
     inputSchema: {
       type: "object",
       properties: {
         task_id: { type: "string", description: "Task id from list_tasks." },
-        status: { type: "string", description: "backlog | todo | in_progress | review (NOT done — human-only)." },
+        status: { type: "string", description: "backlog | todo | in_progress | review — plus done, but ONLY on subtask steps of your assigned task." },
         priority: { type: "number", description: "0–4." },
         assignee: { type: "string", description: "Agent/person to assign." },
+        output_url: { type: "string", description: "http(s) URL of the reviewable output, shown in the task's review panel. Empty string clears it." },
       },
       required: ["task_id"],
     },
@@ -948,7 +949,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
@@ -960,8 +961,10 @@ export async function callUpdateTask(
   if (typeof toolArgs.status === "string" && toolArgs.status) patch.status = toolArgs.status;
   if (typeof toolArgs.priority === "number") patch.priority = toolArgs.priority;
   if (typeof toolArgs.assignee === "string") patch.assignee = toolArgs.assignee;
+  // Empty string is a meaningful value here (clears the output), so no truthiness guard.
+  if (typeof toolArgs.output_url === "string") patch.output_url = toolArgs.output_url;
   if (Object.keys(patch).length === 0) {
-    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee'");
+    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url'");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
   const body = await httpJson<UpdateTaskResp>(args, "PATCH", path, patch, fetchImpl);

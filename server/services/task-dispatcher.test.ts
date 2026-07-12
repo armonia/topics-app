@@ -19,7 +19,7 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    parent_task_id TEXT REFERENCES tasks(id)
+    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
@@ -344,6 +344,19 @@ describe("task-dispatcher", () => {
     await flush();
     expect(h.turns[0].content).toContain('update_task(task_id="t1", status="review")');
     expect(h.turns[0].content).not.toContain("project_id");
+  });
+
+  it("kickoff teaches the step checklist (nested subtasks, self-closable) and output_url", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    expect(kickoff).toContain('parent_task_id="t1"');
+    expect(kickoff).toContain('status="done"'); // marca ogni step done
+    expect(kickoff).toContain("TUTTI i tuoi step devono essere done");
+    expect(kickoff).toContain("output_url");
   });
 
   it("onEnterTodo re-dispatches a task dragged back from review (clears stale binding)", async () => {

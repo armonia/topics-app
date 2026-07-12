@@ -132,7 +132,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "Regole di lavoro:",
         "- Lavora SOLO questo task, in questa working directory.",
         "- Commenti BREVI e utili: max 1-2 frasi ai milestone (cosa è fatto / cosa blocca). Mai log, diff o dump di codice nel thread (il server rifiuta commenti lunghi).",
-        `- Se il task è grande, spezzalo: create_task(text=..., parent_task_id="${task.id}") crea un sottotask annidato (nasce in backlog; è l'umano a mandarlo in lavorazione). Un task con sottotask aperti non può chiudersi.`,
+        "- PIANO VISIBILE: se il lavoro ha più di un passo, crea subito i tuoi step come sottotask — " +
+          `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
+        "- Prima di consegnare in review TUTTI i tuoi step devono essere done (un task con sottotask aperti non è approvabile). Lavoro futuro fuori scope → task top-level SENZA parent (resta in backlog per l'umano).",
+        `- Se c'è qualcosa da mostrare al reviewer (dev server, pagina, report renderizzato): update_task(task_id="${task.id}", output_url=<url http(s)>) — appare nel pannello di review del task.`,
         `- Quando il lavoro è completo sposta il task in \`review\` con: update_task(task_id="${task.id}", status="review"). NON puoi portarlo a \`done\` (serve l'ok umano).`,
         "- Se ti serve una decisione umana per procedere:",
         `  1. comment_task(task_id="${task.id}", content=<la domanda in una riga>, options=[<opzione 1>, <opzione 2>, ...])`,
