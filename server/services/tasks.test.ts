@@ -18,7 +18,8 @@ function freshDb(): Database {
     chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT
+    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
+    parent_task_id TEXT REFERENCES tasks(id)
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -225,6 +226,74 @@ describe("comments", () => {
     const b = s.addComment({ taskId: t.id, author: "claude", content: "same" });
     expect(s.get(t.id)!.comments.length).toBe(2);
     expect(b).toBeTruthy();
+  });
+});
+
+describe("nested tasks (subtask cascade)", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("creates a subtask under a parent; get() lists children; list() fills counters", () => {
+    const parent = s.create({ projectId: PID, text: "epic" });
+    const kid = s.create({ projectId: PID, text: "part 1", parentTaskId: parent.id });
+    expect(kid.parentTaskId).toBe(parent.id);
+    const got = s.get(parent.id)!;
+    expect(got.children.map((c) => c.id)).toEqual([kid.id]);
+    expect(got.task.subtaskCount).toBe(1);
+    expect(got.task.subtaskDoneCount).toBe(0);
+    const listed = s.list({ scope: "project", projectId: PID }).find((t) => t.id === parent.id)!;
+    expect(listed.subtaskCount).toBe(1);
+  });
+
+  test("unlimited depth: a subtask can have its own subtasks", () => {
+    const a = s.create({ projectId: PID, text: "a" });
+    const b = s.create({ projectId: PID, text: "b", parentTaskId: a.id });
+    const c = s.create({ projectId: PID, text: "c", parentTaskId: b.id });
+    expect(s.get(b.id)!.children.map((x) => x.id)).toEqual([c.id]);
+    expect(s.get(a.id)!.children.map((x) => x.id)).toEqual([b.id]);
+  });
+
+  test("parent must exist, be alive, and live on the SAME board", () => {
+    expect(() => s.create({ projectId: PID, text: "x", parentTaskId: "ghost" })).toThrow(/not found/);
+    const foreign = s.create({ projectId: "other-board", text: "y" });
+    expect(() => s.create({ projectId: PID, text: "x", parentTaskId: foreign.id })).toThrow(/not found/);
+    const dead = s.create({ projectId: PID, text: "z" });
+    s.archive({ taskId: dead.id });
+    expect(() => s.create({ projectId: PID, text: "x", parentTaskId: dead.id })).toThrow(/not found/);
+  });
+
+  test("a parent with open subtasks cannot go done — any actor, update or approve", () => {
+    const parent = s.create({ projectId: PID, text: "epic" });
+    const kid = s.create({ projectId: PID, text: "part", parentTaskId: parent.id });
+    expect(() => s.update({ taskId: parent.id, actor: "human", by: "user", patch: { status: "done" } }))
+      .toThrow(/open subtasks/);
+    s.update({ taskId: parent.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(() => s.reviewDecision({ taskId: parent.id, by: "user", decision: "approve" }))
+      .toThrow(/open subtasks/);
+    // Close the child → the parent can now complete.
+    s.update({ taskId: kid.id, actor: "human", by: "user", patch: { status: "done" } });
+    const done = s.reviewDecision({ taskId: parent.id, by: "user", decision: "approve" });
+    expect(done.status).toBe("done");
+  });
+
+  test("archiving a parent archives the whole subtree (cascade, deep)", () => {
+    const a = s.create({ projectId: PID, text: "a" });
+    const b = s.create({ projectId: PID, text: "b", parentTaskId: a.id });
+    const c = s.create({ projectId: PID, text: "c", parentTaskId: b.id });
+    s.archive({ taskId: a.id });
+    const archived = (id: string) => (db.prepare("SELECT archived FROM tasks WHERE id = ?").get(id) as any).archived;
+    expect(archived(a.id)).toBe(1);
+    expect(archived(b.id)).toBe(1);
+    expect(archived(c.id)).toBe(1);
+  });
+
+  test("archived subtasks don't count and unblock the parent", () => {
+    const parent = s.create({ projectId: PID, text: "epic" });
+    const kid = s.create({ projectId: PID, text: "part", parentTaskId: parent.id });
+    s.archive({ taskId: kid.id });
+    expect(s.get(parent.id)!.task.subtaskCount).toBe(0);
+    const done = s.update({ taskId: parent.id, actor: "human", by: "user", patch: { status: "done" } });
+    expect(done.status).toBe("done");
   });
 });
 

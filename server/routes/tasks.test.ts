@@ -14,7 +14,8 @@ function freshDb(): Database {
     chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT
+    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
+    parent_task_id TEXT REFERENCES tasks(id)
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -125,6 +126,31 @@ describe("tasks router (session-scoped)", () => {
     expect(resp.status).toBe(201);
     const c = await resp.json();
     expect(c.content).toBe("```question\nCome procedo?\n- opzione A\n- opzione B\n```");
+  });
+
+  test("POST comment over the agent cap → 400 comment_too_long (humans are uncapped)", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const long = "x".repeat(601);
+    const resp = (await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: long }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).code).toBe("comment_too_long");
+    // The same text on the HUMAN board surface is accepted.
+    const ht = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "y" }))!.json();
+    const hres = (await call(router, "POST", `/api/boards/pX/tasks/${ht.id}/comments`, { content: long }))!;
+    expect(hres.status).toBe(201);
+  });
+
+  test("POST create with parent_task_id nests; cross-board parent is 404", async () => {
+    const parent = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "epic" }))!.json();
+    const kid = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "part", parent_task_id: parent.id }))!.json();
+    expect(kid.parentTaskId).toBe(parent.id);
+    // Parent on ANOTHER project (s2) must be unreachable (same IDOR shape).
+    const foreign = await (await call(router, "POST", "/api/sessions/s2/tasks", { text: "far" }))!.json();
+    const bad = (await call(router, "POST", "/api/sessions/s1/tasks", { text: "part", parent_task_id: foreign.id }))!;
+    expect(bad.status).toBe(404);
+    // GET of the parent lists the child.
+    const got = await (await call(router, "GET", `/api/sessions/s1/tasks/${parent.id}`))!.json();
+    expect(got.children.map((c: any) => c.id)).toEqual([kid.id]);
   });
 
   test("PATCH agent → review opens approval; agent → done is 409", async () => {

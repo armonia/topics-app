@@ -172,7 +172,7 @@ const TOOLS = [
   {
     name: "create_task",
     description:
-      "Create a task on THIS session's project board. It lands in Backlog (intake): only a human moves it to Todo, which is what makes it eligible for auto-dispatch. The project is derived from the session — do not pass a project id. Pass idempotency_key to make retries safe (same key ⇒ same task, no duplicate).",
+      "Create a task on THIS session's project board. It lands in Backlog (intake): only a human moves it to Todo, which is what makes it eligible for auto-dispatch. The project is derived from the session — do not pass a project id. Pass idempotency_key to make retries safe (same key ⇒ same task, no duplicate). Pass parent_task_id to nest it as a subtask (unlimited depth; a parent with open subtasks cannot be closed).",
     inputSchema: {
       type: "object",
       properties: {
@@ -181,6 +181,7 @@ const TOOLS = [
         priority: { type: "number", description: "0–4 (default 2)." },
         assignee: { type: "string", description: "Optional agent/person to assign." },
         idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
+        parent_task_id: { type: "string", description: "Optional parent task id — nests this task as its subtask." },
       },
       required: ["text"],
     },
@@ -969,7 +970,7 @@ export async function callUpdateTask(
 
 export async function callCreateTask(
   args: ParsedArgs,
-  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown },
+  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
@@ -980,9 +981,13 @@ export async function callCreateTask(
   if (typeof toolArgs.priority === "number") reqBody.priority = toolArgs.priority;
   if (typeof toolArgs.assignee === "string") reqBody.assignee = toolArgs.assignee;
   if (typeof toolArgs.idempotency_key === "string") reqBody.idempotency_key = toolArgs.idempotency_key;
+  if (typeof toolArgs.parent_task_id === "string" && toolArgs.parent_task_id) reqBody.parent_task_id = toolArgs.parent_task_id;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks`;
   const res = await httpJson<CreateTaskResp>(args, "POST", path, reqBody, fetchImpl);
-  return `created task ${res?.id ?? "?"} [${res?.status ?? "backlog"}]: ${toolArgs.text}`;
+  const nested = typeof toolArgs.parent_task_id === "string" && toolArgs.parent_task_id
+    ? ` (subtask of ${toolArgs.parent_task_id})`
+    : "";
+  return `created task ${res?.id ?? "?"} [${res?.status ?? "backlog"}]${nested}: ${toolArgs.text}`;
 }
 
 export async function callGetTask(
@@ -999,10 +1004,17 @@ export async function callGetTask(
   if (!t) return `Task ${toolArgs.task_id} not found.`;
   const who = t.assignedTo ?? t.assigned_to;
   const head = `[${t.status}] ${t.text} (id=${t.id}${who ? ` @${who}` : ""})`;
+  const parts = [head];
+  const children = Array.isArray((res as { children?: TaskRow[] })?.children) ? (res as { children?: TaskRow[] }).children! : [];
+  if (children.length) {
+    parts.push("subtasks:");
+    for (const c of children) parts.push(`  [${c.status}] ${c.text} (id=${c.id})`);
+  }
   const comments = Array.isArray(res?.comments) ? res.comments : [];
-  if (!comments.length) return `${head}\n(no comments)`;
-  const thread = comments.map((c) => `  ${c.author ?? "?"}: ${c.content ?? ""}`).join("\n");
-  return `${head}\ncomments:\n${thread}`;
+  if (!comments.length) { parts.push("(no comments)"); return parts.join("\n"); }
+  parts.push("comments:");
+  for (const c of comments) parts.push(`  ${c.author ?? "?"}: ${c.content ?? ""}`);
+  return parts.join("\n");
 }
 
 export async function callCommentTask(

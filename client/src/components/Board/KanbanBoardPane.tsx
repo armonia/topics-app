@@ -101,6 +101,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return m;
   }, [tasks]);
 
+  // Parent-title lookup for subtask cards ("⤴ epic…" context chip). Best-effort:
+  // a parent whose card isn't in the current fetch (e.g. filtered) just shows no chip.
+  const titleById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of tasks) m.set(t.id, t.text);
+    return m;
+  }, [tasks]);
+
   const patchLocal = useCallback((id: string, patch: Partial<BoardTask>) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
@@ -205,6 +213,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               onError={setError}
               onRefetch={refetch}
               onOpenTopic={onOpenTopic}
+              titleById={titleById}
             />
           ))}
         </div>
@@ -225,6 +234,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           taskId={selected.id}
           onClose={() => setSelectedId(null)}
           onChanged={refetch}
+          onOpenTask={setSelectedId}
         />
       )}
     </div>
@@ -232,10 +242,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 }
 
 // ── Column ────────────────────────────────────────────────────────────────
-function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic }: {
+function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, titleById }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: (id: string) => void; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
-  onOpenTopic?: (topicId: string) => void;
+  onOpenTopic?: (topicId: string) => void; titleById: Map<string, string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -250,7 +260,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
         {tasks.map((t) => (
-          <Card key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic} />
+          <Card key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic} parentTitle={t.parentTaskId ? titleById.get(t.parentTaskId) : undefined} />
         ))}
         {!canCreate ? null : adding ? (
           <div className="rounded-md border border-white/10 bg-white/5 p-2">
@@ -275,9 +285,11 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────
-function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
+function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle }: {
   task: BoardTask; onOpen: (id: string) => void; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
+  /** Text of the parent task when this card is a subtask (context chip). */
+  parentTitle?: string;
 }) {
   // Visual drag is handled by the board-level DragOverlay, so the source card
   // stays in place (just dimmed) — no transform here (that clipped it inside the
@@ -340,6 +352,19 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-4">
         {showProject && <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">{projectLabel}</span>}
+        {task.parentTaskId && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
+            title={parentTitle ? `Sottotask di: ${parentTitle}` : 'Apri il task padre'}
+            className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
+          >⤴ {parentTitle ?? 'padre'}</button>
+        )}
+        {task.subtaskCount > 0 && (
+          <span
+            title={`${task.subtaskDoneCount}/${task.subtaskCount} sottotask completati`}
+            className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
+          >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
+        )}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
         {task.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
           <span className={`rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`}>
@@ -425,18 +450,22 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
 }
 
 // ── Detail drawer (with comment thread) ─────────────────────────────────────
-function TaskDetail({ projectId, taskId, onClose, onChanged }: {
+function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
+  /** Navigate the drawer to another task (subtask ↔ parent). */
+  onOpenTask?: (taskId: string) => void;
 }) {
   const [task, setTask] = useState<BoardTask | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
+  const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
+  const [subDraft, setSubDraft] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
-      const { task, comments } = await boardApi.get(projectId, taskId);
-      setTask(task); setComments(comments);
+      const { task, comments, children } = await boardApi.get(projectId, taskId);
+      setTask(task); setComments(comments); setChildren(children ?? []);
     } catch { /* closed or gone */ }
   }, [projectId, taskId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
@@ -450,6 +479,15 @@ function TaskDetail({ projectId, taskId, onClose, onChanged }: {
     catch { /* surfaced elsewhere */ }
   };
 
+  // Quick-add a nested subtask. Born in backlog (intake), like agent creates —
+  // dragging it to Todo is the explicit "vai" gesture.
+  const addSubtask = async () => {
+    const v = subDraft.trim(); if (!v) return;
+    setSubDraft('');
+    try { await boardApi.create(projectId, { text: v, status: 'backlog', parentTaskId: taskId }); await load(); onChanged(); }
+    catch { /* surfaced elsewhere */ }
+  };
+
   return (
     <div data-testid="task-detail-drawer" className="absolute inset-y-0 right-0 z-20 flex w-96 flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur">
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
@@ -457,8 +495,39 @@ function TaskDetail({ projectId, taskId, onClose, onChanged }: {
         <button onClick={onClose} className="rounded p-1 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
       </div>
       <div className="border-b border-white/10 px-3 py-3">
+        {task?.parentTaskId && onOpenTask && (
+          <button
+            onClick={() => onOpenTask(task.parentTaskId!)}
+            className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
+          >⤴ Task padre</button>
+        )}
         <p className="text-sm text-neutral-100">{task?.text}</p>
         {task?.description && <p className="mt-1 text-xs text-neutral-400">{task.description}</p>}
+      </div>
+      {/* Subtasks — nested work, unlimited depth. Click navigates the drawer. */}
+      <div className="border-b border-white/10 px-3 py-2" data-testid="task-detail-subtasks">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+          Sottotask{children.length > 0 ? ` · ${children.filter((c) => c.status === 'done').length}/${children.length}` : ''}
+        </p>
+        {children.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => onOpenTask?.(c.id)}
+            className="flex w-full items-center gap-2 rounded px-1 py-1 text-left hover:bg-white/5"
+          >
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${c.status === 'done' ? 'bg-emerald-400' : c.status === 'in_progress' || c.status === 'review' ? 'bg-sky-400' : 'bg-neutral-500'}`} />
+            <span className={`min-w-0 flex-1 truncate text-xs ${c.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-200'}`}>{c.text}</span>
+            <span className="shrink-0 text-[10px] uppercase text-neutral-500">{STATUS_LABEL[c.status]}</span>
+            {c.subtaskCount > 0 && <span className="shrink-0 text-[10px] text-neutral-500">↳ {c.subtaskDoneCount}/{c.subtaskCount}</span>}
+          </button>
+        ))}
+        <input
+          value={subDraft}
+          onChange={(e) => setSubDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
+          placeholder="+ sottotask…"
+          className="mt-1 w-full rounded bg-white/5 px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600"
+        />
       </div>
       <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {comments.length === 0 && <p className="text-xs text-neutral-500">Nessun commento.</p>}

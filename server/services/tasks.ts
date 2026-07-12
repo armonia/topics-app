@@ -48,6 +48,11 @@ export interface Task {
   dispatchState: string | null;
   dispatchAttempts: number;
   dispatchError: string | null;
+  /** Parent task (nested subtask, unlimited depth). Set at creation only. */
+  parentTaskId: string | null;
+  /** Direct-children counters (filled by list/get for board badges). */
+  subtaskCount: number;
+  subtaskDoneCount: number;
 }
 
 export interface TaskComment {
@@ -69,6 +74,12 @@ export interface CreateTaskInput {
   chatId?: string | null;
   /** Optional dedupe key → tasks.claude_task_id (UNIQUE). */
   idempotencyKey?: string | null;
+  /**
+   * Nest under this task (must exist, same project, not archived). Depth is
+   * unbounded; cycles are impossible because the parent is set only here, at
+   * creation — a fresh id can never be an ancestor of an existing row.
+   */
+  parentTaskId?: string | null;
 }
 
 export interface UpdateTaskPatch {
@@ -149,7 +160,7 @@ interface ServiceOpts {
 
 export interface TaskService {
   create(input: CreateTaskInput): Task;
-  get(taskId: string, opts?: { projectId?: string }): { task: Task; comments: TaskComment[] } | null;
+  get(taskId: string, opts?: { projectId?: string }): { task: Task; comments: TaskComment[]; children: Task[] } | null;
   list(input: ListTasksInput): Task[];
   update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string }): Task;
   /**
@@ -212,7 +223,45 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchState: r.dispatch_state ?? null,
       dispatchAttempts: r.dispatch_attempts ?? 0,
       dispatchError: r.dispatch_error ?? null,
+      parentTaskId: r.parent_task_id ?? null,
+      subtaskCount: 0,
+      subtaskDoneCount: 0,
     };
+  }
+
+  /** Fill direct-children counters onto already-built tasks (board badges). */
+  function withSubtaskCounts(tasks: Task[]): Task[] {
+    if (tasks.length === 0) return tasks;
+    const byParent = new Map<string, { total: number; done: number }>();
+    const rows = db.prepare(
+      `SELECT parent_task_id AS pid,
+              COUNT(*) AS total,
+              SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done
+         FROM tasks WHERE parent_task_id IS NOT NULL AND archived = 0
+        GROUP BY parent_task_id`,
+    ).all() as Array<{ pid: string; total: number; done: number }>;
+    for (const r of rows) byParent.set(r.pid, { total: r.total, done: r.done ?? 0 });
+    for (const t of tasks) {
+      const c = byParent.get(t.id);
+      if (c) { t.subtaskCount = c.total; t.subtaskDoneCount = c.done; }
+    }
+    return tasks;
+  }
+
+  /** Direct children of a task (drawer subtask list), board order. */
+  function childrenOf(taskId: string): Task[] {
+    const rows = db.prepare(
+      "SELECT * FROM tasks WHERE parent_task_id = ? AND archived = 0 ORDER BY kanban_order ASC",
+    ).all(taskId) as any[];
+    return withSubtaskCounts(rows.map(rowToTask));
+  }
+
+  /** True when the task has non-done, non-archived direct children. */
+  function hasActiveChildren(taskId: string): boolean {
+    const r = db.prepare(
+      "SELECT COUNT(*) AS c FROM tasks WHERE parent_task_id = ? AND archived = 0 AND status != 'done'",
+    ).get(taskId) as any;
+    return (r?.c ?? 0) > 0;
   }
 
   function rowToComment(r: any): TaskComment {
@@ -241,6 +290,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (existing) return rowToTask(existing);
       }
 
+      // Nesting: the parent must exist on the SAME board and be alive. Same
+      // not_found shape as the projectId guard elsewhere (no cross-board probing).
+      if (input.parentTaskId) {
+        const parent = getTaskRow(input.parentTaskId);
+        if (!parent || parent.project_id !== input.projectId || parent.archived) {
+          throw new TaskServiceError("not_found", `parent task ${input.parentTaskId} not found`);
+        }
+      }
+
       const id = uuid();
       const ts = now();
       const priority = input.priority ?? 2;
@@ -248,11 +306,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const order = (maxRow?.m ?? 0) + 1;
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
+        input.parentTaskId ?? null,
       );
       return rowToTask(getTaskRow(id));
     },
@@ -262,7 +321,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row) return null;
       if (opts?.projectId && row.project_id !== opts.projectId) return null;
       const comments = db.prepare("SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC").all(taskId) as any[];
-      return { task: rowToTask(row), comments: comments.map(rowToComment) };
+      const [task] = withSubtaskCounts([rowToTask(row)]);
+      return { task, comments: comments.map(rowToComment), children: childrenOf(taskId) };
     },
 
     list(input: ListTasksInput): Task[] {
@@ -278,7 +338,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // project scope → board order (status then kanban_order); global feed → recency.
       const order = input.scope === "all" ? "updated_at DESC" : "kanban_order ASC";
       const rows = db.prepare(`SELECT * FROM tasks ${where} ORDER BY ${order}`).all(...params) as any[];
-      return rows.map(rowToTask);
+      return withSubtaskCounts(rows.map(rowToTask));
     },
 
     update({ taskId, actor, by, patch, projectId }): Task {
@@ -298,6 +358,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           throw new TaskServiceError(
             "agent_cannot_complete",
             "agents deliver to 'review' for human approval; only a human moves 'review' → 'done'. Set status to 'review' instead.",
+          );
+        }
+        // A parent is not done while its subtasks are open — for ANY actor.
+        // Complete or archive the children first (structural invariant, not a
+        // board setting).
+        if (patch.status === "done" && hasActiveChildren(taskId)) {
+          throw new TaskServiceError(
+            "open_subtasks",
+            "task has open subtasks — complete or archive them before marking it done",
           );
         }
         // Agent entering review → open a pending review approval for the human.
@@ -371,6 +440,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         throw new TaskServiceError("not_found", `task ${taskId} not found`);
       }
       if (row.status !== "review") throw new TaskServiceError("invalid_transition", "task is not in review");
+      // Same structural invariant as update(): approving must not close a
+      // parent whose subtasks are still open.
+      if (decision === "approve" && hasActiveChildren(taskId)) {
+        throw new TaskServiceError(
+          "open_subtasks",
+          "task has open subtasks — complete or archive them before approving it to done",
+        );
+      }
       const ts = now();
 
       // Resolve the pending review approval, if any.
@@ -397,7 +474,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         throw new TaskServiceError("not_found", `task ${taskId} not found`);
       }
       const ts = now();
-      db.prepare("UPDATE tasks SET archived = 1, updated_at = ? WHERE id = ?").run(ts, taskId);
+      // Cascade: archiving a parent archives its whole subtree (soft-delete,
+      // unlimited depth) — orphan subtasks of an archived parent would be
+      // unreachable rows the board can never show in context.
+      db.prepare(
+        `WITH RECURSIVE subtree(id) AS (
+           SELECT id FROM tasks WHERE id = ?
+           UNION ALL
+           SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+         )
+         UPDATE tasks SET archived = 1, updated_at = ? WHERE id IN (SELECT id FROM subtree)`,
+      ).run(taskId, ts);
       return rowToTask(getTaskRow(taskId));
     },
 

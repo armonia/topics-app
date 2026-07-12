@@ -131,7 +131,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       [
         "Regole di lavoro:",
         "- Lavora SOLO questo task, in questa working directory.",
-        "- Tieni la comunicazione minima: brevi commenti di stato ai milestone, non log verbosi.",
+        "- Commenti BREVI e utili: max 1-2 frasi ai milestone (cosa è fatto / cosa blocca). Mai log, diff o dump di codice nel thread (il server rifiuta commenti lunghi).",
+        `- Se il task è grande, spezzalo: create_task(text=..., parent_task_id="${task.id}") crea un sottotask annidato (nasce in backlog; è l'umano a mandarlo in lavorazione). Un task con sottotask aperti non può chiudersi.`,
         `- Quando il lavoro è completo sposta il task in \`review\` con: update_task(task_id="${task.id}", status="review"). NON puoi portarlo a \`done\` (serve l'ok umano).`,
         "- Se ti serve una decisione umana per procedere:",
         `  1. comment_task(task_id="${task.id}", content=<la domanda in una riga>, options=[<opzione 1>, <opzione 2>, ...])`,
