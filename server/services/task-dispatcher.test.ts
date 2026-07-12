@@ -361,6 +361,30 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain("output_url");
   });
 
+  it("buffers a resume landing while the turn is in flight and delivers it on the same tab at turn end", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // Agent delivers to review mid-turn (the turn has NOT ended yet)…
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "fatto" });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    // …and the human answers in that window: reject + resume (the route path).
+    h.svc.reviewDecision({ taskId: "t1", by: "user", decision: "reject", comment: "aggiusta X" });
+    void h.dispatcher.resume("t1", "aggiusta X");
+    await flush();
+    expect(h.turns.length).toBe(1); // buffered, not dropped, not double-run
+    h.finishTurn();
+    await flush();
+    await new Promise((r) => setTimeout(r, 10)); // deferred delivery tick
+    await flush();
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1].content).toContain("aggiusta X");
+    expect(h.turns[1].sessionKey).toBe("topic:" + "topic-1".slice(0, 8)); // SAME tab
+    expect(h.task("t1")!.status).toBe("in_progress"); // not requeued as an orphan
+  });
+
   it("onEnterTodo re-dispatches a task dragged back from review (clears stale binding)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
