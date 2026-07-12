@@ -192,6 +192,12 @@ export interface TaskService {
    */
   boundRootOf(taskId: string): Task | null;
   /**
+   * Move a ROOT task (and its whole subtree) to another board. Subtasks never
+   * move alone (same-board parent invariant) and a task with a live agent
+   * stays put (its worktree/topic belong to the source project).
+   */
+  moveToProject(args: { taskId: string; toProjectId: string; projectId?: string }): Task;
+  /**
    * Atomically claim a `todo` task for dispatch: move it to `in_progress` and
    * bump the attempt counter — but only if a slot is free (running < cap), it's
    * still `todo`, unclaimed, and under the retry cap. Returns the claimed Task,
@@ -564,6 +570,40 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
          SELECT id FROM chain WHERE topic IS NOT NULL ORDER BY depth ASC LIMIT 1`,
       ).get(taskId) as any;
       return r ? rowToTask(getTaskRow(r.id)) : null;
+    },
+
+    moveToProject({ taskId, toProjectId, projectId }): Task {
+      const row = getTaskRow(taskId);
+      if (!row || (projectId && row.project_id !== projectId)) {
+        throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      }
+      const target = (toProjectId ?? "").trim();
+      if (!target) throw new TaskServiceError("invalid_input", "toProjectId is required");
+      if (row.project_id === target) return rowToTask(row);
+      // Only the ROOT of a subtree moves: create() pins a subtask to its
+      // parent's board, so the subtree travels together or not at all.
+      if (row.parent_task_id) {
+        throw new TaskServiceError("invalid_transition", "task is a subtask — move its root task (the subtree moves together)");
+      }
+      // A dispatched agent works a worktree/topic of the SOURCE project; moving
+      // the task under it would strand the binding. Finish or release it first.
+      if (row.assigned_topic_id || ["queued", "starting", "working"].includes(row.dispatch_state ?? "")) {
+        throw new TaskServiceError("invalid_transition", "task has a live agent — let it reach review (or park it) before moving boards");
+      }
+      const ts = now();
+      const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) as m FROM tasks WHERE project_id = ?").get(target) as any;
+      db.prepare(
+        `WITH RECURSIVE subtree(id) AS (
+           SELECT id FROM tasks WHERE id = ?
+           UNION ALL
+           SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
+         )
+         UPDATE tasks SET project_id = ?, updated_at = ? WHERE id IN (SELECT id FROM subtree)`,
+      ).run(taskId, target, ts);
+      // Re-append the root at the end of the target board; children keep their
+      // relative order (kanban_order is just a per-board sort key).
+      db.prepare("UPDATE tasks SET kanban_order = ? WHERE id = ?").run((maxRow?.m ?? 0) + 1, taskId);
+      return rowToTask(getTaskRow(taskId));
     },
 
     claim({ taskId, cap, maxAttempts, agentId }): Task | null {

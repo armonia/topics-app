@@ -421,7 +421,17 @@ const taskDispatcher = createTaskDispatcher({
   broadcast: ctx.broadcastToAll,
 });
 
-const tasksRouter = createTasksRouter(ctx, taskDispatcher);
+const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
+  workspaceDir: DISPATCH_WORKSPACE_DIR,
+  // Same union the dispatcher resolves against — the task-detail project
+  // selector must offer exactly the boards a dispatch could actually serve.
+  listProjectDirs: () =>
+    buildProjectCandidates({
+      projectStore: ctx.projectStore,
+      workspaceDir: DISPATCH_WORKSPACE_DIR,
+      extraPaths: dispatchExtraPaths,
+    }).map((c) => c.path),
+});
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
 startProcessDetection(ctx, getClaudeSessionsForDetection);

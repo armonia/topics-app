@@ -881,6 +881,22 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     return () => window.removeEventListener('topics:open-utility', onOpenUtility as EventListener);
   }, [handleOpenAsPage]);
 
+  // Open/focus a project window from any surface (e.g. the board task detail's
+  // project selector). Local mirror of the WS `open-project` branch below —
+  // event-based like `topics:open-utility` so hosts don't need a prop chain.
+  useEffect(() => {
+    const onOpenProject = (e: Event) => {
+      const projectPath = (e as CustomEvent<{ projectPath?: string }>).detail?.projectPath;
+      if (!projectPath) return;
+      const projectPaneId = createPaneId('project', projectPath);
+      ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath });
+      setOpenPanels(prev => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
+      setFocusedPanelId(projectPaneId);
+    };
+    window.addEventListener('topics:open-project', onOpenProject as EventListener);
+    return () => window.removeEventListener('topics:open-project', onOpenProject as EventListener);
+  }, []);
+
   // ---- 11-16. Per-cluster WS subscriptions (CRITIQUE C6) ----
 
   // WS Cluster 1: topic sync

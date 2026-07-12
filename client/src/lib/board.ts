@@ -184,6 +184,13 @@ export interface BoardSettingsPatch {
   dispatchTimeoutMin?: number;
 }
 
+/** One entry of the board index (task-detail project selector). */
+export interface BoardProjectRef {
+  projectId: string;
+  name: string;
+  path: string;
+}
+
 const enc = encodeURIComponent;
 
 export const boardApi = {
@@ -208,6 +215,15 @@ export const boardApi = {
     req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions }) }),
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment }) }),
+  /** Move a root task (and its subtree) to another board. */
+  move: (projectId: string, taskId: string, toProjectId: string) =>
+    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/move`, { method: 'POST', body: JSON.stringify({ toProjectId }) }),
+  /** Every board the server can resolve (the project selector's options). */
+  projects: () =>
+    req<{ projects: BoardProjectRef[] }>('/all-boards/projects').then(r => r.projects),
+  /** Scaffold a NEW workspace project (dir + CLAUDE.md); 409 on name collision. */
+  createProject: (name: string) =>
+    req<BoardProjectRef>('/all-boards/projects', { method: 'POST', body: JSON.stringify({ name }) }),
   getSettings: (projectId: string) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`),
   updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
