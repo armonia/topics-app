@@ -323,11 +323,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // its OWN scheduled tick (which deletes the timer first), never by a poll
       // firing mid-grace — otherwise a quick drag-through could still spawn.
       if (graceTimers.has(t.id)) continue;
-      // Claim binds to a PLACEHOLDER topic id; the real topic is created in
-      // launch() and the binding overwritten via bindTopic().
+      // The claim is the status CAS (todo → in_progress + chip 'starting');
+      // the topic binding arrives in launch() via bindTopic() once the real
+      // topic exists (assigned_topic_id has a FK to topics(id) — a placeholder
+      // would violate it).
       const claimed = deps.svc.claim({
         taskId: t.id,
-        topicId: "pending:" + t.id,
         cap: settings.maxAgents,
         maxAttempts: RETRY_CAP,
       });
@@ -383,11 +384,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { running = deps.svc.list({ scope: "all", status: "in_progress" }); }
     catch (err) { log("reconcile list failed", err); }
     for (const t of running) {
-      if (!t.assignedTopicId) continue;
       if (inFlight.has(t.id)) continue; // we own it, leave it
-      // Only requeue tasks that were genuinely mid-dispatch (starting/working) when
-      // the process died. A human who drags a review/done card (chip null or
-      // needs_input) into In Progress is NOT an orphan — leave it be.
+      // Only requeue tasks that were genuinely mid-dispatch (starting/working)
+      // when the process died — including a claim that never got its topic
+      // bound (claim precedes bindTopic, so an early crash leaves the binding
+      // NULL). A human who drags a review/done card (chip null or needs_input)
+      // into In Progress is NOT an orphan — leave it be.
       if (!ACTIVE_DISPATCH_STATES.has(t.dispatchState ?? "")) continue;
       const requeue = t.dispatchAttempts < RETRY_CAP;
       try {
