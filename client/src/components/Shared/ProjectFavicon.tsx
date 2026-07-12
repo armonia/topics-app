@@ -27,7 +27,13 @@ import { useState, useEffect, type ReactNode } from 'react';
 // entries so every project re-probes once against a healthy server. The
 // onError handler below now also refuses to persist 'none' on a non-404, so
 // this can't recur.
-const CACHE_KEY = 'topics-project-icon-cache-v2';
+// v3: the /api/projects/icon allowlist was widened (open-but-unregistered
+// projects used to 403, and a 403/404 during the server restarts that shipped
+// that fix could still latch a stale 'none' for the 12h TTL — a project whose
+// favicon is now served would stay blank, e.g. a Next.js `app/icon.svg`). One
+// more key bump flushes those so every project re-probes once against the
+// now-fixed endpoint.
+const CACHE_KEY = 'topics-project-icon-cache-v3';
 const NONE_TTL_MS = 12 * 60 * 60 * 1000;
 type IconStatus = 'has' | 'none';
 interface CacheEntry { s: IconStatus; t: number }
