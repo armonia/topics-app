@@ -274,6 +274,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       </DndContext>
       {selected && (
         <TaskDetail
+          key={selected.id} /* fresh edit/scroll state per task (drawer navigation) */
           projectId={selected.projectId}
           taskId={selected.id}
           bump={selected.updatedAt}
@@ -522,6 +523,24 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const [addingSub, setAddingSub] = useState(false);
+  // Inline title/description editing (works for subtasks too — the drawer IS
+  // the edit surface at every depth). Esc cancels via the ref so the blur-save
+  // that follows becomes a no-op.
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState('');
+  const editCancelled = useRef(false);
+  // Action errors surfaced HERE, in the detail — the board's error bar sits
+  // behind the drawer. The 409 open_subtasks on Approva is the load-bearing
+  // case: swallowing it made the click look dead.
+  const [error, setError] = useState<string | null>(null);
+  const showError = (e: unknown) => {
+    const raw = e instanceof Error ? e.message : String(e);
+    setError(/open subtasks/i.test(raw)
+      ? 'Ci sono sottotask aperti: completali o archiviali prima di chiudere il task.'
+      : raw);
+  };
   // Narrow (default) keeps the board visible behind the drawer; wide turns the
   // detail into a full review surface — subtask tree + thread on the left, the
   // task's output (dev server, page, report) on the right. Sticky per client.
@@ -562,8 +581,9 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
         await boardApi.comment(projectId, taskId, v);
       }
       setDraft(''); // cleared on success only — a failed send keeps the text
+      setError(null);
       await load(); onChanged();
-    } catch { /* surfaced elsewhere */ }
+    } catch (e) { showError(e); }
     finally { setSending(false); }
   };
 
@@ -572,8 +592,8 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const decide = async (decision: 'approve' | 'reject') => {
     if (busy) return;
     setBusy(true);
-    try { await boardApi.review(projectId, taskId, decision); await load(); onChanged(); }
-    catch { /* surfaced elsewhere */ }
+    try { await boardApi.review(projectId, taskId, decision); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
     finally { setBusy(false); }
   };
 
@@ -585,9 +605,31 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     try {
       await boardApi.create(projectId, { text: v, status: 'backlog', parentTaskId: taskId });
       setSubDraft('');
+      setError(null);
       await load(); onChanged();
-    } catch { /* surfaced elsewhere */ }
+    } catch (e) { showError(e); }
     finally { setAddingSub(false); }
+  };
+
+  const saveTitle = async () => {
+    setEditingTitle(false);
+    if (editCancelled.current) { editCancelled.current = false; return; }
+    const v = titleDraft.trim();
+    if (!task || !v || v === task.text) return;
+    try { await boardApi.update(projectId, taskId, { text: v }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+  };
+  const saveDesc = async () => {
+    setEditingDesc(false);
+    if (editCancelled.current) { editCancelled.current = false; return; }
+    if (!task) return;
+    const v = descDraft.trim();
+    if (v === (task.description ?? '')) return;
+    try { await boardApi.update(projectId, taskId, { description: v || null }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+  };
+  const cancelKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { editCancelled.current = true; (e.target as HTMLElement).blur(); }
   };
 
   const doneCount = children.filter((c) => c.status === 'done').length;
@@ -632,6 +674,12 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           <button onClick={onClose} className="rounded p-1 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
+      {error && (
+        <div className="flex shrink-0 items-start justify-between gap-2 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
+        </div>
+      )}
       {!task ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-neutral-500" />
@@ -648,8 +696,42 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
               >⤴ Task padre</button>
             )}
-            <p className="text-sm text-neutral-100">{task?.text}</p>
-            {task?.description && <p className="mt-1 text-xs text-neutral-400">{task.description}</p>}
+            {editingTitle ? (
+              <textarea
+                autoFocus value={titleDraft} rows={2}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={saveTitle}
+                onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
+                className="-mx-1.5 w-[calc(100%+0.75rem)] resize-none rounded bg-white/5 px-1.5 py-1 text-sm text-neutral-100 outline-none"
+              />
+            ) : (
+              <p
+                onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
+                title="Clicca per modificare il titolo"
+                className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm text-neutral-100 hover:bg-white/5"
+              >{task?.text}</p>
+            )}
+            {editingDesc ? (
+              <textarea
+                autoFocus value={descDraft} rows={3}
+                onChange={(e) => setDescDraft(e.target.value)}
+                onBlur={saveDesc}
+                onKeyDown={cancelKey}
+                placeholder="Descrizione…"
+                className="-mx-1.5 mt-1 w-[calc(100%+0.75rem)] resize-none rounded bg-white/5 px-1.5 py-1 text-xs text-neutral-300 outline-none"
+              />
+            ) : task?.description ? (
+              <p
+                onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
+                title="Clicca per modificare la descrizione"
+                className="-mx-1.5 mt-1 cursor-text whitespace-pre-wrap rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-white/5"
+              >{task.description}</p>
+            ) : (
+              <button
+                onClick={() => { setDescDraft(''); setEditingDesc(true); }}
+                className="mt-1 text-[11px] text-neutral-600 hover:text-neutral-400"
+              >+ descrizione…</button>
+            )}
             {!wide && task?.outputUrl && (
               <button
                 onClick={toggleWide}

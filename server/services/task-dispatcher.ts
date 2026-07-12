@@ -105,6 +105,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // In-flight launches, keyed by taskId — presence means "a turn is running or
   // being set up for this task"; keeps reconcile/tick from double-launching.
   const inFlight = new Map<string, { sessionKey: string }>();
+  // Human input that arrived while a turn was still winding down (the window
+  // between the agent's →review and the actual turn end). Buffered here and
+  // delivered on the SAME tab at turn end — dropping it would strand the task
+  // in_progress and the reconciler would respawn a fresh agent without context.
+  const pendingResume = new Map<string, string[]>();
 
   /** Broadcast the updated task so live boards move the chip. */
   function emit(task: Task): void {
@@ -233,7 +238,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   function onTurnEnd(taskId: string): void {
     const cur = deps.svc.get(taskId)?.task;
-    if (!cur) return;
+    if (!cur) { pendingResume.delete(taskId); return; }
+    // Human input buffered mid-turn → continue on the same tab instead of the
+    // requeue path (which would discard the conversation). Deferred a tick:
+    // the caller's finally still holds the inFlight slot at this point.
+    const queued = pendingResume.get(taskId);
+    pendingResume.delete(taskId);
+    if (queued && queued.length && cur.status === "in_progress" && cur.assignedTopicId) {
+      setTimeout(() => { void resume(taskId, queued.join("\n")); }, 0);
+      return;
+    }
     if (cur.status === "review") {
       // Agent finished or asked for input → it's the human's now. Flip the chip to
       // "serve te" (not a stale "working") and keep the binding for the deep-link
@@ -262,7 +276,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       `Aggiornamento umano sul task \`${task.id}\`:`,
       humanMessage.trim() || "(nessun testo, prosegui col tuo giudizio)",
       "",
-      `Prosegui il lavoro. Quando è di nuovo pronto per la revisione: update_task(task_id="${task.id}", project_id="${task.projectId}", status="review").`,
+      `Prima di riprendere fai get_task(task_id="${task.id}"): l'umano può aver aggiunto step o commenti sugli step mentre eri fermo. Step aperti = lavoro tuo (chiudili con status="done").`,
+      `Prosegui il lavoro. Quando è di nuovo pronto per la revisione: update_task(task_id="${task.id}", status="review").`,
     ].join("\n");
   }
 
@@ -271,7 +286,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // The caller (reviewDecision reject) has already moved it to in_progress and
     // it must still be bound to its topic. Anything else = nothing to resume.
     if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
-    if (inFlight.has(taskId)) return;
+    if (inFlight.has(taskId)) {
+      // Turn still live (winding down): buffer, onTurnEnd delivers it.
+      pendingResume.set(taskId, [...(pendingResume.get(taskId) ?? []), humanMessage]);
+      return;
+    }
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     inFlight.set(taskId, { sessionKey });
     try {
@@ -418,6 +437,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function shutdown(): void {
     for (const t of graceTimers.values()) clearTimeout(t);
     graceTimers.clear();
+    pendingResume.clear();
   }
 
   return { tick, onEnterTodo, onLeaveTodo, resume, reconcile, shutdown, isInFlight: (id) => inFlight.has(id) };
