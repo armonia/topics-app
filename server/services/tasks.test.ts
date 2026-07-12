@@ -228,6 +228,45 @@ describe("comments", () => {
   });
 });
 
+describe("addComment — question block (server-composed)", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("questionOptions compose the CANONICAL block: fences + newlines + '- ' options", () => {
+    const t = s.create({ projectId: PID, text: "w" });
+    const c = s.addComment({
+      taskId: t.id, author: "agent-1",
+      content: "Quale approccio uso?",
+      questionOptions: ["JWT in cookie", "Bearer token"],
+    });
+    expect(c.content).toBe("```question\nQuale approccio uso?\n- JWT in cookie\n- Bearer token\n```");
+  });
+
+  test("newlines inside the question are flattened (the block stays parseable)", () => {
+    const t = s.create({ projectId: PID, text: "w" });
+    const c = s.addComment({
+      taskId: t.id, author: "agent-1",
+      content: "Domanda\nsu due righe?",
+      questionOptions: ["sì"],
+    });
+    expect(c.content).toBe("```question\nDomanda su due righe?\n- sì\n```");
+  });
+
+  test("rejects fences inside a question (no nested blocks) and all-empty options", () => {
+    const t = s.create({ projectId: PID, text: "w" });
+    expect(() => s.addComment({ taskId: t.id, author: "a", content: "```question hack```", questionOptions: ["x"] }))
+      .toThrow(TaskServiceError);
+    expect(() => s.addComment({ taskId: t.id, author: "a", content: "ok?", questionOptions: ["  ", ""] }))
+      .toThrow(TaskServiceError);
+  });
+
+  test("without questionOptions the content is stored verbatim", () => {
+    const t = s.create({ projectId: PID, text: "w" });
+    const c = s.addComment({ taskId: t.id, author: "a", content: "nota semplice" });
+    expect(c.content).toBe("nota semplice");
+  });
+});
+
 describe("claim (atomic dispatch)", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => { db = freshDb(); s = svc(db); });

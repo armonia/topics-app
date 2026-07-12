@@ -1,11 +1,13 @@
-import type { Topic, UnreadData, TerminalSessionInfo } from '@/types';
+import type { Topic, UnreadData, TerminalSessionInfo, PaneType } from '@/types';
 import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey, type BrowserOrigin } from '../state/pane/adapters';
+import { isUtilityPanelId, parseUtilityPanelType } from '../state/pane/adapters/utilityPanelId';
+import { getPaneConfig } from '../state/pane/adapters/paneConfig';
 import { topicAttentionCount, terminalAttentionCount, rollupProjectAttention } from '../state/signals';
 import { basename, tryHostname } from './path-utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type SidebarItemType = 'project' | 'chat' | 'terminal' | 'browser';
+export type SidebarItemType = 'project' | 'chat' | 'terminal' | 'browser' | 'utility';
 
 export interface BrowserContextInfo {
   id: string;
@@ -555,6 +557,27 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     items.push(buildBrowserItem(paneId));
   }
 
+  // ── 5b. Utility tabs (`__board__`, `__dashboard__`, …) — tab-driven like
+  // every other row: an open utility tab gets a sidebar row, a closed one
+  // doesn't. Before this, the Board generale tab was the ONE open tab with no
+  // sidebar presence — "dovrebbe essere uguale per tutti il sistema". Label +
+  // icon come from PANE_CONFIG (the same source the tab bar uses).
+  for (const paneId of openPanelSet) {
+    if (!isUtilityPanelId(paneId)) continue;
+    const utilType = parseUtilityPanelType(paneId);
+    if (!utilType) continue;
+    const config = getPaneConfig(utilType as PaneType);
+    items.push({
+      id: paneId,
+      type: 'utility',
+      name: config.label,
+      icon: config.icon,
+      lastActivity: 0,
+      notificationCount: 0,
+      archived: false,
+    });
+  }
+
   // ── 6. Sort: notifications first (boost), then by lastActivity desc ───────
 
   items.sort((a, b) => {
@@ -583,6 +606,7 @@ export function groupSidebarItems(items: SidebarItem[]): Record<SidebarItemType,
     chat: [],
     terminal: [],
     browser: [],
+    utility: [],
   };
 
   for (const item of items) {

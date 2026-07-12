@@ -46,4 +46,31 @@ describe('parseQuestionBlock', () => {
   test('returns null when the block has only options, no question', () => {
     expect(parseQuestionBlock('```question\n- A\n- B\n```')).toBeNull();
   });
+
+  // The canonical form is server-composed (tasks service `questionOptions`),
+  // but the parser must stay tolerant of hand-written LLM variants.
+  test('parses the exact server-composed canonical form', () => {
+    const text = '```question\nQuale approccio uso?\n- JWT in cookie\n- Bearer token\n```';
+    expect(parseQuestionBlock(text)).toEqual({
+      question: 'Quale approccio uso?',
+      options: ['JWT in cookie', 'Bearer token'],
+    });
+  });
+
+  test('tolerates CRLF newlines', () => {
+    const text = '```question\r\nScelta?\r\n- A\r\n- B\r\n```';
+    expect(parseQuestionBlock(text)).toEqual({ question: 'Scelta?', options: ['A', 'B'] });
+  });
+
+  test('tolerates a degenerate single-line block (lost newlines)', () => {
+    const text = '```question Il task non ha descrizione: cosa faccio? - È un test - Va compilata```';
+    expect(parseQuestionBlock(text)).toEqual({
+      question: 'Il task non ha descrizione: cosa faccio?',
+      options: ['È un test', 'Va compilata'],
+    });
+  });
+
+  test('single-line block without options is a plain question', () => {
+    expect(parseQuestionBlock('```question Come procedo?```')).toEqual({ question: 'Come procedo?', options: [] });
+  });
 });

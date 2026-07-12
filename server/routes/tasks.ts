@@ -269,6 +269,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
           content: body?.content,
           mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
           projectId: sess.projectId,
+          // Structured human-decision request: the service composes the
+          // canonical ```question``` block from these (KANBAN-07 quick-reply).
+          questionOptions: Array.isArray(body?.options)
+            ? body.options.filter((o: unknown) => typeof o === "string")
+            : undefined,
         });
         const task = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });

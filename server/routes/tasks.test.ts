@@ -117,6 +117,16 @@ describe("tasks router (session-scoped)", () => {
     expect(got.comments[0].author).toBe("topic-one"); // signed server-side from session
   });
 
+  test("POST comment with options → server-composed question block", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const resp = (await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, {
+      content: "Come procedo?", options: ["opzione A", "opzione B"],
+    }))!;
+    expect(resp.status).toBe(201);
+    const c = await resp.json();
+    expect(c.content).toBe("```question\nCome procedo?\n- opzione A\n- opzione B\n```");
+  });
+
   test("PATCH agent → review opens approval; agent → done is 409", async () => {
     const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
     const rev = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;

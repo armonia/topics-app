@@ -324,8 +324,8 @@ describe("buildSidebarItems — pinning (Fissati)", () => {
       pinnedIds: new Set(["a1", `project:${PP}`]),
     });
     const groups = groupSidebarItems(items);
-    // Only the four canonical buckets exist…
-    expect(Object.keys(groups).sort()).toEqual(["browser", "chat", "project", "terminal"]);
+    // Only the five canonical buckets exist…
+    expect(Object.keys(groups).sort()).toEqual(["browser", "chat", "project", "terminal", "utility"]);
     // …and pinned items land in their real-type bucket, flagged pinned.
     expect(groups.chat.map((i) => i.id)).toEqual(["a1"]);
     expect(groups.chat[0].pinned).toBe(true);
@@ -466,5 +466,47 @@ describe("buildSidebarItems — pinned closed project browser (origin nesting)",
     const row = items.find((i) => i.id === paneId);
     expect(row).toBeTruthy();
     expect(row!.projectPath).toBeUndefined();
+  });
+});
+
+describe("buildSidebarItems — utility tabs (tab-driven, same rule as everything)", () => {
+  test("an open utility tab gets a first-class sidebar row (label+icon from PANE_CONFIG)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      terminalSessions: [],
+      openPanels: ["__board__", "__dashboard__"],
+      projectOpenPanes: {},
+    });
+    const board = items.find((i) => i.id === "__board__");
+    expect(board).toBeTruthy();
+    expect(board!.type).toBe("utility");
+    expect(board!.name).toBe("Board generale");
+    expect(board!.icon).toBe("Kanban");
+    const dash = items.find((i) => i.id === "__dashboard__");
+    expect(dash?.name).toBe("Dashboard");
+  });
+
+  test("a closed utility tab has no row (the sidebar mirrors open tabs)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      terminalSessions: [],
+      openPanels: [],
+      projectOpenPanes: {},
+    });
+    expect(items.find((i) => i.type === "utility")).toBeUndefined();
+  });
+
+  test("grouped view files utility rows under their own section", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      terminalSessions: [],
+      openPanels: ["__board__"],
+      projectOpenPanes: {},
+    });
+    const groups = groupSidebarItems(items);
+    expect(groups.utility.map((i) => i.id)).toEqual(["__board__"]);
   });
 });
