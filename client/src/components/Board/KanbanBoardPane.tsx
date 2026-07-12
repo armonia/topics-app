@@ -472,11 +472,26 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask }: {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [comments.length]);
 
+  // A human comment on an agent-delivered review IS the answer — same
+  // semantics as the card's quick-reply: reject carries the text and resumes
+  // the SAME agent tab (server: reviewDecision → comment + in_progress +
+  // dispatcher.resume). A plain comment here would sit unread while the chip
+  // says "serve te". Non-agent tasks (or any other status) keep plain comments.
+  const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
   const send = async () => {
     const v = draft.trim(); if (!v) return;
     setDraft('');
-    try { await boardApi.comment(projectId, taskId, v); await load(); onChanged(); }
-    catch { /* surfaced elsewhere */ }
+    try {
+      if (isAgentReview) {
+        // Race fallback: if the task left review meanwhile, still save the text
+        // as a plain comment instead of losing it.
+        try { await boardApi.review(projectId, taskId, 'reject', v); }
+        catch { await boardApi.comment(projectId, taskId, v); }
+      } else {
+        await boardApi.comment(projectId, taskId, v);
+      }
+      await load(); onChanged();
+    } catch { /* surfaced elsewhere */ }
   };
 
   // Quick-add a nested subtask. Born in backlog (intake), like agent creates —
@@ -539,13 +554,25 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask }: {
         ))}
         <div ref={bottomRef} />
       </div>
-      <div className="flex items-end gap-2 border-t border-white/10 p-2">
-        <textarea
-          value={draft} onChange={(e) => setDraft(e.target.value)} rows={1} placeholder="Commenta…"
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-          className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-neutral-100 outline-none"
-        />
-        <button onClick={send} className="rounded bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500"><Send className="h-4 w-4" /></button>
+      <div className="border-t border-white/10 p-2">
+        {isAgentReview && (
+          <p className="mb-1 px-0.5 text-[10px] text-sky-300/80">
+            Il task è in review: la tua risposta fa ripartire l'agent (torna In Progress).
+          </p>
+        )}
+        <div className="flex items-end gap-2">
+          <textarea
+            value={draft} onChange={(e) => setDraft(e.target.value)} rows={1}
+            placeholder={isAgentReview ? 'Rispondi all\'agent…' : 'Commenta…'}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+            className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-neutral-100 outline-none"
+          />
+          <button
+            onClick={send}
+            title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : 'Commenta'}
+            className={`rounded p-1.5 text-white ${isAgentReview ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
+          ><Send className="h-4 w-4" /></button>
+        </div>
       </div>
     </div>
   );
