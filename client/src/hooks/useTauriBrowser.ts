@@ -308,19 +308,40 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   );
 
   // Capture a still, show it, then park the live view. Capturing FIRST (while the
-  // view is on-screen) makes the swap seamless — the page never visibly vanishes.
+  // view is on-screen) is necessary but NOT sufficient for a seamless swap: the
+  // still must also have PAINTED before the view parks. setFrozenImage only
+  // schedules a React commit — the <img> then still has to decode the PNG and
+  // composite, which lands frames after the park IPC if we fire it right away.
+  // That gap (native view gone, still not painted yet) was the visible "flash"
+  // every time a dropdown opened over a pane. So: decode the bitmap off-DOM
+  // first, commit the still, wait two rAFs for the composite, THEN park.
   const freeze = useCallback(() => {
     if (!openedRef.current || frozenRef.current) return;
     frozenRef.current = true; // applyBounds is now a no-op — the poll can't fight us
     const seq = ++freezeSeqRef.current;
     if (thawTimerRef.current) { clearTimeout(thawTimerRef.current); thawTimerRef.current = null; }
     void tauriInvoke<string>('browser_screenshot', { id })
-      .then((data) => {
-        if (freezeSeqRef.current === seq && data) setFrozenImage(`data:image/png;base64,${data}`);
+      .then(async (data) => {
+        if (freezeSeqRef.current !== seq || !data) return;
+        const url = `data:image/png;base64,${data}`;
+        // Pre-decode so the <img> paints on its very first frame (decode() warms
+        // WebKit's image cache for the identical data URL). Failure is benign —
+        // the still just decodes lazily like before.
+        try { const im = new Image(); im.src = url; await im.decode(); } catch { /* decode is best-effort */ }
+        if (freezeSeqRef.current !== seq) return;
+        setFrozenImage(url);
+        // Two rAFs: one for the React commit, one for the composite with the
+        // still actually on-glass. Only then is it safe to yank the live view.
+        // Raced against a timeout because rAF stalls in an occluded window —
+        // the park must still happen so the overlay isn't stuck underneath.
+        await Promise.race([
+          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
+          new Promise<void>((r) => setTimeout(r, 350)),
+        ]);
       })
       .catch(() => {})
       .finally(() => {
-        // Park regardless (even if the shot failed, the overlay must show through);
+        // Park (even if the shot failed — the overlay must show through);
         // skip if a thaw already superseded this freeze. Park at the last real size
         // (off-screen), not 1×1, so the page layout survives behind the still.
         if (freezeSeqRef.current === seq) void tauriInvoke('browser_set_bounds', {
