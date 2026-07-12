@@ -83,6 +83,10 @@ export interface TaskDispatcher {
 const CHIP_QUEUED = "queued";
 const CHIP_WORKING = "working";
 const CHIP_NEEDS_INPUT = "needs_input";
+// Review, but with a difference the human cares about: "serve te" = the agent
+// ASKED something (its last word is a question block, answer required);
+// "delivered" = clean hand-off, the agent believes the work is done.
+const CHIP_DELIVERED = "delivered";
 // The two states that mean "a dispatch turn is genuinely live" — reconcile only
 // requeues orphans in these states, so a human dragging a review/done task into
 // In Progress (dispatch_state null/needs_input) is never falsely "orphaned".
@@ -249,10 +253,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return;
     }
     if (cur.status === "review") {
-      // Agent finished or asked for input → it's the human's now. Flip the chip to
-      // "serve te" (not a stale "working") and keep the binding for the deep-link
-      // and the resume-on-answer path.
-      try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_NEEDS_INPUT })); } catch { /* best-effort */ }
+      // It's the human's now — but distinguish WHY: a question block as the
+      // agent's last word = "serve te" (decision required); anything else =
+      // "delivered" (the agent believes it's done, ready to approve). Binding
+      // stays for the deep-link and the resume-on-answer path either way.
+      let chip = CHIP_NEEDS_INPUT;
+      try {
+        const comments = deps.svc.get(taskId)?.comments ?? [];
+        const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system");
+        if (lastAgent && !lastAgent.content.includes("```question")) chip = CHIP_DELIVERED;
+      } catch { /* default to needs_input */ }
+      try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
       return;
     }
     if (cur.status === "in_progress") {
