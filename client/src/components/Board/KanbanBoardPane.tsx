@@ -695,11 +695,15 @@ function OutputPanel({ task, onOpenTopic }: { task: BoardTask | null; onOpenTopi
               title="Apri in una nuova finestra"
             ><ExternalLink className="h-3.5 w-3.5" /></a>
           </div>
+          {/* Sandbox WITHOUT allow-same-origin: combined with allow-scripts it
+              would void the sandbox entirely (a frame pointed at THIS app's
+              origin could reach parent.document). Opaque origin keeps agent-set
+              URLs inert; pages needing their own storage open externally. */}
           <iframe
             key={task.outputUrl}
             src={task.outputUrl}
             title="Output del task"
-            sandbox="allow-scripts allow-same-origin allow-forms"
+            sandbox="allow-scripts allow-forms"
             className="w-full flex-1 border-0 bg-white"
           />
         </>
