@@ -4,14 +4,42 @@ import type { WSMessage } from '../types';
 export type SidebarViewMode = 'timeline' | 'grouped';
 
 /** Loosely-typed persisted sidebar state — the server/storage layer is
- *  schemaless, so incoming values are coerced to a partial of the known
- *  shape (extra keys, if any, are dropped by the spread over DEFAULT_STATE).
- *  Spreading a `Partial<SidebarState>` over the full `DEFAULT_STATE` keeps
- *  every field typed, so the result stays a valid `SidebarState`. */
+ *  schemaless, so every incoming value MUST pass through
+ *  `sanitizeSidebarPayload` before reaching state. A plain spread does NOT
+ *  drop extra keys at runtime: a pre-migration-012 client once merged the GET
+ *  envelope itself ({ value, payload_version, server_seq }) into its state and
+ *  PUT it back, so the stored value grew recursively-nested envelopes that
+ *  every later client faithfully re-persisted forever (and the web sidebar
+ *  read pinnedItems from the wrong nesting level). */
 type PartialSidebarState = Partial<SidebarState>;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
+}
+
+/** True if `v` looks like a ui-state GET envelope rather than the state
+ *  itself. Real sidebar state never carries `value`/`server_seq` keys. */
+function looksLikeEnvelope(v: Record<string, unknown>): boolean {
+  return 'value' in v && ('server_seq' in v || 'payload_version' in v);
+}
+
+/** Normalize ANY persisted/broadcast payload into a clean partial state:
+ *  descend through recursively-nested GET envelopes (self-heals values
+ *  corrupted by the historical double-wrap), then pluck ONLY the known
+ *  SidebarState keys — junk like `payload_version` must never re-enter the
+ *  React state or it gets PUT straight back to the server. Returns null for
+ *  payloads with no usable object at the core. Exported for unit tests. */
+export function sanitizeSidebarPayload(raw: unknown): PartialSidebarState | null {
+  let cur: unknown = raw;
+  for (let depth = 0; isRecord(cur) && looksLikeEnvelope(cur) && depth < 10; depth++) {
+    cur = cur.value;
+  }
+  if (!isRecord(cur)) return null;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(DEFAULT_STATE) as (keyof SidebarState)[]) {
+    if (key in cur) out[key] = cur[key];
+  }
+  return out as PartialSidebarState;
 }
 
 interface SidebarState {
@@ -60,7 +88,8 @@ function loadFromStorage(): SidebarState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as PartialSidebarState;
+      const parsed = sanitizeSidebarPayload(JSON.parse(raw));
+      if (!parsed) return DEFAULT_STATE;
       // Migrate: if old format (no viewMode), derive from old fields
       if (!parsed.viewMode) {
         parsed.viewMode = 'timeline';
@@ -101,10 +130,10 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     fetch(`/api/ui-state/${encodeURIComponent(SERVER_KEY)}`) // PANE-01-ALLOWED: sidebar-state key, not pane state
       .then((r): Promise<unknown> | null => r.ok ? r.json() : null)
       .then((envelope: unknown) => {
-        // PANE-01-ALLOWED: unwrap v2 envelope { value, payload_version, server_seq }
-        const serverValue: unknown = isRecord(envelope) && 'value' in envelope ? envelope.value : envelope;
-        if (!mountedRef.current || !isRecord(serverValue)) return;
-        const sv = serverValue as PartialSidebarState;
+        // PANE-01-ALLOWED: sanitize = unwrap v2 envelope (recursively, healing
+        // the historical double-wrap corruption) + strip unknown keys.
+        const sv = sanitizeSidebarPayload(envelope);
+        if (!mountedRef.current || !sv) return;
         const merged: SidebarState = { ...DEFAULT_STATE, ...sv };
         // Migrate server state too
         if (!sv.viewMode) {
@@ -126,16 +155,17 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
       if (Date.now() - lastLocalChangeRef.current < 2000) return;
 
       if (msg.type === 'ui-state:updated' && msg.key === SERVER_KEY) {
-        if (!isRecord(msg.value)) return;
-        const merged: SidebarState = { ...DEFAULT_STATE, ...(msg.value as PartialSidebarState) };
+        const sv = sanitizeSidebarPayload(msg.value);
+        if (!sv) return;
+        const merged: SidebarState = { ...DEFAULT_STATE, ...sv };
         isFromServerRef.current = true;
         setStateRaw(merged);
         saveToStorage(merged);
       }
       if (msg.type === 'ui-state:init' && msg.data && SERVER_KEY in msg.data) {
-        const raw = msg.data[SERVER_KEY];
-        if (!isRecord(raw)) return;
-        const merged: SidebarState = { ...DEFAULT_STATE, ...(raw as PartialSidebarState) };
+        const sv = sanitizeSidebarPayload(msg.data[SERVER_KEY]);
+        if (!sv) return;
+        const merged: SidebarState = { ...DEFAULT_STATE, ...sv };
         isFromServerRef.current = true;
         setStateRaw(merged);
         saveToStorage(merged);
@@ -148,8 +178,10 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     const handler = (e: StorageEvent) => {
       if (e.key !== STORAGE_KEY || !e.newValue) return;
       try {
+        const sv = sanitizeSidebarPayload(JSON.parse(e.newValue));
+        if (!sv) return;
         isFromServerRef.current = true;
-        setStateRaw({ ...DEFAULT_STATE, ...(JSON.parse(e.newValue) as PartialSidebarState) });
+        setStateRaw({ ...DEFAULT_STATE, ...sv });
       } catch {}
     };
     window.addEventListener('storage', handler);

@@ -197,6 +197,7 @@ function App() {
     sidebarCollapsed,
     isMobile,
     viewportHeight,
+    viewportTop,
     windowId,
   } = layout.state;
   const { sidebarRef } = layout.refs;
@@ -740,7 +741,7 @@ function App() {
       style={{
         fontSize: `${appSettings.fontSize}px`,
         position: 'fixed',
-        top: 0, left: 0, right: 0,
+        top: viewportHeight != null ? `${viewportTop}px` : 0, left: 0, right: 0,
         bottom: viewportHeight != null ? undefined : 0,
         height: viewportHeight != null ? `${viewportHeight}px` : undefined,
       }}
