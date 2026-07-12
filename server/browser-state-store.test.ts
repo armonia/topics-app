@@ -6,6 +6,8 @@ import {
   loadStorageState,
   deleteStorageState,
   debouncedSaver,
+  saveLastUrl,
+  loadLastUrl,
   type BrowserStorageState,
 } from "./browser-state-store";
 
@@ -133,4 +135,34 @@ test("debouncedSaver.cancel() prevents save", async () => {
   saver.cancel();
   await new Promise(r => setTimeout(r, 100));
   expect(saveCount).toBe(0);
+});
+
+// ── Last-URL persistence (context restore after restart/reap) ───────────────
+
+test("saveLastUrl/loadLastUrl round-trip an http(s) url", () => {
+  saveLastUrl(TEST_TOPIC, "https://specflow.armonia.io/p/abc");
+  expect(loadLastUrl(TEST_TOPIC)).toBe("https://specflow.armonia.io/p/abc");
+});
+
+test("saveLastUrl ignores about:blank and non-http schemes", () => {
+  saveLastUrl(TEST_TOPIC, "https://example.com/real");
+  saveLastUrl(TEST_TOPIC, "about:blank");
+  saveLastUrl(TEST_TOPIC, "chrome-error://chromewebdata/");
+  saveLastUrl(TEST_TOPIC, "file:///etc/passwd");
+  expect(loadLastUrl(TEST_TOPIC)).toBe("https://example.com/real");
+});
+
+test("loadLastUrl returns null when nothing persisted or file corrupt", () => {
+  expect(loadLastUrl(TEST_TOPIC)).toBeNull();
+  saveLastUrl(TEST_TOPIC, "https://example.com");
+  const { writeFileSync } = require("fs");
+  writeFileSync(join(TEST_DIR, "last-url.json"), "not-json");
+  expect(loadLastUrl(TEST_TOPIC)).toBeNull();
+});
+
+test("deleteStorageState also removes the persisted last url", async () => {
+  await saveStorageState(TEST_TOPIC, FIXTURE_STATE);
+  saveLastUrl(TEST_TOPIC, "https://example.com");
+  await deleteStorageState(TEST_TOPIC);
+  expect(loadLastUrl(TEST_TOPIC)).toBeNull();
 });
