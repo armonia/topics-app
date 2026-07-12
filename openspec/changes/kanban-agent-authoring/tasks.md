@@ -3,13 +3,18 @@
 Convenzione: ogni Phase chiude con `cd client && tsc -b` verde + i test della Phase verdi.
 `[ ]` = da fare, `[x]` = fatto+verificato. Nessun cambio alla UI Kanban/AllBoardsPane.
 
-> STATO: **backend completo e verificato** (Phase 0–1 + endpoint human-side) — 96 test
-> verdi (service 18 · MCP 64 · routes 14), `tsc` server OK. Due commit puliti su
-> `feat/kanban-agent-authoring` (`b59a9c69` agent surface, `18b80284` human board API +
-> archive + review). Superficie agent (`/api/sessions/:key/...`, gate Review) e human
-> (`/api/boards/:projectId/...`, done+archive+approve/reject) entrambe live, con guardia
-> IDOR projectId. Restano: **board client lean (Phase 4)** — pane React da costruire
-> sull'app viva; refactor DRY (0.4/0.5, rimandati); auto-dispatch (Phase 5); E2E.
+> STATO (agg. 2026-07-12): **backend + board client + auto-dispatch implementati.**
+> Superficie agent (`/api/sessions/:key/...`, gate Review, create→backlog intake) e human
+> (`/api/boards/:projectId/...`, done+archive+approve/reject) live con guardia IDOR;
+> board client lean (`KanbanBoardPane`, 5 colonne + dnd + thread + review gate + quick
+> reply `question`); auto-dispatch (Phase 5, ripensato: nessun gate `assigned_to` — il
+> segnale è QUALSIASI task che entra/nasce in `todo`, grace window anti drag-through,
+> claim atomico con cap, worktree di default, effort per-board, chip
+> queued/starting/working/needs_input + park visibile con motivo). Resolver board→dir
+> esteso a topic paths + terminal cwds, con auto-registrazione nel ProjectStore per i
+> worktree. 155 test verdi (service+dispatcher+routes+resolver+MCP), `tsc` ok. Delta
+> spec KANBAN-03/07 riallineati all'implementazione. Restano: E2E su :13334; refactor
+> DRY (0.4/0.5, rimandati).
 
 ## Phase 0 — Ricognizione & fondamenta (sblocca tutto)
 - [ ] 0.1 Localizzare in git (`refactor-master-into-kanban`) gli handler REST rimossi per

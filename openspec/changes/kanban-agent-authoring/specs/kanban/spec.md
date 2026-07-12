@@ -6,12 +6,15 @@ Il sistema SHALL permettere a un agente, tramite MCP, di creare e aggiornare tas
 board del **progetto legato alla sua sessione**, senza dover conoscere `project_id`. Le
 mutazioni SHALL passare da un unico task-service ed essere riflesse live sulla board via
 broadcast WebSocket. La creazione SHALL essere idempotente rispetto a un
-`idempotency_key` opzionale.
+`idempotency_key` opzionale. Un task creato da un agente SHALL entrare in `backlog`
+(intake): solo un umano lo sposta in `todo`, che è ciò che lo rende eleggibile
+all'auto-dispatch — simmetrico al gate `review → done` (KANBAN-05) e guardia
+anti-ricorsione (un worker non può accodare lavoro che spawna altri worker).
 
 #### Scenario: create_task crea sul progetto della sessione
 - **GIVEN** una sessione agente legata al progetto P
 - **WHEN** l'agente chiama `create_task` con un testo e nessun `project_id`
-- **THEN** un nuovo task compare nella colonna `todo` della board di P
+- **THEN** un nuovo task compare nella colonna `backlog` della board di P
 - **AND** la board aperta si aggiorna senza refresh manuale
 
 #### Scenario: create_task è idempotente
@@ -90,18 +93,43 @@ sessione.
 
 ### Requirement: KANBAN-07 — Auto-dispatch reattivo (opt-in)
 
-Quando `board_settings.autodispatch` è attivo per una board, un task che entra in `todo`
-con `assigned_to` uguale a un agente noto SHALL innescare lo spawn di un worker che lo
-lavora, posta commenti di avanzamento e lo consegna in `review`. Con il flag disattivo (di
-default) nessuno spawn SHALL avvenire. Il dispatch SHALL avere una guardia anti-ricorsione.
+Quando `board_settings.auto_dispatch` è attivo per una board, un task che entra in `todo`
+(trascinato O creato direttamente lì da un umano) SHALL innescare, dopo una finestra di
+grazia anti drag-through, il claim atomico del task e l'avvio di un agent headless
+dedicato in una chat tab detached, isolato in un git worktree quando
+`dispatch_use_worktree` è attivo. Il numero di agent concorrenti per board SHALL essere
+limitato da `max_agents`; i tentativi per task da un retry-cap. L'agent lavora fino a
+`review` (mai `done`, KANBAN-05). Con il flag disattivo (default) nessuno spawn SHALL
+avvenire e nessun chip di dispatch SHALL comparire. La guardia anti-ricorsione è
+strutturale: gli agent creano solo in `backlog` (KANBAN-03), quindi il lavoro accodato da
+un worker non è mai auto-eleggibile.
 
-#### Scenario: task assegnato parte da solo (flag on)
-- **GIVEN** una board con `autodispatch` attivo
-- **WHEN** un task entra in `todo` assegnato all'agente W
-- **THEN** viene spawnato un worker per quel task
-- **AND** il task riceve commenti di avanzamento e finisce in `review`
+Feedback SHALL essere sempre visibile sulla card: `queued → starting → working →
+needs_input` via `dispatch_state`, e ogni interruzione (worktree impossibile, progetto
+non risolvibile, turno morto, retry esauriti) SHALL parcheggiare il task con il motivo
+in `dispatch_error` E un commento nel thread — mai un fallimento silenzioso solo nei log.
+
+#### Scenario: task in todo parte da solo (flag on)
+- **GIVEN** una board con `auto_dispatch` attivo
+- **WHEN** un task entra in `todo` e vi resta oltre la finestra di grazia
+- **THEN** il task è claimato (`in_progress`, chip `working`) e un agent lavora in una
+  tab dedicata raggiungibile dalla card ("apri tab")
+- **AND** alla consegna il task è in `review` con chip `serve te`
 
 #### Scenario: nessun dispatch con flag off
-- **GIVEN** una board con `autodispatch` disattivo (default)
-- **WHEN** un task viene creato e assegnato
+- **GIVEN** una board con `auto_dispatch` disattivo (default)
+- **WHEN** un task viene creato o trascinato in `todo`
 - **THEN** nessun agente viene spawnato automaticamente
+- **AND** l'header della board mostra che l'auto-dispatch è spento
+
+#### Scenario: drag-through non spawna
+- **GIVEN** una board con `auto_dispatch` attivo
+- **WHEN** un task attraversa `todo` e ne esce prima della finestra di grazia
+- **THEN** nessun claim avviene e il chip `in coda` viene rimosso
+
+#### Scenario: interruzione visibile, mai silenziosa
+- **GIVEN** una board con `auto_dispatch` attivo il cui progetto non è risolvibile o il
+  cui worktree non può essere creato
+- **WHEN** un task tenta il dispatch
+- **THEN** il task è parcheggiato in `backlog` con il motivo in `dispatch_error` e nel
+  thread commenti

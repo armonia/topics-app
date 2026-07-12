@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Loader2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, Loader2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
@@ -53,6 +53,19 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // Per-board dispatch settings, owned HERE (not by the settings panel) so the
+  // header can always answer "does moving a task to Todo start an agent?" —
+  // the exact feedback that was missing when a task sat in Todo doing nothing.
+  const [settings, setSettings] = useState<BoardSettings | null>(null);
+
+  useEffect(() => {
+    if (!hasProject) { setSettings(null); return; }
+    let alive = true;
+    boardApi.getSettings(projectId)
+      .then((v) => { if (alive) setSettings(v); })
+      .catch(() => { /* pill just stays hidden */ });
+    return () => { alive = false; };
+  }, [hasProject, projectId]);
 
   const refetch = useCallback(async () => {
     try {
@@ -69,13 +82,15 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
+  // board:settings keeps the header pill honest when another client toggles it.
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg) => {
-      const m = msg as { type?: string; projectId?: string };
+      const m = msg as { type?: string; projectId?: string; settings?: BoardSettings };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
         if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) refetch();
       }
+      if (m.type === 'board:settings' && m.projectId === projectId && m.settings) setSettings(m.settings);
     });
   }, [onMessage, projectId, refetch, mode]);
 
@@ -124,7 +139,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   }
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden" data-testid="kanban-board">
       {/* Header: a project/all toggle inside a project, a static label globally. */}
       <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-3 py-1.5">
         {canToggle ? (
@@ -143,6 +158,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         )}
         <div className="ml-auto flex items-center gap-2">
           {mode === 'all' && <span className="text-[11px] text-neutral-500">{tasks.length} task · tutti i progetti</span>}
+          {hasProject && settings && (
+            <button
+              onClick={() => setShowSettings(true)}
+              data-testid="board-dispatch-pill"
+              title={settings.autoDispatch
+                ? 'Auto-dispatch attivo: un task spostato in Todo avvia un agent'
+                : 'Auto-dispatch spento: i task in Todo NON partono da soli — clicca per attivarlo'}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
+                settings.autoDispatch ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-neutral-400 hover:bg-white/15'
+              }`}
+            >
+              <Bot className="h-3 w-3" /> {settings.autoDispatch ? 'agent: on' : 'agent: off'}
+            </button>
+          )}
           {hasProject && (
             <button
               onClick={() => setShowSettings((s) => !s)}
@@ -154,7 +183,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
       {showSettings && hasProject && (
-        <BoardSettingsPanel projectId={projectId} onClose={() => setShowSettings(false)} onError={setError} />
+        <BoardSettingsPanel
+          projectId={projectId}
+          settings={settings}
+          onChanged={setSettings}
+          onClose={() => setShowSettings(false)}
+          onError={setError}
+        />
       )}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
         <div className="flex h-full gap-3 overflow-x-auto p-3">
@@ -208,7 +243,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
 
   return (
-    <div ref={setNodeRef} className={`flex w-72 shrink-0 flex-col rounded-lg border ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
+    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex w-72 shrink-0 flex-col rounded-lg border ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-neutral-300">{status === 'review' ? 'Serve te' : STATUS_LABEL[status]}</span>
         <span className="rounded bg-white/10 px-1.5 text-xs text-neutral-400">{tasks.length}</span>
@@ -308,6 +343,12 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic }: {
           <span className={`rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`}>
             {DISPATCH_CHIP[task.dispatchState].text}
           </span>
+        )}
+        {!task.dispatchState && task.dispatchError && (
+          <span
+            className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300"
+            title={task.dispatchError}
+          >fermato</span>
         )}
         {task.assignedTopicId && onOpenTopic && (
           <button
@@ -426,20 +467,16 @@ function TaskDetail({ projectId, taskId, onClose, onChanged }: {
 // ── Board settings (auto-dispatch config) ───────────────────────────────────
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
-function BoardSettingsPanel({ projectId, onClose, onError }: {
-  projectId: string; onClose: () => void; onError: (e: string) => void;
+function BoardSettingsPanel({ projectId, settings: s, onChanged, onClose, onError }: {
+  projectId: string;
+  /** Owned by the board (header pill) — this panel only renders and patches it. */
+  settings: BoardSettings | null;
+  onChanged: (s: BoardSettings) => void;
+  onClose: () => void;
+  onError: (e: string) => void;
 }) {
-  const [s, setS] = useState<BoardSettings | null>(null);
-  useEffect(() => {
-    let alive = true;
-    boardApi.getSettings(projectId)
-      .then((v) => { if (alive) setS(v); })
-      .catch((e) => onError(e instanceof Error ? e.message : 'settings load failed'));
-    return () => { alive = false; };
-  }, [projectId, onError]);
-
   const patch = async (p: BoardSettingsPatch) => {
-    try { setS(await boardApi.updateSettings(projectId, p)); }
+    try { onChanged(await boardApi.updateSettings(projectId, p)); }
     catch (e) { onError(e instanceof Error ? e.message : 'settings save failed'); }
   };
 
