@@ -364,6 +364,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       saveLastUrl(id, entry.url);
       try { entry.title = await page.title(); } catch { entry.title = ""; }
       touchActivity(entry);
+      // Out-of-band navigations (agent tools, last-url restore, in-page link
+      // clicks) must reach the pane too: nav/response was previously emitted
+      // only for client-INITIATED navs, so every other navigation source left
+      // the URL bar stale — a restored context streamed its page while the
+      // pane still said "Browser ready". Guarded to real pages so the initial
+      // about:blank load can't clobber the pane's url state.
+      if (/^https?:\/\//.test(entry.url)) {
+        opts.broadcastToBrowserWs?.(id, { type: "nav", url: entry.url, phase: "response" });
+      }
     });
   }
 
