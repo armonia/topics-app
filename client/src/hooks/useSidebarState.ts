@@ -115,6 +115,12 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
   stateRef.current = state;
 
   const isFromServerRef = useRef(false);
+  // Gate for the debounced PUT: a client must HYDRATE from the server before it
+  // may write. Without this, a fresh client (empty localStorage) interacting in
+  // the window before the initial GET resolves PUTs its DEFAULT_STATE — wiping
+  // server-side pinnedItems/expandedNodes for every other client (LWW). This is
+  // exactly how the pinned sessions were lost when pin-sync first came alive.
+  const hydratedRef = useRef(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   // Track when user last interacted — ignore WS pushes for 2s after local changes
@@ -144,7 +150,10 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
         setStateRaw(merged);
         saveToStorage(merged);
       })
-      .catch(() => {});
+      .catch(() => {})
+      // Success OR failure: only after the initial fetch settles may this
+      // client publish. On failure the PUT would fail too, so nothing is lost.
+      .finally(() => { hydratedRef.current = true; });
   }, []);
 
   // WS listener — skip if user made a local change recently (prevents overwrite race)
@@ -197,6 +206,10 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
 
     // Write localStorage immediately
     saveToStorage(state);
+
+    // Never publish before hydrating (see hydratedRef) — the local change is
+    // kept in localStorage and the next interaction after hydrate syncs it.
+    if (!hydratedRef.current) return;
 
     // Debounce server PUT
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
