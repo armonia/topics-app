@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Bot, ChevronRight, ExternalLink, Loader2, Maximize2, Minimize2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, ChevronRight, ExternalLink, Info, Loader2, Maximize2, Minimize2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
@@ -29,6 +29,50 @@ interface Props {
 const PRIORITY_DOT: Record<number, string> = {
   0: 'bg-neutral-400', 1: 'bg-sky-400', 2: 'bg-emerald-400', 3: 'bg-amber-400', 4: 'bg-rose-500',
 };
+
+const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
+  backlog: 'text-neutral-500',
+  todo: 'text-neutral-300',
+  in_progress: 'text-sky-400',
+  review: 'text-rose-400',
+  done: 'text-emerald-400',
+};
+
+/**
+ * Linear-style status glyph — the segmented progress circle that became the
+ * de-facto standard for issue states (dashed ring → empty ring → half pie →
+ * ¾ pie → checked disc). One shape family, color + fill carry the state, so
+ * the eye reads progress at a glance even at 12px.
+ */
+function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: TaskStatus; className?: string }) {
+  // Inner pie: a fat-stroked circle with pathLength=100 — dasharray N = N% of
+  // the disc filled, rotated so the fill grows clockwise from 12 o'clock.
+  const pie = (pct: number) => (
+    <circle
+      cx="7" cy="7" r="2.4" fill="none" stroke="currentColor" strokeWidth="4.8"
+      pathLength={100} strokeDasharray={`${pct} 100`} transform="rotate(-90 7 7)"
+    />
+  );
+  return (
+    <svg viewBox="0 0 14 14" aria-hidden className={`${className} shrink-0 ${STATUS_ICON_COLOR[status]}`}>
+      {status === 'done' ? (
+        <>
+          <circle cx="7" cy="7" r="6.4" fill="currentColor" />
+          <path d="M4.3 7.3l1.8 1.8 3.6-3.9" fill="none" stroke="#171717" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      ) : (
+        <>
+          <circle
+            cx="7" cy="7" r="6" fill="none" stroke="currentColor" strokeWidth="1.6"
+            {...(status === 'backlog' ? { strokeDasharray: '2.4 2.6', strokeLinecap: 'round' as const } : {})}
+          />
+          {status === 'in_progress' && pie(50)}
+          {status === 'review' && pie(75)}
+        </>
+      )}
+    </svg>
+  );
+}
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
 const DISPATCH_CHIP: Record<string, { text: string; cls: string }> = {
@@ -232,6 +276,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         <TaskDetail
           projectId={selected.projectId}
           taskId={selected.id}
+          bump={selected.updatedAt}
           onClose={() => setSelectedId(null)}
           onChanged={refetch}
           onOpenTask={setSelectedId}
@@ -256,7 +301,10 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
   return (
     <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex w-72 shrink-0 flex-col rounded-lg border ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-neutral-300">{status === 'review' ? 'Serve te' : STATUS_LABEL[status]}</span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-300">
+          <StatusIcon status={status} />
+          {status === 'review' ? 'Serve te' : STATUS_LABEL[status]}
+        </span>
         <span className="rounded bg-white/10 px-1.5 text-xs text-neutral-400">{tasks.length}</span>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
@@ -394,8 +442,10 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
           {pending ? (
             <p className="text-[11px] leading-snug text-rose-200">{pending.question}</p>
           ) : lastComment ? (
-            <p className="line-clamp-3 text-[11px] leading-snug text-neutral-300" title={lastComment.content}>
-              <span className="font-semibold text-neutral-400">{lastComment.author}: </span>
+            <p className="line-clamp-3 text-[11px] leading-snug text-neutral-300" title={`${lastComment.author}: ${lastComment.content}`}>
+              {/* No author prefix: for dispatched agents it's the topic name =
+                  the task title — noise dressed up as a username. */}
+              {lastComment.author !== 'user' && <Bot className="mr-1 inline h-3 w-3 align-[-2px] text-neutral-400" />}
               {lastComment.content}
             </p>
           ) : null}
@@ -451,8 +501,14 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
 }
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
-function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenTopic }: {
+function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
+  /**
+   * Change signal (the task's updatedAt from the board's live list): any WS
+   * task:updated — a step flipping, a new comment — re-fetches the open detail,
+   * so the drawer follows the agent in real time instead of freezing at mount.
+   */
+  bump?: string;
   /** Navigate the drawer to another task (subtask ↔ parent). */
   onOpenTask?: (taskId: string) => void;
   /** Deep-link the agent's chat tab (output panel fallback). */
@@ -464,6 +520,8 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenT
   const [draft, setDraft] = useState('');
   const [subDraft, setSubDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [addingSub, setAddingSub] = useState(false);
   // Narrow (default) keeps the board visible behind the drawer; wide turns the
   // detail into a full review surface — subtask tree + thread on the left, the
   // task's output (dev server, page, report) on the right. Sticky per client.
@@ -482,7 +540,7 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenT
     } catch { /* closed or gone */ }
   }, [projectId, taskId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, bump]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [comments.length]);
 
   // A human comment on an agent-delivered review IS the answer — same
@@ -492,8 +550,8 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenT
   // says "serve te". Non-agent tasks (or any other status) keep plain comments.
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
   const send = async () => {
-    const v = draft.trim(); if (!v) return;
-    setDraft('');
+    const v = draft.trim(); if (!v || sending) return;
+    setSending(true);
     try {
       if (isAgentReview) {
         // Race fallback: if the task left review meanwhile, still save the text
@@ -503,8 +561,10 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenT
       } else {
         await boardApi.comment(projectId, taskId, v);
       }
+      setDraft(''); // cleared on success only — a failed send keeps the text
       await load(); onChanged();
     } catch { /* surfaced elsewhere */ }
+    finally { setSending(false); }
   };
 
   // Approve/reject from the detail itself — the review surface must not force a
@@ -520,10 +580,14 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenT
   // Quick-add a nested subtask. Born in backlog (intake), like agent creates —
   // dragging it to Todo is the explicit "vai" gesture.
   const addSubtask = async () => {
-    const v = subDraft.trim(); if (!v) return;
-    setSubDraft('');
-    try { await boardApi.create(projectId, { text: v, status: 'backlog', parentTaskId: taskId }); await load(); onChanged(); }
-    catch { /* surfaced elsewhere */ }
+    const v = subDraft.trim(); if (!v || addingSub) return;
+    setAddingSub(true);
+    try {
+      await boardApi.create(projectId, { text: v, status: 'backlog', parentTaskId: taskId });
+      setSubDraft('');
+      await load(); onChanged();
+    } catch { /* surfaced elsewhere */ }
+    finally { setAddingSub(false); }
   };
 
   const doneCount = children.filter((c) => c.status === 'done').length;
@@ -534,14 +598,17 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenT
       className={`absolute inset-y-0 right-0 z-20 flex flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur ${wide ? 'w-[min(64rem,94%)]' : 'w-96'}`}
     >
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-        <span className="text-xs uppercase tracking-wide text-neutral-400">{task ? STATUS_LABEL[task.status] : ''}</span>
+        <span className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-neutral-400">
+          {task ? <StatusIcon status={task.status} /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {task ? (task.status === 'review' ? 'Serve te' : STATUS_LABEL[task.status]) : 'Carico…'}
+        </span>
         {task?.status === 'review' && (
           <div className="flex items-center gap-1">
             <button
               disabled={busy} onClick={() => decide('approve')}
               title="Accetta e completa il task"
               className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
-            ><ShieldCheck className="h-3 w-3" /> Approva</button>
+            >{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />} Approva</button>
             <button
               disabled={busy} onClick={() => decide('reject')}
               title={isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni)" : 'Rifiuta'}
@@ -565,6 +632,11 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenT
           <button onClick={onClose} className="rounded p-1 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
+      {!task ? (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-neutral-500" />
+        </div>
+      ) : (
       <div className="flex min-h-0 flex-1">
         {/* Left column: meta + subtask tree + chat thread. In wide mode it keeps
             the drawer width and the output panel takes the remaining space. */}
@@ -595,13 +667,16 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenT
             {children.map((c) => (
               <SubtaskNode key={c.id} projectId={projectId} node={c} depth={0} onOpenTask={onOpenTask} />
             ))}
-            <input
-              value={subDraft}
-              onChange={(e) => setSubDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
-              placeholder="+ sottotask…"
-              className="mt-1 w-full rounded bg-white/5 px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600"
-            />
+            <div className="relative mt-1">
+              <input
+                value={subDraft} disabled={addingSub}
+                onChange={(e) => setSubDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
+                placeholder="+ sottotask…"
+                className="w-full rounded bg-white/5 px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 disabled:opacity-60"
+              />
+              {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-neutral-400" />}
+            </div>
           </div>
           {/* Thread — chat-shaped: my messages right, agent/system left. */}
           <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
@@ -618,15 +693,16 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenT
                 className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-neutral-100 outline-none"
               />
               <button
-                onClick={send}
+                onClick={send} disabled={sending || !draft.trim()}
                 title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : 'Commenta'}
-                className={`rounded p-1.5 text-white ${isAgentReview ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
-              ><Send className="h-4 w-4" /></button>
+                className={`rounded p-1.5 text-white disabled:opacity-50 ${isAgentReview ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
+              >{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
             </div>
           </div>
         </div>
         {wide && <OutputPanel task={task} onOpenTopic={onOpenTopic} />}
       </div>
+      )}
     </div>
   );
 }
@@ -659,10 +735,9 @@ function SubtaskNode({ projectId, node, depth, onOpenTask }: {
         ) : (
           <span className="w-3 shrink-0" />
         )}
-        <span
-          title={STATUS_LABEL[node.status]}
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${node.status === 'done' ? 'bg-emerald-400' : node.status === 'in_progress' || node.status === 'review' ? 'bg-sky-400' : 'bg-neutral-500'}`}
-        />
+        <span title={STATUS_LABEL[node.status]} className="flex shrink-0">
+          <StatusIcon status={node.status} className="h-3 w-3" />
+        </span>
         <button
           onClick={() => onOpenTask?.(node.id)}
           className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-200'}`}
@@ -695,17 +770,7 @@ function OutputPanel({ task, onOpenTopic }: { task: BoardTask | null; onOpenTopi
               title="Apri in una nuova finestra"
             ><ExternalLink className="h-3.5 w-3.5" /></a>
           </div>
-          {/* Sandbox WITHOUT allow-same-origin: combined with allow-scripts it
-              would void the sandbox entirely (a frame pointed at THIS app's
-              origin could reach parent.document). Opaque origin keeps agent-set
-              URLs inert; pages needing their own storage open externally. */}
-          <iframe
-            key={task.outputUrl}
-            src={task.outputUrl}
-            title="Output del task"
-            sandbox="allow-scripts allow-forms"
-            className="w-full flex-1 border-0 bg-white"
-          />
+          <OutputFrame key={task.outputUrl} url={task.outputUrl} />
         </>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
@@ -725,6 +790,35 @@ function OutputPanel({ task, onOpenTopic }: { task: BoardTask | null; onOpenTopi
   );
 }
 
+/**
+ * The sandboxed output iframe with a loading veil (keyed by URL from the
+ * caller, so a URL change remounts and the spinner shows again).
+ *
+ * Sandbox WITHOUT allow-same-origin: combined with allow-scripts it would void
+ * the sandbox entirely (a frame pointed at THIS app's origin could reach
+ * parent.document). Opaque origin keeps agent-set URLs inert; pages needing
+ * their own storage open externally.
+ */
+function OutputFrame({ url }: { url: string }) {
+  const [loading, setLoading] = useState(true);
+  return (
+    <div className="relative min-h-0 flex-1">
+      {loading && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-neutral-950/40">
+          <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
+        </div>
+      )}
+      <iframe
+        src={url}
+        title="Output del task"
+        sandbox="allow-scripts allow-forms"
+        onLoad={() => setLoading(false)}
+        className="h-full w-full border-0 bg-white"
+      />
+    </div>
+  );
+}
+
 /** Compact chat timestamp: HH:MM today, dd/MM HH:MM otherwise. */
 function commentTime(iso: string): string {
   const d = new Date(iso);
@@ -737,15 +831,23 @@ function commentTime(iso: string): string {
 
 /**
  * One thread message, chat-shaped: the human's ('user') on the right in the
- * accent tint, everyone else (agents, system) on the left with the author
- * label. Nothing more — no avatars, no reactions.
+ * accent tint, agent/system on the left. The agent's identity is a NEUTRAL
+ * "agent" chip (Bot icon) — never the raw author string, which for dispatched
+ * agents is the topic name = the task title (rendering it as a username read
+ * like a person called "Audit leggero del repo…"). Real author in the tooltip.
  */
 function CommentBubble({ comment }: { comment: TaskComment }) {
   const mine = comment.author === 'user';
+  const system = comment.author === 'system';
   return (
     <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[88%] rounded-lg px-2.5 py-1.5 text-sm ${mine ? 'bg-sky-500/15' : 'bg-white/5'}`}>
-        {!mine && <p className="text-[10px] font-semibold text-neutral-400">{comment.author}</p>}
+      <div className={`max-w-[88%] rounded-lg px-2.5 py-1.5 text-sm ${mine ? 'bg-sky-500/15' : system ? 'border border-white/10 bg-transparent' : 'bg-white/5'}`}>
+        {!mine && (
+          <p className="flex items-center gap-1 text-[10px] font-semibold text-neutral-400" title={comment.author}>
+            {system ? <Info className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
+            {system ? 'sistema' : 'agent'}
+          </p>
+        )}
         <CommentBody content={comment.content} />
         <p className={`mt-0.5 text-[9px] text-neutral-500 ${mine ? 'text-right' : ''}`}>{commentTime(comment.createdAt)}</p>
       </div>
