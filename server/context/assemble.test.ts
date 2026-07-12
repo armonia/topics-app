@@ -232,6 +232,42 @@ describe("assembleTopicContext — .claude/CLAUDE.md fallback", () => {
   });
 });
 
+describe("assembleTopicContext — worktree-bound awareness path", () => {
+  // The provider spawns every session in a global workspace cwd, so the
+  // awareness sentence is how the agent learns WHERE to work. For a
+  // worktree-bound topic it must point at the worktree absPath, NOT the live
+  // checkout (regression: a dispatched agent wrote into the main repo).
+  const baseDir = join(ROOT, "wt", "base");
+  const openclawDir = join(ROOT, "wt", "openclaw");
+  const liveRepo = join(ROOT, "wt", "live-repo");
+  const worktreeDir = join(ROOT, "wt", "worktrees", "falcon");
+  mkdirSync(join(baseDir, "memory"), { recursive: true });
+  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(liveRepo, { recursive: true });
+  mkdirSync(worktreeDir, { recursive: true });
+
+  const topic = makeTopic({ projectPath: liveRepo, worktreeId: "wt-1" });
+  // resolveTopicCwd resolves a READY worktree to its absPath (utils.ts).
+  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [], projectDir: worktreeDir });
+
+  const env = assembleTopicContext(ctx, {
+    sessionKey: topic.sessionKey,
+    providerName: "claude",
+  });
+
+  it("awareness points at the worktree, never the live checkout", () => {
+    const aware = env.systemBlocks.find((b) => b.id === "template:project-awareness")!;
+    expect(aware.content).toContain(worktreeDir);
+    expect(aware.content).toContain("ISOLATED git worktree");
+    expect(aware.content).not.toContain(`at ${liveRepo}`);
+  });
+
+  it("keeps the human-friendly project name from the live checkout", () => {
+    const aware = env.systemBlocks.find((b) => b.id === "template:project-awareness")!;
+    expect(aware.content).toContain('"live-repo"');
+  });
+});
+
 describe("assembleTopicContext — history truncation at limit", () => {
   const baseDir = join(ROOT, "trunc", "base");
   const openclawDir = join(ROOT, "trunc", "openclaw");
