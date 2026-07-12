@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { X, FolderOpen, GitBranch } from 'lucide-react';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import type { Topic, UpdateTopicRequest, AutonomyLevel, Worktree } from '../../types';
-import { resolveChatAgentBrand, useDefaultProvider, ChatAgentIcon } from '@/lib/chatProviderIcon';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { worktreesApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -33,8 +32,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [saved, setSaved] = useState(false);
   const toast = useToast();
-  // Header glyph = the chat's provider brand (Claude / Codex), or nothing.
-  const agentBrand = resolveChatAgentBrand(topic.provider, useDefaultProvider());
   // Phase A · TOPIC-WT-03: read-only worktree info when topic is bound.
   const [worktree, setWorktree] = useState<Worktree | null>(null);
 
@@ -173,7 +170,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-app-border">
           <div className="flex items-center gap-2">
-            {agentBrand && <ChatAgentIcon brand={agentBrand} size={16} />}
             <h2 className="text-[15px] font-semibold text-app-text">{topic.name} Settings</h2>
           </div>
           <button onClick={handleClose} className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text transition-colors" aria-label="Close settings">

@@ -2,7 +2,6 @@ import { useCallback, useRef, useState, memo } from 'react';
 import { ChevronRight, Archive, ArchiveRestore, Bot, MoreHorizontal, Cloud, Pin, PinOff, AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Topic } from '@/types';
-import { resolveChatAgentBrand, useDefaultProvider, ChatAgentIcon } from '@/lib/chatProviderIcon';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useTopicPendingStatus } from '@/contexts/PendingActionContext';
 import { PendingActionRing } from '@/components/Shared/PendingActionRing';
@@ -111,11 +110,6 @@ export const TopicItem = memo(function TopicItem({
   // it's open AND the grid is split). Rendered as the same proportional
   // mini-map the tab shows, so the sidebar card mirrors the tab's position cue.
   const splitPosition = useSplitPosition(topic.id);
-  // Leading glyph = the chat's backing AI provider (Claude / Codex mark), or
-  // nothing — no decorative picked icon. Resolved against the global default so
-  // an ordinary `provider: null` chat brands as Claude, mirroring its tab.
-  const defaultProvider = useDefaultProvider();
-  const agentBrand = resolveChatAgentBrand(topic.provider, defaultProvider);
 
   const { attributes: sortableAttributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: topic.id,
@@ -229,16 +223,13 @@ export const TopicItem = memo(function TopicItem({
         </button>
       )}
 
-      {/* Icon — archived rows keep the Archive glyph; live chats show only their
-          provider brand (Claude / Codex). A no-brand chat renders no slot at all
-          (name flush-left), the same "no fake glyph" convention project rows use. */}
-      {!hideIcon && (isArchived || agentBrand) && (
+      {/* Icon — archived rows keep the Archive glyph; live topic chats carry NO
+          leading icon (name flush-left). Brand marks (Claude / Codex) live only
+          on the agent sessions themselves — the Claude Code / Codex terminal
+          rows — never on topic chats. */}
+      {!hideIcon && isArchived && (
         <span className="flex-shrink-0 leading-none flex items-center justify-center w-5 h-5">
-          {isArchived ? (
-            <Archive size={14} className={onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary"} />
-          ) : (
-            <ChatAgentIcon brand={agentBrand} size={14} />
-          )}
+          <Archive size={14} className={onFill ? ON_FILL_TEXT_SOFT : "text-app-text-tertiary"} />
         </span>
       )}
 
