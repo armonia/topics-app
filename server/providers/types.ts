@@ -357,6 +357,16 @@ export interface AIProvider {
   abort?(sessionKey: string, runId?: string): Promise<void>;
 
   /**
+   * Signal that a session's persisted config changed (e.g. the per-topic
+   * effort tier — migration 033) so the provider can pick it up. For providers
+   * that spawn a long-lived subprocess with spawn-time flags (claude-code),
+   * this drops the idle pooled process so the next turn respawns with the new
+   * config; a no-op while a turn is streaming and for providers that read
+   * config per-request. Fire-and-forget from the topic PATCH route.
+   */
+  refreshSessionConfig?(sessionKey: string): void;
+
+  /**
    * Re-inject the user's answer to a tool that paused the stream (via the
    * detector in `ask-user-detector.ts`, today only `AskUserQuestion` and
    * MCP elicitation). Implemented by providers that own a long-running

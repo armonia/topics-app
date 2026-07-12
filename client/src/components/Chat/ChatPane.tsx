@@ -270,6 +270,25 @@ function ChatPaneComponent({
   // time the user picks a model — the opposite of what we want).
   const providerOverrideRef = useRef(providerOverride);
   useEffect(() => { providerOverrideRef.current = providerOverride; }, [providerOverride]);
+
+  // Per-topic effort-tier override (migration 033). Same draft-aware pattern as
+  // the provider/model override above: real topics read `topic.effort` (kept in
+  // sync via the `topic:updated` broadcast); drafts have no server row yet, so
+  // the pick lives in localStorage until the draft is promoted.
+  const [effort, setEffort] = useState<string | null>(() => {
+    if (topic.effort) return topic.effort;
+    if (topic.id.startsWith('draft:')) {
+      try { return localStorage.getItem(`effort:${topic.id}`) || null; } catch {}
+    }
+    return null;
+  });
+  const effortRef = useRef(effort);
+  useEffect(() => { effortRef.current = effort; }, [effort]);
+  // Keep local effort in sync when the server row updates (cross-window sync,
+  // or our own PATCH echoed back via topic:updated).
+  useEffect(() => {
+    if (!topic.id.startsWith('draft:')) setEffort(topic.effort ?? null);
+  }, [topic.effort, topic.id]);
   // Track the previous topic id so we can detect a draft → real promotion vs
   // a genuine session switch.
   const prevTopicIdRef = useRef(topic.id);
@@ -312,6 +331,14 @@ function ChatPaneComponent({
           localStorage.removeItem(`fastMode:${prevId}`);
         } catch {}
       }
+      // Same migration for the per-topic effort override (migration 033).
+      if (effortRef.current) {
+        void onUpdateTopic(topic.id, { effort: effortRef.current });
+        try {
+          localStorage.setItem(`effort:${topic.id}`, effortRef.current);
+          localStorage.removeItem(`effort:${prevId}`);
+        } catch {}
+      }
       return;
     }
     // Genuine session switch — reseed from whatever the new topic persists.
@@ -341,6 +368,23 @@ function ChatPaneComponent({
       provider: next?.provider ?? null,
       model: next?.model ?? null,
     });
+  }, [isDraftTopic, onUpdateTopic, topic.id]);
+
+  const handleEffortChange = useCallback((next: string | null) => {
+    setEffort(next);
+    if (isDraftTopic) {
+      // No server row yet — persist device-locally; the promotion effect above
+      // migrates it to the real topic id on first send.
+      try {
+        if (next) localStorage.setItem(`effort:${topic.id}`, next);
+        else localStorage.removeItem(`effort:${topic.id}`);
+      } catch {}
+      return;
+    }
+    // Persist through the topic PATCH; the server forces an idle CLI respawn so
+    // the new tier applies on the next turn, and broadcasts topic:updated for
+    // cross-window sync.
+    void onUpdateTopic(topic.id, { effort: next });
   }, [isDraftTopic, onUpdateTopic, topic.id]);
 
   const defaultProviderLabel = topic.provider ?? undefined;
@@ -690,7 +734,7 @@ function ChatPaneComponent({
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
-        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} defaultProviderLabel={defaultProviderLabel} />
+        <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} />
       </div>
     </div>
   );
