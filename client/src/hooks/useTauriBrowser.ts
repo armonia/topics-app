@@ -260,6 +260,53 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     [applyBounds, id],
   );
 
+  // Sidebar-slide handoff: commit the pane's FINAL slot in ONE IPC and let Core
+  // Animation ride the native view along the same 200ms curve as the DOM FLIP
+  // (browser_animate_bounds) — replaces the per-frame rAF chase whose IPC jitter
+  // made the pane edge visibly stutter against the composited content slide.
+  // Resolves false when the handoff can't run (shell without the command, pane
+  // not open) so the caller falls back to the poll. While frozen the live view
+  // is parked behind a DOM still that rides the FLIP layer for free — resolve
+  // true so the caller skips the poll (applyBounds is a no-op anyway).
+  const animateBounds = useCallback(
+    (
+      b: { x: number; y: number; width: number; height: number },
+      fromDx: number,
+      durationMs: number,
+      timing: [number, number, number, number],
+    ): Promise<boolean> => {
+      if (frozenRef.current) return Promise.resolve(true);
+      if (!openedRef.current || b.width <= 0 || b.height <= 0) return Promise.resolve(false);
+      pendingRectRef.current = b;
+      let rect = b;
+      const dims = deviceDimsRef.current;
+      if (dims) {
+        const w = Math.min(dims.width, b.width);
+        const h = Math.min(dims.height, b.height);
+        rect = { x: b.x + (b.width - w) / 2, y: b.y + (b.height - h) / 2, width: w, height: h };
+      }
+      if (rect.width >= 64 && rect.height >= 64) {
+        lastRealSizeRef.current = { width: Math.round(rect.width), height: Math.round(rect.height) };
+      }
+      const radius = document.querySelector('.floating-splits') ? 10 : 0;
+      // The animated move can slide the view under a resting cursor — same
+      // trusted-pointerdown hazard as a plain reposition.
+      suppressSelfFocus();
+      return tauriInvoke('browser_animate_bounds', {
+        id,
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        fromDx: Math.round(fromDx),
+        durationMs,
+        timing,
+        radius,
+      }).then(() => true).catch(() => false);
+    },
+    [id, suppressSelfFocus],
+  );
+
   // Capture a still, show it, then park the live view. Capturing FIRST (while the
   // view is on-screen) makes the swap seamless — the page never visibly vanishes.
   const freeze = useCallback(() => {
@@ -833,6 +880,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     reload,
     goHome,
     setBounds,
+    animateBounds,
     toggleDevTools,
     findInPage,
     stopFind,
@@ -855,7 +903,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   }), [
     url, title, loading, agentActive, agentAction, ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError,
-    navigate, goBack, goForward, reload, goHome, setBounds, toggleDevTools, findInPage, stopFind,
+    navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,
     setZoom, zoom, countMatches, inspectAt, selectMode, enterSelectMode, exitSelectMode,
     deviceMode, setDevice, responsiveSize, setResponsiveSize, consoleEntries, consoleSummary,
     clearConsole, getNavEntries, goToNavIndex,

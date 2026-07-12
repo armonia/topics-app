@@ -167,7 +167,13 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     if (!browser.viewId) return;
 
     let lastSentJson = '';
+    // True while a browser_animate_bounds handoff owns the pane's position
+    // (sidebar slide): every push is suppressed so a mid-slide RO/MO signal
+    // can't snap the view out of its native animation. Cleared at slide-end
+    // BEFORE the settle re-measure.
+    let slideAnimating = false;
     const updateBounds = () => {
+      if (slideAnimating) return;
       const el = placeholderRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
@@ -285,19 +291,70 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     };
     window.addEventListener('browser:reflow-request', onReflowRequest as EventListener);
 
-    // Sidebar collapse/expand. The content's paddingLeft animates over the 200ms
-    // slide, moving this pane's slot every frame, but the sidebar itself rides a
-    // GPU-composited translateX — the RO/MO/transitionend path coalesces and only
-    // catches up a few frames late, so the native view (which composites above the
-    // DOM) visibly TRAILS the sidebar edge ("il bg segue in ritardo la sidebar").
-    // Drive a per-frame rAF poll for the lifetime of the slide so setBounds tracks
-    // the moving slot in lockstep (updateBounds self-coalesces, so unchanged frames
-    // cost nothing). The slide brackets are the same ones the terminal fit-coalesce
-    // listens to (useSidebarFitCoalesce dispatches them).
+    // Sidebar collapse/expand. The content rides a compositor-only FLIP
+    // (useSidebarFlipPush): layout is committed at the FINAL pad instantly and
+    // the flip layer slides translateX(delta → 0) over 200ms — so this pane's
+    // slot keeps a CONSTANT size and only its X moves. The native view (which
+    // composites above the DOM) must ride that move.
+    //
+    // Preferred path: ONE `browser_animate_bounds` IPC hands the whole move to
+    // Core Animation on the same clock/curve as the CSS transition (native
+    // FLIP: final frame committed, explicit translation dx → 0) — no per-frame
+    // chase, no IPC jitter ("il bordo del pane balbetta contro la sidebar").
+    // Same fix, same rationale as vibrancy_animate_regions.
+    //
+    // Fallback (shell without the command, responsive mode, hidden pane, or an
+    // unreadable flip transform): the previous per-frame rAF poll, driving
+    // setBounds in lockstep with the moving slot (updateBounds self-coalesces).
+    // The slide brackets are the same ones the terminal fit-coalesce listens to
+    // (useSidebarFitCoalesce dispatches them).
     let slideRaf = 0;
     const slidePoll = () => { updateBounds(); slideRaf = requestAnimationFrame(slidePoll); };
-    const onSidebarSlideStart = () => { if (!slideRaf) slideRaf = requestAnimationFrame(slidePoll); };
+    const armSlidePoll = () => { if (!slideRaf) slideRaf = requestAnimationFrame(slidePoll); };
+    const onSidebarSlideStart = () => {
+      const animate = browser.animateBounds;
+      // Responsive mode letterboxes to a fixed size top-left — the poll's rects
+      // differ from the plain-slot math below; keep the proven path there.
+      if (!animate || !isVisible || dragging || modeRef.current === 'custom') {
+        armSlidePoll();
+        return;
+      }
+      // One rAF in: the FLIP has committed the final layout and armed (or is
+      // arming) its inverted transform, so rect(now) = final + tx with tx
+      // readable off the flip layer's computed style.
+      requestAnimationFrame(() => {
+        const el = placeholderRef.current;
+        const flip = el?.closest<HTMLElement>('.content-flip-layer');
+        const tstr = flip ? getComputedStyle(flip).transform : '';
+        const tx = tstr && tstr !== 'none' ? new DOMMatrixReadOnly(tstr).m41 : 0;
+        if (!el || Math.abs(tx) < 1) {
+          // Overlay-sidebar mode (content never moves) or FLIP not animating:
+          // nothing to ride. The poll costs nothing when rects don't change.
+          armSlidePoll();
+          return;
+        }
+        const r = el.getBoundingClientRect();
+        const finalRect = {
+          x: r.left - tx + NATIVE_VIEW_GUTTER,
+          y: r.top + NATIVE_VIEW_GUTTER,
+          width: Math.max(0, r.width - 2 * NATIVE_VIEW_GUTTER),
+          height: Math.max(0, r.height - 2 * NATIVE_VIEW_GUTTER),
+        };
+        // Curve/duration of useSidebarFlipPush's Play transition (200ms ease);
+        // ease = cubic-bezier(.25,.1,.25,1) maps to kCAMediaTimingFunctionDefault
+        // Rust-side. Drift vs a future CSS change is visual-only — the settle
+        // at slide-end pins exact pixels either way.
+        slideAnimating = true;
+        void animate(finalRect, tx, 200, [0.25, 0.1, 0.25, 1]).then((ok) => {
+          if (!ok) { slideAnimating = false; armSlidePoll(); return; }
+          // Keep the coalescing cache coherent with the committed final rect
+          // so the slide-end settle dedupes instead of re-sending it.
+          lastSentJson = `${Math.round(finalRect.x)},${Math.round(finalRect.y)},${Math.round(finalRect.width)},${Math.round(finalRect.height)}`;
+        });
+      });
+    };
     const onSidebarSlideEnd = () => {
+      slideAnimating = false;
       if (slideRaf) { cancelAnimationFrame(slideRaf); slideRaf = 0; }
       // One more measure after the settle frame paints (cols/rows have stopped moving).
       requestAnimationFrame(() => requestAnimationFrame(updateBounds));
@@ -321,7 +378,7 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: depend on the specific fields the effect reads (viewId/setBounds — grep-verified the only browser.* uses), NOT the whole `browser` object. useNativeBrowser rebuilds that object every render, so depending on it re-ran this ResizeObserver/MutationObserver/rAF-poll/listener effect on EVERY render. setBounds is useCallback([viewId]) so its identity only changes with viewId (already a dep). The rule can't see the member coverage and asks for the parent object.
-  }, [browser.viewId, browser.setBounds, dragging, isVisible]);
+  }, [browser.viewId, browser.setBounds, browser.animateBounds, dragging, isVisible]);
 
   // Re-issue bounds when entering/leaving responsive mode or when the size
   // changes via a non-drag path (preset select, W×H input). The main effect
