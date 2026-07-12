@@ -27,7 +27,15 @@ const ERROR_STATUS: Record<string, number> = {
   invalid_input: 400,
   invalid_transition: 400,
   agent_cannot_complete: 409,
+  open_subtasks: 409,
 };
+
+/**
+ * Cap for AGENT-authored comments (the session surface only — humans are
+ * uncapped). Generous enough for 2-3 dense sentences or a question block,
+ * tight enough to reject log dumps; the 400 message coaches a retry.
+ */
+const AGENT_COMMENT_MAX_CHARS = 600;
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey } = ctx;
@@ -121,6 +129,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
               priority: typeof body?.priority === "number" ? body.priority : undefined,
               assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
               status: typeof body?.status === "string" ? body.status : undefined,
+              parentTaskId: typeof body?.parentTaskId === "string" ? body.parentTaskId : null,
             });
             broadcastToAll({ type: "task:created", projectId, task });
             // A task born directly in Todo is the same "vai" signal as a drag
@@ -247,6 +256,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
             // HUMAN moves it to todo. Symmetric to the agent-cannot-mark-done gate.
             status: "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
+            parentTaskId: typeof body?.parent_task_id === "string" ? body.parent_task_id : null,
           });
           broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
           return json(task, 201);
@@ -262,6 +272,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
       const sess = resolveSession(sk);
       if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
       const body = (await readJSON(req)) as any;
+      // Agent comments must stay SHORT and useful — the thread is a status
+      // trail for the human, not a log sink. The cap only applies to the agent
+      // surface (humans on /api/boards are uncapped); the error text coaches
+      // the model to summarize and retry.
+      if (typeof body?.content === "string" && body.content.length > AGENT_COMMENT_MAX_CHARS) {
+        return json({
+          error: `comment too long (${body.content.length} chars, max ${AGENT_COMMENT_MAX_CHARS}) — summarize: 1-2 short sentences, no logs or code dumps`,
+          code: "comment_too_long",
+        }, 400);
+      }
       try {
         const comment = svc.addComment({
           taskId: commentsRoute.taskId,

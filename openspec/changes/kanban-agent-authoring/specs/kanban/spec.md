@@ -35,6 +35,29 @@ Il sistema SHALL esporre lettura e scrittura del thread di discussione di un tas
 di ciclo-vita. `comment_task` SHALL aggiungere un commento. L'autore SHALL essere risolto
 **dal server** dall'identità di sessione dell'agente e non dal parametro del tool.
 
+I commenti degli agent SHALL essere brevi e utili: la superficie agent rifiuta commenti
+oltre un cap (600 caratteri) con un errore che invita a sintetizzare — il thread è una
+scia di stato per l'umano, non un log sink. La superficie umana non è cappata.
+
+Una richiesta di decisione umana SHALL essere strutturata: `comment_task` accetta
+`options[]` e il **server** compone il blocco ```question``` canonico (fence e newline
+garantiti) — il modello non riproduce mai la sintassi markdown a mano. La board SHALL
+mostrare sulla card in review l'ultimo commento SEMPRE (domanda con bottoni-opzione se
+question block, testo altrimenti): mai un Approva/Rifiuta alla cieca.
+
+#### Scenario: commento agent troppo lungo → rifiutato con guida
+- **GIVEN** una sessione agente
+- **WHEN** l'agente chiama `comment_task` con un contenuto oltre il cap
+- **THEN** la richiesta è rifiutata (`comment_too_long`) con un messaggio che chiede
+  1-2 frasi di sintesi
+
+#### Scenario: domanda strutturata → quick-reply sulla card
+- **GIVEN** un task agent-driven
+- **WHEN** l'agente chiama `comment_task(content=<domanda>, options=[A, B])` e poi
+  `update_task(status='review')`
+- **THEN** la card in review mostra la domanda e un bottone per opzione
+- **AND** il click dell'umano ri-kicka lo stesso agent con la scelta
+
 #### Scenario: get_task restituisce il thread
 - **GIVEN** un task con commenti
 - **WHEN** l'agente chiama `get_task`
@@ -133,3 +156,36 @@ in `dispatch_error` E un commento nel thread — mai un fallimento silenzioso so
 - **WHEN** un task tenta il dispatch
 - **THEN** il task è parcheggiato in `backlog` con il motivo in `dispatch_error` e nel
   thread commenti
+
+### Requirement: KANBAN-08 — Task annidati (subtask a cascata)
+
+Un task SHALL poter contenere sottotask a profondità illimitata (`parent_task_id`
+self-referential, FK). Il parent SHALL essere impostato solo alla creazione (niente
+re-parenting), rendendo i cicli impossibili per costruzione. Il parent SHALL vivere sulla
+stessa board del figlio. Un task con sottotask aperti SHALL NOT poter passare a `done`
+(qualsiasi attore, update o approvazione). L'archiviazione di un parent SHALL archiviare
+ricorsivamente l'intero sottoalbero. La card SHALL mostrare il contatore dei sottotask
+(`↳ fatti/totali`) e il chip del padre sui figli; il detail drawer SHALL elencare i
+sottotask con quick-add e navigazione padre↔figlio.
+
+#### Scenario: sottotask annidati a più livelli
+- **GIVEN** un task A
+- **WHEN** viene creato B con parent A, e C con parent B
+- **THEN** `get_task(A)` elenca B e `get_task(B)` elenca C
+
+#### Scenario: il parent non si chiude con figli aperti
+- **GIVEN** un task con un sottotask non-done
+- **WHEN** qualcuno tenta `done` (update o approve)
+- **THEN** l'operazione è rifiutata (`open_subtasks`) finché i figli non sono completati
+  o archiviati
+
+#### Scenario: archive a cascata
+- **GIVEN** un albero A → B → C
+- **WHEN** A viene archiviato
+- **THEN** B e C risultano archiviati
+
+#### Scenario: l'agente spezza un task grande
+- **GIVEN** un agent che lavora il task T
+- **WHEN** chiama `create_task(text=..., parent_task_id=T)`
+- **THEN** il sottotask nasce in `backlog` sotto T (l'umano decide se e quando mandarlo
+  in lavorazione)

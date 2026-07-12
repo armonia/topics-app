@@ -38,6 +38,11 @@ export interface BoardTask {
   dispatchState: string | null;
   /** Why the last dispatch attempt was released/parked (visible feedback). */
   dispatchError: string | null;
+  /** Parent task when this is a nested subtask (unlimited depth). */
+  parentTaskId: string | null;
+  /** Direct-children counters (board badges: "↳ done/total"). */
+  subtaskCount: number;
+  subtaskDoneCount: number;
 }
 
 export interface TaskComment {
@@ -52,6 +57,8 @@ export interface TaskComment {
 export interface TaskWithThread {
   task: BoardTask;
   comments: TaskComment[];
+  /** Direct subtasks (drawer list). */
+  children: BoardTask[];
 }
 
 /**
@@ -140,6 +147,8 @@ export interface CreateTaskBody {
   priority?: number;
   assignee?: string | null;
   status?: TaskStatus;
+  /** Nest under this task (subtask, unlimited depth). */
+  parentTaskId?: string | null;
 }
 
 export interface UpdateTaskBody {

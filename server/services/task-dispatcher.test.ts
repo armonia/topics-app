@@ -18,7 +18,8 @@ function freshDb(): Database {
     chat_id TEXT, created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT NOT NULL,
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
-    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT
+    dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
+    parent_task_id TEXT REFERENCES tasks(id)
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
