@@ -186,6 +186,12 @@ export interface TaskService {
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
+   * Nearest self-or-ancestor bound to an agent topic — the dispatch root of the
+   * subtree. Lets the route answer "which agent owns this step?" when a human
+   * replies on a subtask's own thread.
+   */
+  boundRootOf(taskId: string): Task | null;
+  /**
    * Atomically claim a `todo` task for dispatch: move it to `in_progress` and
    * bump the attempt counter — but only if a slot is free (running < cap), it's
    * still `todo`, unclaimed, and under the retry cap. Returns the claimed Task,
@@ -545,6 +551,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
          UPDATE tasks SET archived = 1, updated_at = ? WHERE id IN (SELECT id FROM subtree)`,
       ).run(taskId, ts);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    boundRootOf(taskId) {
+      const r = db.prepare(
+        `WITH RECURSIVE chain(id, parent, topic, depth) AS (
+           SELECT id, parent_task_id, assigned_topic_id, 0 FROM tasks WHERE id = ?
+           UNION ALL
+           SELECT t.id, t.parent_task_id, t.assigned_topic_id, c.depth + 1
+             FROM tasks t JOIN chain c ON t.id = c.parent
+         )
+         SELECT id FROM chain WHERE topic IS NOT NULL ORDER BY depth ASC LIMIT 1`,
+      ).get(taskId) as any;
+      return r ? rowToTask(getTaskRow(r.id)) : null;
     },
 
     claim({ taskId, cap, maxAttempts, agentId }): Task | null {

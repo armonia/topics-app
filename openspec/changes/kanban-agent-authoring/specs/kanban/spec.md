@@ -189,6 +189,13 @@ legato al suo topic (`assigned_topic_id`). Il deliverable (il task assegnato) re
 dietro il gate umano; il gate `open_subtasks` sull'approve garantisce che alla consegna
 tutti gli step risultino smarcati.
 
+Ogni sottotask ha il **proprio thread** di discussione (agent e umano possono
+commentare lo step specifico). Un commento umano su un task il cui root di dispatch
+(il più vicino antenato — o il task stesso — con `assigned_topic_id`) è in `review`
+SHALL ri-kickare lo stesso agent con il testo e il riferimento allo step — stessa
+semantica della risposta sul task principale: la risposta specifica non è mai un
+commento passivo mentre il chip dice "serve te".
+
 #### Scenario: sottotask annidati a più livelli
 - **GIVEN** un task A
 - **WHEN** viene creato B con parent A, e C con parent B
@@ -221,6 +228,12 @@ tutti gli step risultino smarcati.
 - **GIVEN** un task U non discendente del task assegnato all'agent A
 - **WHEN** A tenta `update_task(task_id=U, status='done')`
 - **THEN** l'operazione è rifiutata (`agent_cannot_complete`)
+
+#### Scenario: rispondere sul thread di uno step ri-kicka l'agent
+- **GIVEN** il task T assegnato all'agent A, in `review`, con step S figlio di T
+- **WHEN** l'umano commenta sul thread di S
+- **THEN** T torna `in_progress` e A riparte con il testo e il riferimento a S
+- **AND** lo stesso commento con T già `in_progress` resta una nota nel thread di S
 
 ### Requirement: KANBAN-09 — Superficie di review del task (output + albero + thread)
 
