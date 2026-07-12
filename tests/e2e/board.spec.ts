@@ -66,14 +66,29 @@ async function openTestProject(page: Page) {
 /** Open the project board pane via the project window's "+" menu. */
 async function openProjectBoard(page: Page) {
   await openTestProject(page);
-  // The project window's tab bar hosts its own PaneAddMenu trigger.
-  const trigger = page.getByTestId("pane-add-menu-trigger").last();
-  await trigger.click();
-  await page.getByTestId("pane-add-menu-kanban").click();
+  // Several tab bars carry a PaneAddMenu trigger (standalone top bar + the
+  // project window's) and their DOM order is not guaranteed. Only the project
+  // scope lists the "Board" (kanban) entry, so probe triggers until the item
+  // shows, closing wrong menus with Escape.
+  const triggers = page.getByTestId("pane-add-menu-trigger");
+  const count = await triggers.count();
+  const item = page.getByTestId("pane-add-menu-kanban");
+  for (let i = count - 1; i >= 0; i--) {
+    await triggers.nth(i).click();
+    const found = await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false);
+    if (found) break;
+    await page.keyboard.press("Escape");
+    if (i === 0) throw new Error("no + menu with a Board (kanban) entry found");
+  }
+  await item.click();
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
 test.describe("Kanban board", () => {
+  // First test after a cold test-server boot can burn >30s on sidebar +
+  // project-window + pane mounts alone; give the whole flow headroom.
+  test.describe.configure({ timeout: 60_000 });
+
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
     writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-board" }, null, 2));
@@ -170,9 +185,11 @@ test.describe("Kanban board", () => {
     await openProjectBoard(page);
 
     const reviewCol = page.getByTestId("kanban-column-review");
-    const card = reviewCol.locator("div", { hasText: text }).last();
     await expect(reviewCol.getByText(text)).toBeVisible({ timeout: 10000 });
-    await card.getByRole("button", { name: "Approva" }).click();
+    // Only this test's task sits in review, so the column-scoped button is it.
+    // exact:true — the dnd-kit card is itself role=button and its accessible
+    // name (whole card text) also contains "Approva".
+    await reviewCol.getByRole("button", { name: "Approva", exact: true }).click();
     await expect(page.getByTestId("kanban-column-done").getByText(text)).toBeVisible({ timeout: 10000 });
     await expect(reviewCol.getByText(text)).not.toBeVisible();
   });
@@ -185,11 +202,14 @@ test.describe("Kanban board", () => {
     const pill = page.getByTestId("board-dispatch-pill");
     await expect(pill).toContainText("agent: off");
     await pill.click(); // opens the settings panel
+    // Controlled React checkbox: the checked state flips only after the PATCH
+    // round-trip, so use click() + async assertion (check() would demand an
+    // immediate state change and fail).
     const toggle = page.locator('input[type="checkbox"]').first();
-    await toggle.check();
+    await toggle.click();
     await expect(pill).toContainText("agent: on");
     // Restore: this board must stay manual for the other tests.
-    await toggle.uncheck();
+    await toggle.click();
     await expect(pill).toContainText("agent: off");
   });
 
