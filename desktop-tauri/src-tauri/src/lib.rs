@@ -2762,6 +2762,77 @@ fn browser_set_bounds_inner(
     Ok(())
 }
 
+/// Sidebar-slide handoff: land a browser pane's FIXED-duration move on the Core
+/// Animation clock in ONE IPC, instead of the ~12 rAF-driven `browser_set_bounds`
+/// hops whose IPC jitter made the native view visibly stutter against the
+/// composited DOM slide (same fix, same rationale as `vibrancy_animate_regions`).
+///
+/// Native FLIP: the FINAL frame is committed instantly (model value — the exact
+/// same path as a plain set_bounds, cache + corner mask included), then ONE
+/// EXPLICIT CABasicAnimation slides `transform.translation.x` from `from_dx`
+/// (the pane's current visual offset from its final slot, in logical px) to 0.
+/// Explicit animations bypass the layer's nulled actions dict
+/// (`disable_layer_implicit_animations` only blocks IMPLICIT action lookup), so
+/// this animates even though plain frame changes stay deliberately instant.
+/// The client suppresses its per-frame pushes for the slide's lifetime and its
+/// transitionend settle re-pushes pixel-exact bounds afterwards.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn browser_animate_bounds(
+    app: tauri::AppHandle,
+    id: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    from_dx: f64,
+    duration_ms: f64,
+    timing: [f64; 4],
+    radius: Option<f64>,
+) -> Result<(), String> {
+    no_abort("browser_animate_bounds", move || {
+        #[cfg(target_os = "macos")]
+        let anim_app = app.clone();
+        // Commit the final frame first (model value, cache, corner mask).
+        browser_set_bounds_inner(app, id.clone(), x, y, width, height, radius)?;
+        #[cfg(target_os = "macos")]
+        if from_dx.abs() >= 1.0 && duration_ms > 0.0 {
+            use tauri::Manager;
+            if let Some(wv) = anim_app.get_webview(&browser_label(&id)) {
+                let _ = wv.with_webview(move |platform| unsafe {
+                    use cocoa::base::{id, nil};
+                    use cocoa::foundation::NSString;
+                    use objc::{class, msg_send, sel, sel_impl};
+                    let view = platform.inner() as id;
+                    if view == nil {
+                        return;
+                    }
+                    let layer: id = msg_send![view, layer];
+                    if layer == nil {
+                        return;
+                    }
+                    let key_path: id = NSString::alloc(nil).init_str("transform.translation.x");
+                    let anim: id = msg_send![class!(CABasicAnimation), animationWithKeyPath: key_path];
+                    let from_num: id = msg_send![class!(NSNumber), numberWithDouble: from_dx];
+                    let to_num: id = msg_send![class!(NSNumber), numberWithDouble: 0.0f64];
+                    let _: () = msg_send![anim, setFromValue: from_num];
+                    let _: () = msg_send![anim, setToValue: to_num];
+                    let _: () = msg_send![anim, setDuration: (duration_ms / 1000.0)];
+                    let tf = ca_timing_for(timing);
+                    let _: () = msg_send![anim, setTimingFunction: tf];
+                    // Default removedOnCompletion=YES → the layer settles at the
+                    // model value (translation 0 = the committed final frame).
+                    let key: id = NSString::alloc(nil).init_str("topics-sidebar-slide");
+                    let _: () = msg_send![layer, addAnimation: anim forKey: key];
+                });
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (from_dx, duration_ms, timing);
+        Ok(())
+    })
+}
+
 /// Destroy a browser pane's native webview.
 #[tauri::command]
 fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
@@ -5764,6 +5835,7 @@ pub fn run() {
             browser_open,
             browser_navigate,
             browser_set_bounds,
+            browser_animate_bounds,
             browser_close,
             browser_eval_js,
             browser_screenshot,
