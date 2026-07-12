@@ -50,6 +50,8 @@ export interface Task {
   dispatchError: string | null;
   /** Parent task (nested subtask, unlimited depth). Set at creation only. */
   parentTaskId: string | null;
+  /** Reviewable output (http/https URL) shown in the task's review panel. */
+  outputUrl: string | null;
   /** Direct-children counters (filled by list/get for board badges). */
   subtaskCount: number;
   subtaskDoneCount: number;
@@ -90,6 +92,8 @@ export interface UpdateTaskPatch {
   assignedTo?: string | null;
   dueDate?: string | null;
   kanbanOrder?: number;
+  /** http(s) URL of the reviewable output; empty string / null clears it. */
+  outputUrl?: string | null;
 }
 
 export interface ListTasksInput {
@@ -162,7 +166,13 @@ export interface TaskService {
   create(input: CreateTaskInput): Task;
   get(taskId: string, opts?: { projectId?: string }): { task: Task; comments: TaskComment[]; children: Task[] } | null;
   list(input: ListTasksInput): Task[];
-  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string }): Task;
+  /**
+   * `agentTopicId` (session surface only) identifies the calling agent's chat
+   * topic: it unlocks the "own steps" carve-out — an agent MAY mark `done` a
+   * strict descendant of the task bound to its topic (its own checklist),
+   * while the KANBAN-05 gate keeps protecting the deliverable itself.
+   */
+  update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null }): Task;
   /**
    * `questionOptions` turns the comment into a human-decision request: the
    * SERVER composes the canonical ```question``` block (question = content,
@@ -224,6 +234,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchAttempts: r.dispatch_attempts ?? 0,
       dispatchError: r.dispatch_error ?? null,
       parentTaskId: r.parent_task_id ?? null,
+      outputUrl: r.output_url ?? null,
       subtaskCount: 0,
       subtaskDoneCount: 0,
     };
@@ -254,6 +265,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       "SELECT * FROM tasks WHERE parent_task_id = ? AND archived = 0 ORDER BY kanban_order ASC",
     ).all(taskId) as any[];
     return withSubtaskCounts(rows.map(rowToTask));
+  }
+
+  /**
+   * True when `taskId` is a STRICT descendant of a task whose dispatch topic is
+   * `topicId` — i.e. one of the calling agent's own checklist steps. Strict:
+   * the assigned task itself never matches, so the agent still cannot close
+   * its own deliverable (that stays behind the human review gate).
+   */
+  function isOwnStep(taskId: string, topicId: string): boolean {
+    const r = db.prepare(
+      `WITH RECURSIVE anc(id, parent, topic) AS (
+         SELECT id, parent_task_id, assigned_topic_id FROM tasks WHERE id = ?
+         UNION ALL
+         SELECT t.id, t.parent_task_id, t.assigned_topic_id
+           FROM tasks t JOIN anc a ON t.id = a.parent
+       )
+       SELECT COUNT(*) AS c FROM anc WHERE topic = ? AND id != ?`,
+    ).get(taskId, topicId, taskId) as any;
+    return (r?.c ?? 0) > 0;
   }
 
   /** True when the task has non-done, non-archived direct children. */
@@ -341,7 +371,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return withSubtaskCounts(rows.map(rowToTask));
     },
 
-    update({ taskId, actor, by, patch, projectId }): Task {
+    update({ taskId, actor, by, patch, projectId, agentTopicId }): Task {
       const row = getTaskRow(taskId);
       // projectId guard: a session may only touch tasks on its own project.
       // A mismatch is reported as not_found (not 403) so cross-project ids stay
@@ -354,10 +384,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.status !== undefined) {
         if (!STATUSES.includes(patch.status)) throw new TaskServiceError("invalid_input", `invalid status "${patch.status}"`);
         // The gate: an agent may never mark done — it hands off to review.
-        if (patch.status === "done" && actor === "agent") {
+        // ONE carve-out: its own checklist steps (strict descendants of the
+        // task bound to its topic) close directly — they are the agent's plan,
+        // not the deliverable the human reviews.
+        if (patch.status === "done" && actor === "agent" && !(agentTopicId && isOwnStep(taskId, agentTopicId))) {
           throw new TaskServiceError(
             "agent_cannot_complete",
-            "agents deliver to 'review' for human approval; only a human moves 'review' → 'done'. Set status to 'review' instead.",
+            "agents deliver to 'review' for human approval; only a human moves 'review' → 'done' (exception: subtask steps of YOUR assigned task). Set status to 'review' instead.",
           );
         }
         // A parent is not done while its subtasks are open — for ANY actor.
@@ -388,6 +421,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.assignedTo !== undefined) put("assigned_to", patch.assignedTo);
       if (patch.dueDate !== undefined) put("due_date", patch.dueDate);
       if (patch.kanbanOrder !== undefined) put("kanban_order", patch.kanbanOrder);
+      if (patch.outputUrl !== undefined) {
+        const url = (patch.outputUrl ?? "").trim();
+        // http(s) only: the review panel renders this in an iframe — never
+        // file:// (LFI) or javascript: (XSS). Empty clears.
+        if (url && !/^https?:\/\//i.test(url)) {
+          throw new TaskServiceError("invalid_input", "output_url must be an http(s) URL");
+        }
+        put("output_url", url || null);
+      }
       if (patch.status !== undefined) {
         put("status", patch.status);
         put("completed_at", patch.status === "done" ? now() : null);

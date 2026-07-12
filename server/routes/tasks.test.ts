@@ -15,7 +15,7 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    parent_task_id TEXT REFERENCES tasks(id)
+    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -51,8 +51,10 @@ function matchRoute(pathname: string, pattern: string): Record<string, string> |
 }
 
 // Map known session keys → project path, so resolveSession takes the topic branch.
-const SESSIONS: Record<string, { projectPath: string; name: string }> = {
-  s1: { projectPath: "/proj/one", name: "topic-one" },
+// `topicId` feeds the own-steps carve-out (agent may close subtasks of the task
+// bound to its topic).
+const SESSIONS: Record<string, { projectPath: string; name: string; topicId?: string }> = {
+  s1: { projectPath: "/proj/one", name: "topic-one", topicId: "top-s1" },
   s2: { projectPath: "/proj/two", name: "topic-two" },
 };
 
@@ -63,7 +65,7 @@ function makeCtx(db: Database, broadcasts: any[]) {
     readJSON: (req: Request) => req.json(),
     matchRoute,
     broadcastToAll: (m: any) => { broadcasts.push(m); },
-    getTopicBySessionKey: (sk: string) => (SESSIONS[sk] ? ({ projectPath: SESSIONS[sk].projectPath, name: SESSIONS[sk].name } as any) : null),
+    getTopicBySessionKey: (sk: string) => (SESSIONS[sk] ? ({ id: SESSIONS[sk].topicId, projectPath: SESSIONS[sk].projectPath, name: SESSIONS[sk].name } as any) : null),
   } as unknown as AppContext;
 }
 
@@ -161,6 +163,30 @@ describe("tasks router (session-scoped)", () => {
     const done = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "done" }))!;
     expect(done.status).toBe(409);
     expect((await done.json()).code).toBe("agent_cannot_complete");
+  });
+
+  test("PATCH agent closes its OWN step (topicId threaded from the session)", async () => {
+    // The dispatched task is bound to s1's topic; a step nests under it.
+    db.run("INSERT INTO topics (id) VALUES ('top-s1')");
+    const main = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "deliverable" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-s1' WHERE id = ?").run(main.id);
+    const step = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "step 1", parent_task_id: main.id }))!.json();
+
+    const done = (await call(router, "PATCH", `/api/sessions/s1/tasks/${step.id}`, { status: "done" }))!;
+    expect(done.status).toBe(200);
+    expect((await done.json()).status).toBe("done");
+    // The MAIN task stays behind the human gate even for its own agent.
+    const gated = (await call(router, "PATCH", `/api/sessions/s1/tasks/${main.id}`, { status: "done" }))!;
+    expect(gated.status).toBe(409);
+  });
+
+  test("PATCH output_url round-trips; bad scheme is 400", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    const ok = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { output_url: "http://localhost:5173" }))!;
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).outputUrl).toBe("http://localhost:5173");
+    const bad = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { output_url: "file:///etc/passwd" }))!;
+    expect(bad.status).toBe(400);
   });
 
   test("unbound session → 400 no_project", async () => {

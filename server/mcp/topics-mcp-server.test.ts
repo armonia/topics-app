@@ -707,6 +707,18 @@ describe("callUpdateTask", () => {
     expect(seen.init?.body).toBe(JSON.stringify({ priority: 4, assignee: "claude" }));
   });
 
+  test("forwards output_url — including empty string (clears the output)", async () => {
+    const seen: { init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seen.init = init;
+      return new Response(JSON.stringify({ id: "t1", status: "in_progress" }), { status: 200 });
+    });
+    await callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", output_url: "http://localhost:5173" }, fetchImpl);
+    expect(seen.init?.body).toBe(JSON.stringify({ output_url: "http://localhost:5173" }));
+    await callUpdateTask({ baseUrl: "http://x", sessionKey: "s" }, { task_id: "t1", output_url: "" }, fetchImpl);
+    expect(seen.init?.body).toBe(JSON.stringify({ output_url: "" }));
+  });
+
   test("throws when task_id missing or no patch given", async () => {
     const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
     await expect(

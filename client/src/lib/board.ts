@@ -40,6 +40,8 @@ export interface BoardTask {
   dispatchError: string | null;
   /** Parent task when this is a nested subtask (unlimited depth). */
   parentTaskId: string | null;
+  /** Reviewable output (http/https URL) shown in the task's review panel. */
+  outputUrl: string | null;
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;
@@ -158,6 +160,8 @@ export interface UpdateTaskBody {
   text?: string;
   description?: string | null;
   kanbanOrder?: number;
+  /** http(s) URL of the reviewable output; empty string clears it. */
+  outputUrl?: string;
 }
 
 /** Per-board dispatch config (server: board_settings). */
