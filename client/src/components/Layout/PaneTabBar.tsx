@@ -798,13 +798,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             {/* "Awaiting feedback" is now the tab's own electric-blue background
                 (see isAwaiting + AWAITING_SURFACE above), not an overlay. */}
             {/* Icon slot. Every branch that ALWAYS resolves to a glyph wraps it
-                in a fixed 14×14 box so labels line up across tabs. The project
-                branch deliberately does NOT: a project without a shipped
-                favicon renders nothing (fallback=null) and must reserve NO
-                empty box — otherwise every generic project tab showed a blank
-                gap where an icon would be. Claude Code uses the authoritative
-                `isClaudeCodeTab` so its tab never falls through to the generic
-                Terminal glyph. */}
+                in a fixed 14×14 box so labels line up across tabs. Chats resolve
+                to NOTHING (name only). Projects always resolve to an icon —
+                ProjectFavicon shows the real favicon or a monogram fallback — so
+                that branch self-reserves its own size. Claude Code uses the
+                authoritative `isClaudeCodeTab` so its tab never falls through to
+                the generic Terminal glyph. */}
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
             ) : isClaudeCodeTab ? (
@@ -824,11 +823,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               // fallback below (same "no fake glyph" rule as an icon-less project).
               null
             ) : pane.type === 'project' && pane.projectPath ? (
-              // Same real project favicon the sidebar shows (GET /api/projects/icon),
-              // with the SAME "no fake folder glyph" convention: projects WITHOUT a
-              // shipped favicon/manifest icon render nothing (fallback=null) and
-              // reserve no space — no fixed-size wrapper here so the slot collapses.
-              <ProjectFavicon path={pane.projectPath} size={14} fallback={null} className="flex-shrink-0" />
+              // Same project icon the sidebar shows (GET /api/projects/icon), with
+              // the same fallback: real favicon/manifest icon when the folder ships
+              // one, otherwise a monogram (initial on a deterministic tint) so a
+              // project is never icon-less. ProjectFavicon reserves its own size.
+              <ProjectFavicon path={pane.projectPath} size={14} className="flex-shrink-0" />
             ) : Icon ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
                 <Icon size={14} />
