@@ -145,6 +145,12 @@ needs_input` via `dispatch_state`, e ogni interruzione (worktree impossibile, pr
 non risolvibile, turno morto, retry esauriti) SHALL parcheggiare il task con il motivo
 in `dispatch_error` E un commento nel thread — mai un fallimento silenzioso solo nei log.
 
+Un input umano (risposta, reject) che arriva mentre il turno dell'agent sta ancora
+terminando SHALL essere bufferizzato e consegnato sullo **stesso tab** al turn-end —
+mai scartato (il task resterebbe orfano e il requeue spawnerebbe un agent nuovo senza
+il contesto della conversazione). Rinominare task o step SHALL essere sempre sicuro:
+il loop è id-based (kickoff, tool MCP e resume referenziano gli id, mai i titoli).
+
 #### Scenario: task in todo parte da solo (flag on)
 - **GIVEN** una board con `auto_dispatch` attivo
 - **WHEN** un task entra in `todo` e vi resta oltre la finestra di grazia
@@ -234,6 +240,14 @@ commento passivo mentre il chip dice "serve te".
 - **WHEN** l'umano commenta sul thread di S
 - **THEN** T torna `in_progress` e A riparte con il testo e il riferimento a S
 - **AND** lo stesso commento con T già `in_progress` resta una nota nel thread di S
+
+#### Scenario: aggiungere uno step a un task in review È l'assegnazione
+- **GIVEN** il task T assegnato all'agent A, in `review`
+- **WHEN** l'umano crea un sottotask sotto T (o sotto un suo step)
+- **THEN** T torna `in_progress` e A riparte con il riferimento al nuovo step —
+  nessun commento "fai anche X" richiesto
+- **AND** con T in lavorazione il nuovo step atterra nell'albero e il resume prompt
+  istruisce A a rileggere il task (get_task) prima di riprendere
 
 ### Requirement: KANBAN-09 — Superficie di review del task (output + albero + thread)
 

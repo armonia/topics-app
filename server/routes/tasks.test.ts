@@ -305,6 +305,33 @@ describe("board router (human, project-scoped)", () => {
     expect(resumed.length).toBe(1);
   });
 
+  test("adding a step under a root in review re-kicks the agent (no comment ceremony)", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-y')");
+    const resumed: Array<[string, string]> = [];
+    const fake = {
+      onEnterTodo() {}, onLeaveTodo() {},
+      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
+    } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake);
+
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "deliverable", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-y' WHERE id = ?").run(root.id);
+    await call(r, "PATCH", `/api/boards/pX/tasks/${root.id}`, { status: "review" });
+
+    const step = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "nuovo step urgente", status: "backlog", parentTaskId: root.id }))!.json();
+    expect(resumed.length).toBe(1);
+    expect(resumed[0][0]).toBe(root.id);
+    expect(resumed[0][1]).toContain("nuovo step urgente");
+    const got = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
+    expect(got.task.status).toBe("in_progress");
+    // While the agent works, further additions just land in the tree.
+    await call(r, "POST", "/api/boards/pX/tasks", { text: "altro", status: "backlog", parentTaskId: step.id });
+    expect(resumed.length).toBe(1);
+    // A top-level task never re-kicks anyone.
+    await call(r, "POST", "/api/boards/pX/tasks", { text: "slegato", status: "backlog" });
+    expect(resumed.length).toBe(1);
+  });
+
   test("GET /api/all-boards/tasks is the global cross-project feed", async () => {
     await call(router, "POST", "/api/boards/pX/tasks", { text: "in X" });
     await call(router, "POST", "/api/boards/pY/tasks", { text: "in Y" });

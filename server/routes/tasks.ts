@@ -139,6 +139,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
             // into Todo: same chip, same grace window — not a silent 10s wait
             // for the reconcile poll. No-op when auto-dispatch is off.
             if (dispatcher && task.status === "todo") dispatcher.onEnterTodo(projectId, task.id);
+            // Adding a STEP under an agent-bound root in review IS the
+            // assignment — no "please also do X" comment ceremony: re-kick the
+            // same agent with the new step. (Root mid-turn: the step just lands
+            // in the tree; the open_subtasks gate keeps approve honest and the
+            // resume prompt tells the agent to re-read its task.)
+            try {
+              if (dispatcher && task.parentTaskId) {
+                const root = svc.boundRootOf(task.id);
+                if (root && root.status === "review" && root.assignedTopicId) {
+                  const rejected = svc.reviewDecision({ taskId: root.id, by: "user", decision: "reject", projectId });
+                  broadcastToAll({ type: "task:updated", projectId, task: rejected });
+                  void dispatcher.resume(root.id, `L'umano ha aggiunto un nuovo step al tuo task: "${task.text.slice(0, 80)}" (id=${task.id}). Lavoralo e marcalo done prima della consegna.`);
+                }
+              }
+            } catch { /* best-effort — the step itself is already created */ }
             return json(task, 201);
           } catch (e) { return fail(e); }
         }
