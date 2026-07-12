@@ -165,8 +165,16 @@ re-parenting), rendendo i cicli impossibili per costruzione. Il parent SHALL viv
 stessa board del figlio. Un task con sottotask aperti SHALL NOT poter passare a `done`
 (qualsiasi attore, update o approvazione). L'archiviazione di un parent SHALL archiviare
 ricorsivamente l'intero sottoalbero. La card SHALL mostrare il contatore dei sottotask
-(`↳ fatti/totali`) e il chip del padre sui figli; il detail drawer SHALL elencare i
-sottotask con quick-add e navigazione padre↔figlio.
+(`↳ fatti/totali`) e il chip del padre sui figli; il detail SHALL mostrare i sottotask
+come **albero** (espansione lazy, profondità illimitata) con quick-add e navigazione
+padre↔figlio.
+
+I sottotask del task assegnato a un agent sono la sua **checklist di step**: l'agent
+dispatched SHALL crearli come piano visibile e SHALL poterli marcare `done` lui stesso
+— unico carve-out al gate KANBAN-05, ristretto ai **discendenti stretti** del task
+legato al suo topic (`assigned_topic_id`). Il deliverable (il task assegnato) resta
+dietro il gate umano; il gate `open_subtasks` sull'approve garantisce che alla consegna
+tutti gli step risultino smarcati.
 
 #### Scenario: sottotask annidati a più livelli
 - **GIVEN** un task A
@@ -189,3 +197,40 @@ sottotask con quick-add e navigazione padre↔figlio.
 - **WHEN** chiama `create_task(text=..., parent_task_id=T)`
 - **THEN** il sottotask nasce in `backlog` sotto T (l'umano decide se e quando mandarlo
   in lavorazione)
+
+#### Scenario: l'agente smarca i propri step
+- **GIVEN** il task T assegnato all'agent A (topic bound) con step S figlio di T
+- **WHEN** A chiama `update_task(task_id=S, status='done')`
+- **THEN** S passa a `done` (carve-out: S è un discendente stretto di T)
+- **AND** lo stesso update su T stesso resta rifiutato (`agent_cannot_complete`)
+
+#### Scenario: il carve-out non attraversa i task altrui
+- **GIVEN** un task U non discendente del task assegnato all'agent A
+- **WHEN** A tenta `update_task(task_id=U, status='done')`
+- **THEN** l'operazione è rifiutata (`agent_cannot_complete`)
+
+### Requirement: KANBAN-09 — Superficie di review del task (output + albero + thread)
+
+Il dettaglio task SHALL essere un drawer laterale di default (la board resta visibile)
+espandibile in una superficie di review a due colonne: a sinistra meta, albero dei
+sottotask e thread; a destra l'**output** del task. Un task SHALL poter portare un
+`output_url` (solo http/https — mai file:/javascript:), impostabile dall'agent via
+`update_task(output_url=...)` o dall'umano, renderizzato in un iframe sandboxed nel
+pannello di review; senza output il pannello SHALL offrire il deep-link alla tab
+dell'agent. Il thread commenti SHALL essere renderizzato come chat (messaggi dell'umano
+a destra, agent/system a sinistra con autore e ora) — minimale: niente avatar né
+reazioni. Le azioni di review (Approva/Rifiuta) SHALL essere disponibili anche dal
+dettaglio, con la stessa semantica della card (reject con testo = resume dello stesso
+agent).
+
+#### Scenario: l'agent allega un output reviewabile
+- **GIVEN** un agent che ha un dev server o una pagina da mostrare
+- **WHEN** chiama `update_task(task_id=T, output_url="http://localhost:5173")` e consegna in review
+- **THEN** il pannello di review del task mostra quella URL in un iframe
+- **AND** una URL non-http(s) è rifiutata (`invalid_input`)
+
+#### Scenario: drawer di default, review espansa a scelta
+- **GIVEN** un task aperto dal board
+- **WHEN** l'umano non ha espanso il dettaglio
+- **THEN** il dettaglio è un drawer a destra e la board resta visibile
+- **AND** l'espansione (persistente per client) mostra albero+thread a sinistra e output a destra

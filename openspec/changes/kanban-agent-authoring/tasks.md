@@ -23,7 +23,14 @@ Convenzione: ogni Phase chiude con `cd client && tsc -b` verde + i test della Ph
 > visibile), utility tab (Board generale, …) come righe sidebar di prima classe. E2E
 > `tests/e2e/board.spec.ts` (10 scenari, verdi su :13334; flake cold-start coperti dal
 > retry). Pipeline + nesting + cap verificati dal vivo su :3333 (claim → worktree →
-> agent → review → approve → done). Restano: refactor DRY (0.4/0.5, rimandati).
+> agent → review → approve → done). Aggiunti (2026-07-12, seconda tornata): KANBAN-08
+> esteso con gli **step dell'agent** (carve-out `done` sui discendenti stretti del task
+> assegnato, `agentTopicId` threaded dalla sessione; kickoff = piano visibile, tutti gli
+> step done prima della review) e KANBAN-09 **superficie di review** (migration 035
+> `output_url` http(s)-only in iframe sandboxed; dettaglio = drawer di default ↔ wide
+> a due colonne con albero sottotask lazy + thread a bolle chat + Approva/Rifiuta nel
+> header; risposta dal drawer = reject+resume come la card). Restano: refactor DRY
+> (0.4/0.5, rimandati).
 
 ## Phase 0 — Ricognizione & fondamenta (sblocca tutto)
 - [ ] 0.1 Localizzare in git (`refactor-master-into-kanban`) gli handler REST rimossi per

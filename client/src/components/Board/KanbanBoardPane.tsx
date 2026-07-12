@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Bot, Loader2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, ChevronRight, ExternalLink, Loader2, Maximize2, Minimize2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
@@ -235,6 +235,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           onClose={() => setSelectedId(null)}
           onChanged={refetch}
           onOpenTask={setSelectedId}
+          onOpenTopic={onOpenTopic}
         />
       )}
     </div>
@@ -449,17 +450,29 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
   );
 }
 
-// ── Detail drawer (with comment thread) ─────────────────────────────────────
-function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask }: {
+// ── Detail: drawer by default, expandable review surface ────────────────────
+function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask, onOpenTopic }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /** Navigate the drawer to another task (subtask ↔ parent). */
   onOpenTask?: (taskId: string) => void;
+  /** Deep-link the agent's chat tab (output panel fallback). */
+  onOpenTopic?: (topicId: string) => void;
 }) {
   const [task, setTask] = useState<BoardTask | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
   const [subDraft, setSubDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  // Narrow (default) keeps the board visible behind the drawer; wide turns the
+  // detail into a full review surface — subtask tree + thread on the left, the
+  // task's output (dev server, page, report) on the right. Sticky per client.
+  const [wide, setWide] = useState(() => { try { return localStorage.getItem('board:taskDetailWide') === '1'; } catch { return false; } });
+  const toggleWide = () => setWide((w) => {
+    const next = !w;
+    try { localStorage.setItem('board:taskDetailWide', next ? '1' : '0'); } catch { /* private mode */ }
+    return next;
+  });
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -494,6 +507,16 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask }: {
     } catch { /* surfaced elsewhere */ }
   };
 
+  // Approve/reject from the detail itself — the review surface must not force a
+  // round-trip back to the card. Same endpoint, same semantics.
+  const decide = async (decision: 'approve' | 'reject') => {
+    if (busy) return;
+    setBusy(true);
+    try { await boardApi.review(projectId, taskId, decision); await load(); onChanged(); }
+    catch { /* surfaced elsewhere */ }
+    finally { setBusy(false); }
+  };
+
   // Quick-add a nested subtask. Born in backlog (intake), like agent creates —
   // dragging it to Todo is the explicit "vai" gesture.
   const addSubtask = async () => {
@@ -503,86 +526,234 @@ function TaskDetail({ projectId, taskId, onClose, onChanged, onOpenTask }: {
     catch { /* surfaced elsewhere */ }
   };
 
+  const doneCount = children.filter((c) => c.status === 'done').length;
+
   return (
-    <div data-testid="task-detail-drawer" className="absolute inset-y-0 right-0 z-20 flex w-96 flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur">
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+    <div
+      data-testid="task-detail-drawer"
+      className={`absolute inset-y-0 right-0 z-20 flex flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur ${wide ? 'w-[min(64rem,94%)]' : 'w-96'}`}
+    >
+      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
         <span className="text-xs uppercase tracking-wide text-neutral-400">{task ? STATUS_LABEL[task.status] : ''}</span>
-        <button onClick={onClose} className="rounded p-1 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
-      </div>
-      <div className="border-b border-white/10 px-3 py-3">
-        {task?.parentTaskId && onOpenTask && (
-          <button
-            onClick={() => onOpenTask(task.parentTaskId!)}
-            className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
-          >⤴ Task padre</button>
-        )}
-        <p className="text-sm text-neutral-100">{task?.text}</p>
-        {task?.description && <p className="mt-1 text-xs text-neutral-400">{task.description}</p>}
-      </div>
-      {/* Subtasks — nested work, unlimited depth. Click navigates the drawer. */}
-      <div className="border-b border-white/10 px-3 py-2" data-testid="task-detail-subtasks">
-        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
-          Sottotask{children.length > 0 ? ` · ${children.filter((c) => c.status === 'done').length}/${children.length}` : ''}
-        </p>
-        {children.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => onOpenTask?.(c.id)}
-            className="flex w-full items-center gap-2 rounded px-1 py-1 text-left hover:bg-white/5"
-          >
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${c.status === 'done' ? 'bg-emerald-400' : c.status === 'in_progress' || c.status === 'review' ? 'bg-sky-400' : 'bg-neutral-500'}`} />
-            <span className={`min-w-0 flex-1 truncate text-xs ${c.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-200'}`}>{c.text}</span>
-            <span className="shrink-0 text-[10px] uppercase text-neutral-500">{STATUS_LABEL[c.status]}</span>
-            {c.subtaskCount > 0 && <span className="shrink-0 text-[10px] text-neutral-500">↳ {c.subtaskDoneCount}/{c.subtaskCount}</span>}
-          </button>
-        ))}
-        <input
-          value={subDraft}
-          onChange={(e) => setSubDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
-          placeholder="+ sottotask…"
-          className="mt-1 w-full rounded bg-white/5 px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600"
-        />
-      </div>
-      <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-        {comments.length === 0 && <p className="text-xs text-neutral-500">Nessun commento.</p>}
-        {comments.map((c) => (
-          <div key={c.id} className="text-sm">
-            <span className="text-[11px] font-semibold text-neutral-400">{c.author}</span>
-            <CommentBody content={c.content} />
+        {task?.status === 'review' && (
+          <div className="flex items-center gap-1">
+            <button
+              disabled={busy} onClick={() => decide('approve')}
+              title="Accetta e completa il task"
+              className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
+            ><ShieldCheck className="h-3 w-3" /> Approva</button>
+            <button
+              disabled={busy} onClick={() => decide('reject')}
+              title={isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni)" : 'Rifiuta'}
+              className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-neutral-200 hover:bg-white/20 disabled:opacity-50"
+            ><ShieldX className="h-3 w-3" /> Rifiuta</button>
           </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-      <div className="border-t border-white/10 p-2">
-        {isAgentReview && (
-          <p className="mb-1 px-0.5 text-[10px] text-sky-300/80">
-            Il task è in review: la tua risposta fa ripartire l'agent (torna In Progress).
-          </p>
         )}
-        <div className="flex items-end gap-2">
-          <textarea
-            value={draft} onChange={(e) => setDraft(e.target.value)} rows={1}
-            placeholder={isAgentReview ? 'Rispondi all\'agent…' : 'Commenta…'}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-            className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-neutral-100 outline-none"
-          />
+        <div className="ml-auto flex items-center gap-0.5">
+          {task?.outputUrl && (
+            <a
+              href={task.outputUrl} target="_blank" rel="noreferrer"
+              title="Apri l'output in una nuova finestra"
+              className="rounded p-1 text-neutral-400 hover:bg-white/10"
+            ><ExternalLink className="h-3.5 w-3.5" /></a>
+          )}
           <button
-            onClick={send}
-            title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : 'Commenta'}
-            className={`rounded p-1.5 text-white ${isAgentReview ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
-          ><Send className="h-4 w-4" /></button>
+            onClick={toggleWide}
+            title={wide ? 'Riduci a drawer (vedi la board)' : 'Espandi la superficie di review'}
+            className="rounded p-1 text-neutral-400 hover:bg-white/10"
+          >{wide ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}</button>
+          <button onClick={onClose} className="rounded p-1 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
+      </div>
+      <div className="flex min-h-0 flex-1">
+        {/* Left column: meta + subtask tree + chat thread. In wide mode it keeps
+            the drawer width and the output panel takes the remaining space. */}
+        <div className={`flex min-w-0 flex-col ${wide ? 'w-96 shrink-0 border-r border-white/10' : 'flex-1'}`}>
+          <div className="border-b border-white/10 px-3 py-3">
+            {task?.parentTaskId && onOpenTask && (
+              <button
+                onClick={() => onOpenTask(task.parentTaskId!)}
+                className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
+              >⤴ Task padre</button>
+            )}
+            <p className="text-sm text-neutral-100">{task?.text}</p>
+            {task?.description && <p className="mt-1 text-xs text-neutral-400">{task.description}</p>}
+            {!wide && task?.outputUrl && (
+              <button
+                onClick={toggleWide}
+                title="Mostra l'output nel pannello di review"
+                className="mt-1.5 flex w-full items-center gap-1 rounded bg-sky-500/10 px-1.5 py-1 text-left text-[11px] text-sky-300 hover:bg-sky-500/20"
+              ><ArrowUpRight className="h-3 w-3 shrink-0" /><span className="truncate">{task.outputUrl}</span></button>
+            )}
+          </div>
+          {/* Subtask tree — unlimited depth, lazy-expanded. The agent's steps
+              live here too: dots flip green as it checks them off. */}
+          <div className="max-h-[40%] overflow-y-auto border-b border-white/10 px-3 py-2" data-testid="task-detail-subtasks">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+              Sottotask{children.length > 0 ? ` · ${doneCount}/${children.length}` : ''}
+            </p>
+            {children.map((c) => (
+              <SubtaskNode key={c.id} projectId={projectId} node={c} depth={0} onOpenTask={onOpenTask} />
+            ))}
+            <input
+              value={subDraft}
+              onChange={(e) => setSubDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
+              placeholder="+ sottotask…"
+              className="mt-1 w-full rounded bg-white/5 px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600"
+            />
+          </div>
+          {/* Thread — chat-shaped: my messages right, agent/system left. */}
+          <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+            {comments.length === 0 && <p className="text-xs text-neutral-500">Nessun commento.</p>}
+            {comments.map((c) => <CommentBubble key={c.id} comment={c} />)}
+            <div ref={bottomRef} />
+          </div>
+          <div className="border-t border-white/10 p-2">
+            <div className="flex items-end gap-2">
+              <textarea
+                value={draft} onChange={(e) => setDraft(e.target.value)} rows={1}
+                placeholder={isAgentReview ? 'Rispondi all\'agent…' : 'Commenta…'}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-neutral-100 outline-none"
+              />
+              <button
+                onClick={send}
+                title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : 'Commenta'}
+                className={`rounded p-1.5 text-white ${isAgentReview ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
+              ><Send className="h-4 w-4" /></button>
+            </div>
+          </div>
+        </div>
+        {wide && <OutputPanel task={task} onOpenTopic={onOpenTopic} />}
       </div>
     </div>
   );
 }
 
 /**
- * Comment body for the detail drawer. A question block renders as a styled
+ * One node of the subtask tree. Direct children arrive with the parent task;
+ * deeper levels are fetched lazily on first expand (each task's `get` already
+ * returns its children — no dedicated tree endpoint needed).
+ */
+function SubtaskNode({ projectId, node, depth, onOpenTask }: {
+  projectId: string; node: BoardTask; depth: number; onOpenTask?: (taskId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [kids, setKids] = useState<BoardTask[] | null>(null);
+  const hasKids = node.subtaskCount > 0;
+  const toggle = async () => {
+    if (!open && kids === null) {
+      try { const { children } = await boardApi.get(projectId, node.id); setKids(children ?? []); }
+      catch { setKids([]); }
+    }
+    setOpen((o) => !o);
+  };
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 rounded px-1 py-1 hover:bg-white/5" style={{ paddingLeft: 4 + depth * 14 }}>
+        {hasKids ? (
+          <button onClick={toggle} className="shrink-0 text-neutral-500 hover:text-neutral-300" title={open ? 'Chiudi' : 'Espandi'}>
+            <ChevronRight className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} />
+          </button>
+        ) : (
+          <span className="w-3 shrink-0" />
+        )}
+        <span
+          title={STATUS_LABEL[node.status]}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${node.status === 'done' ? 'bg-emerald-400' : node.status === 'in_progress' || node.status === 'review' ? 'bg-sky-400' : 'bg-neutral-500'}`}
+        />
+        <button
+          onClick={() => onOpenTask?.(node.id)}
+          className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-200'}`}
+        >{node.text}</button>
+        {hasKids && <span className="shrink-0 text-[10px] text-neutral-500">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
+      </div>
+      {open && kids?.map((k) => (
+        <SubtaskNode key={k.id} projectId={projectId} node={k} depth={depth + 1} onOpenTask={onOpenTask} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Right side of the wide review surface: the task's attached output (an http(s)
+ * URL the agent set via `update_task(output_url=…)` — dev server, rendered
+ * page, report) in a sandboxed iframe. Without one, a sober empty state with
+ * the agent-tab deep-link as the next best review surface.
+ */
+function OutputPanel({ task, onOpenTopic }: { task: BoardTask | null; onOpenTopic?: (topicId: string) => void }) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col bg-neutral-950/40" data-testid="task-output-panel">
+      {task?.outputUrl ? (
+        <>
+          <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5">
+            <span className="truncate text-[11px] text-neutral-400" title={task.outputUrl}>{task.outputUrl}</span>
+            <a
+              href={task.outputUrl} target="_blank" rel="noreferrer"
+              className="ml-auto shrink-0 rounded p-1 text-neutral-400 hover:bg-white/10"
+              title="Apri in una nuova finestra"
+            ><ExternalLink className="h-3.5 w-3.5" /></a>
+          </div>
+          <iframe
+            key={task.outputUrl}
+            src={task.outputUrl}
+            title="Output del task"
+            sandbox="allow-scripts allow-same-origin allow-forms"
+            className="w-full flex-1 border-0 bg-white"
+          />
+        </>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+          <p className="text-sm text-neutral-400">Nessun output collegato.</p>
+          <p className="max-w-xs text-xs text-neutral-500">
+            L'agent può allegare un URL (dev server, pagina, report) al task: comparirà qui, pronto per la review.
+          </p>
+          {task?.assignedTopicId && onOpenTopic && (
+            <button
+              onClick={() => onOpenTopic(task.assignedTopicId!)}
+              className="mt-1 flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-xs text-neutral-200 hover:bg-white/20"
+            ><ArrowUpRight className="h-3.5 w-3.5" /> Apri la tab dell'agent</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Compact chat timestamp: HH:MM today, dd/MM HH:MM otherwise. */
+function commentTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const hm = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString()
+    ? hm
+    : `${d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })} ${hm}`;
+}
+
+/**
+ * One thread message, chat-shaped: the human's ('user') on the right in the
+ * accent tint, everyone else (agents, system) on the left with the author
+ * label. Nothing more — no avatars, no reactions.
+ */
+function CommentBubble({ comment }: { comment: TaskComment }) {
+  const mine = comment.author === 'user';
+  return (
+    <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+      <div className={`max-w-[88%] rounded-lg px-2.5 py-1.5 text-sm ${mine ? 'bg-sky-500/15' : 'bg-white/5'}`}>
+        {!mine && <p className="text-[10px] font-semibold text-neutral-400">{comment.author}</p>}
+        <CommentBody content={comment.content} />
+        <p className={`mt-0.5 text-[9px] text-neutral-500 ${mine ? 'text-right' : ''}`}>{commentTime(comment.createdAt)}</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Comment body (inside a chat bubble). A question block renders as a styled
  * decision request (question + option bullets) instead of raw ``` fences; any
- * text around the block is kept. Answering stays on the card's quick-reply —
- * the drawer is the reading surface.
+ * text around the block is kept. Quick-reply buttons live on the card; in the
+ * drawer the composer is the answer path (reject-with-text → agent resumes).
  */
 function CommentBody({ content }: { content: string }) {
   const q = parseQuestionBlock(content);

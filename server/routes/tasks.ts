@@ -45,15 +45,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
    * Resolve the board project id + a display author from a session key. Works
    * for BOTH a chat topic bound to a project and a Claude terminal tab (which
    * has a cwd but no chat topic). Returns null when the session is unbound.
+   * `topicId` (chat sessions only) feeds the "own steps" carve-out: it lets the
+   * service recognise subtasks of the task dispatched to THIS agent.
    */
-  function resolveSession(sessionKey: string): { projectId: string; author: string } | null {
+  function resolveSession(sessionKey: string): { projectId: string; author: string; topicId: string | null } | null {
     const topic = getTopicBySessionKey(sessionKey);
     if (topic?.projectPath) {
-      return { projectId: projectIdForPath(topic.projectPath), author: topic.name?.trim() || "claude" };
+      return { projectId: projectIdForPath(topic.projectPath), author: topic.name?.trim() || "claude", topicId: topic.id ?? null };
     }
     const term = getTerminalSessionById(sessionKey);
     if (term?.cwd) {
-      return { projectId: projectIdForPath(term.cwd), author: (term.name || "").trim() || "claude" };
+      return { projectId: projectIdForPath(term.cwd), author: (term.name || "").trim() || "claude", topicId: null };
     }
     return null;
   }
@@ -201,6 +203,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
                 text: typeof body?.text === "string" ? body.text : undefined,
                 description: body?.description !== undefined ? body.description : undefined,
                 kanbanOrder: typeof body?.kanbanOrder === "number" ? body.kanbanOrder : undefined,
+                outputUrl: typeof body?.outputUrl === "string" ? body.outputUrl : undefined,
               },
             });
             broadcastToAll({ type: "task:updated", projectId, task });
@@ -321,10 +324,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher):
             actor: "agent",
             by: sess.author,
             projectId: sess.projectId,
+            agentTopicId: sess.topicId,
             patch: {
               status: typeof body?.status === "string" ? body.status : undefined,
               priority: typeof body?.priority === "number" ? body.priority : undefined,
               assignedTo: typeof body?.assignee === "string" ? body.assignee : undefined,
+              outputUrl: typeof body?.output_url === "string" ? body.output_url : undefined,
             },
           });
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });

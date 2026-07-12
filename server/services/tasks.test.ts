@@ -19,7 +19,7 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    parent_task_id TEXT REFERENCES tasks(id)
+    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -175,6 +175,84 @@ describe("review gate (KANBAN-05)", () => {
     const done = s.update({ taskId: t.id, actor: "human", by: "attilio", patch: { status: "done" } });
     expect(done.status).toBe("done");
     expect(done.completedAt).not.toBeNull();
+  });
+});
+
+describe("own steps carve-out (KANBAN-08: the agent checks off its own checklist)", () => {
+  let db: Database; let s: TaskService;
+  // parent = the task dispatched to topic 'top-1'; steps nest under it.
+  let parentId: string;
+  beforeEach(() => {
+    db = freshDb(); s = svc(db);
+    db.run("INSERT INTO topics (id) VALUES ('top-1'), ('top-2')");
+    const parent = s.create({ projectId: PID, text: "deliverable", status: "in_progress" });
+    parentId = parent.id;
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1' WHERE id = ?").run(parentId);
+  });
+
+  test("agent marks its own direct step done (completed_at set)", () => {
+    const step = s.create({ projectId: PID, text: "step 1", status: "backlog", parentTaskId: parentId });
+    const done = s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } });
+    expect(done.status).toBe("done");
+    expect(done.completedAt).not.toBeNull();
+  });
+
+  test("carve-out reaches any depth (step of a step)", () => {
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: parentId });
+    const sub = s.create({ projectId: PID, text: "sub-step", status: "backlog", parentTaskId: step.id });
+    const done = s.update({ taskId: sub.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } });
+    expect(done.status).toBe("done");
+  });
+
+  test("STRICT: the agent still cannot close its own MAIN task", () => {
+    expect(() => s.update({ taskId: parentId, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } }))
+      .toThrow(/only a human/);
+  });
+
+  test("a different agent's topic does not unlock the step", () => {
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: parentId });
+    expect(() => s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-2", patch: { status: "done" } }))
+      .toThrow(/only a human/);
+  });
+
+  test("an unrelated top-level task stays gated even with agentTopicId set", () => {
+    const other = s.create({ projectId: PID, text: "unrelated" });
+    expect(() => s.update({ taskId: other.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } }))
+      .toThrow(/only a human/);
+  });
+
+  test("open_subtasks still gates a step that has its own open children", () => {
+    const step = s.create({ projectId: PID, text: "step", status: "backlog", parentTaskId: parentId });
+    s.create({ projectId: PID, text: "sub-step", status: "backlog", parentTaskId: step.id });
+    expect(() => s.update({ taskId: step.id, actor: "agent", by: "claude", agentTopicId: "top-1", patch: { status: "done" } }))
+      .toThrow(/open subtasks/);
+  });
+});
+
+describe("outputUrl (KANBAN-09 review panel)", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("http(s) URL persists and comes back from get()", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    const up = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { outputUrl: "http://localhost:5173/preview" } });
+    expect(up.outputUrl).toBe("http://localhost:5173/preview");
+    expect(s.get(t.id)!.task.outputUrl).toBe("http://localhost:5173/preview");
+  });
+
+  test("non-http(s) schemes are rejected (iframe target: no LFI/XSS)", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    for (const bad of ["file:///etc/passwd", "javascript:alert(1)", "ftp://x", "totally not a url"]) {
+      expect(() => s.update({ taskId: t.id, actor: "human", by: "user", patch: { outputUrl: bad } }))
+        .toThrow(/http\(s\)/);
+    }
+  });
+
+  test("empty string (or null) clears it", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.update({ taskId: t.id, actor: "human", by: "user", patch: { outputUrl: "https://example.com" } });
+    const cleared = s.update({ taskId: t.id, actor: "human", by: "user", patch: { outputUrl: "" } });
+    expect(cleared.outputUrl).toBeNull();
   });
 });
 
