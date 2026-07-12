@@ -141,9 +141,12 @@ strutturale: gli agent creano solo in `backlog` (KANBAN-03), quindi il lavoro ac
 un worker non è mai auto-eleggibile.
 
 Feedback SHALL essere sempre visibile sulla card: `queued → starting → working →
-needs_input` via `dispatch_state`, e ogni interruzione (worktree impossibile, progetto
-non risolvibile, turno morto, retry esauriti) SHALL parcheggiare il task con il motivo
-in `dispatch_error` E un commento nel thread — mai un fallimento silenzioso solo nei log.
+needs_input | delivered` via `dispatch_state`, e ogni interruzione (worktree impossibile,
+progetto non risolvibile, turno morto, retry esauriti) SHALL parcheggiare il task con il
+motivo in `dispatch_error` E un commento nel thread — mai un fallimento silenzioso solo
+nei log. In review i due esiti sono distinti: `needs_input` ("serve te") quando l'ultima
+parola dell'agent è un question block (risposta richiesta), `delivered` ("finito (AI)")
+quando la consegna è pulita e attende solo l'approvazione.
 
 Un input umano (risposta, reject) che arriva mentre il turno dell'agent sta ancora
 terminando SHALL essere bufferizzato e consegnato sullo **stesso tab** al turn-end —

@@ -150,8 +150,24 @@ describe("task-dispatcher", () => {
     const t = h.task("t1")!;
     expect(t.status).toBe("review");
     expect(t.assignedTopicId).toBe("topic-1");   // binding preserved for the human
-    expect(t.dispatchState).toBe("needs_input");  // chip flips to "serve te", not stale "working"
+    // Clean delivery (last agent word is NOT a question) → "delivered", not a
+    // stale "working" nor a false "serve te".
+    expect(t.dispatchState).toBe("delivered");
     expect(h.dispatcher.isInFlight("t1")).toBe(false);
+  });
+
+  it("a question as the agent's last word flips the chip to needs_input ('serve te')", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // The agent asks (server-composed question block) and hands off to review.
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "Quale opzione?", questionOptions: ["A", "B"] });
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("needs_input");
   });
 
   it("requeues a task whose turn ended without reaching review", async () => {

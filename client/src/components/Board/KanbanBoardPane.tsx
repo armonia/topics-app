@@ -92,7 +92,11 @@ const DISPATCH_CHIP: Record<string, { text: string; cls: string }> = {
   queued: { text: 'in coda', cls: 'bg-white/10 text-neutral-300' },
   starting: { text: 'avvio…', cls: 'bg-amber-500/15 text-amber-300' },
   working: { text: 'al lavoro', cls: 'bg-sky-500/15 text-sky-300' },
+  // Both live in Review, but they ask different things of the human:
+  // needs_input = the agent ASKED (answer required); delivered = clean
+  // hand-off, the agent believes it's done (approve/reject).
   needs_input: { text: 'serve te', cls: 'bg-rose-500/15 text-rose-300' },
+  delivered: { text: 'finito (AI)', cls: 'bg-emerald-500/15 text-emerald-300' },
 };
 
 export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic }: Props) {
@@ -317,7 +321,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-300">
           <StatusIcon status={status} />
-          {status === 'review' ? 'Serve te' : STATUS_LABEL[status]}
+          {STATUS_LABEL[status]}
         </span>
         <span className="rounded bg-white/10 px-1.5 text-xs text-neutral-400">{tasks.length}</span>
       </div>
@@ -581,9 +585,13 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   // dispatcher.resume). A plain comment here would sit unread while the chip
   // says "serve te". Non-agent tasks (or any other status) keep plain comments.
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
-  const send = async () => {
-    const v = draft.trim(); if (!v || sending) return;
-    setSending(true);
+  // Pending question = the agent's last word is a question block: its options
+  // render as quick-reply buttons right above the composer (same zone as the
+  // review actions), mirroring the card.
+  const lastThreadComment = comments[comments.length - 1] ?? null;
+  const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
+
+  const deliverAnswer = async (v: string): Promise<boolean> => {
     try {
       if (isAgentReview) {
         // Race fallback: if the task left review meanwhile, still save the text
@@ -593,11 +601,23 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
       } else {
         await boardApi.comment(projectId, taskId, v);
       }
-      setDraft(''); // cleared on success only — a failed send keeps the text
       setError(null);
       await load(); onChanged();
-    } catch (e) { showError(e); }
-    finally { setSending(false); }
+      return true;
+    } catch (e) { showError(e); return false; }
+  };
+  const send = async () => {
+    const v = draft.trim(); if (!v || sending) return;
+    setSending(true);
+    const ok = await deliverAnswer(v);
+    if (ok) setDraft(''); // cleared on success only — a failed send keeps the text
+    setSending(false);
+  };
+  const answerOption = async (opt: string) => {
+    if (sending) return;
+    setSending(true);
+    await deliverAnswer(opt);
+    setSending(false);
   };
 
   // Approve/reject from the detail itself — the review surface must not force a
@@ -702,21 +722,27 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
       data-testid="task-detail-drawer"
       className={`absolute inset-y-0 right-0 z-20 flex flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur ${wide ? 'w-[min(64rem,94%)]' : 'w-96'}`}
     >
-      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-        <span className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-neutral-400">
+      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
+        <span className="flex shrink-0 items-center gap-1.5 text-xs uppercase tracking-wide text-neutral-400">
           {task ? <StatusIcon status={task.status} /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {task ? (task.status === 'review' ? 'Serve te' : STATUS_LABEL[task.status]) : 'Carico…'}
+          {task ? STATUS_LABEL[task.status] : 'Carico…'}
         </span>
+        {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`}>
+            {DISPATCH_CHIP[task.dispatchState].text}
+          </span>
+        )}
         {task && (
           <button
             ref={projChipRef}
             onClick={openProjMenu}
             data-testid="task-project-chip"
             title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
-            className="flex min-w-0 max-w-[10rem] items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300 hover:bg-emerald-500/25"
+            className="ml-auto flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
           >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
             <span className="truncate">{projectLabel}</span>
-            <ChevronDown className="h-3 w-3 shrink-0" />
+            <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
           </button>
         )}
         <Menu
@@ -785,21 +811,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             ><Plus className="h-3.5 w-3.5" /> Nuovo progetto…</button>
           )}
         </Menu>
-        {task?.status === 'review' && (
-          <div className="flex items-center gap-1">
-            <button
-              disabled={busy} onClick={() => decide('approve')}
-              title="Accetta e completa il task"
-              className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
-            >{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />} Approva</button>
-            <button
-              disabled={busy} onClick={() => decide('reject')}
-              title={isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni)" : 'Rifiuta'}
-              className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-neutral-200 hover:bg-white/20 disabled:opacity-50"
-            ><ShieldX className="h-3 w-3" /> Rifiuta</button>
-          </div>
-        )}
-        <div className="ml-auto flex items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           {task?.outputUrl && (
             <a
               href={task.outputUrl} target="_blank" rel="noreferrer"
@@ -908,6 +920,35 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             <div ref={bottomRef} />
           </div>
           <div className="border-t border-white/10 p-2">
+            {/* Review zone — decisions live HERE, where the agent's questions
+                land (end of the thread), not up in the header. */}
+            {task.status === 'review' && (
+              <div className="mb-2 space-y-1.5">
+                {pending && pending.options.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {pending.options.map((opt, i) => (
+                      <button
+                        key={i} disabled={sending}
+                        onClick={() => answerOption(opt)}
+                        className="rounded bg-white/10 px-2 py-1 text-xs text-neutral-100 hover:bg-white/20 disabled:opacity-50"
+                      >{opt}</button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    disabled={busy} onClick={() => decide('approve')}
+                    title="Accetta e completa il task"
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded bg-emerald-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                  >{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} Approva</button>
+                  <button
+                    disabled={busy} onClick={() => decide('reject')}
+                    title={isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni)" : 'Rifiuta'}
+                    className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50"
+                  ><ShieldX className="h-3.5 w-3.5" /> Rifiuta</button>
+                </div>
+              </div>
+            )}
             <div className="flex items-end gap-2">
               <textarea
                 value={draft} onChange={(e) => setDraft(e.target.value)} rows={1}
