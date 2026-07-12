@@ -100,8 +100,11 @@ function startObserver(): void {
   const schedule = () => {
     if (scheduled) return;
     scheduled = true;
-    // Debounce: many DOM churns (streaming chat) collapse to one recount.
-    window.setTimeout(recompute, 30);
+    // Next-task, not 30ms: same-tick mutations still coalesce (the observer
+    // batches, and `scheduled` gates re-entry), but a menu that just opened is
+    // measured immediately. Every ms here is a ms the freshly-opened overlay
+    // spends painting UNDERNEATH the native pane — part of the perceived flash.
+    window.setTimeout(recompute, 0);
   };
 
   // Only schedule when an added/removed node could be (or contain) an overlay —
