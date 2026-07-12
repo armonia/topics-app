@@ -274,14 +274,23 @@ export function TopicTree({
   );
 
   // ── Fissati partition (render-side; the builder's sort stays untouched) ──
-  // Top-level pinned rows (standalone chats + projects — pinned project
-  // CHILDREN stay nested under their project, they only get the glyph) move
-  // into a dedicated block ordered by pin order (pinnedItems index), NOT the
-  // notification-first activity sort. Search still applies: an item filtered
-  // out by the query drops from the block too.
+  // The pinned block lists EVERY pinned item — top-level rows AND project
+  // children — ordered by pin order (pinnedItems index), NOT the
+  // notification-first activity sort. A pinned project child ALSO keeps its
+  // nested row (Finder-favorites semantics: the pin is a shortcut, the item
+  // still lives in its place); before this, a pinned chat inside a COLLAPSED
+  // project was completely invisible, which defeated the point of pinning.
+  // Search still applies: an item filtered out by the query drops from the
+  // block too.
   const pinnedBlock = useMemo(() => {
     if (pinnedItems.length === 0) return [];
-    const byId = new Map(filteredItems.filter(i => i.pinned).map(i => [i.id, i] as const));
+    const byId = new Map<string, SidebarItem>();
+    for (const item of filteredItems) {
+      if (item.pinned) byId.set(item.id, item);
+      for (const child of item.children ?? []) {
+        if (child.pinned) byId.set(child.id, child);
+      }
+    }
     return pinnedItems.flatMap(id => {
       const item = byId.get(id);
       return item ? [item] : [];

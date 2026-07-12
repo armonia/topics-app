@@ -52,6 +52,7 @@ export interface UseSidebarAndLayoutReturn {
     isMobile: boolean;
     isPWA: boolean;
     viewportHeight: number | null;
+    viewportTop: number;
     windowId: string;
   };
   refs: {
@@ -94,8 +95,15 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
   // there as unused — preserved here for any future reads).
   useMobile();
 
-  // Mobile keyboard: adjust app height when virtual keyboard opens
+  // Mobile keyboard: adjust app height when virtual keyboard opens.
+  // `viewportTop` mirrors visualViewport.offsetTop: iOS ignores
+  // `interactive-widget` and PANS the page when the keyboard would cover the
+  // focused input, so the visual viewport starts below y=0 — a fixed top:0
+  // container that only shrinks its height leaves the chat input stranded
+  // under the keyboard. Tracking the offset keeps the app glued to the
+  // VISIBLE area on both engines (Android overlays-content keeps offset 0).
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const [viewportTop, setViewportTop] = useState(0);
   const fullHeightRef = useRef(window.innerHeight);
   useEffect(() => {
     if (!isMobile || !window.visualViewport) return;
@@ -111,8 +119,10 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
       const isKeyboardOpen = vv.height < fullHeightRef.current * 0.85;
       if (isKeyboardOpen) {
         setViewportHeight(vv.height);
+        setViewportTop(vv.offsetTop);
       } else {
         setViewportHeight(null);
+        setViewportTop(0);
         requestAnimationFrame(() => {
           window.scrollTo(0, 0);
           document.documentElement.scrollTop = 0;
@@ -328,6 +338,7 @@ export function useSidebarAndLayout(args: UseSidebarAndLayoutArgs): UseSidebarAn
       isMobile,
       isPWA,
       viewportHeight,
+      viewportTop,
       windowId,
     },
     refs: { sidebarRef },
