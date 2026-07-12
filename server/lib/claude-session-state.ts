@@ -142,12 +142,15 @@ export function isHumanInputTool(toolName: string | undefined): boolean {
 
 /**
  * Map a human-input tool to the PendingApproval it represents, extracting a
- * best-effort prompt string from its tool_input so the UI can echo what's being
+ * best-effort prompt string from its input so the UI can echo what's being
  * asked. Tolerant of missing/odd shapes — we only ever read strings we find.
+ * Shared by BOTH signal paths for these tools: the PreToolUse hook and the
+ * transcript's tool_use line (whichever lands first must produce the same
+ * amber state, so they converge instead of fighting).
  */
-function humanInputApproval(hook: HookPayload, now: number): PendingApproval {
-  if (hook.tool_name === 'ExitPlanMode') {
-    const plan = (hook.tool_input as { plan?: unknown } | undefined)?.plan;
+function humanInputApproval(toolName: string | undefined, toolInput: unknown, now: number): PendingApproval {
+  if (toolName === 'ExitPlanMode') {
+    const plan = (toolInput as { plan?: unknown } | undefined)?.plan;
     return {
       kind: 'plan',
       prompt: typeof plan === 'string' && plan.trim() ? plan : 'Approve plan?',
@@ -155,7 +158,7 @@ function humanInputApproval(hook: HookPayload, now: number): PendingApproval {
     };
   }
   // AskUserQuestion — surface the first question's text when present.
-  const questions = (hook.tool_input as { questions?: unknown } | undefined)?.questions;
+  const questions = (toolInput as { questions?: unknown } | undefined)?.questions;
   let prompt = 'Claude is asking a question';
   if (Array.isArray(questions) && questions.length > 0) {
     const q = questions[0] as { question?: unknown } | undefined;
@@ -221,7 +224,7 @@ export function applyHook(
       if (isHumanInputTool(hook.tool_name)) {
         return transition(base, {
           phase: 'awaiting-approval',
-          pendingApproval: humanInputApproval(hook, now),
+          pendingApproval: humanInputApproval(hook.tool_name, hook.tool_input, now),
           // Clear any lingering tool — we're waiting on the user, not running.
           lastTool: undefined,
         }, now);
@@ -357,13 +360,21 @@ export function applyJsonlEvent(
     case 'assistant':
       // The model is literally producing output — a turn is in flight
       // regardless of what we thought (its opening user line may have been
-      // gated or missed). Promote ANY non-terminal phase to running: from
-      // tool-running it means the tool completed and no PostToolUse landed;
-      // from a resting phase (awaiting-user / paused / dormant / starting) it
-      // is the wake-up evidence itself. Clear transient fields — a stale
-      // pendingApproval (paused keeps it for display) is dead once the model
-      // demonstrably moved on.
-      if (prev.phase !== 'running') {
+      // gated or missed). Promote to running: from tool-running it means the
+      // tool completed and no PostToolUse landed; from a resting phase
+      // (awaiting-user / paused / dormant / starting) it is the wake-up
+      // evidence itself. Clear transient fields — a stale pendingApproval
+      // (paused keeps it for display) is dead once the model demonstrably
+      // moved on.
+      //
+      // EXCEPT awaiting-approval: Claude is parked on a question/permission and
+      // the questions are literally on screen — a spinner would lie. The trap
+      // is the SAME assistant message that asked: its text blocks land as
+      // separate transcript lines with timestamps a breath apart from the
+      // PreToolUse hook that set the amber, so the causal gate alone can't be
+      // trusted to order them. Only a hook (PostToolUse/UserPromptSubmit), a
+      // user line, or the answer's tool_result may resolve the amber state.
+      if (prev.phase !== 'running' && prev.phase !== 'awaiting-approval') {
         return transition(base, {
           phase: 'running',
           lastTool: undefined,
@@ -373,14 +384,30 @@ export function applyJsonlEvent(
       return base;
 
     case 'tool_use':
+      // A human-input tool (AskUserQuestion / ExitPlanMode) is NOT work in
+      // progress — Claude is blocked on your answer. Mirror the PreToolUse
+      // hook's special case so BOTH signal paths produce the same amber
+      // "tocca a te" state: if the transcript line lands after the hook they
+      // converge (same phase, no fight); if the hooks are silent the tail
+      // alone still raises the amber instead of a lying spinner.
+      if (isHumanInputTool(event.name)) {
+        return transition(base, {
+          phase: 'awaiting-approval',
+          pendingApproval: humanInputApproval(event.name, event.input, at),
+          lastTool: undefined,
+        }, at);
+      }
       return transition(base, {
         phase: 'tool-running',
         lastTool: { name: event.name || 'unknown', input: event.input, startedAt: at },
       }, at);
 
     case 'tool_result':
-      if (prev.phase === 'tool-running') {
-        return transition(base, { phase: 'running', lastTool: undefined }, at);
+      // Mirrors PostToolUse: the tool finished — or, from awaiting-approval,
+      // the user just ANSWERED the question / approved the plan (the answer
+      // arrives as the human-input tool's tool_result) → back to work.
+      if (prev.phase === 'tool-running' || prev.phase === 'awaiting-approval') {
+        return transition(base, { phase: 'running', lastTool: undefined, pendingApproval: undefined }, at);
       }
       return base;
 
