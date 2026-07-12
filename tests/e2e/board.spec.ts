@@ -257,6 +257,41 @@ test.describe("Kanban board", () => {
     await expect(row).toHaveAttribute("aria-selected", "true");
   });
 
+  test("BOARD-10: nested subtasks — quick-add in drawer, counter chip, done gate", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-08" });
+    const text = `Epic task ${Date.now()}`;
+    const parent = await apiCreateTask(page.request, { text, status: "in_progress" });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    // Open the drawer, quick-add a subtask.
+    await page.getByTestId("kanban-column-in_progress").getByText(text).click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    const subText = `Subtask ${Date.now()}`;
+    await drawer.getByPlaceholder("+ sottotask…").fill(subText);
+    await drawer.getByPlaceholder("+ sottotask…").press("Enter");
+    await expect(drawer.getByTestId("task-detail-subtasks").getByText(subText)).toBeVisible({ timeout: 10000 });
+
+    // The subtask is a real card (born in Backlog) and the parent shows the counter chip.
+    await expect(page.getByTestId("kanban-column-backlog").getByText(subText)).toBeVisible({ timeout: 10000 });
+    const parentCard = page.getByTestId("kanban-column-in_progress").locator("div.group", { hasText: text });
+    await expect(parentCard.getByText("↳ 0/1")).toBeVisible({ timeout: 10000 });
+
+    // Structural gate: a parent with open subtasks cannot be closed.
+    const done = await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${parent.id}`, {
+      data: { status: "done" },
+    });
+    expect(done.status()).toBe(409);
+    expect((await done.json()).code).toBe("open_subtasks");
+
+    // Cleanup tracking for the subtask created via UI.
+    const res = await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks`);
+    const { tasks } = (await res.json()) as { tasks: Array<{ id: string; text: string }> };
+    const sub = tasks.find((t) => t.text === subText);
+    if (sub) createdTasks.push(`${PROJECT_ID}:${sub.id}`);
+  });
+
   test("BOARD-07: Board generale opens from the standalone + menu and crosses projects", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-06" });
     // Seed tasks on TWO boards: the project one + a second ad-hoc board.

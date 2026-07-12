@@ -38,6 +38,7 @@ import m029 from "./migrations/030-terminal-session-name-source.sql" with { type
 import m030 from "./migrations/031-task-dispatch.sql" with { type: "text" };
 import m031 from "./migrations/032-terminal-sessions-status-index.sql" with { type: "text" };
 import m032 from "./migrations/033-topic-effort.sql" with { type: "text" };
+import m033 from "./migrations/034-task-parent.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -80,4 +81,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 31, name: "031-task-dispatch.sql", sql: m030 },
   { version: 32, name: "032-terminal-sessions-status-index.sql", sql: m031 },
   { version: 33, name: "033-topic-effort.sql", sql: m032 },
+  { version: 34, name: "034-task-parent.sql", sql: m033 },
 ];
