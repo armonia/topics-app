@@ -157,6 +157,12 @@ describe("tasks router (session-scoped)", () => {
 
   test("PATCH agent → review opens approval; agent → done is 409", async () => {
     const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    // A mute delivery bounces with coaching (409 review_needs_summary)…
+    const mute = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(mute.status).toBe(409);
+    expect((await mute.json()).code).toBe("review_needs_summary");
+    // …a delivery summary unlocks the handoff.
+    await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "fatto, guarda demo/" });
     const rev = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
     expect(rev.status).toBe(200);
     expect((await rev.json()).status).toBe("review");

@@ -130,6 +130,7 @@ describe("review gate (KANBAN-05)", () => {
 
   test("agent → review opens a pending review approval", () => {
     const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto: sintesi di consegna" });
     const r = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
     expect(r.status).toBe("review");
     const ap = db.prepare("SELECT * FROM approvals WHERE task_id = ?").get(t.id) as any;
@@ -138,8 +139,24 @@ describe("review gate (KANBAN-05)", () => {
     expect(ap.requested_by).toBe("claude");
   });
 
+  test("mute delivery is rejected: agent → review requires an own comment", () => {
+    const t = s.create({ projectId: PID, text: "work" });
+    // No comments at all → coached rejection, task stays put.
+    expect(() => s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }))
+      .toThrow(/summary/);
+    // A human/system note does NOT count — the card must carry the AGENT's word.
+    s.addComment({ taskId: t.id, author: "user", content: "occhio ai test" });
+    s.addComment({ taskId: t.id, author: "system", content: "requeued" });
+    expect(() => s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }))
+      .toThrow(/summary/);
+    // The agent's own summary unlocks the handoff. Humans stay unaffected.
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto, guarda demo/" });
+    expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
+  });
+
   test("human approve → done, approval approved, completed_at set", () => {
     const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
     const done = s.reviewDecision({ taskId: t.id, by: "attilio", decision: "approve" });
     expect(done.status).toBe("done");
@@ -151,6 +168,7 @@ describe("review gate (KANBAN-05)", () => {
 
   test("human reject → in_progress + comment + approval rejected", () => {
     const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
     s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
     const back = s.reviewDecision({ taskId: t.id, by: "attilio", decision: "reject", comment: "manca il test" });
     expect(back.status).toBe("in_progress");
@@ -345,6 +363,7 @@ describe("nested tasks (subtask cascade)", () => {
     const kid = s.create({ projectId: PID, text: "part", parentTaskId: parent.id });
     expect(() => s.update({ taskId: parent.id, actor: "human", by: "user", patch: { status: "done" } }))
       .toThrow(/open subtasks/);
+    s.addComment({ taskId: parent.id, author: "claude", content: "fatto" });
     s.update({ taskId: parent.id, actor: "agent", by: "claude", patch: { status: "review" } });
     expect(() => s.reviewDecision({ taskId: parent.id, by: "user", decision: "approve" }))
       .toThrow(/open subtasks/);
