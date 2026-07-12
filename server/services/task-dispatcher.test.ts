@@ -142,7 +142,8 @@ describe("task-dispatcher", () => {
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
-    // Agent moved it to review mid-turn (allowed: agent→review).
+    // Agent moved it to review mid-turn (allowed: agent→review, after its summary).
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "fatto" });
     h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
     h.finishTurn();
     await flush();
@@ -252,7 +253,8 @@ describe("task-dispatcher", () => {
     expect(h.turns[0].sessionKey).toBe("topic:" + "topic-42".slice(0, 8)); // derived, same tab
     expect(h.turns[0].content).toContain("usa l'opzione B");
     expect(h.task("t1")!.dispatchState).toBe("working");
-    // Agent finishes back into review.
+    // Agent finishes back into review (its earlier comments already count).
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "sistemato con opzione B" });
     h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
     h.finishTurn();
     await p;

@@ -136,6 +136,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
         "- Prima di consegnare in review TUTTI i tuoi step devono essere done (un task con sottotask aperti non è approvabile). Lavoro futuro fuori scope → task top-level SENZA parent (resta in backlog per l'umano).",
         `- Se c'è qualcosa da mostrare al reviewer (dev server, pagina, report renderizzato): update_task(task_id="${task.id}", output_url=<url http(s)>) — appare nel pannello di review del task.`,
+        `- Alla consegna, PRIMA di spostare in review: UN commento di sintesi con comment_task (1-2 frasi: cosa è fatto, dove guardare). Il server rifiuta la review se nel thread non c'è nessun tuo commento.`,
         `- Quando il lavoro è completo sposta il task in \`review\` con: update_task(task_id="${task.id}", status="review"). NON puoi portarlo a \`done\` (serve l'ok umano).`,
         "- Se ti serve una decisione umana per procedere:",
         `  1. comment_task(task_id="${task.id}", content=<la domanda in una riga>, options=[<opzione 1>, <opzione 2>, ...])`,

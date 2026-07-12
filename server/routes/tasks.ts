@@ -28,6 +28,7 @@ const ERROR_STATUS: Record<string, number> = {
   invalid_transition: 400,
   agent_cannot_complete: 409,
   open_subtasks: 409,
+  review_needs_summary: 409,
 };
 
 /**
