@@ -142,9 +142,38 @@ export function createAppContext(baseDir: string): AppContext {
     getAllTopicDisabledSources: db.prepare(`SELECT topic_id, source_id FROM topic_disabled_sources`),
     getAllTopicAssignedAgents: db.prepare(`SELECT a.topic_id, a.agent_id, p.name, a.role FROM agent_assignments a LEFT JOIN agent_profiles p ON a.agent_id = p.id`),
 
+    // True UPSERT, NOT `INSERT OR REPLACE`: in SQLite, REPLACE resolves the
+    // conflict by DELETING the old row and inserting a new one, and with
+    // PRAGMA foreign_keys=ON that hidden DELETE fires every ON DELETE action
+    // pointing at topics. Every topic update (rename, PATCH model/effort,
+    // archive toggle…) was silently CASCADE-wiping `claude_code_sessions`
+    // (the `--resume` mapping — chat lost its CLI session and respawned
+    // fresh), `unread`, and `agent_assignments`, and SET NULL-ing children's
+    // `parent_id`. ON CONFLICT DO UPDATE mutates the row in place — no
+    // delete, no cascade. Guarded by utils-topic-save.test.ts.
     insertTopic: db.prepare(`
-      INSERT OR REPLACE INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, worktree_id, initial_message, archived, created_at, updated_at)
+      INSERT INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, worktree_id, initial_message, archived, created_at, updated_at)
       VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $effort, $fast_mode, $worktree_id, $initial_message, $archived, $created_at, $updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        slug = excluded.slug,
+        parent_id = excluded.parent_id,
+        session_key = excluded.session_key,
+        color = excluded.color,
+        icon = excluded.icon,
+        system_prompt = excluded.system_prompt,
+        project_path = excluded.project_path,
+        sort_order = excluded.sort_order,
+        autonomy_level = excluded.autonomy_level,
+        provider = excluded.provider,
+        model = excluded.model,
+        effort = excluded.effort,
+        fast_mode = excluded.fast_mode,
+        worktree_id = excluded.worktree_id,
+        initial_message = excluded.initial_message,
+        archived = excluded.archived,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at
     `),
     // Topic relations
     deleteTopicLinks: db.prepare(`DELETE FROM topic_links WHERE source_id = ?`),
