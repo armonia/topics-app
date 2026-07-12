@@ -170,13 +170,13 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       await row.waitFor({ state: "visible", timeout: 10_000 });
 
       // The collapsed header shows the tool name + a command *preview* ("Shell"
-      // + "echo hello", buildToolDisplayLabel summary). The ShellCard body — the
-      // "$ command" line + "Output" section (ToolCards.tsx) — only mounts once
-      // the row expands, so the pre-expand invariant is "no Output body".
-      await expect(row).not.toContainText("Output");
+      // + "echo hello", buildToolDisplayLabel summary). The ShellCard body —
+      // the "$ command" line + output block (ToolCards.tsx) — only mounts once
+      // the row expands, so the pre-expand invariant is "no expanded body".
+      await expect(row.locator('[data-testid="tool-call-result"]')).toHaveCount(0);
       await row.locator("button").first().click();
       await expect(row).toContainText("$ echo hello");
-      await expect(row).toContainText("Output");
+      await expect(row.locator('[data-testid="tool-call-result"]')).toContainText("hello");
     } finally {
       await deleteTopic(request, fresh.id);
     }

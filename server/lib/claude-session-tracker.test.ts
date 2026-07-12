@@ -181,7 +181,7 @@ describe('ClaudeSessionTracker — PTY / reaper / dormant', () => {
     db.prepare(`UPDATE claude_code_sessions SET phase='tool-running', phase_updated_at=?, rev=2 WHERE session_key='topic-a'`)
       .run(new Date(T0).toISOString());
     const trk = makeTracker(db, rec, {
-      reaperConfig: { toolRunningTimeoutMs: 1000, awaitingApprovalTimeoutMs: 1000, startTimeoutMs: 1000 },
+      reaperConfig: { toolRunningTimeoutMs: 1000, awaitingApprovalTimeoutMs: 1000, startTimeoutMs: 1000, runningTimeoutMs: 1000 },
     });
     expect(trk.reapOnce(T0 + 2000)).toBe(1);
     expect(trk.getSession('cli-1')!.phase).toBe('running');
@@ -251,6 +251,191 @@ describe('ClaudeSessionTracker — JSONL recovery', () => {
   });
 });
 
+describe('ClaudeSessionTracker — live JSONL tail (tailOnce)', () => {
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const userLine = (ms: number, text = 'hi') =>
+    JSON.stringify({ type: 'user', timestamp: iso(ms), promptSource: 'typed', origin: { kind: 'human' }, message: { role: 'user', content: text } }) + '\n';
+  const taskNotifLine = (ms: number) =>
+    JSON.stringify({ type: 'user', timestamp: iso(ms), promptSource: 'system', origin: { kind: 'task-notification' }, message: { role: 'user', content: '<task-notification>\n<task-id>m1</task-id>' } }) + '\n';
+  const assistantLine = (ms: number) =>
+    JSON.stringify({ type: 'assistant', timestamp: iso(ms), message: { content: [{ type: 'text', text: 'ok' }] } }) + '\n';
+  const metaLine = (ms: number) =>
+    JSON.stringify({ type: 'user', timestamp: iso(ms), isMeta: true, message: { role: 'user', content: 'A session-scoped Stop hook is now active' } }) + '\n';
+
+  it('a Monitor task-notification wakes a parked terminal session (the core CCS-07 scenario)', async () => {
+    // Terminal session registered with a cwd — the transcript path is DERIVED
+    // (no SessionStart hook ever fires) under <home>/.claude/projects/<enc>/.
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const cwd = '/Users/x/proj';
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+
+    const db = freshDb();
+    const rec = makeRecorder();
+    const trk = makeTracker(db, rec, { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd, now: T0 });
+
+    // Park it via hooks: prompt → Stop (the turn the user finished hours ago).
+    trk.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
+    trk.ingestHook({ hook_event_name: 'Stop', session_id: 'term-1' }, T0 + 20);
+    expect(trk.getSession('term-1')!.phase).toBe('awaiting-user');
+
+    // The Monitor fires: Claude appends the injected turn to the transcript.
+    // No hook announces it — the tail is the only observer.
+    writeFileSync(join(dir, 'term-1.jsonl'), taskNotifLine(T0 + 5_000));
+    rec.events.length = 0;
+    const updated = await trk.tailOnce(T0 + 6_000);
+    expect(updated).toBe(1);
+    const s = trk.getSession('term-1')!;
+    expect(s.phase).toBe('running');
+    expect(s.phaseUpdatedAt).toBe(T0 + 5_000); // event time, not read time
+    await rec.waitForBroadcast();
+    expect(rec.events.length).toBe(1);
+    expect(rec.events[0].state.phase).toBe('running');
+  });
+
+  it('registration against an existing transcript snaps the offset (no history replay)', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const cwd = '/Users/x/proj';
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+    // Pre-existing history from before Topics started tracking (a --resume):
+    // ends with a user line that would drive phase to running if replayed.
+    const history = userLine(T0 - 60_000) + assistantLine(T0 - 50_000) + userLine(T0 - 40_000);
+    const file = join(dir, 'term-1.jsonl');
+    writeFileSync(file, history);
+
+    const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd, now: T0 });
+
+    // Nothing new → the sweep must consume nothing and move nothing.
+    expect(await trk.tailOnce(T0 + 1_000)).toBe(0);
+    expect(trk.getSession('term-1')!.phase).toBe('starting');
+
+    // A line appended AFTER registration is consumed from the snapped offset.
+    writeFileSync(file, history + taskNotifLine(T0 + 2_000));
+    expect(await trk.tailOnce(T0 + 3_000)).toBe(1);
+    const s = trk.getSession('term-1')!;
+    expect(s.phase).toBe('running');
+    expect(s.jsonlOffset).toBe(history.length + taskNotifLine(T0 + 2_000).length);
+  });
+
+  it('a stale assistant line read after a fresher Stop hook is gated out (Stop-race)', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'term-1.jsonl');
+    writeFileSync(file, '');
+
+    const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd: '/Users/x/proj', now: T0 });
+
+    // Turn runs; its last assistant line hits disk at T+1000…
+    writeFileSync(file, assistantLine(T0 + 1_000));
+    // …then the Stop hook lands FIRST (push beats pull) and parks the session.
+    trk.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 900);
+    trk.ingestHook({ hook_event_name: 'Stop', session_id: 'term-1' }, T0 + 2_000);
+    expect(trk.getSession('term-1')!.phase).toBe('awaiting-user');
+
+    // The tail now reads the T+1000 line: older than the Stop → no revival.
+    await trk.tailOnce(T0 + 3_000);
+    expect(trk.getSession('term-1')!.phase).toBe('awaiting-user');
+  });
+
+  it('meta lines are consumed (offset advances) without waking the session', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'tracker-home-'));
+    const dir = join(home, '.claude', 'projects', '-Users-x-proj');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'term-1.jsonl');
+    writeFileSync(file, '');
+
+    const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
+    trk.registerTerminalSession('term-1', { cwd: '/Users/x/proj', now: T0 });
+    trk.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
+    trk.ingestHook({ hook_event_name: 'Stop', session_id: 'term-1' }, T0 + 20);
+
+    const meta = metaLine(T0 + 5_000);
+    writeFileSync(file, meta);
+    await trk.tailOnce(T0 + 6_000);
+    const s = trk.getSession('term-1')!;
+    expect(s.phase).toBe('awaiting-user'); // still parked
+    expect(s.jsonlOffset).toBe(meta.length); // but the line was consumed
+  });
+
+  it('tails DB-backed topic sessions too, broadcasting only on rev change', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'tracker-jsonl-'));
+    const file = join(tmp, 'session.jsonl');
+    writeFileSync(file, '');
+    const db = freshDb();
+    seedSession(db, 'topic-a', 'cli-1', file);
+    const rec = makeRecorder();
+    const trk = makeTracker(db, rec);
+
+    // Park the chat via hooks, then let the transcript wake it.
+    trk.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'cli-1' }, T0 + 10);
+    trk.ingestHook({ hook_event_name: 'Stop', session_id: 'cli-1' }, T0 + 20);
+    await rec.waitForBroadcast();
+    rec.events.length = 0;
+
+    writeFileSync(file, userLine(T0 + 5_000, 'wake up'));
+    expect(await trk.tailOnce(T0 + 6_000)).toBe(1);
+    expect(trk.getSession('cli-1')!.phase).toBe('running');
+    await rec.waitForBroadcast();
+    expect(rec.events.length).toBe(1);
+
+    // More assistant chunks while ALREADY running: offset moves, rev doesn't →
+    // no broadcast spam (one line per chunk lands many times a second mid-turn).
+    rec.events.length = 0;
+    const prevOffset = trk.getSession('cli-1')!.jsonlOffset;
+    writeFileSync(file, userLine(T0 + 5_000, 'wake up') + assistantLine(T0 + 7_000));
+    expect(await trk.tailOnce(T0 + 8_000)).toBe(1);
+    const s = trk.getSession('cli-1')!;
+    expect(s.phase).toBe('running');
+    expect(s.jsonlOffset).toBeGreaterThan(prevOffset);
+    await rec.waitForBroadcast();
+    expect(rec.events.length).toBe(0);
+  });
+
+  it('wakes a DORMANT DB session (reaper-demoted, PTY silent) when its transcript grows', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'tracker-jsonl-'));
+    const file = join(tmp, 'session.jsonl');
+    writeFileSync(file, '');
+    const db = freshDb();
+    seedSession(db, 'topic-a', 'cli-1', file);
+    const trk = makeTracker(db, makeRecorder());
+
+    // running → (reaper would demote) → dormant; simulate via noteDormant.
+    trk.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'cli-1' }, T0 + 10);
+    trk.noteDormant('cli-1', T0 + 20);
+    expect(trk.getSession('cli-1')!.phase).toBe('dormant');
+
+    writeFileSync(file, taskNotifLine(T0 + 5_000));
+    expect(await trk.tailOnce(T0 + 6_000)).toBe(1);
+    expect(trk.getSession('cli-1')!.phase).toBe('running');
+  });
+
+  it('SessionStart establishing a NEW jsonlPath snaps the offset to the file size', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'tracker-jsonl-'));
+    const file = join(tmp, 'session.jsonl');
+    const history = userLine(T0 - 60_000);
+    writeFileSync(file, history);
+
+    const db = freshDb();
+    seedSession(db, 'topic-a', 'cli-1'); // no jsonl_path yet
+    const trk = makeTracker(db, makeRecorder());
+
+    trk.ingestHook({ hook_event_name: 'SessionStart', session_id: 'cli-1', transcript_path: file }, T0 + 10);
+    const s = trk.getSession('cli-1')!;
+    expect(s.jsonlPath).toBe(file);
+    expect(s.jsonlOffset).toBe(history.length); // history skipped
+
+    // A SessionStart RE-FIRE with the same path must NOT reset the offset.
+    writeFileSync(file, history + assistantLine(T0 + 1_000));
+    trk.ingestHook({ hook_event_name: 'SessionStart', session_id: 'cli-1', transcript_path: file }, T0 + 2_000);
+    expect(trk.getSession('cli-1')!.jsonlOffset).toBe(history.length);
+  });
+});
+
 describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
   let db: Database;
   let rec: Recorder;
@@ -268,7 +453,7 @@ describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
   });
 
   it('registers a terminal session so its hooks resolve and advance phase in-memory', async () => {
-    tracker.registerTerminalSession('term-1', T0);
+    tracker.registerTerminalSession('term-1', { now: T0 });
     const start = tracker.getSession('term-1')!;
     expect(start.sessionKey).toBeNull();
     expect(start.phase).toBe('starting');
@@ -284,7 +469,7 @@ describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
   });
 
   it('broadcasts session:state with sessionKey null + claudeSessionId in the state', async () => {
-    tracker.registerTerminalSession('term-1', T0);
+    tracker.registerTerminalSession('term-1', { now: T0 });
     tracker.ingestHook({ hook_event_name: 'PreToolUse', session_id: 'term-1', tool_name: 'Bash' }, T0 + 10);
     await rec.waitForBroadcast();
     const last = rec.events.at(-1);
@@ -295,7 +480,7 @@ describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
   });
 
   it('tracks the full turn lifecycle: running → tool-running → running → awaiting-user', () => {
-    tracker.registerTerminalSession('term-1', T0);
+    tracker.registerTerminalSession('term-1', { now: T0 });
     tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
     expect(tracker.getSession('term-1')!.phase).toBe('running');
     tracker.ingestHook({ hook_event_name: 'PreToolUse', session_id: 'term-1', tool_name: 'Edit' }, T0 + 20);
@@ -307,34 +492,34 @@ describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
   });
 
   it('includes terminal sessions in listSessions', () => {
-    tracker.registerTerminalSession('term-1', T0);
-    tracker.registerTerminalSession('term-2', T0);
+    tracker.registerTerminalSession('term-1', { now: T0 });
+    tracker.registerTerminalSession('term-2', { now: T0 });
     const ids = tracker.listSessions().map((s) => s.claudeSessionId).sort();
     expect(ids).toEqual(['term-1', 'term-2']);
   });
 
   it('noteDormant and notePtyCrash work for in-memory terminal sessions', () => {
-    tracker.registerTerminalSession('term-1', T0);
+    tracker.registerTerminalSession('term-1', { now: T0 });
     tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
     expect(tracker.noteDormant('term-1', T0 + 20)).toBe(true);
     expect(tracker.getSession('term-1')!.phase).toBe('dormant');
 
-    tracker.registerTerminalSession('term-2', T0);
+    tracker.registerTerminalSession('term-2', { now: T0 });
     tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-2' }, T0 + 10);
     expect(tracker.notePtyCrash('term-2', 1, T0 + 20)).toBe(true);
     expect(tracker.getSession('term-2')!.phase).toBe('error');
   });
 
   it('dropTerminalSession forgets the in-memory session', () => {
-    tracker.registerTerminalSession('term-1', T0);
+    tracker.registerTerminalSession('term-1', { now: T0 });
     expect(tracker.getSession('term-1')).not.toBeNull();
     tracker.dropTerminalSession('term-1');
     expect(tracker.getSession('term-1')).toBeNull();
   });
 
   it('reaper sweeps stale in-memory tool-running back to running', () => {
-    const trk = makeTracker(db, rec, { reaperConfig: { toolRunningTimeoutMs: 100, awaitingApprovalTimeoutMs: 100, startTimeoutMs: 100 } });
-    trk.registerTerminalSession('term-1', T0);
+    const trk = makeTracker(db, rec, { reaperConfig: { toolRunningTimeoutMs: 100, awaitingApprovalTimeoutMs: 100, startTimeoutMs: 100, runningTimeoutMs: 100 } });
+    trk.registerTerminalSession('term-1', { now: T0 });
     trk.ingestHook({ hook_event_name: 'PreToolUse', session_id: 'term-1', tool_name: 'Bash' }, T0 + 10);
     expect(trk.getSession('term-1')!.phase).toBe('tool-running');
     const changed = trk.reapOnce(T0 + 10 + 200);
@@ -343,18 +528,18 @@ describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
   });
 
   it('re-registering a dormant terminal session revives it to starting', () => {
-    tracker.registerTerminalSession('term-1', T0);
+    tracker.registerTerminalSession('term-1', { now: T0 });
     tracker.noteDormant('term-1', T0 + 10);
     expect(tracker.getSession('term-1')!.phase).toBe('dormant');
-    tracker.registerTerminalSession('term-1', T0 + 20);
+    tracker.registerTerminalSession('term-1', { now: T0 + 20 });
     expect(tracker.getSession('term-1')!.phase).toBe('starting');
   });
 
   it('does not clobber a live terminal session on duplicate register', () => {
-    tracker.registerTerminalSession('term-1', T0);
+    tracker.registerTerminalSession('term-1', { now: T0 });
     tracker.ingestHook({ hook_event_name: 'UserPromptSubmit', session_id: 'term-1' }, T0 + 10);
     expect(tracker.getSession('term-1')!.phase).toBe('running');
-    tracker.registerTerminalSession('term-1', T0 + 20); // should be a no-op
+    tracker.registerTerminalSession('term-1', { now: T0 + 20 }); // should be a no-op
     expect(tracker.getSession('term-1')!.phase).toBe('running');
   });
 });

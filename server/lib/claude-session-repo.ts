@@ -92,6 +92,15 @@ export interface ClaudeSessionRepo {
   listAll(): ClaudeSessionState[];
   listActive(): ClaudeSessionState[];
   /**
+   * Every row whose phase is non-terminal — ACTIVE_PHASES plus `dormant`.
+   * The live JSONL tail sweeps THIS set, not listActive: the reaper demotes a
+   * merely-silent `running` session (PTY alive, quiet) to `dormant`, and that
+   * exact session can be woken by a Monitor/background event whose only trace
+   * is its transcript growing. Terminal phases stay excluded — a completed or
+   * errored session is never revived by JSONL (applyJsonlEvent guards too).
+   */
+  listLive(): ClaudeSessionState[];
+  /**
    * Iterate every row whose phase is still active or starting. Used by the
    * recovery + reaper sweeps.
    */
@@ -102,6 +111,8 @@ const ACTIVE_PHASES: ReadonlyArray<ClaudeSessionPhase> = [
   'starting', 'running', 'tool-running', 'awaiting-user', 'awaiting-approval', 'paused',
 ];
 
+const LIVE_PHASES: ReadonlyArray<ClaudeSessionPhase> = [...ACTIVE_PHASES, 'dormant'];
+
 export function createClaudeSessionRepo(db: Database): ClaudeSessionRepo {
   const selectByClaudeId = db.prepare(`SELECT * FROM claude_code_sessions WHERE claude_session_id = ?`);
   const selectByKey = db.prepare(`SELECT * FROM claude_code_sessions WHERE session_key = ?`);
@@ -109,6 +120,11 @@ export function createClaudeSessionRepo(db: Database): ClaudeSessionRepo {
   const selectActiveStmt = db.prepare(
     `SELECT * FROM claude_code_sessions
      WHERE phase IN (${ACTIVE_PHASES.map(() => '?').join(',')})
+     ORDER BY phase_updated_at DESC NULLS LAST`
+  );
+  const selectLiveStmt = db.prepare(
+    `SELECT * FROM claude_code_sessions
+     WHERE phase IN (${LIVE_PHASES.map(() => '?').join(',')})
      ORDER BY phase_updated_at DESC NULLS LAST`
   );
 
@@ -157,6 +173,7 @@ export function createClaudeSessionRepo(db: Database): ClaudeSessionRepo {
     loadBySessionKey: (key) => rowFor(selectByKey.get(key)),
     listAll: () => (selectAll.all() as RawRow[]).map(rowToState),
     listActive: () => (selectActiveStmt.all(...ACTIVE_PHASES) as RawRow[]).map(rowToState),
+    listLive: () => (selectLiveStmt.all(...LIVE_PHASES) as RawRow[]).map(rowToState),
     update,
     forEachLive: (visitor) => {
       for (const s of (selectActiveStmt.all(...ACTIVE_PHASES) as RawRow[])) {

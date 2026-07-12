@@ -1025,8 +1025,19 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
           topic.autonomyLevel = valid.includes(body.autonomyLevel) ? body.autonomyLevel : 'ask';
         }
-        if (body.provider !== undefined) topic.provider = body.provider || null;
-        if (body.model !== undefined) topic.model = body.model || null;
+        // Provider/model are spawn-time flags for the claude-code CLI (same
+        // as effort below): track changes so we can force an idle respawn.
+        let spawnConfigChanged = false;
+        if (body.provider !== undefined) {
+          const prev = topic.provider ?? null;
+          topic.provider = body.provider || null;
+          spawnConfigChanged ||= (topic.provider ?? null) !== prev;
+        }
+        if (body.model !== undefined) {
+          const prev = topic.model ?? null;
+          topic.model = body.model || null;
+          spawnConfigChanged ||= (topic.model ?? null) !== prev;
+        }
         // Per-topic effort tier (migration 033). Accepts a valid tier, or
         // null/""/"default" to clear the override (fall back to the global
         // env-resolved default). Unknown tiers are rejected so a stale client
@@ -1074,11 +1085,12 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         topic.updatedAt = new Date().toISOString();
         saveSingleTopic(topic);
         broadcastToAll({ type: "topic:updated", topic });
-        // Effort tier is fixed at CLI spawn time — drop the idle pooled process
-        // so the next turn respawns with the new `--effort`. Fire-and-forget:
-        // failures are non-fatal (the tier still applies on the next natural
-        // respawn) and must not block the PATCH response.
-        if (effortChanged) {
+        // Effort tier AND model/provider are fixed at CLI spawn time — drop the
+        // idle pooled process so the next turn respawns with the new `--effort`
+        // / `--model`. Fire-and-forget: failures are non-fatal (the change still
+        // applies on the next natural respawn) and must not block the PATCH
+        // response.
+        if (effortChanged || spawnConfigChanged) {
           try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
           catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
         }

@@ -383,12 +383,15 @@ const providersRouter = createProvidersRouter(ctx);
 
 const claudeHooksRouter = createClaudeHooksRouter(ctx, claudeSessionTracker);
 // Replay JSONL tails for any session whose state was lost on the previous
-// shutdown, then start the reaper. Both are fire-and-forget — they advance
-// state independently of the live hook stream.
+// shutdown, then start the reaper and the LIVE transcript tail. All three are
+// fire-and-forget — they advance state independently of the live hook stream.
+// The live tail is what tracks turns no hook announces (a Monitor firing, a
+// background task completing, a teammate message waking a parked session).
 claudeSessionTracker.recoverFromJsonl().catch((err) => {
   console.error("[claude-session-tracker] Boot recovery failed", err);
 });
 claudeSessionTracker.startReaper();
+claudeSessionTracker.startJsonlTail();
 const projectsRouter = createProjectsRouter(ctx);
 const worktreesRouter = createWorktreesRouter(ctx);
 const machinesRouter = createMachinesRouter(ctx);

@@ -21,24 +21,17 @@ export function ShellCard({ command, cwd, output, exitCode, isError }: {
   command: string; cwd?: string; output?: string; exitCode?: number | null; isError?: boolean;
 }) {
   return (
-    <div className="space-y-1.5">
-      <div>
-        <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">
-          {cwd ? `Command (cwd: ${cwd})` : 'Command'}
-        </div>
-        <pre className="text-[11px] font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-blue-400/40">
-          $ {command}
-        </pre>
-      </div>
+    <div className="space-y-1">
+      <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
+        $ {command}
+      </pre>
+      {cwd && <div className="text-[11px] font-mono text-app-text-muted truncate">cwd: {cwd}</div>}
       {output && (
         <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5 flex items-center gap-2">
-            <span>Output</span>
-            {typeof exitCode === 'number' && (
-              <span className={`text-[11px] font-mono ${exitCode === 0 ? 'text-green-500' : 'text-red-500'}`}>exit {exitCode}</span>
-            )}
-          </div>
-          <pre className={`text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}>
+          {typeof exitCode === 'number' && exitCode !== 0 && (
+            <div className="text-[11px] font-mono text-red-500 mb-0.5">exit {exitCode}</div>
+          )}
+          <pre data-testid="tool-call-result" className={`text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}>
             {output}
           </pre>
         </div>
@@ -53,21 +46,15 @@ export function ReadCard({ filePath, content, offset, limit }: {
   filePath: string; content?: string; offset?: number; limit?: number;
 }) {
   const meta = offset != null || limit != null
-    ? ` (lines ${offset ?? 0}${limit ? `–${(offset ?? 0) + limit}` : '+'})`
+    ? ` · lines ${offset ?? 0}${limit ? `–${(offset ?? 0) + limit}` : '+'}`
     : '';
   return (
-    <div className="space-y-1.5">
-      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">
-        File{meta}
-      </div>
-      <div className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
+    <div className="space-y-1">
+      <div data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}{meta}</div>
       {content && (
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Content</div>
-          <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5">
-            {content}
-          </pre>
-        </div>
+        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5">
+          {content}
+        </pre>
       )}
     </div>
   );
@@ -79,11 +66,10 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
   filePath: string; oldString?: string; newString?: string; unifiedDiff?: string;
 }) {
   return (
-    <div className="space-y-1.5">
-      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">File</div>
-      <div className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
+    <div className="space-y-1">
+      <div data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
       {unifiedDiff ? (
-        <pre className="text-[11px] font-mono whitespace-pre overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5">
+        <pre data-testid="tool-call-result" className="text-[11px] font-mono whitespace-pre overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5">
           {unifiedDiff.split('\n').map((line, i) => (
             <span key={i} className={
               line.startsWith('+') && !line.startsWith('+++') ? 'block text-green-500' :
@@ -106,7 +92,7 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
           {newString && (
             <div>
               <div className="text-[11px] uppercase tracking-wide text-green-500/70 mb-0.5">+ After</div>
-              <pre className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-green-500/40">
+              <pre data-testid="tool-call-result" className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-green-500/40">
                 {newString}
               </pre>
             </div>
@@ -121,18 +107,14 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
 
 export function WriteCard({ filePath, content }: { filePath: string; content?: string }) {
   return (
-    <div className="space-y-1.5">
-      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">New file</div>
-      <div className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}</div>
+    <div className="space-y-1">
+      <div data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary truncate">
+        {filePath}{content ? ` · ${content.length.toLocaleString()} chars` : ''}
+      </div>
       {content && (
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">
-            Contents · {content.length.toLocaleString()} chars
-          </div>
-          <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-green-500/5 rounded px-2 py-1.5 border-l-2 border-green-500/40">
-            {content}
-          </pre>
-        </div>
+        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-green-500/5 rounded px-2 py-1.5 border-l-2 border-green-500/40">
+          {content}
+        </pre>
       )}
     </div>
   );
@@ -140,29 +122,27 @@ export function WriteCard({ filePath, content }: { filePath: string; content?: s
 
 // ── Search (Grep / Glob / WebSearch) ────────────────────────────────────────
 
-export function SearchCard({ query, toolName, content, mode, numFiles, numMatches }: {
+export function SearchCard({ query, content, mode, numFiles, numMatches }: {
   query: string; toolName?: 'search' | 'grep' | 'glob' | 'web_search';
   content?: string; mode?: 'content' | 'files_with_matches' | 'count';
   numFiles?: number; numMatches?: number;
 }) {
-  const label = toolName === 'grep' ? 'Pattern' : toolName === 'glob' ? 'Glob' : 'Query';
   return (
-    <div className="space-y-1.5">
-      <div className="text-[11px] uppercase tracking-wide text-app-text-muted">
-        {label} {mode ? `· ${mode}` : ''}
-      </div>
-      <pre className="text-[11px] font-mono text-app-text bg-app-hover/40 rounded px-2 py-1.5 whitespace-pre-wrap">
+    <div className="space-y-1">
+      <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text bg-app-hover/40 rounded px-2 py-1.5 whitespace-pre-wrap">
         {query}
       </pre>
-      {(numFiles != null || numMatches != null) && (
+      {(mode != null || numFiles != null || numMatches != null) && (
         <div className="text-[11px] text-app-text-muted">
-          {numFiles != null && `${numFiles} file${numFiles === 1 ? '' : 's'}`}
-          {numFiles != null && numMatches != null && ' · '}
-          {numMatches != null && `${numMatches} match${numMatches === 1 ? '' : 'es'}`}
+          {[
+            mode,
+            numFiles != null ? `${numFiles} file${numFiles === 1 ? '' : 's'}` : null,
+            numMatches != null ? `${numMatches} match${numMatches === 1 ? '' : 'es'}` : null,
+          ].filter(Boolean).join(' · ')}
         </div>
       )}
       {content && (
-        <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
+        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
           {content}
         </pre>
       )}
@@ -176,34 +156,27 @@ export function FetchCard({ url, prompt, result, statusCode, bytes }: {
   url: string; prompt?: string; result?: string; statusCode?: number; bytes?: number;
 }) {
   return (
-    <div className="space-y-1.5">
-      <div className="text-[11px] uppercase tracking-wide text-app-text-muted flex items-center gap-2">
-        <span>URL</span>
+    <div className="space-y-1">
+      <div className="flex items-baseline gap-2 min-w-0">
+        <a data-testid="tool-call-args" href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-mono text-blue-500 hover:underline break-all">
+          {url}
+        </a>
         {typeof statusCode === 'number' && (
-          <span className={`text-[11px] font-mono ${statusCode >= 400 ? 'text-red-500' : 'text-green-500'}`}>HTTP {statusCode}</span>
+          <span className={`text-[11px] font-mono flex-shrink-0 ${statusCode >= 400 ? 'text-red-500' : 'text-green-500'}`}>{statusCode}</span>
         )}
         {typeof bytes === 'number' && (
-          <span className="text-[11px] text-app-text-muted">{(bytes / 1024).toFixed(1)} KB</span>
+          <span className="text-[11px] text-app-text-muted flex-shrink-0">{(bytes / 1024).toFixed(1)} KB</span>
         )}
       </div>
-      <a href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-mono text-blue-500 hover:underline break-all block">
-        {url}
-      </a>
       {prompt && (
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Prompt</div>
-          <pre className="text-[11px] text-app-text-secondary whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
-            {prompt}
-          </pre>
-        </div>
+        <pre className="text-[11px] text-app-text-secondary whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
+          {prompt}
+        </pre>
       )}
       {result && (
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Response</div>
-          <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
-            {result}
-          </pre>
-        </div>
+        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
+          {result}
+        </pre>
       )}
     </div>
   );
@@ -300,7 +273,7 @@ export function PlanCard({ text }: { text: string }) {
   return (
     <div className="space-y-1.5">
       <div className="text-[11px] uppercase tracking-wide text-app-text-muted">Proposed plan</div>
-      <pre className="text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 border-l-2 border-blue-400/40 max-h-80 overflow-auto">
+      <pre className="text-[11px] text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5 max-h-80 overflow-auto">
         {text}
       </pre>
     </div>
@@ -309,33 +282,32 @@ export function PlanCard({ text }: { text: string }) {
 
 // ── MCP namespaced tool ─────────────────────────────────────────────────────
 
-export function McpCard({ server, tool, args, result }: {
+/**
+ * Args block shared by McpCard/UnknownCard: short payloads render as a single
+ * compact line, only genuinely structured ones get the pretty-printed block.
+ */
+function ArgsPre({ args }: { args: Record<string, unknown> }) {
+  const oneLine = JSON.stringify(args);
+  const text = oneLine.length <= 100 ? oneLine : JSON.stringify(args, null, 2);
+  return (
+    <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5">
+      {text}
+    </pre>
+  );
+}
+
+export function McpCard({ args, result }: {
   server: string; tool: string; args?: Record<string, unknown>; result?: string;
 }) {
+  // Server + tool name already live in the row header — repeating them here
+  // as a pill row was pure noise. The body is just args → result.
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5 text-[11px]">
-        <span className="px-1.5 py-0.5 rounded-full text-[11px] bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium">
-          {server}
-        </span>
-        <span className="text-app-text-muted">·</span>
-        <span className="font-mono text-app-text">{tool}</span>
-      </div>
-      {args && Object.keys(args).length > 0 && (
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Arguments</div>
-          <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5">
-            {JSON.stringify(args, null, 2)}
-          </pre>
-        </div>
-      )}
+    <div className="space-y-1">
+      {args && Object.keys(args).length > 0 && <ArgsPre args={args} />}
       {result && (
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Result</div>
-          <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
-            {result}
-          </pre>
-        </div>
+        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
+          {result}
+        </pre>
       )}
     </div>
   );
@@ -345,22 +317,12 @@ export function McpCard({ server, tool, args, result }: {
 
 export function UnknownCard({ args, result }: { args?: Record<string, unknown>; result?: string }) {
   return (
-    <div className="space-y-1.5">
-      {args && Object.keys(args).length > 0 && (
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Arguments</div>
-          <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5">
-            {JSON.stringify(args, null, 2)}
-          </pre>
-        </div>
-      )}
+    <div className="space-y-1">
+      {args && Object.keys(args).length > 0 && <ArgsPre args={args} />}
       {result && (
-        <div>
-          <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Result</div>
-          <pre className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-56 bg-app-hover/40 rounded px-2 py-1.5">
-            {result}
-          </pre>
-        </div>
+        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-56 bg-app-hover/40 rounded px-2 py-1.5">
+          {result}
+        </pre>
       )}
     </div>
   );

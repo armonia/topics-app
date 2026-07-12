@@ -131,7 +131,7 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const badge = page.locator(`[data-testid="tool-call-${TC_SUCCESS_ID}"]`);
+    const badge = page.locator(`[data-testid="tool-call-row-${TC_SUCCESS_ID}"]`);
     await expect(badge).toBeVisible({ timeout: 15_000 });
 
     const name = badge.locator('[data-testid="tool-call-name"]');
@@ -144,7 +144,7 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const badge = page.locator(`[data-testid="tool-call-${TC_SUCCESS_ID}"]`);
+    const badge = page.locator(`[data-testid="tool-call-row-${TC_SUCCESS_ID}"]`);
     await expect(badge).toBeVisible({ timeout: 15_000 });
     await badge.click();
 
@@ -161,10 +161,10 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
 
-    const badge = page.locator(`[data-testid="tool-call-${TC_ERROR_ID}"]`);
+    const badge = page.locator(`[data-testid="tool-call-row-${TC_ERROR_ID}"]`);
     await expect(badge).toBeVisible({ timeout: 15_000 });
 
-    const status = badge.locator('[data-testid="tool-call-status"]');
+    const status = badge.locator(`[data-testid="tool-call-status-${TC_ERROR_ID}"]`);
     await expect(status).toHaveAttribute("data-status", "error");
 
     await badge.click();
@@ -179,9 +179,9 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await openTopic(page, new RegExp(topicName));
 
     // Wait for all 3 tool calls in the multi-tool message
-    const tc1 = page.locator(`[data-testid="tool-call-${TC_MULTI_IDS[0]}"]`);
-    const tc2 = page.locator(`[data-testid="tool-call-${TC_MULTI_IDS[1]}"]`);
-    const tc3 = page.locator(`[data-testid="tool-call-${TC_MULTI_IDS[2]}"]`);
+    const tc1 = page.locator(`[data-testid="tool-call-row-${TC_MULTI_IDS[0]}"]`);
+    const tc2 = page.locator(`[data-testid="tool-call-row-${TC_MULTI_IDS[1]}"]`);
+    const tc3 = page.locator(`[data-testid="tool-call-row-${TC_MULTI_IDS[2]}"]`);
 
     await expect(tc1).toBeVisible({ timeout: 15_000 });
     await expect(tc2).toBeVisible();
@@ -254,7 +254,7 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     await textarea.press("Control+Enter");
 
     // Wait up to 30s for any tool call badge to appear
-    const anyToolCall = page.locator('[data-testid^="tool-call-"]');
+    const anyToolCall = page.locator('[data-testid^="tool-call-row-"]');
     await expect(anyToolCall.first()).toBeVisible({ timeout: 30_000 });
 
     // Verify it has a name
