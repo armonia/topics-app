@@ -1,7 +1,7 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
-import { loadStorageState, saveStorageState, debouncedSaver } from "./browser-state-store";
+import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl } from "./browser-state-store";
 import type { Topic } from "./types";
 import type { IndexedElement } from "./browser-tools";
 import type { BrowserWsMessage } from "./browser-ws-messages";
@@ -336,7 +336,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     lastActivityAt = entry.lastActivity;
   }
 
-  async function setupPage(entry: BrowserContextEntry, _id: string) {
+  async function setupPage(entry: BrowserContextEntry, id: string) {
     // Idempotency guard: never bind console/load listeners twice on the same
     // entry (would double-push console messages + re-fire navigation tracking).
     if (entry.listenersBound) return;
@@ -358,6 +358,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     // Track navigation
     page.on("load", async () => {
       entry.url = page.url();
+      // Persist the last real page per context id so a recreated context
+      // (server restart, inactivity reap) can reopen where it was — the
+      // saver itself ignores about:blank / non-http urls.
+      saveLastUrl(id, entry.url);
       try { entry.title = await page.title(); } catch { entry.title = ""; }
       touchActivity(entry);
     });
@@ -492,6 +496,25 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         contexts.set(id, entry);
         lastActivityAt = entry.lastActivity;  // a fresh context counts as activity
         await setupPage(entry, id);
+
+        // Reopen where this context id last was: a context recreated after a
+        // server restart or an inactivity reap comes up about:blank even
+        // though the PANE persists its url — the page itself must come back
+        // for browser tabs to behave like chat tabs. `commit` keeps slow
+        // sites from stalling context creation; a dead site degrades to the
+        // blank pane it would have been anyway. Callers that navigate right
+        // after (restoreAllContexts, force-open) simply supersede this —
+        // both paths are awaited in order, no race.
+        const lastUrl = loadLastUrl(id);
+        if (lastUrl) {
+          try {
+            await page.goto(lastUrl, { waitUntil: "commit", timeout: 8000 });
+            entry.url = lastUrl;
+            console.log(`[BrowserService] Restored last url for ${id} -> ${lastUrl}`);
+          } catch (err: any) {
+            console.warn(`[BrowserService] last-url restore failed for ${id}: ${err.message}`);
+          }
+        }
 
         // Auto-save storageState every 30s + on context close.
         // CRITICAL: setInterval calls saver.flush() (force-save), NOT
