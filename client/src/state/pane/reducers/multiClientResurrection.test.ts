@@ -192,10 +192,21 @@ describe("multi-client: durable tombstone survives closedStack FIFO overflow", (
     expect(A.closedStack.some((r) => r.id === "browser:X")).toBe(false);
     expect(A.tombstones["browser:X"]).toBeGreaterThan(0);
 
-    // A FRESH peer B (never saw X) holds X open locally and hydrates A's
-    // snapshot. A's tombstone map (in the snapshot) must drop X on B even though
-    // A's closedStack no longer mentions it.
-    open(B, "browser:X");
+    // A FRESH peer B (never saw the close) holds X open locally — opened
+    // BEFORE A's close (explicit openedAt: under the causal openedAt-vs-marker
+    // rule an open that postdates the close would legitimately win as a
+    // deliberate reopen; this test locks the STALE-pane case). A's tombstone
+    // map (in the snapshot) must drop X on B even though A's closedStack no
+    // longer mentions it.
+    paneReducer(B, {
+      type: "OPEN_PANE",
+      payload: {
+        id: "browser:X",
+        type: "browser",
+        groupId: "group:default",
+        openedAt: Date.now() - 60_000,
+      },
+    });
     sync(A, B);
     expect(hasPane(B, "browser:X")).toBe(false);
   });

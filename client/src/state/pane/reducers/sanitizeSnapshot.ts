@@ -132,6 +132,14 @@ function sanitizePane(raw: unknown): Pane | null {
   if (raw.terminalType === 'shell' || raw.terminalType === 'claude-code' || raw.terminalType === 'codex') {
     pane.terminalType = raw.terminalType;
   }
+  // Causal open timestamp — the counterpart of the durable tombstone map.
+  // MANDATORY whitelist entry: dropping it here would erase it on every
+  // server round-trip, and the stale-marker retraction in the HYDRATE strip
+  // (reducers/panes.ts) would never fire — re-opened tabs would keep dying
+  // to ancient tombstones from stale peers (the B1/B2 silent-erase class).
+  if (typeof raw.openedAt === 'number' && Number.isFinite(raw.openedAt)) {
+    pane.openedAt = raw.openedAt;
+  }
   // Spazio membership — SYNCED per-pane (absent ⟺ default space). MANDATORY
   // whitelist entry: dropping it here would erase membership on every server
   // round-trip (the B1/B2 silent-erase class). The default id is normalised
