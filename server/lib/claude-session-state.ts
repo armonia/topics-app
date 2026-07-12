@@ -302,14 +302,32 @@ export function applyHook(
 }
 
 /**
- * Apply a single parsed JSONL event. This is the recovery / replay path.
- * Used at boot to reconstruct the phase that the live hook stream would have
- * produced, in case some hooks were missed (server was down, script error).
+ * Apply a single parsed JSONL event. Runs in two contexts:
+ *   - boot recovery (replay what the hook stream missed while the server was
+ *     down), and
+ *   - the LIVE tail loop, where the transcript is the only signal for turns
+ *     started by non-hook events — a Monitor's task-notification, a background
+ *     task completing, a teammate message, any injected prompt. None of those
+ *     fire UserPromptSubmit, and a text-only turn fires nothing until Stop, so
+ *     without this path a woken session stays parked at `awaiting-user` (a
+ *     RESTING phase that also suppresses the client's pty fallback): no
+ *     spinner, no aura, no rollup, and no banner on re-park.
+ *
+ * Causal gate: hooks are push (ms latency), the tail is pull (~1.5s). A line
+ * can therefore be READ after a hook that was FIRED after the line was
+ * written — e.g. an `assistant` line written just before the `Stop` hook that
+ * parked the session. Applying it blind would wrongly revive the session, so
+ * an event whose own wall-clock timestamp is strictly OLDER than the last
+ * authoritative phase change (`phaseUpdatedAt`) is stale news and a no-op.
+ * Events with no timestamp (legacy line shapes) apply ungated, matching the
+ * historical boot-replay behaviour. Transitions stamp the EVENT time, not the
+ * read time, so lines applied in one batch stay causally ordered among
+ * themselves and against later hooks.
  *
  * Only conservative transitions: we never put a session into a phase the
  * hooks alone wouldn't have produced. JSONL gives us a strong "running" /
- * "tool-running" / "awaiting-user" signal but does NOT include permission
- * requests — those only exist as hooks (Notification).
+ * "tool-running" signal but does NOT include permission requests — those only
+ * exist as hooks (Notification).
  */
 export function applyJsonlEvent(
   prev: ClaudeSessionState,
@@ -318,36 +336,51 @@ export function applyJsonlEvent(
 ): ClaudeSessionState {
   // If we're terminal, don't undo it.
   if (TERMINAL_PHASES.has(prev.phase)) return prev;
+  // Causal gate — see doc comment above.
+  if (event.ts !== undefined && event.ts < prev.phaseUpdatedAt) return prev;
+  const at = event.ts ?? now;
 
-  const base: ClaudeSessionState = { ...prev, updatedAt: now };
+  const base: ClaudeSessionState = { ...prev, updatedAt: at };
 
   switch (event.type) {
     case 'user':
-      // User prompt → running. Mirrors UserPromptSubmit hook.
+      // A qualifying user-role line (typed prompt, task-notification, teammate
+      // message — parseJsonlLine already filtered meta/local-command/compact/
+      // interrupt lines into `meta`) means a new turn is in flight → running.
+      // Mirrors UserPromptSubmit for typed prompts and is the ONLY signal for
+      // injected turns.
       return transition(base, {
         phase: 'running',
         pendingApproval: undefined,
-      }, now);
+      }, at);
 
     case 'assistant':
-      // Assistant message produced. If we were tool-running and no PostToolUse
-      // landed, this implies the tool completed (the assistant resumed). We
-      // promote to running. The Stop hook will subsequently take us to
-      // awaiting-user.
-      if (prev.phase === 'tool-running') {
-        return transition(base, { phase: 'running', lastTool: undefined }, now);
+      // The model is literally producing output — a turn is in flight
+      // regardless of what we thought (its opening user line may have been
+      // gated or missed). Promote ANY non-terminal phase to running: from
+      // tool-running it means the tool completed and no PostToolUse landed;
+      // from a resting phase (awaiting-user / paused / dormant / starting) it
+      // is the wake-up evidence itself. Clear transient fields — a stale
+      // pendingApproval (paused keeps it for display) is dead once the model
+      // demonstrably moved on.
+      if (prev.phase !== 'running') {
+        return transition(base, {
+          phase: 'running',
+          lastTool: undefined,
+          pendingApproval: undefined,
+        }, at);
       }
       return base;
 
     case 'tool_use':
       return transition(base, {
         phase: 'tool-running',
-        lastTool: { name: event.name || 'unknown', input: event.input, startedAt: now },
-      }, now);
+        lastTool: { name: event.name || 'unknown', input: event.input, startedAt: at },
+      }, at);
 
     case 'tool_result':
       if (prev.phase === 'tool-running') {
-        return transition(base, { phase: 'running', lastTool: undefined }, now);
+        return transition(base, { phase: 'running', lastTool: undefined }, at);
       }
       return base;
 
@@ -534,12 +567,54 @@ export function makeInitialState(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type JsonlEvent =
-  | { type: 'user'; raw: unknown }
-  | { type: 'assistant'; raw: unknown }
-  | { type: 'tool_use'; name?: string; input?: unknown; raw: unknown }
-  | { type: 'tool_result'; raw: unknown }
-  | { type: 'summary'; raw: unknown }
-  | { type: 'other'; raw: unknown };
+  | { type: 'user'; ts?: number; raw: unknown }
+  | { type: 'assistant'; ts?: number; raw: unknown }
+  | { type: 'tool_use'; name?: string; input?: unknown; ts?: number; raw: unknown }
+  | { type: 'tool_result'; ts?: number; raw: unknown }
+  | { type: 'summary'; ts?: number; raw: unknown }
+  /** A user-ROLE line that is not a turn: isMeta commentary, a local-command
+   *  echo, a compact summary, an interrupt marker. Never moves the phase. */
+  | { type: 'meta'; ts?: number; raw: unknown }
+  | { type: 'other'; ts?: number; raw: unknown };
+
+/** Epoch ms from a line's ISO `timestamp`, or undefined when absent/invalid. */
+function lineTs(obj: any): number | undefined {
+  const raw = obj?.timestamp;
+  if (typeof raw !== 'string') return undefined;
+  const ms = Date.parse(raw);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+/** Best-effort text of a user line: string content, or the first text block. */
+function userLineText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const tb = content.find((c: any) => c && c.type === 'text' && typeof c.text === 'string');
+    if (tb) return (tb as { text: string }).text;
+  }
+  return '';
+}
+
+/**
+ * User-role lines that must NOT count as a turn starting. Ground-truthed
+ * against real transcripts (see design.md of claude-session-live-tail):
+ *   - `isMeta` — harness commentary ("Stop hook active…", command caveats).
+ *   - `isCompactSummary` — the post-compaction context restatement.
+ *   - `<command-name>` / `<local-command…` — a local slash-command echo; no
+ *     model turn follows, so treating it as `running` would pin a false
+ *     spinner until the reaper's 10-minute demotion.
+ *   - `[Request interrupted…` — the user STOPPING a turn, not starting one.
+ * The check is exclusion-based on purpose: an unrecognised injected-turn
+ * flavour (new origin kinds) defaults to a real turn, erring toward showing
+ * work rather than hiding it — hiding is the bug class this exists to fix.
+ */
+function isMetaUserLine(obj: any): boolean {
+  if (obj.isMeta === true || obj.isCompactSummary === true) return true;
+  const text = userLineText(obj.message?.content).trimStart();
+  return text.startsWith('<command-name>')
+    || text.startsWith('<local-command')
+    || text.startsWith('[Request interrupted');
+}
 
 /**
  * Parse a single JSONL line. Tolerant of unknown shapes: returns `type:'other'`
@@ -559,30 +634,45 @@ export function parseJsonlLine(line: string): JsonlEvent | null {
   //   { type: 'summary', ... }
   // We collapse them into the simpler categorisation above.
   const t = obj.type;
+  const ts = lineTs(obj);
 
-  if (t === 'summary') return { type: 'summary', raw: obj };
+  if (t === 'summary') return { type: 'summary', ts, raw: obj };
 
   if (t === 'assistant') {
     const content = obj.message?.content;
     if (Array.isArray(content)) {
       const tu = content.find((c: any) => c && c.type === 'tool_use');
       if (tu) {
-        return { type: 'tool_use', name: tu.name, input: tu.input, raw: obj };
+        return { type: 'tool_use', name: tu.name, input: tu.input, ts, raw: obj };
       }
     }
-    return { type: 'assistant', raw: obj };
+    return { type: 'assistant', ts, raw: obj };
   }
 
   if (t === 'user') {
     const content = obj.message?.content;
     if (Array.isArray(content)) {
       const tr = content.find((c: any) => c && c.type === 'tool_result');
-      if (tr) return { type: 'tool_result', raw: obj };
+      if (tr) return { type: 'tool_result', ts, raw: obj };
     }
-    return { type: 'user', raw: obj };
+    if (isMetaUserLine(obj)) return { type: 'meta', ts, raw: obj };
+    return { type: 'user', ts, raw: obj };
   }
 
-  return { type: 'other', raw: obj };
+  return { type: 'other', ts, raw: obj };
+}
+
+/**
+ * Canonical transcript path for a Claude Code session:
+ *   <home>/.claude/projects/<encoded-cwd>/<claudeSessionId>.jsonl
+ * where the cwd encoding replaces every character outside [A-Za-z0-9] with `-`
+ * (verified against real dirs: `/Users/x/.claude/jarvis` → `-Users-x--claude-jarvis`).
+ * Lets the tracker tail a terminal session's transcript WITHOUT waiting for a
+ * SessionStart hook that may never fire. Pure — home is injected.
+ */
+export function deriveTranscriptPath(home: string, cwd: string, claudeSessionId: string): string {
+  const encoded = cwd.replace(/[^A-Za-z0-9]/g, '-');
+  return `${home}/.claude/projects/${encoded}/${claudeSessionId}.jsonl`;
 }
 
 /**

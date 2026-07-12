@@ -189,7 +189,25 @@ export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
   return deriveToolDetail(tc.name, tc.args, tc.result);
 }
 
-export function buildToolDisplayLabel(detail: ToolCallDetail): { name: string; summary?: string } {
+/**
+ * One-line human summary of a tool's arguments for the collapsed row header:
+ * scalar values joined as `key: value`, long strings truncated, objects and
+ * arrays skipped. Keeps MCP/unknown rows self-explanatory without expanding.
+ */
+function summarizeArgs(args?: Record<string, unknown>): string | undefined {
+  if (!args) return undefined;
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(args)) {
+    if (v == null || typeof v === 'object' || typeof v === 'function') continue;
+    let s = String(v);
+    if (s.length > 48) s = s.slice(0, 45) + '…';
+    parts.push(`${k}: ${s}`);
+    if (parts.join(' · ').length > 80) break;
+  }
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
+export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string): { name: string; summary?: string } {
   switch (detail.type) {
     case 'shell':
       return { name: 'Shell', summary: detail.command };
@@ -205,8 +223,14 @@ export function buildToolDisplayLabel(detail: ToolCallDetail): { name: string; s
     }
     case 'fetch':
       return { name: 'Fetch', summary: detail.url };
-    case 'todo':
-      return { name: 'Todo', summary: `${detail.items.length} item${detail.items.length === 1 ? '' : 's'}` };
+    case 'todo': {
+      // Progress + the item being worked on right now — "3 items" told the
+      // reader nothing without expanding.
+      const done = detail.items.filter((t) => t.status === 'completed').length;
+      const active = detail.items.find((t) => t.status === 'in_progress');
+      const activeText = active ? ` · ${active.activeForm ?? active.content}` : '';
+      return { name: 'Todo', summary: `${done}/${detail.items.length}${activeText}` };
+    }
     case 'sub_agent':
       return {
         name: detail.subAgentType ?? 'Task',
@@ -215,9 +239,11 @@ export function buildToolDisplayLabel(detail: ToolCallDetail): { name: string; s
     case 'plan':
       return { name: 'Plan', summary: detail.text.slice(0, 80) };
     case 'mcp':
-      return { name: `${detail.server} · ${detail.tool}`, summary: undefined };
+      return { name: `${detail.server} · ${detail.tool}`, summary: summarizeArgs(detail.args) };
     case 'unknown':
-      return { name: 'Tool', summary: undefined };
+      // A bare "Tool" row is unreadable — surface the provider's actual tool
+      // name plus a scalar-args digest so the collapsed row stands on its own.
+      return { name: rawName || 'Tool', summary: summarizeArgs(detail.raw.args) };
   }
 }
 

@@ -97,6 +97,20 @@ export interface Pane {
    * OPEN_PANE reducer from `state.activeSpaceId`.
    */
   spaceId?: string;
+  /**
+   * ms-epoch of the pane's most recent closed→open transition (fresh
+   * OPEN_PANE insert or UNDO_CLOSE restore; preserved across re-OPEN of an
+   * already-open pane and PANE_ID_REMAP). SYNCED — it is the causal
+   * counterpart of the durable `tombstones[id]` marker: on hydrate, a close
+   * marker OLDER than the pane's openedAt is stale (the pane was re-opened
+   * after that close, on a client whose tombstone retraction never reached
+   * us) and is retracted instead of stripping the live pane. MUST be
+   * whitelisted in sanitizePane (reducers/sanitizeSnapshot.ts) or every
+   * server round-trip erases it and the stale marker silently wins again
+   * (the stale-webapp-closes-topic-tabs bug). Absent on legacy panes → the
+   * marker wins, exactly as before this field existed.
+   */
+  openedAt?: number;
   // Device-local fields (never serialized to server snapshot):
   scrollOffset?: number;
 }

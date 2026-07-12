@@ -35,6 +35,21 @@ function clearTombstone(state: PaneState, id: string): void {
   if (state.tombstones && id in state.tombstones) delete state.tombstones[id];
 }
 
+/**
+ * Retract a close marker proven STALE by a live pane's newer `openedAt`
+ * (the hydrate-time causal comparison — see HYDRATE_FROM_SNAPSHOT). Mirrors
+ * OPEN_PANE's retraction: drop the durable tombstone AND every closedStack
+ * record for the id — a record left behind would re-close the pane on every
+ * peer (their union filter consults incoming closedStack ids) and ⇧⌘T would
+ * list a tab that is actually open.
+ */
+function retractStaleMarker(state: PaneState, id: string): void {
+  clearTombstone(state, id);
+  for (let i = state.closedStack.length - 1; i >= 0; i--) {
+    if (state.closedStack[i].id === id) state.closedStack.splice(i, 1);
+  }
+}
+
 export function paneReducer(state: PaneState, action: PaneAction): void {
   switch (action.type) {
     case 'OPEN_PANE': {
@@ -80,7 +95,16 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
         inheritedSpaceId === DEFAULT_SPACE_ID || inheritedSpaceId === undefined
           ? undefined
           : inheritedSpaceId;
-      state.panes[pane.id] = { ...pane, stableKey: pane.stableKey ?? pane.id, spaceId };
+      // Causal open timestamp: a FRESH insert (no live entity) is a
+      // closed→open transition — stamp now. A re-OPEN of an already-open pane
+      // keeps the existing value (persistBrowserPane re-OPENs the same id on
+      // navigation; restamping would let a passive refresh outrank a peer's
+      // genuine concurrent close in the hydrate comparison). An explicit
+      // payload value wins (restore paths carrying the historical timestamp).
+      // Legacy already-open panes stay unstamped — the marker keeps winning
+      // for them exactly as before the field existed.
+      const openedAt = pane.openedAt ?? (knownPane ? knownPane.openedAt : Date.now());
+      state.panes[pane.id] = { ...pane, stableKey: pane.stableKey ?? pane.id, spaceId, openedAt };
       if (!state.groups[groupId]) {
         state.groups[groupId] = {
           id: groupId,
@@ -362,18 +386,42 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // tombstone. Consult BOTH so a durable pane whose remote closedStack
       // record already aged out of the FIFO-50 (but is still in the remote
       // tombstone map) is dropped from the union, not kept as local-only.
-      const remoteClosedIds = new Set([
-        ...(clean.closedStack ?? []).map((r) => r.id),
-        ...Object.keys(clean.tombstones ?? {}),
-      ]);
+      // Keep the NEWEST closedAt per id — the comparison below is causal, not
+      // mere membership: a marker only beats a pane whose `openedAt` predates
+      // it. Tombstone retraction is a local DELETE that never crosses the
+      // wire (the maps merge by union), so a peer that slept through a
+      // close-then-reopen cycle still holds the dead marker; membership alone
+      // let that stale marker kill the re-opened tab on every client (the
+      // stale-webapp-closes-topic-tabs bug).
+      const remoteClosedAt = new Map<string, number>();
+      for (const r of clean.closedStack ?? []) {
+        const prev = remoteClosedAt.get(r.id);
+        if (prev === undefined || r.closedAt > prev) remoteClosedAt.set(r.id, r.closedAt);
+      }
+      for (const [id, closedAt] of Object.entries(clean.tombstones ?? {})) {
+        const prev = remoteClosedAt.get(id);
+        if (prev === undefined || closedAt > prev) remoteClosedAt.set(id, closedAt);
+      }
       const localKeptPanes: PaneState['panes'] = {};
       const localKeptByGroup: Record<string, string[]> = {};
+      // Ids whose incoming marker was beaten by a local pane's newer openedAt
+      // — retracted after the marker merges below, so the dead marker neither
+      // survives locally nor rides our next PUT back to the peers.
+      const staleMarkerIds: string[] = [];
       {
         const incomingIds = new Set(Object.keys(clean.panes ?? {}));
         for (const [id, pane] of Object.entries(state.panes)) {
           if (id.startsWith('draft:')) continue;     // re-injected separately below
           if (incomingIds.has(id)) continue;          // remote already has it
-          if (remoteClosedIds.has(id)) continue;      // closed on another client → drop
+          const closedAt = remoteClosedAt.get(id);
+          if (closedAt !== undefined) {
+            // Closed on another client → drop, UNLESS this live pane was
+            // (re)opened AFTER that close: then the marker is stale and the
+            // pane survives the union.
+            const openedAt = pane.openedAt;
+            if (!(typeof openedAt === 'number' && openedAt > closedAt)) continue;
+            staleMarkerIds.push(id);
+          }
           localKeptPanes[id] = pane;
         }
         if (Object.keys(localKeptPanes).length > 0) {
@@ -391,7 +439,23 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       for (const [gid, group] of Object.entries(state.groups)) {
         localGroupSplit[gid] = { splitRatio: group.splitRatio, splitAxis: group.splitAxis };
       }
-      if (clean.panes) state.panes = clean.panes;
+      // Preserve the causal open timestamp across the wholesale pane apply:
+      // a peer on an older build (sanitizer without the openedAt whitelist)
+      // strips the field from every pane it re-PUTs — taking its copy
+      // verbatim would erase local knowledge and let a stale close marker
+      // win the strip again on the next merge. Keep the NEWEST of the two
+      // sides; either may have seen the more recent closed→open transition.
+      const localOpenedAt = new Map<string, number>();
+      for (const [id, p] of Object.entries(state.panes)) {
+        if (typeof p.openedAt === 'number') localOpenedAt.set(id, p.openedAt);
+      }
+      if (clean.panes) {
+        state.panes = clean.panes;
+        for (const [id, ts] of localOpenedAt) {
+          const p = state.panes[id];
+          if (p && (typeof p.openedAt !== 'number' || p.openedAt < ts)) p.openedAt = ts;
+        }
+      }
       if (clean.groups) state.groups = clean.groups;
       // `clean.projects` is intentionally ignored — see selectors.ts for the
       // full reasoning. The field is no longer in outbound snapshots; any
@@ -457,10 +521,30 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // local-kept panes are re-injected below and are never tombstoned, so
       // they're untouched.
       {
+        // Stale-marker retraction, half 1: markers beaten by a LOCAL-kept
+        // pane's newer openedAt (union filter above). Runs AFTER the
+        // closedStack/tombstone merges so the dead marker is purged from the
+        // merged state, not resurrected by it.
+        for (const id of staleMarkerIds) retractStaleMarker(state, id);
         const tombstonedIds = new Set(Object.keys(state.tombstones));
         if (tombstonedIds.size > 0) {
           for (const id of tombstonedIds) {
-            if (state.panes[id]) delete state.panes[id];
+            const pane = state.panes[id];
+            if (!pane) continue;
+            // Half 2: the INCOMING (LWW-newer) snapshot lists this pane as
+            // open. If its openedAt postdates the merged marker, the marker
+            // is stale — a close-then-reopen cycle on another client whose
+            // tombstone retraction never reached us. Retract and keep the
+            // pane instead of stripping the authoritative re-open (this was
+            // the strip half of the stale-webapp-closes-topic-tabs bug).
+            // Legacy panes without openedAt: the marker wins, as before.
+            const openedAt = pane.openedAt;
+            if (typeof openedAt === 'number' && openedAt > state.tombstones[id]) {
+              retractStaleMarker(state, id);
+              tombstonedIds.delete(id);
+              continue;
+            }
+            delete state.panes[id];
           }
           for (const [gid, group] of Object.entries(state.groups)) {
             const kept = group.paneIds.filter((id) => !tombstonedIds.has(id));

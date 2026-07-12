@@ -80,7 +80,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
     await textarea.press("Control+Enter");
 
     // Wait for tool call badge to appear (inline badge with contentOffset)
-    const toolCallCard = page.locator('[data-testid="tool-call-tc-1"]');
+    const toolCallCard = page.locator('[data-testid="tool-call-row-tc-1"]');
     await expect(toolCallCard).toBeVisible({ timeout: 15_000 });
 
     // Assert tool call name
@@ -89,7 +89,7 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
 
     // Assert status is success
     const toolCallStatus = toolCallCard.locator(
-      '[data-testid="tool-call-status"]'
+      '[data-testid="tool-call-status-tc-1"]'
     );
     await expect(toolCallStatus).toHaveAttribute("data-status", "success");
 
@@ -144,12 +144,12 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
     await textarea.press("Control+Enter");
 
     // Wait for error tool call badge
-    const toolCallCard = page.locator('[data-testid="tool-call-tc-err"]');
+    const toolCallCard = page.locator('[data-testid="tool-call-row-tc-err"]');
     await expect(toolCallCard).toBeVisible({ timeout: 15_000 });
 
     // Assert status is error
     const toolCallStatus = toolCallCard.locator(
-      '[data-testid="tool-call-status"]'
+      '[data-testid="tool-call-status-tc-err"]'
     );
     await expect(toolCallStatus).toHaveAttribute("data-status", "error");
 

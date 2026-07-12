@@ -685,7 +685,7 @@ function restoreDbSessionsOptimistically(): void {
     });
     sessionSockets.set(row.id, new Set());
     if (row.claude_session_id && (row.type === 'claude-code' || row.type === 'claude-code-team')) {
-      _tracker?.registerTerminalSession(row.claude_session_id);
+      _tracker?.registerTerminalSession(row.claude_session_id, { cwd: row.cwd || undefined });
     }
     restored++;
   }
@@ -762,10 +762,11 @@ async function reconcileSessions(attempt = 0): Promise<void> {
         });
         sessionSockets.set(row.id, new Set());
         // Re-register with the phase tracker (in-memory state was lost on
-        // restart). The next hook re-establishes the live phase; until then
-        // the client falls back to the pty heuristic.
+        // restart). The next hook OR the transcript tail (cwd-derived path)
+        // re-establishes the live phase; until then the client falls back to
+        // the pty heuristic.
         if (row.claude_session_id && (row.type === 'claude-code' || row.type === 'claude-code-team')) {
-          _tracker?.registerTerminalSession(row.claude_session_id);
+          _tracker?.registerTerminalSession(row.claude_session_id, { cwd: row.cwd || undefined });
         }
         console.log(`[Terminal] Reattached to surviving session ${row.id} (${row.type})`);
       }
@@ -1095,7 +1096,7 @@ async function createSession(id: string, name: string, cwd: string, command?: st
   // claude_code_sessions row owned by the chat provider — registerTerminalSession
   // is a no-op for those.
   if (isClaudeKind && resolvedClaudeSessionId) {
-    _tracker?.registerTerminalSession(resolvedClaudeSessionId);
+    _tracker?.registerTerminalSession(resolvedClaudeSessionId, { cwd });
   }
 
   // Codex mints its session UUID itself (no --session-id to pre-assign), so we
