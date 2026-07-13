@@ -1353,6 +1353,28 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     return () => window.removeEventListener('reopen-closed-tab', handler);
   }, [restoreClosedRecord, projectPath]);
 
+  // Focus a pane that ALREADY lives inside this project (sidebar click on a
+  // project-owned browser/terminal). usePanelLifecycle can only focus the
+  // project PANE — which tab is active inside a group is project-layout state,
+  // so the request arrives here via the same claim protocol as
+  // reopen-closed-tab: only the window whose projectPath matches AND actually
+  // hosts the pane activates it (and preventDefault()s).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ projectPath?: string; paneId?: string }>).detail;
+      if (!detail?.paneId || detail.projectPath !== projectPath) return;
+      const owner = groups.find(g => g.paneIds.includes(detail.paneId!));
+      if (!owner) return; // not mounted in this window — leave unclaimed
+      e.preventDefault();
+      setGroups(prev => prev.map(g =>
+        g.id === owner.id && g.activePaneId !== detail.paneId ? { ...g, activePaneId: detail.paneId! } : g,
+      ));
+      setFocusedGroupId(owner.id);
+    };
+    window.addEventListener('topics:focus-project-pane', handler);
+    return () => window.removeEventListener('topics:focus-project-pane', handler);
+  }, [groups, projectPath]);
+
   // Drain any reopen parked for THIS project by openBrowserPane's not-open path:
   // when a pinned browser is reopened while its ProjectWindow is closed, that
   // handler opens the project (handleProjectClick) AND enqueues the synthetic
