@@ -525,7 +525,7 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
               title={p.path}
               className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
             >
-              <ProjectFavicon path={p.path} size={13} monogram />
+              <ProjectFavicon path={p.path} size={13} />
               <span className="min-w-0 flex-1 truncate">{p.name}</span>
               {p.projectId === selectedId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
             </button>
@@ -695,7 +695,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
                 title={targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
                 className="flex min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
               >
-                <ProjectFavicon path={targetRef?.path ?? ''} size={13} monogram fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject ? 'bg-emerald-400' : 'bg-neutral-600'}`} />} />
+                <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject ? 'bg-emerald-400' : 'bg-neutral-600'}`} />} />
                 <span className="truncate">{targetLabel || 'Progetto…'}</span>
                 <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
               </button>
@@ -906,7 +906,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
               unassigned ? 'bg-white/5 italic text-neutral-500' : 'bg-emerald-500/15 text-emerald-300'
             }`}
           >
-            {projectPath && <ProjectFavicon path={projectPath} size={11} monogram />}
+            {projectPath && <ProjectFavicon path={projectPath} size={11} />}
             {projectLabel}
           </span>
         )}
@@ -1413,7 +1413,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
             className="ml-auto flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
           >
-            <ProjectFavicon path={currentProject?.path ?? ''} size={13} monogram fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
+            <ProjectFavicon path={currentProject?.path ?? ''} size={13} fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
             <span className="truncate">{projectLabel}</span>
             <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
           </button>

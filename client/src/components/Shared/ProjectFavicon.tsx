@@ -1,5 +1,4 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { hashToColor, getProjectName } from '../Layout/projectColors';
 
 /**
  * ProjectFavicon — shows a project's real icon when its folder ships one
@@ -60,37 +59,16 @@ function remember(path: string, s: IconStatus): void {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch {}
 }
 
-/**
- * Deterministic letter avatar (project initial + hue hashed from the path) —
- * the "standard icon" for projects whose folder ships no favicon/manifest.
- * Opt-in via `monogram`: surfaces that want EVERY project to show an icon
- * (project tabs, kanban chips) use it; plain lists keep the no-glyph default.
- */
-function Monogram({ path, size, className }: { path: string; size: number; className?: string }) {
-  const name = getProjectName(path) || path;
-  const letter = (name.trim()[0] ?? '?').toUpperCase();
-  return (
-    <span
-      aria-hidden
-      className={`flex flex-shrink-0 select-none items-center justify-center rounded-[3px] font-semibold text-white/90 ${className ?? ''}`}
-      style={{ width: size, height: size, fontSize: Math.max(7, Math.round(size * 0.62)), lineHeight: 1, background: hashToColor(path) }}
-    >{letter}</span>
-  );
-}
-
 export function ProjectFavicon({
   path,
   size = 14,
   className = '',
   fallback = null,
-  monogram = false,
 }: {
   path: string;
   size?: number;
   className?: string;
   fallback?: ReactNode;
-  /** Icon-less project → letter monogram instead of `fallback`/nothing. */
-  monogram?: boolean;
 }) {
   const [status, setStatus] = useState<IconStatus | 'unknown'>(() => (path ? resolveStatus(path) : 'none'));
   const [loaded, setLoaded] = useState(false);
@@ -99,23 +77,17 @@ export function ProjectFavicon({
   // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot re-resolve when a recycled row points at a new project path; converges immediately (deps = [path])
   useEffect(() => { setStatus(path ? resolveStatus(path) : 'none'); setLoaded(false); }, [path]);
 
-  // Known icon-less (or no path) → monogram when requested, else the caller's
-  // fallback (default: nothing at all — no element, no reserved width).
-  if (!path || status === 'none') {
-    return monogram && path ? <Monogram path={path} size={size} className={className} /> : <>{fallback}</>;
-  }
+  // Known icon-less (or no path) → render nothing at all: no element, so no
+  // reserved width and no margin to the left of the folder name.
+  if (!path || status === 'none') return <>{fallback}</>;
 
   // 'has' (cached) → reserve the slot immediately so a cached icon decodes with
   // no layout shift. 'unknown' → zero width so an as-yet-unprobed folder that
   // turns out icon-less never flashes a gap; it widens to `size` only once the
   // image actually loads. opacity:0-until-load also hides the broken glyph that
-  // an erroring <img> would paint for a frame. With `monogram` the letter
-  // avatar holds the slot until the real icon decodes (then they swap), so the
-  // width never jumps.
-  const reserve = monogram ? loaded : status === 'has' || loaded;
+  // an erroring <img> would paint for a frame.
+  const reserve = status === 'has' || loaded;
   return (
-    <>
-    {monogram && !loaded && <Monogram path={path} size={size} className={className} />}
     <img
       src={`/api/projects/icon?path=${encodeURIComponent(path)}`}
       width={size}
@@ -146,6 +118,5 @@ export function ProjectFavicon({
           .catch(() => { /* unreachable → transient, leave the cache clean */ });
       }}
     />
-    </>
   );
 }
