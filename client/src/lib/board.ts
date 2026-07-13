@@ -55,6 +55,8 @@ export interface TaskComment {
   author: string;
   content: string;
   mentions: string[];
+  /** Attached files (absolute paths), rendered via /api/media. */
+  media: string[];
   createdAt: string;
 }
 
@@ -215,8 +217,8 @@ export const boardApi = {
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   archive: (projectId: string, taskId: string) =>
     req<{ ok: boolean }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`, { method: 'DELETE' }),
-  comment: (projectId: string, taskId: string, content: string, mentions?: string[]) =>
-    req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions }) }),
+  comment: (projectId: string, taskId: string, content: string, opts?: { mentions?: string[]; media?: string[] }) =>
+    req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media }) }),
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment }) }),
   /** Move a root task (and its subtree) to another board. */
