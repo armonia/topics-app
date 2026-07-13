@@ -1090,8 +1090,6 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     finally { setProjBusy(false); }
   };
 
-  // Live agent state: typing indicator + human stop while a turn runs.
-  const agentBusy = !!task && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
   const stopAgent = async () => {
     if (busy) return;
     setBusy(true);
@@ -1110,14 +1108,37 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     if (!sessionKey) return;
     try {
       const r = await fetch(`/api/history/${encodeURIComponent(sessionKey)}?limit=200`);
-      const d = await r.json().catch(() => null) as { messages?: Array<{ role?: string; content?: string; timestamp?: string }> } | null;
+      const d = await r.json().catch(() => null) as { messages?: Array<{ role?: string; content?: string; timestamp?: string; thinking?: string }> } | null;
       const msgs = (Array.isArray(d?.messages) ? d.messages : [])
-        .filter((m) => typeof m?.content === 'string' && m.content.trim())
-        .map((m) => ({ role: m.role ?? 'assistant', content: m.content!, timestamp: m.timestamp ?? '' }));
+        // Keep thinking-only partials too: mid-stream the newest message may
+        // have reasoning but no prose yet — that IS the live preview.
+        .filter((m) => (typeof m?.content === 'string' && m.content.trim()) || (typeof m?.thinking === 'string' && m.thinking.trim()))
+        .map((m) => ({ role: m.role ?? 'assistant', content: m.content ?? '', timestamp: m.timestamp ?? '', thinking: m.thinking }));
       setSessionMsgs(msgs);
     } catch { setSessionMsgs([]); }
   }, [sessionKey]);
   useEffect(() => { if (sessionKey) void loadSession(); }, [sessionKey, loadSession, bump]);
+
+  // Live agent state (needed below): typing indicator + stream preview + stop.
+  const agentBusy = !!task && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+
+  // While a turn runs, poll the history (it overlays the LIVE stream content)
+  // so the drawer shows what the agent is thinking/writing right now.
+  useEffect(() => {
+    if (!agentBusy || !sessionKey) return;
+    const t = setInterval(() => { void loadSession(); }, 3000);
+    return () => clearInterval(t);
+  }, [agentBusy, sessionKey, loadSession]);
+
+  // Tail of the newest agent message (reasoning first): the "come sta andando"
+  // glance without opening anything.
+  const streamPreview = useMemo(() => {
+    if (!agentBusy || !sessionMsgs?.length) return null;
+    const last = [...sessionMsgs].reverse().find((m) => m.role !== 'user');
+    if (!last) return null;
+    const text = (last.thinking?.trim() || last.content.trim()).replace(/\s+/g, ' ');
+    return text ? text.slice(-280) : null;
+  }, [agentBusy, sessionMsgs]);
 
   // Session messages that fall strictly between two thread boundaries (ISO
   // string compare — both sides are UTC toISOString). null = open-ended.
@@ -1384,23 +1405,35 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
               />
             )}
             {agentBusy && (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-2">
-                  {[0, 150, 300].map((d) => (
-                    <span key={d} className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-400/80" style={{ animationDelay: `${d}ms` }} />
-                  ))}
-                  <span className="ml-1.5 text-[11px] text-neutral-400">
-                    {task.dispatchState === 'queued' ? 'in coda…' : task.dispatchState === 'starting' ? 'avvio agent…' : 'agent al lavoro…'}
-                    {task.inProgressAt && task.dispatchState === 'working' && (
-                      <span className="text-neutral-500"> <Ticker since={task.inProgressAt} /></span>
-                    )}
-                  </span>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-2">
+                    {[0, 150, 300].map((d) => (
+                      <span key={d} className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-400/80" style={{ animationDelay: `${d}ms` }} />
+                    ))}
+                    <span className="ml-1.5 text-[11px] text-neutral-400">
+                      {task.dispatchState === 'queued' ? 'in coda…' : task.dispatchState === 'starting' ? 'avvio agent…' : 'agent al lavoro…'}
+                      {task.inProgressAt && task.dispatchState === 'working' && (
+                        <span className="text-neutral-500"> <Ticker since={task.inProgressAt} /></span>
+                      )}
+                    </span>
+                  </div>
+                  <button
+                    disabled={busy} onClick={stopAgent}
+                    title="Ferma l'agent (il task torna in Backlog con il motivo)"
+                    className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
+                  >{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3 fill-current" />} Ferma</button>
                 </div>
-                <button
-                  disabled={busy} onClick={stopAgent}
-                  title="Ferma l'agent (il task torna in Backlog con il motivo)"
-                  className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
-                >{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3 fill-current" />} Ferma</button>
+                {/* Live glance at what's streaming RIGHT NOW (tail of the
+                    newest reasoning/output, refreshed every 3s) — the full
+                    piece lives in the "Ragionamento in corso" slice above. */}
+                {streamPreview && (
+                  <p
+                    data-testid="task-stream-preview"
+                    className="line-clamp-2 pl-1 text-[11px] italic leading-snug text-neutral-500"
+                    title="Anteprima live dell'ultimo ragionamento in streaming"
+                  >…{streamPreview}</p>
+                )}
               </div>
             )}
             <div ref={bottomRef} />
@@ -1647,7 +1680,7 @@ function commentTime(iso: string): string {
  * in the tooltip). System notes are dimmed.
  */
 /** One session message with its placement timestamp (from /api/history). */
-interface SessionMsg { role: string; content: string; timestamp: string }
+interface SessionMsg { role: string; content: string; timestamp: string; thinking?: string }
 
 /**
  * A status transition in the timeline: "chi l'ha spostato e quando", rendered
