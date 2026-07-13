@@ -125,6 +125,21 @@ describe("list", () => {
   test("scope=project without projectId throws", () => {
     expect(() => s.list({ scope: "project" })).toThrow(/projectId/);
   });
+
+  test("rootsOnly hides subtasks from column feeds (they live in the parent's tree)", () => {
+    const parent = s.create({ projectId: "p1", text: "epic" });
+    s.create({ projectId: "p1", text: "step 1", parentTaskId: parent.id });
+    s.create({ projectId: "p1", text: "step 2", parentTaskId: parent.id });
+    // Default list still returns everything (agent surface, introspection).
+    expect(s.list({ scope: "project", projectId: "p1" }).length).toBe(5);
+    // Board feed: roots only, on both scopes.
+    const roots = s.list({ scope: "project", projectId: "p1", rootsOnly: true });
+    expect(roots.length).toBe(3);
+    expect(roots.every((t) => t.parentTaskId === null)).toBe(true);
+    expect(s.list({ scope: "all", rootsOnly: true }).every((t) => t.parentTaskId === null)).toBe(true);
+    // The steps are still reachable through the parent.
+    expect(s.get(parent.id)!.children.length).toBe(2);
+  });
 });
 
 describe("review gate (KANBAN-05)", () => {
@@ -161,6 +176,15 @@ describe("review gate (KANBAN-05)", () => {
     // The agent's own summary unlocks the handoff. Humans stay unaffected.
     s.addComment({ taskId: t.id, author: "claude", content: "fatto, guarda demo/" });
     expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
+  });
+
+  test("human drag review → done clears the lingering dispatch chip", () => {
+    const t = s.create({ projectId: PID, text: "work" });
+    s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "review" } });
+    s.setDispatchState({ taskId: t.id, state: "delivered" });
+    const done = s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "done" } });
+    expect(done.status).toBe("done");
+    expect(done.dispatchState).toBeNull();
   });
 
   test("status events (kind='status') do NOT satisfy the mute-delivery gate", () => {

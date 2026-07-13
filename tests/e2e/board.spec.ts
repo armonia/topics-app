@@ -270,10 +270,11 @@ test.describe("Kanban board", () => {
     await drawer.getByPlaceholder("+ sottotask…").press("Enter");
     await expect(drawer.getByTestId("task-detail-subtasks").getByText(subText)).toBeVisible({ timeout: 10000 });
 
-    // The subtask is a real card (born in Backlog) and the parent shows the counter chip.
-    await expect(page.getByTestId("kanban-column-backlog").getByText(subText)).toBeVisible({ timeout: 10000 });
+    // The parent shows the counter chip; the step is NOT a card of its own —
+    // subtasks are the parent's checklist (drawer tree), never board cards.
     const parentCard = page.getByTestId("kanban-column-in_progress").locator("div.group", { hasText: text });
     await expect(parentCard.getByText("↳ 0/1")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("kanban-column-backlog").getByText(subText)).not.toBeVisible();
 
     // Structural gate: a parent with open subtasks cannot be closed.
     const done = await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${parent.id}`, {
@@ -282,10 +283,11 @@ test.describe("Kanban board", () => {
     expect(done.status()).toBe(409);
     expect((await done.json()).code).toBe("open_subtasks");
 
-    // Cleanup tracking for the subtask created via UI.
-    const res = await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks`);
-    const { tasks } = (await res.json()) as { tasks: Array<{ id: string; text: string }> };
-    const sub = tasks.find((t) => t.text === subText);
+    // Cleanup tracking for the subtask created via UI: the board feed hides
+    // steps, so read it off the parent's detail (children).
+    const res = await page.request.get(`${BASE}/api/boards/${PROJECT_ID}/tasks/${parent.id}`);
+    const { children } = (await res.json()) as { children: Array<{ id: string; text: string }> };
+    const sub = children?.find((t) => t.text === subText);
     if (sub) createdTasks.push(`${PROJECT_ID}:${sub.id}`);
   });
 
