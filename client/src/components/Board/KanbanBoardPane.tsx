@@ -20,7 +20,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import {
-  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
+  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
   type BoardProjectRef,
 } from '../../lib/board';
@@ -452,7 +452,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
  * old two-step "Nuovo progetto…" + separate input flow — search box IS the
  * create box now.
  */
-function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate, busy, listLabel, headerNote }: {
+function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate, busy, listLabel, headerNote, onPickNone, noneSelected }: {
   projects: BoardProjectRef[] | null;
   selectedId?: string | null;
   isDisabled?: (p: BoardProjectRef) => boolean;
@@ -461,6 +461,9 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
   busy: boolean;
   listLabel: string;
   headerNote?: React.ReactNode;
+  /** Offer "Nessun progetto" (task spanning several projects / undecided). */
+  onPickNone?: () => void;
+  noneSelected?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => {
@@ -496,6 +499,18 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
         />
       </div>
       <div className="max-h-60 overflow-y-auto">
+        {onPickNone && !query.trim() && (
+          <button
+            role="option" aria-selected={!!noneSelected} disabled={busy}
+            onClick={onPickNone}
+            title="Il task resta sulla board generale senza progetto — l'agent non parte finché non gliene assegni uno"
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-400 hover:bg-white/10 disabled:opacity-40"
+          >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-neutral-500" />
+            <span className="min-w-0 flex-1 italic">Nessun progetto</span>
+            {noneSelected && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+          </button>
+        )}
         {projects === null ? (
           <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
         ) : filtered.length === 0 ? (
@@ -510,7 +525,7 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
               title={p.path}
               className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
             >
-              <ProjectFavicon path={p.path} size={13} />
+              <ProjectFavicon path={p.path} size={13} monogram />
               <span className="min-w-0 flex-1 truncate">{p.name}</span>
               {p.projectId === selectedId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
             </button>
@@ -598,13 +613,21 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   };
 
   const target = global ? targetProject : projectId;
+  const noneTarget = targetProject === UNASSIGNED_PROJECT_ID;
   const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
   // Readable before the index loads: the stored id minus its hash suffix.
-  const targetLabel = targetRef?.name ?? (targetProject ? targetProject.replace(/-[^-]+$/, '') : '');
+  const targetLabel = noneTarget
+    ? 'Nessun progetto'
+    : targetRef?.name ?? (targetProject ? targetProject.replace(/-[^-]+$/, '') : '');
 
   const pickProject = (p: BoardProjectRef) => {
     setTargetProject(p.projectId);
     try { localStorage.setItem('board:composerProject', p.projectId); } catch { /* private mode */ }
+    setProjOpen(false);
+  };
+  const pickNone = () => {
+    setTargetProject(UNASSIGNED_PROJECT_ID);
+    try { localStorage.setItem('board:composerProject', UNASSIGNED_PROJECT_ID); } catch { /* private mode */ }
     setProjOpen(false);
   };
   const doCreateProject = async (name: string) => {
@@ -672,7 +695,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
                 title={targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
                 className="flex min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
               >
-                <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject ? 'bg-emerald-400' : 'bg-neutral-600'}`} />} />
+                <ProjectFavicon path={targetRef?.path ?? ''} size={13} monogram fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject ? 'bg-emerald-400' : 'bg-neutral-600'}`} />} />
                 <span className="truncate">{targetLabel || 'Progetto…'}</span>
                 <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
               </button>
@@ -691,6 +714,8 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
                   onCreate={doCreateProject}
                   busy={projBusy}
                   listLabel="Progetto del task"
+                  onPickNone={pickNone}
+                  noneSelected={noneTarget}
                 />
               </Menu>
             </>
@@ -856,7 +881,8 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
     catch (e) { onError(e instanceof Error ? e.message : 'archive failed'); }
   };
   // Human-readable project label = the dirName prefix before the id hash.
-  const projectLabel = task.projectId.replace(/-[^-]+$/, '');
+  const unassigned = task.projectId === UNASSIGNED_PROJECT_ID;
+  const projectLabel = unassigned ? 'senza progetto' : task.projectId.replace(/-[^-]+$/, '');
 
   return (
     <div
@@ -874,8 +900,13 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-4">
         {showProject && (
-          <span className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">
-            {projectPath && <ProjectFavicon path={projectPath} size={11} />}
+          <span
+            title={unassigned ? 'Assegna un progetto (dal dettaglio, "Sposta su…") per farlo lavorare da un agent' : undefined}
+            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
+              unassigned ? 'bg-white/5 italic text-neutral-500' : 'bg-emerald-500/15 text-emerald-300'
+            }`}
+          >
+            {projectPath && <ProjectFavicon path={projectPath} size={11} monogram />}
             {projectLabel}
           </span>
         )}
@@ -1199,7 +1230,9 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   useEffect(() => { boardApi.projects().then(setProjects).catch(() => setProjects([])); }, []);
   const openProjMenu = () => setProjMenuOpen(true);
   const currentProject = projects?.find((p) => p.projectId === task?.projectId) ?? null;
-  const projectLabel = currentProject?.name ?? (task ? task.projectId.replace(/-[^-]+$/, '') : '');
+  const projectLabel = task?.projectId === UNASSIGNED_PROJECT_ID
+    ? 'Nessun progetto'
+    : currentProject?.name ?? (task ? task.projectId.replace(/-[^-]+$/, '') : '');
   const moveBlocked = !task ? null
     : task.parentTaskId ? 'I sottotask si spostano col loro task padre.'
     : task.assignedTopicId || ['queued', 'starting', 'working'].includes(task.dispatchState ?? '')
@@ -1380,7 +1413,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
             className="ml-auto flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
           >
-            <ProjectFavicon path={currentProject?.path ?? ''} size={13} fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
+            <ProjectFavicon path={currentProject?.path ?? ''} size={13} monogram fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
             <span className="truncate">{projectLabel}</span>
             <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
           </button>

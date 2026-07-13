@@ -28,6 +28,14 @@ export type Actor = "human" | "agent";
 
 const STATUSES: readonly TaskStatus[] = ["backlog", "todo", "in_progress", "review", "done"];
 
+/**
+ * Reserved board id for tasks created WITHOUT a project (e.g. work spanning
+ * several projects). They live on the global board only; the dispatcher skips
+ * them entirely (an agent needs a cwd) until a human assigns a real board via
+ * move — never a park-bounce to backlog.
+ */
+export const UNASSIGNED_PROJECT_ID = "_none";
+
 export interface Task {
   id: string;
   projectId: string;
