@@ -1402,6 +1402,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
               <SessionSlice
                 msgs={sliceBetween(comments[comments.length - 1]?.createdAt ?? null, null)}
                 label={agentBusy ? 'Ragionamento in corso' : undefined}
+                preview={streamPreview}
               />
             )}
             {agentBusy && (
@@ -1424,16 +1425,6 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                     className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
                   >{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3 fill-current" />} Ferma</button>
                 </div>
-                {/* Live glance at what's streaming RIGHT NOW (tail of the
-                    newest reasoning/output, refreshed every 3s) — the full
-                    piece lives in the "Ragionamento in corso" slice above. */}
-                {streamPreview && (
-                  <p
-                    data-testid="task-stream-preview"
-                    className="line-clamp-2 pl-1 text-[11px] italic leading-snug text-neutral-500"
-                    title="Anteprima live dell'ultimo ragionamento in streaming"
-                  >…{streamPreview}</p>
-                )}
               </div>
             )}
             <div ref={bottomRef} />
@@ -1736,9 +1727,15 @@ function Ticker({ since }: { since: string }) {
  * (chat-style thinking block); expands inline, read-only, same markdown
  * renderer as the chat. Renders nothing when the interval holds no messages.
  */
-function SessionSlice({ msgs, label }: { msgs: SessionMsg[]; label?: string }) {
+function SessionSlice({ msgs, label, preview }: {
+  msgs: SessionMsg[];
+  label?: string;
+  /** Live tail of what's streaming NOW — shown on the collapsed block so the
+   *  session strip itself answers "come sta andando" at a glance. */
+  preview?: string | null;
+}) {
   const [open, setOpen] = useState(false);
-  if (msgs.length === 0) return null;
+  if (msgs.length === 0 && !preview) return null;
   return (
     <div className="rounded-md border border-white/5 bg-white/[0.02]">
       <button
@@ -1750,6 +1747,13 @@ function SessionSlice({ msgs, label }: { msgs: SessionMsg[]; label?: string }) {
         <span>{label ?? 'Ragionamento'} · {msgs.length} passagg{msgs.length === 1 ? 'io' : 'i'}</span>
         <ChevronDown className={`ml-auto h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
+      {!open && preview && (
+        <p
+          data-testid="task-stream-preview"
+          title="Anteprima live di ciò che sta streammando ora"
+          className="line-clamp-2 border-t border-white/5 px-2.5 py-1.5 text-[11px] italic leading-snug text-neutral-500"
+        >…{preview}</p>
+      )}
       {open && (
         <div className="max-h-72 space-y-2 overflow-y-auto border-t border-white/5 bg-black/20 px-2.5 py-2">
           {msgs.map((m, i) => (
