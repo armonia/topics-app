@@ -36,6 +36,14 @@ const STATUSES: readonly TaskStatus[] = ["backlog", "todo", "in_progress", "revi
  */
 export const UNASSIGNED_PROJECT_ID = "_none";
 
+/**
+ * Virtual board id the composer posts to when the project is on "Auto": the
+ * create route resolves the REAL board from the task text (a known project
+ * name mentioned in title/description). Never stored on a task — unresolved
+ * creates land on UNASSIGNED_PROJECT_ID.
+ */
+export const AUTO_PROJECT_ID = "_auto";
+
 export interface Task {
   id: string;
   projectId: string;

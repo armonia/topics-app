@@ -18,6 +18,13 @@ export const TASK_STATUSES: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'r
  * ignores them until a human assigns a real project via "Sposta su…".
  */
 export const UNASSIGNED_PROJECT_ID = '_none';
+
+/**
+ * Virtual board id for "project: Auto" — the server resolves the real board
+ * from a known project name mentioned in the task text (unique hit), falling
+ * back to UNASSIGNED_PROJECT_ID when none/ambiguous.
+ */
+export const AUTO_PROJECT_ID = '_auto';
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: 'Backlog',
   todo: 'Todo',
