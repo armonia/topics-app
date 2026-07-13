@@ -577,7 +577,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // The state variable below tracks where we are; resetStreamTimer
           // is the single entry point called by every onTextDelta /
           // onToolStart / onSubAgentUpdate / etc. handler.
-          const STREAM_TIMEOUT_MS = 120_000;       // 2 min soft
+          // 1 min soft: surface the "sta rallentando" cue after a minute of PURE
+          // silence (the timer already suspends while tool calls run, so this
+          // only counts genuine no-output gaps), instead of a 2-min apparent
+          // freeze. Harmless if a healthy-but-slow turn trips it — the slow
+          // annotation is stripped the moment output resumes (resetStreamTimer
+          // recovery). Grace (recovery window) and the hard cap are unchanged.
+          const STREAM_TIMEOUT_MS = 60_000;        // 1 min soft
           const STREAM_GRACE_MS = 60_000;          // 1 min grace
           const STREAM_HARD_TIMEOUT_MS = 30 * 60_000; // 30 min hard upper-bound
           let streamState: "streaming" | "soft-timed-out" | "finalized" = "streaming";
