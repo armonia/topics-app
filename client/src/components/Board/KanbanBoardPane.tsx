@@ -12,16 +12,36 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Maximize2, Minimize2, Paperclip, Plus, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Lock, Maximize2, Minimize2, Paperclip, Plus, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ChatMarkdown } from '../ChatMarkdown';
+import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
+import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
   type BoardProjectRef,
 } from '../../lib/board';
+
+/**
+ * "claude-opus-4-8" → "Opus 4.8" — strip the `claude-` prefix, capitalize the
+ * family name, join the remaining numeric segments with dots as the version.
+ * Generic on purpose: a new model id needs no update here.
+ */
+function friendlyModelLabel(modelId: string): string {
+  const parts = modelId.replace(/^claude-/, '').split('-');
+  const name = parts[0] ? parts[0][0].toUpperCase() + parts[0].slice(1) : modelId;
+  const version = parts.slice(1).join('.');
+  return version ? `${name} ${version}` : name;
+}
+
+/** Compact prose for the shared ChatMarkdown renderer inside small board
+ *  surfaces (session slices, comments, task description): small text, tight
+ *  paragraph/list rhythm, scrollable code blocks. */
+const COMPACT_MD_CLS =
+  '[&_p]:my-0.5 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 [&_ul]:my-0.5 [&_ul]:pl-4 [&_ol]:my-0.5 [&_ol]:pl-4 [&_code]:text-[11px] [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-2 [&_blockquote]:text-neutral-400';
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -112,7 +132,7 @@ const boardCollision: CollisionDetection = (args) => {
 };
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
-const DISPATCH_CHIP: Record<string, { text: string; cls: string }> = {
+const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string }> = {
   queued: { text: 'in coda', cls: 'bg-white/10 text-neutral-300' },
   starting: { text: 'avvio…', cls: 'bg-amber-500/15 text-amber-300' },
   working: { text: 'al lavoro', cls: 'bg-sky-500/15 text-sky-300' },
@@ -120,7 +140,7 @@ const DISPATCH_CHIP: Record<string, { text: string; cls: string }> = {
   // needs_input = the agent ASKED (answer required); delivered = clean
   // hand-off, the agent believes it's done (approve/reject).
   needs_input: { text: 'serve te', cls: 'bg-rose-500/15 text-rose-300' },
-  delivered: { text: 'finito (AI)', cls: 'bg-emerald-500/15 text-emerald-300' },
+  delivered: { text: 'consegnato', cls: 'bg-emerald-500/15 text-emerald-300', title: "L'agent ha consegnato: aspetta la tua review" },
 };
 
 export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic }: Props) {
@@ -216,13 +236,27 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     return m;
   }, [tasks]);
 
-  // Parent-title lookup for subtask cards ("⤴ epic…" context chip). Best-effort:
-  // a parent whose card isn't in the current fetch (e.g. filtered) just shows no chip.
-  const titleById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const t of tasks) m.set(t.id, t.text);
+  // Task lookup by id for card-level context chips: parent title ("⤴ epic…")
+  // and blocked-by ("in attesa di…", needs the blocker's status too). Best
+  // effort: a referenced task not in the current fetch (e.g. filtered) just
+  // shows no chip.
+  const tasksById = useMemo(() => {
+    const m = new Map<string, BoardTask>();
+    for (const t of tasks) m.set(t.id, t);
     return m;
   }, [tasks]);
+
+  // Project path index, only needed in the cross-project board (per-card
+  // favicon — task.projectId is a one-way hash, ProjectFavicon needs a path).
+  const [projectPathById, setProjectPathById] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (mode !== 'all') return;
+    let alive = true;
+    boardApi.projects()
+      .then((ps) => { if (alive) setProjectPathById(new Map(ps.map((p) => [p.projectId, p.path]))); })
+      .catch(() => { /* card just falls back to the text label */ });
+    return () => { alive = false; };
+  }, [mode]);
 
   const patchLocal = useCallback((id: string, patch: Partial<BoardTask>) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -356,7 +390,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               onError={setError}
               onRefetch={refetch}
               onOpenTopic={onOpenTopic}
-              titleById={titleById}
+              tasksById={tasksById}
+              projectPathById={projectPathById}
             />
           ))}
         </div>
@@ -409,6 +444,94 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
  * title = first line, full text goes to the description, and the dispatched
  * agent polishes the wording (kickoff rule) — no model to pick, ever.
  */
+/**
+ * Menu content shared by every "pick a project" surface (the composer's
+ * project chip, the task-detail "Sposta su…" chip): a search box that filters
+ * by name (case-insensitive) and, when the typed text matches no project
+ * exactly, a "Crea '<text>'…" row that scaffolds it on the spot. Replaces the
+ * old two-step "Nuovo progetto…" + separate input flow — search box IS the
+ * create box now.
+ */
+function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate, busy, listLabel, headerNote }: {
+  projects: BoardProjectRef[] | null;
+  selectedId?: string | null;
+  isDisabled?: (p: BoardProjectRef) => boolean;
+  onPick: (p: BoardProjectRef) => void;
+  onCreate: (name: string) => void;
+  busy: boolean;
+  listLabel: string;
+  headerNote?: React.ReactNode;
+}) {
+  const [query, setQuery] = useState('');
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!projects) return [];
+    return q ? projects.filter((p) => p.name.toLowerCase().includes(q)) : projects;
+  }, [projects, query]);
+  const exactMatch = useMemo(
+    () => (projects ?? []).some((p) => p.name.toLowerCase() === query.trim().toLowerCase()),
+    [projects, query],
+  );
+  const showCreate = query.trim().length > 0 && !exactMatch;
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter' || busy) return;
+    e.preventDefault();
+    const only = filtered.length === 1 ? filtered[0] : null;
+    if (only && !isDisabled?.(only)) onPick(only);
+    else if (filtered.length === 0 && query.trim()) onCreate(query.trim());
+  };
+
+  return (
+    <>
+      <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">{listLabel}</p>
+      {headerNote}
+      <div className="px-2.5 pb-1.5">
+        <input
+          autoFocus value={query} disabled={busy}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Cerca o crea…"
+          className="w-full rounded bg-white/5 px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600"
+        />
+      </div>
+      <div className="max-h-60 overflow-y-auto">
+        {projects === null ? (
+          <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
+        ) : filtered.length === 0 ? (
+          <p className="px-2.5 py-2 text-xs text-neutral-500">{query.trim() ? 'Nessun progetto corrisponde.' : 'Nessun progetto trovato.'}</p>
+        ) : filtered.map((p) => {
+          const disabled = (isDisabled?.(p) ?? false) || busy;
+          return (
+            <button
+              key={p.projectId} role="option" aria-selected={p.projectId === selectedId}
+              disabled={disabled}
+              onClick={() => onPick(p)}
+              title={p.path}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+            >
+              <ProjectFavicon path={p.path} size={13} />
+              <span className="min-w-0 flex-1 truncate">{p.name}</span>
+              {p.projectId === selectedId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+            </button>
+          );
+        })}
+      </div>
+      {showCreate && (
+        <>
+          <div className="my-1 border-t border-white/10" />
+          <button
+            role="option" aria-selected={false} disabled={busy}
+            onClick={() => onCreate(query.trim())}
+            title={`Crea il progetto "${query.trim()}" nel workspace`}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+          >{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Crea &quot;{query.trim()}&quot;…</button>
+        </>
+      )}
+    </>
+  );
+}
+
 function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
@@ -427,15 +550,28 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   // Project picker — the SAME Menu-primitive selector the task-detail header
   // uses (portal, flip-above, keyboard nav), not a bare native <select>.
   const [projOpen, setProjOpen] = useState(false);
-  const [creatingProj, setCreatingProj] = useState(false);
-  const [newProjName, setNewProjName] = useState('');
   const [projBusy, setProjBusy] = useState(false);
   const projBtnRef = useRef<HTMLButtonElement>(null);
+  // Model picker — "Auto" (null) or one of the claude-code provider's models.
+  const [modelOpen, setModelOpen] = useState(false);
+  const [model, setModel] = useState<string | null>(null);
+  const modelBtnRef = useRef<HTMLButtonElement>(null);
+  const [claudeModels, setClaudeModels] = useState<string[]>(
+    () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
+  );
+  const modelsSubRef = useRef<(() => void) | null>(null);
+  const loadModels = () => {
+    if (modelsSubRef.current) return;
+    modelsSubRef.current = subscribeProvidersSnapshot((state) => {
+      setClaudeModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
+    });
+  };
+  useEffect(() => () => { modelsSubRef.current?.(); }, []);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   // The Menu portals to <body>, so focus leaves the wrapper while it's open —
   // keep the composer expanded anyway.
-  const expanded = focused || projOpen || text.trim().length > 0;
+  const expanded = focused || projOpen || modelOpen || text.trim().length > 0;
 
   const loadProjects = () => {
     if (projects === null) boardApi.projects().then(setProjects).catch(() => setProjects([]));
@@ -447,7 +583,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   // Collapse only when focus truly LEFT the composer (not moving between its
   // own controls) — otherwise clicking "Plan first" would blur-shrink it.
   const onBlurCapture = (e: React.FocusEvent) => {
-    if (projOpen) return;
+    if (projOpen || modelOpen) return;
     if (wrapRef.current && e.relatedTarget instanceof Node && wrapRef.current.contains(e.relatedTarget)) return;
     setFocused(false);
   };
@@ -466,21 +602,18 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   // Readable before the index loads: the stored id minus its hash suffix.
   const targetLabel = targetRef?.name ?? (targetProject ? targetProject.replace(/-[^-]+$/, '') : '');
 
-  const pickProject = (id: string) => {
-    setTargetProject(id);
-    try { localStorage.setItem('board:composerProject', id); } catch { /* private mode */ }
+  const pickProject = (p: BoardProjectRef) => {
+    setTargetProject(p.projectId);
+    try { localStorage.setItem('board:composerProject', p.projectId); } catch { /* private mode */ }
     setProjOpen(false);
-    setCreatingProj(false);
   };
-  const doCreateProject = async () => {
-    const name = newProjName.trim();
+  const doCreateProject = async (name: string) => {
     if (!name || projBusy) return;
     setProjBusy(true);
     try {
       const created = await boardApi.createProject(name);
       setProjects((prev) => (prev ? [...prev, created].sort((a, b) => a.name.localeCompare(b.name)) : [created]));
-      setNewProjName('');
-      pickProject(created.projectId);
+      pickProject(created);
     } catch (e) { onError(e instanceof Error ? e.message : 'create project failed'); }
     finally { setProjBusy(false); }
   };
@@ -499,9 +632,10 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
     const description = firstLine.length > 80 ? raw : rest || null;
     setSubmitting(true);
     try {
-      await boardApi.create(target, { text: title, description, status: 'todo', planFirst });
+      await boardApi.create(target, { text: title, description, status: 'todo', planFirst, model: model ?? undefined });
       setText('');
       setPlanFirst(false);
+      setModel(null);
       if (taRef.current) taRef.current.style.height = 'auto';
       onCreated();
     } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
@@ -538,68 +672,58 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
                 title={targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
                 className="flex min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
               >
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject ? 'bg-emerald-400' : 'bg-neutral-600'}`} />
+                <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject ? 'bg-emerald-400' : 'bg-neutral-600'}`} />} />
                 <span className="truncate">{targetLabel || 'Progetto…'}</span>
                 <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
               </button>
               <Menu
                 open={projOpen}
                 anchorRef={projBtnRef}
-                onClose={() => { setProjOpen(false); setCreatingProj(false); }}
+                onClose={() => setProjOpen(false)}
                 minWidth={230}
                 role="listbox"
+                unmanagedFocus
               >
-                <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Progetto del task</p>
-                <div className="max-h-60 overflow-y-auto">
-                  {projects === null ? (
-                    <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
-                  ) : projects.length === 0 ? (
-                    <p className="px-2.5 py-2 text-xs text-neutral-500">Nessun progetto trovato.</p>
-                  ) : projects.map((p) => (
-                    <button
-                      key={p.projectId} role="option" aria-selected={p.projectId === targetProject}
-                      onClick={() => pickProject(p.projectId)}
-                      title={p.path}
-                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
-                    >
-                      <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                      {p.projectId === targetProject && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                    </button>
-                  ))}
-                </div>
-                <div className="my-1 border-t border-white/10" />
-                {creatingProj ? (
-                  <div className="flex items-center gap-1 px-2.5 py-1.5">
-                    <input
-                      autoFocus value={newProjName} disabled={projBusy}
-                      onChange={(e) => setNewProjName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') { e.preventDefault(); doCreateProject(); }
-                        if (e.key === 'Escape') { setCreatingProj(false); setNewProjName(''); }
-                      }}
-                      placeholder="nome-progetto"
-                      className="min-w-0 flex-1 rounded bg-white/5 px-1.5 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600"
-                    />
-                    {projBusy ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />
-                    ) : (
-                      <button
-                        onClick={doCreateProject} disabled={!newProjName.trim()}
-                        className="rounded bg-emerald-500/80 px-1.5 py-1 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
-                      >Crea</button>
-                    )}
-                  </div>
-                ) : (
-                  <button
-                    role="option" aria-selected={false}
-                    onClick={() => setCreatingProj(true)}
-                    title="Crea un nuovo progetto nel workspace e usalo per questo task"
-                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
-                  ><Plus className="h-3.5 w-3.5" /> Nuovo progetto…</button>
-                )}
+                <ProjectPickerBody
+                  projects={projects}
+                  selectedId={targetProject}
+                  onPick={pickProject}
+                  onCreate={doCreateProject}
+                  busy={projBusy}
+                  listLabel="Progetto del task"
+                />
               </Menu>
             </>
           )}
+          <button
+            ref={modelBtnRef}
+            onClick={() => { setModelOpen(true); loadModels(); }}
+            data-testid="composer-model-chip"
+            title={model ? `Modello: ${friendlyModelLabel(model)}` : 'Modello: automatico (scelto dal provider)'}
+            className="flex shrink-0 items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[11px] text-neutral-300 hover:bg-white/10"
+          >{model ? friendlyModelLabel(model) : 'Auto'} <ChevronDown className="h-3 w-3 text-neutral-500" /></button>
+          <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
+            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello</p>
+            <button
+              role="option" aria-selected={model === null}
+              onClick={() => { setModel(null); setModelOpen(false); }}
+              title="Lascia scegliere il provider"
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+            >
+              <span className="min-w-0 flex-1">Auto</span>
+              {model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+            </button>
+            {claudeModels.map((m) => (
+              <button
+                key={m} role="option" aria-selected={model === m}
+                onClick={() => { setModel(m); setModelOpen(false); }}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+              >
+                <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(m)}</span>
+                {model === m && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+            ))}
+          </Menu>
           <button
             onClick={() => setPlanFirst((v) => !v)}
             title="L'agent consegna prima un piano da approvare, implementa dopo il tuo ok"
@@ -607,7 +731,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
               planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
             }`}
           ><ClipboardList className="h-3 w-3" /> Plan first</button>
-          <span className="ml-auto hidden shrink-0 text-[10px] text-neutral-600 sm:block">parte da Todo · modello automatico</span>
+          <span className="ml-auto hidden shrink-0 text-[10px] text-neutral-600 sm:block">parte da Todo · {model ? `modello ${friendlyModelLabel(model)}` : 'modello automatico'}</span>
           <button
             onClick={submit} disabled={!text.trim() || submitting}
             title="Crea il task (l'agent parte da Todo)"
@@ -620,10 +744,10 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
 }
 
 // ── Column ────────────────────────────────────────────────────────────────
-function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, titleById }: {
+function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: (id: string) => void; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
-  onOpenTopic?: (topicId: string) => void; titleById: Map<string, string>;
+  onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -642,7 +766,12 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
       <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
         <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map((t) => (
-            <Card key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic} parentTitle={t.parentTaskId ? titleById.get(t.parentTaskId) : undefined} />
+            <Card
+              key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
+              parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
+              blocker={t.blockedByTaskId ? tasksById.get(t.blockedByTaskId) : undefined}
+              projectPath={projectPathById.get(t.projectId)}
+            />
           ))}
         </SortableContext>
         {!canCreate ? null : adding ? (
@@ -668,11 +797,15 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────
-function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle }: {
+function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath }: {
   task: BoardTask; onOpen: (id: string) => void; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
   parentTitle?: string;
+  /** The task this one is gated on, when still unresolved (blocked-by chip). */
+  blocker?: BoardTask;
+  /** Real filesystem path of task.projectId, for the favicon (cross-project board only). */
+  projectPath?: string;
 }) {
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
@@ -740,7 +873,18 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
         </button>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-4">
-        {showProject && <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">{projectLabel}</span>}
+        {showProject && (
+          <span className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">
+            {projectPath && <ProjectFavicon path={projectPath} size={11} />}
+            {projectLabel}
+          </span>
+        )}
+        {blocker && blocker.status !== 'done' && (
+          <span
+            title={`In attesa di: ${blocker.text}`}
+            className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300"
+          ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">in attesa di: {blocker.text}</span></span>
+        )}
         {task.parentTaskId && (
           <button
             onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
@@ -768,7 +912,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
         )}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
         {task.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
-          <span className={`rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`}>
+          <span className={`rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title}>
             {DISPATCH_CHIP[task.dispatchState].text}
           </span>
         )}
@@ -1046,14 +1190,14 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const projChipRef = useRef<HTMLButtonElement>(null);
   const [projMenuOpen, setProjMenuOpen] = useState(false);
   const [projects, setProjects] = useState<BoardProjectRef[] | null>(null);
-  const [creatingProj, setCreatingProj] = useState(false);
-  const [newProjName, setNewProjName] = useState('');
   const [projBusy, setProjBusy] = useState(false);
 
-  const openProjMenu = () => {
-    setProjMenuOpen(true);
-    if (projects === null) boardApi.projects().then(setProjects).catch(() => setProjects([]));
-  };
+  // Eager, not lazy: the chip needs the real path for its favicon (and an
+  // accurate label) the moment the drawer opens, not only after the user
+  // clicks "Sposta su…" once.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
+  useEffect(() => { boardApi.projects().then(setProjects).catch(() => setProjects([])); }, []);
+  const openProjMenu = () => setProjMenuOpen(true);
   const currentProject = projects?.find((p) => p.projectId === task?.projectId) ?? null;
   const projectLabel = currentProject?.name ?? (task ? task.projectId.replace(/-[^-]+$/, '') : '');
   const moveBlocked = !task ? null
@@ -1076,18 +1220,52 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath: currentProject.path } }));
     setProjMenuOpen(false);
   };
-  const doCreateProject = async () => {
-    const name = newProjName.trim();
+  const doCreateProject = async (name: string) => {
     if (!name || projBusy || !task) return;
     setProjBusy(true);
     try {
       const created = await boardApi.createProject(name);
       setProjects((prev) => (prev ? [...prev, created].sort((a, b) => a.name.localeCompare(b.name)) : prev));
       await boardApi.move(task.projectId, taskId, created.projectId);
-      setError(null); setNewProjName(''); setCreatingProj(false); setProjMenuOpen(false);
+      setError(null); setProjMenuOpen(false);
       onChanged();
     } catch (e) { showError(e); }
     finally { setProjBusy(false); }
+  };
+
+  // Blocked-by selector: gate this task on another ROOT task of the same
+  // board. The dispatcher won't start it until the blocker is done (server
+  // validates cycles — a 400 surfaces through the same showError as everything
+  // else here).
+  const blockerBtnRef = useRef<HTMLButtonElement>(null);
+  const [blockerMenuOpen, setBlockerMenuOpen] = useState(false);
+  const [boardTasks, setBoardTasks] = useState<BoardTask[] | null>(null);
+  const openBlockerMenu = () => {
+    setBlockerMenuOpen(true);
+    if (boardTasks === null && task) boardApi.list(task.projectId).then(setBoardTasks).catch(() => setBoardTasks([]));
+  };
+  const blockerCandidates = useMemo(
+    () => (boardTasks ?? []).filter((t) => !t.parentTaskId && t.id !== taskId),
+    [boardTasks, taskId],
+  );
+  const blockerTask = task?.blockedByTaskId
+    ? (boardTasks?.find((t) => t.id === task.blockedByTaskId) ?? null)
+    : null;
+  const pickBlocker = async (id: string | null) => {
+    if (!task || projBusy) return;
+    setBlockerMenuOpen(false);
+    if (id === task.blockedByTaskId) return;
+    setProjBusy(true);
+    try { await boardApi.update(task.projectId, taskId, { blockedByTaskId: id }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setProjBusy(false); }
+  };
+  const toggleReuseContext = async () => {
+    if (!task || busy) return;
+    setBusy(true);
+    try { await boardApi.update(task.projectId, taskId, { reuseBlockerContext: !task.reuseBlockerContext }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
   };
 
   const stopAgent = async () => {
@@ -1183,7 +1361,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           ))}
         </Menu>
         {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
-          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`}>
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title}>
             {DISPATCH_CHIP[task.dispatchState].text}
           </span>
         )}
@@ -1202,7 +1380,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
             className="ml-auto flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
           >
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+            <ProjectFavicon path={currentProject?.path ?? ''} size={13} fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
             <span className="truncate">{projectLabel}</span>
             <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
           </button>
@@ -1210,32 +1388,20 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
         <Menu
           open={projMenuOpen}
           anchorRef={projChipRef}
-          onClose={() => { setProjMenuOpen(false); setCreatingProj(false); }}
+          onClose={() => setProjMenuOpen(false)}
           minWidth={230}
+          unmanagedFocus
         >
-          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Sposta su…</p>
-          {moveBlocked && <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p>}
-          <div className="max-h-60 overflow-y-auto">
-            {projects === null ? (
-              <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
-            ) : projects.length === 0 ? (
-              <p className="px-2.5 py-2 text-xs text-neutral-500">Nessun progetto trovato.</p>
-            ) : projects.map((p) => {
-              const current = p.projectId === task?.projectId;
-              return (
-                <button
-                  key={p.projectId} role="menuitem"
-                  disabled={current || !!moveBlocked || projBusy}
-                  onClick={() => doMove(p)}
-                  title={p.path}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
-                >
-                  <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                  {current && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-                </button>
-              );
-            })}
-          </div>
+          <ProjectPickerBody
+            projects={projects}
+            selectedId={task?.projectId}
+            isDisabled={(p) => p.projectId === task?.projectId || !!moveBlocked}
+            onPick={doMove}
+            onCreate={doCreateProject}
+            busy={projBusy}
+            listLabel="Sposta su…"
+            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
+          />
           <div className="my-1 border-t border-white/10" />
           <button
             role="menuitem" disabled={!currentProject}
@@ -1243,35 +1409,6 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             title={currentProject ? `Apri la finestra di ${currentProject.name}` : 'Percorso del progetto non risolvibile'}
             className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
           ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
-          {creatingProj ? (
-            <div className="flex items-center gap-1 px-2.5 py-1.5">
-              <input
-                autoFocus value={newProjName} disabled={projBusy}
-                onChange={(e) => setNewProjName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); doCreateProject(); }
-                  if (e.key === 'Escape') { setCreatingProj(false); setNewProjName(''); }
-                }}
-                placeholder="nome-progetto"
-                className="min-w-0 flex-1 rounded bg-white/5 px-1.5 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600"
-              />
-              {projBusy ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />
-              ) : (
-                <button
-                  onClick={doCreateProject} disabled={!newProjName.trim()}
-                  className="rounded bg-emerald-500/80 px-1.5 py-1 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
-                >Crea</button>
-              )}
-            </div>
-          ) : (
-            <button
-              role="menuitem" disabled={!!moveBlocked || projBusy}
-              onClick={() => setCreatingProj(true)}
-              title={moveBlocked ?? 'Crea un nuovo progetto nel workspace e sposta qui il task'}
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
-            ><Plus className="h-3.5 w-3.5" /> Nuovo progetto…</button>
-          )}
         </Menu>
         <div className="flex shrink-0 items-center gap-0.5">
           {task?.assignedTopicId && onOpenTopic && (
@@ -1319,6 +1456,57 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
               >⤴ Task padre</button>
             )}
+            {task && (
+              <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                <button
+                  ref={blockerBtnRef}
+                  onClick={openBlockerMenu}
+                  data-testid="task-blocked-chip"
+                  title={blockerTask ? `Bloccato da: ${blockerTask.text}` : 'Fai partire questo task solo dopo un altro'}
+                  className={`flex max-w-[14rem] items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
+                    blockerTask && blockerTask.status !== 'done' ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+                  }`}
+                ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockerTask ? `Bloccato da: ${blockerTask.text}` : 'Bloccato da…'}</span></button>
+                <Menu open={blockerMenuOpen} anchorRef={blockerBtnRef} onClose={() => setBlockerMenuOpen(false)} minWidth={220} role="listbox" unmanagedFocus>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Bloccato da…</p>
+                  <button
+                    role="option" aria-selected={!task.blockedByTaskId}
+                    onClick={() => pickBlocker(null)}
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                  >
+                    <span className="min-w-0 flex-1">Nessuno</span>
+                    {!task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                  </button>
+                  <div className="max-h-52 overflow-y-auto">
+                    {boardTasks === null ? (
+                      <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
+                    ) : blockerCandidates.length === 0 ? (
+                      <p className="px-2.5 py-2 text-xs text-neutral-500">Nessun altro task su questa board.</p>
+                    ) : blockerCandidates.map((t) => (
+                      <button
+                        key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
+                        onClick={() => pickBlocker(t.id)}
+                        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                      >
+                        <span className="min-w-0 flex-1 truncate">{t.text}</span>
+                        {t.id === task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                      </button>
+                    ))}
+                  </div>
+                </Menu>
+                {task.blockedByTaskId && (
+                  <button
+                    onClick={toggleReuseContext}
+                    data-testid="task-reuse-context-toggle"
+                    title="Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo"
+                    aria-pressed={task.reuseBlockerContext}
+                    className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
+                      task.reuseBlockerContext ? 'bg-sky-500/15 text-sky-300' : 'bg-white/5 text-neutral-500 hover:bg-white/10'
+                    }`}
+                  >Riusa il contesto dell'agent del task bloccante</button>
+                )}
+              </div>
+            )}
             {editingTitle ? (
               <textarea
                 autoFocus value={titleDraft} rows={1} ref={autoGrow}
@@ -1344,11 +1532,11 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 className="-mx-1.5 mt-1 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-xs leading-4 text-neutral-300 outline-none"
               />
             ) : task?.description ? (
-              <p
+              <div
                 onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
                 title="Clicca per modificare la descrizione"
-                className="-mx-1.5 mt-1 cursor-text whitespace-pre-wrap rounded px-1.5 py-0.5 text-xs leading-4 text-neutral-400 hover:bg-white/5"
-              >{task.description}</p>
+                className={`-mx-1.5 mt-1 cursor-text rounded px-1.5 py-0.5 text-xs leading-4 text-neutral-400 hover:bg-white/5 ${COMPACT_MD_CLS}`}
+              ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
             ) : (
               <button
                 onClick={() => { setDescDraft(''); setEditingDesc(true); }}
@@ -1528,6 +1716,10 @@ function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   const [open, setOpen] = useState(false);
   const [kids, setKids] = useState<BoardTask[] | null>(null);
   const hasKids = node.subtaskCount > 0;
+  // A bare row (no description, no subtasks, no agent tab) has nothing to show
+  // in the drawer — no click affordance, so it doesn't look openable when it
+  // isn't.
+  const openable = !!node.description || hasKids || !!node.assignedTopicId;
   const toggle = async () => {
     if (!open && kids === null) {
       try { const { children } = await boardApi.get(projectId, node.id); setKids(children ?? []); }
@@ -1537,21 +1729,24 @@ function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   };
   return (
     <div>
-      <div className="flex items-center gap-1.5 rounded px-1 py-1 hover:bg-white/5" style={{ paddingLeft: 4 + depth * 14 }}>
+      <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-white/5" style={{ paddingLeft: depth * 10 }}>
         {hasKids ? (
           <button onClick={toggle} className="shrink-0 text-neutral-500 hover:text-neutral-300" title={open ? 'Chiudi' : 'Espandi'}>
-            <ChevronRight className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} />
+            <ChevronRight className={`h-2.5 w-2.5 transition-transform ${open ? 'rotate-90' : ''}`} />
           </button>
-        ) : (
-          <span className="w-3 shrink-0" />
-        )}
+        ) : null}
         <span title={STATUS_LABEL[node.status]} className="flex shrink-0">
           <StatusIcon status={node.status} className="h-3 w-3" />
         </span>
-        <button
-          onClick={() => onOpenTask?.(node.id)}
-          className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-200'}`}
-        >{node.text}</button>
+        {openable ? (
+          <button
+            onClick={() => onOpenTask?.(node.id)}
+            title="Apri il sottotask"
+            className={`min-w-0 flex-1 truncate text-left text-xs ${node.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-200'}`}
+          >{node.text}</button>
+        ) : (
+          <span className={`min-w-0 flex-1 truncate text-xs ${node.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-400'}`}>{node.text}</span>
+        )}
         {hasKids && <span className="shrink-0 text-[10px] text-neutral-500">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
       </div>
       {open && kids?.map((k) => (
@@ -1761,7 +1956,7 @@ function SessionSlice({ msgs, label, preview }: {
               <span className={`shrink-0 font-semibold ${m.role === 'user' ? 'text-sky-400' : 'text-neutral-500'}`}>
                 {m.role === 'user' ? '›' : '⏺'}
               </span>
-              <div className="min-w-0 flex-1 text-neutral-300 [&_code]:text-[11px] [&_p]:my-0.5 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 [&_ul]:my-0.5 [&_ul]:pl-4">
+              <div className={`min-w-0 flex-1 text-neutral-300 ${COMPACT_MD_CLS}`}>
                 <ChatMarkdown components={{}}>{m.content}</ChatMarkdown>
               </div>
             </div>
@@ -1804,11 +1999,11 @@ function CommentBubble({ comment }: { comment: TaskComment }) {
  */
 function CommentBody({ content }: { content: string }) {
   const q = parseQuestionBlock(content);
-  if (!q) return <p className="mt-0.5 whitespace-pre-wrap text-neutral-100">{content}</p>;
+  if (!q) return <div className={`mt-0.5 text-neutral-100 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{content}</ChatMarkdown></div>;
   const outside = content.replace(/```question[\s\S]*?```/, '').trim();
   return (
     <div className="mt-0.5 space-y-1">
-      {outside && <p className="whitespace-pre-wrap text-neutral-100">{outside}</p>}
+      {outside && <div className={`text-neutral-100 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{outside}</ChatMarkdown></div>}
       <div className="rounded border border-rose-500/25 bg-rose-500/5 px-2 py-1.5">
         <p className="text-[13px] leading-snug text-rose-200">{q.question}</p>
         {q.options.length > 0 && (
