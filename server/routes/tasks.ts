@@ -110,6 +110,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       catch (e) { return fail(e); }
     }
 
+    // /api/all-boards/settings — the GLOBAL auto-dispatch switch (one for every
+    // board, reserved board_settings row '*'). The header pill on any board —
+    // including the global one — reads and flips this. `board:dispatch` (no
+    // projectId) tells every open board header to update.
+    if (pathname === "/api/all-boards/settings") {
+      if (method === "GET") {
+        try { return json({ autoDispatch: svc.getGlobalAutoDispatch() }); } catch (e) { return fail(e); }
+      }
+      if (method === "PATCH") {
+        const body = (await readJSON(req)) as any;
+        if (typeof body?.autoDispatch !== "boolean") {
+          return json({ error: "autoDispatch (boolean) is required", code: "invalid_input" }, 400);
+        }
+        try {
+          const autoDispatch = svc.setGlobalAutoDispatch(body.autoDispatch);
+          broadcastToAll({ type: "board:dispatch", autoDispatch });
+          return json({ autoDispatch });
+        } catch (e) { return fail(e); }
+      }
+      return null;
+    }
+
     // /api/all-boards/projects — the board index (task-detail project selector).
     //   GET  → every project dir the server knows, as {projectId, name, path}
     //          (projectId = the same hash the boards key on).
@@ -158,7 +180,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const HUMAN = "user";
 
       // GET/PATCH /api/boards/:projectId/settings — per-board dispatch config
-      // (auto-dispatch toggle, concurrency cap, effort, worktree, timeout).
+      // (concurrency cap, effort, worktree, timeout). `autoDispatch` in the
+      // patch routes to the GLOBAL switch (see /api/all-boards/settings).
       const bSettings = matchRoute(pathname, "/api/boards/:projectId/settings");
       if (bSettings) {
         const projectId = bSettings.projectId;
@@ -176,6 +199,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchTimeoutMin: typeof body?.dispatchTimeoutMin === "number" ? body.dispatchTimeoutMin : undefined,
             });
             broadcastToAll({ type: "board:settings", projectId, settings });
+            // autoDispatch is global — every board header (not just this
+            // project's) must flip its pill.
+            if (typeof body?.autoDispatch === "boolean") {
+              broadcastToAll({ type: "board:dispatch", autoDispatch: settings.autoDispatch });
+            }
             return json(settings);
           } catch (e) { return fail(e); }
         }

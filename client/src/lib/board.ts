@@ -237,4 +237,9 @@ export const boardApi = {
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`),
   updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  /** The GLOBAL auto-dispatch switch (one for every board, incl. the global one). */
+  getGlobalDispatch: () =>
+    req<{ autoDispatch: boolean }>('/all-boards/settings').then(r => r.autoDispatch),
+  setGlobalDispatch: (autoDispatch: boolean) =>
+    req<{ autoDispatch: boolean }>('/all-boards/settings', { method: 'PATCH', body: JSON.stringify({ autoDispatch }) }).then(r => r.autoDispatch),
 };

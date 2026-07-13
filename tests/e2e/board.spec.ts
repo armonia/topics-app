@@ -7,7 +7,7 @@
  *  - live WS update when a task is created via API (no manual refresh)
  *  - agent-surface create (`/api/sessions/:key/tasks`) lands in Backlog (intake)
  *  - review gate: Approva moves review → done
- *  - auto-dispatch pill: "agent: off" by default, flips with the settings toggle
+ *  - auto-dispatch pill: "agent: off" by default, IS the global toggle (click flips)
  *  - global board ("Board generale") opens from the standalone "+" menu and
  *    aggregates tasks across projects with project badges
  */
@@ -194,22 +194,19 @@ test.describe("Kanban board", () => {
     await expect(reviewCol.getByText(text)).not.toBeVisible();
   });
 
-  test("BOARD-06: dispatch pill flips with the settings toggle", async ({ page }) => {
+  test("BOARD-06: dispatch pill IS the global start toggle (click flips on/off)", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-07" });
     await page.goto("/");
     await openProjectBoard(page);
 
+    // The pill is the GLOBAL switch: clicking it toggles auto-dispatch for
+    // every board (controlled state — assert after the PATCH round-trip).
     const pill = page.getByTestId("board-dispatch-pill");
     await expect(pill).toContainText("agent: off");
-    await pill.click(); // opens the settings panel
-    // Controlled React checkbox: the checked state flips only after the PATCH
-    // round-trip, so use click() + async assertion (check() would demand an
-    // immediate state change and fail).
-    const toggle = page.locator('input[type="checkbox"]').first();
-    await toggle.click();
+    await pill.click();
     await expect(pill).toContainText("agent: on");
-    // Restore: this board must stay manual for the other tests.
-    await toggle.click();
+    // Restore: the whole test env must stay manual for the other tests.
+    await pill.click();
     await expect(pill).toContainText("agent: off");
   });
 
