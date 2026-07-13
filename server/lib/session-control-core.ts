@@ -117,6 +117,13 @@ export interface DetachedTopicOptions {
   effort?: string;
   /** Model override for the topic's spawns (`--model`); absent = provider default. */
   model?: string;
+  /**
+   * Born CLOSED (archived: true). In the 2-state topic model an open (non-
+   * archived) topic IS a tab on every client — a dispatcher-spawned agent
+   * session must not pop tabs; it lives in the sidebar until the human opens
+   * it from the task drawer (which un-archives it).
+   */
+  background?: boolean;
 }
 
 /**
@@ -143,7 +150,7 @@ export function createDetachedTopic(
     icon: "MessageSquare",
     createdAt: now,
     updatedAt: now,
-    archived: false,
+    archived: opts.background === true,
     systemPrompt: opts.systemPrompt ?? "",
     contextFiles: [],
     pinnedMessages: [],
