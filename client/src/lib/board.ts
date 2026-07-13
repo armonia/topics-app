@@ -52,6 +52,12 @@ export interface BoardTask {
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;
+  /** Model the dispatched agent runs on; null = provider default ("Auto"). */
+  model: string | null;
+  /** Root task this one is gated on — the dispatcher won't start it until that task is done. */
+  blockedByTaskId: string | null;
+  /** When blocked, hand the new agent the blocker's session context instead of a cold start. */
+  reuseBlockerContext: boolean;
 }
 
 export interface TaskComment {
@@ -165,6 +171,12 @@ export interface CreateTaskBody {
   parentTaskId?: string | null;
   /** Dispatch contract: the agent plans first, implements after human approval. */
   planFirst?: boolean;
+  /** Model the dispatched agent runs on; omitted/null = provider default ("Auto"). */
+  model?: string | null;
+  /** Gate: don't dispatch until this root task is done. */
+  blockedByTaskId?: string | null;
+  /** When blocked, hand the new agent the blocker's session context. */
+  reuseBlockerContext?: boolean;
 }
 
 export interface UpdateTaskBody {
@@ -176,6 +188,12 @@ export interface UpdateTaskBody {
   kanbanOrder?: number;
   /** http(s) URL of the reviewable output; empty string clears it. */
   outputUrl?: string;
+  /** Model the dispatched agent runs on; null clears back to "Auto". */
+  model?: string | null;
+  /** Gate: don't dispatch until this root task is done; null clears it. */
+  blockedByTaskId?: string | null;
+  /** When blocked, hand the new agent the blocker's session context. */
+  reuseBlockerContext?: boolean;
 }
 
 /** Per-board dispatch config (server: board_settings). */
