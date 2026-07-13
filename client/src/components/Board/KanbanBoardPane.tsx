@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Lock, Maximize2, Minimize2, Paperclip, Plus, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Lock, Maximize2, Minimize2, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -20,7 +20,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import {
-  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID,
+  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
   type BoardProjectRef,
 } from '../../lib/board';
@@ -457,7 +457,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
  * old two-step "Nuovo progetto…" + separate input flow — search box IS the
  * create box now.
  */
-function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate, busy, listLabel, headerNote, onPickNone, noneSelected }: {
+function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate, busy, listLabel, headerNote, onPickAuto, autoSelected, onPickNone, noneSelected }: {
   projects: BoardProjectRef[] | null;
   selectedId?: string | null;
   isDisabled?: (p: BoardProjectRef) => boolean;
@@ -466,6 +466,9 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
   busy: boolean;
   listLabel: string;
   headerNote?: React.ReactNode;
+  /** Offer "Automatico" (server resolves the board from the task text). */
+  onPickAuto?: () => void;
+  autoSelected?: boolean;
   /** Offer "Nessun progetto" (task spanning several projects / undecided). */
   onPickNone?: () => void;
   noneSelected?: boolean;
@@ -504,6 +507,18 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
         />
       </div>
       <div className="max-h-60 overflow-y-auto">
+        {onPickAuto && !query.trim() && (
+          <button
+            role="option" aria-selected={!!autoSelected} disabled={busy}
+            onClick={onPickAuto}
+            title="Il progetto lo capisce il sistema dal testo del task (nome di progetto citato); se non è chiaro resta senza progetto"
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-300 hover:bg-white/10 disabled:opacity-40"
+          >
+            <Sparkles className="h-3 w-3 shrink-0 text-neutral-500" />
+            <span className="min-w-0 flex-1">Automatico</span>
+            {autoSelected && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+          </button>
+        )}
         {onPickNone && !query.trim() && (
           <button
             role="option" aria-selected={!!noneSelected} disabled={busy}
@@ -565,7 +580,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   const [submitting, setSubmitting] = useState(false);
   const [projects, setProjects] = useState<BoardProjectRef[] | null>(null);
   const [targetProject, setTargetProject] = useState<string>(() => {
-    try { return localStorage.getItem('board:composerProject') ?? ''; } catch { return ''; }
+    try { return localStorage.getItem('board:composerProject') ?? AUTO_PROJECT_ID; } catch { return AUTO_PROJECT_ID; }
   });
   // Project picker — the SAME Menu-primitive selector the task-detail header
   // uses (portal, flip-above, keyboard nav), not a bare native <select>.
@@ -623,20 +638,23 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
 
   const target = global ? targetProject : projectId;
   const noneTarget = targetProject === UNASSIGNED_PROJECT_ID;
+  const autoTarget = targetProject === AUTO_PROJECT_ID;
   const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
   // Readable before the index loads: the stored id minus its hash suffix.
-  const targetLabel = noneTarget
-    ? 'Nessun progetto'
-    : targetRef?.name ?? (targetProject ? targetProject.replace(/-[^-]+$/, '') : '');
+  const targetLabel = autoTarget
+    ? 'Auto'
+    : noneTarget
+      ? 'Nessuno'
+      : targetRef?.name ?? (targetProject ? targetProject.replace(/-[^-]+$/, '') : '');
 
   const pickProject = (p: BoardProjectRef) => {
     setTargetProject(p.projectId);
     try { localStorage.setItem('board:composerProject', p.projectId); } catch { /* private mode */ }
     setProjOpen(false);
   };
-  const pickNone = () => {
-    setTargetProject(UNASSIGNED_PROJECT_ID);
-    try { localStorage.setItem('board:composerProject', UNASSIGNED_PROJECT_ID); } catch { /* private mode */ }
+  const pickSentinel = (id: string) => {
+    setTargetProject(id);
+    try { localStorage.setItem('board:composerProject', id); } catch { /* private mode */ }
     setProjOpen(false);
   };
   const doCreateProject = async (name: string) => {
@@ -683,7 +701,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
         onBlurCapture={onBlurCapture}
         onPointerDownCapture={onPointerDownCapture}
         data-testid="board-task-composer"
-        className={`pointer-events-auto w-full max-w-xl rounded-2xl border bg-neutral-900/95 shadow-2xl shadow-black/50 backdrop-blur transition-all duration-200 ease-out ${
+        className={`pointer-events-auto w-full max-w-2xl rounded-2xl border bg-neutral-900/95 shadow-2xl shadow-black/50 backdrop-blur transition-all duration-200 ease-out ${
           expanded ? '-translate-y-2 border-white/20' : 'translate-y-0 border-white/10'
         }`}
       >
@@ -702,10 +720,14 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
                 ref={projBtnRef}
                 onClick={() => { setProjOpen(true); loadProjects(); }}
                 data-testid="composer-project-chip"
-                title={targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
+                title={autoTarget
+                  ? 'Progetto automatico: risolto dal testo del task (nome citato); se ambiguo resta senza progetto'
+                  : targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
                 className="flex min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
               >
-                <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject ? 'bg-emerald-400' : 'bg-neutral-600'}`} />} />
+                {autoTarget
+                  ? <Sparkles className="h-3 w-3 shrink-0 text-neutral-500" />
+                  : <ProjectFavicon path={targetRef?.path ?? ''} size={13} fallback={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject && !noneTarget ? 'bg-emerald-400' : 'bg-neutral-600'}`} />} />}
                 <span className="truncate">{targetLabel || 'Progetto…'}</span>
                 <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
               </button>
@@ -724,7 +746,9 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
                   onCreate={doCreateProject}
                   busy={projBusy}
                   listLabel="Progetto del task"
-                  onPickNone={pickNone}
+                  onPickAuto={() => pickSentinel(AUTO_PROJECT_ID)}
+                  autoSelected={autoTarget}
+                  onPickNone={() => pickSentinel(UNASSIGNED_PROJECT_ID)}
                   noneSelected={noneTarget}
                 />
               </Menu>
@@ -736,7 +760,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
             data-testid="composer-model-chip"
             title={model ? `Modello: ${friendlyModelLabel(model)}` : 'Modello: intelligenza automatica (sceglie il provider)'}
             className="flex shrink-0 items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[11px] text-neutral-300 hover:bg-white/10"
-          >{model ? friendlyModelLabel(model) : 'Intelligenza automatica'} <ChevronDown className="h-3 w-3 text-neutral-500" /></button>
+          ><Sparkles className="h-3 w-3 text-neutral-500" /> {model ? friendlyModelLabel(model) : 'Auto'} <ChevronDown className="h-3 w-3 text-neutral-500" /></button>
           <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
             <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello</p>
             <button
@@ -767,7 +791,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
             className="flex shrink-0 items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-neutral-300 hover:bg-white/10"
           >
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${prio !== null ? PRIORITY_DOT[prio] : 'border border-neutral-500'}`} />
-            {prio !== null ? PRIORITY_LABEL[prio] : 'Priorità automatica'} <ChevronDown className="h-3 w-3 text-neutral-500" />
+            {prio !== null ? PRIORITY_LABEL[prio] : 'Auto'} <ChevronDown className="h-3 w-3 text-neutral-500" />
           </button>
           <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
             <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Priorità</p>
@@ -800,11 +824,10 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
               planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
             }`}
           ><ClipboardList className="h-3 w-3" /> Plan first</button>
-          <span className="ml-auto hidden shrink-0 text-[10px] text-neutral-600 sm:block">parte da Todo</span>
           <button
             onClick={submit} disabled={!text.trim() || submitting}
             title="Crea il task (l'agent parte da Todo)"
-            className="shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
+            className="ml-auto shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
           >{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
         </div>
       </div>

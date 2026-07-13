@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
 import { getTerminalSessionById } from "./terminal";
-import { createTaskService, projectIdForPath, TaskServiceError } from "../services/tasks";
+import { AUTO_PROJECT_ID, createTaskService, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 
 const ERROR_STATUS: Record<string, number> = {
@@ -223,8 +223,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (method === "POST") {
           const body = (await readJSON(req)) as any;
           try {
+            // Project "Auto": resolve the real board from a known project name
+            // mentioned in the task text. Exactly one distinct hit = that
+            // board; none/ambiguous = unassigned (the human decides later) —
+            // never a guess between two plausible projects.
+            let effectiveProjectId = projectId;
+            if (projectId === AUTO_PROJECT_ID) {
+              const haystack = `${body?.text ?? ""}\n${body?.description ?? ""}`.toLowerCase();
+              const hits = new Set<string>();
+              let dirs: string[] = [];
+              try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+              for (const raw of dirs) {
+                if (typeof raw !== "string" || !raw.startsWith("/")) continue;
+                const path = raw.replace(/\/+$/, "");
+                const name = basename(path).toLowerCase();
+                if (name.length < 3) continue; // too generic to be a mention
+                const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                if (new RegExp(`(^|[^a-z0-9])${esc}($|[^a-z0-9])`).test(haystack)) hits.add(projectIdForPath(path));
+              }
+              effectiveProjectId = hits.size === 1 ? [...hits][0] : UNASSIGNED_PROJECT_ID;
+            }
             const task = svc.create({
-              projectId,
+              projectId: effectiveProjectId,
               text: body?.text,
               description: body?.description ?? null,
               priority: typeof body?.priority === "number" ? body.priority : undefined,
@@ -236,11 +256,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
               reuseBlockerContext: body?.reuseBlockerContext === true,
             });
-            broadcastToAll({ type: "task:created", projectId, task });
+            broadcastToAll({ type: "task:created", projectId: effectiveProjectId, task });
             // A task born directly in Todo is the same "vai" signal as a drag
             // into Todo: same chip, same grace window — not a silent 10s wait
             // for the reconcile poll. No-op when auto-dispatch is off.
-            if (dispatcher && task.status === "todo") dispatcher.onEnterTodo(projectId, task.id);
+            if (dispatcher && task.status === "todo") dispatcher.onEnterTodo(effectiveProjectId, task.id);
             // Adding a STEP under an agent-bound root in review IS the
             // assignment — no "please also do X" comment ceremony: re-kick the
             // same agent with the new step. (Root mid-turn: the step just lands
