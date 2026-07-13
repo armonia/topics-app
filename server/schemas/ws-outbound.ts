@@ -63,7 +63,21 @@ const unreadUpdatedSchema = z.object({
 const streamEndSchema = z.object({
   type: z.literal('stream:end'),
   sessionKey: z.string(),
-  messageId: z.string(),
+  // Present on normal completion and on error-with-partial finalisation; ABSENT
+  // on the abort / timeout / stale-watchdog paths (a `user_abort` or
+  // `stale_timeout` stream:end has no assistant message id to point at). The
+  // client handler keys entirely off `sessionKey` and never reads `messageId`,
+  // so requiring it here flagged EVERY abort/timeout broadcast as "malformed"
+  // (a dev-only warning — the message was still delivered) even though those
+  // shapes are correct. Optional + the known companion fields below make the
+  // schema a faithful contract of what the server actually emits.
+  messageId: z.string().optional(),
+  topicId: z.string().optional(),
+  reason: z.string().optional(),
+  latencyMs: z.number().optional(),
+  usagePromptTokens: z.number().optional(),
+  usageCompletionTokens: z.number().optional(),
+  costCents: z.number().optional(),
 });
 
 // ---- Coordination broadcasts (mirrors of inbound) --------------------------
