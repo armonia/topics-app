@@ -19,7 +19,8 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0
+    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
@@ -30,7 +31,8 @@ function freshDb(): Database {
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL
+    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'comment'
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
@@ -134,6 +136,26 @@ describe("task-dispatcher", () => {
     expect(h.turns[0].sessionKey).toBe("topic:sk1");
     expect(h.turns[0].content).toContain("owner esclusivo del task");
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
+  });
+
+  it("books wall-clock + token delta on the task at each turn end", async () => {
+    // Fake transcript usage: 0 tokens before the turn, 1234 after it.
+    let tokens = 0;
+    const h = harness({ getSessionTokens: () => tokens });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    tokens = 1234; // the turn consumed these
+    h.finishTurn();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.agentTokens).toBe(1234);
+    expect(t.agentMs).toBeGreaterThanOrEqual(0);
+    // The metric update is broadcast so the open drawer refreshes live.
+    expect(h.events.some((e) => e.type === "task:updated" && e.task?.agentTokens === 1234)).toBe(true);
   });
 
   it("leaves a task alone when the turn ends in review", async () => {

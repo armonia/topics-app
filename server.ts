@@ -418,6 +418,26 @@ const taskDispatcher = createTaskDispatcher({
   },
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   runTurn: runHeadlessTurn,
+  // Tokens consumed by the dispatched session so far: sum of the usage records
+  // in its Claude Code transcript (jsonl_path is kept fresh by the session
+  // tracker). Best-effort — a missing/unparsable transcript reads as 0, and the
+  // dispatcher only books per-turn deltas.
+  getSessionTokens: (sessionKey: string) => {
+    const row = ctx.db
+      .prepare("SELECT jsonl_path FROM claude_code_sessions WHERE session_key = ?")
+      .get(sessionKey) as { jsonl_path?: string | null } | null;
+    const path = row?.jsonl_path;
+    if (!path || !existsSync(path)) return 0;
+    let total = 0;
+    for (const line of readFileSync(path, "utf8").split("\n")) {
+      if (!line.includes('"usage"')) continue;
+      try {
+        const u = JSON.parse(line)?.message?.usage;
+        if (u) total += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+      } catch { /* partial line mid-write */ }
+    }
+    return total;
+  },
   broadcast: ctx.broadcastToAll,
 });
 
