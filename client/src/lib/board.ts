@@ -44,6 +44,11 @@ export interface BoardTask {
   outputUrl: string | null;
   /** Dispatch contract: agent delivers a PLAN to review before implementing. */
   planFirst: boolean;
+  /** When the current claim started — anchors the live "ci sta mettendo" ticker. */
+  inProgressAt: string | null;
+  /** Cumulative agent effort across every turn (dispatcher-recorded). */
+  agentMs: number;
+  agentTokens: number;
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;
@@ -58,6 +63,9 @@ export interface TaskComment {
   /** Attached files (absolute paths), rendered via /api/media. */
   media: string[];
   createdAt: string;
+  /** 'status' = a transition event ("todo→review", author = who moved it) —
+   *  rendered as a timeline row, never as a speech bubble. */
+  kind: 'comment' | 'status';
 }
 
 export interface TaskWithThread {

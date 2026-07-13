@@ -51,6 +51,12 @@ export interface DispatcherDeps {
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number }) => Promise<void>;
+  /**
+   * Total tokens consumed so far by this session (from its transcript usage
+   * records). Best-effort — absent/throwing = 0. The dispatcher records the
+   * PER-TURN DELTA on the task, so totals survive retries on fresh sessions.
+   */
+  getSessionTokens?: (sessionKey: string) => number;
   /** Broadcast a WS message so live boards reflect chip/state changes. */
   broadcast: (message: object) => void;
   log?: (msg: string, err?: unknown) => void;
@@ -123,6 +129,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function clearGrace(taskId: string): void {
     const t = graceTimers.get(taskId);
     if (t) { clearTimeout(t); graceTimers.delete(taskId); }
+  }
+
+  /** Tokens the session has consumed so far (best-effort, 0 when unknowable). */
+  function sessionTokens(sessionKey: string): number {
+    try { return deps.getSessionTokens?.(sessionKey) ?? 0; } catch { return 0; }
+  }
+
+  /** Book the turn's effort (wall-clock + token delta) on the task and emit. */
+  function recordUsage(taskId: string, t0: number, tokens0: number, sessionKey: string): void {
+    try {
+      emit(deps.svc.recordAgentUsage({
+        taskId,
+        addMs: Date.now() - t0,
+        addTokens: Math.max(0, sessionTokens(sessionKey) - tokens0),
+      }));
+    } catch { /* metrics never break the loop */ }
   }
 
   function buildKickoff(task: Task): string {
@@ -214,11 +236,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
 
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
+      const t0 = Date.now();
+      const tokens0 = sessionTokens(sessionKey);
       try {
         await deps.runTurn(sessionKey, kickoff, { timeoutMs });
       } catch (err) {
         log(`turn failed for task ${taskId}`, err);
       }
+      recordUsage(taskId, t0, tokens0, sessionKey);
       onTurnEnd(taskId);
       // The worktree holds the agent's work: keep it when the task advanced to
       // review/done (it's the deliverable), delete it when the attempt was
@@ -271,7 +296,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let chip = CHIP_NEEDS_INPUT;
       try {
         const comments = deps.svc.get(taskId)?.comments ?? [];
-        const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system");
+        // kind='status' rows are transition events, not the agent speaking —
+        // "the agent's last word" must be an actual comment.
+        const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind !== "status");
         if (lastAgent && !lastAgent.content.includes("```question")) chip = CHIP_DELIVERED;
       } catch { /* default to needs_input */ }
       try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
@@ -319,8 +346,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       let timeoutMin = 20;
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
+      const t0 = Date.now();
+      const tokens0 = sessionTokens(sessionKey);
       try { await deps.runTurn(sessionKey, buildResume(t, humanMessage), { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
       catch (err) { log(`resume turn failed for ${taskId}`, err); }
+      recordUsage(taskId, t0, tokens0, sessionKey);
       onTurnEnd(taskId);
     } finally {
       inFlight.delete(taskId);
