@@ -327,6 +327,17 @@ describe("board router (human, project-scoped)", () => {
     expect(resumed[0][1]).toContain("/tmp/mockup.png"); // the agent can read the file
   });
 
+  test("media outside the /api/media allowlist is DROPPED at write time (never stored, never fed to the agent)", async () => {
+    const ctx = makeCtx(db, broadcasts) as any;
+    ctx.isPathAllowed = (p: string) => p.startsWith("/allowed/");
+    const r = createTasksRouter(ctx);
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const resp = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/comments`, {
+      content: "con allegati", media: ["/allowed/img.png", "/Users/x/.ssh/id_rsa"],
+    }))!;
+    expect((await resp.json()).media).toEqual(["/allowed/img.png"]);
+  });
+
   test("adding a step under a root in review re-kicks the agent (no comment ceremony)", async () => {
     db.run("INSERT INTO topics (id) VALUES ('top-y')");
     const resumed: Array<[string, string]> = [];
