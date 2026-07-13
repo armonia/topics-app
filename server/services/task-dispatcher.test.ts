@@ -21,7 +21,8 @@ function freshDb(): Database {
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0
+    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
+    priority_auto INTEGER NOT NULL DEFAULT 1
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
@@ -554,5 +555,35 @@ describe("blocked-by + context reuse", () => {
     await h.dispatcher.tick(PID);
     await flush();
     expect((h.topicsCreated[0] as any).model).toBe("claude-fable-5");
+  });
+});
+
+describe("priority", () => {
+  it("serves the queue by priority (4 first), age as tie-break", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 1 });
+    seedTask(h.db, { id: "old-low", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    const urgent = h.svc.create({ projectId: PID, text: "fuoco", priority: 4 });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task(urgent.id)!.status).toBe("in_progress"); // newer but urgent wins
+    expect(h.task("old-low")!.status).toBe("todo");
+  });
+
+  it("kickoff asks the agent to set the priority ONLY when nobody chose one", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    const auto = h.svc.create({ projectId: PID, text: "senza priorità" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns[0].content).toContain("Priorità automatica");
+    h.finishTurn(); await flush();
+    const h2 = harness();
+    h2.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h2.svc.create({ projectId: PID, text: "scelta umana", priority: 3 });
+    await h2.dispatcher.tick(PID);
+    await flush();
+    expect(h2.turns[0].content).not.toContain("Priorità automatica");
+    expect(auto.priorityAuto).toBe(true);
   });
 });

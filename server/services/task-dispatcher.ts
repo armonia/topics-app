@@ -175,6 +175,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "Regole di lavoro:",
         "- Lavora SOLO questo task, in questa working directory.",
         "- Se il titolo del task è grezzo o descrittivo a metà, riscrivilo tu chiaro e conciso appena inquadrato il lavoro: update_task(task_id=\"" + task.id + "\", text=<titolo>, description=<dettagli utili>) — la board è più leggibile per l'umano.",
+        ...(task.priorityAuto
+          ? [
+              `- Priorità automatica: l'umano non ha scelto una priorità. Appena inquadrato il lavoro valutala tu e impostala: update_task(task_id="${task.id}", priority=<0-4>) — 0=minima, 1=bassa, 2=media, 3=alta, 4=urgente. La coda di dispatch serve prima le priorità alte.`,
+            ]
+          : []),
         "- Commenti BREVI e utili: max 1-2 frasi ai milestone (cosa è fatto / cosa blocca). Mai log, diff o dump di codice nel thread (il server rifiuta commenti lunghi).",
         "- PIANO VISIBILE: se il lavoro ha più di un passo, crea subito i tuoi step come sottotask — " +
           `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
@@ -424,7 +429,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Dependency gate: a todo whose blocker is still open WAITS (no claim
       // attempt, no chip). Same predicate as the claim CAS, so no divergence.
       .filter((t) => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      // Priority is the queue discipline (4=urgente first), age breaks ties —
+      // an urgent task never waits behind an older low-priority one.
+      .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt));
 
     if (!resolved) {
       // Auto-dispatch is ON but the board id can't be mapped back to a
