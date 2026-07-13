@@ -178,6 +178,17 @@ describe("review gate (KANBAN-05)", () => {
     expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
   });
 
+  test("human re-drag to todo resets the retry budget (parked tasks stay re-dispatchable)", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "backlog" });
+    db.prepare("UPDATE tasks SET dispatch_attempts = 3 WHERE id = ?").run(t.id);
+    const back = s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "todo" } });
+    expect(back.dispatchAttempts).toBe(0);
+    // An AGENT moving to todo does NOT refresh its own retries.
+    db.prepare("UPDATE tasks SET dispatch_attempts = 3, status = 'backlog' WHERE id = ?").run(t.id);
+    const agentMove = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "todo" } });
+    expect(agentMove.dispatchAttempts).toBe(3);
+  });
+
   test("human drag review → done clears the lingering dispatch chip", () => {
     const t = s.create({ projectId: PID, text: "work" });
     s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "review" } });

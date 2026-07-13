@@ -85,8 +85,19 @@ done
 pkill -f 'fswatch.*client/src' 2>/dev/null
 pkill -f 'fswatch.*[ /]server/' 2>/dev/null
 
-# Initial client build
-(cd client && npx vite build 2>&1 | tail -3)
+# Client bundle: /public is a DEPLOY ARTIFACT, not a boot product (2026-07-13).
+# The old unconditional `npx vite build` here rebuilt the client from the LIVE
+# repo on every kickstart — which (a) kept the server DOWN for the whole build
+# (minutes under launchd on a loaded box), and (b) shipped whatever WIP other
+# sessions had in client/src, silently overwriting the clean-worktree build
+# that the deploy flow rsyncs into /public (see CLAUDE.md: build SOLO da
+# worktree pulito). Kickstart = server restart; the bundle only changes when a
+# deploy deliberately replaces /public. Bootstrap-only fallback: build once if
+# the bundle is missing entirely (fresh checkout).
+if [ ! -f "$APP_DIR/public/index.html" ]; then
+  echo "[start-prod] /public is empty — bootstrap client build"
+  (cd client && npx vite build 2>&1 | tail -3)
+fi
 
 # ─── Client: STABLE bundle, no reload-on-source-change ─────────────────────
 # The production app serves the /public bundle built once above. We deliberately
