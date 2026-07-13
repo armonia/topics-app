@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { matchProjectRef, type ProjectRefCandidate } from "./project-ref";
+import { matchProjectRef, matchProjectRefAll, type ProjectRefCandidate } from "./project-ref";
 
 // Mirror the store's slugify closely enough for the matcher's purposes.
 const slugify = (s: string) =>
@@ -45,5 +45,40 @@ describe("matchProjectRef", () => {
     expect(matchProjectRef("nonexistent", candidates, slugify)).toBeNull();
     expect(matchProjectRef("", candidates, slugify)).toBeNull();
     expect(matchProjectRef("   ", candidates, slugify)).toBeNull();
+  });
+});
+
+describe("matchProjectRefAll", () => {
+  it("returns EVERY basename collision, in candidate order (the two-topics-app case)", () => {
+    const c: ProjectRefCandidate[] = [
+      { path: "/Users/z/Projects/topics-app" },          // real repo (live topic binding)
+      { path: "/Users/z/.openclaw/workspace/topics-app" }, // stale husk (dead June binding)
+    ];
+    expect(matchProjectRefAll("topics-app", c, slugify)).toEqual([
+      "/Users/z/Projects/topics-app",
+      "/Users/z/.openclaw/workspace/topics-app",
+    ]);
+  });
+
+  it("dedupes repeated paths (many topics bound to the same repo)", () => {
+    const c: ProjectRefCandidate[] = [
+      { path: "/a/pix" },
+      { path: "/a/pix" },
+      { path: "/a/pix" },
+    ];
+    expect(matchProjectRefAll("pix", c, slugify)).toEqual(["/a/pix"]);
+  });
+
+  it("keeps tier strength: slug matches come before name, before basename", () => {
+    const c: ProjectRefCandidate[] = [
+      { path: "/base/pix" },                       // basename tier
+      { path: "/named", name: "Pix" },             // name tier
+      { path: "/slugged", slug: "pix" },           // slug tier
+    ];
+    expect(matchProjectRefAll("pix", c, slugify)).toEqual(["/slugged", "/named", "/base/pix"]);
+  });
+
+  it("matchProjectRef stays the first-of wrapper", () => {
+    expect(matchProjectRef("pix", [{ path: "/a/pix" }, { path: "/b/pix" }], slugify)).toBe("/a/pix");
   });
 });

@@ -13,7 +13,7 @@ import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { getTerminalSessionById } from "./terminal";
-import { matchProjectRef, type ProjectRefCandidate } from "../lib/project-ref";
+import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
@@ -621,16 +621,24 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         candidates.push({ path: p.path, name: p.name, slug: p.slug });
       }
     } catch { /* projectStore is best-effort here */ }
-    for (const t of Object.values(loadTopics().topics)) {
-      const pp = (t as any).projectPath as string | undefined;
-      if (pp) candidates.push({ path: pp });
-    }
+    // Topic-bound paths ordered by liveness: a NON-archived, recently-updated
+    // binding beats a dead one. Without this, "topics-app" once resolved to an
+    // empty workspace husk because six archived June chats iterated before the
+    // live ones bound to the real repo.
+    const topicList = (Object.values(loadTopics().topics) as any[])
+      .filter((t) => typeof t?.projectPath === "string" && t.projectPath)
+      .sort((a, b) =>
+        (Number(!!a.archived) - Number(!!b.archived)) ||
+        String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+    for (const t of topicList) candidates.push({ path: t.projectPath });
     for (const p of getWorkspaceProjects()) candidates.push({ path: p });
 
     // Compare candidate slugs with the SAME slugify that produced them (the
-    // store's), so "My App" matches a project stored as slug "my-app".
-    const matched = matchProjectRef(raw, candidates, (s) => projectStore.slugify(s));
-    if (matched && isExistingDir(matched)) return matched;
+    // store's), so "My App" matches a project stored as slug "my-app". On an
+    // ambiguous ref (same basename in several places) prefer the match that
+    // LOOKS like a project (git repo, CLAUDE.md, manifest…) over a bare husk.
+    const matches = matchProjectRefAll(raw, candidates, (s) => projectStore.slugify(s)).filter(isExistingDir);
+    if (matches.length) return matches.find(looksLikeProject) ?? matches[0];
 
     // Last resort: a same-named folder directly under the workspace.
     const wsDir = join(WORKSPACE_DIR, raw.replace(/[^a-zA-Z0-9_-]/g, ""));
@@ -778,12 +786,17 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       return readdirSync(WORKSPACE_DIR, { withFileTypes: true })
         .filter(e => {
           if (!e.isDirectory() || e.name.startsWith(".") || SKIP_DIRS.has(e.name)) return false;
-          // Check for at least one project marker
-          const dir = join(WORKSPACE_DIR, e.name);
-          return PROJECT_MARKERS.some(m => existsSync(join(dir, m)));
+          return looksLikeProject(join(WORKSPACE_DIR, e.name));
         })
         .map(e => join(WORKSPACE_DIR, e.name));
     } catch { return []; }
+  }
+
+  /** Does this dir carry at least one project marker? Used both by the
+   *  workspace scan and by resolveProjectRef's ambiguity tiebreak (a real
+   *  repo beats a marker-less husk with the same basename). */
+  function looksLikeProject(dir: string): boolean {
+    try { return PROJECT_MARKERS.some(m => existsSync(join(dir, m))); } catch { return false; }
   }
 
   /**
