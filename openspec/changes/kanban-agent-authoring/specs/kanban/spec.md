@@ -162,8 +162,23 @@ needs_input | delivered` via `dispatch_state`, e ogni interruzione (worktree imp
 progetto non risolvibile, turno morto, retry esauriti) SHALL parcheggiare il task con il
 motivo in `dispatch_error` E un commento nel thread — mai un fallimento silenzioso solo
 nei log. In review i due esiti sono distinti: `needs_input` ("serve te") quando l'ultima
-parola dell'agent è un question block (risposta richiesta), `delivered` ("finito (AI)")
+parola dell'agent è un question block (risposta richiesta), `delivered` ("consegnato")
 quando la consegna è pulita e attende solo l'approvazione.
+
+Un turno che termina senza raggiungere `review` con il task ancora `in_progress` e il
+topic ancora legato (tipicamente il timeout wall-clock che taglia un agent al lavoro)
+SHALL **continuare sulla stessa sessione**: bump del tentativo (stesso retry-cap),
+commento di sistema nel thread, e resume dello stesso topic/worktree con un nudge di
+continuazione ("riprendi da dove eri, non ricominciare") — MAI un release+re-claim che
+scarta la conversazione e fa ripartire l'agent da zero. Il parcheggio in `backlog`
+avviene solo a cap esaurito. Il topic dell'agent SHALL nascere **background**
+(archiviato = chiuso nel modello 2-stati): visibile in sidebar, MAI una tab che si
+apre da sola su ogni client; la tab si apre solo dal bottone del task (che de-archivia)
+e chiuderla non ferma la sessione.
+
+Ogni task SHALL poter portare un **override di modello** (`tasks.model`, NULL = auto =
+default del provider) scelto dal composer; il dispatcher lo copia sul topic alla
+creazione insieme all'effort per-board.
 
 Un input umano (risposta, reject) che arriva mentre il turno dell'agent sta ancora
 terminando SHALL essere bufferizzato e consegnato sullo **stesso tab** al turn-end —
@@ -220,6 +235,49 @@ implementa solo al resume con l'approvazione.
 - **WHEN** un task tenta il dispatch
 - **THEN** il task è parcheggiato in `backlog` con il motivo in `dispatch_error` e nel
   thread commenti
+
+#### Scenario: timeout a metà lavoro = continuazione, non restart
+- **GIVEN** un task `in_progress` il cui turno viene tagliato dal timeout wall-clock
+- **WHEN** il turn-end trova il task ancora in_progress col topic legato
+- **THEN** il tentativo è incrementato e l'agent riprende SULLA STESSA sessione
+  (stesso topic, stesso worktree) con un nudge di continuazione
+- **AND** il thread mostra "l'agent continua sulla stessa sessione (tentativo n/cap)"
+- **AND** solo a cap esaurito il task è parcheggiato in backlog
+
+#### Scenario: la sessione agent non apre tab da sola
+- **GIVEN** un dispatch che crea il topic dell'agent
+- **WHEN** il topic nasce
+- **THEN** nasce archiviato (background): nessuna tab spunta nella tabbar di alcun client
+- **AND** il bottone "apri tab" del task lo de-archivia e apre la tab on demand
+
+### Requirement: KANBAN-10 — Dipendenze fra task (bloccato da)
+
+Un task SHALL poter dichiarare un blocco (`blocked_by_task_id`, gestibile manualmente
+dal drawer e alla creazione): finché il blocker non è `done` (o archiviato), il task in
+`todo` ASPETTA — il claim CAS lo rifiuta, il tick lo salta, nessun chip `in coda`
+strandato; la card mostra "in attesa di: <blocker>". Self-block e cicli SHALL essere
+rifiutati. Quando il blocker raggiunge `done` (PATCH umano o approve di review), i
+dipendenti in `todo` SHALL essere rilanciati subito (stesso trattamento dell'ingresso
+in todo). Opt-in per task (`reuse_blocker_context`): al dispatch il dipendente SHALL
+riusare la **conversazione dell'agent del blocker** (stesso topic, stessa cwd del
+topic, niente topic/worktree freschi) — il contesto costruito dal blocker è spesso
+esattamente ciò che serve al dipendente.
+
+#### Scenario: un task bloccato aspetta il blocker
+- **GIVEN** task B bloccato da task A (aperto), entrambi con auto-dispatch attivo
+- **WHEN** B entra in `todo`
+- **THEN** B resta in todo senza claim né chip, con l'indicazione "in attesa di: A"
+
+#### Scenario: il done del blocker sblocca i dipendenti
+- **GIVEN** B in `todo` bloccato da A
+- **WHEN** A raggiunge `done` (drag umano o approve della review)
+- **THEN** B viene dispatchato senza attese ulteriori
+
+#### Scenario: riuso del contesto del blocker
+- **GIVEN** B bloccato da A con `reuse_blocker_context` attivo, e A consegnato dal suo agent
+- **WHEN** B viene dispatchato
+- **THEN** l'agent di B riparte nel TOPIC di A (stessa conversazione) con il kickoff di B
+- **AND** nessun topic né worktree nuovi vengono creati
 
 ### Requirement: KANBAN-08 — Task annidati (subtask a cascata)
 

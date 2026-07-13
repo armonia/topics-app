@@ -11,6 +11,13 @@
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
 
 export const TASK_STATUSES: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
+
+/**
+ * Reserved board id for tasks created WITHOUT a project (work spanning several
+ * projects, or not decided yet). They live on the global board; the dispatcher
+ * ignores them until a human assigns a real project via "Sposta su…".
+ */
+export const UNASSIGNED_PROJECT_ID = '_none';
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: 'Backlog',
   todo: 'Todo',
