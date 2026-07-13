@@ -532,6 +532,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // used to strand "delivered"/"serve te" on a closed card (only
         // reviewDecision cleared it).
         if (patch.status === "done") put("dispatch_state", null);
+        // A HUMAN dragging a task into todo is a fresh mandate: reset the
+        // retry budget. Without this, a task parked at the cap could never be
+        // re-dispatched — the claim filter skipped it and the card stranded
+        // on "in coda" forever. Agents don't get to refresh their own retries.
+        if (patch.status === "todo" && actor === "human") put("dispatch_attempts", 0);
       }
       put("updated_at", now());
 
