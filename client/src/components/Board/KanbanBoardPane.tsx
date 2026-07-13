@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DndContext, DragOverlay, closestCorners, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Maximize2, Minimize2, Paperclip, Plus, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
@@ -90,6 +90,25 @@ const autoGrow = (el: HTMLTextAreaElement | null) => {
   if (!el) return;
   el.style.height = 'auto';
   el.style.height = `${el.scrollHeight}px`;
+};
+
+/**
+ * Two-stage collision for a board that mixes BIG droppables (columns) with
+ * SMALL ones (sortable cards). Bare closestCorners compares corner distances,
+ * so an EMPTY column loses against a nearby card in the adjacent column — a
+ * drop aimed at Todo kept resolving onto the In Progress card ("me lo fa
+ * mettere solo in progress"). Pointer-first fixes it: whatever the pointer is
+ * INSIDE wins (a card beats its own column for precise insertion; an empty
+ * column area is the column); corner distance only breaks ties when the
+ * pointer is outside every droppable (fast flicks).
+ */
+const boardCollision: CollisionDetection = (args) => {
+  const within = pointerWithin(args);
+  if (within.length) {
+    const card = within.find((c) => !TASK_STATUSES.includes(String(c.id) as TaskStatus));
+    return card ? [card] : within;
+  }
+  return closestCorners(args);
 };
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
@@ -323,7 +342,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           onError={setError}
         />
       )}
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
+      <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
         <div className="flex h-full gap-3 overflow-x-auto p-3 pb-20">
           {TASK_STATUSES.map((status) => (
             <Column
