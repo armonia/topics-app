@@ -56,6 +56,11 @@ interface Props {
 const PRIORITY_DOT: Record<number, string> = {
   0: 'bg-neutral-400', 1: 'bg-sky-400', 2: 'bg-emerald-400', 3: 'bg-amber-400', 4: 'bg-rose-500',
 };
+// 4-first: the dispatch queue serves higher priorities first.
+const PRIORITY_ORDER = [4, 3, 2, 1, 0] as const;
+const PRIORITY_LABEL: Record<number, string> = {
+  4: 'Urgente', 3: 'Alta', 2: 'Media', 1: 'Bassa', 0: 'Minima',
+};
 
 const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
   backlog: 'text-neutral-500',
@@ -567,10 +572,14 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   const [projOpen, setProjOpen] = useState(false);
   const [projBusy, setProjBusy] = useState(false);
   const projBtnRef = useRef<HTMLButtonElement>(null);
-  // Model picker — "Auto" (null) or one of the claude-code provider's models.
+  // Model picker — "Intelligenza automatica" (null) or a claude-code model.
   const [modelOpen, setModelOpen] = useState(false);
   const [model, setModel] = useState<string | null>(null);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
+  // Priority — "Automatica" (null: the agent evaluates it at kickoff) or 0-4.
+  const [prioOpen, setPrioOpen] = useState(false);
+  const [prio, setPrio] = useState<number | null>(null);
+  const prioBtnRef = useRef<HTMLButtonElement>(null);
   const [claudeModels, setClaudeModels] = useState<string[]>(
     () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
   );
@@ -586,7 +595,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   const wrapRef = useRef<HTMLDivElement>(null);
   // The Menu portals to <body>, so focus leaves the wrapper while it's open —
   // keep the composer expanded anyway.
-  const expanded = focused || projOpen || modelOpen || text.trim().length > 0;
+  const expanded = focused || projOpen || modelOpen || prioOpen || text.trim().length > 0;
 
   const loadProjects = () => {
     if (projects === null) boardApi.projects().then(setProjects).catch(() => setProjects([]));
@@ -655,10 +664,11 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
     const description = firstLine.length > 80 ? raw : rest || null;
     setSubmitting(true);
     try {
-      await boardApi.create(target, { text: title, description, status: 'todo', planFirst, model: model ?? undefined });
+      await boardApi.create(target, { text: title, description, status: 'todo', planFirst, model: model ?? undefined, priority: prio ?? undefined });
       setText('');
       setPlanFirst(false);
       setModel(null);
+      setPrio(null);
       if (taRef.current) taRef.current.style.height = 'auto';
       onCreated();
     } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
@@ -746,6 +756,40 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
               >
                 <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(m)}</span>
                 {model === m && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+            ))}
+          </Menu>
+          <button
+            ref={prioBtnRef}
+            onClick={() => setPrioOpen(true)}
+            data-testid="composer-priority-chip"
+            title={prio !== null ? `Priorità: ${PRIORITY_LABEL[prio]}` : "Priorità automatica: la valuta l'agent appena inquadra il task"}
+            className="flex shrink-0 items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-neutral-300 hover:bg-white/10"
+          >
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${prio !== null ? PRIORITY_DOT[prio] : 'border border-neutral-500'}`} />
+            {prio !== null ? PRIORITY_LABEL[prio] : 'Priorità automatica'} <ChevronDown className="h-3 w-3 text-neutral-500" />
+          </button>
+          <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
+            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Priorità</p>
+            <button
+              role="option" aria-selected={prio === null}
+              onClick={() => { setPrio(null); setPrioOpen(false); }}
+              title="La valuta l'agent al primo turno; la coda serve prima le priorità alte"
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-neutral-500" />
+              <span className="min-w-0 flex-1">Automatica</span>
+              {prio === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+            </button>
+            {PRIORITY_ORDER.map((p) => (
+              <button
+                key={p} role="option" aria-selected={prio === p}
+                onClick={() => { setPrio(p); setPrioOpen(false); }}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+              >
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
+                <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
+                {prio === p && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
               </button>
             ))}
           </Menu>
@@ -892,7 +936,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
       className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
     >
       <div className="flex items-start gap-2">
-        <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
+        <span title={`Priorità: ${task.priorityAuto ? 'automatica' : PRIORITY_LABEL[task.priority] ?? 'Media'}`} className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
         <span className="flex-1 leading-snug">{task.text}</span>
         <button onClick={(e) => { e.stopPropagation(); archive(); }} className="opacity-0 transition group-hover:opacity-100" title="Archivia">
           <Trash2 className="h-3.5 w-3.5 text-neutral-500 hover:text-rose-400" />
@@ -1215,6 +1259,18 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     finally { setBusy(false); }
   };
 
+  // Priority selector (header chip) — same PATCH path, dispatcher queue order.
+  const prioBtnRef = useRef<HTMLButtonElement>(null);
+  const [prioMenuOpen, setPrioMenuOpen] = useState(false);
+  const changePriority = async (p: number) => {
+    setPrioMenuOpen(false);
+    if (!task || p === task.priority || busy) return;
+    setBusy(true);
+    try { await boardApi.update(projectId, taskId, { priority: p }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
   // Project selector (header chip): move the task to another board, open the
   // current project's window, or scaffold a new workspace project. The list is
   // the server-resolvable board index — fetched lazily on first open.
@@ -1390,6 +1446,34 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
               <StatusIcon status={s} className="h-3.5 w-3.5" />
               <span className="min-w-0 flex-1">{STATUS_LABEL[s]}</span>
               {s === task?.status && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+            </button>
+          ))}
+        </Menu>
+        <button
+          ref={prioBtnRef}
+          onClick={() => task && setPrioMenuOpen(true)}
+          data-testid="task-priority-chip"
+          title={task?.priorityAuto
+            ? "Priorità automatica: la valuta l'agent appena inquadra il task"
+            : 'Cambia la priorità del task (la coda serve prima le priorità alte)'}
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-neutral-400 hover:bg-white/10"
+        >
+          <span className={`h-2 w-2 shrink-0 rounded-full ${task ? PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2] : 'bg-neutral-600'}`} />
+          {task ? (task.priorityAuto ? 'Auto' : PRIORITY_LABEL[task.priority] ?? 'Media') : '…'}
+          <ChevronDown className="h-3 w-3 text-neutral-600" />
+        </button>
+        <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
+          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Priorità</p>
+          {PRIORITY_ORDER.map((p) => (
+            <button
+              key={p} role="option" aria-selected={p === task?.priority}
+              disabled={busy}
+              onClick={() => changePriority(p)}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+            >
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
+              <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
+              {p === task?.priority && !task?.priorityAuto && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
             </button>
           ))}
         </Menu>

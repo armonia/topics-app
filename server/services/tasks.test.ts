@@ -21,7 +21,8 @@ function freshDb(): Database {
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0
+    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
+    priority_auto INTEGER NOT NULL DEFAULT 1
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -787,5 +788,20 @@ describe("blocked-by dependency", () => {
     const upd = s.update({ taskId: b.id, actor: "human", by: "u", patch: { model: null, reuseBlockerContext: false } });
     expect(upd.model).toBeNull();
     expect(upd.reuseBlockerContext).toBe(false);
+  });
+});
+
+describe("priorità automatica", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("auto finché nessuno la sceglie; un write esplicito la fissa", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    expect(t.priorityAuto).toBe(true);
+    const chosen = s.create({ projectId: PID, text: "y", priority: 4 });
+    expect(chosen.priorityAuto).toBe(false);
+    const upd = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { priority: 3 } });
+    expect(upd.priority).toBe(3);
+    expect(upd.priorityAuto).toBe(false);
   });
 });
