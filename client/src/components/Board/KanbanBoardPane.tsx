@@ -724,9 +724,9 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
             ref={modelBtnRef}
             onClick={() => { setModelOpen(true); loadModels(); }}
             data-testid="composer-model-chip"
-            title={model ? `Modello: ${friendlyModelLabel(model)}` : 'Modello: automatico (scelto dal provider)'}
+            title={model ? `Modello: ${friendlyModelLabel(model)}` : 'Modello: intelligenza automatica (sceglie il provider)'}
             className="flex shrink-0 items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[11px] text-neutral-300 hover:bg-white/10"
-          >{model ? friendlyModelLabel(model) : 'Auto'} <ChevronDown className="h-3 w-3 text-neutral-500" /></button>
+          >{model ? friendlyModelLabel(model) : 'Intelligenza automatica'} <ChevronDown className="h-3 w-3 text-neutral-500" /></button>
           <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
             <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello</p>
             <button
@@ -735,7 +735,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
               title="Lascia scegliere il provider"
               className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
             >
-              <span className="min-w-0 flex-1">Auto</span>
+              <span className="min-w-0 flex-1">Intelligenza automatica</span>
               {model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
             </button>
             {claudeModels.map((m) => (
@@ -756,7 +756,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
               planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
             }`}
           ><ClipboardList className="h-3 w-3" /> Plan first</button>
-          <span className="ml-auto hidden shrink-0 text-[10px] text-neutral-600 sm:block">parte da Todo · {model ? `modello ${friendlyModelLabel(model)}` : 'modello automatico'}</span>
+          <span className="ml-auto hidden shrink-0 text-[10px] text-neutral-600 sm:block">parte da Todo</span>
           <button
             onClick={submit} disabled={!text.trim() || submitting}
             title="Crea il task (l'agent parte da Todo)"
