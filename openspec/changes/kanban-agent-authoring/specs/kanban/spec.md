@@ -154,6 +154,25 @@ mai scartato (il task resterebbe orfano e il requeue spawnerebbe un agent nuovo 
 il contesto della conversazione). Rinominare task o step SHALL essere sempre sicuro:
 il loop è id-based (kickoff, tool MCP e resume referenziano gli id, mai i titoli).
 
+L'umano SHALL poter **fermare** un dispatch in corso (stop): il task è parcheggiato
+(backlog + motivo nel thread) PRIMA del taglio del turno, così il turn-end trova il
+task già spostato e NON ri-accoda un nuovo tentativo. Un task creato con
+**plan_first** SHALL istruire l'agent a consegnare un piano sintetico in review
+(question block "Approva il piano"/"Da rivedere") PRIMA di implementare; l'agent
+implementa solo al resume con l'approvazione.
+
+#### Scenario: stop umano di un dispatch in corso
+- **GIVEN** un task con un agent al lavoro (chip working)
+- **WHEN** l'umano preme Ferma
+- **THEN** il task va in backlog con "Fermato da te" nel thread, il turno è abortito
+- **AND** nessun nuovo tentativo parte da solo
+
+#### Scenario: plan first
+- **GIVEN** un task creato con plan_first
+- **WHEN** l'agent parte
+- **THEN** consegna un piano in review con quick-reply (senza implementare nulla)
+- **AND** implementa solo dopo l'approvazione del piano
+
 #### Scenario: task in todo parte da solo (flag on)
 - **GIVEN** una board con `auto_dispatch` attivo
 - **WHEN** un task entra in `todo` e vi resta oltre la finestra di grazia
@@ -297,3 +316,25 @@ descrizione SHALL essere editabili inline dal dettaglio senza layout shift.
 - **GIVEN** un sottotask, o un task con agent attivo
 - **WHEN** l'umano tenta lo spostamento
 - **THEN** l'operazione è rifiutata con il motivo (si sposta il root / prima chiudi il giro)
+
+La board SHALL offrire un **composer flottante** in basso: pill compatta che a fuoco
+sale ed espande con transizione (mai tagliata), con toggle plan-first, progetto
+implicito dalla board (selettore solo nella vista cross-project) e nessuna scelta di
+modello (automatico). Il task nasce in Todo (segnale di dispatch); titolo = prima
+riga, testo completo in descrizione — è l'agent stesso, al primo turno, a rifinire
+titolo e descrizione (`update_task(text, description)`). Il thread del dettaglio SHALL
+mostrare un indicatore animato mentre l'agent lavora, con lo stop accanto, e la
+**sessione completa dell'agent** SHALL essere espandibile inline nel thread
+(read-only, stesso renderer markdown della chat) oltre al deep-link alla tab.
+
+#### Scenario: composer flottante → agent
+- **GIVEN** una board con auto-dispatch attivo
+- **WHEN** l'umano descrive un task nel composer e invia
+- **THEN** il task nasce in Todo con titolo derivato dalla prima riga e parte l'agent
+- **AND** l'agent rifinisce titolo/descrizione sul primo turno
+
+#### Scenario: sessione espandibile inline
+- **GIVEN** un task con agent assegnato
+- **WHEN** l'umano espande "Sessione agent" nel thread
+- **THEN** la conversazione completa appare inline (read-only) e si aggiorna live
+- **AND** un click apre la stessa sessione come tab piena

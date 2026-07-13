@@ -423,6 +423,9 @@ const taskDispatcher = createTaskDispatcher({
 
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   workspaceDir: DISPATCH_WORKSPACE_DIR,
+  // Human "stop" on a dispatched task cuts the running turn (same abort path
+  // as the dispatcher's wall-clock timeout).
+  abortTurn: abortHeadlessTurn,
   // Same union the dispatcher resolves against — the task-detail project
   // selector must offer exactly the boards a dispatch could actually serve.
   listProjectDirs: () =>
