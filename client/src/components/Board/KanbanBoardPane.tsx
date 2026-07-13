@@ -424,6 +424,15 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
     if (wrapRef.current && e.relatedTarget instanceof Node && wrapRef.current.contains(e.relatedTarget)) return;
     setFocused(false);
   };
+  // WebKit: buttons do NOT take focus on click (relatedTarget = null), so the
+  // blur check above can't recognise "still inside" and the pill collapsed
+  // under the click (project chip, plan-first). Kill the focus steal at the
+  // source: pointerdown on the composer's buttons keeps the textarea focused —
+  // no blur, nothing to recover. Clicks still fire; the portaled Menu (and the
+  // textarea itself) are untouched.
+  const onPointerDownCapture = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button')) e.preventDefault();
+  };
 
   const target = global ? targetProject : projectId;
   const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
@@ -478,6 +487,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
         ref={wrapRef}
         onFocusCapture={onFocus}
         onBlurCapture={onBlurCapture}
+        onPointerDownCapture={onPointerDownCapture}
         data-testid="board-task-composer"
         className={`pointer-events-auto w-full max-w-xl rounded-2xl border bg-neutral-900/95 shadow-2xl shadow-black/50 backdrop-blur transition-all duration-200 ease-out ${
           expanded ? '-translate-y-2 border-white/20' : 'translate-y-0 border-white/10'
