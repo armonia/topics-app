@@ -397,7 +397,7 @@ const taskDispatcher = createTaskDispatcher({
   },
   createTopic: (o) => {
     const { topic } = createDetachedTopic(
-      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt },
+      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model },
       {
         getTopicById: ctx.getTopicById,
         loadTopics: ctx.loadTopics,

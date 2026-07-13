@@ -37,7 +37,7 @@ export interface DispatcherDeps {
    */
   resolveProject: (projectId: string) => { path: string; projectStoreId: string | null } | null;
   /** Create a detached, project-bound chat topic (no focus steal). */
-  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string }) => {
+  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string }) => {
     topicId: string;
     sessionKey: string;
   };
@@ -71,6 +71,8 @@ export interface TaskDispatcher {
   onEnterTodo(projectId: string, taskId: string): void;
   /** Human moved a task OUT of todo before it claimed → cancel the pending launch. */
   onLeaveTodo(taskId: string): void;
+  /** A task reached `done` → nudge the todos it was blocking (they are now claimable). */
+  onBlockerDone(taskId: string): void;
   /**
    * Re-kick the task's EXISTING topic with a human message (a "Serve te" answer
    * or a review rejection). The caller has already moved the task back to
@@ -200,7 +202,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     inFlight.set(taskId, { sessionKey: "" });
     let worktreeId: string | undefined;
     try {
-      if (settings.useWorktree) {
+      const task = deps.svc.get(taskId)?.task;
+      if (!task) { inFlight.delete(taskId); return; }
+
+      // Context reuse (opt-in on the task): ride the BLOCKER agent's topic —
+      // same conversation, same worktree/cwd the topic already carries — so
+      // the dependent task starts with all the context the blocker built.
+      let reuseTopicId: string | null = null;
+      if (task.reuseBlockerContext && task.blockedByTaskId) {
+        try { reuseTopicId = deps.svc.get(task.blockedByTaskId)?.task?.assignedTopicId ?? null; } catch { /* fresh topic below */ }
+      }
+
+      if (!reuseTopicId && settings.useWorktree) {
         if (!deps.createWorktree || !resolved.projectStoreId) {
           // Worktree required but impossible → park with a clear, actionable error
           // rather than run the agent in the live repo alongside the human's WIP.
@@ -217,17 +230,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         worktreeId = await deps.createWorktree(resolved.projectStoreId);
       }
 
-      const task = deps.svc.get(taskId)?.task;
-      if (!task) { inFlight.delete(taskId); return; }
-      const kickoff = buildKickoff(task);
+      let kickoff = buildKickoff(task);
+      if (reuseTopicId) {
+        kickoff =
+          "Nuovo task nella STESSA sessione del task precedente: il contesto che hai costruito è condiviso di proposito, riusalo dove serve.\n\n" + kickoff;
+      }
 
-      const { topicId, sessionKey } = deps.createTopic({
-        name: task.text.slice(0, 60),
-        projectPath: resolved.path,
-        worktreeId,
-        systemPrompt: ROLE_PROMPT,
-        effort: settings.effort,
-      });
+      const { topicId, sessionKey } = reuseTopicId
+        ? { topicId: reuseTopicId, sessionKey: "topic:" + reuseTopicId.slice(0, 8) }
+        : deps.createTopic({
+            name: task.text.slice(0, 60),
+            projectPath: resolved.path,
+            worktreeId,
+            systemPrompt: ROLE_PROMPT,
+            effort: settings.effort,
+            model: task.model ?? undefined,
+          });
       inFlight.set(taskId, { sessionKey });
 
       // Point the claim at the REAL topic (claim bound a placeholder) and flip
@@ -305,14 +323,31 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return;
     }
     if (cur.status === "in_progress") {
-      // Turn ended without reaching review → requeue (bounded by retry cap) or park.
-      const exhausted = cur.dispatchAttempts >= RETRY_CAP;
+      // Turn ended without reaching review — typically the wall-clock timeout
+      // cutting a busy agent mid-work. The conversation is still there: CONTINUE
+      // it on the same topic (and worktree) instead of releasing and re-kicking
+      // from scratch — a fresh restart re-plans, re-creates the step checklist
+      // and burns the whole retry budget on any task bigger than one timeout.
+      if (cur.assignedTopicId) {
+        let bumped: Task | null = null;
+        try { bumped = deps.svc.bumpDispatchAttempt({ taskId, maxAttempts: RETRY_CAP }); } catch { /* park below */ }
+        if (bumped) {
+          try {
+            deps.svc.addComment({
+              taskId, author: "system",
+              content: `Turno interrotto senza arrivare a review (probabile timeout): l'agent continua sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${RETRY_CAP}).`,
+            });
+          } catch { /* best-effort */ }
+          emit(bumped);
+          // Deferred a tick: the caller's finally still holds the inFlight slot.
+          setTimeout(() => { void resume(taskId, "", { continuation: true }); }, 0);
+          return;
+        }
+      }
       emit(deps.svc.release({
         taskId,
-        requeue: !exhausted,
-        reason: exhausted
-          ? `Il turno è terminato senza arrivare a review dopo ${cur.dispatchAttempts} tentativi. Parcheggiato in backlog.`
-          : "Il turno è terminato senza arrivare a review, rimesso in coda per un nuovo tentativo.",
+        requeue: false,
+        reason: `Il turno è terminato senza arrivare a review dopo ${cur.dispatchAttempts} tentativi. Parcheggiato in backlog.`,
       }));
       return;
     }
@@ -330,7 +365,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     ].join("\n");
   }
 
-  async function resume(taskId: string, humanMessage: string): Promise<void> {
+  /** The auto-continuation message after a timed-out turn (NOT a human update). */
+  function buildContinueNudge(task: Task): string {
+    return [
+      "Il tuo turno precedente su questo task è stato interrotto dal timeout del turno — nessun errore tuo, il lavoro fatto finora è valido.",
+      `Riprendi da dove eri: get_task(task_id="${task.id}") per rivedere i tuoi step e i commenti, marca done gli step già completati, poi continua SOLO il lavoro rimanente (non ricominciare da capo).`,
+      `Quando il lavoro è completo: UN commento di sintesi con comment_task, poi update_task(task_id="${task.id}", status="review").`,
+    ].join("\n");
+  }
+
+  async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
     // it must still be bound to its topic. Anything else = nothing to resume.
@@ -348,7 +392,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
       const t0 = Date.now();
       const tokens0 = sessionTokens(sessionKey);
-      try { await deps.runTurn(sessionKey, buildResume(t, humanMessage), { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
+      const content = opts?.continuation ? buildContinueNudge(t) : buildResume(t, humanMessage);
+      try { await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
       catch (err) { log(`resume turn failed for ${taskId}`, err); }
       recordUsage(taskId, t0, tokens0, sessionKey);
       onTurnEnd(taskId);
@@ -372,6 +417,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch (err) { log(`list todo failed for ${projectId}`, err); return; }
     todos = todos
       .filter((t) => !t.assignedTopicId && t.dispatchAttempts < RETRY_CAP)
+      // Dependency gate: a todo whose blocker is still open WAITS (no claim
+      // attempt, no chip). Same predicate as the claim CAS, so no divergence.
+      .filter((t) => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
     if (!resolved) {
@@ -430,6 +478,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // Steps are never dispatch-eligible (tick filters rootsOnly): no queued
     // chip either, or it would strand forever on the subtask.
     try { if (deps.svc.get(taskId)?.task?.parentTaskId) return; } catch { return; }
+    // A blocked task WAITS in todo without a queued chip (the claim would
+    // never fire — the chip would strand). The client derives its own
+    // "in attesa di…" chip from blockedByTaskId; onBlockerDone re-kicks it.
+    try { if (deps.svc.isDispatchBlocked(taskId)) return; } catch { /* fall through */ }
     // Show "queued" immediately; the claim waits out the grace window so a quick
     // drag-through never spawns. If the task still carries a topic binding (it was
     // dispatched before and dragged back from review/done), clear the binding via
@@ -454,6 +506,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (graceTimers.has(taskId)) {
       clearGrace(taskId);
       try { emit(deps.svc.setDispatchState({ taskId, state: null })); } catch { /* best-effort */ }
+    }
+  }
+
+  function onBlockerDone(taskId: string): void {
+    // The blocker completed: every todo that was waiting on it is now
+    // claimable — give each one the normal enter-todo treatment (queued chip +
+    // grace + tick). The periodic reconcile would catch them anyway; this makes
+    // the unblock immediate.
+    let dependents: Task[] = [];
+    try { dependents = deps.svc.listBlockedBy(taskId); } catch { return; }
+    for (const dep of dependents) {
+      if (dep.status !== "todo" || dep.parentTaskId) continue;
+      try { onEnterTodo(dep.projectId, dep.id); } catch { /* best-effort */ }
     }
   }
 
@@ -497,5 +562,5 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     pendingResume.clear();
   }
 
-  return { tick, onEnterTodo, onLeaveTodo, resume, reconcile, shutdown, isInFlight: (id) => inFlight.has(id) };
+  return { tick, onEnterTodo, onLeaveTodo, onBlockerDone, resume, reconcile, shutdown, isInFlight: (id) => inFlight.has(id) };
 }
