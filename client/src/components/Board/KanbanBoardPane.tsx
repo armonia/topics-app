@@ -457,7 +457,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
  * old two-step "Nuovo progetto…" + separate input flow — search box IS the
  * create box now.
  */
-function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate, busy, listLabel, headerNote, onPickAuto, autoSelected, onPickNone, noneSelected }: {
+function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate, busy, listLabel, headerNote, onPickAuto, autoSelected }: {
   projects: BoardProjectRef[] | null;
   selectedId?: string | null;
   isDisabled?: (p: BoardProjectRef) => boolean;
@@ -466,12 +466,10 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
   busy: boolean;
   listLabel: string;
   headerNote?: React.ReactNode;
-  /** Offer "Automatico" (server resolves the board from the task text). */
+  /** Offer "Automatico": the server resolves the board from the task text;
+   *  unresolved/ambiguous = the task stays project-less (human assigns). */
   onPickAuto?: () => void;
   autoSelected?: boolean;
-  /** Offer "Nessun progetto" (task spanning several projects / undecided). */
-  onPickNone?: () => void;
-  noneSelected?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => {
@@ -517,18 +515,6 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
             <Sparkles className="h-3 w-3 shrink-0 text-neutral-500" />
             <span className="min-w-0 flex-1">Automatico</span>
             {autoSelected && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-          </button>
-        )}
-        {onPickNone && !query.trim() && (
-          <button
-            role="option" aria-selected={!!noneSelected} disabled={busy}
-            onClick={onPickNone}
-            title="Il task resta sulla board generale senza progetto — l'agent non parte finché non gliene assegni uno"
-            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-400 hover:bg-white/10 disabled:opacity-40"
-          >
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-neutral-500" />
-            <span className="min-w-0 flex-1 italic">Nessun progetto</span>
-            {noneSelected && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
           </button>
         )}
         {projects === null ? (
@@ -580,7 +566,11 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   const [submitting, setSubmitting] = useState(false);
   const [projects, setProjects] = useState<BoardProjectRef[] | null>(null);
   const [targetProject, setTargetProject] = useState<string>(() => {
-    try { return localStorage.getItem('board:composerProject') ?? AUTO_PROJECT_ID; } catch { return AUTO_PROJECT_ID; }
+    try {
+      const stored = localStorage.getItem('board:composerProject');
+      // '_none' is no longer a picker choice (auto falls back to it): migrate.
+      return !stored || stored === UNASSIGNED_PROJECT_ID ? AUTO_PROJECT_ID : stored;
+    } catch { return AUTO_PROJECT_ID; }
   });
   // Project picker — the SAME Menu-primitive selector the task-detail header
   // uses (portal, flip-above, keyboard nav), not a bare native <select>.
@@ -642,9 +632,9 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
   // Readable before the index loads: the stored id minus its hash suffix.
   const targetLabel = autoTarget
-    ? 'Auto'
+    ? 'Progetto auto'
     : noneTarget
-      ? 'Nessuno'
+      ? 'Nessun progetto'
       : targetRef?.name ?? (targetProject ? targetProject.replace(/-[^-]+$/, '') : '');
 
   const pickProject = (p: BoardProjectRef) => {
@@ -748,8 +738,6 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
                   listLabel="Progetto del task"
                   onPickAuto={() => pickSentinel(AUTO_PROJECT_ID)}
                   autoSelected={autoTarget}
-                  onPickNone={() => pickSentinel(UNASSIGNED_PROJECT_ID)}
-                  noneSelected={noneTarget}
                 />
               </Menu>
             </>
@@ -760,7 +748,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
             data-testid="composer-model-chip"
             title={model ? `Modello: ${friendlyModelLabel(model)}` : 'Modello: intelligenza automatica (sceglie il provider)'}
             className="flex shrink-0 items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[11px] text-neutral-300 hover:bg-white/10"
-          ><Sparkles className="h-3 w-3 text-neutral-500" /> {model ? friendlyModelLabel(model) : 'Auto'} <ChevronDown className="h-3 w-3 text-neutral-500" /></button>
+          ><Sparkles className="h-3 w-3 text-neutral-500" /> {model ? friendlyModelLabel(model) : 'Modello auto'} <ChevronDown className="h-3 w-3 text-neutral-500" /></button>
           <Menu open={modelOpen} anchorRef={modelBtnRef} onClose={() => setModelOpen(false)} minWidth={170} role="listbox">
             <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello</p>
             <button
@@ -791,7 +779,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
             className="flex shrink-0 items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-[11px] text-neutral-300 hover:bg-white/10"
           >
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${prio !== null ? PRIORITY_DOT[prio] : 'border border-neutral-500'}`} />
-            {prio !== null ? PRIORITY_LABEL[prio] : 'Auto'} <ChevronDown className="h-3 w-3 text-neutral-500" />
+            {prio !== null ? PRIORITY_LABEL[prio] : 'Priorità auto'} <ChevronDown className="h-3 w-3 text-neutral-500" />
           </button>
           <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
             <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Priorità</p>
@@ -1482,7 +1470,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-neutral-400 hover:bg-white/10"
         >
           <span className={`h-2 w-2 shrink-0 rounded-full ${task ? PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2] : 'bg-neutral-600'}`} />
-          {task ? (task.priorityAuto ? 'Auto' : PRIORITY_LABEL[task.priority] ?? 'Media') : '…'}
+          {task ? (task.priorityAuto ? 'Priorità auto' : PRIORITY_LABEL[task.priority] ?? 'Media') : '…'}
           <ChevronDown className="h-3 w-3 text-neutral-600" />
         </button>
         <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
