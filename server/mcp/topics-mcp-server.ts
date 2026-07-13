@@ -225,6 +225,7 @@ const TOOLS = [
         task_id: { type: "string", description: "Task id from list_tasks." },
         content: { type: "string", description: "Markdown comment body — or, with `options`, the one-line question." },
         options: { type: "array", items: { type: "string" }, description: "Answer choices for a human decision (renders quick-reply buttons on the board card). Omit for a plain comment." },
+        media: { type: "array", items: { type: "string" }, description: "Absolute file paths to attach (screenshots, artifacts you produced) — rendered inline on the board." },
         mentions: { type: "array", items: { type: "string" }, description: "Optional @-mentions." },
       },
       required: ["task_id", "content"],
@@ -1026,7 +1027,7 @@ export async function callGetTask(
 
 export async function callCommentTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; content?: unknown; mentions?: unknown; options?: unknown },
+  toolArgs: { task_id?: unknown; content?: unknown; mentions?: unknown; options?: unknown; media?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
@@ -1037,6 +1038,10 @@ export async function callCommentTask(
   }
   const reqBody: Record<string, unknown> = { content: toolArgs.content };
   if (Array.isArray(toolArgs.mentions)) reqBody.mentions = toolArgs.mentions;
+  if (Array.isArray(toolArgs.media)) {
+    const media = toolArgs.media.filter((m): m is string => typeof m === "string" && m.startsWith("/"));
+    if (media.length > 0) reqBody.media = media;
+  }
   // Human-decision request: pass the choices as data — the SERVER composes the
   // canonical question block, the model never hand-writes the markdown format.
   const options = Array.isArray(toolArgs.options)

@@ -27,7 +27,7 @@ function freshDb(): Database {
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, created_at TEXT NOT NULL
+    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
@@ -303,6 +303,28 @@ describe("board router (human, project-scoped)", () => {
     // …and a further step comment while it works does NOT re-kick again.
     await call(r, "POST", `/api/boards/pX/tasks/${step.id}/comments`, { content: "nota a margine" });
     expect(resumed.length).toBe(1);
+  });
+
+  test("comment with media reaches the thread AND the resumed agent (paths in the message)", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-m')");
+    const resumed: Array<[string, string]> = [];
+    const fake = {
+      onEnterTodo() {}, onLeaveTodo() {},
+      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
+    } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake);
+    const root = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "deliverable", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-m' WHERE id = ?").run(root.id);
+    await call(r, "PATCH", `/api/boards/pX/tasks/${root.id}`, { status: "review" });
+
+    const resp = (await call(r, "POST", `/api/boards/pX/tasks/${root.id}/comments`, {
+      content: "il layout deve essere così", media: ["/tmp/mockup.png"],
+    }))!;
+    expect(resp.status).toBe(201);
+    expect((await resp.json()).media).toEqual(["/tmp/mockup.png"]);
+    expect(resumed.length).toBe(1);
+    expect(resumed[0][1]).toContain("il layout deve essere così");
+    expect(resumed[0][1]).toContain("/tmp/mockup.png"); // the agent can read the file
   });
 
   test("adding a step under a root in review re-kicks the agent (no comment ceremony)", async () => {

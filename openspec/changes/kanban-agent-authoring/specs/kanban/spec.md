@@ -39,6 +39,19 @@ I commenti degli agent SHALL essere brevi e utili: la superficie agent rifiuta c
 oltre un cap (600 caratteri) con un errore che invita a sintetizzare — il thread è una
 scia di stato per l'umano, non un log sink. La superficie umana non è cappata.
 
+I commenti SHALL supportare **allegati** (stessa pipeline della chat nativa: upload
+multipart → path assoluto, render via `/api/media` allowlist-gated): immagini inline,
+altri file come chip; solo path assoluti, max 8 per commento; commento solo-allegato
+legale. Un allegato umano su un task in review SHALL raggiungere l'agent al resume
+(path su disco nel messaggio, l'agent li legge direttamente); anche l'agent può
+allegare file prodotti (`comment_task media[]`).
+
+#### Scenario: allegato che guida l'agent
+- **GIVEN** un task agent-driven in review
+- **WHEN** l'umano commenta allegando un'immagine (file o incolla)
+- **THEN** l'immagine appare inline nel thread e l'agent riparte con testo + path del file
+- **AND** l'agent può leggere il file da disco
+
 Una richiesta di decisione umana SHALL essere strutturata: `comment_task` accetta
 `options[]` e il **server** compone il blocco ```question``` canonico (fence e newline
 garantiti) — il modello non riproduce mai la sintassi markdown a mano. La board SHALL

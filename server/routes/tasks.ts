@@ -287,6 +287,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const comment = svc.addComment({
             taskId: bComments.taskId, author: HUMAN, content: body?.content,
             mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
+            media: Array.isArray(body?.media) ? body.media.filter((m: unknown) => typeof m === "string") : undefined,
             projectId: bComments.projectId,
           });
           const task = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
@@ -304,9 +305,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               });
               broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: rejected });
               const text = typeof body?.content === "string" ? body.content : "";
-              const msg = root.id === bComments.taskId
+              let msg = root.id === bComments.taskId
                 ? text
                 : `Commento sul tuo sottotask "${(task?.text ?? "").slice(0, 60)}" (id=${bComments.taskId}): ${text}`;
+              // Attachments ride along as disk paths — the agent reads them
+              // directly (screenshots, docs, mockups the human dropped in).
+              if (comment.media.length) msg += `\nAllegati (file su disco, leggili): ${comment.media.join(" ")}`;
               void dispatcher.resume(root.id, msg);
             }
           } catch { /* the root may have moved meanwhile */ }
@@ -423,6 +427,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           author: sess.author,
           content: body?.content,
           mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
+          // The agent can attach files too (screenshots/artifacts it produced).
+          media: Array.isArray(body?.media) ? body.media.filter((m: unknown) => typeof m === "string") : undefined,
           projectId: sess.projectId,
           // Structured human-decision request: the service composes the
           // canonical ```question``` block from these (KANBAN-07 quick-reply).
