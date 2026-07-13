@@ -302,6 +302,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           broadcastToAll({ type: "task:updated", projectId: bMove.projectId, task });
           if (task.projectId !== bMove.projectId) {
             broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+            // A project-less (or re-homed) task sitting in todo becomes
+            // dispatchable the moment it lands on a real board — same "vai"
+            // signal as a drag into todo. No-op for the unassigned sentinel.
+            if (dispatcher && task.status === "todo") dispatcher.onEnterTodo(task.projectId, task.id);
           }
           return json(task);
         } catch (e) { return fail(e); }

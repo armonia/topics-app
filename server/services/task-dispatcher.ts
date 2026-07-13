@@ -22,7 +22,7 @@
  *  - wall-clock timeout per turn; turn-end reconciliation requeues (bounded by
  *    the retry cap) or parks a task that ended without reaching `review`.
  */
-import type { Task, TaskService } from "./tasks";
+import { UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
 
 /** Fixed retry cap: how many launch attempts before a task is parked. */
 const RETRY_CAP = 3;
@@ -403,6 +403,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   async function tick(projectId: string): Promise<void> {
+    // Project-less tasks are never dispatchable (no cwd): they WAIT quietly on
+    // the global board — parking them with "progetto non risolvibile" would be
+    // the todo→backlog bounce all over again.
+    if (projectId === UNASSIGNED_PROJECT_ID) return;
     let settings;
     try { settings = deps.svc.getBoardSettings(projectId); }
     catch (err) { log(`getBoardSettings failed for ${projectId}`, err); return; }
@@ -470,6 +474,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   function onEnterTodo(projectId: string, taskId: string): void {
+    // No project = no dispatch (and no stranded chip): assign a board first.
+    if (projectId === UNASSIGNED_PROJECT_ID) return;
     clearGrace(taskId);
     // Off-switch: with auto_dispatch off this is a plain manual board — no chip,
     // no timer, nothing starts. (Guarding here, not just in tick(), keeps the
