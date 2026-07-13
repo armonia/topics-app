@@ -60,6 +60,12 @@ export interface Task {
   /** Cumulative agent effort: wall-clock ms + tokens across every turn. */
   agentMs: number;
   agentTokens: number;
+  /** Model override for the agent topic. null = auto (provider default). */
+  model: string | null;
+  /** Dependency: not dispatch-eligible until this task is done/archived. */
+  blockedByTaskId: string | null;
+  /** Dispatch in the BLOCKER agent's conversation instead of a fresh topic. */
+  reuseBlockerContext: boolean;
   /** Direct-children counters (filled by list/get for board badges). */
   subtaskCount: number;
   subtaskDoneCount: number;
@@ -101,6 +107,12 @@ export interface CreateTaskInput {
   parentTaskId?: string | null;
   /** Dispatch contract: the agent delivers a PLAN to review before implementing. */
   planFirst?: boolean;
+  /** Model override for the agent topic. Omit/null = auto. */
+  model?: string | null;
+  /** Wait for this task before dispatching (exists, not self, no cycle). */
+  blockedByTaskId?: string | null;
+  /** Reuse the blocker agent's conversation at dispatch. */
+  reuseBlockerContext?: boolean;
 }
 
 export interface UpdateTaskPatch {
@@ -113,6 +125,11 @@ export interface UpdateTaskPatch {
   kanbanOrder?: number;
   /** http(s) URL of the reviewable output; empty string / null clears it. */
   outputUrl?: string | null;
+  /** Model override for the agent topic; null clears (= auto). */
+  model?: string | null;
+  /** Dependency; null clears. Validated: exists, not self, no cycle. */
+  blockedByTaskId?: string | null;
+  reuseBlockerContext?: boolean;
 }
 
 export interface ListTasksInput {
@@ -239,6 +256,21 @@ export interface TaskService {
    * placeholder id can never be written there.
    */
   claim(args: { taskId: string; cap: number; maxAttempts: number; agentId?: string | null }): Task | null;
+  /**
+   * Bump the attempt counter of a LIVE claim (in_progress + bound topic) —
+   * the dispatcher's resume-continuation after a timed-out turn. Returns the
+   * updated Task, or null when the cap is hit or the claim is gone (caller
+   * parks / drops).
+   */
+  bumpDispatchAttempt(args: { taskId: string; maxAttempts: number }): Task | null;
+  /** Alive tasks whose blocked-by points at `taskId` (unblock fan-out when it completes). */
+  listBlockedBy(taskId: string): Task[];
+  /**
+   * True when the task's blocker is still open — the SAME predicate the claim
+   * CAS enforces (blocker not done and not archived), so the dispatcher's
+   * eligibility filter can never diverge from the claim.
+   */
+  isDispatchBlocked(taskId: string): boolean;
   /** Release a claimed task: clear the topic binding and requeue (`todo`) or park (`backlog`), with a note. */
   release(args: { taskId: string; requeue: boolean; reason?: string; by?: string }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
@@ -298,6 +330,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       inProgressAt: r.in_progress_at ?? null,
       agentMs: r.agent_ms ?? 0,
       agentTokens: r.agent_tokens ?? 0,
+      model: r.model ?? null,
+      blockedByTaskId: r.blocked_by_task_id ?? null,
+      reuseBlockerContext: !!r.reuse_blocker_context,
       subtaskCount: 0,
       subtaskDoneCount: 0,
     };
@@ -383,6 +418,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId);
   }
 
+  /**
+   * Validate a blocked-by edge `taskId → blockerId`. The blocker must exist
+   * and be alive; self-blocks and cycles (walking the blockers' own chain)
+   * are rejected — a cycle would deadlock the whole dispatch queue.
+   */
+  function assertBlockerValid(taskId: string, blockerId: string): void {
+    const blocker = getTaskRow(blockerId);
+    if (!blocker || blocker.archived) {
+      throw new TaskServiceError("not_found", `blocker task ${blockerId} not found`);
+    }
+    if (blockerId === taskId) {
+      throw new TaskServiceError("invalid_input", "a task cannot be blocked by itself");
+    }
+    let cur: string | null = blocker.blocked_by_task_id ?? null;
+    for (let hops = 0; cur && hops < 100; hops++) {
+      if (cur === taskId) throw new TaskServiceError("invalid_input", "blocked-by chain would form a cycle");
+      cur = (getTaskRow(cur)?.blocked_by_task_id ?? null) as string | null;
+    }
+  }
+
   return {
     create(input: CreateTaskInput): Task {
       const text = (input.text ?? "").trim();
@@ -414,13 +469,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) as m FROM tasks WHERE project_id = ?").get(input.projectId) as any;
       const order = (maxRow?.m ?? 0) + 1;
 
+      // Dependency at creation: the blocker must exist (a fresh id can never
+      // be inside an existing chain, so the cycle walk is trivially safe).
+      if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
+
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
         input.parentTaskId ?? null, input.planFirst ? 1 : 0,
+        input.model ?? null, input.blockedByTaskId ?? null, input.reuseBlockerContext ? 1 : 0,
       );
       return rowToTask(getTaskRow(id));
     },
@@ -525,6 +585,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
         put("output_url", url || null);
       }
+      if (patch.model !== undefined) {
+        const m = (patch.model ?? "").trim();
+        put("model", m || null);
+      }
+      if (patch.blockedByTaskId !== undefined) {
+        if (patch.blockedByTaskId) assertBlockerValid(taskId, patch.blockedByTaskId);
+        put("blocked_by_task_id", patch.blockedByTaskId || null);
+      }
+      if (patch.reuseBlockerContext !== undefined) put("reuse_blocker_context", patch.reuseBlockerContext ? 1 : 0);
       if (patch.status !== undefined) {
         put("status", patch.status);
         put("completed_at", patch.status === "done" ? now() : null);
@@ -710,11 +779,41 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             SET assigned_agent_id = ?, status = 'in_progress',
                 in_progress_at = ?, dispatch_state = 'starting',
                 dispatch_attempts = dispatch_attempts + 1, dispatch_error = NULL, updated_at = ?
-          WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND dispatch_attempts < ?`,
+          WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND dispatch_attempts < ?
+            AND (blocked_by_task_id IS NULL OR EXISTS (
+                  SELECT 1 FROM tasks bk
+                   WHERE bk.id = tasks.blocked_by_task_id AND (bk.status = 'done' OR bk.archived = 1)))`,
       ).run(agentId ?? null, ts, ts, taskId, maxAttempts);
       if (res.changes !== 1) return null; // lost the race / not todo / attempts exhausted
       logStatus(taskId, "todo", "in_progress", "dispatcher");
       return rowToTask(getTaskRow(taskId));
+    },
+
+    bumpDispatchAttempt({ taskId, maxAttempts }): Task | null {
+      const res = db.prepare(
+        `UPDATE tasks
+            SET dispatch_attempts = dispatch_attempts + 1, updated_at = ?
+          WHERE id = ? AND status = 'in_progress' AND assigned_topic_id IS NOT NULL AND dispatch_attempts < ?`,
+      ).run(now(), taskId, maxAttempts);
+      if (res.changes !== 1) return null; // cap hit, moved, or claim gone
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    listBlockedBy(taskId): Task[] {
+      const rows = db.prepare(
+        "SELECT * FROM tasks WHERE blocked_by_task_id = ? AND archived = 0",
+      ).all(taskId) as any[];
+      return rows.map(rowToTask);
+    },
+
+    isDispatchBlocked(taskId): boolean {
+      const r = db.prepare(
+        `SELECT 1 AS b FROM tasks t
+          WHERE t.id = ? AND t.blocked_by_task_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM tasks bk
+                             WHERE bk.id = t.blocked_by_task_id AND (bk.status = 'done' OR bk.archived = 1))`,
+      ).get(taskId);
+      return !!r;
     },
 
     release({ taskId, requeue, reason, by }): Task {

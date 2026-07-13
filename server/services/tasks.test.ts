@@ -20,7 +20,8 @@ function freshDb(): Database {
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -732,5 +733,59 @@ describe("board settings", () => {
     const done = s.reviewDecision({ taskId: t.id, by: "u", decision: "approve" });
     expect(done.status).toBe("done");
     expect(done.dispatchState).toBeNull();
+  });
+});
+
+describe("blocked-by dependency", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("claim refuses a todo whose blocker is still open; unblocks at done", () => {
+    const a = s.create({ projectId: PID, text: "blocker" });
+    const b = s.create({ projectId: PID, text: "dependent", blockedByTaskId: a.id });
+    expect(b.blockedByTaskId).toBe(a.id);
+    expect(s.isDispatchBlocked(b.id)).toBe(true);
+    expect(s.claim({ taskId: b.id, cap: 5, maxAttempts: 3 })).toBeNull();
+    // Blocker completes → same claim now succeeds.
+    s.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "done" } });
+    expect(s.isDispatchBlocked(b.id)).toBe(false);
+    expect(s.claim({ taskId: b.id, cap: 5, maxAttempts: 3 })).not.toBeNull();
+  });
+
+  test("an archived blocker does not block", () => {
+    const a = s.create({ projectId: PID, text: "blocker" });
+    const b = s.create({ projectId: PID, text: "dependent", blockedByTaskId: a.id });
+    s.archive({ taskId: a.id });
+    expect(s.isDispatchBlocked(b.id)).toBe(false);
+  });
+
+  test("self-block and cycles are rejected; clearing works", () => {
+    const a = s.create({ projectId: PID, text: "a" });
+    const b = s.create({ projectId: PID, text: "b" });
+    s.update({ taskId: b.id, actor: "human", by: "u", patch: { blockedByTaskId: a.id } });
+    expect(() => s.update({ taskId: a.id, actor: "human", by: "u", patch: { blockedByTaskId: a.id } })).toThrow();
+    // a ← b already; blocking a on b would close the loop.
+    expect(() => s.update({ taskId: a.id, actor: "human", by: "u", patch: { blockedByTaskId: b.id } })).toThrow();
+    const cleared = s.update({ taskId: b.id, actor: "human", by: "u", patch: { blockedByTaskId: null } });
+    expect(cleared.blockedByTaskId).toBeNull();
+  });
+
+  test("listBlockedBy returns the alive dependents", () => {
+    const a = s.create({ projectId: PID, text: "a" });
+    const b = s.create({ projectId: PID, text: "b", blockedByTaskId: a.id });
+    const c = s.create({ projectId: PID, text: "c", blockedByTaskId: a.id });
+    s.archive({ taskId: c.id });
+    const deps = s.listBlockedBy(a.id).map((t) => t.id);
+    expect(deps).toEqual([b.id]);
+  });
+
+  test("model and reuseBlockerContext persist through create/update", () => {
+    const a = s.create({ projectId: PID, text: "a" });
+    const b = s.create({ projectId: PID, text: "b", blockedByTaskId: a.id, reuseBlockerContext: true, model: "claude-fable-5" });
+    expect(b.model).toBe("claude-fable-5");
+    expect(b.reuseBlockerContext).toBe(true);
+    const upd = s.update({ taskId: b.id, actor: "human", by: "u", patch: { model: null, reuseBlockerContext: false } });
+    expect(upd.model).toBeNull();
+    expect(upd.reuseBlockerContext).toBe(false);
   });
 });

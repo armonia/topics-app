@@ -232,6 +232,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               status: typeof body?.status === "string" ? body.status : undefined,
               parentTaskId: typeof body?.parentTaskId === "string" ? body.parentTaskId : null,
               planFirst: body?.planFirst === true,
+              model: typeof body?.model === "string" ? body.model : null,
+              blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
+              reuseBlockerContext: body?.reuseBlockerContext === true,
             });
             broadcastToAll({ type: "task:created", projectId, task });
             // A task born directly in Todo is the same "vai" signal as a drag
@@ -323,6 +326,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (dispatcher && decision === "reject" && task.assignedTopicId) {
             void dispatcher.resume(bReview.taskId, comment ?? "");
           }
+          // Approve lands the task in done → its dependents are now claimable.
+          if (dispatcher && decision === "approve" && task.status === "done") {
+            dispatcher.onBlockerDone(bReview.taskId);
+          }
           return json(task);
         } catch (e) { return fail(e); }
       }
@@ -387,6 +394,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 description: body?.description !== undefined ? body.description : undefined,
                 kanbanOrder: typeof body?.kanbanOrder === "number" ? body.kanbanOrder : undefined,
                 outputUrl: typeof body?.outputUrl === "string" ? body.outputUrl : undefined,
+                model: body?.model !== undefined ? (typeof body.model === "string" ? body.model : null) : undefined,
+                blockedByTaskId: body?.blockedByTaskId !== undefined
+                  ? (typeof body.blockedByTaskId === "string" && body.blockedByTaskId ? body.blockedByTaskId : null)
+                  : undefined,
+                reuseBlockerContext: typeof body?.reuseBlockerContext === "boolean" ? body.reuseBlockerContext : undefined,
               },
             });
             broadcastToAll({ type: "task:updated", projectId, task });
@@ -396,6 +408,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             if (dispatcher && prevStatus !== task.status) {
               if (task.status === "todo") dispatcher.onEnterTodo(projectId, taskId);
               else if (prevStatus === "todo") dispatcher.onLeaveTodo(taskId);
+              // Reaching done releases whatever was waiting on this task.
+              if (task.status === "done") dispatcher.onBlockerDone(taskId);
             }
             return json(task);
           } catch (e) { return fail(e); }
