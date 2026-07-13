@@ -382,7 +382,9 @@ Il task SHALL esporre l'**effort dell'agent**: tempo di lavoro cumulato
 (wall-clock dei turni, registrato dal dispatcher) e token consumati (delta
 per turno dalle usage del transcript della sessione, best-effort) — visibili
 su card e dettaglio; mentre un turno gira, il dettaglio mostra il tempo che
-ci sta mettendo in tempo reale.
+ci sta mettendo in tempo reale E un'**anteprima live** della coda dell'ultimo
+ragionamento/output in streaming (il colpo d'occhio "come sta andando" senza
+aprire nulla; il pezzo completo vive nella fetta "Ragionamento in corso").
 
 Il drag & drop SHALL posizionare, non solo spostare: rilasciare una card su
 un'altra la inserisce in quel punto (riordino nella colonna e posizione
