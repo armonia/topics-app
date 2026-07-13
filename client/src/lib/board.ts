@@ -33,6 +33,8 @@ export interface BoardTask {
   description: string | null;
   status: TaskStatus;
   priority: number;
+  /** Nobody chose a priority: the dispatched agent evaluates and sets one. */
+  priorityAuto: boolean;
   kanbanOrder: number;
   assignedTo: string | null;
   dueDate: string | null;

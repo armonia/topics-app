@@ -68,6 +68,8 @@ export interface Task {
   /** Cumulative agent effort: wall-clock ms + tokens across every turn. */
   agentMs: number;
   agentTokens: number;
+  /** Nobody chose a priority: the dispatched agent evaluates and sets one. */
+  priorityAuto: boolean;
   /** Model override for the agent topic. null = auto (provider default). */
   model: string | null;
   /** Dependency: not dispatch-eligible until this task is done/archived. */
@@ -338,6 +340,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       inProgressAt: r.in_progress_at ?? null,
       agentMs: r.agent_ms ?? 0,
       agentTokens: r.agent_tokens ?? 0,
+      priorityAuto: r.priority_auto == null ? true : !!r.priority_auto,
       model: r.model ?? null,
       blockedByTaskId: r.blocked_by_task_id ?? null,
       reuseBlockerContext: !!r.reuse_blocker_context,
@@ -482,13 +485,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, priority_auto)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
         input.parentTaskId ?? null, input.planFirst ? 1 : 0,
         input.model ?? null, input.blockedByTaskId ?? null, input.reuseBlockerContext ? 1 : 0,
+        // "Priorità automatica": no explicit choice at creation = the
+        // dispatched agent evaluates and sets one at kickoff.
+        input.priority === undefined ? 1 : 0,
       );
       return rowToTask(getTaskRow(id));
     },
@@ -580,7 +586,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
       if (patch.text !== undefined) put("text", patch.text);
       if (patch.description !== undefined) put("description", patch.description);
-      if (patch.priority !== undefined) put("priority", patch.priority);
+      if (patch.priority !== undefined) {
+        put("priority", patch.priority);
+        // An explicit write (human OR the agent fulfilling "auto") settles it.
+        put("priority_auto", 0);
+      }
       if (patch.assignedTo !== undefined) put("assigned_to", patch.assignedTo);
       if (patch.dueDate !== undefined) put("due_date", patch.dueDate);
       if (patch.kanbanOrder !== undefined) put("kanban_order", patch.kanbanOrder);
