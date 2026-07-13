@@ -634,6 +634,25 @@ describe("board settings", () => {
     expect(s.getBoardSettings(PID).maxAgents).toBe(2);
   });
 
+  test("auto-dispatch is GLOBAL: flipping it from one board flips every board", () => {
+    expect(s.getGlobalAutoDispatch()).toBe(false);
+    s.updateBoardSettings(PID, { autoDispatch: true });
+    expect(s.getGlobalAutoDispatch()).toBe(true);
+    // A completely different board reads the same switch…
+    expect(s.getBoardSettings("other-board-zzz999").autoDispatch).toBe(true);
+    // …and the dedicated setter flips it back for everyone.
+    expect(s.setGlobalAutoDispatch(false)).toBe(false);
+    expect(s.getBoardSettings(PID).autoDispatch).toBe(false);
+  });
+
+  test("global switch does not leak per-board config across boards", () => {
+    s.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 7, dispatchEffort: "max" });
+    const other = s.getBoardSettings("other-board-zzz999");
+    expect(other.autoDispatch).toBe(true); // global
+    expect(other.maxAgents).toBe(2); // per-board default, untouched
+    expect(other.dispatchEffort).toBe("medium");
+  });
+
   test("reviewDecision clears the dispatch chip on approve", () => {
     const t = s.create({ projectId: PID, text: "x" });
     // Drive it to review with a dispatch chip set, then approve.

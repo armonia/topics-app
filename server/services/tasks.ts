@@ -111,6 +111,11 @@ export interface ListTasksInput {
 /** Per-board dispatch config (mirrors the `board_settings` row). */
 export interface BoardSettings {
   projectId: string;
+  /**
+   * GLOBAL start switch (reserved row `project_id='*'`), surfaced here so
+   * every per-board read keeps gating dispatch without knowing about the
+   * global row. Writing it through updateBoardSettings flips it for ALL boards.
+   */
   autoDispatch: boolean;
   /** Concurrency cap = max tasks running an agent at once on this board. */
   maxAgents: number;
@@ -222,14 +227,28 @@ export interface TaskService {
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Read the per-board dispatch config (defaults when no row exists). */
   getBoardSettings(projectId: string): BoardSettings;
-  /** Upsert the per-board dispatch config. */
+  /** Upsert the per-board dispatch config. `autoDispatch` routes to the global switch. */
   updateBoardSettings(projectId: string, patch: UpdateBoardSettingsPatch): BoardSettings;
+  /** Read the GLOBAL auto-dispatch switch (one for every board). */
+  getGlobalAutoDispatch(): boolean;
+  /** Flip the GLOBAL auto-dispatch switch; returns the new value. */
+  setGlobalAutoDispatch(on: boolean): boolean;
 }
+
+/** Reserved board_settings row that carries the global auto-dispatch switch. */
+const GLOBAL_SETTINGS_KEY = "*";
 
 export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskService {
   const now = opts.now ?? (() => new Date().toISOString());
   const uuid = opts.uuid ?? (() => crypto.randomUUID());
   const commentDedupeMs = opts.commentDedupeMs ?? 10_000;
+
+  // The global start switch (row '*'). Closure helper — never `this` — so the
+  // methods survive being destructured off the service.
+  const readGlobalDispatch = (): boolean => {
+    const r = db.prepare("SELECT auto_dispatch FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
+    return r ? !!r.auto_dispatch : false;
+  };
 
   function rowToTask(r: any): Task {
     return {
@@ -675,11 +694,23 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
+    getGlobalAutoDispatch(): boolean {
+      return readGlobalDispatch();
+    },
+
+    setGlobalAutoDispatch(on: boolean): boolean {
+      db.prepare(
+        "INSERT INTO board_settings (project_id, auto_dispatch, max_agents) VALUES (?, ?, 2) " +
+        "ON CONFLICT(project_id) DO UPDATE SET auto_dispatch = excluded.auto_dispatch",
+      ).run(GLOBAL_SETTINGS_KEY, on ? 1 : 0);
+      return readGlobalDispatch();
+    },
+
     getBoardSettings(projectId: string): BoardSettings {
       const r = db.prepare("SELECT * FROM board_settings WHERE project_id = ?").get(projectId) as any;
       return {
         projectId,
-        autoDispatch: r ? !!r.auto_dispatch : false,
+        autoDispatch: readGlobalDispatch(),
         maxAgents: r ? (r.max_agents ?? 2) : 2,
         dispatchEffort: r?.dispatch_effort ?? "medium",
         dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
@@ -699,9 +730,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // auto_dispatch would materialise the row at cap 5 and silently over-run the
       // "2" shown in the panel. INSERT OR IGNORE only sets it on first creation.
       db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 2)").run(projectId);
+      // autoDispatch is the GLOBAL switch: route it to the '*' row so flipping
+      // it from any board (or the global board) flips it everywhere.
+      if (patch.autoDispatch !== undefined) {
+        db.prepare(
+          "INSERT INTO board_settings (project_id, auto_dispatch, max_agents) VALUES (?, ?, 2) " +
+          "ON CONFLICT(project_id) DO UPDATE SET auto_dispatch = excluded.auto_dispatch",
+        ).run(GLOBAL_SETTINGS_KEY, patch.autoDispatch ? 1 : 0);
+      }
       const sets: string[] = [];
       const params: any[] = [];
-      if (patch.autoDispatch !== undefined) { sets.push("auto_dispatch = ?"); params.push(patch.autoDispatch ? 1 : 0); }
       if (patch.maxAgents !== undefined) { sets.push("max_agents = ?"); params.push(clampInt(patch.maxAgents, 1, 10)); }
       if (patch.dispatchEffort !== undefined) { sets.push("dispatch_effort = ?"); params.push(patch.dispatchEffort); }
       if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }

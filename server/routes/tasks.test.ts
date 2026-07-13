@@ -467,6 +467,8 @@ describe("board settings route", () => {
     expect(s.autoDispatch).toBe(true);
     expect(s.maxAgents).toBe(3);
     expect(broadcasts.some((b) => b.type === "board:settings" && b.projectId === "pX")).toBe(true);
+    // autoDispatch is global → the pill on EVERY board must hear about it.
+    expect(broadcasts.some((b) => b.type === "board:dispatch" && b.autoDispatch === true)).toBe(true);
     // persisted
     expect((await (await call(router, "GET", "/api/boards/pX/settings"))!.json()).autoDispatch).toBe(true);
   });
@@ -474,5 +476,22 @@ describe("board settings route", () => {
   test("PATCH rejects an invalid effort with 400", async () => {
     const resp = (await call(router, "PATCH", "/api/boards/pX/settings", { dispatchEffort: "turbo" }))!;
     expect(resp.status).toBe(400);
+  });
+
+  test("all-boards/settings: GET default off, PATCH flips globally + broadcasts board:dispatch", async () => {
+    let g = await (await call(router, "GET", "/api/all-boards/settings"))!.json();
+    expect(g.autoDispatch).toBe(false);
+
+    const resp = (await call(router, "PATCH", "/api/all-boards/settings", { autoDispatch: true }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).autoDispatch).toBe(true);
+    expect(broadcasts.some((b) => b.type === "board:dispatch" && b.autoDispatch === true)).toBe(true);
+
+    // Every per-board read now reflects the global switch.
+    expect((await (await call(router, "GET", "/api/boards/pX/settings"))!.json()).autoDispatch).toBe(true);
+    expect((await (await call(router, "GET", "/api/boards/pY/settings"))!.json()).autoDispatch).toBe(true);
+
+    // Bad body = 400, no broadcast storm.
+    expect((await call(router, "PATCH", "/api/all-boards/settings", { autoDispatch: "yes" }))!.status).toBe(400);
   });
 });

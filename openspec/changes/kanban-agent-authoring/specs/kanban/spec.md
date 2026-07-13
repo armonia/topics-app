@@ -142,16 +142,20 @@ sessione.
 
 ### Requirement: KANBAN-07 — Auto-dispatch reattivo (opt-in)
 
-Quando `board_settings.auto_dispatch` è attivo per una board, un task che entra in `todo`
-(trascinato O creato direttamente lì da un umano) SHALL innescare, dopo una finestra di
-grazia anti drag-through, il claim atomico del task e l'avvio di un agent headless
-dedicato in una chat tab detached, isolato in un git worktree quando
-`dispatch_use_worktree` è attivo. Il numero di agent concorrenti per board SHALL essere
-limitato da `max_agents`; i tentativi per task da un retry-cap. L'agent lavora fino a
-`review` (mai `done`, KANBAN-05). Con il flag disattivo (default) nessuno spawn SHALL
-avvenire e nessun chip di dispatch SHALL comparire. La guardia anti-ricorsione è
-strutturale: gli agent creano solo in `backlog` (KANBAN-03), quindi il lavoro accodato da
-un worker non è mai auto-eleggibile.
+L'interruttore di avvio (`auto_dispatch`) SHALL essere **globale** — un solo switch per
+tutte le board (riga riservata `board_settings.project_id='*'`), esposto come toggle
+nell'header di ogni board **inclusa la board generale** (il click sul pill È il toggle;
+`GET/PATCH /api/all-boards/settings`, broadcast `board:dispatch` a ogni client). Quando
+è attivo, un task che entra in `todo` (trascinato O creato direttamente lì da un umano)
+SHALL innescare, dopo una finestra di grazia anti drag-through, il claim atomico del
+task e l'avvio di un agent headless dedicato in una chat tab detached, isolato in un
+git worktree quando `dispatch_use_worktree` è attivo. Cap di concorrenza, effort,
+worktree e timeout restano **per board**. Il numero di agent concorrenti per board
+SHALL essere limitato da `max_agents`; i tentativi per task da un retry-cap. L'agent
+lavora fino a `review` (mai `done`, KANBAN-05). Con il flag disattivo (default) nessuno
+spawn SHALL avvenire e nessun chip di dispatch SHALL comparire. La guardia
+anti-ricorsione è strutturale: gli agent creano solo in `backlog` (KANBAN-03), quindi
+il lavoro accodato da un worker non è mai auto-eleggibile.
 
 Feedback SHALL essere sempre visibile sulla card: `queued → starting → working →
 needs_input | delivered` via `dispatch_state`, e ogni interruzione (worktree impossibile,
@@ -194,10 +198,16 @@ implementa solo al resume con l'approvazione.
 - **AND** alla consegna il task è in `review` con chip `serve te`
 
 #### Scenario: nessun dispatch con flag off
-- **GIVEN** una board con `auto_dispatch` disattivo (default)
-- **WHEN** un task viene creato o trascinato in `todo`
+- **GIVEN** l'interruttore globale `auto_dispatch` disattivo (default)
+- **WHEN** un task viene creato o trascinato in `todo` su qualsiasi board
 - **THEN** nessun agente viene spawnato automaticamente
 - **AND** l'header della board mostra che l'auto-dispatch è spento
+
+#### Scenario: il toggle è globale
+- **GIVEN** l'interruttore spento e due board aperte (una di progetto e la generale)
+- **WHEN** l'umano clicca il pill "agent: off" su una qualsiasi delle due
+- **THEN** l'interruttore si accende per TUTTE le board e ogni header aperto si aggiorna
+  (broadcast, non refresh)
 
 #### Scenario: drag-through non spawna
 - **GIVEN** una board con `auto_dispatch` attivo
@@ -330,12 +340,15 @@ descrizione SHALL essere editabili inline dal dettaglio senza layout shift.
 - **WHEN** l'umano tenta lo spostamento
 - **THEN** l'operazione è rifiutata con il motivo (si sposta il root / prima chiudi il giro)
 
-La board SHALL offrire un **composer flottante** in basso: pill compatta che a fuoco
-sale ed espande con transizione (mai tagliata), con toggle plan-first, progetto
-implicito dalla board (selettore solo nella vista cross-project) e nessuna scelta di
-modello (automatico). Il task nasce in Todo (segnale di dispatch); titolo = prima
-riga, testo completo in descrizione — è l'agent stesso, al primo turno, a rifinire
-titolo e descrizione (`update_task(text, description)`). Il thread del dettaglio SHALL
+La board SHALL offrire un **composer flottante** in basso: pill compatta,
+visibilmente staccata dal bordo inferiore, che a fuoco sale ed espande con transizione
+(mai tagliata), con toggle plan-first, progetto implicito dalla board (nella vista
+cross-project il selettore è lo STESSO componente Menu del dettaglio task — lista
+board + "Nuovo progetto…" — non un `<select>` nativo) e nessuna scelta di modello
+(automatico). Il task nasce in Todo (segnale di dispatch); titolo = prima riga,
+descrizione = il resto del testo (il titolo non si ripete attaccato sotto sé stesso
+nel dettaglio) — è l'agent stesso, al primo turno, a rifinire titolo e descrizione
+(`update_task(text, description)`). Il thread del dettaglio SHALL
 mostrare un indicatore animato mentre l'agent lavora, con lo stop accanto, e la
 **sessione completa dell'agent** SHALL essere espandibile inline nel thread
 (read-only, stesso renderer markdown della chat) oltre al deep-link alla tab.

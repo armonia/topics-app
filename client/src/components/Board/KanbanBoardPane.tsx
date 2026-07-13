@@ -120,13 +120,30 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // header can always answer "does moving a task to Todo start an agent?" —
   // the exact feedback that was missing when a task sat in Todo doing nothing.
   const [settings, setSettings] = useState<BoardSettings | null>(null);
+  // The START switch is GLOBAL (one for every board) — so the pill lives on
+  // every header, including the global board, and clicking it IS the toggle.
+  const [dispatchOn, setDispatchOn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    boardApi.getGlobalDispatch()
+      .then((v) => { if (alive) setDispatchOn(v); })
+      .catch(() => { /* pill just stays hidden */ });
+    return () => { alive = false; };
+  }, []);
+
+  const toggleDispatch = useCallback(async () => {
+    if (dispatchOn === null) return;
+    try { setDispatchOn(await boardApi.setGlobalDispatch(!dispatchOn)); setError(null); }
+    catch (e) { setError(e instanceof Error ? e.message : 'dispatch toggle failed'); }
+  }, [dispatchOn]);
 
   useEffect(() => {
     if (!hasProject) { setSettings(null); return; }
     let alive = true;
     boardApi.getSettings(projectId)
       .then((v) => { if (alive) setSettings(v); })
-      .catch(() => { /* pill just stays hidden */ });
+      .catch(() => { /* panel just stays empty */ });
     return () => { alive = false; };
   }, [hasProject, projectId]);
 
@@ -149,11 +166,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg) => {
-      const m = msg as { type?: string; projectId?: string; settings?: BoardSettings };
+      const m = msg as { type?: string; projectId?: string; settings?: BoardSettings; autoDispatch?: boolean };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
         if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) refetch();
       }
       if (m.type === 'board:settings' && m.projectId === projectId && m.settings) setSettings(m.settings);
+      // Global switch flipped anywhere (any board, any client) → this pill too.
+      if (m.type === 'board:dispatch' && typeof m.autoDispatch === 'boolean') setDispatchOn(m.autoDispatch);
     });
   }, [onMessage, projectId, refetch, mode]);
 
@@ -229,18 +248,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         )}
         <div className="ml-auto flex items-center gap-2">
           {mode === 'all' && <span className="text-[11px] text-neutral-500">{tasks.length} task · tutti i progetti</span>}
-          {hasProject && settings && (
+          {dispatchOn !== null && (
             <button
-              onClick={() => setShowSettings(true)}
+              onClick={toggleDispatch}
               data-testid="board-dispatch-pill"
-              title={settings.autoDispatch
-                ? 'Auto-dispatch attivo: un task spostato in Todo avvia un agent'
-                : 'Auto-dispatch spento: i task in Todo NON partono da soli — clicca per attivarlo'}
-              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
-                settings.autoDispatch ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-neutral-400 hover:bg-white/15'
+              title={dispatchOn
+                ? 'Auto-dispatch attivo (globale): un task in Todo avvia un agent, su qualsiasi board — clicca per spegnere'
+                : 'Auto-dispatch spento (globale): i task in Todo NON partono da soli — clicca per attivarlo'}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${
+                dispatchOn ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-white/10 text-neutral-400 hover:bg-white/15'
               }`}
             >
-              <Bot className="h-3 w-3" /> {settings.autoDispatch ? 'agent: on' : 'agent: off'}
+              <Bot className="h-3 w-3" /> {dispatchOn ? 'agent: on' : 'agent: off'}
             </button>
           )}
           {hasProject && (
@@ -257,6 +276,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         <BoardSettingsPanel
           projectId={projectId}
           settings={settings}
+          dispatchOn={dispatchOn}
+          onToggleDispatch={toggleDispatch}
           onChanged={setSettings}
           onClose={() => setShowSettings(false)}
           onError={setError}
@@ -324,7 +345,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
  */
 function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   projectId: string;
-  /** Cross-project mode: no implicit board — a project select appears. */
+  /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
   onCreated: () => void;
   onError: (e: string) => void;
@@ -337,52 +358,95 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   const [targetProject, setTargetProject] = useState<string>(() => {
     try { return localStorage.getItem('board:composerProject') ?? ''; } catch { return ''; }
   });
+  // Project picker — the SAME Menu-primitive selector the task-detail header
+  // uses (portal, flip-above, keyboard nav), not a bare native <select>.
+  const [projOpen, setProjOpen] = useState(false);
+  const [creatingProj, setCreatingProj] = useState(false);
+  const [newProjName, setNewProjName] = useState('');
+  const [projBusy, setProjBusy] = useState(false);
+  const projBtnRef = useRef<HTMLButtonElement>(null);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const expanded = focused || text.trim().length > 0;
+  // The Menu portals to <body>, so focus leaves the wrapper while it's open —
+  // keep the composer expanded anyway.
+  const expanded = focused || projOpen || text.trim().length > 0;
 
+  const loadProjects = () => {
+    if (projects === null) boardApi.projects().then(setProjects).catch(() => setProjects([]));
+  };
   const onFocus = () => {
     setFocused(true);
-    if (global && projects === null) boardApi.projects().then(setProjects).catch(() => setProjects([]));
+    if (global) loadProjects();
   };
   // Collapse only when focus truly LEFT the composer (not moving between its
   // own controls) — otherwise clicking "Plan first" would blur-shrink it.
   const onBlurCapture = (e: React.FocusEvent) => {
+    if (projOpen) return;
     if (wrapRef.current && e.relatedTarget instanceof Node && wrapRef.current.contains(e.relatedTarget)) return;
     setFocused(false);
   };
 
   const target = global ? targetProject : projectId;
+  const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
+  // Readable before the index loads: the stored id minus its hash suffix.
+  const targetLabel = targetRef?.name ?? (targetProject ? targetProject.replace(/-[^-]+$/, '') : '');
+
+  const pickProject = (id: string) => {
+    setTargetProject(id);
+    try { localStorage.setItem('board:composerProject', id); } catch { /* private mode */ }
+    setProjOpen(false);
+    setCreatingProj(false);
+  };
+  const doCreateProject = async () => {
+    const name = newProjName.trim();
+    if (!name || projBusy) return;
+    setProjBusy(true);
+    try {
+      const created = await boardApi.createProject(name);
+      setProjects((prev) => (prev ? [...prev, created].sort((a, b) => a.name.localeCompare(b.name)) : [created]));
+      setNewProjName('');
+      pickProject(created.projectId);
+    } catch (e) { onError(e instanceof Error ? e.message : 'create project failed'); }
+    finally { setProjBusy(false); }
+  };
 
   const submit = async () => {
     const raw = text.trim();
     if (!raw || submitting) return;
-    if (!target) { onError('Scegli il progetto del task.'); return; }
-    const firstLine = raw.split('\n')[0].trim();
+    if (!target) { onError('Scegli il progetto del task.'); setProjOpen(true); loadProjects(); return; }
+    const lines = raw.split('\n');
+    const firstLine = lines[0].trim();
     const title = firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : firstLine;
-    const description = raw !== title ? raw : null;
+    // Description = the text AFTER the first line — the drawer must not show
+    // the title glued again right under itself. A truncated first line keeps
+    // the full text so nothing is lost.
+    const rest = lines.slice(1).join('\n').trim();
+    const description = firstLine.length > 80 ? raw : rest || null;
     setSubmitting(true);
     try {
       await boardApi.create(target, { text: title, description, status: 'todo', planFirst });
       setText('');
       setPlanFirst(false);
+      if (taRef.current) taRef.current.style.height = 'auto';
       onCreated();
     } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
     finally { setSubmitting(false); }
   };
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-4">
+    <div className="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center px-4">
       <div
         ref={wrapRef}
         onFocusCapture={onFocus}
         onBlurCapture={onBlurCapture}
         data-testid="board-task-composer"
-        className={`pointer-events-auto w-full max-w-xl rounded-2xl border bg-neutral-900/90 shadow-2xl backdrop-blur transition-all duration-200 ease-out ${
-          expanded ? '-translate-y-2 border-white/20 shadow-black/40' : 'translate-y-0 border-white/10'
+        className={`pointer-events-auto w-full max-w-xl rounded-2xl border bg-neutral-900/95 shadow-2xl shadow-black/50 backdrop-blur transition-all duration-200 ease-out ${
+          expanded ? '-translate-y-2 border-white/20' : 'translate-y-0 border-white/10'
         }`}
       >
         <textarea
-          value={text} rows={1} ref={autoGrow}
+          value={text} rows={1}
+          ref={(el) => { taRef.current = el; autoGrow(el); }}
           onChange={(e) => { setText(e.target.value); autoGrow(e.currentTarget); }}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
           placeholder="Descrivi un task per l'agent…"
@@ -390,30 +454,88 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
         />
         <div className={`flex items-center gap-2 overflow-hidden px-2.5 transition-all duration-200 ease-out ${expanded ? 'max-h-12 pb-2 opacity-100' : 'max-h-0 pb-0 opacity-0'}`}>
           {global && (
-            <select
-              value={targetProject}
-              onChange={(e) => {
-                setTargetProject(e.target.value);
-                try { localStorage.setItem('board:composerProject', e.target.value); } catch { /* private mode */ }
-              }}
-              className="max-w-[11rem] rounded bg-white/5 px-1.5 py-1 text-xs text-neutral-200 outline-none"
-            >
-              <option value="">progetto…</option>
-              {projects?.map((p) => <option key={p.projectId} value={p.projectId}>{p.name}</option>)}
-            </select>
+            <>
+              <button
+                ref={projBtnRef}
+                onClick={() => { setProjOpen(true); loadProjects(); }}
+                data-testid="composer-project-chip"
+                title={targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
+                className="flex min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
+              >
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${targetProject ? 'bg-emerald-400' : 'bg-neutral-600'}`} />
+                <span className="truncate">{targetLabel || 'Progetto…'}</span>
+                <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
+              </button>
+              <Menu
+                open={projOpen}
+                anchorRef={projBtnRef}
+                onClose={() => { setProjOpen(false); setCreatingProj(false); }}
+                minWidth={230}
+                role="listbox"
+              >
+                <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Progetto del task</p>
+                <div className="max-h-60 overflow-y-auto">
+                  {projects === null ? (
+                    <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
+                  ) : projects.length === 0 ? (
+                    <p className="px-2.5 py-2 text-xs text-neutral-500">Nessun progetto trovato.</p>
+                  ) : projects.map((p) => (
+                    <button
+                      key={p.projectId} role="option" aria-selected={p.projectId === targetProject}
+                      onClick={() => pickProject(p.projectId)}
+                      title={p.path}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                      {p.projectId === targetProject && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                    </button>
+                  ))}
+                </div>
+                <div className="my-1 border-t border-white/10" />
+                {creatingProj ? (
+                  <div className="flex items-center gap-1 px-2.5 py-1.5">
+                    <input
+                      autoFocus value={newProjName} disabled={projBusy}
+                      onChange={(e) => setNewProjName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); doCreateProject(); }
+                        if (e.key === 'Escape') { setCreatingProj(false); setNewProjName(''); }
+                      }}
+                      placeholder="nome-progetto"
+                      className="min-w-0 flex-1 rounded bg-white/5 px-1.5 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600"
+                    />
+                    {projBusy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />
+                    ) : (
+                      <button
+                        onClick={doCreateProject} disabled={!newProjName.trim()}
+                        className="rounded bg-emerald-500/80 px-1.5 py-1 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
+                      >Crea</button>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    role="option" aria-selected={false}
+                    onClick={() => setCreatingProj(true)}
+                    title="Crea un nuovo progetto nel workspace e usalo per questo task"
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                  ><Plus className="h-3.5 w-3.5" /> Nuovo progetto…</button>
+                )}
+              </Menu>
+            </>
           )}
           <button
             onClick={() => setPlanFirst((v) => !v)}
             title="L'agent consegna prima un piano da approvare, implementa dopo il tuo ok"
-            className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] transition-colors ${
+            className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
               planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
             }`}
           ><ClipboardList className="h-3 w-3" /> Plan first</button>
-          <span className="ml-auto hidden text-[10px] text-neutral-600 sm:block">parte da Todo · modello automatico</span>
+          <span className="ml-auto hidden shrink-0 text-[10px] text-neutral-600 sm:block">parte da Todo · modello automatico</span>
           <button
             onClick={submit} disabled={!text.trim() || submitting}
             title="Crea il task (l'agent parte da Todo)"
-            className="rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
+            className="shrink-0 rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
           >{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
         </div>
       </div>
@@ -1451,10 +1573,13 @@ function CommentBody({ content }: { content: string }) {
 // ── Board settings (auto-dispatch config) ───────────────────────────────────
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
-function BoardSettingsPanel({ projectId, settings: s, onChanged, onClose, onError }: {
+function BoardSettingsPanel({ projectId, settings: s, dispatchOn, onToggleDispatch, onChanged, onClose, onError }: {
   projectId: string;
-  /** Owned by the board (header pill) — this panel only renders and patches it. */
+  /** Owned by the board (per-project config) — this panel only renders and patches it. */
   settings: BoardSettings | null;
+  /** The GLOBAL start switch — owned by the board header (same value as the pill). */
+  dispatchOn: boolean | null;
+  onToggleDispatch: () => void;
   onChanged: (s: BoardSettings) => void;
   onClose: () => void;
   onError: (e: string) => void;
@@ -1472,9 +1597,9 @@ function BoardSettingsPanel({ projectId, settings: s, onChanged, onClose, onErro
         <button onClick={onClose} className="rounded p-0.5 text-neutral-400 hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
       </div>
 
-      <label className="flex cursor-pointer items-center justify-between">
-        <span>Avvia un agent quando sposto un task in <b>Todo</b></span>
-        <input type="checkbox" checked={s.autoDispatch} onChange={(e) => patch({ autoDispatch: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
+      <label className="flex cursor-pointer items-center justify-between gap-3">
+        <span>Avvia un agent quando un task entra in <b>Todo</b> <span className="text-neutral-500">— interruttore globale, vale per tutte le board</span></span>
+        <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
       </label>
 
       <label className="flex items-center justify-between">
@@ -1503,7 +1628,7 @@ function BoardSettingsPanel({ projectId, settings: s, onChanged, onClose, onErro
         <input type="checkbox" checked={s.dispatchUseWorktree} onChange={(e) => patch({ dispatchUseWorktree: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
       </label>
 
-      {s.autoDispatch && (
+      {dispatchOn && (
         <p className="text-[11px] text-amber-300/80">Attivo: spostare un task in Todo avvierà un agent con permessi pieni.</p>
       )}
     </div>
