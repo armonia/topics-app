@@ -9,10 +9,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Maximize2, Minimize2, Plus, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Maximize2, Minimize2, Paperclip, Plus, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ChatMarkdown } from '../ChatMarkdown';
+import { getMediaUrl } from '../../lib/api';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
@@ -712,9 +713,14 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const lastThreadComment = comments[comments.length - 1] ?? null;
   const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
 
-  const deliverAnswer = async (v: string): Promise<boolean> => {
+  const deliverAnswer = async (v: string, media?: string[]): Promise<boolean> => {
     try {
-      if (isAgentReview) {
+      if (media && media.length > 0) {
+        // Attachments ride the comments endpoint (media isn't a review-decision
+        // field); when the task is in agent review the server auto-resumes the
+        // agent with the text AND the file paths (boundRootOf path).
+        await boardApi.comment(projectId, taskId, v || '(allegato)', { media });
+      } else if (isAgentReview) {
         // Race fallback: if the task left review meanwhile, still save the text
         // as a plain comment instead of losing it.
         try { await boardApi.review(projectId, taskId, 'reject', v); }
@@ -728,11 +734,32 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     } catch (e) { showError(e); return false; }
   };
   const send = async () => {
-    const v = draft.trim(); if (!v || sending) return;
+    const v = draft.trim(); if ((!v && attachments.length === 0) || sending) return;
     setSending(true);
-    const ok = await deliverAnswer(v);
-    if (ok) setDraft(''); // cleared on success only — a failed send keeps the text
+    const ok = await deliverAnswer(v, attachments.map((a) => a.path));
+    if (ok) { setDraft(''); setAttachments([]); } // cleared on success only
     setSending(false);
+  };
+
+  // Attachments: same pipeline as the native chat — POST /api/upload (multipart)
+  // → absolute path, rendered via /api/media. Staged here until send.
+  const [attachments, setAttachments] = useState<Array<{ path: string; name: string; isImage: boolean }>>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadFiles = async (files: FileList | File[]) => {
+    setUploading(true);
+    try {
+      for (const file of Array.from(files).slice(0, 8 - attachments.length)) {
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        const d = await r.json().catch(() => null) as { path?: string; error?: string } | null;
+        if (!r.ok || !d?.path) throw new Error(d?.error || 'upload fallito');
+        setAttachments((prev) => [...prev, { path: d.path!, name: file.name, isImage: file.type.startsWith('image/') }]);
+      }
+      setError(null);
+    } catch (e) { showError(e); }
+    finally { setUploading(false); }
   };
   const answerOption = async (opt: string) => {
     if (sending) return;
@@ -1158,15 +1185,50 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 </div>
               </div>
             )}
-            <div className="flex items-end gap-2">
+            {attachments.length > 0 && (
+              <div className="mb-1.5 flex flex-wrap gap-1.5">
+                {attachments.map((a) => (
+                  <span key={a.path} className="group/att relative">
+                    {a.isImage ? (
+                      <img src={getMediaUrl(a.path)} alt={a.name} title={a.name} className="h-12 w-12 rounded object-cover" />
+                    ) : (
+                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[11px] text-neutral-300">
+                        <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setAttachments((prev) => prev.filter((p) => p.path !== a.path))}
+                      title="Rimuovi allegato"
+                      className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-neutral-700 p-0.5 text-neutral-200 group-hover/att:block"
+                    ><X className="h-2.5 w-2.5" /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex items-end gap-1.5">
+              <input
+                ref={fileInputRef} type="file" multiple className="hidden"
+                onChange={(e) => { if (e.target.files?.length) void uploadFiles(e.target.files); e.target.value = ''; }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()} disabled={uploading || attachments.length >= 8}
+                title="Allega file (o incolla un'immagine nel campo)"
+                className="rounded p-1.5 text-neutral-400 hover:bg-white/10 disabled:opacity-40"
+              >{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
               <textarea
                 value={draft} onChange={(e) => setDraft(e.target.value)} rows={1}
                 placeholder={isAgentReview ? 'Rispondi all\'agent…' : 'Commenta…'}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                onPaste={(e) => {
+                  const imgs = Array.from(e.clipboardData?.items ?? [])
+                    .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
+                    .map((i) => i.getAsFile()).filter((f): f is File => !!f);
+                  if (imgs.length) { e.preventDefault(); void uploadFiles(imgs); }
+                }}
                 className="flex-1 resize-none rounded bg-white/5 px-2 py-1.5 text-sm text-neutral-100 outline-none"
               />
               <button
-                onClick={send} disabled={sending || !draft.trim()}
+                onClick={send} disabled={sending || (!draft.trim() && attachments.length === 0)}
                 title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : 'Commenta'}
                 className={`rounded p-1.5 text-white disabled:opacity-50 ${isAgentReview ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
               >{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
@@ -1292,6 +1354,30 @@ function OutputFrame({ url }: { url: string }) {
   );
 }
 
+/**
+ * Attachments of a thread message: images inline (click = full size), other
+ * files as name chips. Served through the allowlist-gated /api/media, exactly
+ * like chat message media.
+ */
+function MediaStrip({ media }: { media?: string[] }) {
+  if (!media || media.length === 0) return null;
+  const isImg = (p: string) => /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(p);
+  return (
+    <div className="mt-1 flex flex-wrap gap-1.5">
+      {media.map((p) => isImg(p) ? (
+        <a key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" title={p.split('/').pop()}>
+          <img src={getMediaUrl(p)} alt="" loading="lazy" className="max-h-40 max-w-full rounded-md object-contain" />
+        </a>
+      ) : (
+        <a
+          key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer"
+          className="flex max-w-[12rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[11px] text-neutral-300 hover:bg-white/20"
+        ><Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
+      ))}
+    </div>
+  );
+}
+
 /** Compact chat timestamp: HH:MM today, dd/MM HH:MM otherwise. */
 function commentTime(iso: string): string {
   const d = new Date(iso);
@@ -1317,6 +1403,7 @@ function CommentBubble({ comment }: { comment: TaskComment }) {
         <div className={`text-sm ${system ? 'text-neutral-500' : 'text-neutral-200'}`}>
           <CommentBody content={comment.content} />
         </div>
+        <MediaStrip media={comment.media} />
         <p className="mt-0.5 text-[9px] text-neutral-600">{commentTime(comment.createdAt)}</p>
       </div>
     );
@@ -1325,6 +1412,7 @@ function CommentBubble({ comment }: { comment: TaskComment }) {
     <div className="flex justify-end">
       <div className="max-w-[88%] rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-sm">
         <CommentBody content={comment.content} />
+        <MediaStrip media={comment.media} />
         <p className="mt-0.5 text-right text-[9px] text-neutral-500">{commentTime(comment.createdAt)}</p>
       </div>
     </div>

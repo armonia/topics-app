@@ -31,7 +31,7 @@ function freshDb(): Database {
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, created_at TEXT NOT NULL
+    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
@@ -377,6 +377,23 @@ describe("comments", () => {
     const b = s.addComment({ taskId: t.id, author: "claude", content: "same" });
     expect(b.id).toBe(a.id);
     expect(s.get(t.id)!.comments.length).toBe(1);
+  });
+
+  test("media round-trips (absolute paths only, capped at 8); attachment-only comments are legal", () => {
+    const s = svc(db);
+    const t = s.create({ projectId: PID, text: "x" });
+    const c = s.addComment({
+      taskId: t.id, author: "user", content: "guarda qui",
+      media: ["/tmp/shot.png", "relative/nope.png", ...Array.from({ length: 10 }, (_, i) => `/tmp/f${i}.txt`)],
+    });
+    expect(c.media[0]).toBe("/tmp/shot.png");
+    expect(c.media).not.toContain("relative/nope.png"); // non-absolute dropped
+    expect(c.media.length).toBe(8); // capped
+    expect(s.get(t.id)!.comments[0].media.length).toBe(8);
+    // Attachment-only: no text → placeholder body, media kept.
+    const only = s.addComment({ taskId: t.id, author: "user", content: "", media: ["/tmp/doc.pdf"] });
+    expect(only.content).toBe("(allegato)");
+    expect(only.media).toEqual(["/tmp/doc.pdf"]);
   });
 
   test("same content after the window is a new comment", () => {

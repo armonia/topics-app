@@ -65,6 +65,8 @@ export interface TaskComment {
   author: string;
   content: string;
   mentions: string[];
+  /** Attached files: absolute paths from /api/upload, served via /api/media. */
+  media: string[];
   createdAt: string;
 }
 
@@ -184,7 +186,7 @@ export interface TaskService {
    * well-formed block — an LLM caller passes structured options and never
    * reproduces markdown syntax by hand.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; projectId?: string; questionOptions?: string[] }): TaskComment;
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[] }): TaskComment;
   /** Human-only review decision on a task sitting in `review`. */
   reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
@@ -314,7 +316,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   function rowToComment(r: any): TaskComment {
     let mentions: string[] = [];
     if (r.mentions) { try { mentions = JSON.parse(r.mentions); } catch { mentions = []; } }
-    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, createdAt: r.created_at };
+    let media: string[] = [];
+    if (r.media) { try { media = JSON.parse(r.media); } catch { media = []; } }
+    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at };
   }
 
   function getTaskRow(taskId: string): any {
@@ -470,9 +474,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    addComment({ taskId, author, content, mentions, projectId, questionOptions }): TaskComment {
+    addComment({ taskId, author, content, mentions, media, projectId, questionOptions }): TaskComment {
       let body = (content ?? "").trim();
-      if (!body) throw new TaskServiceError("invalid_input", "comment content is required");
+      // Attachments-only comments are legal (a screenshot IS the message).
+      if (!body && (!media || media.length === 0)) throw new TaskServiceError("invalid_input", "comment content is required");
+      if (!body) body = "(allegato)";
+      // Absolute paths only (the /api/upload contract); cap the count.
+      const files = (media ?? []).filter((p) => typeof p === "string" && p.startsWith("/")).slice(0, 8);
       // Canonical question block, composed HERE (single writer) — the caller
       // passes the question as plain content + structured options; the exact
       // fence/newline layout the quick-reply parser expects is never delegated
@@ -501,8 +509,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const id = uuid();
       const ts = now();
       db.prepare(
-        "INSERT INTO task_comments (id, task_id, author, content, mentions, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      ).run(id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, ts);
+        "INSERT INTO task_comments (id, task_id, author, content, mentions, media, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, files.length ? JSON.stringify(files) : null, ts);
       // The thread is part of the task: touch updated_at so live clients (open
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
