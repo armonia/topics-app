@@ -50,8 +50,25 @@ export interface TasksRouterOpts {
 }
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
-  const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey } = ctx;
+  const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
   const svc = createTaskService(db);
+
+  /**
+   * SECURITY: attachment paths are stored AND later handed to the agent as
+   * "read these files" — so they must pass the same allowlist that gates
+   * serving them (/api/media: uploads, context, workspace/media dirs). Without
+   * this, a comment could reference ~/.ssh/id_rsa and the resume message would
+   * happily instruct the agent to read it. Anything outside the allowlist is
+   * silently dropped (the comment itself still lands).
+   */
+  function filterMedia(raw: unknown): string[] | undefined {
+    if (!Array.isArray(raw)) return undefined;
+    return raw.filter((m): m is string => {
+      if (typeof m !== "string" || !m.startsWith("/")) return false;
+      if (typeof isPathAllowed !== "function") return true; // test ctx without the helper
+      try { return isPathAllowed(m); } catch { return false; }
+    });
+  }
 
   /**
    * Resolve the board project id + a display author from a session key. Works
@@ -287,7 +304,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const comment = svc.addComment({
             taskId: bComments.taskId, author: HUMAN, content: body?.content,
             mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
-            media: Array.isArray(body?.media) ? body.media.filter((m: unknown) => typeof m === "string") : undefined,
+            media: filterMedia(body?.media),
             projectId: bComments.projectId,
           });
           const task = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
@@ -428,7 +445,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           content: body?.content,
           mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
           // The agent can attach files too (screenshots/artifacts it produced).
-          media: Array.isArray(body?.media) ? body.media.filter((m: unknown) => typeof m === "string") : undefined,
+          media: filterMedia(body?.media),
           projectId: sess.projectId,
           // Structured human-decision request: the service composes the
           // canonical ```question``` block from these (KANBAN-07 quick-reply).
