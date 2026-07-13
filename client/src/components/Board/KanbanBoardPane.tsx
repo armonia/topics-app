@@ -8,6 +8,7 @@
  * project-scoped board API (client/src/lib/board.ts).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -340,16 +341,23 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             />
           ))}
         </div>
-        <DragOverlay dropAnimation={null}>
-          {activeTask ? (
-            <div className="w-64 rounded-md border border-white/20 bg-neutral-800 p-2.5 text-sm text-neutral-100 shadow-xl">
-              <div className="flex items-start gap-2">
-                <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[activeTask.priority] ?? PRIORITY_DOT[2]}`} />
-                <span className="flex-1 leading-snug">{activeTask.text}</span>
+        {/* Portal to <body>: the overlay is position:fixed, and a transformed
+            ancestor (pane translateX, FLIP animations) would re-anchor fixed
+            positioning to itself — the ghost card then renders far from the
+            pointer. On body there is no transform above it, ever. */}
+        {createPortal(
+          <DragOverlay dropAnimation={null}>
+            {activeTask ? (
+              <div className="w-64 rounded-md border border-white/20 bg-neutral-800 p-2.5 text-sm text-neutral-100 shadow-xl">
+                <div className="flex items-start gap-2">
+                  <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[activeTask.priority] ?? PRIORITY_DOT[2]}`} />
+                  <span className="flex-1 leading-snug">{activeTask.text}</span>
+                </div>
               </div>
-            </div>
-          ) : null}
-        </DragOverlay>
+            ) : null}
+          </DragOverlay>,
+          document.body,
+        )}
       </DndContext>
       <FloatingTaskComposer
         projectId={projectId}
@@ -649,8 +657,10 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
 }) {
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
-  // the pointer, so dropping "between two cards" reads as such. The transforms
-  // are small translations inside the column, no overflow clipping.
+  // the pointer, so dropping "between two cards" reads as such. The ACTIVE
+  // card must NOT get its transform (that one follows the pointer): applied,
+  // the dim source card flew across the board alongside the overlay and the
+  // drop targeting went with it.
   const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({ id: task.id });
 
   // "Serve te" context: for an agent-driven task in review, lazily load the
@@ -699,7 +709,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
   return (
     <div
       ref={setNodeRef} {...attributes} {...listeners}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
       onClick={() => onOpen(task.id)}
       className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
     >
