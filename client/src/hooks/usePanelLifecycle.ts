@@ -668,6 +668,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     const owningProject = owningRenderedProject(paneId);
     if (owningProject) {
       setFocusedPanelId(createPaneId('project', owningProject));
+      // Focusing the project window is NOT enough: the browser may sit behind
+      // another tab of its group. Ask the owning window to activate THAT tab
+      // (claim protocol handled in useProjectLayout) — this was the "click on
+      // a sidebar browser does nothing" report: the window focused, the tab
+      // never switched.
+      window.dispatchEvent(new CustomEvent('topics:focus-project-pane', {
+        detail: { projectPath: owningProject, paneId },
+        cancelable: true,
+      }));
       if (isMobile) setSidebarCollapsed(true);
       return;
     }
