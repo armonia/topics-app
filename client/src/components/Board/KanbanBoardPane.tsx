@@ -995,24 +995,32 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     finally { setBusy(false); }
   };
 
-  // Inline expansion of the FULL agent session (same thread the chat tab
-  // shows, read-only) — for when the comment trail isn't enough but a full
-  // tab switch is too much. Reloads with the live bump while open.
-  const [sessionOpen, setSessionOpen] = useState(false);
-  const [sessionMsgs, setSessionMsgs] = useState<Array<{ role: string; content: string }> | null>(null);
+  // The agent's session (same thread the chat tab shows, read-only), sliced
+  // BETWEEN the comments: each reply gets, right above it, the piece of
+  // reasoning that produced it. Loaded whenever the task has an agent bound
+  // (the slices need timestamps to place themselves); reloads on live bump.
+  const [sessionMsgs, setSessionMsgs] = useState<SessionMsg[] | null>(null);
   const sessionKey = task?.assignedTopicId ? `topic:${task.assignedTopicId.slice(0, 8)}` : null;
   const loadSession = useCallback(async () => {
     if (!sessionKey) return;
     try {
       const r = await fetch(`/api/history/${encodeURIComponent(sessionKey)}?limit=200`);
-      const d = await r.json().catch(() => null) as { messages?: Array<{ role?: string; content?: string }> } | null;
+      const d = await r.json().catch(() => null) as { messages?: Array<{ role?: string; content?: string; timestamp?: string }> } | null;
       const msgs = (Array.isArray(d?.messages) ? d.messages : [])
         .filter((m) => typeof m?.content === 'string' && m.content.trim())
-        .map((m) => ({ role: m.role ?? 'assistant', content: m.content! }));
+        .map((m) => ({ role: m.role ?? 'assistant', content: m.content!, timestamp: m.timestamp ?? '' }));
       setSessionMsgs(msgs);
     } catch { setSessionMsgs([]); }
   }, [sessionKey]);
-  useEffect(() => { if (sessionOpen) void loadSession(); }, [sessionOpen, loadSession, bump]);
+  useEffect(() => { if (sessionKey) void loadSession(); }, [sessionKey, loadSession, bump]);
+
+  // Session messages that fall strictly between two thread boundaries (ISO
+  // string compare — both sides are UTC toISOString). null = open-ended.
+  const sliceBetween = useCallback((from: string | null, to: string | null): SessionMsg[] => {
+    if (!sessionMsgs) return [];
+    return sessionMsgs.filter((m) =>
+      m.timestamp && (!from || m.timestamp > from) && (!to || m.timestamp <= to));
+  }, [sessionMsgs]);
 
   const doneCount = children.filter((c) => c.status === 'done').length;
 
@@ -1111,6 +1119,14 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           )}
         </Menu>
         <div className="flex shrink-0 items-center gap-0.5">
+          {task?.assignedTopicId && onOpenTopic && (
+            <button
+              onClick={() => onOpenTopic(task.assignedTopicId!)}
+              data-testid="task-open-session-tab"
+              title="Apri la tab dell'agent (chiuderla NON ferma la sessione)"
+              className="rounded p-1 text-neutral-400 hover:bg-white/10"
+            ><ArrowUpRight className="h-3.5 w-3.5" /></button>
+          )}
           {task?.outputUrl && (
             <a
               href={task.outputUrl} target="_blank" rel="noreferrer"
@@ -1212,52 +1228,27 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
               {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-neutral-400" />}
             </div>
           </div>
-          {/* Thread — chat-shaped: my messages right, agent/system left. */}
+          {/* Thread — chat-shaped: my messages right, agent/system left. Each
+              reply carries, right ABOVE it, the slice of agent session that
+              produced it (collapsed reasoning, chat-style). */}
           <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-            {/* Full agent session: expand INLINE between the interactions, or
-                jump to the real tab. Read-only mirror of the chat thread. */}
-            {task.assignedTopicId && (
-              <div className="rounded-md border border-white/10">
-                <div className="flex items-center gap-1.5 px-2 py-1.5">
-                  <Bot className="h-3.5 w-3.5 text-neutral-400" />
-                  <span className="text-[11px] text-neutral-400">Sessione agent</span>
-                  <div className="ml-auto flex items-center gap-0.5">
-                    <button
-                      onClick={() => setSessionOpen((o) => !o)}
-                      title={sessionOpen ? 'Comprimi la sessione' : 'Espandi la sessione qui, inline'}
-                      className="rounded p-1 text-neutral-400 hover:bg-white/10"
-                    ><ChevronDown className={`h-3.5 w-3.5 transition-transform ${sessionOpen ? 'rotate-180' : ''}`} /></button>
-                    {onOpenTopic && (
-                      <button
-                        onClick={() => onOpenTopic(task.assignedTopicId!)}
-                        title="Apri la sessione completa in una tab"
-                        className="rounded p-1 text-neutral-400 hover:bg-white/10"
-                      ><ArrowUpRight className="h-3.5 w-3.5" /></button>
-                    )}
-                  </div>
-                </div>
-                {sessionOpen && (
-                  <div className="max-h-72 space-y-2 overflow-y-auto border-t border-white/10 bg-black/20 px-2.5 py-2">
-                    {sessionMsgs === null ? (
-                      <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
-                    ) : sessionMsgs.length === 0 ? (
-                      <p className="text-xs text-neutral-500">Nessun messaggio nella sessione.</p>
-                    ) : sessionMsgs.map((m, i) => (
-                      <div key={i} className="flex gap-1.5 text-xs leading-relaxed">
-                        <span className={`shrink-0 font-semibold ${m.role === 'user' ? 'text-sky-400' : 'text-neutral-500'}`}>
-                          {m.role === 'user' ? '›' : '⏺'}
-                        </span>
-                        <div className="min-w-0 flex-1 text-neutral-300 [&_code]:text-[11px] [&_p]:my-0.5 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 [&_ul]:my-0.5 [&_ul]:pl-4">
-                          <ChatMarkdown components={{}}>{m.content}</ChatMarkdown>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
             {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-neutral-500">Nessun commento.</p>}
-            {comments.map((c) => <CommentBubble key={c.id} comment={c} />)}
+            {comments.map((c, i) => (
+              <div key={c.id} className="space-y-2">
+                {task.assignedTopicId && (
+                  <SessionSlice msgs={sliceBetween(comments[i - 1]?.createdAt ?? null, c.createdAt)} />
+                )}
+                <CommentBubble comment={c} />
+              </div>
+            ))}
+            {/* Turn still running (or ended after the last comment): its
+                reasoning-so-far hangs at the tail, before the indicator. */}
+            {task.assignedTopicId && (
+              <SessionSlice
+                msgs={sliceBetween(comments[comments.length - 1]?.createdAt ?? null, null)}
+                label={agentBusy ? 'Ragionamento in corso' : undefined}
+              />
+            )}
             {agentBusy && (
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-2">
@@ -1517,6 +1508,47 @@ function commentTime(iso: string): string {
  * task title, so any label would read like a bogus username; it survives only
  * in the tooltip). System notes are dimmed.
  */
+/** One session message with its placement timestamp (from /api/history). */
+interface SessionMsg { role: string; content: string; timestamp: string }
+
+/**
+ * The slice of agent session between two thread comments — the "reasoning"
+ * that produced the reply below it. Collapsed to a thin toggle by default
+ * (chat-style thinking block); expands inline, read-only, same markdown
+ * renderer as the chat. Renders nothing when the interval holds no messages.
+ */
+function SessionSlice({ msgs, label }: { msgs: SessionMsg[]; label?: string }) {
+  const [open, setOpen] = useState(false);
+  if (msgs.length === 0) return null;
+  return (
+    <div className="rounded-md border border-white/5 bg-white/[0.02]">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title={open ? 'Comprimi il ragionamento' : 'Mostra cosa ha fatto la sessione in questo passaggio'}
+        className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-neutral-500 hover:text-neutral-300"
+      >
+        <Bot className="h-3 w-3 shrink-0" />
+        <span>{label ?? 'Ragionamento'} · {msgs.length} passagg{msgs.length === 1 ? 'io' : 'i'}</span>
+        <ChevronDown className={`ml-auto h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="max-h-72 space-y-2 overflow-y-auto border-t border-white/5 bg-black/20 px-2.5 py-2">
+          {msgs.map((m, i) => (
+            <div key={i} className="flex gap-1.5 text-xs leading-relaxed">
+              <span className={`shrink-0 font-semibold ${m.role === 'user' ? 'text-sky-400' : 'text-neutral-500'}`}>
+                {m.role === 'user' ? '›' : '⏺'}
+              </span>
+              <div className="min-w-0 flex-1 text-neutral-300 [&_code]:text-[11px] [&_p]:my-0.5 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 [&_ul]:my-0.5 [&_ul]:pl-4">
+                <ChatMarkdown components={{}}>{m.content}</ChatMarkdown>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CommentBubble({ comment }: { comment: TaskComment }) {
   if (comment.author !== 'user') {
     const system = comment.author === 'system';
