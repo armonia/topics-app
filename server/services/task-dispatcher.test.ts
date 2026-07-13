@@ -19,7 +19,7 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT
+    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
@@ -362,6 +362,23 @@ describe("task-dispatcher", () => {
     await flush();
     expect(h.turns[0].content).toContain('update_task(task_id="t1", status="review")');
     expect(h.turns[0].content).not.toContain("project_id");
+  });
+
+  it("plan-first kickoff demands a plan in review BEFORE implementing", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.create({ projectId: PID, text: "refactor grosso", status: "todo", planFirst: true });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.turns[0].content).toContain("PLAN FIRST");
+    expect(h.turns[0].content).toContain("Approva il piano");
+    // A normal task never carries the plan contract.
+    const h2 = harness();
+    h2.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h2.db, { id: "t1", status: "todo" });
+    await h2.dispatcher.tick(PID);
+    await flush();
+    expect(h2.turns[0].content).not.toContain("PLAN FIRST");
   });
 
   it("kickoff teaches the step checklist (nested subtasks, self-closable) and output_url", async () => {

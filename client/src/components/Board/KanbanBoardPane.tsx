@@ -9,9 +9,10 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Bot, Check, ChevronDown, ChevronRight, ExternalLink, Loader2, Maximize2, Minimize2, Plus, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Maximize2, Minimize2, Plus, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
+import { ChatMarkdown } from '../ChatMarkdown';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
@@ -261,7 +262,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         />
       )}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
-        <div className="flex h-full gap-3 overflow-x-auto p-3">
+        <div className="flex h-full gap-3 overflow-x-auto p-3 pb-20">
           {TASK_STATUSES.map((status) => (
             <Column
               key={status}
@@ -289,6 +290,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           ) : null}
         </DragOverlay>
       </DndContext>
+      <FloatingTaskComposer
+        projectId={projectId}
+        global={mode === 'all'}
+        onCreated={refetch}
+        onError={setError}
+      />
       {selected && (
         <TaskDetail
           key={selected.id} /* fresh edit/scroll state per task (drawer navigation) */
@@ -301,6 +308,114 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           onOpenTopic={onOpenTopic}
         />
       )}
+    </div>
+  );
+}
+
+// ── Floating task composer ──────────────────────────────────────────────────
+/**
+ * The "dai questo all'agent" entry point: a floating input at the bottom of
+ * the board. Collapsed it's a slim pill; on focus it RISES slightly and
+ * expands (plan-first toggle, project select in the global board, submit) —
+ * and eases back on blur. The task is born in Todo (the dispatch signal);
+ * title = first line, full text goes to the description, and the dispatched
+ * agent polishes the wording (kickoff rule) — no model to pick, ever.
+ */
+function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
+  projectId: string;
+  /** Cross-project mode: no implicit board — a project select appears. */
+  global: boolean;
+  onCreated: () => void;
+  onError: (e: string) => void;
+}) {
+  const [text, setText] = useState('');
+  const [focused, setFocused] = useState(false);
+  const [planFirst, setPlanFirst] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [projects, setProjects] = useState<BoardProjectRef[] | null>(null);
+  const [targetProject, setTargetProject] = useState<string>(() => {
+    try { return localStorage.getItem('board:composerProject') ?? ''; } catch { return ''; }
+  });
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const expanded = focused || text.trim().length > 0;
+
+  const onFocus = () => {
+    setFocused(true);
+    if (global && projects === null) boardApi.projects().then(setProjects).catch(() => setProjects([]));
+  };
+  // Collapse only when focus truly LEFT the composer (not moving between its
+  // own controls) — otherwise clicking "Plan first" would blur-shrink it.
+  const onBlurCapture = (e: React.FocusEvent) => {
+    if (wrapRef.current && e.relatedTarget instanceof Node && wrapRef.current.contains(e.relatedTarget)) return;
+    setFocused(false);
+  };
+
+  const target = global ? targetProject : projectId;
+
+  const submit = async () => {
+    const raw = text.trim();
+    if (!raw || submitting) return;
+    if (!target) { onError('Scegli il progetto del task.'); return; }
+    const firstLine = raw.split('\n')[0].trim();
+    const title = firstLine.length > 80 ? firstLine.slice(0, 77) + '…' : firstLine;
+    const description = raw !== title ? raw : null;
+    setSubmitting(true);
+    try {
+      await boardApi.create(target, { text: title, description, status: 'todo', planFirst });
+      setText('');
+      setPlanFirst(false);
+      onCreated();
+    } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
+    finally { setSubmitting(false); }
+  };
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-4">
+      <div
+        ref={wrapRef}
+        onFocusCapture={onFocus}
+        onBlurCapture={onBlurCapture}
+        data-testid="board-task-composer"
+        className={`pointer-events-auto w-full max-w-xl rounded-2xl border bg-neutral-900/90 shadow-2xl backdrop-blur transition-all duration-200 ease-out ${
+          expanded ? '-translate-y-2 border-white/20 shadow-black/40' : 'translate-y-0 border-white/10'
+        }`}
+      >
+        <textarea
+          value={text} rows={1} ref={autoGrow}
+          onChange={(e) => { setText(e.target.value); autoGrow(e.currentTarget); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+          placeholder="Descrivi un task per l'agent…"
+          className="block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 pb-1 pt-3 text-sm leading-5 text-neutral-100 outline-none placeholder:text-neutral-500"
+        />
+        <div className={`flex items-center gap-2 overflow-hidden px-2.5 transition-all duration-200 ease-out ${expanded ? 'max-h-12 pb-2 opacity-100' : 'max-h-0 pb-0 opacity-0'}`}>
+          {global && (
+            <select
+              value={targetProject}
+              onChange={(e) => {
+                setTargetProject(e.target.value);
+                try { localStorage.setItem('board:composerProject', e.target.value); } catch { /* private mode */ }
+              }}
+              className="max-w-[11rem] rounded bg-white/5 px-1.5 py-1 text-xs text-neutral-200 outline-none"
+            >
+              <option value="">progetto…</option>
+              {projects?.map((p) => <option key={p.projectId} value={p.projectId}>{p.name}</option>)}
+            </select>
+          )}
+          <button
+            onClick={() => setPlanFirst((v) => !v)}
+            title="L'agent consegna prima un piano da approvare, implementa dopo il tuo ok"
+            className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] transition-colors ${
+              planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+            }`}
+          ><ClipboardList className="h-3 w-3" /> Plan first</button>
+          <span className="ml-auto hidden text-[10px] text-neutral-600 sm:block">parte da Todo · modello automatico</span>
+          <button
+            onClick={submit} disabled={!text.trim() || submitting}
+            title="Crea il task (l'agent parte da Todo)"
+            className="rounded-lg bg-emerald-500/80 p-1.5 text-white hover:bg-emerald-500 disabled:opacity-40"
+          >{submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -431,6 +546,12 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
             title={`${task.subtaskDoneCount}/${task.subtaskCount} sottotask completati`}
             className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
           >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
+        )}
+        {task.planFirst && (
+          <span
+            title="L'agent consegna prima un piano da approvare"
+            className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300"
+          >piano</span>
         )}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
         {task.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
@@ -715,6 +836,35 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     finally { setProjBusy(false); }
   };
 
+  // Live agent state: typing indicator + human stop while a turn runs.
+  const agentBusy = !!task && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+  const stopAgent = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await boardApi.stop(projectId, taskId); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
+  // Inline expansion of the FULL agent session (same thread the chat tab
+  // shows, read-only) — for when the comment trail isn't enough but a full
+  // tab switch is too much. Reloads with the live bump while open.
+  const [sessionOpen, setSessionOpen] = useState(false);
+  const [sessionMsgs, setSessionMsgs] = useState<Array<{ role: string; content: string }> | null>(null);
+  const sessionKey = task?.assignedTopicId ? `topic:${task.assignedTopicId.slice(0, 8)}` : null;
+  const loadSession = useCallback(async () => {
+    if (!sessionKey) return;
+    try {
+      const r = await fetch(`/api/history/${encodeURIComponent(sessionKey)}?limit=200`);
+      const d = await r.json().catch(() => null) as { messages?: Array<{ role?: string; content?: string }> } | null;
+      const msgs = (Array.isArray(d?.messages) ? d.messages : [])
+        .filter((m) => typeof m?.content === 'string' && m.content.trim())
+        .map((m) => ({ role: m.role ?? 'assistant', content: m.content! }));
+      setSessionMsgs(msgs);
+    } catch { setSessionMsgs([]); }
+  }, [sessionKey]);
+  useEffect(() => { if (sessionOpen) void loadSession(); }, [sessionOpen, loadSession, bump]);
+
   const doneCount = children.filter((c) => c.status === 'done').length;
 
   return (
@@ -915,8 +1065,67 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           </div>
           {/* Thread — chat-shaped: my messages right, agent/system left. */}
           <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-            {comments.length === 0 && <p className="text-xs text-neutral-500">Nessun commento.</p>}
+            {/* Full agent session: expand INLINE between the interactions, or
+                jump to the real tab. Read-only mirror of the chat thread. */}
+            {task.assignedTopicId && (
+              <div className="rounded-md border border-white/10">
+                <div className="flex items-center gap-1.5 px-2 py-1.5">
+                  <Bot className="h-3.5 w-3.5 text-neutral-400" />
+                  <span className="text-[11px] text-neutral-400">Sessione agent</span>
+                  <div className="ml-auto flex items-center gap-0.5">
+                    <button
+                      onClick={() => setSessionOpen((o) => !o)}
+                      title={sessionOpen ? 'Comprimi la sessione' : 'Espandi la sessione qui, inline'}
+                      className="rounded p-1 text-neutral-400 hover:bg-white/10"
+                    ><ChevronDown className={`h-3.5 w-3.5 transition-transform ${sessionOpen ? 'rotate-180' : ''}`} /></button>
+                    {onOpenTopic && (
+                      <button
+                        onClick={() => onOpenTopic(task.assignedTopicId!)}
+                        title="Apri la sessione completa in una tab"
+                        className="rounded p-1 text-neutral-400 hover:bg-white/10"
+                      ><ArrowUpRight className="h-3.5 w-3.5" /></button>
+                    )}
+                  </div>
+                </div>
+                {sessionOpen && (
+                  <div className="max-h-72 space-y-2 overflow-y-auto border-t border-white/10 bg-black/20 px-2.5 py-2">
+                    {sessionMsgs === null ? (
+                      <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-neutral-500" /></div>
+                    ) : sessionMsgs.length === 0 ? (
+                      <p className="text-xs text-neutral-500">Nessun messaggio nella sessione.</p>
+                    ) : sessionMsgs.map((m, i) => (
+                      <div key={i} className="flex gap-1.5 text-xs leading-relaxed">
+                        <span className={`shrink-0 font-semibold ${m.role === 'user' ? 'text-sky-400' : 'text-neutral-500'}`}>
+                          {m.role === 'user' ? '›' : '⏺'}
+                        </span>
+                        <div className="min-w-0 flex-1 text-neutral-300 [&_code]:text-[11px] [&_p]:my-0.5 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 [&_ul]:my-0.5 [&_ul]:pl-4">
+                          <ChatMarkdown components={{}}>{m.content}</ChatMarkdown>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-neutral-500">Nessun commento.</p>}
             {comments.map((c) => <CommentBubble key={c.id} comment={c} />)}
+            {agentBusy && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-2">
+                  {[0, 150, 300].map((d) => (
+                    <span key={d} className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-400/80" style={{ animationDelay: `${d}ms` }} />
+                  ))}
+                  <span className="ml-1.5 text-[11px] text-neutral-400">
+                    {task.dispatchState === 'queued' ? 'in coda…' : task.dispatchState === 'starting' ? 'avvio agent…' : 'agent al lavoro…'}
+                  </span>
+                </div>
+                <button
+                  disabled={busy} onClick={stopAgent}
+                  title="Ferma l'agent (il task torna in Backlog con il motivo)"
+                  className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
+                >{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3 fill-current" />} Ferma</button>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
           <div className="border-t border-white/10 p-2">

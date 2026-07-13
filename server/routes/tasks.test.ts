@@ -15,7 +15,7 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT
+    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -341,6 +341,36 @@ describe("board router (human, project-scoped)", () => {
     const pids = broadcasts.filter((b) => b.type === "task:updated").map((b) => b.projectId);
     expect(pids).toContain("pX");
     expect(pids).toContain("pY");
+  });
+
+  test("POST stop parks the task (backlog, unbound) and aborts the turn — no auto-requeue", async () => {
+    db.run("INSERT INTO topics (id) VALUES ('top-z')");
+    const aborted: string[] = [];
+    const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake, { abortTurn: async (sk: string) => { aborted.push(sk); } });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "sbagliato", status: "in_progress" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-z', dispatch_state = 'working' WHERE id = ?").run(t.id);
+
+    const resp = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/stop`, {}))!;
+    expect(resp.status).toBe(200);
+    const parked = await resp.json();
+    expect(parked.status).toBe("backlog");
+    expect(parked.assignedTopicId).toBeNull();
+    expect(aborted).toEqual(["topic:top-z"]); // "topic:" + id.slice(0,8)
+    // The reason is on the thread (visible feedback, not just a chip).
+    const got = await (await call(r, "GET", `/api/boards/pX/tasks/${t.id}`))!.json();
+    expect(got.comments.some((c: any) => /Fermato da te/.test(c.content))).toBe(true);
+    // Nothing running anymore → 409.
+    expect((await call(r, "POST", `/api/boards/pX/tasks/${t.id}/stop`, {}))!.status).toBe(409);
+  });
+
+  test("PATCH agent refines title/description of its task", async () => {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "titolo grezzo dal composer" }))!.json();
+    const resp = (await call(router, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { text: "Titolo pulito", description: "Dettagli utili" }))!;
+    expect(resp.status).toBe(200);
+    const up = await resp.json();
+    expect(up.text).toBe("Titolo pulito");
+    expect(up.description).toBe("Dettagli utili");
   });
 
   test("GET /api/all-boards/projects hashes known dirs (dedup, sorted); POST scaffolds", async () => {

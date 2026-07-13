@@ -136,10 +136,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     parts.push(task.text);
     if (task.description && task.description.trim()) parts.push("", task.description.trim());
     parts.push("------------");
+    if (task.planFirst) {
+      parts.push(
+        "",
+        "⚠ PLAN FIRST — l'umano vuole approvare il piano PRIMA dell'implementazione:",
+        "1. Analizza il lavoro (leggi il codice/contesto necessario), NON implementare nulla.",
+        `2. comment_task(task_id="${task.id}", content=<piano sintetico: cosa farai e in che ordine>, options=["Approva il piano", "Da rivedere"])`,
+        `3. update_task(task_id="${task.id}", status="review") e fermati.`,
+        "Implementi solo quando l'umano approva (riparti con la sua risposta).",
+      );
+    }
     parts.push(
       [
         "Regole di lavoro:",
         "- Lavora SOLO questo task, in questa working directory.",
+        "- Se il titolo del task è grezzo o descrittivo a metà, riscrivilo tu chiaro e conciso appena inquadrato il lavoro: update_task(task_id=\"" + task.id + "\", text=<titolo>, description=<dettagli utili>) — la board è più leggibile per l'umano.",
         "- Commenti BREVI e utili: max 1-2 frasi ai milestone (cosa è fatto / cosa blocca). Mai log, diff o dump di codice nel thread (il server rifiuta commenti lunghi).",
         "- PIANO VISIBILE: se il lavoro ha più di un passo, crea subito i tuoi step come sottotask — " +
           `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
