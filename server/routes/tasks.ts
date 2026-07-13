@@ -106,7 +106,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // each task's own projectId.
     if (pathname === "/api/all-boards/tasks" && method === "GET") {
       const status = new URL(req.url).searchParams.get("status") || undefined;
-      try { return json({ tasks: svc.list({ scope: "all", status: status as any }) }); }
+      // Columns show ROOT tasks only — steps live in the parent's detail tree.
+      try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true }) }); }
       catch (e) { return fail(e); }
     }
 
@@ -215,7 +216,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const projectId = bCol.projectId;
         if (method === "GET") {
           const status = new URL(req.url).searchParams.get("status") || undefined;
-          try { return json({ tasks: svc.list({ scope: "project", projectId, status: status as any }) }); }
+          // Root tasks only: a step never renders as its own card (drawer tree).
+          try { return json({ tasks: svc.list({ scope: "project", projectId, status: status as any, rootsOnly: true }) }); }
           catch (e) { return fail(e); }
         }
         if (method === "POST") {

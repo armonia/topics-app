@@ -228,10 +228,13 @@ self-referential, FK). Il parent SHALL essere impostato solo alla creazione (nie
 re-parenting), rendendo i cicli impossibili per costruzione. Il parent SHALL vivere sulla
 stessa board del figlio. Un task con sottotask aperti SHALL NOT poter passare a `done`
 (qualsiasi attore, update o approvazione). L'archiviazione di un parent SHALL archiviare
-ricorsivamente l'intero sottoalbero. La card SHALL mostrare il contatore dei sottotask
-(`↳ fatti/totali`) e il chip del padre sui figli; il detail SHALL mostrare i sottotask
-come **albero** (espansione lazy, profondità illimitata) con quick-add e navigazione
-padre↔figlio.
+ricorsivamente l'intero sottoalbero. I sottotask NON SHALL comparire come card sulle
+colonne (né board di progetto né board generale: il feed è root-only) — vivono
+nell'albero del dettaglio del padre e nel contatore di card (`↳ fatti/totali`); il
+detail SHALL mostrare i sottotask come **albero** (espansione lazy, profondità
+illimitata) con quick-add e navigazione padre↔figlio. Il dispatcher NON SHALL mai
+claimare uno step come task indipendente (un sottotask in `todo` non accoda niente e
+non mostra chip): il lavoro di uno step appartiene all'agent del suo root.
 
 I sottotask del task assegnato a un agent sono la sua **checklist di step**: l'agent
 dispatched SHALL crearli come piano visibile e SHALL poterli marcare `done` lui stesso
@@ -246,6 +249,13 @@ commentare lo step specifico). Un commento umano su un task il cui root di dispa
 SHALL ri-kickare lo stesso agent con il testo e il riferimento allo step — stessa
 semantica della risposta sul task principale: la risposta specifica non è mai un
 commento passivo mentre il chip dice "serve te".
+
+#### Scenario: gli step non sono card
+- **GIVEN** un task con sottotask
+- **WHEN** l'umano guarda le colonne (progetto o board generale)
+- **THEN** vede solo il task root col contatore `↳ n/m`; gli step compaiono solo
+  nell'albero del dettaglio
+- **AND** uno step trascinato in `todo` non avvia nessun agent e non mostra chip
 
 #### Scenario: sottotask annidati a più livelli
 - **GIVEN** un task A
