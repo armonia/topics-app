@@ -138,6 +138,26 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
   });
 
+  it("never claims a STEP as an independent task (todo subtask = checklist, not work item)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const parentId = seedTask(h.db, { id: "root1", status: "in_progress" });
+    // A step sitting in todo (human dragged it, or created it there).
+    const step = h.svc.create({ projectId: PID, text: "step", parentTaskId: parentId, status: "todo" });
+
+    // Neither the enter-todo signal nor the poll may touch it.
+    h.dispatcher.onEnterTodo(PID, step.id);
+    await new Promise((r) => setTimeout(r, 30)); // past graceMs=10
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const t = h.task(step.id)!;
+    expect(t.status).toBe("todo");
+    expect(t.dispatchState).toBeNull(); // no stranded "queued" chip either
+    expect(t.assignedTopicId).toBeNull();
+    expect(h.turns.length).toBe(0);
+  });
+
   it("books wall-clock + token delta on the task at each turn end", async () => {
     // Fake transcript usage: 0 tokens before the turn, 1234 after it.
     let tokens = 0;

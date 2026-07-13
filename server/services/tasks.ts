@@ -119,6 +119,13 @@ export interface ListTasksInput {
   scope: "project" | "all";
   projectId?: string;
   status?: TaskStatus;
+  /**
+   * Only ROOT tasks (parent_task_id IS NULL). The board columns and the
+   * dispatcher use this: subtasks are a parent's checklist — they live in the
+   * detail tree and the "↳ n/m" counter, never as their own cards, and the
+   * dispatcher must never claim a step as an independent task.
+   */
+  rootsOnly?: boolean;
 }
 
 /** Per-board dispatch config (mirrors the `board_settings` row). */
@@ -436,6 +443,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         params.push(input.projectId);
       }
       if (input.status) { clauses.push("status = ?"); params.push(input.status); }
+      if (input.rootsOnly) clauses.push("parent_task_id IS NULL");
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       // project scope → board order (status then kanban_order); global feed → recency.
       const order = input.scope === "all" ? "updated_at DESC" : "kanban_order ASC";
@@ -520,6 +528,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.status !== undefined) {
         put("status", patch.status);
         put("completed_at", patch.status === "done" ? now() : null);
+        // A card leaving the flow keeps no live chip: dragging review → done
+        // used to strand "delivered"/"serve te" on a closed card (only
+        // reviewDecision cleared it).
+        if (patch.status === "done") put("dispatch_state", null);
       }
       put("updated_at", now());
 

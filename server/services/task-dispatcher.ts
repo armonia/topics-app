@@ -366,7 +366,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const resolved = deps.resolveProject(projectId);
 
     let todos: Task[];
-    try { todos = deps.svc.list({ scope: "project", projectId, status: "todo" }); }
+    // rootsOnly: a STEP dragged/created in todo must never be claimed as an
+    // independent task (it's the checklist of a parent, worked by ITS agent).
+    try { todos = deps.svc.list({ scope: "project", projectId, status: "todo", rootsOnly: true }); }
     catch (err) { log(`list todo failed for ${projectId}`, err); return; }
     todos = todos
       .filter((t) => !t.assignedTopicId && t.dispatchAttempts < RETRY_CAP)
@@ -425,6 +427,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // no timer, nothing starts. (Guarding here, not just in tick(), keeps the
     // `queued` chip from lingering on a board that never dispatches.)
     try { if (!deps.svc.getBoardSettings(projectId).autoDispatch) return; } catch { return; }
+    // Steps are never dispatch-eligible (tick filters rootsOnly): no queued
+    // chip either, or it would strand forever on the subtask.
+    try { if (deps.svc.get(taskId)?.task?.parentTaskId) return; } catch { return; }
     // Show "queued" immediately; the claim waits out the grace window so a quick
     // drag-through never spawns. If the task still carries a topic binding (it was
     // dispatched before and dragged back from review/done), clear the binding via
@@ -479,7 +484,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     const boards = new Set<string>();
-    try { for (const t of deps.svc.list({ scope: "all", status: "todo" })) boards.add(t.projectId); }
+    try { for (const t of deps.svc.list({ scope: "all", status: "todo", rootsOnly: true })) boards.add(t.projectId); }
     catch (err) { log("reconcile todo list failed", err); }
     for (const projectId of boards) {
       await tick(projectId).catch((err) => log(`reconcile tick failed for ${projectId}`, err));
