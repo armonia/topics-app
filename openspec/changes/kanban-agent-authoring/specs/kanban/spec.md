@@ -349,9 +349,14 @@ board + "Nuovo progetto…" — non un `<select>` nativo) e nessuna scelta di mo
 descrizione = il resto del testo (il titolo non si ripete attaccato sotto sé stesso
 nel dettaglio) — è l'agent stesso, al primo turno, a rifinire titolo e descrizione
 (`update_task(text, description)`). Il thread del dettaglio SHALL
-mostrare un indicatore animato mentre l'agent lavora, con lo stop accanto, e la
-**sessione completa dell'agent** SHALL essere espandibile inline nel thread
-(read-only, stesso renderer markdown della chat) oltre al deep-link alla tab.
+mostrare un indicatore animato mentre l'agent lavora, con lo stop accanto. La
+sessione dell'agent SHALL comparire **a fette fra i commenti**: sopra ogni
+risposta, un blocco "Ragionamento" collassato con la SOLA porzione di sessione
+fra il commento precedente e quello (read-only, stesso renderer markdown della
+chat); la coda dopo l'ultimo commento è la fetta "in corso". Il deep-link alla
+tab attiva dell'agent vive nell'header del dettaglio, e chiudere quella tab
+NON SHALL fermare la sessione (il turno appartiene al dispatcher: si
+interrompe solo con lo stop esplicito o per timeout del provider).
 
 #### Scenario: composer flottante → agent
 - **GIVEN** una board con auto-dispatch attivo
@@ -359,8 +364,15 @@ mostrare un indicatore animato mentre l'agent lavora, con lo stop accanto, e la
 - **THEN** il task nasce in Todo con titolo derivato dalla prima riga e parte l'agent
 - **AND** l'agent rifinisce titolo/descrizione sul primo turno
 
-#### Scenario: sessione espandibile inline
-- **GIVEN** un task con agent assegnato
-- **WHEN** l'umano espande "Sessione agent" nel thread
-- **THEN** la conversazione completa appare inline (read-only) e si aggiorna live
-- **AND** un click apre la stessa sessione come tab piena
+#### Scenario: ragionamento a fette fra i commenti
+- **GIVEN** un task con agent assegnato e più risposte nel thread
+- **WHEN** l'umano espande il blocco "Ragionamento" sopra una risposta
+- **THEN** appare SOLO la porzione di sessione fra il commento precedente e quella
+  risposta (read-only, si aggiorna live col thread)
+- **AND** la coda di sessione dopo l'ultimo commento appare come fetta "in corso"
+
+#### Scenario: la tab dell'agent si apre dall'header e si chiude senza danni
+- **GIVEN** un task con agent al lavoro
+- **WHEN** l'umano apre la tab della sessione dall'header del dettaglio e poi la chiude
+- **THEN** il turno dell'agent prosegue (nessun abort) e il task resta in lavorazione
+- **AND** riaprire la tab dal dettaglio mostra la stessa sessione

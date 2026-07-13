@@ -1011,7 +1011,15 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   function json(data: any, status = 200): Response {
-    return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+    // no-store: API payloads (tasks, topics, chat history…) are live state.
+    // Without an explicit Cache-Control a WKWebView/URLSession is allowed to
+    // heuristically cache 200 GETs — the board or a chat thread would then
+    // reopen on YESTERDAY's data until a hard reload. Static assets keep their
+    // own policy in server.ts (index.html no-cache, hashed assets immutable).
+    return new Response(JSON.stringify(data), {
+      status,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
   }
 
   function matchRoute(pathname: string, pattern: string): Record<string, string> | null {

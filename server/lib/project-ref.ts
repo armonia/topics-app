@@ -28,32 +28,44 @@ function basename(p: string): string {
 }
 
 /**
- * Return the path of the first candidate matching `ref`, or null.
+ * Return EVERY candidate path matching `ref`, strongest tier first (exact slug,
+ * then exact name, then folder basename; candidate order within a tier),
+ * deduped. Ambiguous references — two projects sharing a basename, e.g. a real
+ * repo and a stale workspace husk both called "topics-app" — return ALL of
+ * them so the fs-aware caller can pick the one that actually looks like a
+ * project instead of whichever happened to iterate first.
  *
  * @param ref      bare project reference (not an absolute/`~` path)
  * @param candidates ordered by preference — earlier wins on a tie
  * @param slugify  the same slugify the store uses, so "My App" === "my-app"
  */
+export function matchProjectRefAll(
+  ref: string,
+  candidates: ProjectRefCandidate[],
+  slugify: (s: string) => string,
+): string[] {
+  const raw = (ref || "").trim();
+  if (!raw) return [];
+  const lower = raw.toLowerCase();
+  const slug = slugify(raw);
+
+  const out: string[] = [];
+  const push = (p: string) => { if (!out.includes(p)) out.push(p); };
+
+  // Three passes, strongest signal first, so a real slug match always beats a
+  // coincidental basename match further down the candidate list.
+  for (const c of candidates) if (c.slug && c.slug === slug) push(c.path);
+  for (const c of candidates) if (c.name && c.name.toLowerCase() === lower) push(c.path);
+  for (const c of candidates) if (basename(c.path) === lower) push(c.path);
+
+  return out;
+}
+
+/** First match of `matchProjectRefAll`, or null. */
 export function matchProjectRef(
   ref: string,
   candidates: ProjectRefCandidate[],
   slugify: (s: string) => string,
 ): string | null {
-  const raw = (ref || "").trim();
-  if (!raw) return null;
-  const lower = raw.toLowerCase();
-  const slug = slugify(raw);
-
-  // Three passes, strongest signal first, so a real slug match always beats a
-  // coincidental basename match further down the candidate list.
-  const bySlug = candidates.find((c) => c.slug && c.slug === slug);
-  if (bySlug) return bySlug.path;
-
-  const byName = candidates.find((c) => c.name && c.name.toLowerCase() === lower);
-  if (byName) return byName.path;
-
-  const byBase = candidates.find((c) => basename(c.path) === lower);
-  if (byBase) return byBase.path;
-
-  return null;
+  return matchProjectRefAll(ref, candidates, slugify)[0] ?? null;
 }
