@@ -397,7 +397,9 @@ const taskDispatcher = createTaskDispatcher({
   },
   createTopic: (o) => {
     const { topic } = createDetachedTopic(
-      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model },
+      // background: an agent session never pops a tab — it lives in the
+      // sidebar; the task drawer's "apri tab" un-archives it on demand.
+      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model, background: true },
       {
         getTopicById: ctx.getTopicById,
         loadTopics: ctx.loadTopics,
