@@ -115,6 +115,8 @@ export interface DetachedTopicOptions {
   systemPrompt?: string;
   /** Reasoning-effort tier for the topic's claude spawn (`--effort <tier>`, migration 033). */
   effort?: string;
+  /** Model override for the topic's spawns (`--model`); absent = provider default. */
+  model?: string;
 }
 
 /**
@@ -150,6 +152,7 @@ export function createDetachedTopic(
   if (opts.projectPath) newTopic.projectPath = opts.projectPath;
   if (opts.worktreeId) newTopic.worktreeId = opts.worktreeId;
   if (opts.effort) newTopic.effort = opts.effort;
+  if (opts.model) newTopic.model = opts.model;
   deps.saveSingleTopic(newTopic);
   deps.broadcastToAll({ type: "topic:created", topic: newTopic });
   return { topic: newTopic };

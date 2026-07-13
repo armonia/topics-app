@@ -20,7 +20,8 @@ function freshDb(): Database {
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+    model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
@@ -68,7 +69,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const svc: TaskService = createTaskService(db);
   const events: any[] = [];
   const worktreesCreated: string[] = [];
-  const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string }[] = [];
+  const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string; model?: string }[] = [];
   const turns: { sessionKey: string; content: string }[] = [];
   let resolveTurn: (() => void) | null = null;
   let rejectTurn: ((e: unknown) => void) | null = null;
@@ -77,7 +78,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     svc,
     resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
     createTopic: (opts) => {
-      topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort });
+      topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort, model: opts.model });
       const n = topicsCreated.length;
       // The real host persists the topic row; the FK on assigned_topic_id
       // requires it to exist before bindTopic().
@@ -212,18 +213,42 @@ describe("task-dispatcher", () => {
     expect(h.task("t1")!.dispatchState).toBe("needs_input");
   });
 
-  it("requeues a task whose turn ended without reaching review", async () => {
+  it("continues the SAME session when a turn ends without reaching review", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
-    h.finishTurn(); // ends while still in_progress
+    h.finishTurn(); // wall-clock timeout cuts the agent mid-work
     await flush();
     const t = h.task("t1")!;
-    expect(t.status).toBe("todo");
+    // NOT released back to todo: the conversation (and its worktree) survives,
+    // the agent resumes where it was instead of re-planning from scratch.
+    expect(t.status).toBe("in_progress");
+    expect(t.assignedTopicId).toBe("topic-1");
+    expect(t.dispatchAttempts).toBe(2); // the continuation costs an attempt
+    expect(h.topicsCreated.length).toBe(1); // no fresh topic
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1].sessionKey).toBe("topic:topic-1"); // same tab resumed (prod sessionKey convention)
+    expect(h.turns[1].content).toContain("interrotto");
+    // The thread explains what happened (visible history, not a silent retry).
+    const comments = h.svc.get("t1")!.comments;
+    expect(comments.some((c) => c.author === "system" && c.content.includes("stessa sessione"))).toBe(true);
+  });
+
+  it("parks in backlog when the retry budget is exhausted mid-continuation", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurn(); await flush(); // attempt 1 → continuation (attempt 2)
+    h.finishTurn(); await flush(); // attempt 2 → continuation (attempt 3)
+    h.finishTurn(); await flush(); // attempt 3 → cap: park
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
     expect(t.assignedTopicId).toBeNull();
-    expect(t.dispatchState).toBe("queued");
+    expect(h.turns.length).toBe(3);
   });
 
   it("respects the concurrency cap", async () => {
@@ -472,5 +497,62 @@ describe("task-dispatcher", () => {
     await flush();
     expect(h.task("t1")!.status).toBe("in_progress");
     expect(h.task("t1")!.assignedTopicId).toBe("topic-1"); // fresh topic, not the old one
+  });
+});
+
+describe("blocked-by + context reuse", () => {
+  it("a blocked todo WAITS: no claim, no queued chip; onBlockerDone dispatches it", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const a = h.svc.create({ projectId: PID, text: "blocker" });
+    const b = h.svc.create({ projectId: PID, text: "dependent", blockedByTaskId: a.id });
+    // Blocker parked out of the way (only b is an eligible todo).
+    h.svc.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "backlog" } });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task(b.id)!.status).toBe("todo");        // untouched, still waiting
+    expect(h.task(b.id)!.dispatchState).toBeNull();    // no stranded "queued" chip
+    expect(h.turns.length).toBe(0);
+    // onEnterTodo on a blocked task is a no-op too (no chip, no grace timer).
+    h.dispatcher.onEnterTodo(PID, b.id);
+    expect(h.task(b.id)!.dispatchState).toBeNull();
+    // Blocker completes → the nudge dispatches the dependent.
+    h.svc.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "done" } });
+    h.dispatcher.onBlockerDone(a.id);
+    await new Promise((r) => setTimeout(r, 30)); // grace (10ms in harness) + tick
+    await flush();
+    expect(h.task(b.id)!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+  });
+
+  it("reuseBlockerContext rides the blocker's topic (no fresh topic/worktree)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const a = h.svc.create({ projectId: PID, text: "blocker" });
+    const b = h.svc.create({ projectId: PID, text: "dependent", blockedByTaskId: a.id, reuseBlockerContext: true });
+    h.svc.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "backlog" } });
+    // The blocker worked in its own topic and was approved to done.
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-blocker')");
+    h.svc.bindTopic({ taskId: a.id, topicId: "topic-blocker" });
+    h.svc.update({ taskId: a.id, actor: "human", by: "u", patch: { status: "done" } });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task(b.id)!;
+    expect(t.status).toBe("in_progress");
+    expect(t.assignedTopicId).toBe("topic-blocker");   // SAME conversation
+    expect(h.topicsCreated.length).toBe(0);             // no fresh topic
+    expect(h.worktreesCreated.length).toBe(0);          // topic carries its own cwd
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].sessionKey).toBe("topic:topic-bl"); // topic:<id8>
+    expect(h.turns[0].content).toContain("STESSA sessione");
+  });
+
+  it("passes the task's model override to the fresh agent topic", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.create({ projectId: PID, text: "with model", model: "claude-fable-5" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect((h.topicsCreated[0] as any).model).toBe("claude-fable-5");
   });
 });
