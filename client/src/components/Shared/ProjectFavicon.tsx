@@ -33,7 +33,11 @@ import { useState, useEffect, type ReactNode } from 'react';
 // favicon is now served would stay blank, e.g. a Next.js `app/icon.svg`). One
 // more key bump flushes those so every project re-probes once against the
 // now-fixed endpoint.
-const CACHE_KEY = 'topics-project-icon-cache-v3';
+// v4: a day of rapid server kickstarts + dev-bundle auto-reloads (every rsync
+// reloads all windows, often while the server is still warming its allowlist)
+// latched 'none' for projects whose icons the healthy endpoint serves fine
+// ([cliente], topics-app). Flush once more.
+const CACHE_KEY = 'topics-project-icon-cache-v4';
 const NONE_TTL_MS = 12 * 60 * 60 * 1000;
 type IconStatus = 'has' | 'none';
 interface CacheEntry { s: IconStatus; t: number }
