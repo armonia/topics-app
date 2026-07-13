@@ -358,6 +358,28 @@ tab attiva dell'agent vive nell'header del dettaglio, e chiudere quella tab
 NON SHALL fermare la sessione (il turno appartiene al dispatcher: si
 interrompe solo con lo stop esplicito o per timeout del provider).
 
+Il thread SHALL essere anche lo **storico dello stato**: ogni transizione
+(update umano o agent, claim del dispatcher, release, decisione di review)
+scrive un evento `kind='status'` ("from→to", autore = chi l'ha spostato) reso
+come riga di timeline fra i commenti — mai come bolla, e mai conteggiato come
+"ultima parola dell'agent" (gate `review_needs_summary` e chip
+delivered/needs_input filtrano su `kind='comment'`). Lo stato SHALL essere
+modificabile anche dall'header del dettaglio (selettore con i 5 stati, stesse
+guardie server del drag). Il pannello di output in modalità wide SHALL
+comparire SOLO quando `output_url` esiste — mai un riquadro vuoto.
+
+Il task SHALL esporre l'**effort dell'agent**: tempo di lavoro cumulato
+(wall-clock dei turni, registrato dal dispatcher) e token consumati (delta
+per turno dalle usage del transcript della sessione, best-effort) — visibili
+su card e dettaglio; mentre un turno gira, il dettaglio mostra il tempo che
+ci sta mettendo in tempo reale.
+
+Il drag & drop SHALL posizionare, non solo spostare: rilasciare una card su
+un'altra la inserisce in quel punto (riordino nella colonna e posizione
+d'arrivo cross-colonna, persistiti via `kanban_order` frazionario — un solo
+PATCH, niente rinumerazioni); i refetch live SHALL essere sospesi durante il
+drag e applicati al rilascio (niente colonne che saltano sotto il puntatore).
+
 #### Scenario: composer flottante → agent
 - **GIVEN** una board con auto-dispatch attivo
 - **WHEN** l'umano descrive un task nel composer e invia
@@ -370,6 +392,35 @@ interrompe solo con lo stop esplicito o per timeout del provider).
 - **THEN** appare SOLO la porzione di sessione fra il commento precedente e quella
   risposta (read-only, si aggiorna live col thread)
 - **AND** la coda di sessione dopo l'ultimo commento appare come fetta "in corso"
+
+#### Scenario: lo storico dello stato vive nel thread
+- **GIVEN** un task passato da todo → in_progress (dispatcher) → review (agent) → done (umano)
+- **WHEN** l'umano apre il dettaglio
+- **THEN** il thread mostra, in ordine, le righe di transizione con autore e ora
+- **AND** le righe di stato non compaiono mai come "ultimo commento" sulla card review
+
+#### Scenario: stato modificabile dal dettaglio aperto
+- **GIVEN** il dettaglio di un task aperto
+- **WHEN** l'umano sceglie un altro stato dal selettore nell'header
+- **THEN** il task si sposta (stesse guardie del drag: open_subtasks su done, ecc.)
+- **AND** la transizione appare nel thread come evento
+
+#### Scenario: niente pannello output vuoto
+- **GIVEN** un task SENZA output_url in modalità wide
+- **WHEN** l'umano guarda il dettaglio
+- **THEN** nessun riquadro/iframe di output è visibile (la colonna sinistra occupa tutto)
+
+#### Scenario: effort visibile
+- **GIVEN** un task lavorato da un agent per più turni
+- **WHEN** l'umano guarda card o dettaglio
+- **THEN** vede tempo cumulato e token (es. "⏱ 7m · 12.3k tok"), aggiornati a ogni fine turno
+- **AND** mentre l'agent lavora il dettaglio mostra il tempo corrente che scorre
+
+#### Scenario: il drop posiziona la card
+- **GIVEN** una colonna con più card
+- **WHEN** l'umano trascina una card sopra un'altra (stessa colonna o un'altra)
+- **THEN** la card atterra in QUEL punto e l'ordine sopravvive al refetch (kanban_order persistito)
+- **AND** durante il drag la board non salta (refetch sospesi fino al rilascio)
 
 #### Scenario: la tab dell'agent si apre dall'header e si chiude senza danni
 - **GIVEN** un task con agent al lavoro

@@ -19,7 +19,8 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0
+    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -31,7 +32,8 @@ function freshDb(): Database {
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
-    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL
+    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'comment'
   )`);
   db.run(`CREATE TABLE approvals (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
@@ -159,6 +161,40 @@ describe("review gate (KANBAN-05)", () => {
     // The agent's own summary unlocks the handoff. Humans stay unaffected.
     s.addComment({ taskId: t.id, author: "claude", content: "fatto, guarda demo/" });
     expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
+  });
+
+  test("status events (kind='status') do NOT satisfy the mute-delivery gate", () => {
+    const t = s.create({ projectId: PID, text: "work" });
+    // The agent moving the task writes a status event AUTHORED by the agent —
+    // it's history, not a delivery summary.
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "in_progress" } });
+    const evts = db.prepare("SELECT * FROM task_comments WHERE task_id = ? AND kind = 'status'").all(t.id) as any[];
+    expect(evts.length).toBe(1);
+    expect(evts[0].author).toBe("claude");
+    expect(evts[0].content).toBe("todo→in_progress");
+    expect(() => s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }))
+      .toThrow(/summary/);
+  });
+
+  test("status history: update, claim and reviewDecision log who moved it and when", () => {
+    const t = s.create({ projectId: PID, text: "work", status: "backlog" });
+    s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "todo" } });
+    const claimed = s.claim({ taskId: t.id, cap: 2, maxAttempts: 3 });
+    expect(claimed).not.toBeNull();
+    s.addComment({ taskId: t.id, author: "agent-x", content: "consegna" });
+    s.update({ taskId: t.id, actor: "agent", by: "agent-x", patch: { status: "review" } });
+    s.reviewDecision({ taskId: t.id, by: "user", decision: "approve" });
+
+    const events = (s.get(t.id)!.comments).filter((c) => c.kind === "status");
+    expect(events.map((e) => [e.content, e.author])).toEqual([
+      ["backlog→todo", "user"],
+      ["todo→in_progress", "dispatcher"],
+      ["in_progress→review", "agent-x"],
+      ["review→done", "user"],
+    ]);
+    // Normal comments keep kind='comment'.
+    const normal = (s.get(t.id)!.comments).find((c) => c.content === "consegna");
+    expect(normal?.kind).toBe("comment");
   });
 
   test("human approve → done, approval approved, completed_at set", () => {

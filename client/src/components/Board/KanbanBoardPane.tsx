@@ -8,7 +8,9 @@
  * project-scoped board API (client/src/lib/board.ts).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DndContext, DragOverlay, closestCorners, useDraggable, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, closestCorners, useDroppable, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Maximize2, Minimize2, Paperclip, Plus, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
@@ -163,18 +165,29 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
   // board:settings keeps the header pill honest when another client toggles it.
+  //
+  // While a card is being DRAGGED the refetch is deferred: replacing `tasks`
+  // mid-drag re-renders the columns under the pointer (chip flips, status
+  // events, other clients) and the drag stutters or drops — the queued refetch
+  // flushes at drag end.
+  const draggingRef = useRef(false);
+  const pendingRefetch = useRef(false);
+  const safeRefetch = useCallback(() => {
+    if (draggingRef.current) { pendingRefetch.current = true; return; }
+    refetch();
+  }, [refetch]);
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg) => {
       const m = msg as { type?: string; projectId?: string; settings?: BoardSettings; autoDispatch?: boolean };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
-        if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) refetch();
+        if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) safeRefetch();
       }
       if (m.type === 'board:settings' && m.projectId === projectId && m.settings) setSettings(m.settings);
       // Global switch flipped anywhere (any board, any client) → this pill too.
       if (m.type === 'board:dispatch' && typeof m.autoDispatch === 'boolean') setDispatchOn(m.autoDispatch);
     });
-  }, [onMessage, projectId, refetch, mode]);
+  }, [onMessage, projectId, safeRefetch, mode]);
 
   const byStatus = useMemo(() => {
     const m: Record<TaskStatus, BoardTask[]> = { backlog: [], todo: [], in_progress: [], review: [], done: [] };
@@ -195,24 +208,50 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
 
-  const moveTo = useCallback(async (task: BoardTask, status: TaskStatus) => {
-    if (task.status === status) return;
-    patchLocal(task.id, { status }); // optimistic
-    // Route by the task's OWN projectId so this works identically in the global
-    // ('all') board, where cards come from many projects.
-    try { await boardApi.update(task.projectId, task.id, { status }); }
+  /** Persist a drop: status and/or position, optimistically. Routed by the
+   *  task's OWN projectId so it works identically in the global board. */
+  const dropTo = useCallback(async (task: BoardTask, patch: { status?: TaskStatus; kanbanOrder?: number }) => {
+    patchLocal(task.id, patch); // optimistic
+    try { await boardApi.update(task.projectId, task.id, patch); }
     catch (e) { setError(e instanceof Error ? e.message : 'update failed'); refetch(); }
   }, [patchLocal, refetch]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const onDragStart = useCallback((e: DragStartEvent) => setActiveId(String(e.active.id)), []);
+  const flushDrag = useCallback(() => {
+    draggingRef.current = false;
+    if (pendingRefetch.current) { pendingRefetch.current = false; refetch(); }
+  }, [refetch]);
+  const onDragStart = useCallback((e: DragStartEvent) => {
+    draggingRef.current = true;
+    setActiveId(String(e.active.id));
+  }, []);
+  // Fractional insertion key between two neighbours (SQLite NUMERIC affinity
+  // keeps the float): no renumbering, one PATCH per drop.
+  const between = (prev: number | undefined, next: number | undefined): number =>
+    prev === undefined && next === undefined ? 1
+    : prev === undefined ? next! - 1
+    : next === undefined ? prev + 1
+    : (prev + next) / 2;
   const onDragEnd = useCallback((e: DragEndEvent) => {
     setActiveId(null);
-    const status = e.over?.id as TaskStatus | undefined;
+    flushDrag();
     const task = tasks.find((t) => t.id === e.active.id);
-    if (status && task && TASK_STATUSES.includes(status)) moveTo(task, status);
-  }, [tasks, moveTo]);
+    const overId = e.over ? String(e.over.id) : null;
+    if (!task || !overId || overId === task.id) return;
+    // Dropped on a COLUMN (its empty area) → append; on a CARD → take its place.
+    const overTask = TASK_STATUSES.includes(overId as TaskStatus) ? undefined : tasks.find((t) => t.id === overId);
+    const status = overTask ? overTask.status : (overId as TaskStatus);
+    if (!TASK_STATUSES.includes(status)) return;
+    const col = byStatus[status].filter((t) => t.id !== task.id); // already kanbanOrder-sorted
+    let idx = overTask ? col.findIndex((t) => t.id === overTask.id) : col.length;
+    if (idx < 0) idx = col.length;
+    // Same-column move DOWN past the over card = land after it (its old slot).
+    if (overTask && task.status === status && task.kanbanOrder < overTask.kanbanOrder) idx += 1;
+    const kanbanOrder = between(col[idx - 1]?.kanbanOrder, col[idx]?.kanbanOrder);
+    if (task.status === status && kanbanOrder === task.kanbanOrder) return;
+    dropTo(task, task.status === status ? { kanbanOrder } : { status, kanbanOrder });
+  }, [tasks, byStatus, dropTo, flushDrag]);
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) ?? null : null;
 
   const create = useCallback(async (status: TaskStatus, text: string) => {
@@ -283,7 +322,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           onError={setError}
         />
       )}
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
         <div className="flex h-full gap-3 overflow-x-auto p-3 pb-20">
           {TASK_STATUSES.map((status) => (
             <Column
@@ -564,9 +603,11 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
         <span className="rounded bg-white/10 px-1.5 text-xs text-neutral-400">{tasks.length}</span>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
-        {tasks.map((t) => (
-          <Card key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic} parentTitle={t.parentTaskId ? titleById.get(t.parentTaskId) : undefined} />
-        ))}
+        <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+          {tasks.map((t) => (
+            <Card key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic} parentTitle={t.parentTaskId ? titleById.get(t.parentTaskId) : undefined} />
+          ))}
+        </SortableContext>
         {!canCreate ? null : adding ? (
           <div className="rounded-md border border-white/10 bg-white/5 p-2">
             <textarea
@@ -596,10 +637,11 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
   /** Text of the parent task when this card is a subtask (context chip). */
   parentTitle?: string;
 }) {
-  // Visual drag is handled by the board-level DragOverlay, so the source card
-  // stays in place (just dimmed) — no transform here (that clipped it inside the
-  // column's overflow before).
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
+  // Sortable: the source card is dimmed (the DragOverlay carries the visual)
+  // but its NEIGHBOURS get the reflow transform — the list opens a gap under
+  // the pointer, so dropping "between two cards" reads as such. The transforms
+  // are small translations inside the column, no overflow clipping.
+  const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({ id: task.id });
 
   // "Serve te" context: for an agent-driven task in review, lazily load the
   // thread and surface the LAST comment on the card — as a quick-reply with
@@ -616,7 +658,9 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
     boardApi.get(task.projectId, task.id)
       .then(({ comments }) => {
         if (!alive) return;
-        setLastComment(comments[comments.length - 1] ?? null);
+        // Status events are history rows, not the agent's word — skip them.
+        const speech = comments.filter((c) => c.kind !== 'status');
+        setLastComment(speech[speech.length - 1] ?? null);
       })
       .catch(() => { if (alive) setLastComment(null); });
     return () => { alive = false; };
@@ -645,6 +689,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
   return (
     <div
       ref={setNodeRef} {...attributes} {...listeners}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
       onClick={() => onOpen(task.id)}
       className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
     >
@@ -675,6 +720,12 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
             title="L'agent consegna prima un piano da approvare"
             className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300"
           >piano</span>
+        )}
+        {(task.agentMs > 0 || task.agentTokens > 0) && (
+          <span
+            title={`Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}`}
+            className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
+          >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
         )}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
         {task.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
@@ -832,7 +883,9 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   // Pending question = the agent's last word is a question block: its options
   // render as quick-reply buttons right above the composer (same zone as the
   // review actions), mirroring the card.
-  const lastThreadComment = comments[comments.length - 1] ?? null;
+  // kind='status' rows are transition history, never "the agent's last word".
+  const speech = comments.filter((c) => c.kind !== 'status');
+  const lastThreadComment = speech[speech.length - 1] ?? null;
   const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
 
   const deliverAnswer = async (v: string, media?: string[]): Promise<boolean> => {
@@ -935,6 +988,19 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     if (e.key === 'Escape') { editCancelled.current = true; (e.target as HTMLElement).blur(); }
   };
 
+  // Status selector (header chip): the drawer can move the task directly —
+  // same PATCH the column drag uses, same server guards (open_subtasks…).
+  const statusBtnRef = useRef<HTMLButtonElement>(null);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const changeStatus = async (s: TaskStatus) => {
+    setStatusMenuOpen(false);
+    if (!task || s === task.status || busy) return;
+    setBusy(true);
+    try { await boardApi.update(projectId, taskId, { status: s }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
   // Project selector (header chip): move the task to another board, open the
   // current project's window, or scaffold a new workspace project. The list is
   // the server-resolvable board index — fetched lazily on first open.
@@ -1030,14 +1096,43 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
       className={`absolute inset-y-0 right-0 z-20 flex flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur ${wide ? 'w-[min(64rem,94%)]' : 'w-96'}`}
     >
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
-        <span className="flex shrink-0 items-center gap-1.5 text-xs uppercase tracking-wide text-neutral-400">
+        <button
+          ref={statusBtnRef}
+          onClick={() => task && setStatusMenuOpen(true)}
+          data-testid="task-status-chip"
+          title="Cambia lo stato del task"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs uppercase tracking-wide text-neutral-400 hover:bg-white/10"
+        >
           {task ? <StatusIcon status={task.status} /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {task ? STATUS_LABEL[task.status] : 'Carico…'}
-        </span>
+          <ChevronDown className="h-3 w-3 text-neutral-600" />
+        </button>
+        <Menu open={statusMenuOpen} anchorRef={statusBtnRef} onClose={() => setStatusMenuOpen(false)} minWidth={170} role="listbox">
+          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Sposta in…</p>
+          {TASK_STATUSES.map((s) => (
+            <button
+              key={s} role="option" aria-selected={s === task?.status}
+              disabled={busy}
+              onClick={() => changeStatus(s)}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+            >
+              <StatusIcon status={s} className="h-3.5 w-3.5" />
+              <span className="min-w-0 flex-1">{STATUS_LABEL[s]}</span>
+              {s === task?.status && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+            </button>
+          ))}
+        </Menu>
         {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`}>
             {DISPATCH_CHIP[task.dispatchState].text}
           </span>
+        )}
+        {task && (task.agentMs > 0 || task.agentTokens > 0) && (
+          <span
+            className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-400"
+            title={`Effort dell'agent su questo task: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}`}
+            data-testid="task-agent-effort"
+          >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
         )}
         {task && (
           <button
@@ -1156,7 +1251,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
       <div className="flex min-h-0 flex-1">
         {/* Left column: meta + subtask tree + chat thread. In wide mode it keeps
             the drawer width and the output panel takes the remaining space. */}
-        <div className={`flex min-w-0 flex-col ${wide ? 'w-96 shrink-0 border-r border-white/10' : 'flex-1'}`}>
+        <div className={`flex min-w-0 flex-col ${wide && task?.outputUrl ? 'w-96 shrink-0 border-r border-white/10' : 'flex-1'}`}>
           <div className="border-b border-white/10 px-3 py-3">
             {task?.parentTaskId && onOpenTask && (
               <button
@@ -1238,7 +1333,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 {task.assignedTopicId && (
                   <SessionSlice msgs={sliceBetween(comments[i - 1]?.createdAt ?? null, c.createdAt)} />
                 )}
-                <CommentBubble comment={c} />
+                {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} />}
               </div>
             ))}
             {/* Turn still running (or ended after the last comment): its
@@ -1257,6 +1352,9 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                   ))}
                   <span className="ml-1.5 text-[11px] text-neutral-400">
                     {task.dispatchState === 'queued' ? 'in coda…' : task.dispatchState === 'starting' ? 'avvio agent…' : 'agent al lavoro…'}
+                    {task.inProgressAt && task.dispatchState === 'working' && (
+                      <span className="text-neutral-500"> <Ticker since={task.inProgressAt} /></span>
+                    )}
                   </span>
                 </div>
                 <button
@@ -1348,7 +1446,8 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             </div>
           </div>
         </div>
-        {wide && <OutputPanel task={task} onOpenTopic={onOpenTopic} />}
+        {/* Output panel only when there IS an output — never an empty frame. */}
+        {wide && task?.outputUrl && <OutputPanel task={task} onOpenTopic={onOpenTopic} />}
       </div>
       )}
     </div>
@@ -1510,6 +1609,54 @@ function commentTime(iso: string): string {
  */
 /** One session message with its placement timestamp (from /api/history). */
 interface SessionMsg { role: string; content: string; timestamp: string }
+
+/**
+ * A status transition in the timeline: "chi l'ha spostato e quando", rendered
+ * as a thin event row between the speech bubbles (content = "from→to",
+ * author = the actor — user, agent name, or dispatcher).
+ */
+function StatusEventRow({ comment }: { comment: TaskComment }) {
+  const to = comment.content.split('→')[1] as TaskStatus | undefined;
+  const valid = !!to && TASK_STATUSES.includes(to);
+  const at = new Date(comment.createdAt);
+  return (
+    <div
+      className="flex items-center gap-1.5 px-1 text-[11px] text-neutral-500"
+      title={`${comment.content} · ${at.toLocaleString('it-IT')}`}
+      data-testid="task-status-event"
+    >
+      {valid ? <StatusIcon status={to} className="h-3 w-3" /> : <span className="h-1 w-1 shrink-0 rounded-full bg-neutral-600" />}
+      <span className="min-w-0 truncate">
+        <span className="text-neutral-400">{comment.author}</span> → {valid ? STATUS_LABEL[to] : comment.content}
+      </span>
+      <span className="ml-auto shrink-0 text-neutral-600">{at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>
+    </div>
+  );
+}
+
+/** Compact duration: 42s · 7m · 1h12m. */
+const fmtMs = (ms: number): string => {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
+};
+
+/** Compact token count: 850 · 12.3k · 1.2M. */
+const fmtTok = (n: number): string =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+
+/** Live "ci sta mettendo" ticker for the current run (anchored server-side). */
+function Ticker({ since }: { since: string }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const ms = Date.now() - Date.parse(since);
+  return <>{Number.isFinite(ms) && ms > 0 ? fmtMs(ms) : '0s'}</>;
+}
 
 /**
  * The slice of agent session between two thread comments — the "reasoning"

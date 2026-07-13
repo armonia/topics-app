@@ -54,6 +54,12 @@ export interface Task {
   outputUrl: string | null;
   /** Dispatch contract: deliver a PLAN to review before implementing. */
   planFirst: boolean;
+  /** When the current claim started (dispatcher CAS) — the live "ci sta
+   *  mettendo" ticker anchors here while a turn runs. */
+  inProgressAt: string | null;
+  /** Cumulative agent effort: wall-clock ms + tokens across every turn. */
+  agentMs: number;
+  agentTokens: number;
   /** Direct-children counters (filled by list/get for board badges). */
   subtaskCount: number;
   subtaskDoneCount: number;
@@ -68,6 +74,13 @@ export interface TaskComment {
   /** Attached files: absolute paths from /api/upload, served via /api/media. */
   media: string[];
   createdAt: string;
+  /**
+   * 'comment' = a human/agent message. 'status' = a transition event written
+   * by the service at every status write (content "from→to", author = who
+   * moved it) — the thread doubles as the status history. Status events never
+   * count as "the agent's last word" (review gate, delivered/needs_input chip).
+   */
+  kind: "comment" | "status";
 }
 
 export interface CreateTaskInput {
@@ -225,6 +238,8 @@ export interface TaskService {
   bindTopic(args: { taskId: string; topicId: string }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
+  /** Accumulate agent effort on the task (dispatcher, at each turn end). */
+  recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number }): Task;
   /** Read the per-board dispatch config (defaults when no row exists). */
   getBoardSettings(projectId: string): BoardSettings;
   /** Upsert the per-board dispatch config. `autoDispatch` routes to the global switch. */
@@ -273,6 +288,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
       planFirst: !!r.plan_first,
+      inProgressAt: r.in_progress_at ?? null,
+      agentMs: r.agent_ms ?? 0,
+      agentTokens: r.agent_tokens ?? 0,
       subtaskCount: 0,
       subtaskDoneCount: 0,
     };
@@ -337,7 +355,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     if (r.mentions) { try { mentions = JSON.parse(r.mentions); } catch { mentions = []; } }
     let media: string[] = [];
     if (r.media) { try { media = JSON.parse(r.media); } catch { media = []; } }
-    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at };
+    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind: r.kind === "status" ? "status" : "comment" };
+  }
+
+  /**
+   * Append a status-transition event to the thread (kind='status'). Direct
+   * INSERT — no dedupe, no question composing: transitions are deliberate
+   * writes and each one IS the history entry ("chi l'ha spostato e quando").
+   * The task's own status write already bumped updated_at (change signal).
+   */
+  function logStatus(taskId: string, from: string, to: string, by: string): void {
+    try {
+      db.prepare(
+        "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, ?, ?, 'status', ?)",
+      ).run(uuid(), taskId, by || "system", `${from}→${to}`, now());
+    } catch { /* history is best-effort — never fail the transition itself */ }
   }
 
   function getTaskRow(taskId: string): any {
@@ -448,8 +480,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // last word (KANBAN-04 "mai alla cieca"), so a thread with zero agent
           // comments would leave the human staring at bare Approva/Rifiuta.
           // Coach a retry instead — same pattern as comment_too_long.
+          // kind='comment' only: a status event authored by the agent (its own
+          // step flips) must not satisfy the "say something" gate.
           const own = (db.prepare(
-            "SELECT COUNT(*) AS c FROM task_comments WHERE task_id = ? AND author NOT IN ('user', 'system')",
+            "SELECT COUNT(*) AS c FROM task_comments WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'",
           ).get(taskId) as any).c as number;
           if (own === 0) {
             throw new TaskServiceError(
@@ -490,6 +524,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
+      // Status history: every applied transition lands in the thread with its
+      // author — the timeline answers "chi l'ha spostato e quando".
+      if (patch.status !== undefined && patch.status !== current) logStatus(taskId, current, patch.status, by);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -568,6 +605,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // be re-kicked by the dispatcher (resume sets "working" itself).
       db.prepare("UPDATE tasks SET status = ?, completed_at = ?, dispatch_state = NULL, updated_at = ? WHERE id = ?")
         .run(target, target === "done" ? ts : null, ts, taskId);
+      logStatus(taskId, "review", target, by);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -658,6 +696,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND dispatch_attempts < ?`,
       ).run(agentId ?? null, ts, ts, taskId, maxAttempts);
       if (res.changes !== 1) return null; // lost the race / not todo / attempts exhausted
+      logStatus(taskId, "todo", "in_progress", "dispatcher");
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -675,6 +714,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
             status = ?, dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?`,
       ).run(status, state, reason ?? null, ts, taskId);
+      if (row.status !== status) logStatus(taskId, row.status, status, by ?? "dispatcher");
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -683,6 +723,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       db.prepare("UPDATE tasks SET assigned_topic_id = ?, chat_id = ?, updated_at = ? WHERE id = ?")
         .run(topicId, topicId, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    recordAgentUsage({ taskId, addMs, addTokens }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      const ms = Math.max(0, Math.trunc(addMs || 0));
+      const tok = Math.max(0, Math.trunc(addTokens || 0));
+      db.prepare(
+        "UPDATE tasks SET agent_ms = agent_ms + ?, agent_tokens = agent_tokens + ?, updated_at = ? WHERE id = ?",
+      ).run(ms, tok, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 
