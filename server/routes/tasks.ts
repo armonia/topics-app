@@ -45,6 +45,8 @@ export interface TasksRouterOpts {
   listProjectDirs?: () => string[];
   /** Workspace root for scaffolding a NEW project from the board. */
   workspaceDir?: string;
+  /** Abort a running headless turn (human "stop" on a dispatched task). */
+  abortTurn?: (sessionKey: string) => Promise<void>;
 }
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
@@ -182,6 +184,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
               status: typeof body?.status === "string" ? body.status : undefined,
               parentTaskId: typeof body?.parentTaskId === "string" ? body.parentTaskId : null,
+              planFirst: body?.planFirst === true,
             });
             broadcastToAll({ type: "task:created", projectId, task });
             // A task born directly in Todo is the same "vai" signal as a drag
@@ -207,6 +210,31 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           } catch (e) { return fail(e); }
         }
         return null;
+      }
+
+      // POST /api/boards/:projectId/tasks/:taskId/stop — the human pulls the
+      // plug on a running dispatch ("ho sbagliato qualcosa"). Order matters:
+      // park FIRST (backlog + reason), THEN cut the turn — so when the aborted
+      // turn's onTurnEnd fires it finds the task already moved and just drops
+      // the chip instead of auto-requeueing a fresh attempt.
+      const bStop = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/stop");
+      if (bStop && method === "POST") {
+        try {
+          const got = svc.get(bStop.taskId, { projectId: bStop.projectId });
+          if (!got) return json({ error: "task not found", code: "not_found" }, 404);
+          const t = got.task;
+          const live = t.assignedTopicId || ["queued", "starting", "working"].includes(t.dispatchState ?? "");
+          if (!live) return json({ error: "no active agent on this task", code: "invalid_transition" }, 409);
+          const sessionKey = t.assignedTopicId ? "topic:" + t.assignedTopicId.slice(0, 8) : null;
+          dispatcher?.onLeaveTodo(t.id); // clears a pending grace timer (queued)
+          const parked = svc.release({
+            taskId: t.id, requeue: false, by: "user",
+            reason: "Fermato da te: agent interrotto. Rimetti il task in Todo per ripartire.",
+          });
+          broadcastToAll({ type: "task:updated", projectId: bStop.projectId, task: parked });
+          if (sessionKey && opts?.abortTurn) void opts.abortTurn(sessionKey).catch(() => { /* best-effort */ });
+          return json(parked);
+        } catch (e) { return fail(e); }
       }
 
       // POST /api/boards/:projectId/tasks/:taskId/move — send the task (and its
@@ -434,6 +462,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               priority: typeof body?.priority === "number" ? body.priority : undefined,
               assignedTo: typeof body?.assignee === "string" ? body.assignee : undefined,
               outputUrl: typeof body?.output_url === "string" ? body.output_url : undefined,
+              // The agent may refine wording (a raw composer-born title →
+              // clear, concise one). Same projectId guard as everything else.
+              text: typeof body?.text === "string" && body.text.trim() ? body.text : undefined,
+              description: typeof body?.description === "string" ? body.description : undefined,
             },
           });
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });

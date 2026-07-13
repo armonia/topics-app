@@ -42,6 +42,8 @@ export interface BoardTask {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /** Dispatch contract: agent delivers a PLAN to review before implementing. */
+  planFirst: boolean;
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;
@@ -151,6 +153,8 @@ export interface CreateTaskBody {
   status?: TaskStatus;
   /** Nest under this task (subtask, unlimited depth). */
   parentTaskId?: string | null;
+  /** Dispatch contract: the agent plans first, implements after human approval. */
+  planFirst?: boolean;
 }
 
 export interface UpdateTaskBody {
@@ -218,6 +222,9 @@ export const boardApi = {
   /** Move a root task (and its subtree) to another board. */
   move: (projectId: string, taskId: string, toProjectId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/move`, { method: 'POST', body: JSON.stringify({ toProjectId }) }),
+  /** Stop a running dispatch: parks the task and aborts the agent's turn. */
+  stop: (projectId: string, taskId: string) =>
+    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/stop`, { method: 'POST', body: JSON.stringify({}) }),
   /** Every board the server can resolve (the project selector's options). */
   projects: () =>
     req<{ projects: BoardProjectRef[] }>('/all-boards/projects').then(r => r.projects),

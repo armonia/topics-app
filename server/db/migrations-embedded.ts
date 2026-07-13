@@ -40,6 +40,7 @@ import m031 from "./migrations/032-terminal-sessions-status-index.sql" with { ty
 import m032 from "./migrations/033-topic-effort.sql" with { type: "text" };
 import m033 from "./migrations/034-task-parent.sql" with { type: "text" };
 import m034 from "./migrations/035-task-output-url.sql" with { type: "text" };
+import m035 from "./migrations/036-task-plan-first.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -84,4 +85,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 33, name: "033-topic-effort.sql", sql: m032 },
   { version: 34, name: "034-task-parent.sql", sql: m033 },
   { version: 35, name: "035-task-output-url.sql", sql: m034 },
+  { version: 36, name: "036-task-plan-first.sql", sql: m035 },
 ];

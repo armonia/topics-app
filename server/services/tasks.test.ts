@@ -19,7 +19,7 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
-    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT
+    parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -87,6 +87,13 @@ describe("create", () => {
     const b = s.create({ projectId: PID, text: "x again", idempotencyKey: "K1" });
     expect(b.id).toBe(a.id);
     expect((db.prepare("SELECT COUNT(*) c FROM tasks").get() as any).c).toBe(1);
+  });
+
+  test("planFirst persists through create → get (default false)", () => {
+    const t = s.create({ projectId: PID, text: "big thing", planFirst: true });
+    expect(t.planFirst).toBe(true);
+    expect(s.get(t.id)!.task.planFirst).toBe(true);
+    expect(s.create({ projectId: PID, text: "normal" }).planFirst).toBe(false);
   });
 
   test("rejects empty text and create-done", () => {

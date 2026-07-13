@@ -209,6 +209,8 @@ const TOOLS = [
         priority: { type: "number", description: "0–4." },
         assignee: { type: "string", description: "Agent/person to assign." },
         output_url: { type: "string", description: "http(s) URL of the reviewable output, shown in the task's review panel. Empty string clears it." },
+        text: { type: "string", description: "Rewrite the task title (clear + concise) — use it to polish a raw composer-born title." },
+        description: { type: "string", description: "Rewrite/fill the task description." },
       },
       required: ["task_id"],
     },
@@ -949,7 +951,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
@@ -963,8 +965,10 @@ export async function callUpdateTask(
   if (typeof toolArgs.assignee === "string") patch.assignee = toolArgs.assignee;
   // Empty string is a meaningful value here (clears the output), so no truthiness guard.
   if (typeof toolArgs.output_url === "string") patch.output_url = toolArgs.output_url;
+  if (typeof toolArgs.text === "string" && toolArgs.text.trim()) patch.text = toolArgs.text;
+  if (typeof toolArgs.description === "string") patch.description = toolArgs.description;
   if (Object.keys(patch).length === 0) {
-    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url'");
+    throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description'");
   }
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}`;
   const body = await httpJson<UpdateTaskResp>(args, "PATCH", path, patch, fetchImpl);

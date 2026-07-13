@@ -52,6 +52,8 @@ export interface Task {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /** Dispatch contract: deliver a PLAN to review before implementing. */
+  planFirst: boolean;
   /** Direct-children counters (filled by list/get for board badges). */
   subtaskCount: number;
   subtaskDoneCount: number;
@@ -82,6 +84,8 @@ export interface CreateTaskInput {
    * creation — a fresh id can never be an ancestor of an existing row.
    */
   parentTaskId?: string | null;
+  /** Dispatch contract: the agent delivers a PLAN to review before implementing. */
+  planFirst?: boolean;
 }
 
 export interface UpdateTaskPatch {
@@ -247,6 +251,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchError: r.dispatch_error ?? null,
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
+      planFirst: !!r.plan_first,
       subtaskCount: 0,
       subtaskDoneCount: 0,
     };
@@ -348,12 +353,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const order = (maxRow?.m ?? 0) + 1;
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
-        input.parentTaskId ?? null,
+        input.parentTaskId ?? null, input.planFirst ? 1 : 0,
       );
       return rowToTask(getTaskRow(id));
     },
