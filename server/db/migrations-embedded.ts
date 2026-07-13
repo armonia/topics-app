@@ -42,6 +42,7 @@ import m033 from "./migrations/034-task-parent.sql" with { type: "text" };
 import m034 from "./migrations/035-task-output-url.sql" with { type: "text" };
 import m035 from "./migrations/036-task-plan-first.sql" with { type: "text" };
 import m036 from "./migrations/037-task-comment-media.sql" with { type: "text" };
+import m037 from "./migrations/038-global-dispatch.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -88,4 +89,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 35, name: "035-task-output-url.sql", sql: m034 },
   { version: 36, name: "036-task-plan-first.sql", sql: m035 },
   { version: 37, name: "037-task-comment-media.sql", sql: m036 },
+  { version: 38, name: "038-global-dispatch.sql", sql: m037 },
 ];
