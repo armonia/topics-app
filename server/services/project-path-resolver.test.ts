@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildProjectCandidates, resolveProjectPath, type ProjectCandidate } from "./project-path-resolver";
+import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir, type ProjectCandidate } from "./project-path-resolver";
 import { projectIdForPath } from "./tasks";
 import type { ProjectStore } from "./project-store";
 
@@ -101,5 +101,58 @@ describe("buildProjectCandidates", () => {
     });
     const hit = resolveProjectPath(projectIdForPath(path), candidates);
     expect(hit).toEqual({ path, projectStoreId: null });
+  });
+});
+
+describe("isSelectableProjectDir (display filter)", () => {
+  const workspaceDir = "/Users/x/.openclaw/workspace";
+  const homeDir = "/Users/x";
+  // Only these paths "exist" — real project dirs, their markers, and the
+  // internal/husk dirs. Non-workspace projects need no marker; workspace-nested
+  // ones must carry one (dashboard does, the husk does not).
+  const real = new Set([
+    "/Users/x/Projects/[cliente]",
+    "/Users/x/.openclaw/workspace/generale",
+    "/Users/x/.openclaw/workspace/tasks/ab12cd34",
+    "/Users/x/.openclaw/workspace/dashboard",
+    "/Users/x/.openclaw/workspace/dashboard/package.json", // marker
+    "/Users/x/.openclaw/workspace/topics-app",             // husk (recreated), no marker
+    "/Users/x/.claude",
+    "/Users/x/.claude/jarvis",
+    "/Users/x",
+  ]);
+  const opts = { workspaceDir, homeDir, exists: (p: string) => real.has(p) };
+  const ok = (p: string) => isSelectableProjectDir(p, opts);
+
+  it("keeps real projects, incl. a marker-bearing workspace/<name> child", () => {
+    expect(ok("/Users/x/Projects/[cliente]")).toBe(true);
+    expect(ok("/Users/x/.openclaw/workspace/dashboard")).toBe(true);
+  });
+
+  it("drops the catch-all generale dir and per-task cwds", () => {
+    expect(ok("/Users/x/.openclaw/workspace/generale")).toBe(false);
+    expect(ok("/Users/x/.openclaw/workspace/tasks/ab12cd34")).toBe(false);
+    expect(ok("/Users/x/.openclaw/workspace/tasks")).toBe(false);
+  });
+
+  it("drops a recreated workspace husk that carries no project marker", () => {
+    expect(ok("/Users/x/.openclaw/workspace/topics-app")).toBe(false);
+  });
+
+  it("drops the home dir itself and config dot-dirs", () => {
+    expect(ok("/Users/x")).toBe(false);
+    expect(ok("/Users/x/.claude")).toBe(false);
+    expect(ok("/Users/x/.claude/jarvis")).toBe(false);
+  });
+
+  it("drops vanished paths (stale topic/terminal rows) and non-absolute input", () => {
+    expect(ok("/tmp/board-live-demo")).toBe(false); // not in `real` → doesn't exist
+    expect(ok("relative/path")).toBe(false);
+    expect(ok("")).toBe(false);
+  });
+
+  it("tolerates a trailing slash", () => {
+    expect(ok("/Users/x/Projects/[cliente]/")).toBe(true);
+    expect(ok("/Users/x/.openclaw/workspace/generale/")).toBe(false);
   });
 });
