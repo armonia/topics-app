@@ -52,6 +52,47 @@ const PROJECT_MARKERS = [
   "index.html", "server.ts", "server.py", "server.js",
 ];
 
+// Config/tooling dot-dirs that are never user projects even though a chat or a
+// terminal may have been rooted there. NOT `.openclaw` — its `workspace/<name>`
+// children are legit catch-all projects (see scanWorkspace); we only strip the
+// well-known non-project homes below.
+const NON_PROJECT_DOTDIR = /\/\.(claude|config|cache|local|npm|bun|cargo|rustup|ssh|vscode|cursor|git|Trash)(\/|$)/;
+
+/**
+ * Pure display filter: which candidate dirs are offered as SELECTABLE boards in
+ * the task-detail project picker / sidebar. This trims the union used only for
+ * DISPLAY — never the resolver (which must still invert `generale-…`/husk hashes
+ * so existing tasks keep dispatching). Excludes:
+ *  - the catch-all `workspace/generale` and per-task `workspace/tasks/<id8>`
+ *    cwds — internal plumbing, not projects the user picks ("task senza
+ *    progetto" live ungrouped at the top level, not under a phantom board);
+ *  - the home dir itself and config dot-dirs (`~/.claude`, …);
+ *  - a workspace-nested dir with NO project marker — a husk left by a catch-all
+ *    run (only agent runtime artifacts like `.browser-cookies`), which keeps
+ *    getting recreated on boot; real workspace projects always carry a marker;
+ *  - paths that no longer exist on disk (stale topic/terminal rows).
+ */
+export function isSelectableProjectDir(
+  path: string,
+  deps: { workspaceDir: string; homeDir: string; exists?: (p: string) => boolean },
+): boolean {
+  if (typeof path !== "string" || !path.startsWith("/")) return false;
+  const p = path.replace(/\/+$/, "");
+  if (!p) return false;
+  const generale = join(deps.workspaceDir, "generale");
+  const tasksDir = join(deps.workspaceDir, "tasks");
+  if (p === generale) return false;
+  if (p === tasksDir || p.startsWith(tasksDir + "/")) return false;
+  if (p === deps.homeDir.replace(/\/+$/, "")) return false;
+  if (NON_PROJECT_DOTDIR.test(p)) return false;
+  const exists = deps.exists ?? existsSync;
+  if (!exists(p)) return false;
+  // Workspace-nested dir → must look like a real project, not a runtime husk.
+  const ws = deps.workspaceDir.replace(/\/+$/, "");
+  if (p.startsWith(ws + "/") && !PROJECT_MARKERS.some((m) => exists(join(p, m)))) return false;
+  return true;
+}
+
 function scanWorkspace(workspaceDir: string): string[] {
   try {
     if (!existsSync(workspaceDir)) return [];
