@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
-import type { Topic, ChatMessage } from '../../types';
+import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
 import { useSpeechToText, useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
 import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu';
@@ -13,9 +14,13 @@ import { MentionAutocomplete } from './MentionAutocomplete';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { ContextRing } from '../Shared/ContextRing';
 import { useContextInspector } from '../../hooks/useContextInspector';
-import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
+import { POPOVER_PANEL, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
 import { Menu } from '../Shared/Menu';
+
+// Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
+// the composer's initial bundle and only fetch it the first time the popover opens.
+const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 
 // Available slash commands
 const SLASH_COMMANDS = [
@@ -359,6 +364,13 @@ interface ChatInputProps {
   onEffortChange?: (effort: string | null) => void;
   defaultProviderLabel?: string;
   onOpenSettings?: () => void;
+  /**
+   * Context Inspector plumbing. The inspector now renders as a popover anchored
+   * to the composer's context ring (was a docked side panel owned by the parent
+   * layout). Both come straight from `ChatPane` (`onUpdateTopic` + `onWSMessage`).
+   */
+  onUpdateTopic?: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 export function ChatInput({
@@ -411,6 +423,8 @@ export function ChatInput({
   onEffortChange,
   defaultProviderLabel,
   onOpenSettings,
+  onUpdateTopic,
+  onMessage,
 }: ChatInputProps) {
   // Context pills state. Excluded pills derive from the topic's SERVER-side
   // disabledContextSources (id format `file:<path>` — the same channel the
@@ -433,10 +447,48 @@ export function ChatInput({
   // server-side topic yet, so skip the analysis call until promotion.
   const isDraftTopic = topic.id.startsWith('draft:');
   const { budgetPercent } = useContextInspector(isDraftTopic ? null : topic.id);
+
+  // Context Inspector popover. Anchored to the ring button below; dismisses on
+  // outside-pointer / Escape via the shared useDismissable contract (the ring
+  // ref is in `refs` so clicking it to close doesn't immediately re-open).
+  const [showContextPopover, setShowContextPopover] = useState(false);
+  const contextBtnRef = useRef<HTMLButtonElement>(null);
+  const contextPopoverRef = useRef<HTMLDivElement>(null);
+  useDismissable({
+    open: showContextPopover,
+    onClose: () => setShowContextPopover(false),
+    refs: [contextBtnRef, contextPopoverRef],
+  });
   const handleContextRingClick = useCallback(() => {
-    // ChatPanel listens for this event and toggles its inspector flag.
-    window.dispatchEvent(new CustomEvent('chat-input:toggle-context', { detail: { topicId: topic.id } }));
-  }, [topic.id]);
+    if (isDraftTopic) return;
+    setShowContextPopover(v => !v);
+  }, [isDraftTopic]);
+
+  // External triggers (the per-pane header "Context Inspector" button in the
+  // various layouts) still reach the inspector through this window event — they
+  // just toggle THIS composer's popover now instead of a docked side panel.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (isDraftTopic) return;
+      const detail = (e as CustomEvent).detail as { topicId?: string } | undefined;
+      if (detail?.topicId && detail.topicId !== topic.id) return;
+      setShowContextPopover(v => !v);
+    };
+    window.addEventListener('chat-input:toggle-context', handler);
+    return () => window.removeEventListener('chat-input:toggle-context', handler);
+  }, [topic.id, isDraftTopic]);
+
+  // Position the desktop popover above the ring button, right-clamped to the
+  // viewport (mirrors ProviderModelPicker's placement math).
+  const contextPos = showContextPopover && !isMobile && contextBtnRef.current
+    ? (() => {
+        const rect = contextBtnRef.current.getBoundingClientRect();
+        return {
+          bottom: window.innerHeight - rect.top + 6,
+          left: Math.max(8, Math.min(rect.left, window.innerWidth - 396)),
+        };
+      })()
+    : null;
 
   const handleToggleContext = useCallback((path: string, currentlyExcluded: boolean) => {
     const sourceId = `file:${path}`;
@@ -958,11 +1010,18 @@ export function ChatInput({
                 )}
                 {!isDraftTopic && (
                   <button
+                    ref={contextBtnRef}
                     type="button"
                     onClick={handleContextRingClick}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg text-app-text-muted hover:text-app-text hover:bg-app-hover transition-colors"
+                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
+                      showContextPopover
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
+                    }`}
                     title={`Context: ${budgetPercent}%`}
                     aria-label="Toggle context inspector"
+                    aria-haspopup="dialog"
+                    aria-expanded={showContextPopover}
                     data-testid="chat-input-context-ring"
                   >
                     <ContextRing percent={budgetPercent} size={14} />
@@ -1158,6 +1217,61 @@ export function ChatInput({
           />
         )}
       </form>
+
+      {/* Context Inspector popover — anchored to the ring on desktop, a bottom
+          sheet on mobile. Replaces the old docked side panel; both trigger
+          points (this ring + the per-pane header button) drive it. */}
+      {showContextPopover && onUpdateTopic && !isMobile && contextPos && createPortal(
+        <div
+          ref={contextPopoverRef}
+          data-popover="context-inspector"
+          className={`fixed ${POPOVER_PANEL} flex flex-col overflow-hidden`}
+          style={{
+            zIndex: Z_POPOVER,
+            bottom: contextPos.bottom,
+            left: contextPos.left,
+            width: 380,
+            height: 'min(60vh, 560px)',
+          }}
+        >
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center py-8"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+            <ContextInspector
+              topic={topic}
+              isOpen={showContextPopover}
+              onClose={() => setShowContextPopover(false)}
+              onUpdateTopic={onUpdateTopic}
+              onMessage={onMessage}
+            />
+          </Suspense>
+        </div>,
+        document.body,
+      )}
+      {showContextPopover && onUpdateTopic && isMobile && createPortal(
+        <>
+          <div
+            className="fixed inset-0 bg-black/40"
+            style={{ zIndex: Z_POPOVER_SCRIM }}
+            onClick={() => setShowContextPopover(false)}
+          />
+          <div
+            ref={contextPopoverRef}
+            data-popover="context-inspector"
+            className={`fixed left-0 right-0 bottom-0 ${POPOVER_SHEET} flex flex-col overflow-hidden`}
+            style={{ zIndex: Z_POPOVER, height: '70vh' }}
+          >
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center py-8"><div className="w-4 h-4 border-2 border-app-spinner border-t-primary rounded-full animate-spin" /></div>}>
+              <ContextInspector
+                topic={topic}
+                isOpen={showContextPopover}
+                onClose={() => setShowContextPopover(false)}
+                onUpdateTopic={onUpdateTopic}
+                onMessage={onMessage}
+              />
+            </Suspense>
+          </div>
+        </>,
+        document.body,
+      )}
     </>
   );
 }
