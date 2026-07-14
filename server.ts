@@ -33,7 +33,8 @@ import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService } from "./server/services/tasks";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { createDetachedTopic } from "./server/lib/session-control-core";
-import { buildProjectCandidates, resolveProjectPath } from "./server/services/project-path-resolver";
+import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
+import { homedir } from "os";
 import { createBrowserService } from "./server/browser-service";
 import { clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
@@ -485,14 +486,19 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,
-  // Same union the dispatcher resolves against — the task-detail project
-  // selector must offer exactly the boards a dispatch could actually serve.
+  // Same union the dispatcher resolves against — but trimmed to the dirs that
+  // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
+  // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
+  // dot-dirs and vanished paths are dropped so the picker/sidebar stay clean;
+  // the resolver above keeps the FULL union so those hashes still invert.
   listProjectDirs: () =>
     buildProjectCandidates({
       projectStore: ctx.projectStore,
       workspaceDir: DISPATCH_WORKSPACE_DIR,
       extraPaths: dispatchExtraPaths,
-    }).map((c) => c.path),
+    })
+      .map((c) => c.path)
+      .filter((p) => isSelectableProjectDir(p, { workspaceDir: DISPATCH_WORKSPACE_DIR, homeDir: homedir() })),
 });
 // Auto-register servers Claude starts inside its PTY sessions (bare `bun run dev`
 // etc.) into the Processes panel, attributing listening ports by PTY process tree.
