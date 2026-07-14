@@ -163,6 +163,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Opening the drawer shrinks the columns viewport (flex sibling): the card
+  // that was just clicked can end up outside it. Bring it back after layout
+  // settles — rAF fires post-commit, when the row already has its new width.
+  useEffect(() => {
+    if (!selectedId) return;
+    const raf = requestAnimationFrame(() => {
+      document.querySelector(`[data-task-card="${selectedId}"]`)
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [selectedId]);
   const [showSettings, setShowSettings] = useState(false);
   // Per-board dispatch settings, owned HERE (not by the settings panel) so the
   // header can always answer "does moving a task to Todo start an agent?" —
@@ -396,61 +407,72 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           onError={setError}
         />
       )}
-      <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
-        <div className="flex h-full gap-3 overflow-x-auto p-3 pb-20">
-          {TASK_STATUSES.map((status) => (
-            <Column
-              key={status}
-              status={status}
-              tasks={byStatus[status]}
-              onOpen={setSelectedId}
-              onCreate={(text) => create(status, text)}
-              canCreate={mode === 'project'}
-              showProject={mode === 'all'}
-              onError={setError}
-              onRefetch={refetch}
-              onOpenTopic={onOpenTopic}
-              tasksById={tasksById}
-              projectPathById={projectPathById}
-            />
-          ))}
+      {/* Board area + drawer share a flex row: an open (narrow) drawer SHRINKS
+          the columns viewport instead of covering it, so every column stays
+          reachable through the row's own horizontal scroll — nothing is ever
+          "cut" behind the drawer. Wide mode opts back into absolute takeover
+          (the drawer positions itself; out of flow, the board re-expands). */}
+      <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
+            <div className="flex h-full min-w-0 gap-3 overflow-x-auto p-3 pb-20">
+              {TASK_STATUSES.map((status) => (
+                <Column
+                  key={status}
+                  status={status}
+                  tasks={byStatus[status]}
+                  onOpen={setSelectedId}
+                  onCreate={(text) => create(status, text)}
+                  canCreate={mode === 'project'}
+                  showProject={mode === 'all'}
+                  onError={setError}
+                  onRefetch={refetch}
+                  onOpenTopic={onOpenTopic}
+                  tasksById={tasksById}
+                  projectPathById={projectPathById}
+                />
+              ))}
+            </div>
+            {/* Portal to <body>: the overlay is position:fixed, and a transformed
+                ancestor (pane translateX, FLIP animations) would re-anchor fixed
+                positioning to itself — the ghost card then renders far from the
+                pointer. On body there is no transform above it, ever. */}
+            {createPortal(
+              <DragOverlay dropAnimation={null}>
+                {activeTask ? (
+                  <div className="w-64 rounded-md border border-white/20 bg-neutral-800 p-2.5 text-sm text-neutral-100 shadow-xl">
+                    <div className="flex items-start gap-2">
+                      <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[activeTask.priority] ?? PRIORITY_DOT[2]}`} />
+                      <span className="flex-1 leading-snug">{activeTask.text}</span>
+                    </div>
+                  </div>
+                ) : null}
+              </DragOverlay>,
+              document.body,
+            )}
+          </DndContext>
+          {/* Anchored to the board AREA (not the pane root) so it stays centered
+              on the visible columns when the drawer is open beside them. */}
+          <FloatingTaskComposer
+            projectId={projectId}
+            global={mode === 'all'}
+            onCreated={refetch}
+            onError={setError}
+          />
         </div>
-        {/* Portal to <body>: the overlay is position:fixed, and a transformed
-            ancestor (pane translateX, FLIP animations) would re-anchor fixed
-            positioning to itself — the ghost card then renders far from the
-            pointer. On body there is no transform above it, ever. */}
-        {createPortal(
-          <DragOverlay dropAnimation={null}>
-            {activeTask ? (
-              <div className="w-64 rounded-md border border-white/20 bg-neutral-800 p-2.5 text-sm text-neutral-100 shadow-xl">
-                <div className="flex items-start gap-2">
-                  <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[activeTask.priority] ?? PRIORITY_DOT[2]}`} />
-                  <span className="flex-1 leading-snug">{activeTask.text}</span>
-                </div>
-              </div>
-            ) : null}
-          </DragOverlay>,
-          document.body,
+        {selected && (
+          <TaskDetail
+            key={selected.id} /* fresh edit/scroll state per task (drawer navigation) */
+            projectId={selected.projectId}
+            taskId={selected.id}
+            bump={selected.updatedAt}
+            onClose={() => setSelectedId(null)}
+            onChanged={refetch}
+            onOpenTask={setSelectedId}
+            onOpenTopic={onOpenTopic}
+          />
         )}
-      </DndContext>
-      <FloatingTaskComposer
-        projectId={projectId}
-        global={mode === 'all'}
-        onCreated={refetch}
-        onError={setError}
-      />
-      {selected && (
-        <TaskDetail
-          key={selected.id} /* fresh edit/scroll state per task (drawer navigation) */
-          projectId={selected.projectId}
-          taskId={selected.id}
-          bump={selected.updatedAt}
-          onClose={() => setSelectedId(null)}
-          onChanged={refetch}
-          onOpenTask={setSelectedId}
-          onOpenTopic={onOpenTopic}
-        />
-      )}
+      </div>
     </div>
   );
 }
@@ -980,6 +1002,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
   return (
     <div
       ref={setNodeRef} {...attributes} {...listeners}
+      data-task-card={task.id}
       style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
       onClick={() => onOpen(task.id)}
       className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
@@ -1524,7 +1547,16 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   return (
     <div
       data-testid="task-detail-drawer"
-      className={`absolute inset-y-0 right-0 z-20 flex flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur ${wide ? 'w-[min(64rem,94%)]' : 'w-96'}`}
+      className={`flex flex-col border-l border-white/10 bg-neutral-900/95 backdrop-blur ${
+        wide
+          // Wide = review takeover: absolute (anchored to the board root, so it
+          // also covers the header) and out of flow — the board re-expands under it.
+          ? 'absolute inset-y-0 right-0 z-20 w-[min(64rem,94%)] shadow-2xl'
+          // Narrow = layout sibling: the columns viewport shrinks and keeps its
+          // own horizontal scroll — the board is never cut behind the drawer.
+          // Capped so a narrow pane always keeps a usable strip of board.
+          : 'relative w-96 max-w-[75%] shrink-0'
+      }`}
     >
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
         {/* Chips live in a shrinkable strip; the expand/close buttons sit
