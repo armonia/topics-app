@@ -18,6 +18,7 @@ import { Menu } from '../Shared/Menu';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
+import { openExternalOnce } from '../../lib/openExternal';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, boardDrafts,
@@ -1524,6 +1525,10 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
       className={`absolute inset-y-0 right-0 z-20 flex flex-col border-l border-white/10 bg-neutral-900/95 shadow-2xl backdrop-blur ${wide ? 'w-[min(64rem,94%)]' : 'w-96'}`}
     >
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
+        {/* Chips live in a shrinkable strip; the expand/close buttons sit
+            OUTSIDE it (shrink-0) so a narrow drawer/pane can never push them
+            past the edge ("ho stretto la tab e non riesco a riaprirla"). */}
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
         <button
           ref={statusBtnRef}
           onClick={() => task && setStatusMenuOpen(true)}
@@ -1628,6 +1633,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
           ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
         </Menu>
+        </div>
         <div className="flex shrink-0 items-center gap-0.5">
           {task?.assignedTopicId && onOpenTopic && (
             <button
@@ -1638,11 +1644,11 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             ><ArrowUpRight className="h-4 w-4" /></button>
           )}
           {task?.outputUrl && (
-            <a
-              href={task.outputUrl} target="_blank" rel="noreferrer"
-              title="Apri l'output in una nuova finestra"
+            <button
+              onClick={() => openExternalOnce(task.outputUrl!)}
+              title="Apri l'output nel browser"
               className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
-            ><ExternalLink className="h-4 w-4" /></a>
+            ><ExternalLink className="h-4 w-4" /></button>
           )}
           <button
             onClick={toggleWide}
@@ -1987,11 +1993,11 @@ function OutputPanel({ task, url, label, onOpenTopic }: { task: BoardTask | null
         <>
           <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5">
             <span className="truncate text-xs text-neutral-400" title={url}>{label || url}</span>
-            <a
-              href={url} target="_blank" rel="noreferrer"
+            <button
+              onClick={() => openExternalOnce(url)}
               className="ml-auto shrink-0 rounded p-1.5 text-neutral-400 hover:bg-white/10"
-              title="Apri in una nuova finestra"
-            ><ExternalLink className="h-4 w-4" /></a>
+              title="Apri nel browser"
+            ><ExternalLink className="h-4 w-4" /></button>
           </div>
           <OutputFrame key={url} url={url} />
         </>
@@ -2053,9 +2059,9 @@ function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?: (path:
   // In-app preview when the host provides it (drawer → output panel): a
   // target=_blank anchor is a silent no-op inside the Tauri WKWebView.
   const open = (e: React.MouseEvent, p: string) => {
-    if (!onPreview) return;
     e.preventDefault();
-    onPreview(p);
+    if (onPreview) onPreview(p);
+    else openExternalOnce(getMediaUrl(p)); // target=_blank is dead in WKWebView
   };
   return (
     <div className="mt-1 flex flex-wrap gap-1.5">
