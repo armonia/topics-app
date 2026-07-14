@@ -166,8 +166,6 @@ export function StandaloneChatGroup({
 
   // Component-local UI state.
   const [panelDragOver, setPanelDragOver] = useState(false);
-  // Context inspector state (lifted from ChatPanel so ring click can toggle it)
-  const [contextOpen, setContextOpen] = useState(false);
   // Browser navigate URL (from WS) — owned here, mutated by ordering hook via callback.
   const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
 
@@ -506,9 +504,12 @@ export function StandaloneChatGroup({
     return map;
   }, [validatedOrderedIds, projectStatusByPath]);
 
+  // The Context Inspector is a popover owned by the active topic's composer
+  // (`ChatInput`), which listens for this event. The header ring just fires it.
   const handleToggleContext = useCallback(() => {
-    setContextOpen(prev => !prev);
-  }, []);
+    if (!activeTopic) return;
+    window.dispatchEvent(new CustomEvent('chat-input:toggle-context', { detail: { topicId: activeTopic.id } }));
+  }, [activeTopic]);
 
   if (validatedOrderedIds.length === 0) return null;
   // Need at least one valid pane (either a topic, a utility, a project, a browser, or a terminal)
@@ -723,7 +724,7 @@ export function StandaloneChatGroup({
           )}
           {utilityType === 'dashboard' && <DashboardPane onMessage={onWSMessage} />}
           {utilityType === 'cron' && <CronJobsPanel />}
-          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} />}
+          {utilityType === 'board' && <KanbanBoardPane global onMessage={onWSMessage} onOpenTopic={(topicId) => window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId } }))} />}
         </LazyPane>
       );
     }
@@ -756,8 +757,6 @@ export function StandaloneChatGroup({
         onToggleSidebar={onToggleSidebar}
         isDragOver={false}
         showCloseButton={false}
-        contextOpen={contextOpen}
-        onToggleContext={handleToggleContext}
         getSessionMessages={getSessionMessages}
         isSessionLoading={isSessionLoading}
         isSessionStreaming={isSessionStreaming}
