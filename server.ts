@@ -535,7 +535,10 @@ initVapid();
 const stopHeartbeatChecker = startHeartbeatChecker(db, broadcastToAll);
 // Dev bundle hot-delivery: rebuilt /public → open windows self-reload.
 // Inert unless STATE_DIR/topics-dev.json exists (never in standalone installs).
-startDevBundleReload({
+// getRev() also feeds the WS open handler: every (re)connecting window gets
+// the current bundle rev and self-reloads if stale — covers deploys that
+// landed while the watcher was off or the window was disconnected.
+const devBundleReload = startDevBundleReload({
   publicDir: PUBLIC_DIR,
   stateDir: ctx.STATE_DIR,
   broadcastToAll,
@@ -1016,6 +1019,10 @@ const server = Bun.serve<WSData>({
         serverTime: Date.now(),
         clientId: ws.data.id,
       }));
+      // Dev-only freshness check: a window that missed the deploy-time
+      // broadcast reloads itself on reconnect (null when the flag is off —
+      // standalone installs never see this frame).
+      { const __rev = devBundleReload.getRev(); if (__rev) ws.send(JSON.stringify({ type: "ui:bundle-rev", rev: __rev })); }
       ws.send(JSON.stringify({ type: "unread:init", data: loadUnread() }));
       { const __ui = loadAllUiState(db); ws.send(JSON.stringify({ type: "ui-state:init", data: __ui.data, meta: __ui.meta })); }
       // Initial provider snapshot — keeps the picker / settings page in sync without an extra HTTP fetch.
