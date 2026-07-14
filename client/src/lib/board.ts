@@ -285,3 +285,63 @@ export const boardApi = {
   setGlobalDispatch: (autoDispatch: boolean) =>
     req<{ autoDispatch: boolean }>('/all-boards/settings', { method: 'PATCH', body: JSON.stringify({ autoDispatch }) }).then(r => r.autoDispatch),
 };
+
+// ── Server-persisted drafts ──────────────────────────────────────────────────
+// A half-written task or reply is work too: drafts live in the generic
+// ui-state store (LWW), so they survive reloads/app restarts and follow the
+// user across clients. Writes are debounced per key; failures are silent
+// (the in-memory text is never blocked on the network).
+
+export interface ComposerDraft {
+  text: string;
+  model: string | null;
+  prio: number | null;
+  planFirst: boolean;
+}
+
+async function uiGet<T>(key: string): Promise<T | null> {
+  try {
+    const r = await fetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: draft keys, not pane state
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => null);
+    return (d?.value ?? null) as T | null;
+  } catch { return null; }
+}
+
+const draftTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function uiPutDebounced(key: string, value: unknown, ms = 800): void {
+  const t = draftTimers.get(key);
+  if (t) clearTimeout(t);
+  draftTimers.set(key, setTimeout(() => {
+    draftTimers.delete(key);
+    // PANE-01-ALLOWED: draft keys, not pane state
+    fetch(`/api/ui-state/${key}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+    }).catch(() => {});
+  }, ms));
+}
+
+const TASK_DRAFTS_KEY = 'board-task-drafts';
+const TASK_DRAFTS_CAP = 50;
+let taskDraftsCache: Record<string, string> | null = null;
+
+export const boardDrafts = {
+  getComposer: () => uiGet<ComposerDraft>('board-composer-draft'),
+  putComposer: (d: ComposerDraft) => uiPutDebounced('board-composer-draft', d),
+  /** Immediate clear (submit) — no debounce window to resurrect the sent text. */
+  clearComposer: () => uiPutDebounced('board-composer-draft', { text: '', model: null, prio: null, planFirst: false }, 0),
+
+  async getTaskDraft(taskId: string): Promise<string> {
+    if (!taskDraftsCache) taskDraftsCache = (await uiGet<Record<string, string>>(TASK_DRAFTS_KEY)) ?? {};
+    return taskDraftsCache[taskId] ?? '';
+  },
+  putTaskDraft(taskId: string, text: string): void {
+    if (!taskDraftsCache) taskDraftsCache = {};
+    if (text) taskDraftsCache[taskId] = text;
+    else delete taskDraftsCache[taskId];
+    // Bounded map: drop the oldest entries past the cap (insertion order).
+    const keys = Object.keys(taskDraftsCache);
+    for (let i = 0; i < keys.length - TASK_DRAFTS_CAP; i++) delete taskDraftsCache[keys[i]];
+    uiPutDebounced(TASK_DRAFTS_KEY, taskDraftsCache, text ? 800 : 0);
+  },
+};

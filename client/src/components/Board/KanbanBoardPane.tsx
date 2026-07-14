@@ -20,7 +20,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import {
-  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID,
+  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, boardDrafts,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
   type BoardProjectRef,
 } from '../../lib/board';
@@ -599,6 +599,28 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   const [prioOpen, setPrioOpen] = useState(false);
   const [prio, setPrio] = useState<number | null>(null);
   const prioBtnRef = useRef<HTMLButtonElement>(null);
+  // Server-persisted draft: a half-written task survives reload/app restart
+  // and follows the user across clients. Restored once; local typing wins.
+  const draftLoaded = useRef(false);
+  useEffect(() => {
+    let alive = true;
+    boardDrafts.getComposer().then((d) => {
+      if (!alive) return;
+      if (d) {
+        setText((cur) => cur || d.text || '');
+        setModel((cur) => cur ?? d.model ?? null);
+        setPrio((cur) => cur ?? d.prio ?? null);
+        if (d.planFirst) setPlanFirst(true);
+      }
+      draftLoaded.current = true;
+    }).catch(() => { draftLoaded.current = true; });
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- restore-once on mount
+  }, []);
+  useEffect(() => {
+    if (!draftLoaded.current) return; // never clobber the server draft pre-restore
+    boardDrafts.putComposer({ text, model, prio, planFirst });
+  }, [text, model, prio, planFirst]);
   const [claudeModels, setClaudeModels] = useState<string[]>(
     () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
   );
@@ -691,6 +713,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
       setPlanFirst(false);
       setModel(null);
       setPrio(null);
+      boardDrafts.clearComposer();
       if (taRef.current) taRef.current.style.height = 'auto';
       onCreated();
     } catch (e) { onError(e instanceof Error ? e.message : 'create failed'); }
@@ -1129,6 +1152,20 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
+  // Per-task server draft (bounded map in ui-state): restore once per task,
+  // save debounced while typing, cleared on successful send.
+  const taskDraftLoaded = useRef(false);
+  useEffect(() => {
+    taskDraftLoaded.current = false;
+    let alive = true;
+    boardDrafts.getTaskDraft(taskId).then((t) => {
+      if (alive) { setDraft((cur) => cur || t); taskDraftLoaded.current = true; }
+    }).catch(() => { taskDraftLoaded.current = true; });
+    return () => { alive = false; };
+  }, [taskId]);
+  useEffect(() => {
+    if (taskDraftLoaded.current) boardDrafts.putTaskDraft(taskId, draft);
+  }, [draft, taskId]);
   const [subDraft, setSubDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
