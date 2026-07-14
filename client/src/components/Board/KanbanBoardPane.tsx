@@ -751,7 +751,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
         onBlurCapture={onBlurCapture}
         onPointerDownCapture={onPointerDownCapture}
         data-testid="board-task-composer"
-        className={`glass-surface pointer-events-auto w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
+        className={`input-glass pointer-events-auto w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
           expanded ? '-translate-y-2 border-white/20' : 'translate-y-0 border-white/10'
         }`}
       >
