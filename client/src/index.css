@@ -1289,19 +1289,33 @@ html.electron-mac .chrome-glass .chrome-glass {
  * (Blink ships the property UNPREFIXED), so the blur silently did nothing.
  * Tailwind emits the var-chain with BOTH the prefixed and unprefixed property,
  * which is exactly the form that works here (same as `backdrop-blur-*`). */
-/* The chat composer bubble (the `form.bg-surface` inside a chat panel) joins
- * the glass tier by selector — ChatInput.tsx paints `bg-surface` inline and is
- * matched here rather than carrying the class (same approach as ChatPanel in
- * the frosted-tier block below). Slightly more solid than the frosted pane it
- * floats on, which is exactly the input-affordance contrast we want. */
-html.electron-mac.dark .glass-surface,
-html.electron-mac.dark [role="region"][aria-label$=" panel"] form.bg-surface {
+html.electron-mac.dark .glass-surface {
   background-color: hsl(224 26% 6% / 0.72);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
-html.electron-mac:not(.dark) .glass-surface,
-html.electron-mac:not(.dark) [role="region"][aria-label$=" panel"] form.bg-surface {
+html.electron-mac:not(.dark) .glass-surface {
   background-color: hsl(220 20% 94% / 0.72);
+  @apply backdrop-blur-xl backdrop-saturate-150;
+}
+
+/* Input bubbles (chat composer, board composer) read as REAL glass: a LIGHT
+ * translucent tint over the dark frost they float on. The 0.72 near-black of
+ * `.glass-surface` is right for popovers over busy content but visually
+ * indistinguishable from an opaque surface when the backdrop is already dark
+ * frost — an input must read lighter than its pane, not darker. `.input-glass`
+ * is the class hook (board composer); the chat composer — ChatInput.tsx paints
+ * `bg-surface` inline and is under concurrent WIP — is matched by selector,
+ * same approach as ChatPanel in the frosted-tier block below. Web keeps the
+ * opaque fallback. */
+.input-glass { background-color: var(--bg-surface); }
+html.electron-mac.dark .input-glass,
+html.electron-mac.dark [role="region"][aria-label$=" panel"] form.bg-surface {
+  background-color: hsl(0 0% 100% / 0.07);
+  @apply backdrop-blur-xl backdrop-saturate-150;
+}
+html.electron-mac:not(.dark) .input-glass,
+html.electron-mac:not(.dark) [role="region"][aria-label$=" panel"] form.bg-surface {
+  background-color: hsl(0 0% 100% / 0.5);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
 
