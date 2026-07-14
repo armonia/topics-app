@@ -23,6 +23,12 @@ let lastAt = 0;
 export function openExternalOnce(url: string): void {
   if (!url) return;
 
+  // ABSOLUTE urls only past this point: the Tauri opener plugin gets the raw
+  // string, and a relative '/api/media?…' either fails or gets hijacked into
+  // an in-app browser pane (the "vedo un browser topics" bug). One decision
+  // point here protects every caller.
+  try { url = new URL(url, window.location.origin).toString(); } catch { /* keep as-is */ }
+
   const now = Date.now();
   if (url === lastUrl && now - lastAt < DEDUPE_MS) return;
   lastUrl = url;
