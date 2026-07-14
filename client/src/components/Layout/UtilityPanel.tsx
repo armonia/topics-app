@@ -70,7 +70,7 @@ export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTo
           {type === 'agents' && <AgentsPane onNavigateToTopic={onNavigateToTopic} onMessage={onMessage} />}
           {type === 'dashboard' && <DashboardPane onMessage={onMessage} />}
           {type === 'cron' && <CronJobsPanel />}
-          {type === 'board' && <KanbanBoardPane global onMessage={onMessage} />}
+          {type === 'board' && <KanbanBoardPane global onMessage={onMessage} onOpenTopic={(topicId) => window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId } }))} />}
         </Suspense>
       </div>
     </div>
