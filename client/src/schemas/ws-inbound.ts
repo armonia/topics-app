@@ -93,10 +93,20 @@ const typingBroadcastSchema = z.looseObject({
 });
 
 // Dev bundle hot-delivery (server/lib/dev-bundle-reload.ts): the built client
-// changed on disk; devBundleReload.ts reloads the window to pick it up.
+// changed on disk; devBundleReload.ts reloads the window to pick it up. `rev`
+// (sorted /assets/* names) lets the client skip the reload when it already
+// runs that bundle.
 const uiBundleUpdatedSchema = z.looseObject({
   type: z.literal('ui:bundle-updated'),
   at: z.number(),
+  rev: z.optional(z.string()),
+});
+
+// Connect-time freshness check (same rev semantics): sent to each client on
+// WS open so a window that missed the deploy-time broadcast still converges.
+const uiBundleRevSchema = z.looseObject({
+  type: z.literal('ui:bundle-rev'),
+  rev: z.string(),
 });
 
 const presenceWindowsSchema = z.looseObject({
@@ -211,6 +221,7 @@ const INBOUND_SCHEMAS = {
   'stream:error': streamErrorSchema,
   'typing': typingBroadcastSchema,
   'ui:bundle-updated': uiBundleUpdatedSchema,
+  'ui:bundle-rev': uiBundleRevSchema,
   'presence:windows': presenceWindowsSchema,
   'topic:created': topicCreatedSchema,
   'topic:updated': topicUpdatedSchema,
