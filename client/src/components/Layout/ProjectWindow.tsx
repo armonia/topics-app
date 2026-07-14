@@ -12,6 +12,7 @@ import {
   createPaneId,
   getTerminalSessionFromPaneId,
   getBrowserContextFromPaneId,
+  isTaskWorkspacePath,
   useClosedTabs,
 } from '../../state/pane/adapters';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -26,7 +27,6 @@ import { useProjectLayout } from './hooks/useProjectLayout';
 import { useProjectChatSync } from './hooks/useProjectChatSync';
 import { useProjectPersistenceSave } from './hooks/useProjectPersistenceSave';
 
-const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
 const FileExplorer = lazy(() => import('../Project/FileExplorer').then(m => ({ default: m.FileExplorer })));
@@ -99,16 +99,20 @@ export function ProjectWindowPane({
   // the wrapper (focus checks, "open me at top level", strip-from-children).
   const wrapperPaneId = useMemo(() => createPaneId('project', projectPath), [projectPath]);
 
-  // Responsive: overlay context inspector when window is narrow
-  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
-  useEffect(() => { const h = () => setIsNarrow(window.innerWidth < 1024); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
+  // TASK WORKSPACE: this "project window" is really a task's own workspace (a
+  // per-task cwd under …/workspace/tasks/<id8>). Label it with the task title —
+  // the standalone agent topic bound to this exact path carries `topic.name` =
+  // the task title — instead of the opaque <id8> folder name. Memoized so the
+  // O(topics) scan runs only when the path or the topic set changes.
+  const taskDisplayName = useMemo(() => {
+    if (!isTaskWorkspacePath(projectPath)) return undefined;
+    return Object.values(topics).find((t) => t.projectPath === projectPath && t.standalone)?.name;
+  }, [projectPath, topics]);
+
 
   // --- Recently closed tabs ---
   const { pushClosedTab, removeClosedTab } = useClosedTabs();
 
-  const [showContext, setShowContext] = useState(() => {
-    try { return localStorage.getItem('topics-context-inspector-open') === 'true'; } catch { return false; }
-  });
   const [settingsTopicId, setSettingsTopicId] = useState<string | null>(null);
   const [claudeSkipPermissions] = useClaudeSkipPermissions();
 
@@ -190,7 +194,7 @@ export function ProjectWindowPane({
     gateRefs: loaded.gateRefs,
     markChatSyncDone: loaded.markChatSyncDone,
   });
-  const { activeTopicId, activeTopic } = chatSync;
+  const { activeTopicId } = chatSync;
 
   // Wire server-hydrate (single callback, no bus). chat-sync owns the
   // reconciliation policy; loaded owns the subscribe/userEditedRef gate.
@@ -236,21 +240,12 @@ export function ProjectWindowPane({
   // the same way as terminal tabs at top-level.
   const handleStopStreaming = layout.handlers.stopStreaming;
 
-  useEffect(() => {
-    try { localStorage.setItem('topics-context-inspector-open', String(showContext)); } catch {}
-  }, [showContext]);
-
-  // Listen for context-ring clicks from any ChatInput inside this project.
-  // Only react when the event's topicId matches the currently active topic
-  // so chat-pane events meant for a sibling project window are ignored.
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { topicId?: string } | undefined;
-      if (!detail || !activeTopicId || detail.topicId !== activeTopicId) return;
-      setShowContext(prev => !prev);
-    };
-    window.addEventListener('chat-input:toggle-context', handler);
-    return () => window.removeEventListener('chat-input:toggle-context', handler);
+  // The Context Inspector is a popover owned by the active topic's composer
+  // (`ChatInput`); it listens for `chat-input:toggle-context` itself. This
+  // window only needs to fire that event from its header context ring.
+  const toggleContextInspector = useCallback(() => {
+    if (!activeTopicId) return;
+    window.dispatchEvent(new CustomEvent('chat-input:toggle-context', { detail: { topicId: activeTopicId } }));
   }, [activeTopicId]);
 
   // Listen for global Cmd+1-9 events that resolve to a pane inside this
@@ -433,7 +428,11 @@ export function ProjectWindowPane({
       case 'kanban':
         return (
           <LazyPane>
-            <KanbanBoardPane projectPath={projectPath} onMessage={onWSMessage} />
+            <KanbanBoardPane
+              projectPath={projectPath}
+              onMessage={onWSMessage}
+              onOpenTopic={chatSync.reopenTopic}
+            />
           </LazyPane>
         );
       case 'process-log':
@@ -449,7 +448,7 @@ export function ProjectWindowPane({
     topics, focusedPanelId, projectPath, wrapperPaneId,
     getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
     sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-    handleOpenFile, pinPaneById, onFocusPanel, browserNavigateUrl,
+    handleOpenFile, pinPaneById, onFocusPanel, browserNavigateUrl, chatSync.reopenTopic,
   ]);
 
   return (
@@ -457,6 +456,7 @@ export function ProjectWindowPane({
       <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
         <ProjectSidebar
           projectPath={projectPath}
+          displayName={taskDisplayName}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
           onOpenFile={handleOpenFile}
@@ -492,7 +492,7 @@ export function ProjectWindowPane({
             renderPane={renderPane}
             availableTypesForGroup={availableTypesForGroup}
             contextPercent={contextPercent}
-            onContextRingClick={() => setShowContext(prev => !prev)}
+            onContextRingClick={toggleContextInspector}
             onStopStreaming={handleStopStreaming}
             onSettings={handlePaneSettings}
             onPopOut={handlePanePopOut}
@@ -504,20 +504,6 @@ export function ProjectWindowPane({
             onRenameBrowser={(id, name) => updatePane(id, { title: name, titleSource: 'user' })}
           />
         </div>
-        {showContext && activeTopic && (
-          <div className={`overflow-hidden transition-all duration-200 ${isNarrow ? 'absolute inset-0 z-40' : 'w-[320px] flex-shrink-0 border-l border-app-border'}`}>
-            <LazyPane>
-              <ContextInspector
-                topic={activeTopic}
-                isOpen={showContext}
-                onClose={() => setShowContext(false)}
-                onUpdateTopic={onUpdateTopic}
-                onMessage={onWSMessage}
-                onOpenFile={handleOpenFile}
-              />
-            </LazyPane>
-          </div>
-        )}
       </div>
       {settingsTopicId && topics[settingsTopicId] && (
         <Suspense fallback={null}>

@@ -48,6 +48,7 @@ import {
   isDraftPaneId,
   isKnownPanePrefix,
   isProjectPaneId,
+  isTaskWorkspacePath,
   isTerminalPaneId,
   isSessionViewerPaneId,
   isUUIDLike,
@@ -151,6 +152,20 @@ function ensurePaneRegistered(
 interface PendingProjectFocus { projectPath: string; topicId: string; targetGroupId?: string }
 interface PendingProjectPane { projectPath: string; type: PaneType; terminalSessionId?: string; terminalType?: TerminalAgentType }
 interface ContextMenuState { x: number; y: number; topic: Topic }
+
+/**
+ * Does this topic open into a PROJECT PANE (a splittable window) rather than a
+ * loose chat tab? True for:
+ *  - a normal project chat (`projectPath`, not standalone) → its project window;
+ *  - a TASK WORKSPACE session (`standalone` + a `…/workspace/tasks/<id>` path)
+ *    → the task's own splittable workspace (reuses the project-pane machinery).
+ * A `standalone` topic that is NOT a task workspace stays a loose chat tab.
+ * Single source of truth for the four routing sites below.
+ */
+function opensAsProjectPane(t: Topic | undefined | null): boolean {
+  if (!t?.projectPath) return false;
+  return !t.standalone || isTaskWorkspacePath(t.projectPath);
+}
 
 export interface UsePanelLifecycleArgs {
   isDetached: boolean;
@@ -548,12 +563,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (topic.archived) return false;
         // A project-bound chat lives INSIDE its project window: convert the
         // standalone pane into a project pane and purge the loose chat pane.
-        // EXCEPT `standalone` topics — a catch-all agent session keeps its
-        // projectPath (cwd) but is presented as a loose tab on purpose, so it
-        // must stay a standalone pane, never route into a phantom project.
-        if (topic.projectPath && !topic.standalone) {
-          const paneId = createPaneId('project', topic.projectPath);
-          projectPanePaths.set(paneId, topic.projectPath);
+        // TASK WORKSPACE sessions also route here (into their own per-task
+        // splittable workspace). Only a `standalone` topic that is NOT a task
+        // workspace stays a loose tab (never a phantom project).
+        if (opensAsProjectPane(topic)) {
+          const paneId = createPaneId('project', topic.projectPath!);
+          projectPanePaths.set(paneId, topic.projectPath!);
           if (!projectPanesToAdd.includes(paneId)) projectPanesToAdd.push(paneId);
           if (!orphanTopicIdsToPurge.includes(id)) orphanTopicIdsToPurge.push(id);
           return false;
@@ -1175,6 +1190,24 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // Optimistic archived:false lands this render, so the validPanels effect
     // (which evicts archived ids) keeps the freshly-opened tab.
     if (topics[topicId]?.archived) void archiveTopic(topicId, false);
+    // Project chat / TASK WORKSPACE session → open its PROJECT PANE (splittable
+    // window), not a loose chat. For a task workspace this is what gives the
+    // agent's browser/output panes a home (they route by the task's unique
+    // projectPath). Mirrors handleTopicClick's project route.
+    const opTopic = topics[topicId];
+    if (opensAsProjectPane(opTopic) && opTopic?.projectPath) {
+      const projectPaneId = createPaneId('project', opTopic.projectPath);
+      ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: opTopic.projectPath, title: opTopic.name });
+      if (isMobile) {
+        setOpenPanels([projectPaneId]);
+        setSidebarCollapsed(true);
+      } else if (!openPanels.includes(projectPaneId)) {
+        setOpenPanels(prev => [...prev, projectPaneId]);
+      }
+      setFocusedPanelId(projectPaneId);
+      setPendingProjectFocus({ projectPath: opTopic.projectPath, topicId });
+      return;
+    }
     // App-level open: always land in the standalone group, never inside a
     // focused project's inner group (otherwise the new tab would appear as a
     // child of whatever project happens to have focus).
@@ -1253,13 +1286,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     const topic = topics[topicId];
-    // `standalone` sessions keep a projectPath (cwd) but open as loose preview
-    // tabs, never routed into the project window (fall through to the funnel).
-    if (topic?.projectPath && !topic.standalone) {
+    // Project chat / TASK WORKSPACE session → its splittable project pane. A
+    // `standalone` non-task topic falls through to the loose-chat funnel.
+    if (opensAsProjectPane(topic)) {
       // 2-state model: opening an (archived = closed) project chat restores it.
-      if (topic.archived) void archiveTopic(topicId, false);
-      const projectPaneId = createPaneId('project', topic.projectPath);
-      ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic.projectPath });
+      if (topic!.archived) void archiveTopic(topicId, false);
+      const projectPaneId = createPaneId('project', topic!.projectPath!);
+      ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic!.projectPath!, title: topic!.name });
       if (isMobile) {
         setOpenPanels([projectPaneId]);
         setSidebarCollapsed(true);
@@ -1267,7 +1300,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         setOpenPanels(prev => [...prev, projectPaneId]);
       }
       setFocusedPanelId(projectPaneId);
-      setPendingProjectFocus({ projectPath: topic.projectPath, topicId });
+      setPendingProjectFocus({ projectPath: topic!.projectPath!, topicId });
       return;
     }
     ensurePaneRegistered(
@@ -1579,20 +1612,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: topicId } });
       return;
     }
-    // Project-scoped topics must be opened through their PROJECT pane,
-    // mirroring handleTopicClick — otherwise they appear as ghost tabs.
-    // `standalone` sessions are the exception: loose tabs by design.
+    // Project-scoped topics + TASK WORKSPACE sessions open through their PROJECT
+    // pane, mirroring handleTopicClick — otherwise they appear as ghost tabs.
+    // A `standalone` non-task topic is the exception: a loose tab by design.
     const topic = topicsRef.current[topicId];
-    if (topic?.projectPath && !topic.standalone) {
-      const projectPaneId = createPaneId('project', topic.projectPath);
-      ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic.projectPath });
+    if (opensAsProjectPane(topic)) {
+      const projectPaneId = createPaneId('project', topic!.projectPath!);
+      ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic!.projectPath!, title: topic!.name });
       setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
       setFocusedPanelId(projectPaneId);
       // Also dispatch directly to the store so Effect A's store→React
       // bridge can't snap focus back to a previously-focused pane on
       // the next subscribe-tick.
       usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id: projectPaneId } });
-      setPendingProjectFocus({ projectPath: topic.projectPath, topicId });
+      setPendingProjectFocus({ projectPath: topic!.projectPath!, topicId });
       return;
     }
     if (!openPanelsRef.current.includes(topicId)) {
