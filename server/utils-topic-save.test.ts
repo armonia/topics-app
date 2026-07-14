@@ -121,4 +121,25 @@ describe("saveSingleTopic upsert (no REPLACE cascade)", () => {
     ctx.saveSingleTopic(topic);
     expect(ctx.getTopicById(topic.id)?.name).toBe(topic.name);
   });
+
+  test("standalone survives the save/load round-trip (migration 044)", () => {
+    // Regression: `standalone` was on the Topic type but had no DB column, so
+    // it was silently dropped on save — the task-workspace / catch-all-session
+    // presentation never actually took effect at runtime.
+    const t = makeTopic("66666666-aaaa-bbbb-cccc-000000000006", {
+      projectPath: "/tmp/.openclaw/workspace/tasks/66666666",
+      standalone: true,
+    });
+    ctx.saveSingleTopic(t);
+    expect(ctx.getTopicById(t.id)?.standalone).toBe(true);
+
+    // Flipping it off round-trips too (undefined, not a stuck `true`).
+    ctx.saveSingleTopic({ ...t, standalone: false });
+    expect(ctx.getTopicById(t.id)?.standalone).toBeUndefined();
+
+    // A normal topic never gains the flag.
+    const plain = makeTopic("77777777-aaaa-bbbb-cccc-000000000007");
+    ctx.saveSingleTopic(plain);
+    expect(ctx.getTopicById(plain.id)?.standalone).toBeUndefined();
+  });
 });
