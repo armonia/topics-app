@@ -1046,14 +1046,14 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
         )}
       </div>
       {task.status === 'review' && isAgentReview && (
-        <div className="mt-2 space-y-1.5 pl-4" onClick={(e) => e.stopPropagation()}>
+        <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
           {/* The agent's last word, ALWAYS on the card — a formatted question
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
           {pending ? (
-            <p className="text-[11px] leading-snug text-rose-200">{pending.question}</p>
+            <p className="text-xs leading-snug text-rose-200">{pending.question}</p>
           ) : lastComment ? (
-            <p className="line-clamp-6 text-[11px] leading-snug text-neutral-300" title={`${lastComment.author}: ${lastComment.content}`}>
+            <p className="line-clamp-6 text-xs leading-relaxed text-neutral-300" title={`${lastComment.author}: ${lastComment.content}`}>
               {/* No author prefix: for dispatched agents it's the topic name =
                   the task title — noise dressed up as a username. */}
               {lastComment.author !== 'user' && <Bot className="mr-1 inline h-3 w-3 align-[-2px] text-neutral-400" />}
@@ -1697,13 +1697,13 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 onBlur={saveDesc}
                 onKeyDown={cancelKey}
                 placeholder="Descrizione…"
-                className="-mx-1.5 mt-1 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-xs leading-4 text-neutral-300 outline-none"
+                className="-mx-1.5 mt-1 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-neutral-300 outline-none"
               />
             ) : task?.description ? (
               <div
                 onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
                 title="Clicca per modificare la descrizione"
-                className={`-mx-1.5 mt-1 cursor-text rounded px-1.5 py-0.5 text-xs leading-4 text-neutral-400 hover:bg-white/5 ${COMPACT_MD_CLS}`}
+                className={`-mx-1.5 mt-1 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-neutral-300 hover:bg-white/5 ${COMPACT_MD_CLS}`}
               ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
             ) : (
               <button
