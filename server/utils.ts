@@ -152,8 +152,8 @@ export function createAppContext(baseDir: string): AppContext {
     // `parent_id`. ON CONFLICT DO UPDATE mutates the row in place — no
     // delete, no cascade. Guarded by utils-topic-save.test.ts.
     insertTopic: db.prepare(`
-      INSERT INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, worktree_id, initial_message, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $effort, $fast_mode, $worktree_id, $initial_message, $archived, $created_at, $updated_at)
+      INSERT INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, worktree_id, initial_message, standalone, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $effort, $fast_mode, $worktree_id, $initial_message, $standalone, $archived, $created_at, $updated_at)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         slug = excluded.slug,
@@ -171,6 +171,7 @@ export function createAppContext(baseDir: string): AppContext {
         fast_mode = excluded.fast_mode,
         worktree_id = excluded.worktree_id,
         initial_message = excluded.initial_message,
+        standalone = excluded.standalone,
         archived = excluded.archived,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at
@@ -284,6 +285,9 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.worktree_id) topic.worktreeId = row.worktree_id;
     // Phase C · TOPIC-IM-01. Surfaced when present; legacy NULL omitted.
     if (row.initial_message) topic.initialMessage = row.initial_message;
+    // standalone (migration 044). Only attached when truthy so legacy/normal
+    // rows round-trip unchanged through inspector serializers.
+    if (row.standalone) topic.standalone = true;
 
     const contextFiles = rels ? (rels.contextFiles.get(row.id) ?? []) : (stmts.getTopicContextFiles.all(row.id) as any[]).map(r => r.file_path);
     if (contextFiles.length > 0) topic.contextFiles = contextFiles;
@@ -346,6 +350,9 @@ export function createAppContext(baseDir: string): AppContext {
         // initial_message (Phase C · migration 019). One-shot — the renderer
         // PATCHes back to null after dispatching it.
         $initial_message: topic.initialMessage || null,
+        // standalone (migration 044). 1 = keep project_path (cwd) but present as
+        // a standalone task workspace / loose tab, never a project node.
+        $standalone: topic.standalone ? 1 : 0,
         $archived: topic.archived ? 1 : 0,
         $created_at: topic.createdAt,
         $updated_at: topic.updatedAt,
