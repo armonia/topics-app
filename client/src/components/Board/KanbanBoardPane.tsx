@@ -12,13 +12,14 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Loader2, Lock, Maximize2, Minimize2, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Link2, Loader2, Lock, Maximize2, Minimize2, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { openExternalOnce } from '../../lib/openExternal';
+import { buildTaskLink, consumePendingTaskOpen } from '../../lib/openTaskLink';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, boardDrafts,
@@ -163,6 +164,22 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Deep-link target (from ?task=… via openTaskLink): the GLOBAL board owns it
+  // (that's what the link opens). Seeded from the one-shot boot pending, and
+  // fed live by `topics:open-task` when the board is already open. Held until
+  // the task shows up in the loaded list, then it becomes the selection.
+  const [pendingSelect, setPendingSelect] = useState<string | null>(
+    () => (global ? consumePendingTaskOpen()?.taskId ?? null : null),
+  );
+  useEffect(() => {
+    if (!global) return;
+    const onOpenTask = (e: Event) => {
+      const id = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
+      if (id) setPendingSelect(id);
+    };
+    window.addEventListener('topics:open-task', onOpenTask as EventListener);
+    return () => window.removeEventListener('topics:open-task', onOpenTask as EventListener);
+  }, [global]);
   // Opening the drawer shrinks the columns viewport (flex sibling): the card
   // that was just clicked can end up outside it. Bring it back after layout
   // settles — rAF fires post-commit, when the row already has its new width.
@@ -347,6 +364,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   }, [projectId, refetch]);
 
   const selected = tasks.find((t) => t.id === selectedId) || null;
+
+  // Promote a deep-link target to the selection once the task lands in the
+  // loaded list (the global board loads every project's tasks, so it will).
+  useEffect(() => {
+    if (!pendingSelect) return;
+    if (tasks.some((t) => t.id === pendingSelect)) {
+      setSelectedId(pendingSelect);
+      setPendingSelect(null);
+    }
+  }, [pendingSelect, tasks]);
 
   if (loading) {
     return <div className="flex h-full items-center justify-center text-neutral-400"><Loader2 className="h-5 w-5 animate-spin" /></div>;
@@ -1467,6 +1494,40 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const blockerTask = task?.blockedByTaskId
     ? (boardTasks?.find((t) => t.id === task.blockedByTaskId) ?? null)
     : null;
+
+  // Esc closes the drawer — UNLESS Esc belongs to something inside it: an
+  // inline title/desc edit (Esc cancels the edit) or an open menu (Esc closes
+  // the menu). Menus use useDismissable (capture + stopPropagation on document)
+  // so they already swallow Esc before it reaches this window-level listener;
+  // the state guard also covers the edit textareas, whose onKeyDown neither
+  // stops nor prevents the event. Refs keep the listener registered once while
+  // reading the latest guard/close on each keystroke.
+  const escGuardRef = useRef<() => boolean>(() => false);
+  escGuardRef.current = () =>
+    editingTitle || editingDesc || statusMenuOpen || prioMenuOpen || projMenuOpen || blockerMenuOpen;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (escGuardRef.current()) return;
+      onCloseRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // "Copia link" feedback: swap the icon to a check for a beat.
+  const [copied, setCopied] = useState(false);
+  const copyLink = async () => {
+    if (!task) return;
+    try {
+      await navigator.clipboard.writeText(buildTaskLink(task.projectId, task.id));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* clipboard blocked — nothing to surface */ }
+  };
+
   const pickBlocker = async (id: string | null) => {
     if (!task || projBusy) return;
     setBlockerMenuOpen(false);
@@ -1547,15 +1608,15 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   return (
     <div
       data-testid="task-detail-drawer"
-      className={`glass-surface flex flex-col border-l border-white/10 ${
-        wide
-          // Wide = review takeover: absolute (anchored to the board root, so it
-          // also covers the header) and out of flow — the board re-expands under it.
-          ? 'absolute inset-y-0 right-0 z-20 w-[min(64rem,94%)] shadow-2xl'
-          // Narrow = layout sibling: the columns viewport shrinks and keeps its
-          // own horizontal scroll — the board is never cut behind the drawer.
-          // Capped so a narrow pane always keeps a usable strip of board.
-          : 'relative w-96 max-w-[75%] shrink-0'
+      // Always a layout SIBLING (relative, in-flow, shrink-0): the columns
+      // viewport shrinks beside it and keeps its own horizontal scroll, so the
+      // board is never cut behind the drawer — at any width. Wide is just a
+      // bigger review surface (room for the output panel); the 72% cap keeps a
+      // usable strip of board even on a small pane, and on a wide screen the
+      // 64rem cap leaves most of the board visible. Was `absolute` takeover in
+      // wide mode, which hid the board and blocked its scroll on large screens.
+      className={`glass-surface relative flex shrink-0 flex-col border-l border-white/10 ${
+        wide ? 'w-[min(64rem,72%)] shadow-2xl' : 'w-96 max-w-[75%]'
       }`}
     >
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
@@ -1669,6 +1730,14 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
         </Menu>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {task && (
+            <button
+              onClick={copyLink}
+              data-testid="task-copy-link"
+              title={copied ? 'Link copiato' : 'Copia il link al task (deep-link apribile, per debug/condivisione)'}
+              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+            >{copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Link2 className="h-4 w-4" />}</button>
+          )}
           {task?.assignedTopicId && onOpenTopic && (
             <button
               onClick={() => onOpenTopic(task.assignedTopicId!)}
