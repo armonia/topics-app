@@ -10,6 +10,7 @@ import {
   isKnownPanePrefix,
   isDraftPaneId,
   isProjectPaneId,
+  isTaskWorkspacePath,
   isBrowserPaneId,
   isTerminalPaneId,
   isSessionViewerPaneId,
@@ -86,6 +87,18 @@ describe("pane-id prefix predicates + extractors round-trip", () => {
     expect(isBrowserPaneId(id)).toBe(true);
     expect(getBrowserContextFromPaneId(id)).toBe("ctx-42");
     expect(getBrowserContextFromPaneId("terminal:foo")).toBeNull();
+  });
+
+  test("isTaskWorkspacePath: only …/workspace/tasks/<id> paths, not real projects", () => {
+    expect(isTaskWorkspacePath("/Users/x/.openclaw/workspace/tasks/92a1091a")).toBe(true);
+    expect(isTaskWorkspacePath("/Users/x/.openclaw/workspace/tasks/92a1091a/")).toBe(true);
+    // Real projects and the shared catch-all dir are NOT task workspaces.
+    expect(isTaskWorkspacePath("/Users/x/Projects/alpha")).toBe(false);
+    expect(isTaskWorkspacePath("/Users/x/.openclaw/workspace/generale")).toBe(false);
+    // A deeper path inside a task dir is not the workspace root itself.
+    expect(isTaskWorkspacePath("/Users/x/.openclaw/workspace/tasks/92a1091a/src")).toBe(false);
+    expect(isTaskWorkspacePath(null)).toBe(false);
+    expect(isTaskWorkspacePath(undefined)).toBe(false);
   });
 
   test("terminal: is* predicate + session extractor round-trip", () => {

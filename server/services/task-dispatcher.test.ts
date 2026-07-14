@@ -315,6 +315,41 @@ describe("task-dispatcher", () => {
     expect(h2.topicsCreated[0].standalone).toBeFalsy();
   });
 
+  it("gives each catch-all task a PRIVATE per-task cwd (unique projectPath) but leaves a real project alone", async () => {
+    const catchAll = "/Users/x/.openclaw/workspace/generale";
+    const taskDir = (id: string) => `/Users/x/.openclaw/workspace/tasks/${id.slice(0, 8)}`;
+
+    // Two catch-all tasks → two DISTINCT per-task dirs, both standalone.
+    const h = harness({
+      catchAllProjectPath: catchAll,
+      catchAllTaskDir: taskDir,
+      resolveProject: () => ({ path: catchAll, projectStoreId: null }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false, maxAgents: 5 });
+    seedTask(h.db, { id: "aaaaaaaa-1", status: "todo" });
+    seedTask(h.db, { id: "bbbbbbbb-2", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const paths = h.topicsCreated.map((t) => t.projectPath).sort();
+    expect(paths).toEqual([taskDir("aaaaaaaa-1"), taskDir("bbbbbbbb-2")].sort());
+    expect(paths[0]).not.toBe(paths[1]);          // distinct workspaces
+    expect(h.topicsCreated.every((t) => t.standalone)).toBe(true);
+    expect(paths.every((p) => p !== catchAll)).toBe(true); // never the shared dir
+
+    // A real project is NOT given a per-task dir — it runs in the project cwd.
+    const h2 = harness({
+      catchAllProjectPath: catchAll,
+      catchAllTaskDir: taskDir,
+      resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
+    });
+    h2.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+    seedTask(h2.db, { id: "t1", status: "todo" });
+    await h2.dispatcher.tick(PID);
+    await flush();
+    expect(h2.topicsCreated[0].projectPath).toBe("/Users/x/Projects/alpha");
+    expect(h2.topicsCreated[0].standalone).toBeFalsy();
+  });
+
   it("onEnterTodo debounces then launches after the grace window", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });

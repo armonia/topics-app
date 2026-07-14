@@ -57,6 +57,15 @@ export interface DispatcherDeps {
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
   /**
+   * A private per-task working dir for a CATCH-ALL task (creates it, returns the
+   * path). Giving each project-less task its own cwd makes its topic's
+   * `projectPath` unique, so the task's own splittable workspace claims the
+   * agent's browser panes (projectPath-match) instead of them vanishing — the
+   * "fuori progetto" gap. Absent = host without a workspace (tests / degraded):
+   * the catch-all task then keeps the shared catch-all dir (old behaviour).
+   */
+  catchAllTaskDir?: (taskId: string) => string;
+  /**
    * Choose a model for a task on "modello auto" (task.model === null), BEFORE
    * the agent spawns — a fast one-shot classifier (see task-model-picker.ts).
    * Returns a concrete model id, or null to keep the provider default. Absent =
@@ -275,18 +284,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         chosenModel = (await deps.pickAutoModel(task)) ?? undefined;
       }
 
+      // Catch-all decision FIRST (before any cwd override): a project-less task
+      // resolves to the shared catch-all dir. Then give it a PRIVATE per-task
+      // cwd so its topic's projectPath is unique — that's what lets the task's
+      // own splittable workspace claim the agent's browser panes. `standalone`
+      // must be read from the catch-all decision, NOT post-override path
+      // equality (which the per-task dir would make false → phantom project).
+      const isCatchAll = !!deps.catchAllProjectPath && resolved.path === deps.catchAllProjectPath;
+      const cwd = isCatchAll && deps.catchAllTaskDir ? deps.catchAllTaskDir(taskId) : resolved.path;
+
       const { topicId, sessionKey } = reuseTopicId
         ? { topicId: reuseTopicId, sessionKey: "topic:" + reuseTopicId.slice(0, 8) }
         : deps.createTopic({
             name: task.text.slice(0, 60),
-            projectPath: resolved.path,
+            projectPath: cwd,
             worktreeId,
             systemPrompt: ROLE_PROMPT,
             effort: settings.effort,
             model: chosenModel,
-            // Catch-all "generale" task → standalone session (keeps the cwd,
-            // never renders a phantom "generale" project in the sidebar).
-            standalone: !!deps.catchAllProjectPath && resolved.path === deps.catchAllProjectPath,
+            // Catch-all task → standalone session: keeps its (now per-task) cwd
+            // but never renders a phantom project node in the sidebar.
+            standalone: isCatchAll,
           });
       inFlight.set(taskId, { sessionKey });
 

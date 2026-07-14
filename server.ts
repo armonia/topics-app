@@ -1,5 +1,5 @@
 import { basename, join, resolve, sep } from "path";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, mkdirSync } from "fs";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
@@ -365,6 +365,15 @@ const taskDispatcher = createTaskDispatcher({
   // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
   // "generale")): a session resolved here renders standalone, not as a project.
   catchAllProjectPath: join(DISPATCH_WORKSPACE_DIR, "generale"),
+  // Private per-task cwd for a catch-all task: a unique dir under the workspace
+  // so the task's topic gets a unique projectPath (→ its own splittable
+  // workspace claims the agent's browser panes). Non-git, like the shared
+  // catch-all dir, so the worktree guard behaves identically.
+  catchAllTaskDir: (taskId) => {
+    const dir = join(DISPATCH_WORKSPACE_DIR, "tasks", taskId.slice(0, 8));
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  },
   // "modello auto" → a fast haiku one-shot classifies the task and picks the
   // tier before the agent spawns. Everything is resolved lazily and defensively
   // so a missing provider / empty snapshot just keeps the sonnet default — the
