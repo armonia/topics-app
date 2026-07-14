@@ -1,15 +1,12 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { LazyPane } from './LazyPane';
 import { Settings, Pin, X, ExternalLink, Layers, Globe, Cloud } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { SessionActivityBar } from '../Shared/SessionActivity';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
-import { TopicIcon } from '@/lib/topicIcons';
 import { topicsApi, commandApi } from '../../lib/api';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
-const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m => ({ default: m.ContextInspector })));
 import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
 import { AuraWave } from '../AuraWave';
@@ -17,8 +14,6 @@ import { useContextInspector } from '../../hooks/useContextInspector';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
 import { useTopicLoading } from '@/state/signals';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
-
-const CONTEXT_INSPECTOR_KEY = 'topics-context-inspector-open';
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -50,9 +45,6 @@ interface ChatPanelProps {
   headerLeft?: React.ReactNode;
   /** Hide the close button in header (useful when tabs already have close) */
   showCloseButton?: boolean;
-  /** External toggle for context inspector (from tab ring click) */
-  contextOpen?: boolean;
-  onToggleContext?: () => void;
   /** Callback to open a session-viewer pane for a spawned agent */
   onOpenSessionViewer?: (sessionKey: string) => void;
   /** Local handler that opens / focuses a tab. Threaded down so the
@@ -75,48 +67,21 @@ export function ChatPanel({
   getSessionMessages, isSessionLoading, isSessionStreaming, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
-  contextOpen: externalContextOpen, onToggleContext: externalToggleContext,
   onOpenSessionViewer,
   onFocusPanel,
   bodyOnly = false,
 }: ChatPanelProps) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
-  useEffect(() => { const h = () => { setIsMobile(window.innerWidth < 768); setIsNarrow(window.innerWidth < 1024); }; window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
+  useEffect(() => { const h = () => { setIsMobile(window.innerWidth < 768); }; window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);
 
   const [showSettings, setShowSettings] = useState(false);
-  const [showContextInternal, setShowContextInternal] = useState(() => {
-    try { return localStorage.getItem(CONTEXT_INSPECTOR_KEY) === 'true'; } catch { return false; }
-  });
-  // Use external state if provided, otherwise internal
-  const showContext = externalContextOpen !== undefined ? externalContextOpen : showContextInternal;
-  // Memoized so its identity is stable across renders — otherwise the effects
-  // depending on it (persist + toggle-context listener) would re-subscribe
-  // every render.
-  const setShowContext = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
-    (v) => {
-      if (externalToggleContext) externalToggleContext();
-      else setShowContextInternal(v);
-    },
-    [externalToggleContext],
-  );
-  // Persist context inspector state
-  useEffect(() => {
-    try { localStorage.setItem(CONTEXT_INSPECTOR_KEY, String(showContext)); } catch {}
-  }, [showContext]);
 
-  // Listen for context-ring clicks coming from this panel's ChatInput. Each
-  // event carries its topicId so panels in split view ignore events meant for
-  // a sibling.
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { topicId?: string } | undefined;
-      if (!detail || detail.topicId !== topic.id) return;
-      setShowContext(prev => !prev);
-    };
-    window.addEventListener('chat-input:toggle-context', handler);
-    return () => window.removeEventListener('chat-input:toggle-context', handler);
-  }, [topic.id, setShowContext]);
+  // The Context Inspector now lives as a popover inside the composer
+  // (`ChatInput`). This panel's header button just fires the shared
+  // `chat-input:toggle-context` event; the matching ChatInput opens the popover.
+  const openContextInspector = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('chat-input:toggle-context', { detail: { topicId: topic.id } }));
+  }, [topic.id]);
 
   // Consume initial tab override
   useEffect(() => {
@@ -192,7 +157,6 @@ export function ChatPanel({
             </div>
           ) : (
             <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" draggable onDragStart={onDragStart}>
-              <span className="leading-none flex items-center justify-center w-6 h-6 flex-shrink-0"><TopicIcon name={topic.icon} size={16} color={topic.color || undefined} /></span>
               <span className="text-[14px] font-medium truncate text-app-text" style={{ maxWidth: 'min(200px, 40vw)' }}>{topic.name}</span>
               {topic.provider === 'openclaw' && (
                 <span className="text-[11px] px-1 py-px rounded bg-primary/10 text-primary font-medium flex items-center gap-0.5 flex-shrink-0" title="Cloud (OpenClaw)">
@@ -229,15 +193,12 @@ export function ChatPanel({
               <Globe size={14} />
             </button>
           )}
-          {/* Context Inspector toggle — hidden when headerLeft has rings */}
+          {/* Context Inspector toggle — hidden when headerLeft has rings.
+              Opens the composer's context popover via the shared event. */}
           {!headerLeft && (
             <button
-              onClick={(e) => { e.stopPropagation(); setShowContext(!showContext); }}
-              className={`${'w-7 h-7'} flex items-center justify-center rounded transition-colors app-no-drag ${
-                showContext
-                  ? 'bg-primary/10 text-primary'
-                  : 'hover:bg-app-hover text-app-text-tertiary hover:text-app-text'
-              }`}
+              onClick={(e) => { e.stopPropagation(); openContextInspector(); }}
+              className={`${'w-7 h-7'} flex items-center justify-center rounded transition-colors app-no-drag hover:bg-app-hover text-app-text-tertiary hover:text-app-text`}
               title="Context Inspector"
               aria-label="Context Inspector"
             >
@@ -300,38 +261,6 @@ export function ChatPanel({
               />
             </div>
           </div>
-
-          {/* Context Inspector slide-out — bottom sheet on mobile, overlay when narrow, side panel when wide */}
-          {showContext && (
-            <div className={`overflow-hidden transition-all duration-200 ${
-              isMobile
-                ? 'absolute bottom-0 left-0 right-0 z-40 h-[50vh] rounded-t-xl shadow-lg border-t border-app-border bottom-sheet bg-surface'
-                : isNarrow
-                  ? 'absolute inset-0 z-40'
-                  : 'w-[320px] flex-shrink-0'
-            }`}>
-              {isMobile && (
-                <div className="flex items-center justify-between px-4 py-2 border-b border-app-border bg-surface rounded-t-xl flex-shrink-0">
-                  <span className="text-[13px] font-medium text-app-text">Context</span>
-                  <button
-                    onClick={() => setShowContext(false)}
-                    className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-app-hover text-app-text-muted"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              )}
-              <LazyPane>
-                <ContextInspector
-                  topic={topic}
-                  isOpen={showContext}
-                  onClose={() => setShowContext(false)}
-                  onUpdateTopic={onUpdateTopic}
-                  onMessage={onWSMessage}
-                />
-              </LazyPane>
-            </div>
-          )}
         </div>
       </div>
       {showSettings && <Suspense fallback={null}><TopicSettingsModal topic={topic} isOpen={showSettings} onClose={() => setShowSettings(false)} onUpdate={onUpdateTopic} /></Suspense>}
