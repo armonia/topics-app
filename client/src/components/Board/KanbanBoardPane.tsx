@@ -961,13 +961,23 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
       className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
     >
       <div className="flex items-start gap-2">
-        <span title={`Priorità: ${task.priorityAuto ? 'automatica' : PRIORITY_LABEL[task.priority] ?? 'Media'}`} className={`mt-1 h-2 w-2 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
         <span className="flex-1 leading-snug">{task.text}</span>
-        <button onClick={(e) => { e.stopPropagation(); archive(); }} className="opacity-0 transition group-hover:opacity-100" title="Archivia">
-          <Trash2 className="h-3.5 w-3.5 text-neutral-500 hover:text-rose-400" />
+        <button onClick={(e) => { e.stopPropagation(); archive(); }} className="-m-1 rounded p-1 opacity-0 transition hover:bg-white/10 group-hover:opacity-100" title="Archivia">
+          <Trash2 className="h-4 w-4 text-neutral-500 hover:text-rose-400" />
         </button>
       </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-4">
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        {!task.priorityAuto && task.priority !== 2 && (
+          <span
+            title={`Priorità: ${PRIORITY_LABEL[task.priority] ?? task.priority}`}
+            className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] ${
+              task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-neutral-400'
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
+            {PRIORITY_LABEL[task.priority] ?? task.priority}
+          </span>
+        )}
         {showProject && (
           <span
             title={unassigned ? 'Assegna un progetto (dal dettaglio, "Sposta su…") per farlo lavorare da un agent' : undefined}
@@ -1056,7 +1066,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
                 <button
                   key={i} disabled={busy}
                   onClick={() => answer(opt)}
-                  className="rounded bg-white/10 px-2 py-0.5 text-[11px] text-neutral-100 hover:bg-white/20 disabled:opacity-50"
+                  className="rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-neutral-100 hover:bg-white/20 disabled:opacity-50"
                 >{opt}</button>
               ))}
             </div>
@@ -1067,33 +1077,33 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
               onChange={(e) => setFreeText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); answer(freeText.trim()); } }}
               placeholder="Rispondi…"
-              className="min-w-0 flex-1 rounded bg-black/30 px-2 py-1 text-[11px] text-neutral-100 outline-none placeholder:text-neutral-500"
+              className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-neutral-100 outline-none placeholder:text-neutral-500"
             />
             <button
               disabled={busy || !freeText.trim()} onClick={() => answer(freeText.trim())}
               title="Rispondi (l'agent riparte con la tua risposta)"
-              className="flex items-center gap-1 rounded bg-sky-500/80 px-2 py-1 text-[11px] text-white hover:bg-sky-500 disabled:opacity-50"
-            ><Send className="h-3 w-3" /></button>
+              className="flex items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
+            ><Send className="h-3.5 w-3.5" /></button>
             <button
               disabled={busy} onClick={() => review('approve')}
               title="Accetta e completa il task"
-              className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-1 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50"
-            ><ShieldCheck className="h-3 w-3" /></button>
+              className="flex items-center gap-1 rounded-md bg-emerald-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50"
+            ><ShieldCheck className="h-3.5 w-3.5" /></button>
             <button
               disabled={busy} onClick={() => review('reject')}
               title="Rifiuta (l'agent riparte senza indicazioni)"
-              className="flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-[11px] text-neutral-200 hover:bg-white/20 disabled:opacity-50"
-            ><ShieldX className="h-3 w-3" /></button>
+              className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50"
+            ><ShieldX className="h-3.5 w-3.5" /></button>
           </div>
         </div>
       )}
       {task.status === 'review' && !isAgentReview && (
-        <div className="mt-2 flex gap-1 pl-4" onClick={(e) => e.stopPropagation()}>
-          <button disabled={busy} onClick={() => review('approve')} className="flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] text-white hover:bg-emerald-500 disabled:opacity-50">
-            <ShieldCheck className="h-3 w-3" /> Approva
+        <div className="mt-2 flex gap-1" onClick={(e) => e.stopPropagation()}>
+          <button disabled={busy} onClick={() => review('approve')} className="flex items-center gap-1 rounded-md bg-emerald-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50">
+            <ShieldCheck className="h-3.5 w-3.5" /> Approva
           </button>
-          <button disabled={busy} onClick={() => review('reject')} className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] text-neutral-200 hover:bg-white/20 disabled:opacity-50">
-            <ShieldX className="h-3 w-3" /> Rifiuta
+          <button disabled={busy} onClick={() => review('reject')} className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50">
+            <ShieldX className="h-3.5 w-3.5" /> Rifiuta
           </button>
         </div>
       )}
@@ -1574,22 +1584,22 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
               onClick={() => onOpenTopic(task.assignedTopicId!)}
               data-testid="task-open-session-tab"
               title="Apri la tab dell'agent (chiuderla NON ferma la sessione)"
-              className="rounded p-1 text-neutral-400 hover:bg-white/10"
-            ><ArrowUpRight className="h-3.5 w-3.5" /></button>
+              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+            ><ArrowUpRight className="h-4 w-4" /></button>
           )}
           {task?.outputUrl && (
             <a
               href={task.outputUrl} target="_blank" rel="noreferrer"
               title="Apri l'output in una nuova finestra"
-              className="rounded p-1 text-neutral-400 hover:bg-white/10"
-            ><ExternalLink className="h-3.5 w-3.5" /></a>
+              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+            ><ExternalLink className="h-4 w-4" /></a>
           )}
           <button
             onClick={toggleWide}
             title={wide ? 'Riduci a drawer (vedi la board)' : 'Espandi la superficie di review'}
-            className="rounded p-1 text-neutral-400 hover:bg-white/10"
-          >{wide ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}</button>
-          <button onClick={onClose} className="rounded p-1 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
+            className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+          >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
+          <button onClick={onClose} className="rounded p-1.5 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
       {error && (
