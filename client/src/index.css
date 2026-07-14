@@ -1310,12 +1310,12 @@ html.electron-mac:not(.dark) .glass-surface {
 .input-glass { background-color: var(--bg-surface); }
 html.electron-mac.dark .input-glass,
 html.electron-mac.dark [role="region"][aria-label$=" panel"] form.bg-surface {
-  background-color: hsl(0 0% 100% / 0.07);
+  background-color: hsl(0 0% 100% / 0.035);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
 html.electron-mac:not(.dark) .input-glass,
 html.electron-mac:not(.dark) [role="region"][aria-label$=" panel"] form.bg-surface {
-  background-color: hsl(0 0% 100% / 0.5);
+  background-color: hsl(0 0% 100% / 0.35);
   @apply backdrop-blur-xl backdrop-saturate-150;
 }
 
