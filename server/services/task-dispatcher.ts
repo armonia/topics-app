@@ -36,8 +36,15 @@ export interface DispatcherDeps {
    * Returns null when the board can't be mapped back to a project on disk.
    */
   resolveProject: (projectId: string) => { path: string; projectStoreId: string | null } | null;
+  /**
+   * The "generale" catch-all workspace path (a project-less task's dispatch
+   * cwd). A session whose resolved path is this one is presented STANDALONE
+   * (see createTopic `standalone`) — no phantom "generale" project. Absent in
+   * tests / hosts without a workspace.
+   */
+  catchAllProjectPath?: string;
   /** Create a detached, project-bound chat topic (no focus steal). */
-  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string }) => {
+  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; standalone?: boolean }) => {
     topicId: string;
     sessionKey: string;
   };
@@ -260,6 +267,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             systemPrompt: ROLE_PROMPT,
             effort: settings.effort,
             model: task.model ?? undefined,
+            // Catch-all "generale" task → standalone session (keeps the cwd,
+            // never renders a phantom "generale" project in the sidebar).
+            standalone: !!deps.catchAllProjectPath && resolved.path === deps.catchAllProjectPath,
           });
       inFlight.set(taskId, { sessionKey });
 

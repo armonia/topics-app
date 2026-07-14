@@ -170,6 +170,15 @@ export interface Topic {
   contextFiles?: string[];
   pinnedMessages?: string[];
   projectPath?: string;
+  /**
+   * Presentation-only: this topic keeps a `projectPath` for its working dir
+   * (the agent's cwd) but must NOT surface as a project in the sidebar/layout.
+   * Set for dispatcher agent sessions on the "generale" catch-all workspace —
+   * a task without a real project is a standalone (ungrouped) tab, not filed
+   * under a phantom "generale" project. buildSidebarItems treats it as if it
+   * had no projectPath. Real-project sessions leave this unset (grouped).
+   */
+  standalone?: boolean;
   sortOrder?: number;
   autonomyLevel?: 'ask' | 'auto-apply' | 'yolo';
   provider?: string | null;

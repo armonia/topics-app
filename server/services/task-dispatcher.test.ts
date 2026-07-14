@@ -70,7 +70,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const svc: TaskService = createTaskService(db);
   const events: any[] = [];
   const worktreesCreated: string[] = [];
-  const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string; model?: string }[] = [];
+  const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string; model?: string; standalone?: boolean }[] = [];
   const turns: { sessionKey: string; content: string }[] = [];
   let resolveTurn: (() => void) | null = null;
   let rejectTurn: ((e: unknown) => void) | null = null;
@@ -79,7 +79,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     svc,
     resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
     createTopic: (opts) => {
-      topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort, model: opts.model });
+      topicsCreated.push({ name: opts.name, projectPath: opts.projectPath, worktreeId: opts.worktreeId, effort: opts.effort, model: opts.model, standalone: opts.standalone });
       const n = topicsCreated.length;
       // The real host persists the topic row; the FK on assigned_topic_id
       // requires it to exist before bindTopic().
@@ -288,6 +288,31 @@ describe("task-dispatcher", () => {
     expect(h.worktreesCreated.length).toBe(0);
     expect(h.topicsCreated[0].worktreeId).toBeUndefined();
     expect(h.turns.length).toBe(1);
+  });
+
+  it("marks the session STANDALONE only for the catch-all path (project-less task), not a real project", async () => {
+    // Catch-all: resolved path === catchAllProjectPath → standalone session.
+    const catchAll = "/Users/x/.openclaw/workspace/generale";
+    const h = harness({
+      catchAllProjectPath: catchAll,
+      resolveProject: () => ({ path: catchAll, projectStoreId: null }),
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topicsCreated[0].standalone).toBe(true);
+
+    // A real project at a different path → NOT standalone (grouped as usual).
+    const h2 = harness({
+      catchAllProjectPath: catchAll,
+      resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: null }),
+    });
+    h2.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+    seedTask(h2.db, { id: "t1", status: "todo" });
+    await h2.dispatcher.tick(PID);
+    await flush();
+    expect(h2.topicsCreated[0].standalone).toBeFalsy();
   });
 
   it("onEnterTodo debounces then launches after the grace window", async () => {

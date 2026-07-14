@@ -546,7 +546,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           return false;
         }
         if (topic.archived) return false;
-        if (topic.projectPath) {
+        // A project-bound chat lives INSIDE its project window: convert the
+        // standalone pane into a project pane and purge the loose chat pane.
+        // EXCEPT `standalone` topics — a catch-all agent session keeps its
+        // projectPath (cwd) but is presented as a loose tab on purpose, so it
+        // must stay a standalone pane, never route into a phantom project.
+        if (topic.projectPath && !topic.standalone) {
           const paneId = createPaneId('project', topic.projectPath);
           projectPanePaths.set(paneId, topic.projectPath);
           if (!projectPanesToAdd.includes(paneId)) projectPanesToAdd.push(paneId);
@@ -1195,10 +1200,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // drawer "apri la sessione" — its hosts have no openPanel in scope). Same
   // event-based pattern as `topics:open-project`; goes through the standard
   // open funnel (unarchives = the 2-state model's "open").
+  //
+  // PREVIEW (transient) tab: a task's agent session is a peek, not a commitment
+  // — it opens in the single ephemeral slot (replaced by the next preview,
+  // gone if you don't engage), and gets pinned the moment you interact (send a
+  // message / double-click), exactly like a single-clicked sidebar topic. The
+  // `permanent` opt-in stays available for callers that pass it in the detail.
   useEffect(() => {
     const onOpenTopic = (e: Event) => {
-      const topicId = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
-      if (topicId) openPanel(topicId, 'permanent');
+      const detail = (e as CustomEvent<{ topicId?: string; mode?: 'preview' | 'permanent' }>).detail;
+      if (detail?.topicId) openPanel(detail.topicId, detail.mode ?? 'preview');
     };
     window.addEventListener('topics:open-topic', onOpenTopic as EventListener);
     return () => window.removeEventListener('topics:open-topic', onOpenTopic as EventListener);
@@ -1242,7 +1253,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     const topic = topics[topicId];
-    if (topic?.projectPath) {
+    // `standalone` sessions keep a projectPath (cwd) but open as loose preview
+    // tabs, never routed into the project window (fall through to the funnel).
+    if (topic?.projectPath && !topic.standalone) {
       // 2-state model: opening an (archived = closed) project chat restores it.
       if (topic.archived) void archiveTopic(topicId, false);
       const projectPaneId = createPaneId('project', topic.projectPath);
@@ -1568,8 +1581,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     }
     // Project-scoped topics must be opened through their PROJECT pane,
     // mirroring handleTopicClick — otherwise they appear as ghost tabs.
+    // `standalone` sessions are the exception: loose tabs by design.
     const topic = topicsRef.current[topicId];
-    if (topic?.projectPath) {
+    if (topic?.projectPath && !topic.standalone) {
       const projectPaneId = createPaneId('project', topic.projectPath);
       ensurePaneRegistered({ id: projectPaneId, type: 'project', projectPath: topic.projectPath });
       setOpenPanels((prev) => prev.includes(projectPaneId) ? prev : [...prev, projectPaneId]);
