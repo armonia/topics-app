@@ -35,6 +35,7 @@ import { usePaneLifecycle } from './hooks/usePaneLifecycle';
 import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
+import { paneCellBg } from '../../lib/paneCellBg';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -813,10 +814,11 @@ export function StandaloneChatGroup({
             drafts across tab switches.
             `chrome-glass`: under Electron-mac this backdrop goes transparent so
             the native vibrancy reads through; each content pane wrapper below
-            re-paints its own opaque `bg-surface`, while `project` and `terminal`
-            panes stay transparent to frost (matching GroupLayout so a standalone
-            shell rides the vibrancy like one inside a project). Outside Electron,
-            `bg-surface` is the backdrop. */}
+            picks its tier via paneCellBg — `project`/`terminal` transparent,
+            chat + kanban frosted (`pane-frost`), the rest opaque `bg-surface`
+            (matching GroupLayout so a standalone shell rides the vibrancy like
+            one inside a project). Outside Electron, `bg-surface` is the
+            backdrop. */}
         <div className="chrome-glass flex-1 flex flex-col min-h-0 min-w-0 bg-surface overflow-hidden relative">
           {visitedPanes.length === 0 ? (
             <div className="flex-1" aria-hidden="true" />
@@ -829,7 +831,7 @@ export function StandaloneChatGroup({
                   // PANE_ID_REMAP — same pattern as PaneTabBar's tab DOM
                   // and GroupLayout's keep-alive wrapper.
                   key={stableKeyOf(pane)}
-                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${pane.type === 'project' || pane.type === 'terminal' ? '' : 'bg-surface'}`}
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
                   style={{ display: isPaneActive ? 'flex' : 'none' }}
                   aria-hidden={!isPaneActive}
                 >
