@@ -48,6 +48,7 @@ import m039 from "./migrations/040-task-agent-usage.sql" with { type: "text" };
 import m040 from "./migrations/041-task-model.sql" with { type: "text" };
 import m041 from "./migrations/042-task-blocked-by.sql" with { type: "text" };
 import m042 from "./migrations/043-task-priority-auto.sql" with { type: "text" };
+import m043 from "./migrations/044-topic-standalone.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -100,4 +101,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 41, name: "041-task-model.sql", sql: m040 },
   { version: 42, name: "042-task-blocked-by.sql", sql: m041 },
   { version: 43, name: "043-task-priority-auto.sql", sql: m042 },
+  { version: 44, name: "044-topic-standalone.sql", sql: m043 },
 ];
