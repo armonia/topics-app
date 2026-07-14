@@ -1150,6 +1150,10 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
 }) {
   const [task, setTask] = useState<BoardTask | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
+  // Review preview on the right: the task's outputUrl wins; otherwise the
+  // attachment the user clicked, else the thread's latest attachment — a
+  // delivered PDF IS the output even when the agent didn't set output_url.
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
   // Per-task server draft (bounded map in ui-state): restore once per task,
@@ -1225,6 +1229,15 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   // the SAME agent tab (server: reviewDecision → comment + in_progress +
   // dispatcher.resume). A plain comment here would sit unread while the chip
   // says "serve te". Non-agent tasks (or any other status) keep plain comments.
+  const lastMediaPath = useMemo(() => {
+    for (let i = comments.length - 1; i >= 0; i--) {
+      const m = comments[i].media;
+      if (m && m.length) return m[m.length - 1];
+    }
+    return null;
+  }, [comments]);
+  const outputSrc = task?.outputUrl ?? ((previewPath ?? lastMediaPath) ? getMediaUrl((previewPath ?? lastMediaPath)!) : null);
+  const outputLabel = task?.outputUrl ?? (previewPath ?? lastMediaPath)?.split('/').pop() ?? '';
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
   // Pending question = the agent's last word is a question block: its options
   // render as quick-reply buttons right above the composer (same zone as the
@@ -1653,7 +1666,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
       <div className="flex min-h-0 flex-1">
         {/* Left column: meta + subtask tree + chat thread. In wide mode it keeps
             the drawer width and the output panel takes the remaining space. */}
-        <div className={`flex min-w-0 flex-col ${wide && task?.outputUrl ? 'w-96 shrink-0 border-r border-white/10' : 'flex-1'}`}>
+        <div className={`flex min-w-0 flex-col ${wide && outputSrc ? 'w-96 shrink-0 border-r border-white/10' : 'flex-1'}`}>
           <div className="border-b border-white/10 px-3 py-3">
             {task?.parentTaskId && onOpenTask && (
               <button
@@ -1748,12 +1761,12 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 className="mt-1 text-[11px] text-neutral-600 hover:text-neutral-400"
               >+ descrizione…</button>
             )}
-            {!wide && task?.outputUrl && (
+            {!wide && outputSrc && (
               <button
                 onClick={toggleWide}
-                title="Mostra l'output nel pannello di review"
-                className="mt-1.5 flex w-full items-center gap-1 rounded bg-sky-500/10 px-1.5 py-1 text-left text-[11px] text-sky-300 hover:bg-sky-500/20"
-              ><ArrowUpRight className="h-3 w-3 shrink-0" /><span className="truncate">{task.outputUrl}</span></button>
+                title="Mostra l'output nel pannello di review (a destra)"
+                className="mt-1.5 flex w-full items-center gap-1.5 rounded bg-sky-500/10 px-2 py-1.5 text-left text-xs text-sky-300 hover:bg-sky-500/20"
+              ><ArrowUpRight className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{outputLabel}</span></button>
             )}
           </div>
           {/* Subtask tree — unlimited depth, lazy-expanded. The agent's steps
@@ -1786,7 +1799,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 {task.assignedTopicId && (
                   <SessionSlice msgs={sliceBetween(comments[i - 1]?.createdAt ?? null, c.createdAt)} />
                 )}
-                {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} />}
+                {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => { setPreviewPath(p); if (!wide) toggleWide(); }} />}
               </div>
             ))}
             {/* Turn still running (or ended after the last comment): its
@@ -1903,7 +1916,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           </div>
         </div>
         {/* Output panel only when there IS an output — never an empty frame. */}
-        {wide && task?.outputUrl && <OutputPanel task={task} onOpenTopic={onOpenTopic} />}
+        {wide && outputSrc && <OutputPanel task={task} url={outputSrc} label={outputLabel} onOpenTopic={onOpenTopic} />}
       </div>
       )}
     </div>
@@ -1967,20 +1980,20 @@ function SubtaskNode({ projectId, node, depth, onOpenTask }: {
  * page, report) in a sandboxed iframe. Without one, a sober empty state with
  * the agent-tab deep-link as the next best review surface.
  */
-function OutputPanel({ task, onOpenTopic }: { task: BoardTask | null; onOpenTopic?: (topicId: string) => void }) {
+function OutputPanel({ task, url, label, onOpenTopic }: { task: BoardTask | null; url: string | null; label?: string; onOpenTopic?: (topicId: string) => void }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col bg-neutral-950/40" data-testid="task-output-panel">
-      {task?.outputUrl ? (
+      {url ? (
         <>
           <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5">
-            <span className="truncate text-[11px] text-neutral-400" title={task.outputUrl}>{task.outputUrl}</span>
+            <span className="truncate text-xs text-neutral-400" title={url}>{label || url}</span>
             <a
-              href={task.outputUrl} target="_blank" rel="noreferrer"
-              className="ml-auto shrink-0 rounded p-1 text-neutral-400 hover:bg-white/10"
+              href={url} target="_blank" rel="noreferrer"
+              className="ml-auto shrink-0 rounded p-1.5 text-neutral-400 hover:bg-white/10"
               title="Apri in una nuova finestra"
-            ><ExternalLink className="h-3.5 w-3.5" /></a>
+            ><ExternalLink className="h-4 w-4" /></a>
           </div>
-          <OutputFrame key={task.outputUrl} url={task.outputUrl} />
+          <OutputFrame key={url} url={url} />
         </>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
@@ -2034,20 +2047,28 @@ function OutputFrame({ url }: { url: string }) {
  * files as name chips. Served through the allowlist-gated /api/media, exactly
  * like chat message media.
  */
-function MediaStrip({ media }: { media?: string[] }) {
+function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?: (path: string) => void }) {
   if (!media || media.length === 0) return null;
   const isImg = (p: string) => /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(p);
+  // In-app preview when the host provides it (drawer → output panel): a
+  // target=_blank anchor is a silent no-op inside the Tauri WKWebView.
+  const open = (e: React.MouseEvent, p: string) => {
+    if (!onPreview) return;
+    e.preventDefault();
+    onPreview(p);
+  };
   return (
     <div className="mt-1 flex flex-wrap gap-1.5">
       {media.map((p) => isImg(p) ? (
-        <a key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" title={p.split('/').pop()}>
+        <a key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" title={p.split('/').pop()} onClick={(e) => open(e, p)}>
           <img src={getMediaUrl(p)} alt="" loading="lazy" className="max-h-40 max-w-full rounded-md object-contain" />
         </a>
       ) : (
         <a
-          key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer"
-          className="flex max-w-[12rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-[11px] text-neutral-300 hover:bg-white/20"
-        ><Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
+          key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}
+          title={onPreview ? 'Anteprima nel pannello di review' : p.split('/').pop()}
+          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-white/10 px-2 py-1.5 text-xs text-neutral-200 hover:bg-white/20"
+        ><Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
       ))}
     </div>
   );
@@ -2172,7 +2193,7 @@ function SessionSlice({ msgs, label, preview }: {
   );
 }
 
-function CommentBubble({ comment }: { comment: TaskComment }) {
+function CommentBubble({ comment, onPreview }: { comment: TaskComment; onPreview?: (path: string) => void }) {
   if (comment.author !== 'user') {
     const system = comment.author === 'system';
     return (
@@ -2180,7 +2201,7 @@ function CommentBubble({ comment }: { comment: TaskComment }) {
         <div className={`text-sm ${system ? 'text-neutral-500' : 'text-neutral-200'}`}>
           <CommentBody content={comment.content} />
         </div>
-        <MediaStrip media={comment.media} />
+        <MediaStrip media={comment.media} onPreview={onPreview} />
         <p className="mt-0.5 text-[9px] text-neutral-600">{commentTime(comment.createdAt)}</p>
       </div>
     );
@@ -2189,7 +2210,7 @@ function CommentBubble({ comment }: { comment: TaskComment }) {
     <div className="flex justify-end">
       <div className="max-w-[88%] rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-sm">
         <CommentBody content={comment.content} />
-        <MediaStrip media={comment.media} />
+        <MediaStrip media={comment.media} onPreview={onPreview} />
         <p className="mt-0.5 text-right text-[9px] text-neutral-500">{commentTime(comment.createdAt)}</p>
       </div>
     </div>
