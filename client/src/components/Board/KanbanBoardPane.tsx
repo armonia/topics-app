@@ -234,6 +234,20 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     });
   }, [onMessage, projectId, safeRefetch, mode]);
 
+  // Wake-up refresh: a window coming back from sleep/background has yesterday's
+  // board (WS events happened while it slept) — and the live "ci sta mettendo"
+  // Ticker recomputes from Date.now(), so a stale 'working' card reads hours of
+  // agent work that never happened. Any return to visibility refetches.
+  useEffect(() => {
+    const onWake = () => { if (document.visibilityState === 'visible') safeRefetch(); };
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    return () => {
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+    };
+  }, [safeRefetch]);
+
   const byStatus = useMemo(() => {
     const m: Record<TaskStatus, BoardTask[]> = { backlog: [], todo: [], in_progress: [], review: [], done: [] };
     for (const t of tasks) (m[t.status] ??= []).push(t);
@@ -1141,6 +1155,17 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   }, [projectId, taskId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { load(); }, [load, bump]);
+  // Wake-up refresh (same rationale as the board's): an open drawer coming back
+  // from sleep would keep yesterday's chip/ticker until some WS event lands.
+  useEffect(() => {
+    const onWake = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    return () => {
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+    };
+  }, [load]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [comments.length]);
 
   // A human comment on an agent-delivered review IS the answer — same
