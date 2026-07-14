@@ -523,7 +523,7 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
           <button
             role="option" aria-selected={!!autoSelected} disabled={busy}
             onClick={onPickAuto}
-            title="Il progetto lo capisce il sistema dal testo del task (nome di progetto citato); se non è chiaro resta senza progetto"
+            title="Il progetto lo capisce il sistema dal testo del task (nome di progetto citato); se non è chiaro va nel progetto 'generale'"
             className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-300 hover:bg-white/10 disabled:opacity-40"
           >
             <Sparkles className="h-3 w-3 shrink-0 text-neutral-500" />
@@ -725,7 +725,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
                 onClick={() => { setProjOpen(true); loadProjects(); }}
                 data-testid="composer-project-chip"
                 title={autoTarget
-                  ? 'Progetto automatico: risolto dal testo del task (nome citato); se ambiguo resta senza progetto'
+                  ? 'Progetto automatico: risolto dal testo del task (nome citato); se non è chiaro va nel progetto generale'
                   : targetLabel ? `Progetto: ${targetLabel}` : 'Scegli il progetto del task'}
                 className="flex min-w-0 max-w-[13rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
               >
