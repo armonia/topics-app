@@ -1155,6 +1155,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   // attachment the user clicked, else the thread's latest attachment — a
   // delivered PDF IS the output even when the agent didn't set output_url.
   const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [previewOff, setPreviewOff] = useState(false);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
   // Per-task server draft (bounded map in ui-state): restore once per task,
@@ -1237,8 +1238,9 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     }
     return null;
   }, [comments]);
-  const outputSrc = task?.outputUrl ?? ((previewPath ?? lastMediaPath) ? getMediaUrl((previewPath ?? lastMediaPath)!) : null);
-  const outputLabel = task?.outputUrl ?? (previewPath ?? lastMediaPath)?.split('/').pop() ?? '';
+  const mediaPreviewPath = previewOff ? null : (previewPath ?? lastMediaPath);
+  const outputSrc = task?.outputUrl ?? (mediaPreviewPath ? getMediaUrl(mediaPreviewPath) : null);
+  const outputLabel = task?.outputUrl ?? mediaPreviewPath?.split('/').pop() ?? '';
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
   // Pending question = the agent's last word is a question block: its options
   // render as quick-reply buttons right above the composer (same zone as the
@@ -1805,7 +1807,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 {task.assignedTopicId && (
                   <SessionSlice msgs={sliceBetween(comments[i - 1]?.createdAt ?? null, c.createdAt)} />
                 )}
-                {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => { setPreviewPath(p); if (!wide) toggleWide(); }} />}
+                {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => { setPreviewPath(p); setPreviewOff(false); if (!wide) toggleWide(); }} />}
               </div>
             ))}
             {/* Turn still running (or ended after the last comment): its
@@ -1922,7 +1924,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           </div>
         </div>
         {/* Output panel only when there IS an output — never an empty frame. */}
-        {wide && outputSrc && <OutputPanel task={task} url={outputSrc} label={outputLabel} onOpenTopic={onOpenTopic} />}
+        {wide && outputSrc && <OutputPanel task={task} url={outputSrc} label={outputLabel} mediaPath={mediaPreviewPath} onOpenTopic={onOpenTopic} onClose={() => { if (task?.outputUrl) { toggleWide(); } else { setPreviewOff(true); } }} />}
       </div>
       )}
     </div>
@@ -1986,7 +1988,7 @@ function SubtaskNode({ projectId, node, depth, onOpenTask }: {
  * page, report) in a sandboxed iframe. Without one, a sober empty state with
  * the agent-tab deep-link as the next best review surface.
  */
-function OutputPanel({ task, url, label, onOpenTopic }: { task: BoardTask | null; url: string | null; label?: string; onOpenTopic?: (topicId: string) => void }) {
+function OutputPanel({ task, url, label, mediaPath, onOpenTopic, onClose }: { task: BoardTask | null; url: string | null; label?: string; mediaPath?: string | null; onOpenTopic?: (topicId: string) => void; onClose?: () => void }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col bg-neutral-950/40" data-testid="task-output-panel">
       {url ? (
@@ -1998,8 +2000,15 @@ function OutputPanel({ task, url, label, onOpenTopic }: { task: BoardTask | null
               className="ml-auto shrink-0 rounded p-1.5 text-neutral-400 hover:bg-white/10"
               title="Apri nel browser"
             ><ExternalLink className="h-4 w-4" /></button>
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="shrink-0 rounded p-1.5 text-neutral-400 hover:bg-white/10"
+                title="Chiudi l'anteprima"
+              ><X className="h-4 w-4" /></button>
+            )}
           </div>
-          <OutputFrame key={url} url={url} />
+          {mediaPath ? <MediaViewer key={url} url={url} path={mediaPath} /> : <OutputFrame key={url} url={url} />}
         </>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
@@ -2028,6 +2037,36 @@ function OutputPanel({ task, url, label, onOpenTopic }: { task: BoardTask | null
  * parent.document). Opaque origin keeps agent-set URLs inert; pages needing
  * their own storage open externally.
  */
+/**
+ * Viewer for OUR /api/media files (allowlisted attachments): image inline,
+ * PDF in a NON-sandboxed frame — the sandbox blocks WKWebView's native PDF
+ * viewer (blank white pane). These are static files this server serves, not
+ * agent-controlled web pages: the URL-sandbox rationale doesn't apply.
+ */
+function MediaViewer({ url, path }: { url: string; path: string }) {
+  const isImg = /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(path);
+  const isPdf = /\.pdf$/i.test(path);
+  if (isImg) {
+    return (
+      <div className="min-h-0 flex-1 overflow-auto bg-neutral-950/60 p-3">
+        <img src={url} alt="" className="mx-auto max-w-full rounded" />
+      </div>
+    );
+  }
+  if (isPdf) {
+    return <iframe src={url} title="anteprima PDF" className="min-h-0 w-full flex-1 border-0 bg-white" />;
+  }
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+      <p className="text-sm text-neutral-400">Nessuna anteprima per questo tipo di file.</p>
+      <button
+        onClick={() => openExternalOnce(url)}
+        className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20"
+      ><ExternalLink className="h-3.5 w-3.5" /> Apri nel browser</button>
+    </div>
+  );
+}
+
 function OutputFrame({ url }: { url: string }) {
   const [loading, setLoading] = useState(true);
   return (
