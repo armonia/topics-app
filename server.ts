@@ -50,7 +50,8 @@ import { createTagsRouter } from "./server/routes/tags";
 import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
+import { pickTaskModel } from "./server/services/task-model-picker";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
 import { createPushRouter } from "./server/routes/push";
@@ -364,6 +365,30 @@ const taskDispatcher = createTaskDispatcher({
   // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
   // "generale")): a session resolved here renders standalone, not as a project.
   catchAllProjectPath: join(DISPATCH_WORKSPACE_DIR, "generale"),
+  // "modello auto" → a fast haiku one-shot classifies the task and picks the
+  // tier before the agent spawns. Everything is resolved lazily and defensively
+  // so a missing provider / empty snapshot just keeps the sonnet default — the
+  // picker itself never throws (see task-model-picker.ts).
+  pickAutoModel: async (task) => {
+    try {
+      const provider = getProvider("claude-code");
+      const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
+      const snap = getSnapshotManager().getSnapshot();
+      const cc = snap?.providers?.find((p) => p.name === "claude-code");
+      const availableModels = cc?.models ?? [];
+      if (availableModels.length === 0) return null; // no snapshot yet → default
+      return await pickTaskModel(task, {
+        // Force the cheapest tier for the classification itself.
+        complete: (prompt) =>
+          provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
+        availableModels,
+        fallback: "claude-sonnet-5",
+        log: (m) => console.log(`[dispatcher] ${m}`),
+      });
+    } catch {
+      return null; // provider not ready / any failure → keep the default
+    }
+  },
   resolveProject: (projectId) => {
     const c = resolveProjectPath(
       projectId,

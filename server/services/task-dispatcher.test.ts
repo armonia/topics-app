@@ -582,6 +582,42 @@ describe("blocked-by + context reuse", () => {
     await flush();
     expect((h.topicsCreated[0] as any).model).toBe("claude-fable-5");
   });
+
+  it("auto model: calls the classifier and passes its pick to the fresh topic", async () => {
+    const picked: string[] = [];
+    const h = harness({
+      pickAutoModel: async (t) => { picked.push(t.text); return "claude-opus-4-8"; },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.create({ projectId: PID, text: "refactor pesante" }); // model null = auto
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(picked).toEqual(["refactor pesante"]);
+    expect((h.topicsCreated[0] as any).model).toBe("claude-opus-4-8");
+  });
+
+  it("auto model: an EXPLICIT model skips the classifier entirely", async () => {
+    let called = false;
+    const h = harness({
+      pickAutoModel: async () => { called = true; return "claude-opus-4-8"; },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.create({ projectId: PID, text: "chosen", model: "claude-haiku-4-5" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(called).toBe(false);
+    expect((h.topicsCreated[0] as any).model).toBe("claude-haiku-4-5");
+  });
+
+  it("auto model: a null pick keeps the provider default (undefined model, dispatch not blocked)", async () => {
+    const h = harness({ pickAutoModel: async () => null });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.create({ projectId: PID, text: "auto" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task(h.svc.list({ scope: "project", projectId: PID })[0].id)!.status).toBe("in_progress");
+    expect((h.topicsCreated[0] as any).model).toBeUndefined();
+  });
 });
 
 describe("priority", () => {

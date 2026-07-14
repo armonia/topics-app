@@ -56,6 +56,14 @@ export interface DispatcherDeps {
   createWorktree?: (projectStoreId: string) => Promise<string>;
   /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
   deleteWorktree?: (worktreeId: string) => Promise<void>;
+  /**
+   * Choose a model for a task on "modello auto" (task.model === null), BEFORE
+   * the agent spawns — a fast one-shot classifier (see task-model-picker.ts).
+   * Returns a concrete model id, or null to keep the provider default. Absent =
+   * host without a classifier (tests / degraded); "auto" then keeps the default.
+   * MUST resolve fast and never reject (the picker swallows its own errors).
+   */
+  pickAutoModel?: (task: Task) => Promise<string | null>;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number }) => Promise<void>;
   /**
@@ -258,6 +266,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           "Nuovo task nella STESSA sessione del task precedente: il contesto che hai costruito è condiviso di proposito, riusalo dove serve.\n\n" + kickoff;
       }
 
+      // Model selection. Explicit choice wins; "auto" (null) → classifier pick
+      // before spawn (never for a reused topic — it inherits the blocker's).
+      // The picker never rejects and returns fast; a null/absent result keeps
+      // the provider default, so dispatch is never blocked on this.
+      let chosenModel: string | undefined = task.model ?? undefined;
+      if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
+        chosenModel = (await deps.pickAutoModel(task)) ?? undefined;
+      }
+
       const { topicId, sessionKey } = reuseTopicId
         ? { topicId: reuseTopicId, sessionKey: "topic:" + reuseTopicId.slice(0, 8) }
         : deps.createTopic({
@@ -266,7 +283,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             worktreeId,
             systemPrompt: ROLE_PROMPT,
             effort: settings.effort,
-            model: task.model ?? undefined,
+            model: chosenModel,
             // Catch-all "generale" task → standalone session (keeps the cwd,
             // never renders a phantom "generale" project in the sidebar).
             standalone: !!deps.catchAllProjectPath && resolved.path === deps.catchAllProjectPath,
