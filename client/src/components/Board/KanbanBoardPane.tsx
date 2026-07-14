@@ -972,11 +972,16 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
           <span
             title={unassigned ? 'Assegna un progetto (dal dettaglio, "Sposta su…") per farlo lavorare da un agent' : undefined}
             className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
-              unassigned ? 'bg-white/5 italic text-neutral-500' : 'bg-emerald-500/15 text-emerald-300'
+              unassigned
+                // In todo it's the reason nothing starts → warn, don't whisper.
+                ? task.status === 'todo'
+                  ? 'bg-amber-500/15 text-amber-300'
+                  : 'bg-white/5 italic text-neutral-500'
+                : 'bg-emerald-500/15 text-emerald-300'
             }`}
           >
             {projectPath && <ProjectFavicon path={projectPath} size={11} />}
-            {projectLabel}
+            {unassigned && task.status === 'todo' ? 'assegna un progetto per partire' : projectLabel}
           </span>
         )}
         {blocker && blocker.status !== 'done' && (
