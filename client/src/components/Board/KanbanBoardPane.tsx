@@ -849,7 +849,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
 
   return (
-    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex w-72 shrink-0 flex-col rounded-lg border ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
+    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex shrink-0 flex-col rounded-lg border ${status === 'review' ? 'w-[26rem]' : 'w-72'} ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-300">
           <StatusIcon status={status} />
@@ -1043,7 +1043,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
           {pending ? (
             <p className="text-[11px] leading-snug text-rose-200">{pending.question}</p>
           ) : lastComment ? (
-            <p className="line-clamp-3 text-[11px] leading-snug text-neutral-300" title={`${lastComment.author}: ${lastComment.content}`}>
+            <p className="line-clamp-6 text-[11px] leading-snug text-neutral-300" title={`${lastComment.author}: ${lastComment.content}`}>
               {/* No author prefix: for dispatched agents it's the topic name =
                   the task title — noise dressed up as a username. */}
               {lastComment.author !== 'user' && <Bot className="mr-1 inline h-3 w-3 align-[-2px] text-neutral-400" />}
