@@ -124,6 +124,12 @@ export interface DetachedTopicOptions {
    * it from the task drawer (which un-archives it).
    */
   background?: boolean;
+  /**
+   * Presentation-only: keep `projectPath` (cwd) but render as a standalone
+   * (ungrouped) chat — the dispatcher sets this for catch-all "generale"
+   * sessions so a project-less task doesn't spawn a phantom project node.
+   */
+  standalone?: boolean;
 }
 
 /**
@@ -160,6 +166,7 @@ export function createDetachedTopic(
   if (opts.worktreeId) newTopic.worktreeId = opts.worktreeId;
   if (opts.effort) newTopic.effort = opts.effort;
   if (opts.model) newTopic.model = opts.model;
+  if (opts.standalone) newTopic.standalone = true;
   deps.saveSingleTopic(newTopic);
   deps.broadcastToAll({ type: "topic:created", topic: newTopic });
   return { topic: newTopic };
