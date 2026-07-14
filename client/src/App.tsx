@@ -26,6 +26,7 @@ import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
 import { initDevBundleReload } from './lib/devBundleReload';
+import { openTaskFromUrl } from './lib/openTaskLink';
 import { useDismissable } from './hooks/useDismissable';
 import { POPOVER_SURFACE, POPOVER_PANEL, Z_POPOVER } from './lib/popoverStyles';
 
@@ -128,6 +129,11 @@ function App() {
   // The server only broadcasts this behind its dev flag file — see
   // server/lib/dev-bundle-reload.ts.
   useEffect(() => initDevBundleReload(), []);
+
+  // Deep-link a board task from ?task=<projectId>~<taskId> (the drawer's "copia
+  // link"): opens the global board and jumps to the task, once, after the
+  // initial layout has mounted its event listeners.
+  useEffect(() => { openTaskFromUrl(); }, []);
 
   // Warm the ⌘K command-palette chunk on idle so its FIRST open is composited
   // from an already-parsed module (no fetch+eval on the opening frame). Idle-
