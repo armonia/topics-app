@@ -1191,6 +1191,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     setNextPanelMode(mode === 'below' ? 'below' : 'side');
   }, [openPanels, previewPanelId, isMobile, topics, archiveTopic]);
 
+  // Open a TOPIC as a chat tab from any surface (e.g. the global board's task
+  // drawer "apri la sessione" — its hosts have no openPanel in scope). Same
+  // event-based pattern as `topics:open-project`; goes through the standard
+  // open funnel (unarchives = the 2-state model's "open").
+  useEffect(() => {
+    const onOpenTopic = (e: Event) => {
+      const topicId = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
+      if (topicId) openPanel(topicId, 'permanent');
+    };
+    window.addEventListener('topics:open-topic', onOpenTopic as EventListener);
+    return () => window.removeEventListener('topics:open-topic', onOpenTopic as EventListener);
+  }, [openPanel]);
+
+
   // Keep the openPanelRef (declared up top, before the WS effects) pointed at
   // the latest openPanel so the stable [onWSMessage] handlers invoke the
   // current closure without referencing openPanel before its declaration.

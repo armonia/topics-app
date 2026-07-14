@@ -524,6 +524,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           code: "comment_too_long",
         }, 400);
       }
+      // Attachments outside the allowlist must FAIL LOUDLY for an agent: the
+      // silent drop shipped a "PDF allegato qui" comment with no PDF and
+      // nobody knew why. Coach the remedy (same pattern as comment_too_long).
+      const requestedMedia = Array.isArray(body?.media) ? body.media.filter((m: unknown) => typeof m === "string").length : 0;
+      const media = filterMedia(body?.media);
+      if (requestedMedia > 0 && (media?.length ?? 0) < requestedMedia) {
+        return json({
+          error:
+            "some attachments are outside the allowed dirs — copy the file(s) into ~/.openclaw/uploads/ (or the workspace) and re-attach from there",
+          code: "media_path_not_allowed",
+        }, 400);
+      }
       try {
         const comment = svc.addComment({
           taskId: commentsRoute.taskId,
@@ -531,7 +543,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           content: body?.content,
           mentions: Array.isArray(body?.mentions) ? body.mentions : undefined,
           // The agent can attach files too (screenshots/artifacts it produced).
-          media: filterMedia(body?.media),
+          media,
           projectId: sess.projectId,
           // Structured human-decision request: the service composes the
           // canonical ```question``` block from these (KANBAN-07 quick-reply).

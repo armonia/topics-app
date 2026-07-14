@@ -872,7 +872,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
 
   return (
-    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex shrink-0 flex-col rounded-lg border ${status === 'review' ? 'w-[26rem]' : 'w-72'} ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
+    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex shrink-0 flex-col rounded-lg border ${status === 'review' ? 'w-[32rem]' : 'w-72'} ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-300">
           <StatusIcon status={status} />
