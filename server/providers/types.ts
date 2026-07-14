@@ -349,8 +349,13 @@ export interface AIProvider {
 
   // --- Non-streaming ---
 
-  /** Simple completion (non-streaming). For auto-naming, journal digests, etc. */
-  complete(messages: ChatMessage[]): Promise<CompletionResult>;
+  /**
+   * Simple completion (non-streaming). For auto-naming, journal digests, the
+   * dispatcher's model classifier, etc. `options.model` overrides the
+   * provider's configured model for THIS call only (e.g. force a cheap/fast
+   * tier); implementations may ignore it.
+   */
+  complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult>;
 
   // --- Session Management (optional) ---
 

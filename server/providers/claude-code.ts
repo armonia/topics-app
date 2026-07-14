@@ -796,7 +796,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
   // --- Non-streaming Completion ---
 
-  async complete(messages: ChatMessage[]): Promise<CompletionResult> {
+  async complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult> {
     // Build a single prompt from all messages
     const prompt = messages
       .map((m) => {
@@ -806,7 +806,8 @@ export class ClaudeCodeProvider implements AIProvider {
       })
       .join("\n\n");
 
-    const model = this.config.model ?? DEFAULT_MODEL;
+    // Per-call override (dispatcher classifier forces haiku) → configured model → default.
+    const model = options?.model ?? this.config.model ?? DEFAULT_MODEL;
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
     const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
