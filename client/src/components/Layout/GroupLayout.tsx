@@ -7,6 +7,7 @@ import { flattenGroupRows } from './flattenLayout';
 import { spawnDragGhost } from './dragGhost';
 import { equalizeWidths, weightedWidths } from './gridWidths';
 import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTypes';
+import { paneCellBg } from '../../lib/paneCellBg';
 import { canSplitPane } from './splitRules';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -856,15 +857,11 @@ export function GroupLayout({
               return (
                 <div
                   key={stableKeyOf(pane)}
-                  // Content panes paint their own opaque bg so they stay crisp once
-                  // the shared backdrop (#main-content) is transparent under Electron
-                  // vibrancy. `project` and `terminal` panes stay transparent here so
-                  // they ride exactly ONE extra glass layer over the shared group-cell
-                  // backdrop (which is itself .chrome-glass): the project sidebar's
-                  // own .chrome-glass, or the terminal container's own .chrome-glass.
-                  // Adding glass here too would stack a third layer and darken the
-                  // terminal relative to the sidebar.
-                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${pane.type === 'project' || pane.type === 'terminal' ? '' : 'bg-surface'}`}
+                  // Cell background tier (paneCellBg): `project`/`terminal`
+                  // fully transparent (they frost themselves), chat + kanban
+                  // in the frosted tier (`pane-frost`), the rest opaque
+                  // `bg-surface` so dense text stays crisp over the vibrancy.
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
                   style={{ display: isPaneActive ? 'flex' : 'none' }}
                   aria-hidden={!isPaneActive}
                 >

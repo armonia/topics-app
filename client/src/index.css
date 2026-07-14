@@ -1319,6 +1319,21 @@ html.electron-mac :has(> [data-testid="browser-native-panel"]) {
   background-color: transparent !important;
 }
 
+/* Chat topic panes + the kanban board join the frosted tier (like terminals
+ * above): dense-text panes no longer carry an opaque backdrop — they ride the
+ * same single base frost as the chrome. `.pane-frost` is the reusable hook
+ * (layout cells, utility hosts): opaque `bg-surface` fallback on the web —
+ * a flat background still needs the contrast — transparent under the mac
+ * shell. The ChatPanel root and its header paint their own inline
+ * `bg-surface`, so they are matched by role/aria selector rather than
+ * carrying the class (same approach as the Topics sidebar). */
+.pane-frost { background-color: var(--bg-surface); }
+html.electron-mac .pane-frost,
+html.electron-mac [role="region"][aria-label$=" panel"],
+html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
+  background-color: transparent !important;
+}
+
 /* ─── Resize-handle hover/grab affordance ───────────────────────────────────
  * Every split divider (column / row / sub-stack / sidebar handle / project
  * panel sections) is a 1px hairline carrying `cursor-col-resize` /

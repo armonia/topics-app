@@ -751,7 +751,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
         onBlurCapture={onBlurCapture}
         onPointerDownCapture={onPointerDownCapture}
         data-testid="board-task-composer"
-        className={`pointer-events-auto w-full max-w-2xl rounded-2xl border bg-neutral-900/95 shadow-2xl shadow-black/50 backdrop-blur transition-all duration-200 ease-out ${
+        className={`glass-surface pointer-events-auto w-full max-w-2xl rounded-2xl border shadow-2xl shadow-black/50 transition-all duration-200 ease-out ${
           expanded ? '-translate-y-2 border-white/20' : 'translate-y-0 border-white/10'
         }`}
       >
@@ -1547,7 +1547,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   return (
     <div
       data-testid="task-detail-drawer"
-      className={`flex flex-col border-l border-white/10 bg-neutral-900/95 backdrop-blur ${
+      className={`glass-surface flex flex-col border-l border-white/10 ${
         wide
           // Wide = review takeover: absolute (anchored to the board root, so it
           // also covers the header) and out of flow — the board re-expands under it.

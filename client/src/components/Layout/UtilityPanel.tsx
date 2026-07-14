@@ -43,13 +43,14 @@ export function UtilityPanel({ type, isFocused, onFocus, onClose, onNavigateToTo
 
   return (
     <div
-      className={`flex flex-col h-full min-h-0 bg-surface rounded-lg overflow-hidden border ${
+      className={`flex flex-col h-full min-h-0 ${type === 'board' ? 'pane-frost' : 'bg-surface'} rounded-lg overflow-hidden border ${
         isFocused ? 'border-primary/40' : 'border-app-border'
       }`}
       onClick={onFocus}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-app-border flex-shrink-0 bg-elevated">
+      {/* Header — the board joins the frosted tier (pane-frost, see index.css),
+          the other utility panes keep the elevated opaque strip. */}
+      <div className={`flex items-center justify-between px-3 py-2 border-b border-app-border flex-shrink-0 ${type === 'board' ? 'pane-frost' : 'bg-elevated'}`}>
         <div className="flex items-center gap-2">
           <Icon size={14} style={{ color: config.color }} />
           <span className="text-[13px] font-medium text-app-text">{config.label}</span>
