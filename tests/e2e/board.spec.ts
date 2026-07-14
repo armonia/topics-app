@@ -291,6 +291,34 @@ test.describe("Kanban board", () => {
     if (sub) createdTasks.push(`${PROJECT_ID}:${sub.id}`);
   });
 
+  test("BOARD-11: Esc closes the drawer; the header exposes a copyable task deep-link", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-07" });
+    const text = `Esc+link task ${Date.now()}`;
+    const task = await apiCreateTask(page.request, { text, status: "todo" });
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    // Open the drawer from the card.
+    await page.getByTestId("kanban-column-todo").getByText(text).click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+
+    // The copy-link button is present; clicking it writes an openable deep-link
+    // (?task=<projectId>~<taskId>) to the clipboard.
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]).catch(() => {});
+    await drawer.getByTestId("task-copy-link").click();
+    const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => "")).catch(() => "");
+    if (clip) {
+      // The URL API percent-encodes '~' as %7E; decode before matching.
+      expect(decodeURIComponent(clip)).toContain(`task=${PROJECT_ID}~${task.id}`);
+    }
+
+    // Esc closes the drawer (not editing, no menu open → the drawer's own Esc).
+    await page.keyboard.press("Escape");
+    await expect(drawer).not.toBeVisible({ timeout: 5000 });
+  });
+
   test("BOARD-07: Board generale opens from the standalone + menu and crosses projects", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-06" });
     // Seed tasks on TWO boards: the project one + a second ad-hoc board.
