@@ -91,6 +91,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
       new Promise<void>((res, rej) => { turns.push({ sessionKey, content }); resolveTurn = res; rejectTurn = rej; }),
     broadcast: (m) => events.push(m),
     graceMs: 10,
+    retryBackoffMs: 0, // instant harness turns must not wait out the outage backoff
     log: () => {},
     ...overrides,
   };

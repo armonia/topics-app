@@ -62,6 +62,13 @@ export interface DispatcherDeps {
   log?: (msg: string, err?: unknown) => void;
   /** Grace window (ms) between the →todo signal and the claim. Default 6000. */
   graceMs?: number;
+  /**
+   * Pause before resuming a turn that died QUICKLY (< the backoff itself) —
+   * an instant death is a provider outage (credit/limit/connection), not work
+   * to redo: retrying immediately burns the whole retry budget in seconds.
+   * Default 60000.
+   */
+  retryBackoffMs?: number;
 }
 
 export interface TaskDispatcher {
@@ -108,6 +115,7 @@ const ROLE_PROMPT =
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const graceMs = deps.graceMs ?? 6000;
+  const retryBackoffMs = deps.retryBackoffMs ?? 60_000;
   const log =
     deps.log ??
     ((m: string, e?: unknown) => (e ? console.error("[dispatcher] " + m, e) : console.log("[dispatcher] " + m)));
@@ -267,7 +275,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         log(`turn failed for task ${taskId}`, err);
       }
       recordUsage(taskId, t0, tokens0, sessionKey);
-      onTurnEnd(taskId);
+      onTurnEnd(taskId, Date.now() - t0);
       // The worktree holds the agent's work: keep it when the task advanced to
       // review/done (it's the deliverable), delete it when the attempt was
       // discarded (requeued/parked) so retries don't orphan a worktree each time.
@@ -299,7 +307,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch (err) { log(`worktree cleanup failed for ${worktreeId}`, err); }
   }
 
-  function onTurnEnd(taskId: string): void {
+  function onTurnEnd(taskId: string, turnMs?: number): void {
     const cur = deps.svc.get(taskId)?.task;
     if (!cur) { pendingResume.delete(taskId); return; }
     // Human input buffered mid-turn → continue on the same tab instead of the
@@ -337,15 +345,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         let bumped: Task | null = null;
         try { bumped = deps.svc.bumpDispatchAttempt({ taskId, maxAttempts: RETRY_CAP }); } catch { /* park below */ }
         if (bumped) {
+          // A turn that died in seconds is a provider outage (connection cut,
+          // credit/limit), not a timeout: back off before resuming, or three
+          // instant failures park the task while the outage is still on.
+          const quickDeath = turnMs !== undefined && turnMs < retryBackoffMs;
           try {
             deps.svc.addComment({
               taskId, author: "system",
-              content: `Turno interrotto senza arrivare a review (probabile timeout): l'agent continua sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${RETRY_CAP}).`,
+              content: quickDeath
+                ? `Turno caduto subito (probabile problema momentaneo del provider): riprovo tra ${Math.round(retryBackoffMs / 1000)}s sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${RETRY_CAP}).`
+                : `Turno interrotto senza arrivare a review (probabile timeout): l'agent continua sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${RETRY_CAP}).`,
             });
           } catch { /* best-effort */ }
           emit(bumped);
-          // Deferred a tick: the caller's finally still holds the inFlight slot.
-          setTimeout(() => { void resume(taskId, "", { continuation: true }); }, 0);
+          // Deferred at least a tick: the caller's finally still holds the
+          // inFlight slot; quick deaths wait out the backoff.
+          setTimeout(() => { void resume(taskId, "", { continuation: true }); }, quickDeath ? retryBackoffMs : 0);
           return;
         }
       }
@@ -401,7 +416,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
       catch (err) { log(`resume turn failed for ${taskId}`, err); }
       recordUsage(taskId, t0, tokens0, sessionKey);
-      onTurnEnd(taskId);
+      onTurnEnd(taskId, Date.now() - t0);
     } finally {
       inFlight.delete(taskId);
     }
