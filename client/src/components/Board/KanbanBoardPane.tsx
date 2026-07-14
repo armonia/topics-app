@@ -59,11 +59,6 @@ const PRIORITY_DOT: Record<number, string> = {
 };
 // 4-first: the dispatch queue serves higher priorities first.
 const PRIORITY_ORDER = [4, 3, 2, 1, 0] as const;
-/** External opens need an ABSOLUTE url: a relative '/api/media?…' confuses the
- *  system opener and window.open in Tauri hijacks it into an in-app browser
- *  pane (the "vedo un browser topics" bug). */
-const toAbsoluteUrl = (u: string) => { try { return new URL(u, window.location.origin).toString(); } catch { return u; } };
-
 const PRIORITY_LABEL: Record<number, string> = {
   4: 'Urgente', 3: 'Alta', 2: 'Media', 1: 'Bassa', 0: 'Minima',
 };
@@ -1652,7 +1647,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           )}
           {task?.outputUrl && (
             <button
-              onClick={() => openExternalOnce(toAbsoluteUrl(task.outputUrl!))}
+              onClick={() => openExternalOnce(task.outputUrl!)}
               title="Apri l'output nel browser"
               className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
             ><ExternalLink className="h-4 w-4" /></button>
@@ -2001,7 +1996,7 @@ function OutputPanel({ task, url, label, mediaPath, onOpenTopic, onClose }: { ta
           <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5">
             <span className="truncate text-xs text-neutral-400" title={url}>{label || url}</span>
             <button
-              onClick={() => openExternalOnce(toAbsoluteUrl(url))}
+              onClick={() => openExternalOnce(url)}
               className="ml-auto shrink-0 rounded p-1.5 text-neutral-400 hover:bg-white/10"
               title="Apri nel browser"
             ><ExternalLink className="h-4 w-4" /></button>
@@ -2065,7 +2060,7 @@ function MediaViewer({ url, path }: { url: string; path: string }) {
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
       <p className="text-sm text-neutral-400">Nessuna anteprima per questo tipo di file.</p>
       <button
-        onClick={() => openExternalOnce(toAbsoluteUrl(url))}
+        onClick={() => openExternalOnce(url)}
         className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20"
       ><ExternalLink className="h-3.5 w-3.5" /> Apri nel browser</button>
     </div>
@@ -2105,7 +2100,7 @@ function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?: (path:
   const open = (e: React.MouseEvent, p: string) => {
     e.preventDefault();
     if (onPreview) onPreview(p);
-    else openExternalOnce(toAbsoluteUrl(getMediaUrl(p))); // target=_blank is dead in WKWebView
+    else openExternalOnce(getMediaUrl(p)); // target=_blank is dead in WKWebView
   };
   return (
     <div className="mt-1 flex flex-wrap gap-1.5">
