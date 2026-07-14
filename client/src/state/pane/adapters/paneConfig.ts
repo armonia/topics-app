@@ -132,6 +132,19 @@ export function getProjectPathFromPaneId(id: string): string | null {
 }
 
 /**
+ * A TASK WORKSPACE is a dispatcher-created per-task cwd under the openclaw
+ * workspace (`…/workspace/tasks/<id8>`) — see the server dispatcher's
+ * `catchAllTaskDir`. It reuses the project-window machinery (a `project:` pane)
+ * but is presented as the TASK's own splittable workspace, not a project: its
+ * session opens standalone (never routed into a project window) and its label
+ * is the task title, not the dir basename. This predicate is the single
+ * source of truth that distinguishes the two.
+ */
+export function isTaskWorkspacePath(path: string | null | undefined): boolean {
+  return !!path && /(^|\/)workspace\/tasks\/[^/]+\/?$/.test(path);
+}
+
+/**
  * Canonical sidebar-item PIN KEY for a pane, or undefined when the pane type
  * isn't pinnable (ephemeral views — file/git/activity/journal/agents/dashboard/
  * session-viewer — have no persistent sidebar row to "Fissa"). This is the

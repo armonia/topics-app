@@ -6,11 +6,21 @@
 // '~', so '~' is an unambiguous split point (a UUID taskId is fixed-length,
 // but the projectId is a free-form slug, so split on the FIRST '~').
 
+import { serverHttpBase } from './shell/net';
+
 const PARAM = 'task';
 const SEP = '~';
 
 export function buildTaskLink(projectId: string, taskId: string): string {
-  const u = new URL(window.location.origin);
+  // Build against a REAL, openable server origin — NOT window.location.origin.
+  // On the Tauri desktop shell the UI is served from `tauri://localhost`, an
+  // origin that can't be opened/shared (opening it just spawns a browser);
+  // `serverHttpBase()` gives the data server (`http://127.0.0.1:13333` on
+  // desktop, same-machine). On web it returns '' → fall back to the page origin
+  // (the actual https server / tunnel). Same-machine only; LAN sharing needs
+  // the LAN host and is out of scope.
+  const base = serverHttpBase() || window.location.origin;
+  const u = new URL(base);
   u.searchParams.set(PARAM, `${projectId}${SEP}${taskId}`);
   return u.toString();
 }

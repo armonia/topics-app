@@ -12,6 +12,9 @@ const GitChanges = lazy(() => import('./GitChanges').then(m => ({ default: m.Git
 
 interface ProjectSidebarProps {
   projectPath: string;
+  /** Header label override — the task title for a task workspace (whose path
+   *  basename is an opaque `<id8>`). Falls back to the path's folder name. */
+  displayName?: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onOpenFile?: (path: string) => void;
@@ -23,14 +26,15 @@ type SectionId = 'files' | 'git' | 'processes';
 
 export function ProjectSidebar({
   projectPath,
+  displayName,
   collapsed,
   onToggleCollapse,
   onOpenFile,
   onWSMessage,
   onOpenProcessLog,
 }: ProjectSidebarProps) {
-  // Project name = last segment of the project path (the folder name).
-  const projectName = projectPath.split('/').filter(Boolean).pop() || 'Project';
+  // Project name = the display override (task title) or the path's folder name.
+  const projectName = displayName || projectPath.split('/').filter(Boolean).pop() || 'Project';
   // Auto-collapse on mobile
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => {
