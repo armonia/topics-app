@@ -36,6 +36,13 @@ export interface Topic {
   contextFiles?: string[];
   pinnedMessages?: string[];
   projectPath?: string;
+  /**
+   * Presentation-only: keep `projectPath` for the working dir but render this
+   * topic as a STANDALONE (ungrouped) chat, never under a project — dispatcher
+   * agent sessions on the "generale" catch-all workspace. Mirrors
+   * `server/types.ts:Topic.standalone`; consumed by buildSidebarItems.
+   */
+  standalone?: boolean;
   sortOrder?: number;
   autonomyLevel?: AutonomyLevel;
   disabledContextSources?: string[];

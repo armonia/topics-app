@@ -222,10 +222,12 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 
   // ── 1. Group topics by project ───────────────────────────────────────────
 
-  // Collect all known project paths (workspace + topics + open project panes)
+  // Collect all known project paths (workspace + topics + open project panes).
+  // `standalone` topics keep a projectPath for their cwd but must NOT seed a
+  // project node (catch-all "generale" agent sessions) — they render ungrouped.
   const projectPaths = new Set<string>(workspaceProjects);
   for (const t of Object.values(topics)) {
-    if (t.projectPath) projectPaths.add(t.projectPath);
+    if (t.projectPath && !t.standalone) projectPaths.add(t.projectPath);
   }
   for (const id of openPanels) {
     if (isProjectPaneId(id)) {
@@ -262,7 +264,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   const standaloneChats: Topic[] = [];
 
   for (const t of Object.values(topics)) {
-    if (t.projectPath) {
+    // `standalone` = ungrouped despite having a projectPath (catch-all agent
+    // session): render as a top-level chat, same as a project-less topic.
+    if (t.projectPath && !t.standalone) {
       const arr = topicsByProject.get(t.projectPath) || [];
       arr.push(t);
       topicsByProject.set(t.projectPath, arr);

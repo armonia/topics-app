@@ -212,6 +212,44 @@ describe("buildSidebarItems — pinning (Fissati)", () => {
     expect(project!.children!.find((c) => c.id === "c2")!.pinned).toBe(true);
   });
 
+  test("a `standalone` topic keeps its projectPath but renders ungrouped (no phantom project node)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: {
+        // Catch-all agent session: has a projectPath (its cwd) but standalone.
+        s1: topic("s1", "Agent session", { projectPath: PP, standalone: true }),
+        // A normal project chat at the SAME path, to prove grouping still works
+        // for non-standalone topics and the project row exists because of it.
+        n1: topic("n1", "Project chat", { projectPath: PP }),
+      },
+      terminalSessions: [],
+      openPanels: ["s1", "n1"],
+      projectOpenPanes: {},
+      pinnedIds: new Set<string>(),
+    });
+    const project = items.find((i) => i.id === `project:${PP}`);
+    // The project row exists (n1 seeds it) but must NOT contain the standalone.
+    expect(project).toBeTruthy();
+    expect((project!.children ?? []).map((c) => c.id)).not.toContain("s1");
+    // The standalone session renders as a TOP-LEVEL row, not under the project.
+    expect(items.some((i) => i.id === "s1")).toBe(true);
+  });
+
+  test("a standalone topic ALONE seeds no project node at all", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      topics: { s1: topic("s1", "Agent session", { projectPath: PP, standalone: true }) },
+      terminalSessions: [],
+      openPanels: ["s1"],
+      projectOpenPanes: {},
+      pinnedIds: new Set<string>(),
+    });
+    expect(items.find((i) => i.id === `project:${PP}`)).toBeUndefined();
+    expect(items.some((i) => i.id === "s1")).toBe(true);
+  });
+
   test("a pinned project with zero children, no tab and no workspace entry still renders (projectPaths seeding)", () => {
     const lonely = "/work/lonely";
     const items = buildSidebarItems({

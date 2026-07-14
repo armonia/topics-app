@@ -361,6 +361,9 @@ function dispatchExtraPaths(): string[] {
 
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
+  // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
+  // "generale")): a session resolved here renders standalone, not as a project.
+  catchAllProjectPath: join(DISPATCH_WORKSPACE_DIR, "generale"),
   resolveProject: (projectId) => {
     const c = resolveProjectPath(
       projectId,
@@ -399,7 +402,7 @@ const taskDispatcher = createTaskDispatcher({
     const { topic } = createDetachedTopic(
       // background: an agent session never pops a tab — it lives in the
       // sidebar; the task drawer's "apri tab" un-archives it on demand.
-      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model, background: true },
+      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model, background: true, standalone: o.standalone },
       {
         getTopicById: ctx.getTopicById,
         loadTopics: ctx.loadTopics,
