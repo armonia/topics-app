@@ -100,6 +100,13 @@ describe("create", () => {
     expect(s.create({ projectId: PID, text: "normal" }).planFirst).toBe(false);
   });
 
+  test("planFirst is togglable via update (settable after creation)", () => {
+    const t = s.create({ projectId: PID, text: "fuzzy bug" });
+    expect(t.planFirst).toBe(false);
+    expect(s.update({ taskId: t.id, actor: "human", by: "u", patch: { planFirst: true } }).planFirst).toBe(true);
+    expect(s.update({ taskId: t.id, actor: "human", by: "u", patch: { planFirst: false } }).planFirst).toBe(false);
+  });
+
   test("rejects empty text and create-done", () => {
     expect(() => s.create({ projectId: PID, text: "  " })).toThrow(TaskServiceError);
     expect(() => s.create({ projectId: PID, text: "y", status: "done" })).toThrow(/done/);

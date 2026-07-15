@@ -210,6 +210,8 @@ export interface UpdateTaskBody {
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
   reuseBlockerContext?: boolean;
+  /** Agent delivers a plan to approve before implementing. */
+  planFirst?: boolean;
 }
 
 /** Per-board dispatch config (server: board_settings). */
