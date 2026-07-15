@@ -463,11 +463,34 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           return;
         }
       }
+      // Retry budget exhausted. Distinguish "did work but forgot to deliver"
+      // from a genuine no-output failure: if the agent left a real comment trail
+      // (≥1 comment, not a status event / system note), HAND IT TO THE HUMAN in
+      // review instead of dumping it in backlog as `failed`. A parked task the
+      // agent actually worked on reads as an opaque error and wastes the effort;
+      // review lets the human approve, take over, or send it back (a rejection
+      // resumes the same agent). Only a task that produced nothing fails.
+      let agentSpoke = false;
+      try {
+        const comments = deps.svc.get(taskId)?.comments ?? [];
+        agentSpoke = comments.some((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
+      } catch { /* default: treat as no-output */ }
+      if (cur.assignedTopicId && agentSpoke) {
+        try {
+          emit(deps.svc.deliverToReviewBySystem({
+            taskId,
+            reason:
+              `L'agent ha lavorato ${cur.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
+              "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).",
+          }));
+        } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
+        return;
+      }
       emit(deps.svc.release({
         taskId,
         requeue: false,
         parkState: CHIP_FAILED,
-        reason: `Il turno è terminato senza arrivare a review dopo ${cur.dispatchAttempts} tentativi. Parcheggiato in backlog.`,
+        reason: `Il turno è terminato senza arrivare a review dopo ${cur.dispatchAttempts} tentativi e senza produrre output. Parcheggiato in backlog.`,
       }));
       return;
     }
@@ -485,12 +508,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     ].join("\n");
   }
 
-  /** The auto-continuation message after a timed-out turn (NOT a human update). */
+  /** The auto-continuation message after a turn that ended without reaching
+   *  review. Escalates toward DELIVERY as the retry budget runs down: a plan-first
+   *  or investigative agent that keeps ending turns without a hand-off otherwise
+   *  burns the whole budget and gets parked — so the last continuation forces a
+   *  deliver-what-you-have, and even then onTurnEnd hands a worked task to review
+   *  rather than failing it. */
   function buildContinueNudge(task: Task): string {
+    // The NEXT turn is the last one when this attempt already reached the cap.
+    const lastChance = task.dispatchAttempts >= RETRY_CAP;
+    if (lastChance) {
+      return [
+        `ULTIMO TURNO su \`${task.id}\`: non iniziare nuovo lavoro e non continuare a investigare.`,
+        `Consegna ORA quello che hai — get_task(task_id="${task.id}"), poi UN commento di sintesi con comment_task (il piano se è plan-first, o lo stato/risultato parziale: cosa hai fatto, cosa manca), poi update_task(task_id="${task.id}", status="review").`,
+        "Se non consegni, il task viene passato comunque all'umano così com'è: meglio che lo consegni tu con una sintesi chiara.",
+      ].join("\n");
+    }
     return [
-      "Il tuo turno precedente su questo task è stato interrotto dal timeout del turno — nessun errore tuo, il lavoro fatto finora è valido.",
+      "Il tuo turno precedente su questo task è stato interrotto — nessun errore tuo, il lavoro fatto finora è valido.",
       `Riprendi da dove eri: get_task(task_id="${task.id}") per rivedere i tuoi step e i commenti, marca done gli step già completati, poi continua SOLO il lavoro rimanente (non ricominciare da capo).`,
-      `Quando il lavoro è completo: UN commento di sintesi con comment_task, poi update_task(task_id="${task.id}", status="review").`,
+      `Appena hai un piano o un risultato parziale valido consegnalo SUBITO (non aspettare di finire tutto): UN commento di sintesi con comment_task, poi update_task(task_id="${task.id}", status="review").`,
     ].join("\n");
   }
 

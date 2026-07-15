@@ -249,9 +249,26 @@ describe("task-dispatcher", () => {
     h.finishTurn(); await flush(); // attempt 3 → cap: park
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");
-    expect(t.dispatchState).toBe("failed"); // genuine failure, not a neutral stop
+    expect(t.dispatchState).toBe("failed"); // no agent output → genuine failure
     expect(t.assignedTopicId).toBeNull();
     expect(h.turns.length).toBe(3);
+  });
+
+  it("HANDS an exhausted-but-worked task to review instead of failing it", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // The agent left a real comment trail (worked) but never moved to review.
+    h.svc.addComment({ taskId: "t1", author: "agent", content: "Ecco il piano: 1) … 2) …" });
+    h.finishTurn(); await flush(); // attempt 1 → continuation
+    h.finishTurn(); await flush(); // attempt 2 → continuation
+    h.finishTurn(); await flush(); // attempt 3 → exhausted, but agent spoke
+    const t = h.task("t1")!;
+    expect(t.status).toBe("review");            // handed to the human, NOT failed
+    expect(t.dispatchState).toBe("needs_input");
+    expect(t.assignedTopicId).not.toBeNull();   // binding kept: a reject resumes it
   });
 
   it("respects the concurrency cap", async () => {
