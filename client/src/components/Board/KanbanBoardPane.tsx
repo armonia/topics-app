@@ -1579,6 +1579,13 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     catch (e) { showError(e); }
     finally { setBusy(false); }
   };
+  const togglePlanFirst = async () => {
+    if (!task || busy) return;
+    setBusy(true);
+    try { await boardApi.update(task.projectId, taskId, { planFirst: !task.planFirst }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
 
   const stopAgent = async () => {
     if (busy) return;
@@ -1867,6 +1874,15 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                     }`}
                   >Riusa il contesto dell'agent del task bloccante</button>
                 )}
+                <button
+                  onClick={togglePlanFirst}
+                  data-testid="task-plan-first-toggle"
+                  title="L'agent consegna un piano da approvare PRIMA di implementare (utile per task fuzzy: prima un checkpoint, meno token sprecati)"
+                  aria-pressed={task.planFirst}
+                  className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
+                    task.planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-500 hover:bg-white/10'
+                  }`}
+                >piano prima</button>
               </div>
             )}
             {editingTitle ? (
