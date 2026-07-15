@@ -4895,6 +4895,13 @@ fn serve_tauri_asset(
             return tauri::http::Response::builder()
                 .header(CONTENT_TYPE, mime)
                 .header("Access-Control-Allow-Origin", WINDOW_ORIGIN)
+                // Hot-reload mode: NEVER let WKWebView cache the disk-served shell.
+                // Without this it heuristically caches index.html/boot.js (no
+                // Cache-Control ⇒ freshness heuristic) and then re-serves the STALE
+                // document on the next launch/reload, bypassing this handler — the
+                // "still on the old version after a build" bug. Hashed assets change
+                // filename per build, so no-store on all disk hits is harmless.
+                .header("Cache-Control", "no-store, must-revalidate")
                 .body(std::borrow::Cow::Owned(bytes))
                 .unwrap_or_else(|_| asset_fallback());
         }
