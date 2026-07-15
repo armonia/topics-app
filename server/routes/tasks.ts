@@ -441,6 +441,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                   ? (typeof body.blockedByTaskId === "string" && body.blockedByTaskId ? body.blockedByTaskId : null)
                   : undefined,
                 reuseBlockerContext: typeof body?.reuseBlockerContext === "boolean" ? body.reuseBlockerContext : undefined,
+                planFirst: typeof body?.planFirst === "boolean" ? body.planFirst : undefined,
               },
             });
             broadcastToAll({ type: "task:updated", projectId, task });
