@@ -816,13 +816,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       const ts = now();
       const maxRow = db.prepare("SELECT COALESCE(MAX(kanban_order), 0) as m FROM tasks WHERE project_id = ?").get(target) as any;
+      // Clear any stale dispatch failure state: a 'failed'/'blocked' park (and its
+      // dispatch_error) was about the SOURCE board's dispatch context — moving the
+      // task to another board invalidates it, so it must not travel as a red
+      // "fallito"/"da sistemare" chip. (Live dispatch states are already refused
+      // above, so this only ever clears a settled park.)
       db.prepare(
         `WITH RECURSIVE subtree(id) AS (
            SELECT id FROM tasks WHERE id = ?
            UNION ALL
            SELECT t.id FROM tasks t JOIN subtree s ON t.parent_task_id = s.id
          )
-         UPDATE tasks SET project_id = ?, updated_at = ? WHERE id IN (SELECT id FROM subtree)`,
+         UPDATE tasks SET project_id = ?, dispatch_state = NULL, dispatch_error = NULL, updated_at = ? WHERE id IN (SELECT id FROM subtree)`,
       ).run(taskId, target, ts);
       // Re-append the root at the end of the target board; children keep their
       // relative order (kanban_order is just a per-board sort key).
