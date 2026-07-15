@@ -60,6 +60,10 @@ function matchRoute(pathname: string, pattern: string): Record<string, string> |
 const SESSIONS: Record<string, { projectPath: string; name: string; topicId?: string }> = {
   s1: { projectPath: "/proj/one", name: "topic-one", topicId: "top-s1" },
   s2: { projectPath: "/proj/two", name: "topic-two" },
+  // A catch-all ("generale") dispatch: the topic's cwd is a per-task private dir
+  // that maps to NO real board — the agent's own task lives on a different
+  // project_id, reachable only via assigned_topic_id.
+  sCatch: { projectPath: "/home/.openclaw/workspace/tasks/abc123", name: "generale-agent", topicId: "top-catch" },
 };
 
 function makeCtx(db: Database, broadcasts: any[]) {
@@ -218,6 +222,46 @@ describe("tasks router (session-scoped)", () => {
   test("non-task path falls through (null)", async () => {
     const resp = await call(router, "GET", "/api/sessions/s1/other");
     expect(resp).toBeNull();
+  });
+
+  test("catch-all dispatch: agent reaches its OWN task via bound topic, not cwd", async () => {
+    // The bug: a "generale" task's dispatch topic runs in a per-task private cwd
+    // (~/.openclaw/workspace/tasks/<id8>) that maps to no real board, so scoping
+    // by cwd 404'd every one of the agent's own task ops. It must resolve the
+    // board from the task bound to the topic (assigned_topic_id) instead.
+    db.prepare("INSERT INTO topics (id) VALUES ('top-catch')").run();
+    const ts = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO tasks (id, project_id, text, status, assigned_topic_id, created_at, updated_at)
+       VALUES ('t-catch', 'generale-tu1hp', 'fix quadra', 'in_progress', 'top-catch', ?, ?)`,
+    ).run(ts, ts);
+
+    // The agent (session sCatch, cwd = private task dir) can GET its own task…
+    const got = (await call(router, "GET", "/api/sessions/sCatch/tasks/t-catch"))!;
+    expect(got.status).toBe(200);
+    expect((await got.json()).task.text).toBe("fix quadra");
+    // …comment on it…
+    const c = (await call(router, "POST", "/api/sessions/sCatch/tasks/t-catch/comments", { content: "sistemato" }))!;
+    expect(c.status).toBe(201);
+    // …and list its board (scope=project resolves to generale, not the cwd dir).
+    const list = await (await call(router, "GET", "/api/sessions/sCatch/tasks"))!.json();
+    expect(list.tasks.some((t: any) => t.id === "t-catch")).toBe(true);
+  });
+
+  test("catch-all scoping still guards other boards (no cross-board via topic)", async () => {
+    db.prepare("INSERT INTO topics (id) VALUES ('top-catch')").run();
+    const ts = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO tasks (id, project_id, text, status, assigned_topic_id, created_at, updated_at)
+       VALUES ('t-mine', 'generale-tu1hp', 'mine', 'in_progress', 'top-catch', ?, ?)`,
+    ).run(ts, ts);
+    // A task on a DIFFERENT board, not bound to this agent's topic.
+    db.prepare(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at)
+       VALUES ('t-other', 'other-board', 'not yours', 'todo', ?, ?)`,
+    ).run(ts, ts);
+    expect((await call(router, "GET", "/api/sessions/sCatch/tasks/t-other"))!.status).toBe(404);
+    expect((await call(router, "GET", "/api/sessions/sCatch/tasks/t-mine"))!.status).toBe(200);
   });
 });
 
