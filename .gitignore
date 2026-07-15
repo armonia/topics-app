@@ -132,3 +132,12 @@ desktop-tauri/cef-spike/target/
 
 # Dev bundle hot-delivery opt-in flag (per-machine, never shipped)
 /topics-dev.json
+/topics-dev.json.off
+
+# Dispatch worktree runtime artifacts — an agent working in a git worktree must
+# NEVER commit these (a `git add -A` was landing them on task branches → merge junk).
+.topics-daemon/
+ui-state-backups/
+
+# graphify skill output (scratch)
+/graphify-out/
