@@ -21,6 +21,7 @@ function freshDb(): Database {
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+    agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1
   )`);
@@ -29,7 +30,9 @@ function freshDb(): Database {
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
     only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
     auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
-    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20
+    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
+    dispatch_mcp TEXT,
+    dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -71,7 +74,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const events: any[] = [];
   const worktreesCreated: string[] = [];
   const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string; model?: string; standalone?: boolean }[] = [];
-  const turns: { sessionKey: string; content: string }[] = [];
+  const turns: { sessionKey: string; content: string; contextMode?: "full" | "lean" }[] = [];
   let resolveTurn: (() => void) | null = null;
   let rejectTurn: ((e: unknown) => void) | null = null;
 
@@ -87,8 +90,8 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
       return { topicId: `topic-${n}`, sessionKey: `topic:sk${n}` };
     },
     createWorktree: async (storeId) => { worktreesCreated.push(storeId); return `wt-${storeId}`; },
-    runTurn: (sessionKey, content) =>
-      new Promise<void>((res, rej) => { turns.push({ sessionKey, content }); resolveTurn = res; rejectTurn = rej; }),
+    runTurn: (sessionKey, content, opts) =>
+      new Promise<void>((res, rej) => { turns.push({ sessionKey, content, contextMode: opts?.contextMode }); resolveTurn = res; rejectTurn = rej; }),
     broadcast: (m) => events.push(m),
     graceMs: 10,
     retryBackoffMs: 0, // instant harness turns must not wait out the outage backoff
@@ -161,21 +164,23 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(0);
   });
 
-  it("books wall-clock + token delta on the task at each turn end", async () => {
-    // Fake transcript usage: 0 tokens before the turn, 1234 after it.
-    let tokens = 0;
-    const h = harness({ getSessionTokens: () => tokens });
+  it("books wall-clock + usage delta (billable + cache reads) on the task at each turn end", async () => {
+    // Fake transcript usage: zeros before the turn, real numbers after it.
+    let usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, billableTokens: 0 };
+    const h = harness({ getSessionUsage: () => usage });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
 
-    tokens = 1234; // the turn consumed these
+    // The turn consumed these (billable = in+out+cacheWrite, dedup upstream).
+    usage = { inputTokens: 34, outputTokens: 200, cacheWriteTokens: 1000, cacheReadTokens: 55_000, billableTokens: 1234 };
     h.finishTurn();
     await flush();
 
     const t = h.task("t1")!;
     expect(t.agentTokens).toBe(1234);
+    expect(t.agentCacheReadTokens).toBe(55_000);
     expect(t.agentMs).toBeGreaterThanOrEqual(0);
     // The metric update is broadcast so the open drawer refreshes live.
     expect(h.events.some((e) => e.type === "task:updated" && e.task?.agentTokens === 1234)).toBe(true);
@@ -217,7 +222,9 @@ describe("task-dispatcher", () => {
 
   it("continues the SAME session when a turn ends without reaching review", async () => {
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    // cap 3 → the 2nd turn is a NORMAL continuation (not yet last-chance), so
+    // this test exercises the plain "continua sulla stessa sessione" path.
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -233,6 +240,11 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(2);
     expect(h.turns[1].sessionKey).toBe("topic:topic-1"); // same tab resumed (prod sessionKey convention)
     expect(h.turns[1].content).toContain("interrotto");
+    // Kickoff turn carries the FULL context envelope; the continuation is LEAN
+    // (the persistent session already has CLAUDE.md/README/awareness — resending
+    // them only compounds cache write/read).
+    expect(h.turns[0].contextMode).toBe("full");
+    expect(h.turns[1].contextMode).toBe("lean");
     // The thread explains what happened (visible history, not a silent retry).
     const comments = h.svc.get("t1")!.comments;
     expect(comments.some((c) => c.author === "system" && c.content.includes("stessa sessione"))).toBe(true);
@@ -240,7 +252,7 @@ describe("task-dispatcher", () => {
 
   it("parks in backlog when the retry budget is exhausted mid-continuation", async () => {
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
     seedTask(h.db, { id: "t1", status: "todo" });
     await h.dispatcher.tick(PID);
     await flush();
@@ -252,6 +264,23 @@ describe("task-dispatcher", () => {
     expect(t.dispatchState).toBe("failed"); // no agent output → genuine failure
     expect(t.assignedTopicId).toBeNull();
     expect(h.turns.length).toBe(3);
+  });
+
+  it("default retry cap is 2: parks after the 2nd turn, last-chance nudge on turn 2", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true }); // no cap → default 2
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurn(); await flush(); // attempt 1 → continuation (attempt 2 = cap)
+    // The single continuation is already the LAST chance (deliver-what-you-have).
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1].content).toContain("ULTIMO TURNO");
+    h.finishTurn(); await flush(); // attempt 2 at cap → park, no 3rd turn
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("failed");
+    expect(h.turns.length).toBe(2);
   });
 
   it("HANDS an exhausted-but-worked task to review instead of failing it", async () => {
@@ -473,8 +502,8 @@ describe("task-dispatcher", () => {
 
   it("launch parks (not requeues) when setup fails and attempts are exhausted", async () => {
     const h = harness({ createWorktree: async () => { throw new Error("git worktree add failed"); } });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    seedTask(h.db, { id: "t1", status: "todo", attempts: 2 }); // claim bumps to 3 = RETRY_CAP
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo", attempts: 2 }); // claim bumps to 3 = cap
     await h.dispatcher.tick(PID);
     await flush();
     const t = h.task("t1")!;
@@ -647,7 +676,7 @@ describe("blocked-by + context reuse", () => {
   it("auto model: calls the classifier and passes its pick to the fresh topic", async () => {
     const picked: string[] = [];
     const h = harness({
-      pickAutoModel: async (t) => { picked.push(t.text); return "claude-opus-4-8"; },
+      pickAutoModel: async (t) => { picked.push(t.text); return { model: "claude-opus-4-8", fuzzy: false }; },
     });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.create({ projectId: PID, text: "refactor pesante" }); // model null = auto
@@ -660,7 +689,7 @@ describe("blocked-by + context reuse", () => {
   it("auto model: an EXPLICIT model skips the classifier entirely", async () => {
     let called = false;
     const h = harness({
-      pickAutoModel: async () => { called = true; return "claude-opus-4-8"; },
+      pickAutoModel: async () => { called = true; return { model: "claude-opus-4-8", fuzzy: false }; },
     });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.create({ projectId: PID, text: "chosen", model: "claude-haiku-4-5" });
@@ -671,13 +700,40 @@ describe("blocked-by + context reuse", () => {
   });
 
   it("auto model: a null pick keeps the provider default (undefined model, dispatch not blocked)", async () => {
-    const h = harness({ pickAutoModel: async () => null });
+    const h = harness({ pickAutoModel: async () => ({ model: null, fuzzy: false }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.create({ projectId: PID, text: "auto" });
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.task(h.svc.list({ scope: "project", projectId: PID })[0].id)!.status).toBe("in_progress");
     expect((h.topicsCreated[0] as any).model).toBeUndefined();
+  });
+
+  it("auto model: a FUZZY pick flips the task to plan-first and notes it", async () => {
+    const h = harness({ pickAutoModel: async () => ({ model: "claude-sonnet-5", fuzzy: true }) });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const created = h.svc.create({ projectId: PID, text: "sistema la roba" }); // vague, model auto
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task(created.id)!;
+    expect(t.planFirst).toBe(true);
+    // Kickoff reflects the flip (built AFTER plan-first is set).
+    expect(h.turns[0].content).toContain("PLAN FIRST");
+    // The thread records why.
+    const comments = h.svc.get(created.id)!.comments;
+    expect(comments.some((c) => c.author === "system" && c.content.includes("plan-first"))).toBe(true);
+  });
+
+  it("auto model: fuzzy does NOT override a human who already set plan-first off nor re-flag an explicit model", async () => {
+    // Explicit model → classifier never runs → never auto plan-first.
+    let called = false;
+    const h = harness({ pickAutoModel: async () => { called = true; return { model: "x", fuzzy: true }; } });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    const created = h.svc.create({ projectId: PID, text: "chiaro", model: "claude-haiku-4-5" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(called).toBe(false);
+    expect(h.task(created.id)!.planFirst).toBe(false);
   });
 });
 

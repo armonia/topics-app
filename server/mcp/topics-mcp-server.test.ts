@@ -426,6 +426,35 @@ describe("handleMessage", () => {
     expect(tools.find((t) => t.name === "comment_task")!.inputSchema.required).toEqual(["task_id", "content"]);
   });
 
+  test("tools/list under --profile=dispatch drops the orchestration/nav tools", async () => {
+    const resp = await handleMessage(
+      { jsonrpc: "2.0", id: 3, method: "tools/list" },
+      { ...ARGS, profile: "dispatch" },
+    );
+    const names = ((resp!.result as any).tools as Array<{ name: string }>).map((t) => t.name);
+    // Excluded: sub-agent fan-out, cross-topic chat, topic/tab nav, projects, chrome import.
+    for (const gone of [
+      "spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent",
+      "send_chat_message", "read_chat_messages", "new_topic", "switch_topic",
+      "import_chrome", "move_session_to_project", "create_project", "open_project",
+    ]) {
+      expect(names).not.toContain(gone);
+    }
+    // Kept: the task tools, processes, and every browser_* verification tool.
+    for (const kept of ["list_tasks", "create_task", "update_task", "comment_task", "get_task", "run_script", "browser_observe", "browser_read_screen", "open_browser_pane"]) {
+      expect(names).toContain(kept);
+    }
+  });
+
+  test("tools/call refuses a profile-excluded tool (defense in depth)", async () => {
+    const resp = await handleMessage(
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "spawn_agent", arguments: { prompt: "x" } } },
+      { ...ARGS, profile: "dispatch" },
+    );
+    expect((resp!.error as any)?.code).toBe(-32601);
+    expect((resp!.error as any)?.message).toMatch(/not available in this session profile/);
+  });
+
   test("every bridged browser_* tool advertises an optional contextId arg", () => {
     // The "manage any tab" seam: contextId is injected into every MCP browser
     // tool by mcpBrowserTools(), and must never be required (own-pane is default).

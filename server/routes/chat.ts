@@ -321,6 +321,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Mirrors the resolution logic for `fastModeActive` further down
             // (the route layer is the single authority on whether fast is on).
             fastMode: body.fastMode === true || matchedTopic.fastMode === true,
+            // Lean envelope on a dispatcher resume/continuation (contextMode
+            // "lean"), but ONLY when the session already has stored turns — a
+            // resume onto an empty/lost conversation must re-ground with the
+            // full envelope, not a bare role prompt.
+            leanContext: body.contextMode === "lean" && ctx.loadLocalMessages(sessionKey).length > 0,
           })
         : {
             // No topic bound to this sessionKey — emit a degenerate envelope

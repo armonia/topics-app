@@ -40,19 +40,23 @@ export interface PickModelDeps {
 
 const CLASSIFIER_PROMPT = (title: string, description: string) =>
   [
-    "Sei un router di modelli. Scegli il modello AI più adatto per ESEGUIRE il task software qui sotto.",
-    "Rispondi con UNA SOLA parola tra: haiku, sonnet, opus, fable. Nessun'altra parola, niente punteggiatura.",
+    "Sei un router di task. Per il task software qui sotto rispondi con DUE parole separate da spazio: <modello> <chiarezza>.",
+    "Modello, uno tra: haiku, sonnet, opus, fable. Chiarezza, uno tra: ok, fuzzy. Nient'altro, niente punteggiatura.",
     "",
-    "Criterio:",
+    "Modello (difficoltà del lavoro):",
     "- haiku: banale/meccanico (typo, rinomina, bump versione, piccola modifica ovvia).",
     "- sonnet: task standard ben definito (endpoint, componente, fix circoscritto, test mirati).",
     "- opus: complesso/trasversale (refactor architetturale, debug non ovvio, più file/sistemi, design).",
     "- fable: massima difficoltà/ambiguità (ricerca, modellazione dati, algoritmi, ragionamento profondo).",
     "",
+    "Chiarezza (quanto è definito l'obiettivo):",
+    "- ok: obiettivo chiaro e verificabile, un agent può eseguirlo senza altre domande.",
+    "- fuzzy: titolo vago, nessuna descrizione utile, obiettivo non verificabile, o richiede scelte che spettano all'umano (es. 'sistema X', 'valuta Y', 'bug non specificato').",
+    "",
     `Titolo: ${title}`,
     description ? `Descrizione: ${description}` : "",
     "",
-    "Modello:",
+    "Risposta:",
   ]
     .filter(Boolean)
     .join("\n");
@@ -66,6 +70,11 @@ export function parseTier(raw: string): ModelTier | null {
     if (new RegExp(`(^|[^a-z])${tier}([^a-z]|$)`).test(t)) return tier;
   }
   return null;
+}
+
+/** True if the classifier flagged the task as fuzzy (vague/under-specified). */
+export function parseFuzzy(raw: string): boolean {
+  return /(^|[^a-z])fuzzy([^a-z]|$)/.test((raw ?? "").toLowerCase());
 }
 
 /**
@@ -90,31 +99,53 @@ export function tierToAvailableModel(tier: ModelTier, available: readonly string
   return null;
 }
 
+export interface PickModelResult {
+  /** Chosen model id (always set — `fallback` on any problem). */
+  model: string;
+  /** Classifier flagged the task as vague / under-specified for autonomous work. */
+  fuzzy: boolean;
+}
+
+/**
+ * Pick a model id AND a fuzzy flag for a task. Never throws — returns
+ * `{ model: fallback, fuzzy: false }` on any problem (a picker hiccup must never
+ * force plan-first on a task that didn't ask for it).
+ */
+export async function pickTaskModelDetailed(
+  task: { text: string; description?: string | null },
+  deps: PickModelDeps,
+): Promise<PickModelResult> {
+  try {
+    const title = (task.text ?? "").slice(0, 300);
+    const description = (task.description ?? "").slice(0, 1200);
+    const raw = (await deps.complete(CLASSIFIER_PROMPT(title, description))) ?? "";
+    const fuzzy = parseFuzzy(raw);
+    const tier = parseTier(raw);
+    if (!tier) {
+      deps.log?.(`model-picker: unparsable answer ${JSON.stringify(raw.slice(0, 40))} → fallback`);
+      return { model: deps.fallback, fuzzy };
+    }
+    const model = tierToAvailableModel(tier, deps.availableModels);
+    if (!model) {
+      deps.log?.(`model-picker: tier ${tier} has no available model → fallback`);
+      return { model: deps.fallback, fuzzy };
+    }
+    deps.log?.(`model-picker: ${tier}${fuzzy ? " (fuzzy)" : ""} → ${model}`);
+    return { model, fuzzy };
+  } catch (err) {
+    deps.log?.(`model-picker: failed (${err instanceof Error ? err.message : String(err)}) → fallback`);
+    return { model: deps.fallback, fuzzy: false };
+  }
+}
+
 /**
  * Pick a model id for a task. Never throws — returns `fallback` on any problem.
+ * Thin wrapper over {@link pickTaskModelDetailed} for callers that only need the
+ * model.
  */
 export async function pickTaskModel(
   task: { text: string; description?: string | null },
   deps: PickModelDeps,
 ): Promise<string> {
-  try {
-    const title = (task.text ?? "").slice(0, 300);
-    const description = (task.description ?? "").slice(0, 1200);
-    const raw = await deps.complete(CLASSIFIER_PROMPT(title, description));
-    const tier = parseTier(raw ?? "");
-    if (!tier) {
-      deps.log?.(`model-picker: unparsable answer ${JSON.stringify((raw ?? "").slice(0, 40))} → fallback`);
-      return deps.fallback;
-    }
-    const model = tierToAvailableModel(tier, deps.availableModels);
-    if (!model) {
-      deps.log?.(`model-picker: tier ${tier} has no available model → fallback`);
-      return deps.fallback;
-    }
-    deps.log?.(`model-picker: ${tier} → ${model}`);
-    return model;
-  } catch (err) {
-    deps.log?.(`model-picker: failed (${err instanceof Error ? err.message : String(err)}) → fallback`);
-    return deps.fallback;
-  }
+  return (await pickTaskModelDetailed(task, deps)).model;
 }
