@@ -244,6 +244,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // mid-drag re-renders the columns under the pointer (chip flips, status
   // events, other clients) and the drag stutters or drops — the queued refetch
   // flushes at drag end.
+  // Live per-turn usage (model · execution-time · tokens) keyed by task id,
+  // fed by `task:usage-live` and dropped when the turn ends. Drives the ticking
+  // chip on working cards; the persisted agent_ms/agent_tokens take over after.
+  const [liveUsage, setLiveUsage] = useState<Map<string, LiveUsage>>(new Map());
   const draggingRef = useRef(false);
   const pendingRefetch = useRef(false);
   const safeRefetch = useCallback(() => {
@@ -253,9 +257,25 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   useEffect(() => {
     if (!onMessage) return;
     return onMessage((msg) => {
-      const m = msg as { type?: string; projectId?: string; settings?: BoardSettings; autoDispatch?: boolean };
+      const m = msg as { type?: string; projectId?: string; settings?: BoardSettings; autoDispatch?: boolean; task?: BoardTask;
+        taskId?: string; turnStartedAt?: number; baseMs?: number; liveTokens?: number; model?: string | null };
       if (m.type === 'task:created' || m.type === 'task:updated' || m.type === 'task:deleted') {
         if (mode === 'all' || m.projectId === undefined || m.projectId === projectId) safeRefetch();
+        // A turn that ended (or a task that left 'working') drops its live chip;
+        // the refetched task then carries the final agent_ms/agent_tokens.
+        if (m.task && m.task.dispatchState !== 'working') {
+          setLiveUsage((prev) => { if (!prev.has(m.task!.id)) return prev; const n = new Map(prev); n.delete(m.task!.id); return n; });
+        }
+      }
+      // Live per-turn preview from the dispatcher: model + tokens-so-far +
+      // execution-time-so-far, ticked on the card while the agent works.
+      if (m.type === 'task:usage-live' && typeof m.taskId === 'string'
+        && (mode === 'all' || m.projectId === undefined || m.projectId === projectId)) {
+        setLiveUsage((prev) => {
+          const n = new Map(prev);
+          n.set(m.taskId!, { turnStartedAt: m.turnStartedAt ?? Date.now(), baseMs: m.baseMs ?? 0, liveTokens: m.liveTokens ?? 0, model: m.model ?? null });
+          return n;
+        });
       }
       if (m.type === 'board:settings' && m.projectId === projectId && m.settings) setSettings(m.settings);
       // Global switch flipped anywhere (any board, any client) → this pill too.
@@ -457,6 +477,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
                   onOpenTopic={onOpenTopic}
                   tasksById={tasksById}
                   projectPathById={projectPathById}
+                  liveById={liveUsage}
                 />
               ))}
             </div>
@@ -911,10 +932,12 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
 }
 
 // ── Column ────────────────────────────────────────────────────────────────
-function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById }: {
+function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: (id: string) => void; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onError: (e: string) => void; onRefetch: () => void;
   onOpenTopic?: (topicId: string) => void; tasksById: Map<string, BoardTask>; projectPathById: Map<string, string>;
+  /** Live per-turn usage keyed by task id (ticking chip on working cards). */
+  liveById: Map<string, LiveUsage>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const [adding, setAdding] = useState(false);
@@ -938,6 +961,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
               parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
               blocker={t.blockedByTaskId ? tasksById.get(t.blockedByTaskId) : undefined}
               projectPath={projectPathById.get(t.projectId)}
+              live={liveById.get(t.id)}
             />
           ))}
         </SortableContext>
@@ -964,7 +988,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────
-function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath }: {
+function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath, live }: {
   task: BoardTask; onOpen: (id: string) => void; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
@@ -973,6 +997,8 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
   blocker?: BoardTask;
   /** Real filesystem path of task.projectId, for the favicon (cross-project board only). */
   projectPath?: string;
+  /** Live per-turn usage while this task's agent works (ticking chip). */
+  live?: LiveUsage;
 }) {
   // Sortable: the source card is dimmed (the DragOverlay carries the visual)
   // but its NEIGHBOURS get the reflow transform — the list opens a gap under
@@ -1093,12 +1119,14 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
             className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300"
           >piano</span>
         )}
-        {(task.agentMs > 0 || task.agentTokens > 0) && (
+        {live && task.dispatchState === 'working' ? (
+          <LiveEffortChip usage={live} />
+        ) : (task.agentMs > 0 || task.agentTokens > 0) ? (
           <span
-            title={`Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}`}
+            title={`Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.model ? ` · modello ${fmtModel(task.model)}` : ''}`}
             className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
           >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
-        )}
+        ) : null}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
         {task.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
           <span className={`rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title}>
@@ -2286,6 +2314,46 @@ function Ticker({ since }: { since: string }) {
   }, []);
   const ms = Date.now() - Date.parse(since);
   return <>{Number.isFinite(ms) && ms > 0 ? fmtMs(ms) : '0s'}</>;
+}
+
+/** Live per-turn usage pushed by the dispatcher (`task:usage-live`, transient). */
+export interface LiveUsage { turnStartedAt: number; baseMs: number; liveTokens: number; model: string | null }
+
+/** Model id → compact tier label for the card chip (auto when unresolved). */
+const fmtModel = (m: string | null | undefined): string => {
+  if (!m) return 'auto';
+  const s = m.toLowerCase();
+  if (s.includes('opus')) return 'opus';
+  if (s.includes('sonnet')) return 'sonnet';
+  if (s.includes('haiku')) return 'haiku';
+  if (s.includes('fable')) return 'fable';
+  return m.replace(/^claude-/, '').split('-')[0];
+};
+
+/**
+ * Live effort chip shown while a turn runs: model · execution-time · tokens,
+ * ticking every second. The time is EXECUTION-ONLY: `baseMs` is the agent_ms
+ * accumulated over PRIOR turns and we add only (now − turnStartedAt) for the
+ * current turn — never the idle/queued/asleep gaps between turns (the server
+ * anchors turnStartedAt at the actual turn start). Falls back to the static
+ * agent_ms/agent_tokens chip the instant the turn ends.
+ */
+function LiveEffortChip({ usage }: { usage: LiveUsage }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
+  return (
+    <span
+      title={`In esecuzione — modello ${fmtModel(usage.model)}, ${fmtMs(ms)} di lavoro${usage.liveTokens ? `, ${usage.liveTokens.toLocaleString('it-IT')} token` : ''} (aggiornamento live)`}
+      className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] text-sky-300 tabular-nums"
+    >
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
+      {fmtModel(usage.model)} · ⏱ {fmtMs(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)} tok`}
+    </span>
+  );
 }
 
 /**
