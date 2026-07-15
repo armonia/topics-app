@@ -289,8 +289,16 @@ export interface TaskService {
    * eligibility filter can never diverge from the claim.
    */
   isDispatchBlocked(taskId: string): boolean;
-  /** Release a claimed task: clear the topic binding and requeue (`todo`) or park (`backlog`), with a note. */
-  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string }): Task;
+  /**
+   * Release a claimed task: clear the topic binding and requeue (`todo`) or park
+   * (`backlog`), with a note.
+   * - `parkState`: the dispatch_state to stamp on a PARK (requeue:false) — e.g.
+   *   'failed' (genuine agent failure) vs 'blocked' (config the human must fix).
+   *   Ignored on a requeue (which always shows 'queued'). Default null.
+   * - `rollbackAttempt`: decrement dispatch_attempts by 1 (floored at 0). Used by
+   *   the restart-orphan requeue so a server restart never erodes the retry budget.
+   */
+  release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
   bindTopic(args: { taskId: string; topicId: string }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
@@ -842,7 +850,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return !!r;
     },
 
-    release({ taskId, requeue, reason, by }): Task {
+    release({ taskId, requeue, reason, by, parkState, rollbackAttempt }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // Note first (so the "worked in topic X" trail survives clearing the link).
@@ -851,9 +859,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       const ts = now();
       const status: TaskStatus = requeue ? "todo" : "backlog";
-      const state = requeue ? "queued" : null;
+      // Requeue shows the 'in coda' chip; a park carries an EXPLICIT state so the
+      // board can tell a genuine FAILURE ('failed') from a config BLOCK ('blocked')
+      // — both used to collapse to null and read as a manual "fermato".
+      const state = requeue ? "queued" : (parkState ?? null);
+      // A restart-orphan requeue rolls back the interrupted attempt: the server
+      // restarting is never the agent's fault, so it must not erode the retry
+      // budget (that was the "il task torna in backlog per errore" after deploys).
+      const rollbackSql = rollbackAttempt ? "dispatch_attempts = MAX(dispatch_attempts - 1, 0), " : "";
       db.prepare(
-        `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+        `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, ${rollbackSql}
             status = ?, dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?`,
       ).run(status, state, reason ?? null, ts, taskId);
       if (row.status !== status) logStatus(taskId, row.status, status, by ?? "dispatcher");
