@@ -290,6 +290,15 @@ export interface TaskService {
    */
   boundRootOf(taskId: string): Task | null;
   /**
+   * The board project of the task dispatched to `topicId` (its `assigned_topic_id`).
+   * This is the AUTHORITATIVE board for a dispatched agent's session — unlike the
+   * topic's cwd, which for a catch-all task is a per-task private dir that maps to
+   * no real board. Session task routes use this so the agent can find/comment its
+   * own task even on the "generale" catch-all board. Null when the topic has no
+   * bound task (a normal chat topic, not a dispatch session).
+   */
+  boardProjectForTopic(topicId: string): string | null;
+  /**
    * Move a ROOT task (and its whole subtree) to another board. Subtasks never
    * move alone (same-board parent invariant) and a task with a live agent
    * stays put (its worktree/topic belong to the source project).
@@ -794,6 +803,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
          SELECT id FROM chain WHERE topic IS NOT NULL ORDER BY depth ASC LIMIT 1`,
       ).get(taskId) as any;
       return r ? rowToTask(getTaskRow(r.id)) : null;
+    },
+
+    boardProjectForTopic(topicId) {
+      if (!topicId) return null;
+      // A live dispatch binds exactly one task to the topic; prefer a non-archived
+      // one and the most recent if history ever left more than one.
+      const r = db.prepare(
+        `SELECT project_id FROM tasks
+          WHERE assigned_topic_id = ?
+          ORDER BY archived ASC, updated_at DESC LIMIT 1`,
+      ).get(topicId) as any;
+      return r?.project_id ?? null;
     },
 
     moveToProject({ taskId, toProjectId, projectId }): Task {

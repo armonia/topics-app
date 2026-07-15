@@ -80,7 +80,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   function resolveSession(sessionKey: string): { projectId: string; author: string; topicId: string | null } | null {
     const topic = getTopicBySessionKey(sessionKey);
     if (topic?.projectPath) {
-      return { projectId: projectIdForPath(topic.projectPath), author: topic.name?.trim() || "claude", topicId: topic.id ?? null };
+      // A dispatched agent's board is the board of the task bound to its topic,
+      // NOT the topic's cwd: a catch-all ("generale") task runs in a per-task
+      // private dir (~/.openclaw/workspace/tasks/<id8>) that maps to no real
+      // board, so cwd-derived scoping 404s every one of the agent's own task
+      // ops. When the topic carries a bound task, scope to THAT board.
+      const boundProject = topic.id ? svc.boardProjectForTopic(topic.id) : null;
+      const projectId = boundProject ?? projectIdForPath(topic.projectPath);
+      return { projectId, author: topic.name?.trim() || "claude", topicId: topic.id ?? null };
     }
     const term = getTerminalSessionById(sessionKey);
     if (term?.cwd) {
