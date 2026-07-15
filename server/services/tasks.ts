@@ -148,6 +148,8 @@ export interface UpdateTaskPatch {
   /** Dependency; null clears. Validated: exists, not self, no cycle. */
   blockedByTaskId?: string | null;
   reuseBlockerContext?: boolean;
+  /** Toggle "plan first" after creation (agent delivers a plan to approve before implementing). */
+  planFirst?: boolean;
 }
 
 export interface ListTasksInput {
@@ -628,6 +630,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         put("blocked_by_task_id", patch.blockedByTaskId || null);
       }
       if (patch.reuseBlockerContext !== undefined) put("reuse_blocker_context", patch.reuseBlockerContext ? 1 : 0);
+      if (patch.planFirst !== undefined) put("plan_first", patch.planFirst ? 1 : 0);
       if (patch.status !== undefined) {
         put("status", patch.status);
         put("completed_at", patch.status === "done" ? now() : null);
