@@ -22,7 +22,7 @@
  * No `child_process` here — this is pure fs + crypto.
  */
 import { homedir, uptime } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import {
   existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync,
   chmodSync,
@@ -59,6 +59,25 @@ export class LiveLockError extends Error {
 
 export function topicsHome(): string {
   return process.env.TOPICS_HOME || join(homedir(), ".topics");
+}
+
+/**
+ * A Topics server started from a DISPATCH WORKTREE (a checkout the dispatcher
+ * carved under `~/.topics/worktrees/…` for an agent's isolated work) must NEVER
+ * hijack the production singleton. The prod server (the main checkout) owns the
+ * shared `~/.topics` daemon lock and the production port; a worktree server that
+ * grabs them first serves its OWN (empty) worktree DB while starving the real
+ * server into a crash-loop — exactly the "board sembra vuota / kanban non
+ * funziona" failure. This detects that case so the boot can isolate the worktree
+ * server onto its own TOPICS_HOME (returned here) + an ephemeral port.
+ *
+ * Pure (home injected for tests). Returns the isolated home to use, or null when
+ * `baseDir` is a normal checkout and production defaults must stand.
+ */
+export function worktreeIsolationHome(baseDir: string, home: string): string | null {
+  const worktreesRoot = join(home, ".topics", "worktrees") + sep;
+  const norm = baseDir.endsWith(sep) ? baseDir : baseDir + sep;
+  return norm.startsWith(worktreesRoot) ? join(baseDir, ".topics-daemon") : null;
 }
 
 function statePath() { return join(topicsHome(), "daemon-state.json"); }
