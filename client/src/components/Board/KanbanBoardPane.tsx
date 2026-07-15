@@ -20,6 +20,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink, consumePendingTaskOpen } from '../../lib/openTaskLink';
+import { stripMarkdown } from '../../lib/stripMarkdown';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, boardDrafts,
@@ -1167,13 +1168,15 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
           {pending ? (
-            <p className="text-xs leading-snug text-rose-200">{pending.question}</p>
+            <p className="text-xs leading-snug text-rose-200">{stripMarkdown(pending.question)}</p>
           ) : lastComment ? (
             <p className="line-clamp-6 text-xs leading-relaxed text-neutral-300" title={`${lastComment.author}: ${lastComment.content}`}>
               {/* No author prefix: for dispatched agents it's the topic name =
-                  the task title — noise dressed up as a username. */}
+                  the task title — noise dressed up as a username. Markdown
+                  syntax stripped to plain text — a clamped card preview can't
+                  render block markdown, and raw `**`/`#` reads as broken. */}
               {lastComment.author !== 'user' && <Bot className="mr-1 inline h-3 w-3 align-[-2px] text-neutral-400" />}
-              {lastComment.content}
+              {stripMarkdown(lastComment.content)}
             </p>
           ) : null}
           {pending && pending.options.length > 0 && (
