@@ -181,6 +181,46 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     } catch { /* metrics never break the loop */ }
   }
 
+  // ── Live per-turn usage (board card ticker) ──────────────────────────────
+  // recordUsage books the FINAL agent_ms/agent_tokens only at turn END. While a
+  // turn runs we broadcast a light preview every few seconds so the card shows,
+  // LIVE, the model + tokens-so-far + EXECUTION time-so-far. The time is
+  // execution-only by construction: `baseMs` is the accumulated agent_ms from
+  // PRIOR turns and the client adds only (now − turnStartedAt) for the CURRENT
+  // turn — the gaps between turns (queued / parked / asleep) are never counted.
+  // `task:usage-live` is transient (never persisted); the card falls back to the
+  // static agent_ms/agent_tokens chip the moment the turn ends.
+  interface LiveTurn { projectId: string; sessionKey: string; turnStartedAt: number; baseMs: number; baseTokens: number; tokens0: number; model: string | null; }
+  const liveTurns = new Map<string, LiveTurn>();
+  let usageTicker: ReturnType<typeof setInterval> | null = null;
+
+  function broadcastLiveUsage(): void {
+    for (const [taskId, lt] of liveTurns) {
+      let liveTokens = lt.baseTokens;
+      try { liveTokens = lt.baseTokens + Math.max(0, sessionTokens(lt.sessionKey) - lt.tokens0); } catch { /* keep base */ }
+      try {
+        deps.broadcast({
+          type: "task:usage-live", projectId: lt.projectId, taskId,
+          turnStartedAt: lt.turnStartedAt, baseMs: lt.baseMs, liveTokens, model: lt.model,
+        });
+      } catch { /* best-effort */ }
+    }
+  }
+
+  function startLiveTurn(task: Task, sessionKey: string, t0: number, tokens0: number, model: string | null): void {
+    liveTurns.set(task.id, {
+      projectId: task.projectId, sessionKey, turnStartedAt: t0,
+      baseMs: task.agentMs ?? 0, baseTokens: task.agentTokens ?? 0, tokens0, model,
+    });
+    if (!usageTicker) usageTicker = setInterval(broadcastLiveUsage, 4000);
+    broadcastLiveUsage(); // paint immediately, don't wait a full interval
+  }
+
+  function endLiveTurn(taskId: string): void {
+    liveTurns.delete(taskId);
+    if (liveTurns.size === 0 && usageTicker) { clearInterval(usageTicker); usageTicker = null; }
+  }
+
   function buildKickoff(task: Task): string {
     const parts: string[] = [];
     parts.push(`Sei l'owner esclusivo del task \`${task.id}\` su questo board Kanban.`);
@@ -316,11 +356,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
       const t0 = Date.now();
       const tokens0 = sessionTokens(sessionKey);
+      startLiveTurn(task, sessionKey, t0, tokens0, chosenModel ?? null);
       try {
         await deps.runTurn(sessionKey, kickoff, { timeoutMs });
       } catch (err) {
         log(`turn failed for task ${taskId}`, err);
       }
+      endLiveTurn(taskId);
       recordUsage(taskId, t0, tokens0, sessionKey);
       onTurnEnd(taskId, Date.now() - t0);
       // The worktree holds the agent's work: keep it when the task advanced to
@@ -459,9 +501,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
       const t0 = Date.now();
       const tokens0 = sessionTokens(sessionKey);
+      startLiveTurn(t, sessionKey, t0, tokens0, t.model ?? null);
       const content = opts?.continuation ? buildContinueNudge(t) : buildResume(t, humanMessage);
       try { await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
       catch (err) { log(`resume turn failed for ${taskId}`, err); }
+      endLiveTurn(taskId);
       recordUsage(taskId, t0, tokens0, sessionKey);
       onTurnEnd(taskId, Date.now() - t0);
     } finally {
