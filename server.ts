@@ -884,11 +884,16 @@ const server = Bun.serve<WSData>({
           .replace(/\/icons\/icon-192\.png/g, '/icons/icon-192-dev.png')
           .replace('href="/manifest.json"', 'href="/manifest-dev.json"');
       }
-      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
+      // no-STORE, not no-cache: the app shell must never sit in a cache. With
+      // `no-cache` WKWebView still served a stale index.html after a deploy
+      // (revalidation didn't fire reliably), so the desktop kept booting the
+      // old bundle. `no-store` forces a fresh fetch every launch; the hashed
+      // /assets/* stay immutable, so this costs one tiny HTML fetch, not the JS.
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
     if (method === "GET" && pathname.endsWith(".html")) {
       const file = Bun.file(join(PUBLIC_DIR, pathname));
-      if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" } });
+      if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
     if (method === "GET" && (pathname.startsWith("/assets/") || pathname.startsWith("/icons/") || pathname === "/vite.svg" || pathname === "/manifest.json" || pathname === "/manifest-dev.json" || pathname === "/sw.js")) {
       const filePath = join(PUBLIC_DIR, pathname);
