@@ -43,7 +43,14 @@ function friendlyModelLabel(modelId: string): string {
  *  surfaces (session slices, comments, task description): small text, tight
  *  paragraph/list rhythm, scrollable code blocks. */
 const COMPACT_MD_CLS =
-  '[&_p]:my-0.5 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 [&_ul]:my-0.5 [&_ul]:pl-4 [&_ol]:my-0.5 [&_ol]:pl-4 [&_code]:text-[11px] [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-2 [&_blockquote]:text-neutral-400';
+  // list-disc/decimal restore the markers Tailwind's preflight strips — without
+  // them ul/ol render as unindented plain text and a bullet/numbered description
+  // "non sembra formattata md". Headings get weight/size back too (preflight
+  // flattens them), so an agent's plan reads as structured markdown.
+  '[&_p]:my-0.5 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 ' +
+  '[&_ul]:my-0.5 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-0.5 [&_ol]:pl-4 [&_ol]:list-decimal [&_li]:my-0.5 [&_li]:marker:text-neutral-500 ' +
+  '[&_h1]:font-semibold [&_h1]:text-[13px] [&_h2]:font-semibold [&_h2]:text-[13px] [&_h3]:font-semibold [&_h3]:text-xs [&_h1]:mt-1 [&_h2]:mt-1 [&_h3]:mt-1 ' +
+  '[&_code]:text-[11px] [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-2 [&_blockquote]:text-neutral-400 [&_strong]:font-semibold';
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -1241,6 +1248,10 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   // delivered PDF IS the output even when the agent didn't set output_url.
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [previewOff, setPreviewOff] = useState(false);
+  // Detail body view: the thread, or a focused "Piano" tab that surfaces the
+  // agent's plan (plan-first deliverable) full + formatted instead of buried in
+  // the thread. Sticky across tasks; falls back to thread when a task has no plan.
+  const [bodyTab, setBodyTab] = useState<'thread' | 'piano'>('thread');
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
   // Per-task server draft (bounded map in ui-state): restore once per task,
@@ -1334,6 +1345,11 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const speech = comments.filter((c) => c.kind !== 'status');
   const lastThreadComment = speech[speech.length - 1] ?? null;
   const pending = isAgentReview && lastThreadComment ? parseQuestionBlock(lastThreadComment.content) : null;
+  // The plan lives in the agent's last real comment; the "Piano" tab surfaces it.
+  // Shown only for plan-first tasks (where a plan is the expected deliverable).
+  const planComment = task?.planFirst
+    ? ([...speech].reverse().find((c) => c.author !== 'user' && c.author !== 'system') ?? null)
+    : null;
 
   const deliverAnswer = async (v: string, media?: string[]): Promise<boolean> => {
     try {
@@ -1949,9 +1965,32 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
               {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-neutral-400" />}
             </div>
           </div>
-          {/* Thread — chat-shaped: my messages right, agent/system left. Each
-              reply carries, right ABOVE it, the slice of agent session that
-              produced it (collapsed reasoning, chat-style). */}
+          {/* Tab bar — appears only when there's a plan to show (plan-first).
+              Lets the human read the plan full + formatted without hunting the
+              thread; the review actions below stay visible on both tabs. */}
+          {planComment && (
+            <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-3 pt-1.5">
+              {(['thread', 'piano'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setBodyTab(tab)}
+                  className={`rounded-t px-2.5 py-1 text-xs ${
+                    (bodyTab === 'piano' && planComment ? 'piano' : 'thread') === tab
+                      ? 'bg-white/10 font-medium text-neutral-100'
+                      : 'text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >{tab === 'piano' ? '📋 Piano' : 'Thread'}</button>
+              ))}
+            </div>
+          )}
+          {bodyTab === 'piano' && planComment ? (
+            <div className="flex-1 overflow-y-auto px-3 py-3">
+              <div className="rounded-lg border border-violet-500/25 bg-violet-500/5 p-3">
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">Piano proposto</p>
+                <div className="text-sm leading-relaxed text-neutral-200"><CommentBody content={planComment.content} /></div>
+              </div>
+            </div>
+          ) : (
           <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
             {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-neutral-500">Nessun commento.</p>}
             {comments.map((c, i) => (
@@ -1995,6 +2034,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             )}
             <div ref={bottomRef} />
           </div>
+          )}
           <div className="border-t border-white/10 p-2">
             {/* Review zone — decisions live HERE, where the agent's questions
                 land (end of the thread), not up in the header. */}
@@ -2324,6 +2364,17 @@ const fmtMs = (ms: number): string => {
   return `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
 };
 
+/** Live duration — seconds ALWAYS visible so the ticker is seen moving on
+ *  in-progress cards (45s · 12m 05s · 1h 20m). fmtMs stays for static totals. */
+const fmtLive = (ms: number): string => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${String(m % 60).padStart(2, '0')}m`;
+};
+
 /** Compact token count: 850 · 12.3k · 1.2M. */
 const fmtTok = (n: number): string =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
@@ -2336,7 +2387,7 @@ function Ticker({ since }: { since: string }) {
     return () => clearInterval(t);
   }, []);
   const ms = Date.now() - Date.parse(since);
-  return <>{Number.isFinite(ms) && ms > 0 ? fmtMs(ms) : '0s'}</>;
+  return <>{Number.isFinite(ms) && ms > 0 ? fmtLive(ms) : '0s'}</>;
 }
 
 /** Live per-turn usage pushed by the dispatcher (`task:usage-live`, transient). */
@@ -2370,11 +2421,11 @@ function LiveEffortChip({ usage }: { usage: LiveUsage }) {
   const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
   return (
     <span
-      title={`In esecuzione — modello ${fmtModel(usage.model)}, ${fmtMs(ms)} di lavoro${usage.liveTokens ? `, ${usage.liveTokens.toLocaleString('it-IT')} token` : ''} (aggiornamento live)`}
+      title={`In esecuzione — modello ${fmtModel(usage.model)}, ${fmtLive(ms)} di lavoro${usage.liveTokens ? `, ${usage.liveTokens.toLocaleString('it-IT')} token` : ''} (aggiornamento live)`}
       className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] text-sky-300 tabular-nums"
     >
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
-      {fmtModel(usage.model)} · ⏱ {fmtMs(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)} tok`}
+      {fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)} tok`}
     </span>
   );
 }
