@@ -54,19 +54,31 @@
 })();
 
 // ---- Service Worker (PWA) — only on localhost or cloudflare tunnels ----
+// NEVER under the desktop shell: it serves the UI from tauri://localhost (hostname
+// is literally `localhost`), so an SW would precache the app shell and then serve
+// that STALE shell on every launch — bypassing embedded/disk-serve and pinning the
+// window to an old bundle (the "still on 2.1.57" bug). The shell has its own asset
+// pipeline (embedded or hot-reload disk-serve), so a PWA cache is pure harm here.
+// Under Tauri we fall into the else-branch below → any previously-registered SW is
+// unregistered, self-healing an app that was pinned by a stale SW.
 if ('serviceWorker' in navigator) {
   var host = window.location.hostname;
-  var shouldRegisterSW = host === 'localhost' || host.endsWith('.trycloudflare.com');
+  var isTauriShell = window.location.protocol === 'tauri:' || !!(window.__TAURI_INTERNALS__ || window.__TAURI__);
+  var shouldRegisterSW = !isTauriShell && (host === 'localhost' || host.endsWith('.trycloudflare.com'));
   window.addEventListener('load', function () {
     if (shouldRegisterSW) {
       navigator.serviceWorker.register('/sw.js')
         .then(function (reg) { console.log('SW registered:', reg.scope); })
         .catch(function (err) { console.warn('SW registration failed:', err); });
     } else {
-      // Unregister any existing SW for LAN access
+      // Unregister any existing SW AND purge its precache — a shell pinned by a
+      // stale SW keeps serving the old bundle from CacheStorage until both go.
       navigator.serviceWorker.getRegistrations().then(function (regs) {
         regs.forEach(function (reg) { reg.unregister(); });
       });
+      if (window.caches && caches.keys) {
+        caches.keys().then(function (keys) { keys.forEach(function (k) { caches.delete(k); }); });
+      }
     }
   });
 }
