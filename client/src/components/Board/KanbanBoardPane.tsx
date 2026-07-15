@@ -23,7 +23,7 @@ import { buildTaskLink, consumePendingTaskOpen } from '../../lib/openTaskLink';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import {
-  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, boardDrafts,
+  boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, isProjectlessId, boardDrafts,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
   type BoardProjectRef,
 } from '../../lib/board';
@@ -52,6 +52,28 @@ const COMPACT_MD_CLS =
   '[&_ul]:my-0.5 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-0.5 [&_ol]:pl-4 [&_ol]:list-decimal [&_li]:my-0.5 [&_li]:marker:text-neutral-500 ' +
   '[&_h1]:font-semibold [&_h1]:text-[13px] [&_h2]:font-semibold [&_h2]:text-[13px] [&_h3]:font-semibold [&_h3]:text-xs [&_h1]:mt-1 [&_h2]:mt-1 [&_h3]:mt-1 ' +
   '[&_code]:text-[11px] [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-2 [&_blockquote]:text-neutral-400 [&_strong]:font-semibold';
+
+// A PLAN is a document, not a chat bubble: this reading typography gives it a
+// roomy vertical rhythm, section-divider headings, and prominent numbered steps
+// so the agent's proposal is scannable instead of a dense wall. Used only by the
+// "Piano" tab (the thread keeps COMPACT_MD_CLS). Kept in one string so the plan
+// panel and any future plan surface share the exact same look.
+const PLAN_MD_CLS =
+  '[&_p]:my-2 [&_p]:leading-relaxed ' +
+  // Headings act as section titles with an underline divider; first one flush to top.
+  '[&_h1]:mt-4 [&_h1]:mb-2 [&_h1]:pb-1 [&_h1]:border-b [&_h1]:border-white/10 [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:text-neutral-100 ' +
+  '[&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:pb-1 [&_h2]:border-b [&_h2]:border-white/10 [&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:text-neutral-100 ' +
+  '[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:text-neutral-200 ' +
+  '[&>*:first-child]:mt-0 ' +
+  // Roomy lists; numbered steps get a bold violet marker so each step reads as a beat.
+  '[&_ul]:my-2 [&_ul]:pl-5 [&_ul]:list-disc [&_ol]:my-2 [&_ol]:pl-6 [&_ol]:list-decimal ' +
+  '[&_li]:my-1.5 [&_li]:pl-1 [&_li]:leading-relaxed [&_li]:marker:text-violet-300/70 [&_ol>li]:marker:font-semibold [&_ol>li]:marker:text-violet-300 ' +
+  '[&_li_ul]:my-1 [&_li_ol]:my-1 ' +
+  '[&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-black/40 [&_pre]:p-3 [&_pre]:text-[12px] ' +
+  '[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-white/10 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_code]:text-[12px] ' +
+  '[&_a]:text-sky-400 [&_a]:underline [&_strong]:font-semibold [&_strong]:text-neutral-100 ' +
+  '[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-violet-400/40 [&_blockquote]:pl-3 [&_blockquote]:text-neutral-400 ' +
+  '[&_hr]:my-3 [&_hr]:border-white/10';
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -1064,8 +1086,10 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
     catch (e) { onError(e instanceof Error ? e.message : 'archive failed'); }
   };
   // Human-readable project label = the dirName prefix before the id hash.
-  const unassigned = task.projectId === UNASSIGNED_PROJECT_ID;
-  const projectLabel = unassigned ? 'senza progetto' : task.projectId.replace(/-[^-]+$/, '');
+  // Project-less = truly unassigned OR the catch-all board (which runs the task
+  // standalone). Both render with NO chip — the "generale" label is noise.
+  const unassigned = isProjectlessId(task.projectId);
+  const projectLabel = task.projectId.replace(/-[^-]+$/, '');
 
   return (
     <div
@@ -1093,19 +1117,12 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
             {PRIORITY_LABEL[task.priority] ?? task.priority}
           </span>
         )}
-        {/* No project → no label at all. The one exception is a `todo`: with no
-            project it silently won't dispatch, so we keep that call-to-action. */}
-        {showProject && (!unassigned || task.status === 'todo') && (
-          <span
-            title={unassigned ? 'Assegna un progetto (dal dettaglio, "Sposta su…") per farlo lavorare da un agent' : undefined}
-            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
-              unassigned
-                ? 'bg-amber-500/15 text-amber-300' // only reached for todo: the reason nothing starts
-                : 'bg-emerald-500/15 text-emerald-300'
-            }`}
-          >
+        {/* Project-less → no chip at all. It still runs (catch-all), so there's
+            nothing to warn about; only a real project shows a label. */}
+        {showProject && !unassigned && (
+          <span className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">
             {projectPath && <ProjectFavicon path={projectPath} size={11} />}
-            {unassigned ? 'assegna un progetto per partire' : projectLabel}
+            {projectLabel}
           </span>
         )}
         {blocker && blocker.status !== 'done' && (
@@ -1495,7 +1512,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   useEffect(() => { boardApi.projects().then(setProjects).catch(() => setProjects([])); }, []);
   const openProjMenu = () => setProjMenuOpen(true);
   const currentProject = projects?.find((p) => p.projectId === task?.projectId) ?? null;
-  const projectLabel = task?.projectId === UNASSIGNED_PROJECT_ID
+  const projectLabel = task && isProjectlessId(task.projectId)
     ? 'Nessun progetto'
     : currentProject?.name ?? (task ? task.projectId.replace(/-[^-]+$/, '') : '');
   const moveBlocked = !task ? null
@@ -1989,9 +2006,11 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           )}
           {bodyTab === 'piano' && planComment ? (
             <div className="flex-1 overflow-y-auto px-3 py-3">
-              <div className="rounded-lg border border-violet-500/25 bg-violet-500/5 p-3">
-                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">Piano proposto</p>
-                <div className="text-sm leading-relaxed text-neutral-200"><CommentBody content={planComment.content} /></div>
+              <div className="rounded-lg border border-violet-500/25 bg-violet-500/5 px-4 py-3.5">
+                <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">Piano proposto</p>
+                <div className={`text-sm text-neutral-200 ${PLAN_MD_CLS}`}>
+                  <ChatMarkdown components={{}}>{planComment.content}</ChatMarkdown>
+                </div>
               </div>
             </div>
           ) : (
