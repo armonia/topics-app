@@ -4641,26 +4641,94 @@ struct DevServe {
     public_dir: std::path::PathBuf,
 }
 
-/// Resolve the dev marker ONCE. Priority: env `TOPICS_PUBLIC_DIR`, then
-/// `<app_config_dir>/topics-dev.json` (`{"publicDir":"/abs"}`). The directory must
-/// exist and canonicalize, else dev mode stays OFF (embedded serving unchanged).
-fn resolve_dev_serve(app: &tauri::AppHandle) -> Option<DevServe> {
-    use tauri::Manager;
+/// App bundle identifier — MUST match tauri.conf.json `identifier`. Used to locate
+/// the per-machine dev marker WITHOUT an AppHandle, so resolution can run BEFORE the
+/// Tauri Builder. Why that matters: the config-defined main window builds — and fires
+/// its first `tauri://` asset request — BEFORE the `setup` closure runs. Resolving the
+/// marker lazily inside the protocol handler therefore raced that first request; under
+/// a LaunchServices/login-item launch the path plugin wasn't always ready at that
+/// instant, so `app_config_dir()` failed, the `OnceLock` latched `None`, and the shell
+/// was silently pinned to embedded serving (the "login-item won't hot-reload" bug — a
+/// direct `cargo run` / shell exec happened to win the race and worked, masking it).
+const BUNDLE_IDENTIFIER: &str = "io.armonia.topics.tauri";
+
+/// Per-OS user config dir (dep-free; mirrors `dirs::config_dir()` for the three
+/// desktop targets) — the parent of `<identifier>/topics-dev.json`. AppHandle-free so
+/// it can be called before the Builder exists.
+fn user_config_dir() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var_os("HOME")
+            .map(|h| std::path::PathBuf::from(h).join("Library/Application Support"))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("APPDATA").map(std::path::PathBuf::from)
+    }
+}
+
+/// Append a one-line decision record to `<config>/<id>/hot-reload.log`. stderr from a
+/// LaunchServices launch goes nowhere reachable, so this file is the ONLY way to see
+/// what the login-item launch decided. Best-effort; never fails the caller.
+fn log_hot_reload_decision(line: &str) {
+    if let Some(dir) = user_config_dir().map(|d| d.join(BUNDLE_IDENTIFIER)) {
+        let _ = std::fs::create_dir_all(&dir);
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("hot-reload.log"))
+        {
+            use std::io::Write;
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let _ = writeln!(f, "[{ts}] {line}");
+        }
+    }
+}
+
+/// Resolve the dev marker ONCE, AppHandle-free (call before the Builder). Priority:
+/// env `TOPICS_PUBLIC_DIR`, then `<config>/<identifier>/topics-dev.json`
+/// (`{"publicDir":"/abs"}`). The directory must exist and canonicalize, else dev mode
+/// stays OFF (embedded serving unchanged).
+fn resolve_dev_serve() -> Option<DevServe> {
     let raw = std::env::var("TOPICS_PUBLIC_DIR").ok().filter(|s| !s.trim().is_empty());
     let raw = raw.or_else(|| {
-        let marker = app.path().app_config_dir().ok()?.join("topics-dev.json");
+        let marker = user_config_dir()?.join(BUNDLE_IDENTIFIER).join("topics-dev.json");
         let text = std::fs::read_to_string(&marker).ok()?;
         let v: serde_json::Value = serde_json::from_str(&text).ok()?;
         v.get("publicDir")?.as_str().map(|s| s.to_string())
-    })?;
+    });
+    let raw = match raw {
+        Some(r) => r,
+        None => {
+            log_hot_reload_decision("embedded (no marker/env)");
+            return None;
+        }
+    };
     // Canonicalize so the traversal guard (below) compares real, symlink-resolved
     // prefixes — the scheme-guard LFI lesson: never trust a joined path's shape.
-    let public_dir = std::fs::canonicalize(&raw).ok()?;
+    let public_dir = match std::fs::canonicalize(&raw) {
+        Ok(p) => p,
+        Err(e) => {
+            log_hot_reload_decision(&format!("embedded (canonicalize {raw:?} failed: {e})"));
+            return None;
+        }
+    };
     if !public_dir.is_dir() {
         eprintln!("[hot-reload] TOPICS publicDir {public_dir:?} is not a directory; embedded serving");
+        log_hot_reload_decision(&format!("embedded ({public_dir:?} not a dir)"));
         return None;
     }
     eprintln!("[hot-reload] disk-serving /public from {public_dir:?}");
+    log_hot_reload_decision(&format!("disk-serving {public_dir:?}"));
     Some(DevServe { public_dir })
 }
 
@@ -4963,12 +5031,13 @@ pub fn run() {
         }));
     }
 
-    // Dev-serve state resolved ONCE, lazily, on the first asset request (the config
-    // dir needs an AppHandle, only available inside the protocol/setup — and
-    // config-defined windows build BEFORE the setup closure runs, so we can't
-    // pre-populate it there). Absent marker ⇒ None ⇒ pure embedded serving.
-    let dev_serve: std::sync::Arc<std::sync::OnceLock<Option<DevServe>>> =
-        std::sync::Arc::new(std::sync::OnceLock::new());
+    // Dev-serve state resolved ONCE, EAGERLY, before the Builder — AppHandle-free
+    // (`resolve_dev_serve` reads env + `<config>/<id>/topics-dev.json` directly). This
+    // must NOT be lazy-in-the-protocol-handler: the config-defined window fires its
+    // first `tauri://` asset request before `setup` runs, and under a login-item launch
+    // that race latched `None` (embedded) even with a valid marker present. Resolving up
+    // front makes every launch method deterministic. Absent marker ⇒ None ⇒ embedded.
+    let dev_serve: Option<DevServe> = resolve_dev_serve();
     let dev_serve_for_proto = dev_serve.clone();
 
     tauri::Builder::default()
@@ -4977,10 +5046,7 @@ pub fn run() {
         // In dev mode it disk-serves /public with embedded fallback; otherwise it's
         // byte-identical to the built-in. Registered before the window builds.
         .register_uri_scheme_protocol("tauri", move |ctx, request| {
-            let dev = dev_serve_for_proto
-                .get_or_init(|| resolve_dev_serve(ctx.app_handle()))
-                .as_ref();
-            serve_tauri_asset(&ctx, &request, dev)
+            serve_tauri_asset(&ctx, &request, dev_serve_for_proto.as_ref())
         })
         // Single-instance FIRST (plugin requirement): a duplicate launch focuses
         // the running window instead of spawning a process that can't bind :13333.
@@ -5278,14 +5344,10 @@ pub fn run() {
             // /public when a dev marker is set; here we start the watcher that
             // reloads the app-shell webviews when that on-disk /public changes, one
             // reload per build burst. OFF (no watcher) when the marker is absent, so
-            // release behavior is unchanged. Resolve the marker via the same OnceLock
-            // the protocol uses (first asset request already populated it; get_or_init
-            // is a no-op then).
+            // release behavior is unchanged. Uses the SAME value the protocol handler
+            // captured (resolved eagerly before the Builder — no race, no re-read).
             {
-                let dev = dev_serve
-                    .get_or_init(|| resolve_dev_serve(app.handle()))
-                    .clone();
-                if let Some(dev) = dev {
+                if let Some(dev) = dev_serve.clone() {
                     spawn_public_watcher(app.handle().clone(), dev.public_dir);
                 }
             }
