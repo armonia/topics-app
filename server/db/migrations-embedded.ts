@@ -51,6 +51,7 @@ import m042 from "./migrations/043-task-priority-auto.sql" with { type: "text" }
 import m043 from "./migrations/044-topic-standalone.sql" with { type: "text" };
 import m044 from "./migrations/045-backfill-catchall-standalone.sql" with { type: "text" };
 import m045 from "./migrations/046-standalone-husk-topics.sql" with { type: "text" };
+import m046 from "./migrations/047-classify-parked-dispatch-state.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -106,4 +107,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 44, name: "044-topic-standalone.sql", sql: m043 },
   { version: 45, name: "045-backfill-catchall-standalone.sql", sql: m044 },
   { version: 46, name: "046-standalone-husk-topics.sql", sql: m045 },
+  { version: 47, name: "047-classify-parked-dispatch-state.sql", sql: m046 },
 ];
