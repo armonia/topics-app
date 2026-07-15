@@ -148,6 +148,13 @@ const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string 
   // hand-off, the agent believes it's done (approve/reject).
   needs_input: { text: 'serve te', cls: 'bg-rose-500/15 text-rose-300' },
   delivered: { text: 'consegnato', cls: 'bg-emerald-500/15 text-emerald-300', title: "L'agent ha consegnato: aspetta la tua review" },
+  // Parked in backlog after a dispatch ended badly. 'failed' = the agent genuinely
+  // failed (timeout without review after the cap / repeated setup errors) — a red,
+  // ringed chip so it never reads as a neutral manual "fermato". 'blocked' = a
+  // config issue the human must fix first (no worktree / project unresolvable).
+  // The specific reason rides in task.dispatchError → shown as the chip tooltip.
+  failed: { text: 'fallito', cls: 'bg-rose-500/25 text-rose-200 ring-1 ring-rose-400/40' },
+  blocked: { text: 'da sistemare', cls: 'bg-amber-500/15 text-amber-300' },
 };
 
 export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic }: Props) {
@@ -1129,7 +1136,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
         ) : null}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
         {task.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
-          <span className={`rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title}>
+          <span className={`rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title ?? task.dispatchError ?? undefined}>
             {DISPATCH_CHIP[task.dispatchState].text}
           </span>
         )}
@@ -1707,7 +1714,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           ))}
         </Menu>
         {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
-          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title}>
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title ?? task.dispatchError ?? undefined}>
             {DISPATCH_CHIP[task.dispatchState].text}
           </span>
         )}
