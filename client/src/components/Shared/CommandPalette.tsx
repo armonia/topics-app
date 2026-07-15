@@ -41,6 +41,16 @@ function fuzzyMatch(query: string, target: string): boolean {
   return qi === query.length;
 }
 
+function getProjectDescription(projectPath: string): string {
+  const parts = projectPath.split('/').filter(Boolean);
+  if (parts.length === 0) return projectPath;
+  const folderName = parts[parts.length - 1];
+  const parentPath = parts.slice(0, -1).join('/');
+  if (!parentPath) return folderName;
+  const parentName = parentPath.split('/').pop() || parentPath;
+  return `${folderName} (${parentName})`; // e.g., "topics-app (Projects)"
+}
+
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
@@ -58,6 +68,7 @@ interface CommandPaletteProps {
   /** Paid New Chat gate — hides the "New Chat" pill when false. */
   enableNewChat?: boolean;
   onNewProject?: () => void;
+  onCreateProject?: () => void;
   onNewClaude?: () => void;
   onNewCodex?: () => void;
   onNewTerminal?: () => void;
@@ -89,6 +100,7 @@ export function CommandPalette({
   onNewTopic,
   enableNewChat = false,
   onNewProject,
+  onCreateProject,
   onNewClaude,
   onNewCodex,
   onNewTerminal,
@@ -201,7 +213,7 @@ export function CommandPalette({
     return ordered.map(pp => ({
       id: `project-${pp}`,
       label: getProjectLabel(pp),
-      description: pp,
+      description: getProjectDescription(pp),
       // Real project icon when the folder ships a favicon / web-manifest /
       // index.html <link rel=icon> (resolved by /api/projects/icon); folders
       // without one render nothing (no fake folder glyph — same convention as
@@ -209,6 +221,7 @@ export function CommandPalette({
       icon: <ProjectFavicon path={pp} size={14} />,
       category: 'project' as const,
       action: () => { onOpenProject?.(pp); onClose(); },
+      titleOverride: pp, // Full path on hover
     }));
   }, [topics, workspaceProjects, onOpenProject, onClose]);
 
@@ -509,47 +522,56 @@ export function CommandPalette({
               </section>
             </div>
           ) : (
-            <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Risultati">
-              {allItems.length === 0 && !searchLoading ? (
-                <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">Nessun risultato</div>
-              ) : (
-                <>
-                  {filteredProjects.length > 0 && (
-                    <>
-                      <SectionHeader label="Progetti" />
-                      {filteredProjects.map(item => renderRow(item, { highlight: true }))}
-                    </>
-                  )}
-                  {filteredActions.length > 0 && (
-                    <>
-                      <SectionHeader label="Azioni" />
-                      {filteredActions.map(item => renderRow(item, { highlight: true }))}
-                    </>
-                  )}
-                  {filteredMain.length > 0 && (
-                    <>
-                      <SectionHeader label="Topic" />
-                      {filteredMain.map(item => renderRow(item, { highlight: true }))}
-                    </>
-                  )}
-                  {filteredRecenti.length > 0 && (
-                    <>
-                      <SectionHeader label="Tab chiuse" />
-                      {filteredRecenti.map(item => renderRow(item, { highlight: true }))}
-                    </>
-                  )}
-                  {searchFileItems.length > 0 && (
-                    <>
-                      <SectionHeader label="File" />
-                      {searchFileItems.map(item => renderRow(item, { highlight: true }))}
-                    </>
-                  )}
-                  {(searchResults.length > 0 || searchLoading) && (
-                    <SectionHeader label="Messaggi" rightSlot={searchLoading ? <Loader2 size={10} className="animate-spin" /> : null} />
-                  )}
-                  {searchResults.map(item => renderRow(item, { highlight: true }))}
-                </>
-              )}
+            <div ref={listRef} className="flex-1 min-h-0 grid grid-cols-2 gap-0">
+              {/* Left: Projects (always visible) */}
+              <section className="min-w-0 overflow-y-auto py-1 border-r border-app-border">
+                <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
+                  Progetti
+                  {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
+                </div>
+                {filteredProjects.length > 0 ? (
+                  filteredProjects.map(item => renderRow(item, { highlight: !!query.trim() }))
+                ) : (
+                  <div className="px-3 py-2 text-[11px] text-app-text-muted italic">Nessun risultato</div>
+                )}
+              </section>
+              {/* Right: other results (Actions, Topics, Files, Messages) */}
+              <section className="min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Risultati">
+                {allItems.length === 0 && !searchLoading ? (
+                  <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">Nessun risultato</div>
+                ) : (
+                  <>
+                    {filteredActions.length > 0 && (
+                      <>
+                        <SectionHeader label="Azioni" />
+                        {filteredActions.map(item => renderRow(item, { highlight: true }))}
+                      </>
+                    )}
+                    {filteredMain.length > 0 && (
+                      <>
+                        <SectionHeader label="Topic" />
+                        {filteredMain.map(item => renderRow(item, { highlight: true }))}
+                      </>
+                    )}
+                    {filteredRecenti.length > 0 && (
+                      <>
+                        <SectionHeader label="Tab chiuse" />
+                        {filteredRecenti.map(item => renderRow(item, { highlight: true }))}
+                      </>
+                    )}
+                    {searchFileItems.length > 0 && (
+                      <>
+                        <SectionHeader label="File" />
+                        {searchFileItems.map(item => renderRow(item, { highlight: true }))}
+                      </>
+                    )}
+                    {(searchResults.length > 0 || searchLoading) && (
+                      <SectionHeader label="Messaggi" rightSlot={searchLoading ? <Loader2 size={10} className="animate-spin" /> : null} />
+                    )}
+                    {searchResults.map(item => renderRow(item, { highlight: true }))}
+                  </>
+                )}
+              </section>
             </div>
           )}
         </div>
@@ -571,14 +593,11 @@ export function CommandPalette({
           {onNewTerminal && (
             <ActionPill icon={<TerminalSquare size={12} />} label="Terminal" onClick={() => { onNewTerminal(); onClose(); }} />
           )}
-          {/* Both open the native folder picker (which can select an existing
-              folder OR create a new one via the dialog's "New Folder"). Two
-              entry points because the user asked for both intents. */}
-          {onNewProject && (
-            <ActionPill icon={<FolderOpen size={12} />} label="Apri Progetto" onClick={() => { onNewProject(); onClose(); }} />
+          {(onOpenProject || onCreateProject || onNewProject) && (
+            <ActionPill icon={<FolderOpen size={12} />} label="Apri Progetto" onClick={() => { (onOpenProject || onCreateProject || onNewProject)?.(); onClose(); }} />
           )}
-          {onNewProject && (
-            <ActionPill icon={<FolderPlus size={12} />} label="Crea Progetto" onClick={() => { onNewProject(); onClose(); }} />
+          {(onCreateProject || onNewProject) && (
+            <ActionPill icon={<FolderPlus size={12} />} label="Crea Progetto" onClick={() => { (onCreateProject || onNewProject)?.(); onClose(); }} />
           )}
           <ActionPill icon={<Settings size={12} />} label="Settings" shortcut="⌘," onClick={() => { onOpenSettings(); onClose(); }} />
           <ActionPill
