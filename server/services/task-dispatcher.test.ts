@@ -249,6 +249,7 @@ describe("task-dispatcher", () => {
     h.finishTurn(); await flush(); // attempt 3 → cap: park
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("failed"); // genuine failure, not a neutral stop
     expect(t.assignedTopicId).toBeNull();
     expect(h.turns.length).toBe(3);
   });
@@ -273,6 +274,7 @@ describe("task-dispatcher", () => {
     await flush();
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");          // parked, NOT run in the live repo
+    expect(t.dispatchState).toBe("blocked");   // config issue (fixable), not a failure
     expect(t.assignedTopicId).toBeNull();
     expect(t.dispatchError).toContain("worktree");
     expect(h.turns.length).toBe(0);
@@ -416,22 +418,28 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(0);
   });
 
-  it("reconcile requeues an orphaned (mid-dispatch) in-progress task", async () => {
+  it("reconcile requeues an orphaned (mid-dispatch) in-progress task, refunding the attempt", async () => {
     const h = harness();
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 1, dispatchState: "working" });
     await h.dispatcher.reconcile();
     await flush();
     const t = h.task("t1")!;
-    expect(t.status).toBe("todo");            // requeued (attempts 1 < cap)
+    expect(t.status).toBe("todo");            // requeued
     expect(t.assignedTopicId).toBeNull();
+    expect(t.dispatchAttempts).toBe(0);       // restart refunds the interrupted attempt
   });
 
-  it("reconcile parks an orphan whose attempts are exhausted", async () => {
+  it("reconcile ALWAYS requeues a restart orphan (never parks): a restart is not a failure", async () => {
+    // Even at the cap, a server restart must not park the task — it rolls the
+    // interrupted attempt back and requeues, so deploys can't bounce a healthy
+    // task into backlog "per errore".
     const h = harness();
     seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 3, dispatchState: "working" });
     await h.dispatcher.reconcile();
     await flush();
-    expect(h.task("t1")!.status).toBe("backlog"); // parked
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");            // requeued, NOT parked
+    expect(t.dispatchAttempts).toBe(2);       // 3 → 2 (refunded), gets a fair retry
   });
 
   it("reconcile leaves a human-moved bound task alone (chip not active)", async () => {
@@ -454,6 +462,7 @@ describe("task-dispatcher", () => {
     await flush();
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");   // parked, not stranded in todo
+    expect(t.dispatchState).toBe("failed");
     expect(t.dispatchError).toContain("fallito");
     expect(h.turns.length).toBe(0);
   });
@@ -466,7 +475,7 @@ describe("task-dispatcher", () => {
     await flush();
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");                       // parked, not stranded on "queued"
-    expect(t.dispatchState).toBeNull();
+    expect(t.dispatchState).toBe("blocked");                // config issue, human must fix
     expect(t.dispatchError).toContain("directory del progetto");
     expect(h.turns.length).toBe(0);
     // The reason is also in the thread, so the human sees WHY from the card.

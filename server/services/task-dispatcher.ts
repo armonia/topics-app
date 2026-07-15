@@ -126,6 +126,14 @@ const CHIP_NEEDS_INPUT = "needs_input";
 // ASKED something (its last word is a question block, answer required);
 // "delivered" = clean hand-off, the agent believes the work is done.
 const CHIP_DELIVERED = "delivered";
+// Park states (task lands in backlog). Distinct on purpose so the board doesn't
+// read every stop as a neutral manual "fermato":
+//  - failed  = the agent genuinely failed (timeout without review after the cap,
+//              repeated setup errors) → red "fallito" chip, the human decides.
+//  - blocked = a config issue the human must fix before it can run at all
+//              (no worktree, project path unresolvable) → amber "da sistemare".
+const CHIP_FAILED = "failed";
+const CHIP_BLOCKED = "blocked";
 // The two states that mean "a dispatch turn is genuinely live" — reconcile only
 // requeues orphans in these states, so a human dragging a review/done task into
 // In Progress (dispatch_state null/needs_input) is never falsely "orphaned".
@@ -299,6 +307,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           emit(deps.svc.release({
             taskId,
             requeue: false,
+            parkState: CHIP_BLOCKED,
             reason:
               "Auto-dispatch fermato: worktree richiesto ma il progetto non è un repo git registrato. " +
               "Disattiva 'worktree isolato' nelle impostazioni del board per eseguire in-place.",
@@ -379,6 +388,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         emit(deps.svc.release({
           taskId,
           requeue: !exhausted,
+          parkState: CHIP_FAILED,
           reason: exhausted
             ? "Avvio agent fallito ripetutamente. Parcheggiato in backlog."
             : "Avvio agent fallito, rimesso in coda.",
@@ -456,6 +466,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       emit(deps.svc.release({
         taskId,
         requeue: false,
+        parkState: CHIP_FAILED,
         reason: `Il turno è terminato senza arrivare a review dopo ${cur.dispatchAttempts} tentativi. Parcheggiato in backlog.`,
       }));
       return;
@@ -550,6 +561,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           emit(deps.svc.release({
             taskId: t.id,
             requeue: false,
+            parkState: CHIP_BLOCKED,
             reason:
               "Auto-dispatch fermato: non riesco a risalire alla directory del progetto per questa board. " +
               "Apri il progetto in una tab (o registralo) e riporta il task in Todo.",
@@ -655,14 +667,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // NULL). A human who drags a review/done card (chip null or needs_input)
       // into In Progress is NOT an orphan — leave it be.
       if (!ACTIVE_DISPATCH_STATES.has(t.dispatchState ?? "")) continue;
-      const requeue = t.dispatchAttempts < RETRY_CAP;
+      // The server restarted mid-turn — OUR interruption, never the agent's
+      // failure. ALWAYS requeue and roll back the interrupted attempt so a few
+      // deploys/kickstarts can't exhaust the retry budget and park a healthy
+      // task in backlog "per errore". Genuine failures still park via onTurnEnd.
       try {
         emit(deps.svc.release({
           taskId: t.id,
-          requeue,
-          reason: requeue
-            ? "Il server è ripartito mentre l'agent lavorava: task rimesso in coda."
-            : "Il server è ripartito e i tentativi sono esauriti: task parcheggiato in backlog.",
+          requeue: true,
+          rollbackAttempt: true,
+          reason: "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).",
         }));
       } catch (err) { log(`reconcile release failed for ${t.id}`, err); }
     }
