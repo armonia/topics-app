@@ -232,11 +232,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const body = (await readJSON(req)) as any;
           try {
             // Project "Auto": resolve the real board from a known project name
-            // mentioned in the task text. Exactly one distinct hit = that
-            // board; none/ambiguous = the "generale" catch-all workspace
-            // project (scaffolded on first use, in-place dispatch — not a git
-            // repo) so EVERY task has a project and can start. "Senza
-            // progetto" as an outcome is gone by request.
+            // mentioned in the task text. Exactly one distinct hit = that board;
+            // none/ambiguous = first level (UNASSIGNED_PROJECT_ID = no project,
+            // no label). A project-less task is a first-class state: it waits at
+            // the first level for the human to assign a project from the card,
+            // then it dispatches. The old "generale" catch-all is gone by request.
             let effectiveProjectId = projectId;
             if (projectId === AUTO_PROJECT_ID) {
               const haystack = `${body?.text ?? ""}\n${body?.description ?? ""}`.toLowerCase();
@@ -251,23 +251,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
                 if (new RegExp(`(^|[^a-z0-9])${esc}($|[^a-z0-9])`).test(haystack)) hits.add(projectIdForPath(path));
               }
-              if (hits.size === 1) {
-                effectiveProjectId = [...hits][0];
-              } else if (opts?.workspaceDir) {
-                const dir = join(opts.workspaceDir, "generale");
-                if (!existsSync(dir)) {
-                  try {
-                    mkdirSync(dir, { recursive: true });
-                    writeFileSync(join(dir, "CLAUDE.md"), "# generale\n\nProgetto catch-all per i task generici della board (creato dal progetto-auto).\n");
-                    // Not a git repo: the dispatcher must run in-place here, or
-                    // every task would park on "worktree impossibile".
-                    svc.updateBoardSettings(projectIdForPath(dir), { dispatchUseWorktree: false });
-                  } catch { /* fall through to unassigned below */ }
-                }
-                effectiveProjectId = existsSync(dir) ? projectIdForPath(dir) : UNASSIGNED_PROJECT_ID;
-              } else {
-                effectiveProjectId = UNASSIGNED_PROJECT_ID; // degraded host (no workspace)
-              }
+              effectiveProjectId = hits.size === 1 ? [...hits][0] : UNASSIGNED_PROJECT_ID;
             }
             const task = svc.create({
               projectId: effectiveProjectId,

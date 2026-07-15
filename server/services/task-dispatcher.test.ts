@@ -709,23 +709,24 @@ describe("blocked-by + context reuse", () => {
     expect((h.topicsCreated[0] as any).model).toBeUndefined();
   });
 
-  it("auto model: a FUZZY pick flips the task to plan-first and notes it", async () => {
+  it("auto model: a FUZZY pick still selects a model but never flips plan-first (opt-in only)", async () => {
     const h = harness({ pickAutoModel: async () => ({ model: "claude-sonnet-5", fuzzy: true }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     const created = h.svc.create({ projectId: PID, text: "sistema la roba" }); // vague, model auto
     await h.dispatcher.tick(PID);
     await flush();
     const t = h.task(created.id)!;
-    expect(t.planFirst).toBe(true);
-    // Kickoff reflects the flip (built AFTER plan-first is set).
-    expect(h.turns[0].content).toContain("PLAN FIRST");
-    // The thread records why.
+    // The classifier's model is still applied…
+    expect((h.topicsCreated[0] as any).model).toBe("claude-sonnet-5");
+    // …but a fuzzy verdict no longer forces plan-first: that's opt-in now.
+    expect(t.planFirst).toBe(false);
+    expect(h.turns[0].content).not.toContain("PLAN FIRST");
     const comments = h.svc.get(created.id)!.comments;
-    expect(comments.some((c) => c.author === "system" && c.content.includes("plan-first"))).toBe(true);
+    expect(comments.some((c) => c.author === "system" && c.content.includes("plan-first"))).toBe(false);
   });
 
-  it("auto model: fuzzy does NOT override a human who already set plan-first off nor re-flag an explicit model", async () => {
-    // Explicit model → classifier never runs → never auto plan-first.
+  it("auto model: an explicit model skips the classifier entirely (no auto plan-first)", async () => {
+    // Explicit model → classifier never runs.
     let called = false;
     const h = harness({ pickAutoModel: async () => { called = true; return { model: "x", fuzzy: true }; } });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
