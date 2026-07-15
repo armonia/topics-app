@@ -251,6 +251,17 @@ export interface TaskService {
   addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[] }): TaskComment;
   /** Human-only review decision on a task sitting in `review`. */
   reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
+  /**
+   * System hand-off to review after the dispatch retry budget is exhausted: the
+   * agent WORKED (left a comment trail) but never moved the task to `review`
+   * itself. Instead of parking it as `failed` (opaque, looks like an error), we
+   * deliver it to the human — status `review`, chip `needs_input`, a `system`
+   * note explaining what happened — keeping the topic binding so a rejection
+   * resumes the same agent. Opens the pending review approval like a normal
+   * hand-off. Reserved for the "did work, forgot to deliver" case; a task that
+   * produced nothing still parks as `failed`.
+   */
+  deliverToReviewBySystem(args: { taskId: string; reason: string }): Task;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
@@ -875,6 +886,31 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             status = ?, dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?`,
       ).run(status, state, reason ?? null, ts, taskId);
       if (row.status !== status) logStatus(taskId, row.status, status, by ?? "dispatcher");
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    deliverToReviewBySystem({ taskId, reason }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      const ts = now();
+      // Note first so the "why it's here" is the last word on the review card.
+      if (reason && reason.trim()) {
+        try { this.addComment({ taskId, author: "system", content: reason }); } catch { /* best-effort */ }
+      }
+      // Hand to the human: keep assigned_topic_id (a rejection resumes this
+      // agent), clear the stale error, chip = needs_input (a decision is wanted).
+      db.prepare(
+        "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = NULL, updated_at = ? WHERE id = ?",
+      ).run(ts, taskId);
+      if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
+      // Open the pending review approval so the review decision flow works, just
+      // like an agent-initiated hand-off would.
+      try {
+        db.prepare(
+          `INSERT INTO approvals (id, task_id, requested_by, approval_type, from_status, to_status, status, created_at)
+           VALUES (?, ?, 'dispatcher', 'review', ?, 'done', 'pending', ?)`,
+        ).run(uuid(), taskId, row.status, ts);
+      } catch { /* an existing pending approval is fine */ }
       return rowToTask(getTaskRow(taskId));
     },
 
