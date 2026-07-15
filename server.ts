@@ -6,7 +6,7 @@ import { createAppContext } from "./server/utils";
 import { closeDatabase } from "./server/db";
 import {
   acquireLock, releaseLock, writeState, readState,
-  uptimeMsSince, LiveLockError,
+  uptimeMsSince, LiveLockError, worktreeIsolationHome,
 } from "./server/services/daemon-state";
 import {
   startUiStateBackupTicker, snapshotUiStateNow,
@@ -84,6 +84,26 @@ if (!process.env.GATEWAY_TOKEN) {
     // which crashed the bundled server before it could listen — the packaged app
     // then hung forever on "Launching the local engine" on every clean machine.
     console.warn("[Startup] GATEWAY_TOKEN not set — OpenClaw gateway features (journal sync, gateway relay) disabled; continuing without them.");
+  }
+}
+
+// Solid singleton: a server booted from a DISPATCH WORKTREE (e.g. an agent that
+// ran `bun run server.ts` inside its isolation checkout under ~/.topics/worktrees)
+// must NOT hijack production. Sharing the ~/.topics daemon lock + the prod port
+// let a worktree server (with its own empty DB) win the race and starve the real
+// server into a crash-loop — the "board vuota / kanban rotto" failure. Redirect
+// such a server onto a worktree-local TOPICS_HOME + an ephemeral port BEFORE the
+// context reads PORT and before acquireLock reads TOPICS_HOME. Opt out with
+// TOPICS_ALLOW_WORKTREE_PROD=1 (deliberately running prod from a worktree).
+if (!process.env.TOPICS_ALLOW_WORKTREE_PROD) {
+  const isoHome = worktreeIsolationHome(import.meta.dir, homedir());
+  if (isoHome) {
+    if (!process.env.TOPICS_HOME) process.env.TOPICS_HOME = isoHome;
+    if (!process.env.PORT && !process.env.BUN_PORT) process.env.PORT = "0";
+    console.log(
+      `[Daemon] worktree server isolated → TOPICS_HOME=${process.env.TOPICS_HOME}, ` +
+      `PORT=${process.env.PORT === "0" ? "ephemeral" : process.env.PORT} (won't touch production)`,
+    );
   }
 }
 
@@ -734,7 +754,14 @@ const server = Bun.serve<WSData>({
   // 127.0.0.1 and the LAN address for mobile/PWA access); IPv6 ::1 is unused by
   // the app. Override via SERVER_HOST; default stays "::" so dev is unchanged.
   hostname: process.env.SERVER_HOST || "::",
-  reusePort: true,
+  // Exclusive ownership for the singleton. With reusePort:true a SECOND Topics
+  // server on the same port doesn't fail — the OS lets both bind and round-robins
+  // connections between them, so a live prod server and a stray one (e.g. a
+  // worktree server with an empty DB) take turns answering and the board flickers
+  // full/empty. false → the second bind fails fast with EADDRINUSE. The daemon
+  // lock (acquired before Bun.serve) is the primary guard; this is defense in
+  // depth for any server that bypasses it via a custom TOPICS_HOME.
+  reusePort: false,
   idleTimeout: 255,
   ...(useTls ? {
     tls: {
