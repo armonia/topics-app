@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Link2, Loader2, Lock, Maximize2, Minimize2, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -1193,7 +1193,6 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
               className={`text-xs leading-relaxed text-neutral-300 ${COMPACT_MD_CLS}`}
               title={`${lastComment.author}: ${stripMarkdown(lastComment.content)}`}
             >
-              {lastComment.author !== 'user' && <Bot className="mr-1 inline h-3 w-3 align-[-2px] text-neutral-400" />}
               <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
             </div>
           ) : null}
@@ -1249,6 +1248,20 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
 }
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
+
+/**
+ * One tab of a task's surface tab group. The Thread is the always-present body;
+ * these are the auxiliary surfaces the side panel / inline tab bar switch to.
+ */
+type TaskSurface =
+  | { id: string; kind: 'output'; label: string; url: string }
+  | { id: string; kind: 'plan'; label: string; content: string }
+  | { id: string; kind: 'media'; label: string; url: string; path: string };
+
+/** Min drawer width (px) before the surface tab group earns its own side panel;
+ *  below it the surfaces fold inline into the body. */
+const SIDEPANEL_MIN = 680;
+
 function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /**
@@ -1264,15 +1277,13 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
 }) {
   const [task, setTask] = useState<BoardTask | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
-  // Review preview on the right: the task's outputUrl wins; otherwise the
-  // attachment the user clicked, else the thread's latest attachment — a
-  // delivered PDF IS the output even when the agent didn't set output_url.
-  const [previewPath, setPreviewPath] = useState<string | null>(null);
-  const [previewOff, setPreviewOff] = useState(false);
-  // Detail body view: the thread, or a focused "Piano" tab that surfaces the
-  // agent's plan (plan-first deliverable) full + formatted instead of buried in
-  // the thread. Sticky across tasks; falls back to thread when a task has no plan.
-  const [bodyTab, setBodyTab] = useState<'thread' | 'piano'>('thread');
+  // The task's surfaces (plan / output / media attachments) are ONE tab group of
+  // the task: `activeSurfaceId` is the selected surface tab. `null` ⟺ the Thread
+  // (the always-present primary body). This single selection drives both the
+  // inline tab bar (narrow pane) and the side panel (wide pane), replacing the
+  // old bodyTab + previewOff + previewPath tangle. Sticky across the drawer's
+  // life; a surface that disappears (output cleared) falls back to the Thread.
+  const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
   // Per-task server draft (bounded map in ui-state): restore once per task,
@@ -1311,15 +1322,29 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
       ? 'Ci sono sottotask aperti: completali o archiviali prima di chiudere il task.'
       : raw);
   };
-  // Narrow (default) keeps the board visible behind the drawer; wide turns the
-  // detail into a full review surface — subtask tree + thread on the left, the
-  // task's output (dev server, page, report) on the right. Sticky per client.
+  // Narrow (default) keeps the board visible behind the drawer; wide grows the
+  // drawer so the task's tab group can live in a side panel (Thread on the left,
+  // the selected surface on the right) instead of folding inline into the body.
+  // Sticky per client.
   const [wide, setWide] = useState(() => { try { return localStorage.getItem('board:taskDetailWide') === '1'; } catch { return false; } });
   const toggleWide = () => setWide((w) => {
     const next = !w;
     try { localStorage.setItem('board:taskDetailWide', next ? '1' : '0'); } catch { /* private mode */ }
     return next;
   });
+  // Actual rendered width of the drawer — the side panel only makes sense past a
+  // threshold. Measured (not derived from `wide`) so the fold is truly dynamic:
+  // even an expanded drawer on a small screen stays inline. This is the "…in
+  // anteprima se la vista troppo stretta" rule.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [containerW, setContainerW] = useState(0);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => setContainerW(entries[0]!.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -1348,16 +1373,18 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   // the SAME agent tab (server: reviewDecision → comment + in_progress +
   // dispatcher.resume). A plain comment here would sit unread while the chip
   // says "serve te". Non-agent tasks (or any other status) keep plain comments.
-  const lastMediaPath = useMemo(() => {
+  // Distinct media attachments across the whole thread, newest-first, deduped by
+  // path — each is one "Anteprima" tab of the task (a delivered PDF/screenshot
+  // IS review output even when the agent didn't set output_url).
+  const mediaPaths = useMemo(() => {
+    const seen = new Set<string>(); const out: string[] = [];
     for (let i = comments.length - 1; i >= 0; i--) {
-      const m = comments[i].media;
-      if (m && m.length) return m[m.length - 1];
+      for (const m of comments[i].media ?? []) {
+        if (!seen.has(m)) { seen.add(m); out.push(m); }
+      }
     }
-    return null;
+    return out;
   }, [comments]);
-  const mediaPreviewPath = previewOff ? null : (previewPath ?? lastMediaPath);
-  const outputSrc = task?.outputUrl ?? (mediaPreviewPath ? getMediaUrl(mediaPreviewPath) : null);
-  const outputLabel = task?.outputUrl ?? mediaPreviewPath?.split('/').pop() ?? '';
   const isAgentReview = !!task && task.status === 'review' && !!task.assignedTopicId;
   // Pending question = the agent's last word is a question block: its options
   // render as quick-reply buttons right above the composer (same zone as the
@@ -1371,6 +1398,36 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const planComment = task?.planFirst
     ? ([...speech].reverse().find((c) => c.author !== 'user' && c.author !== 'system') ?? null)
     : null;
+
+  // The task's auxiliary surfaces as ONE ordered tab group: the review target
+  // (output_url) first, then the plan-first plan, then each media attachment.
+  // The Thread is not in this list — it's the always-present primary body; these
+  // are what the side panel (wide) / inline tab bar (narrow) switch between.
+  const surfaces = useMemo<TaskSurface[]>(() => {
+    const list: TaskSurface[] = [];
+    if (task?.outputUrl) list.push({ id: 'output', kind: 'output', label: 'Output', url: task.outputUrl });
+    if (planComment) list.push({ id: 'piano', kind: 'plan', label: 'Piano', content: planComment.content });
+    for (const p of mediaPaths) list.push({ id: `media:${p}`, kind: 'media', label: p.split('/').pop() || 'Allegato', url: getMediaUrl(p), path: p });
+    return list;
+  }, [task?.outputUrl, planComment, mediaPaths]);
+  const hasSurfaces = surfaces.length > 0;
+  // Wide enough to host the side panel? Measured, so an expanded-but-cramped
+  // drawer still folds inline. Below the threshold the surfaces live in the body.
+  const sidepanel = wide && hasSurfaces && containerW >= SIDEPANEL_MIN;
+  const inlineTabs = !sidepanel && hasSurfaces;
+  // The selected surface (undefined ⟺ Thread). A stale id (surface vanished)
+  // resolves to null → Thread, so the body never blanks.
+  const activeSurface = surfaces.find((s) => s.id === activeSurfaceId) ?? null;
+  // Side panel always shows something (default = first surface); inline defaults
+  // to the Thread until the user picks a surface tab.
+  const sideSurface = activeSurface ?? surfaces[0] ?? null;
+  // Select a surface tab; if the pane is wide enough to host the side panel but
+  // it's collapsed, open it so the surface shows BESIDE the thread rather than
+  // replacing it. Clicking a thread attachment routes through here.
+  const selectSurface = (id: string) => {
+    setActiveSurfaceId(id);
+    if (!wide && containerW >= SIDEPANEL_MIN) toggleWide();
+  };
 
   const deliverAnswer = async (v: string, media?: string[]): Promise<boolean> => {
     try {
@@ -1686,6 +1743,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
 
   return (
     <div
+      ref={rootRef}
       data-testid="task-detail-drawer"
       // Always a layout SIBLING (relative, in-flow, shrink-0): the columns
       // viewport shrinks beside it and keeps its own horizontal scroll, so the
@@ -1832,11 +1890,13 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
               className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
             ><ExternalLink className="h-4 w-4" /></button>
           )}
-          <button
-            onClick={toggleWide}
-            title={wide ? 'Riduci a drawer (vedi la board)' : 'Espandi la superficie di review'}
-            className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
-          >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
+          {hasSurfaces && (
+            <button
+              onClick={toggleWide}
+              title={wide ? 'Riduci a drawer (vedi la board)' : 'Espandi: mostra il pannello del task a lato'}
+              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+            >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
+          )}
           <button onClick={onClose} className="rounded p-1.5 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
@@ -1852,9 +1912,10 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
         </div>
       ) : (
       <div className="flex min-h-0 flex-1">
-        {/* Left column: meta + subtask tree + chat thread. In wide mode it keeps
-            the drawer width and the output panel takes the remaining space. */}
-        <div className={`flex min-w-0 flex-col ${wide && outputSrc ? 'w-96 shrink-0 border-r border-white/10' : 'flex-1'}`}>
+        {/* Left column: meta + subtask tree + chat thread. With the side panel
+            open it holds the drawer's left width; the task's surface panel takes
+            the rest. */}
+        <div className={`flex min-w-0 flex-col ${sidepanel ? 'w-96 shrink-0 border-r border-white/10' : 'flex-1'}`}>
           <div className="border-b border-white/10 px-3 py-3">
             {task?.parentTaskId && onOpenTask && (
               <button
@@ -1958,13 +2019,6 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 className="mt-1 text-[11px] text-neutral-600 hover:text-neutral-400"
               >+ descrizione…</button>
             )}
-            {!wide && outputSrc && (
-              <button
-                onClick={toggleWide}
-                title="Mostra l'output nel pannello di review (a destra)"
-                className="mt-1.5 flex w-full items-center gap-1.5 rounded bg-sky-500/10 px-2 py-1.5 text-left text-xs text-sky-300 hover:bg-sky-500/20"
-              ><ArrowUpRight className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{outputLabel}</span></button>
-            )}
           </div>
           {/* Subtask tree — unlimited depth, lazy-expanded. The agent's steps
               live here too: dots flip green as it checks them off. */}
@@ -1986,32 +2040,22 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
               {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-neutral-400" />}
             </div>
           </div>
-          {/* Tab bar — appears only when there's a plan to show (plan-first).
-              Lets the human read the plan full + formatted without hunting the
-              thread; the review actions below stay visible on both tabs. */}
-          {planComment && (
-            <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-3 pt-1.5">
-              {(['thread', 'piano'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setBodyTab(tab)}
-                  className={`rounded-t px-2.5 py-1 text-xs ${
-                    (bodyTab === 'piano' && planComment ? 'piano' : 'thread') === tab
-                      ? 'bg-white/10 font-medium text-neutral-100'
-                      : 'text-neutral-400 hover:text-neutral-200'
-                  }`}
-                >{tab === 'piano' ? '📋 Piano' : 'Thread'}</button>
-              ))}
-            </div>
+          {/* The task's tab group, folded INTO the body (narrow pane): Thread +
+              its surfaces (plan / output / media) as one strip. Selecting a
+              surface swaps the body; the review actions below stay visible on
+              every tab. Wide enough → the surfaces move to the side panel and
+              this bar disappears (inlineTabs false). */}
+          {inlineTabs && (
+            <TaskTabBar
+              surfaces={surfaces}
+              activeId={activeSurface ? activeSurface.id : 'thread'}
+              onSelect={(id) => setActiveSurfaceId(id === 'thread' ? null : id)}
+              includeThread
+            />
           )}
-          {bodyTab === 'piano' && planComment ? (
-            <div className="flex-1 overflow-y-auto px-3 py-3">
-              <div className="rounded-lg border border-violet-500/25 bg-violet-500/5 px-4 py-3.5">
-                <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">Piano proposto</p>
-                <div className={`text-sm text-neutral-200 ${PLAN_MD_CLS}`}>
-                  <ChatMarkdown components={{}}>{planComment.content}</ChatMarkdown>
-                </div>
-              </div>
+          {inlineTabs && activeSurface ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <SurfaceContent surface={activeSurface} />
             </div>
           ) : (
           <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
@@ -2021,7 +2065,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 {task.assignedTopicId && (
                   <SessionSlice msgs={sliceBetween(comments[i - 1]?.createdAt ?? null, c.createdAt)} />
                 )}
-                {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => { setPreviewPath(p); setPreviewOff(false); if (!wide) toggleWide(); }} />}
+                {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => selectSurface(`media:${p}`)} />}
               </div>
             ))}
             {/* Turn still running (or ended after the last comment): its
@@ -2138,8 +2182,28 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             </div>
           </div>
         </div>
-        {/* Output panel only when there IS an output — never an empty frame. */}
-        {wide && outputSrc && <OutputPanel task={task} url={outputSrc} label={outputLabel} mediaPath={mediaPreviewPath} onOpenTopic={onOpenTopic} onClose={() => { if (task?.outputUrl) { toggleWide(); } else { setPreviewOff(true); } }} />}
+        {/* Side panel: the task's surface tab group, only when it fits AND there
+            IS a surface — never an empty frame. Thread stays in the left column;
+            here the selected surface renders with its own tab strip. */}
+        {sidepanel && sideSurface && (
+          <div className="flex min-w-0 flex-1 flex-col bg-neutral-950/40" data-testid="task-output-panel">
+            <TaskTabBar
+              surfaces={surfaces}
+              activeId={sideSurface.id}
+              onSelect={(id) => setActiveSurfaceId(id)}
+              trailing={
+                <button
+                  onClick={toggleWide}
+                  title="Chiudi il pannello"
+                  className="shrink-0 rounded p-1.5 text-neutral-400 hover:bg-white/10"
+                ><X className="h-4 w-4" /></button>
+              }
+            />
+            <div className="flex min-h-0 flex-1 flex-col">
+              <SurfaceContent surface={sideSurface} />
+            </div>
+          </div>
+        )}
       </div>
       )}
     </div>
@@ -2197,48 +2261,70 @@ function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   );
 }
 
+/** Glyph per surface kind (+ the Thread pseudo-tab), so the task's tab strip
+ *  reads in the same icon language as the app's real tab bar. */
+function SurfaceIcon({ kind }: { kind: TaskSurface['kind'] | 'thread' }) {
+  const cls = 'h-3.5 w-3.5 shrink-0';
+  if (kind === 'thread') return <MessageSquare className={cls} />;
+  if (kind === 'plan') return <ClipboardList className={cls} />;
+  if (kind === 'output') return <Globe className={cls} />;
+  return <ImageIcon className={cls} />; // media
+}
+
 /**
- * Right side of the wide review surface: the task's attached output (an http(s)
- * URL the agent set via `update_task(output_url=…)` — dev server, rendered
- * page, report) in a sandboxed iframe. Without one, a sober empty state with
- * the agent-tab deep-link as the next best review surface.
+ * The task's surface tab strip — a lightweight, task-scoped version of the app's
+ * PaneTabBar: one row of tabs (optionally led by the Thread), the active one
+ * raised. Drives both the inline (narrow) body switch and the side panel (wide).
+ * `trailing` hosts a per-context action (e.g. the side panel's close button).
  */
-function OutputPanel({ task, url, label, mediaPath, onOpenTopic, onClose }: { task: BoardTask | null; url: string | null; label?: string; mediaPath?: string | null; onOpenTopic?: (topicId: string) => void; onClose?: () => void }) {
+function TaskTabBar({ surfaces, activeId, onSelect, includeThread, trailing }: {
+  surfaces: TaskSurface[];
+  activeId: string;
+  onSelect: (id: string) => void;
+  includeThread?: boolean;
+  trailing?: React.ReactNode;
+}) {
+  const tabs: Array<{ id: string; label: string; kind: TaskSurface['kind'] | 'thread' }> = [
+    ...(includeThread ? [{ id: 'thread', label: 'Thread', kind: 'thread' as const }] : []),
+    ...surfaces.map((s) => ({ id: s.id, label: s.label, kind: s.kind })),
+  ];
   return (
-    <div className="flex min-w-0 flex-1 flex-col bg-neutral-950/40" data-testid="task-output-panel">
-      {url ? (
-        <>
-          <div className="flex items-center gap-2 border-b border-white/10 px-3 py-1.5">
-            <span className="truncate text-xs text-neutral-400" title={url}>{label || url}</span>
-            <button
-              onClick={() => openExternalOnce(url)}
-              className="ml-auto shrink-0 rounded p-1.5 text-neutral-400 hover:bg-white/10"
-              title="Apri nel browser"
-            ><ExternalLink className="h-4 w-4" /></button>
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="shrink-0 rounded p-1.5 text-neutral-400 hover:bg-white/10"
-                title="Chiudi l'anteprima"
-              ><X className="h-4 w-4" /></button>
-            )}
-          </div>
-          {mediaPath ? <MediaViewer key={url} url={url} path={mediaPath} /> : <OutputFrame key={url} url={url} />}
-        </>
-      ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
-          <p className="text-sm text-neutral-400">Nessun output collegato.</p>
-          <p className="max-w-xs text-xs text-neutral-500">
-            L'agent può allegare un URL (dev server, pagina, report) al task: comparirà qui, pronto per la review.
-          </p>
-          {task?.assignedTopicId && onOpenTopic && (
-            <button
-              onClick={() => onOpenTopic(task.assignedTopicId!)}
-              className="mt-1 flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-xs text-neutral-200 hover:bg-white/20"
-            ><ArrowUpRight className="h-3.5 w-3.5" /> Apri la tab dell'agent</button>
-          )}
+    <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-2 py-1">
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-topbar">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => onSelect(t.id)}
+            title={t.label}
+            className={`flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-xs ${
+              activeId === t.id ? 'bg-white/10 font-medium text-neutral-100' : 'text-neutral-400 hover:text-neutral-200'
+            }`}
+          >
+            <SurfaceIcon kind={t.kind} />
+            <span className="max-w-[11rem] truncate">{t.label}</span>
+          </button>
+        ))}
+      </div>
+      {trailing}
+    </div>
+  );
+}
+
+/**
+ * Renders one task surface full-height (output iframe / media viewer / plan).
+ * The caller places it inside a flex-col so the flex-1 children fill the space.
+ */
+function SurfaceContent({ surface }: { surface: TaskSurface }) {
+  if (surface.kind === 'output') return <OutputFrame key={surface.url} url={surface.url} />;
+  if (surface.kind === 'media') return <MediaViewer key={surface.url} url={surface.url} path={surface.path} />;
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div className="rounded-lg border border-violet-500/25 bg-violet-500/5 px-4 py-3.5">
+        <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-violet-300">Piano proposto</p>
+        <div className={`text-sm text-neutral-200 ${PLAN_MD_CLS}`}>
+          <ChatMarkdown components={{}}>{surface.content}</ChatMarkdown>
         </div>
-      )}
+      </div>
     </div>
   );
 }
