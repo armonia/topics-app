@@ -352,30 +352,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Model selection. Explicit choice wins; "auto" (null) → classifier pick
       // before spawn (never for a reused topic — it inherits the blocker's).
       // The picker never rejects and returns fast; a null/absent result keeps
-      // the provider default, so dispatch is never blocked on this. The same
-      // one-shot flags a VAGUE task → auto plan-first (see below).
+      // the provider default, so dispatch is never blocked on this.
       let chosenModel: string | undefined = task.model ?? undefined;
-      let autoFuzzy = false;
       if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task);
         chosenModel = picked.model ?? undefined;
-        autoFuzzy = picked.fuzzy;
       }
 
-      // Auto plan-first for a fuzzy task: a vague/under-specified task an agent
-      // can't close blind is exactly what burns the retry budget. Flip plan_first
-      // so the agent delivers a PLAN to review before implementing — one human
-      // round-trip instead of blind retries. Only when the human didn't already
-      // set it, and only on "modello auto" (an explicit model = deliberate task).
-      if (autoFuzzy && !task.planFirst) {
-        try {
-          deps.svc.update({ taskId, actor: "agent", by: "dispatcher", patch: { planFirst: true } });
-          task = deps.svc.get(taskId)?.task ?? task; // buildKickoff below reads task.planFirst
-          kickoff = buildKickoff(task);
-          if (reuseTopicId) kickoff = "Nuovo task nella STESSA sessione del task precedente: il contesto che hai costruito è condiviso di proposito, riusalo dove serve.\n\n" + kickoff;
-          deps.svc.addComment({ taskId, author: "system", content: "Task ambiguo o poco specificato: attivo plan-first (l'agent consegna prima un piano da approvare)." });
-        } catch { /* best-effort — never block dispatch on this */ }
-      }
+      // Plan-first is opt-in only (the "piano prima" toggle). The dispatcher used
+      // to auto-flip it on a fuzzy/under-specified task to save retry budget, but
+      // that surprised the human ("piano" appearing though they never set it), so
+      // it's gone by request — a task goes plan-first only when explicitly asked.
 
       // Catch-all decision FIRST (before any cwd override): a project-less task
       // resolves to the shared catch-all dir. Then give it a PRIVATE per-task
