@@ -12,11 +12,12 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Funnel } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { getMediaUrl } from '../../lib/api';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink, consumePendingTaskOpen } from '../../lib/openTaskLink';
@@ -187,6 +188,125 @@ const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string 
   blocked: { text: 'da sistemare', cls: 'bg-amber-500/15 text-amber-300' },
 };
 
+interface FilterPanelProps {
+  filters: { priority: number[]; assignedTo: string[]; text: string; projectId: string[] };
+  onFiltersChange: (filters: { priority: number[]; assignedTo: string[]; text: string; projectId: string[] }) => void;
+  tasks: BoardTask[];
+  mode: 'project' | 'all';
+}
+
+function FilterPanel({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
+  const togglePriority = (p: number) => {
+    const updated = filters.priority.includes(p)
+      ? filters.priority.filter((x) => x !== p)
+      : [...filters.priority, p].sort((a, b) => b - a);
+    onFiltersChange({ ...filters, priority: updated });
+  };
+
+  const toggleAssignedTo = (assignee: string) => {
+    const updated = filters.assignedTo.includes(assignee)
+      ? filters.assignedTo.filter((x) => x !== assignee)
+      : [...filters.assignedTo, assignee];
+    onFiltersChange({ ...filters, assignedTo: updated });
+  };
+
+  const toggleProject = (projectId: string) => {
+    const updated = filters.projectId.includes(projectId)
+      ? filters.projectId.filter((x) => x !== projectId)
+      : [...filters.projectId, projectId];
+    onFiltersChange({ ...filters, projectId: updated });
+  };
+
+  const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
+  const projects = Array.from(new Set(tasks.map((t) => t.projectId))).sort();
+
+  return (
+    <div className="shrink-0 border-b border-white/10 bg-white/5 px-3 py-3 space-y-3">
+      <div>
+        <p className="text-xs font-semibold uppercase text-neutral-400 mb-2">Priorità</p>
+        <div className="flex flex-wrap gap-2">
+          {PRIORITY_ORDER.map((p) => (
+            <button
+              key={p}
+              onClick={() => togglePriority(p)}
+              className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
+                filters.priority.includes(p)
+                  ? 'bg-white/15 text-neutral-100'
+                  : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[p]}`} />
+              {PRIORITY_LABEL[p]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold uppercase text-neutral-400 mb-2">Ricerca testo</p>
+        <input
+          value={filters.text}
+          onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
+          placeholder="Cerca nei task…"
+          className="w-full rounded bg-white/5 px-2 py-1.5 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 focus:bg-white/10"
+        />
+      </div>
+
+      {assignees.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase text-neutral-400 mb-2">Assegnatario</p>
+          <div className="flex flex-wrap gap-2">
+            {assignees.map((a) => (
+              <button
+                key={a}
+                onClick={() => toggleAssignedTo(a)}
+                className={`rounded px-2 py-1 text-xs transition-colors ${
+                  filters.assignedTo.includes(a)
+                    ? 'bg-white/15 text-neutral-100'
+                    : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+                }`}
+              >
+                @{a}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {mode === 'all' && projects.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase text-neutral-400 mb-2">Progetto</p>
+          <div className="flex flex-wrap gap-2">
+            {projects.map((pid) => {
+              const name = pid === UNASSIGNED_PROJECT_ID ? 'senza progetto' : pid.replace(/-[^-]+$/, '');
+              return (
+                <button
+                  key={pid}
+                  onClick={() => toggleProject(pid)}
+                  className={`rounded px-2 py-1 text-xs transition-colors ${
+                    filters.projectId.includes(pid)
+                      ? 'bg-white/15 text-neutral-100'
+                      : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+                  }`}
+                >
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={() => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [] })}
+        className="text-xs text-neutral-500 hover:text-neutral-300"
+      >
+        Resetta filtri
+      </button>
+    </div>
+  );
+}
+
 export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpenTopic }: Props) {
   const projectId = useMemo(() => (projectPath ? boardIdForPath(projectPath) : ''), [projectPath]);
   // The project/all toggle only makes sense inside a project window. The global
@@ -236,6 +356,25 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // The START switch is GLOBAL (one for every board) — so the pill lives on
   // every header, including the global board, and clicking it IS the toggle.
   const [dispatchOn, setDispatchOn] = useState<boolean | null>(null);
+
+  // Filters state + localStorage persistence (per board / per 'all' view).
+  interface Filters {
+    priority: number[];
+    assignedTo: string[];
+    text: string;
+    projectId: string[];
+  }
+  const storageKey = `board:filters-${mode === 'all' ? 'all' : projectId}`;
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState<Filters>(() => {
+    try {
+      const stored = localStorage.getItem(storageKey);
+      return stored ? JSON.parse(stored) : { priority: [], assignedTo: [], text: '', projectId: [] };
+    } catch { return { priority: [], assignedTo: [], text: '', projectId: [] }; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify(filters)); } catch { /* private mode */ }
+  }, [filters, storageKey]);
 
   useEffect(() => {
     let alive = true;
@@ -336,10 +475,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   const byStatus = useMemo(() => {
     const m: Record<TaskStatus, BoardTask[]> = { backlog: [], todo: [], in_progress: [], review: [], done: [] };
-    for (const t of tasks) (m[t.status] ??= []).push(t);
+    for (const t of tasks) {
+      // Apply filters: all active conditions must match (AND logic).
+      if (filters.priority.length > 0 && !filters.priority.includes(t.priority)) continue;
+      if (filters.assignedTo.length > 0 && !filters.assignedTo.includes(t.assignedTo || '')) continue;
+      if (filters.text && !t.text.toLowerCase().includes(filters.text.toLowerCase())) continue;
+      if (filters.projectId.length > 0 && !filters.projectId.includes(t.projectId)) continue;
+      (m[t.status] ??= []).push(t);
+    }
     for (const s of TASK_STATUSES) m[s].sort((a, b) => a.kanbanOrder - b.kanbanOrder);
     return m;
-  }, [tasks]);
+  }, [tasks, filters]);
 
   // Task lookup by id for card-level context chips: parent title ("⤴ epic…")
   // and blocked-by ("in attesa di…", needs the blocker's status too). Best
@@ -470,6 +616,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               <Bot className="h-3 w-3" /> {dispatchOn ? 'agent: on' : 'agent: off'}
             </button>
           )}
+          <button
+            onClick={() => setShowFilters((s) => !s)}
+            className={`relative rounded p-1 ${showFilters ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+            title="Filtri board"
+          >
+            <Funnel className="h-3.5 w-3.5" />
+            {Object.values(filters).some((v) => (Array.isArray(v) ? v.length > 0 : v !== '')) && (
+              <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            )}
+          </button>
           {hasProject && (
             <button
               onClick={() => setShowSettings((s) => !s)}
@@ -480,6 +636,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         </div>
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
+      {showFilters && (
+        <FilterPanel
+          filters={filters}
+          onFiltersChange={setFilters}
+          tasks={tasks}
+          mode={mode}
+        />
+      )}
       {showSettings && hasProject && (
         <BoardSettingsPanel
           projectId={projectId}
@@ -1053,6 +1217,9 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
   const [lastComment, setLastComment] = useState<TaskComment | null>(null);
   const [freeText, setFreeText] = useState('');
   const [busy, setBusy] = useState(false);
+  // Right-click menu (archive/select live here now — NOT as a trash icon that
+  // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
   useEffect(() => {
     if (!isAgentReview) { setLastComment(null); return; }
@@ -1097,15 +1264,25 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
       data-task-card={task.id}
       style={{ transform: isDragging ? undefined : CSS.Transform.toString(transform), transition }}
       onClick={() => onOpen(task.id)}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
     >
+      {/* Header: title left, PRIMARY STATE pinned top-right — same slot on every
+          card, so the eye finds "dov'è il task" without scanning the chip row.
+          No delete icon here: archive/select live in the right-click menu. */}
       <div className="flex items-start gap-2">
         <span className="flex-1 leading-snug">{task.text}</span>
-        <button onClick={(e) => { e.stopPropagation(); archive(); }} className="-m-1 rounded p-1 opacity-0 transition hover:bg-white/10 group-hover:opacity-100" title="Archivia">
-          <Trash2 className="h-4 w-4 text-neutral-500 hover:text-rose-400" />
-        </button>
+        {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title ?? task.dispatchError ?? undefined}>
+            {DISPATCH_CHIP[task.dispatchState].text}
+          </span>
+        ) : (!task.dispatchState && task.dispatchError) ? (
+          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
+        ) : null}
       </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+      {/* Meta: every informational chip stays VISIBLE, zoned below the title in a
+          tidy row (attributi del task). State + archive live top-right, above. */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         {!task.priorityAuto && task.priority !== 2 && (
           <span
             title={`Priorità: ${PRIORITY_LABEL[task.priority] ?? task.priority}`}
@@ -1159,17 +1336,6 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
           >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
         ) : null}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
-        {task.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
-          <span className={`rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title ?? task.dispatchError ?? undefined}>
-            {DISPATCH_CHIP[task.dispatchState].text}
-          </span>
-        )}
-        {!task.dispatchState && task.dispatchError && (
-          <span
-            className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300"
-            title={task.dispatchError}
-          >fermato</span>
-        )}
         {task.assignedTopicId && onOpenTopic && (
           <button
             onClick={(e) => { e.stopPropagation(); onOpenTopic(task.assignedTopicId!); }}
@@ -1242,6 +1408,28 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
             <ShieldX className="h-3.5 w-3.5" /> Rifiuta
           </button>
         </div>
+      )}
+      {ctxMenu && (
+        <ContextMenuPortal open x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)}>
+          <button
+            role="menuitem"
+            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpen(task.id); }}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+          ><ClipboardList className="h-3.5 w-3.5 text-neutral-400" /> Apri</button>
+          {task.assignedTopicId && onOpenTopic && (
+            <button
+              role="menuitem"
+              onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpenTopic(task.assignedTopicId!); }}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+            ><ArrowUpRight className="h-3.5 w-3.5 text-neutral-400" /> Apri tab agent</button>
+          )}
+          <div className="my-1 border-t border-white/10" />
+          <button
+            role="menuitem"
+            onClick={(e) => { e.stopPropagation(); setCtxMenu(null); archive(); }}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-rose-300 hover:bg-rose-500/10"
+          ><Trash2 className="h-3.5 w-3.5" /> Archivia</button>
+        </ContextMenuPortal>
       )}
     </div>
   );
@@ -1815,25 +2003,13 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             </button>
           ))}
         </Menu>
-        {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
-          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title ?? task.dispatchError ?? undefined}>
-            {DISPATCH_CHIP[task.dispatchState].text}
-          </span>
-        )}
-        {task && (task.agentMs > 0 || task.agentTokens > 0) && (
-          <span
-            className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-400"
-            title={`Effort dell'agent su questo task: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''}`}
-            data-testid="task-agent-effort"
-          >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
-        )}
         {task && (
           <button
             ref={projChipRef}
             onClick={openProjMenu}
             data-testid="task-project-chip"
             title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
-            className="ml-auto flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
+            className="flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
           >
             <ProjectFavicon path={currentProject?.path ?? ''} size={13} fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
             <span className="truncate">{projectLabel}</span>
@@ -1865,6 +2041,23 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
           ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
         </Menu>
+        {/* Primary STATE pinned to the right of the selector strip (coherent with
+            the card's top-right slot): dispatch chip + agent effort, next to the
+            window actions. Selettori a sinistra, stato a destra. */}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
+          {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
+            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title ?? task.dispatchError ?? undefined}>
+              {DISPATCH_CHIP[task.dispatchState].text}
+            </span>
+          )}
+          {task && (task.agentMs > 0 || task.agentTokens > 0) && (
+            <span
+              className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-400"
+              title={`Effort dell'agent su questo task: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''}`}
+              data-testid="task-agent-effort"
+            >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
+          )}
+        </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           {task && (
