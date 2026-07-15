@@ -23,9 +23,10 @@
  *    the retry cap) or parks a task that ended without reaching `review`.
  */
 import { UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
+import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 
-/** Fixed retry cap: how many launch attempts before a task is parked. */
-const RETRY_CAP = 3;
+/** Fallback retry cap when a board's setting can't be read (default 2). */
+const DEFAULT_RETRY_CAP = 2;
 
 /** What the dispatcher needs from the outside world — all injected. */
 export interface DispatcherDeps {
@@ -44,7 +45,7 @@ export interface DispatcherDeps {
    */
   catchAllProjectPath?: string;
   /** Create a detached, project-bound chat topic (no focus steal). */
-  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; standalone?: boolean }) => {
+  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; standalone?: boolean; mcpPolicy?: string }) => {
     topicId: string;
     sessionKey: string;
   };
@@ -68,19 +69,30 @@ export interface DispatcherDeps {
   /**
    * Choose a model for a task on "modello auto" (task.model === null), BEFORE
    * the agent spawns — a fast one-shot classifier (see task-model-picker.ts).
-   * Returns a concrete model id, or null to keep the provider default. Absent =
-   * host without a classifier (tests / degraded); "auto" then keeps the default.
+   * Returns the concrete model id (null = keep the provider default) plus a
+   * `fuzzy` flag: true when the task is vague/under-specified, which the
+   * dispatcher turns into auto plan-first. Absent = host without a classifier
+   * (tests / degraded); "auto" then keeps the default and never forces plan-first.
    * MUST resolve fast and never reject (the picker swallows its own errors).
    */
-  pickAutoModel?: (task: Task) => Promise<string | null>;
+  pickAutoModel?: (task: Task) => Promise<{ model: string | null; fuzzy: boolean }>;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
-  runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number }) => Promise<void>;
   /**
-   * Total tokens consumed so far by this session (from its transcript usage
-   * records). Best-effort — absent/throwing = 0. The dispatcher records the
-   * PER-TURN DELTA on the task, so totals survive retries on fresh sessions.
+   * Drive ONE headless turn to completion; resolves when the turn ends.
+   * `contextMode`: "full" (default) re-assembles the whole context envelope
+   * (CLAUDE.md/README/awareness/memory…); "lean" sends only the role prompt +
+   * cwd awareness. The dispatched session is persistent (the CLI keeps prior
+   * turns), so a resume/continuation doesn't need the full envelope re-injected
+   * into history — that only compounds cache write/read on every later call.
    */
-  getSessionTokens?: (sessionKey: string) => number;
+  runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number; contextMode?: "full" | "lean" }) => Promise<void>;
+  /**
+   * Usage consumed so far by this session (from its transcript usage records,
+   * deduplicated by API message id — see transcript-usage.ts). Best-effort —
+   * absent/throwing = zeros. The dispatcher records the PER-TURN DELTA on the
+   * task, so totals survive retries on fresh sessions.
+   */
+  getSessionUsage?: (sessionKey: string) => SessionUsage;
   /** Broadcast a WS message so live boards reflect chip/state changes. */
   broadcast: (message: object) => void;
   log?: (msg: string, err?: unknown) => void;
@@ -147,10 +159,20 @@ const ROLE_PROMPT =
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const graceMs = deps.graceMs ?? 6000;
-  const retryBackoffMs = deps.retryBackoffMs ?? 60_000;
   const log =
     deps.log ??
     ((m: string, e?: unknown) => (e ? console.error("[dispatcher] " + m, e) : console.log("[dispatcher] " + m)));
+
+  // Per-board retry economy (migration 050). A test override on
+  // deps.retryBackoffMs wins so harness turns stay instant; otherwise both come
+  // from board_settings, with a safe fallback if the read throws.
+  function retryCap(projectId: string): number {
+    try { return deps.svc.getBoardSettings(projectId).dispatchRetryCap; } catch { return DEFAULT_RETRY_CAP; }
+  }
+  function backoffMs(projectId: string): number {
+    if (deps.retryBackoffMs !== undefined) return deps.retryBackoffMs;
+    try { return deps.svc.getBoardSettings(projectId).dispatchRetryBackoffS * 1000; } catch { return 60_000; }
+  }
 
   // Pending debounced launches, keyed by taskId (the grace window).
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -173,18 +195,20 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (t) { clearTimeout(t); graceTimers.delete(taskId); }
   }
 
-  /** Tokens the session has consumed so far (best-effort, 0 when unknowable). */
-  function sessionTokens(sessionKey: string): number {
-    try { return deps.getSessionTokens?.(sessionKey) ?? 0; } catch { return 0; }
+  /** Usage the session has consumed so far (best-effort, zeros when unknowable). */
+  function sessionUsage(sessionKey: string): SessionUsage {
+    try { return deps.getSessionUsage?.(sessionKey) ?? ZERO_USAGE; } catch { return ZERO_USAGE; }
   }
 
-  /** Book the turn's effort (wall-clock + token delta) on the task and emit. */
-  function recordUsage(taskId: string, t0: number, tokens0: number, sessionKey: string): void {
+  /** Book the turn's effort (wall-clock + usage delta) on the task and emit. */
+  function recordUsage(taskId: string, t0: number, usage0: SessionUsage, sessionKey: string): void {
     try {
+      const u = sessionUsage(sessionKey);
       emit(deps.svc.recordAgentUsage({
         taskId,
         addMs: Date.now() - t0,
-        addTokens: Math.max(0, sessionTokens(sessionKey) - tokens0),
+        addTokens: Math.max(0, u.billableTokens - usage0.billableTokens),
+        addCacheReadTokens: Math.max(0, u.cacheReadTokens - usage0.cacheReadTokens),
       }));
     } catch { /* metrics never break the loop */ }
   }
@@ -198,14 +222,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // turn — the gaps between turns (queued / parked / asleep) are never counted.
   // `task:usage-live` is transient (never persisted); the card falls back to the
   // static agent_ms/agent_tokens chip the moment the turn ends.
-  interface LiveTurn { projectId: string; sessionKey: string; turnStartedAt: number; baseMs: number; baseTokens: number; tokens0: number; model: string | null; }
+  interface LiveTurn { projectId: string; sessionKey: string; turnStartedAt: number; baseMs: number; baseTokens: number; usage0: SessionUsage; model: string | null; }
   const liveTurns = new Map<string, LiveTurn>();
   let usageTicker: ReturnType<typeof setInterval> | null = null;
 
   function broadcastLiveUsage(): void {
     for (const [taskId, lt] of liveTurns) {
       let liveTokens = lt.baseTokens;
-      try { liveTokens = lt.baseTokens + Math.max(0, sessionTokens(lt.sessionKey) - lt.tokens0); } catch { /* keep base */ }
+      try { liveTokens = lt.baseTokens + Math.max(0, sessionUsage(lt.sessionKey).billableTokens - lt.usage0.billableTokens); } catch { /* keep base */ }
       try {
         deps.broadcast({
           type: "task:usage-live", projectId: lt.projectId, taskId,
@@ -215,10 +239,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
   }
 
-  function startLiveTurn(task: Task, sessionKey: string, t0: number, tokens0: number, model: string | null): void {
+  function startLiveTurn(task: Task, sessionKey: string, t0: number, usage0: SessionUsage, model: string | null): void {
     liveTurns.set(task.id, {
       projectId: task.projectId, sessionKey, turnStartedAt: t0,
-      baseMs: task.agentMs ?? 0, baseTokens: task.agentTokens ?? 0, tokens0, model,
+      baseMs: task.agentMs ?? 0, baseTokens: task.agentTokens ?? 0, usage0, model,
     });
     if (!usageTicker) usageTicker = setInterval(broadcastLiveUsage, 4000);
     broadcastLiveUsage(); // paint immediately, don't wait a full interval
@@ -261,6 +285,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ]
           : []),
         "- Commenti BREVI e utili: max 1-2 frasi ai milestone (cosa è fatto / cosa blocca). Mai log, diff o dump di codice nel thread (il server rifiuta commenti lunghi).",
+        "- Contesto snello (tieni i turni leggeri): usa Grep per trovare, poi Read a fette (offset/limit) sui file oltre ~400 righe — mai leggere file interi 'per sicurezza'. Per ispezionare lo schermo del browser usa browser_read_screen (testo), MAI screenshot/immagini nel contesto (uno screenshot va solo come allegato a comment_task). Comandi lunghi (build, test, install >~2 min): lanciali in background (run_script o `&`) e polla read_process_output ogni tanto invece di restare bloccato sul comando.",
         "- PIANO VISIBILE: se il lavoro ha più di un passo, crea subito i tuoi step come sottotask — " +
           `create_task(text=<step>, parent_task_id="${task.id}") per ognuno — e marca OGNI step done appena lo completi: update_task(task_id=<step id>, status="done") (permesso sui TUOI step). Sono la tua checklist sulla board: l'umano vede i progressi in tempo reale.`,
         "- Prima di consegnare in review TUTTI i tuoi step devono essere done (un task con sottotask aperti non è approvabile). Lavoro futuro fuori scope → task top-level SENZA parent (resta in backlog per l'umano).",
@@ -283,13 +308,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Launch one already-claimed task: (worktree?) → topic → turn → reconcile. */
   async function launch(
     taskId: string,
-    settings: { useWorktree: boolean; timeoutMin: number; effort: string },
+    settings: { useWorktree: boolean; timeoutMin: number; effort: string; mcp: string },
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
     inFlight.set(taskId, { sessionKey: "" });
     let worktreeId: string | undefined;
     try {
-      const task = deps.svc.get(taskId)?.task;
+      let task = deps.svc.get(taskId)?.task;
       if (!task) { inFlight.delete(taskId); return; }
 
       // Context reuse (opt-in on the task): ride the BLOCKER agent's topic —
@@ -327,10 +352,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Model selection. Explicit choice wins; "auto" (null) → classifier pick
       // before spawn (never for a reused topic — it inherits the blocker's).
       // The picker never rejects and returns fast; a null/absent result keeps
-      // the provider default, so dispatch is never blocked on this.
+      // the provider default, so dispatch is never blocked on this. The same
+      // one-shot flags a VAGUE task → auto plan-first (see below).
       let chosenModel: string | undefined = task.model ?? undefined;
+      let autoFuzzy = false;
       if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
-        chosenModel = (await deps.pickAutoModel(task)) ?? undefined;
+        const picked = await deps.pickAutoModel(task);
+        chosenModel = picked.model ?? undefined;
+        autoFuzzy = picked.fuzzy;
+      }
+
+      // Auto plan-first for a fuzzy task: a vague/under-specified task an agent
+      // can't close blind is exactly what burns the retry budget. Flip plan_first
+      // so the agent delivers a PLAN to review before implementing — one human
+      // round-trip instead of blind retries. Only when the human didn't already
+      // set it, and only on "modello auto" (an explicit model = deliberate task).
+      if (autoFuzzy && !task.planFirst) {
+        try {
+          deps.svc.update({ taskId, actor: "agent", by: "dispatcher", patch: { planFirst: true } });
+          task = deps.svc.get(taskId)?.task ?? task; // buildKickoff below reads task.planFirst
+          kickoff = buildKickoff(task);
+          if (reuseTopicId) kickoff = "Nuovo task nella STESSA sessione del task precedente: il contesto che hai costruito è condiviso di proposito, riusalo dove serve.\n\n" + kickoff;
+          deps.svc.addComment({ taskId, author: "system", content: "Task ambiguo o poco specificato: attivo plan-first (l'agent consegna prima un piano da approvare)." });
+        } catch { /* best-effort — never block dispatch on this */ }
       }
 
       // Catch-all decision FIRST (before any cwd override): a project-less task
@@ -354,6 +398,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             // Catch-all task → standalone session: keeps its (now per-task) cwd
             // but never renders a phantom project node in the sidebar.
             standalone: isCatchAll,
+            // MCP scoping: 'bridge-only' (the default) spawns the session with
+            // ONLY the topics bridge (dispatch tool profile) — the global MCP
+            // fleet's schemas never enter the agent's per-call context.
+            mcpPolicy: settings.mcp === "inherit" ? undefined : "bridge-only",
           });
       inFlight.set(taskId, { sessionKey });
 
@@ -364,15 +412,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
       const timeoutMs = Math.max(1, settings.timeoutMin) * 60_000;
       const t0 = Date.now();
-      const tokens0 = sessionTokens(sessionKey);
-      startLiveTurn(task, sessionKey, t0, tokens0, chosenModel ?? null);
+      const usage0 = sessionUsage(sessionKey);
+      startLiveTurn(task, sessionKey, t0, usage0, chosenModel ?? null);
       try {
-        await deps.runTurn(sessionKey, kickoff, { timeoutMs });
+        // Kickoff = the ONE turn that needs the full context envelope (grounds
+        // the fresh session in the project). A reused-blocker topic also gets
+        // full — it's a new task, worth re-grounding.
+        await deps.runTurn(sessionKey, kickoff, { timeoutMs, contextMode: "full" });
       } catch (err) {
         log(`turn failed for task ${taskId}`, err);
       }
       endLiveTurn(taskId);
-      recordUsage(taskId, t0, tokens0, sessionKey);
+      recordUsage(taskId, t0, usage0, sessionKey);
       onTurnEnd(taskId, Date.now() - t0);
       // The worktree holds the agent's work: keep it when the task advanced to
       // review/done (it's the deliverable), delete it when the attempt was
@@ -384,7 +435,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Setup threw (worktree/topic/bind). Park if attempts are exhausted, else
       // requeue — mirror onTurnEnd so a flaky setup can't strand a task in todo.
       try {
-        const exhausted = (deps.svc.get(taskId)?.task?.dispatchAttempts ?? RETRY_CAP) >= RETRY_CAP;
+        const failTask = deps.svc.get(taskId)?.task;
+        const cap = failTask ? retryCap(failTask.projectId) : DEFAULT_RETRY_CAP;
+        const exhausted = (failTask?.dispatchAttempts ?? cap) >= cap;
         emit(deps.svc.release({
           taskId,
           requeue: !exhausted,
@@ -441,25 +494,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // from scratch — a fresh restart re-plans, re-creates the step checklist
       // and burns the whole retry budget on any task bigger than one timeout.
       if (cur.assignedTopicId) {
+        const cap = retryCap(cur.projectId);
+        const backoff = backoffMs(cur.projectId);
         let bumped: Task | null = null;
-        try { bumped = deps.svc.bumpDispatchAttempt({ taskId, maxAttempts: RETRY_CAP }); } catch { /* park below */ }
+        try { bumped = deps.svc.bumpDispatchAttempt({ taskId, maxAttempts: cap }); } catch { /* park below */ }
         if (bumped) {
           // A turn that died in seconds is a provider outage (connection cut,
-          // credit/limit), not a timeout: back off before resuming, or three
+          // credit/limit), not a timeout: back off before resuming, or the
           // instant failures park the task while the outage is still on.
-          const quickDeath = turnMs !== undefined && turnMs < retryBackoffMs;
+          const quickDeath = turnMs !== undefined && turnMs < backoff;
           try {
             deps.svc.addComment({
               taskId, author: "system",
               content: quickDeath
-                ? `Turno caduto subito (probabile problema momentaneo del provider): riprovo tra ${Math.round(retryBackoffMs / 1000)}s sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${RETRY_CAP}).`
-                : `Turno interrotto senza arrivare a review (probabile timeout): l'agent continua sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${RETRY_CAP}).`,
+                ? `Turno caduto subito (probabile problema momentaneo del provider): riprovo tra ${Math.round(backoff / 1000)}s sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${cap}).`
+                : `Turno interrotto senza arrivare a review (probabile timeout): l'agent continua sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${cap}).`,
             });
           } catch { /* best-effort */ }
           emit(bumped);
           // Deferred at least a tick: the caller's finally still holds the
           // inFlight slot; quick deaths wait out the backoff.
-          setTimeout(() => { void resume(taskId, "", { continuation: true }); }, quickDeath ? retryBackoffMs : 0);
+          setTimeout(() => { void resume(taskId, "", { continuation: true }); }, quickDeath ? backoff : 0);
           return;
         }
       }
@@ -514,9 +569,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    *  burns the whole budget and gets parked — so the last continuation forces a
    *  deliver-what-you-have, and even then onTurnEnd hands a worked task to review
    *  rather than failing it. */
-  function buildContinueNudge(task: Task): string {
+  function buildContinueNudge(task: Task, cap: number): string {
     // The NEXT turn is the last one when this attempt already reached the cap.
-    const lastChance = task.dispatchAttempts >= RETRY_CAP;
+    const lastChance = task.dispatchAttempts >= cap;
     if (lastChance) {
       return [
         `ULTIMO TURNO su \`${task.id}\`: non iniziare nuovo lavoro e non continuare a investigare.`,
@@ -548,13 +603,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let timeoutMin = 20;
       try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
       const t0 = Date.now();
-      const tokens0 = sessionTokens(sessionKey);
-      startLiveTurn(t, sessionKey, t0, tokens0, t.model ?? null);
-      const content = opts?.continuation ? buildContinueNudge(t) : buildResume(t, humanMessage);
-      try { await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
+      const usage0 = sessionUsage(sessionKey);
+      startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
+      const content = opts?.continuation ? buildContinueNudge(t, retryCap(t.projectId)) : buildResume(t, humanMessage);
+      // Resume (human answer) or continuation (post-timeout nudge): the session
+      // already carries the full envelope from kickoff — re-injecting CLAUDE.md
+      // & co. only compounds cache write/read. Lean = role prompt + cwd only.
+      try { await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000, contextMode: "lean" }); }
       catch (err) { log(`resume turn failed for ${taskId}`, err); }
       endLiveTurn(taskId);
-      recordUsage(taskId, t0, tokens0, sessionKey);
+      recordUsage(taskId, t0, usage0, sessionKey);
       onTurnEnd(taskId, Date.now() - t0);
     } finally {
       inFlight.delete(taskId);
@@ -579,7 +637,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { todos = deps.svc.list({ scope: "project", projectId, status: "todo", rootsOnly: true }); }
     catch (err) { log(`list todo failed for ${projectId}`, err); return; }
     todos = todos
-      .filter((t) => !t.assignedTopicId && t.dispatchAttempts < RETRY_CAP)
+      .filter((t) => !t.assignedTopicId && t.dispatchAttempts < settings.dispatchRetryCap)
       // Dependency gate: a todo whose blocker is still open WAITS (no claim
       // attempt, no chip). Same predicate as the claim CAS, so no divergence.
       .filter((t) => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })
@@ -621,7 +679,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const claimed = deps.svc.claim({
         taskId: t.id,
         cap: settings.maxAgents,
-        maxAttempts: RETRY_CAP,
+        maxAttempts: settings.dispatchRetryCap,
       });
       if (!claimed) continue; // cap hit or lost the race
       clearGrace(t.id);
@@ -631,6 +689,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         useWorktree: settings.dispatchUseWorktree,
         timeoutMin: settings.dispatchTimeoutMin,
         effort: settings.dispatchEffort,
+        mcp: settings.dispatchMcp,
       }, resolved);
     }
   }

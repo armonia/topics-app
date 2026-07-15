@@ -62,9 +62,12 @@ export interface BoardTask {
   planFirst: boolean;
   /** When the current claim started — anchors the live "ci sta mettendo" ticker. */
   inProgressAt: string | null;
-  /** Cumulative agent effort across every turn (dispatcher-recorded). */
+  /** Cumulative agent effort across every turn (dispatcher-recorded).
+   *  agentTokens = input+output+cacheWrite (dedup by API message id); cache
+   *  READS ride separately — the context re-read pressure, not "work" tokens. */
   agentMs: number;
   agentTokens: number;
+  agentCacheReadTokens: number;
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;
@@ -222,6 +225,8 @@ export interface BoardSettings {
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
   dispatchTimeoutMin: number;
+  /** MCP fleet for dispatched agents: 'bridge-only' (default, lean) | 'inherit'. */
+  dispatchMcp: string;
   requireApprovalForDone: boolean;
   requireReviewBeforeDone: boolean;
 }
@@ -232,6 +237,7 @@ export interface BoardSettingsPatch {
   dispatchEffort?: string;
   dispatchUseWorktree?: boolean;
   dispatchTimeoutMin?: number;
+  dispatchMcp?: string;
 }
 
 /** One entry of the board index (task-detail project selector). */

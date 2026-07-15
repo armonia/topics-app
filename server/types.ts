@@ -179,6 +179,14 @@ export interface Topic {
    * had no projectPath. Real-project sessions leave this unset (grouped).
    */
   standalone?: boolean;
+  /**
+   * MCP fleet scoping for this topic's Claude Code session (migration 049).
+   * NULL/absent = inherit the user's full MCP fleet (interactive default).
+   * 'bridge-only' = ONLY the per-session `topics` bridge, spawned with the
+   * dispatch-reduced tool profile — set by the task dispatcher so board agents
+   * don't pay the schema tokens of the whole global fleet on every API call.
+   */
+  mcpPolicy?: string | null;
   sortOrder?: number;
   autonomyLevel?: 'ask' | 'auto-apply' | 'yolo';
   provider?: string | null;

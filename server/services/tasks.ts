@@ -73,9 +73,12 @@ export interface Task {
   /** When the current claim started (dispatcher CAS) — the live "ci sta
    *  mettendo" ticker anchors here while a turn runs. */
   inProgressAt: string | null;
-  /** Cumulative agent effort: wall-clock ms + tokens across every turn. */
+  /** Cumulative agent effort: wall-clock ms + tokens across every turn.
+   *  agentTokens = input+output+cacheWrite (dedup); cache READS ride separately
+   *  — they dominate real consumption but aren't "work" tokens. */
   agentMs: number;
   agentTokens: number;
+  agentCacheReadTokens: number;
   /** Nobody chose a priority: the dispatched agent evaluates and sets one. */
   priorityAuto: boolean;
   /** Model override for the agent topic. null = auto (provider default). */
@@ -179,6 +182,18 @@ export interface BoardSettings {
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
   dispatchTimeoutMin: number;
+  /**
+   * MCP fleet for dispatched agents on this board (migration 049).
+   * 'bridge-only' (the NULL default) = only the topics bridge, dispatch tool
+   * profile — the global fleet's tool schemas never enter the agent's context.
+   * 'inherit' = escape hatch: the session inherits the user's full MCP fleet
+   * (for boards whose tasks genuinely need those tools).
+   */
+  dispatchMcp: string;
+  /** Launch attempts before a task is parked (default 2). */
+  dispatchRetryCap: number;
+  /** Backoff (s) before resuming a turn that died faster than it (outage guard, default 60). */
+  dispatchRetryBackoffS: number;
   requireApprovalForDone: boolean;
   requireReviewBeforeDone: boolean;
 }
@@ -189,9 +204,13 @@ export interface UpdateBoardSettingsPatch {
   dispatchEffort?: string;
   dispatchUseWorktree?: boolean;
   dispatchTimeoutMin?: number;
+  dispatchMcp?: string;
+  dispatchRetryCap?: number;
+  dispatchRetryBackoffS?: number;
 }
 
 const VALID_EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);
+const VALID_DISPATCH_MCP = new Set(["bridge-only", "inherit"]);
 const clampInt = (n: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, Math.trunc(Number.isFinite(n) ? n : lo)));
 
@@ -317,7 +336,7 @@ export interface TaskService {
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
-  recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number }): Task;
+  recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /** Read the per-board dispatch config (defaults when no row exists). */
   getBoardSettings(projectId: string): BoardSettings;
   /** Upsert the per-board dispatch config. `autoDispatch` routes to the global switch. */
@@ -369,6 +388,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       inProgressAt: r.in_progress_at ?? null,
       agentMs: r.agent_ms ?? 0,
       agentTokens: r.agent_tokens ?? 0,
+      agentCacheReadTokens: r.agent_cache_read_tokens ?? 0,
       priorityAuto: r.priority_auto == null ? true : !!r.priority_auto,
       model: r.model ?? null,
       blockedByTaskId: r.blocked_by_task_id ?? null,
@@ -922,14 +942,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    recordAgentUsage({ taskId, addMs, addTokens }): Task {
+    recordAgentUsage({ taskId, addMs, addTokens, addCacheReadTokens }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ms = Math.max(0, Math.trunc(addMs || 0));
       const tok = Math.max(0, Math.trunc(addTokens || 0));
+      const cr = Math.max(0, Math.trunc(addCacheReadTokens || 0));
       db.prepare(
-        "UPDATE tasks SET agent_ms = agent_ms + ?, agent_tokens = agent_tokens + ?, updated_at = ? WHERE id = ?",
-      ).run(ms, tok, now(), taskId);
+        "UPDATE tasks SET agent_ms = agent_ms + ?, agent_tokens = agent_tokens + ?, agent_cache_read_tokens = agent_cache_read_tokens + ?, updated_at = ? WHERE id = ?",
+      ).run(ms, tok, cr, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -962,6 +983,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchEffort: r?.dispatch_effort ?? "medium",
         dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
         dispatchTimeoutMin: r?.dispatch_timeout_min ?? 20,
+        dispatchMcp: r?.dispatch_mcp ?? "bridge-only",
+        dispatchRetryCap: r?.dispatch_retry_cap ?? 2,
+        dispatchRetryBackoffS: r?.dispatch_retry_backoff_s ?? 60,
         requireApprovalForDone: r ? !!r.require_approval_for_done : false,
         requireReviewBeforeDone: r ? !!r.require_review_before_done : false,
       };
@@ -971,6 +995,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!projectId) throw new TaskServiceError("invalid_input", "projectId is required");
       if (patch.dispatchEffort !== undefined && !VALID_EFFORT.has(patch.dispatchEffort)) {
         throw new TaskServiceError("invalid_input", `invalid effort "${patch.dispatchEffort}"`);
+      }
+      if (patch.dispatchMcp !== undefined && !VALID_DISPATCH_MCP.has(patch.dispatchMcp)) {
+        throw new TaskServiceError("invalid_input", `invalid dispatchMcp "${patch.dispatchMcp}"`);
       }
       // Ensure a row exists. Seed max_agents at the dispatch default (2), NOT the
       // legacy board_settings column default (5) — otherwise merely toggling
@@ -991,6 +1018,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchEffort !== undefined) { sets.push("dispatch_effort = ?"); params.push(patch.dispatchEffort); }
       if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }
       if (patch.dispatchTimeoutMin !== undefined) { sets.push("dispatch_timeout_min = ?"); params.push(clampInt(patch.dispatchTimeoutMin, 1, 120)); }
+      if (patch.dispatchMcp !== undefined) { sets.push("dispatch_mcp = ?"); params.push(patch.dispatchMcp); }
+      if (patch.dispatchRetryCap !== undefined) { sets.push("dispatch_retry_cap = ?"); params.push(clampInt(patch.dispatchRetryCap, 1, 5)); }
+      if (patch.dispatchRetryBackoffS !== undefined) { sets.push("dispatch_retry_backoff_s = ?"); params.push(clampInt(patch.dispatchRetryBackoffS, 10, 600)); }
       if (sets.length) db.prepare(`UPDATE board_settings SET ${sets.join(", ")} WHERE project_id = ?`).run(...params, projectId);
       return this.getBoardSettings(projectId);
     },

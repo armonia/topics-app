@@ -377,6 +377,41 @@ interface ParsedArgs {
   baseUrl: string;
   sessionKey: string;
   gatewayToken?: string;
+  /** Tool profile: "dispatch" = reduced set for board agents (see DISPATCH_EXCLUDED_TOOLS). */
+  profile?: string;
+}
+
+/**
+ * Tools a dispatched board agent never needs — every schema here would ride
+ * along in the agent's context on every API call for nothing. Excluded under
+ * `--profile=dispatch`, BOTH from tools/list and (defense in depth) tools/call:
+ * orchestration fan-out (spawn/steer sub-agents), cross-topic chat, topic/tab
+ * navigation, project management, Chrome cookie import. The task tools, the
+ * process tools (run_script &c.) and every browser_* verification tool stay.
+ */
+const DISPATCH_EXCLUDED_TOOLS = new Set([
+  "spawn_agent",
+  "send_to_agent",
+  "read_agent",
+  "list_agents",
+  "stop_agent",
+  "send_chat_message",
+  "read_chat_messages",
+  "new_topic",
+  "switch_topic",
+  "import_chrome",
+  "move_session_to_project",
+  "create_project",
+  "open_project",
+]);
+
+export function toolsForProfile(profile: string | undefined): typeof TOOLS {
+  if (profile !== "dispatch") return TOOLS;
+  return TOOLS.filter((t) => !DISPATCH_EXCLUDED_TOOLS.has(t.name));
+}
+
+export function isToolAllowedForProfile(profile: string | undefined, name: string): boolean {
+  return profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(name);
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -393,6 +428,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     baseUrl: baseUrl.replace(/\/$/, ""),
     sessionKey,
     gatewayToken: map["gateway-token"],
+    profile: map["profile"],
   };
 }
 
@@ -1136,12 +1172,17 @@ export async function handleMessage(
       return {
         jsonrpc: "2.0",
         id,
-        result: { tools: TOOLS },
+        result: { tools: toolsForProfile(args.profile) },
       };
 
     case "tools/call": {
       const name = (params as { name?: string } | undefined)?.name;
       const toolArgs = (params as { arguments?: Record<string, unknown> } | undefined)?.arguments ?? {};
+      // Defense in depth: a profile-excluded tool is not callable either, even
+      // if a client ignores the filtered tools/list.
+      if (name && !isToolAllowedForProfile(args.profile, name)) {
+        return error(id, -32601, `Tool not available in this session profile: ${name}`);
+      }
       const handler = name ? TOOL_HANDLERS[name] : undefined;
       if (!handler) {
         return error(id, -32601, `Unknown tool: ${name}`);
