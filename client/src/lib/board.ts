@@ -25,6 +25,23 @@ export const UNASSIGNED_PROJECT_ID = '_none';
  * back to UNASSIGNED_PROJECT_ID when none/ambiguous.
  */
 export const AUTO_PROJECT_ID = '_auto';
+
+/**
+ * A project-less "Auto" task is routed server-side to a scaffolded catch-all
+ * board (workspace/generale → id "generale-<hash>") so it can actually DISPATCH
+ * — the dispatcher only ticks real boards. But on the UI that "generale" name is
+ * noise (the user wants no such label), so the board treats a catch-all task
+ * exactly like UNASSIGNED_PROJECT_ID: no project chip. Mirrors the server's
+ * join(workspaceDir, "generale"); a real top-level project literally named
+ * "generale" is reserved for the catch-all by convention.
+ */
+export const isCatchAllProjectId = (projectId: string): boolean =>
+  /^generale-[a-z0-9]+$/.test(projectId);
+
+/** No user-facing project: unassigned OR the catch-all — both render with no chip. */
+export const isProjectlessId = (projectId: string): boolean =>
+  projectId === UNASSIGNED_PROJECT_ID || isCatchAllProjectId(projectId);
+
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: 'Backlog',
   todo: 'Todo',
