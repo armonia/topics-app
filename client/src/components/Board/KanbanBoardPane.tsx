@@ -1093,20 +1093,19 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
             {PRIORITY_LABEL[task.priority] ?? task.priority}
           </span>
         )}
-        {showProject && (
+        {/* No project → no label at all. The one exception is a `todo`: with no
+            project it silently won't dispatch, so we keep that call-to-action. */}
+        {showProject && (!unassigned || task.status === 'todo') && (
           <span
             title={unassigned ? 'Assegna un progetto (dal dettaglio, "Sposta su…") per farlo lavorare da un agent' : undefined}
             className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
               unassigned
-                // In todo it's the reason nothing starts → warn, don't whisper.
-                ? task.status === 'todo'
-                  ? 'bg-amber-500/15 text-amber-300'
-                  : 'bg-white/5 italic text-neutral-500'
+                ? 'bg-amber-500/15 text-amber-300' // only reached for todo: the reason nothing starts
                 : 'bg-emerald-500/15 text-emerald-300'
             }`}
           >
             {projectPath && <ProjectFavicon path={projectPath} size={11} />}
-            {unassigned && task.status === 'todo' ? 'assegna un progetto per partire' : projectLabel}
+            {unassigned ? 'assegna un progetto per partire' : projectLabel}
           </span>
         )}
         {blocker && blocker.status !== 'done' && (
