@@ -476,7 +476,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
-            <div className="flex h-full min-w-0 gap-3 overflow-x-auto p-3 pb-20">
+            <div className="flex h-full min-w-0 gap-2 overflow-x-auto px-2 py-3 pb-20 sm:gap-3 sm:px-3">
               {TASK_STATUSES.map((status) => (
                 <Column
                   key={status}
@@ -959,7 +959,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
 
   return (
-    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex shrink-0 flex-col rounded-lg border ${status === 'review' ? 'w-[32rem]' : 'w-72'} ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
+    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex shrink-0 flex-col rounded-lg border ${status === 'review' ? 'min-w-80 sticky right-0 z-20 lg:static lg:w-[32rem]' : 'min-w-72'} ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-300">
           <StatusIcon status={status} />
