@@ -1137,7 +1137,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
           <LiveEffortChip usage={live} />
         ) : (task.agentMs > 0 || task.agentTokens > 0) ? (
           <span
-            title={`Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.model ? ` · modello ${fmtModel(task.model)}` : ''}`}
+            title={`Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''}${task.model ? ` · modello ${fmtModel(task.model)}` : ''}`}
             className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
           >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
         ) : null}
@@ -1744,7 +1744,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
         {task && (task.agentMs > 0 || task.agentTokens > 0) && (
           <span
             className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-400"
-            title={`Effort dell'agent su questo task: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}`}
+            title={`Effort dell'agent su questo task: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''}`}
             data-testid="task-agent-effort"
           >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
         )}
@@ -2590,6 +2590,11 @@ function BoardSettingsPanel({ projectId, settings: s, dispatchOn, onToggleDispat
       <label className="flex cursor-pointer items-center justify-between">
         <span>Isola ogni agent in un git worktree</span>
         <input type="checkbox" checked={s.dispatchUseWorktree} onChange={(e) => patch({ dispatchUseWorktree: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
+      </label>
+
+      <label className="flex cursor-pointer items-center justify-between" title="Bridge only: l'agent ha solo i tool di Topics (task + browser) — meno token per turno. Fleet completa: eredita tutti gli MCP dell'utente (exa, gateway…), utile solo se i task usano quei tool.">
+        <span>Fleet MCP completa per gli agent</span>
+        <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
       </label>
 
       {dispatchOn && (

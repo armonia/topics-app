@@ -145,6 +145,17 @@ export interface AssembleArgs {
    * so the inspector / snapshot ring can label the envelope.
    */
   fastMode?: boolean;
+
+  /**
+   * Emit a MINIMAL envelope: only the topic system prompt (role) + the project
+   * awareness sentence (the load-bearing cwd). Skips template files
+   * (CLAUDE.md/README/…), browser/marker/topic-switch instructions, memory and
+   * pinned blocks. Used by the dispatcher on a resume/continuation turn: the
+   * persistent CLI session already saw the full envelope at kickoff, so
+   * re-injecting it only compounds cache write/read on every later call.
+   * Default: false (full envelope — interactive turns always refresh).
+   */
+  leanContext?: boolean;
 }
 
 export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): ContextEnvelope {
@@ -158,6 +169,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     disabledSources,
     planMode = false,
     fastMode = false,
+    leanContext = false,
   } = args;
 
   const topic = ctx.getTopicBySessionKey(sessionKey);
@@ -188,27 +200,35 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   // (b) Topics-app-emitted blocks, in delivery order.
   if (topic) {
     pushSystemPromptBlock(systemBlocks, topic, isEnabled);
-    pushContextFileBlocks(systemBlocks, topic, isEnabled);
-    pushProjectTemplateBlocks(systemBlocks, topic, ctx, isEnabled);
-    // Browser/project/topic control instructions steer the model to TOOLS. Only
-    // emit them for providers that can actually reach those tools (openclaw
-    // cannot — see providerHasControlTools). For openclaw, log the degradation
-    // to user-driven control once (never a silent no-op) and skip the blocks.
-    if (providerHasControlTools(providerName)) {
-      pushBrowserInstructionBlock(systemBlocks);
-      pushProjectMarkersBlock(systemBlocks);
-      pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx);
-    } else if (!controlToolWarningLogged.has(providerName)) {
-      controlToolWarningLogged.add(providerName);
-      console.warn(
-        `[assemble] provider "${providerName}" has no AI-initiated control-tool channel ` +
-        `(browser/project/topic tools are not injectable into the gateway); ` +
-        `these actions degrade to user-driven control (sidebar drag / context-menu / /project).`,
-      );
+    // Lean (dispatcher resume/continuation): system prompt + cwd awareness ONLY.
+    // The persistent CLI session already carries CLAUDE.md/README, the browser
+    // instructions, memory & co. from the kickoff turn — re-sending them just
+    // grows the cached history for every subsequent call this turn.
+    if (leanContext) {
+      pushProjectTemplateBlocks(systemBlocks, topic, ctx, isEnabled, { lean: true });
+    } else {
+      pushContextFileBlocks(systemBlocks, topic, isEnabled);
+      pushProjectTemplateBlocks(systemBlocks, topic, ctx, isEnabled);
+      // Browser/project/topic control instructions steer the model to TOOLS. Only
+      // emit them for providers that can actually reach those tools (openclaw
+      // cannot — see providerHasControlTools). For openclaw, log the degradation
+      // to user-driven control once (never a silent no-op) and skip the blocks.
+      if (providerHasControlTools(providerName)) {
+        pushBrowserInstructionBlock(systemBlocks);
+        pushProjectMarkersBlock(systemBlocks);
+        pushTopicSwitchDirectoryBlock(systemBlocks, topic, ctx);
+      } else if (!controlToolWarningLogged.has(providerName)) {
+        controlToolWarningLogged.add(providerName);
+        console.warn(
+          `[assemble] provider "${providerName}" has no AI-initiated control-tool channel ` +
+          `(browser/project/topic tools are not injectable into the gateway); ` +
+          `these actions degrade to user-driven control (sidebar drag / context-menu / /project).`,
+        );
+      }
+      pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
+      pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled);
+      if (planMode) pushPlanModeBlock(systemBlocks);
     }
-    pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
-    pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled);
-    if (planMode) pushPlanModeBlock(systemBlocks);
   }
 
   // ── History ───────────────────────────────────────────────────────────
@@ -486,9 +506,11 @@ function pushProjectTemplateBlocks(
   topic: Topic,
   ctx: AppContext,
   isEnabled: (id: string) => boolean,
+  opts?: { lean?: boolean },
 ): void {
   const projectDir = ctx.resolveTopicCwd(topic);
   if (!projectDir || !existsSync(projectDir)) return;
+  const lean = opts?.lean === true;
 
   const projectName = (topic.projectPath || projectDir).split("/").pop()
     || topic.projectPath
@@ -500,17 +522,32 @@ function pushProjectTemplateBlocks(
   // bound agent at the live repo is exactly the clobbering the worktree
   // exists to prevent.
   const isWorktreeBound = !!topic.worktreeId && projectDir !== topic.projectPath;
-  const awarenessBase = isWorktreeBound
+  let awarenessBase = isWorktreeBound
     ? `You are working in the project "${projectName}" inside an ISOLATED git worktree at ${projectDir}. ` +
       `Do all your work in that directory — never in the project's main checkout.`
     : `You are working in the project "${projectName}" at ${projectDir}.`;
 
+  // Graphify hint: if the project has a prebuilt code graph, point the agent at
+  // it so it navigates the structure with `graphify query/explain/path` instead
+  // of a fan-out of Grep/Read (each large tool-result inflates the cached
+  // conversation). graphify-out/ is NOT committed, so a worktree checkout won't
+  // have it — check the MAIN repo (topic.projectPath) and cite its absolute
+  // path (read-only; the agent reads the graph where it lives).
+  const graphRepo = topic.projectPath || projectDir;
+  const graphPath = graphRepo ? join(graphRepo, "graphify-out", "graph.json") : "";
+  if (graphPath && existsSync(graphPath)) {
+    awarenessBase +=
+      `\n\nCode graph available for this project: prefer \`graphify query/explain/path\` ` +
+      `(graph at ${graphPath}) over broad Grep/Read exploration when locating code.`;
+  }
+
   // Snapshot carries the "Project root files: a, b/, c" listing plus the
   // template file contents. The adapter consults `adapterHints.projectListing`
   // at compose time iff no template files end up enabled — mirrors the legacy
-  // fallback in `streamEditResponse`.
-  const snap = getTemplateSnapshot(projectDir);
-  const projectListing = snap.listing;
+  // fallback in `streamEditResponse`. In lean mode we skip the snapshot entirely
+  // (no listing hint, no file reads).
+  const snap = lean ? null : getTemplateSnapshot(projectDir);
+  const projectListing = snap?.listing;
 
   // Synthetic project-awareness block — always emitted when projectDir
   // resolves. Content is the bare statement; the adapter appends either
@@ -528,6 +565,8 @@ function pushProjectTemplateBlocks(
     injectedByTopicsApp: true,
     adapterHints: projectListing ? { projectListing } : undefined,
   });
+
+  if (!snap) return; // lean: awareness sentence only, no template file blocks
 
   for (const file of snap.files) {
     const id = `template:${file.name}`;

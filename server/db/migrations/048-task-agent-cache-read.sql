@@ -1,0 +1,13 @@
+-- Cache-read accounting for dispatched agents (migration 040 companion).
+--
+-- agent_tokens counts input+output+cache_creation from the session transcript.
+-- Two fixes land together with this column (server/services/transcript-usage.ts):
+--   1. usage rows are now DEDUPLICATED by message.id — Claude Code writes one
+--      usage line per content block of the same API response, so the old sum
+--      overcounted ~2.4x. Historical agent_tokens rows keep the inflated
+--      values: totals recorded before/after this migration are NOT comparable.
+--   2. cache_read_input_tokens — the dominant share of real consumption
+--      (~60% measured) — was invisible. It accumulates here, kept SEPARATE
+--      from agent_tokens so the chip keeps its "work tokens" meaning and the
+--      breakdown (drawer/tooltip) can show the true context-reread pressure.
+ALTER TABLE tasks ADD COLUMN agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0;

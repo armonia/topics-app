@@ -52,6 +52,9 @@ import m043 from "./migrations/044-topic-standalone.sql" with { type: "text" };
 import m044 from "./migrations/045-backfill-catchall-standalone.sql" with { type: "text" };
 import m045 from "./migrations/046-standalone-husk-topics.sql" with { type: "text" };
 import m046 from "./migrations/047-classify-parked-dispatch-state.sql" with { type: "text" };
+import m047 from "./migrations/048-task-agent-cache-read.sql" with { type: "text" };
+import m048 from "./migrations/049-topic-mcp-policy.sql" with { type: "text" };
+import m049 from "./migrations/050-board-dispatch-retry.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -108,4 +111,7 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 45, name: "045-backfill-catchall-standalone.sql", sql: m044 },
   { version: 46, name: "046-standalone-husk-topics.sql", sql: m045 },
   { version: 47, name: "047-classify-parked-dispatch-state.sql", sql: m046 },
+  { version: 48, name: "048-task-agent-cache-read.sql", sql: m047 },
+  { version: 49, name: "049-topic-mcp-policy.sql", sql: m048 },
+  { version: 50, name: "050-board-dispatch-retry.sql", sql: m049 },
 ];

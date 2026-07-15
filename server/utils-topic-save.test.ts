@@ -142,4 +142,23 @@ describe("saveSingleTopic upsert (no REPLACE cascade)", () => {
     ctx.saveSingleTopic(plain);
     expect(ctx.getTopicById(plain.id)?.standalone).toBeUndefined();
   });
+
+  test("mcpPolicy survives the save/load round-trip (migration 049)", () => {
+    // Same invariant as `standalone`: a Topic field without its column +
+    // insertTopic binding + rowToTopic read silently drops on save.
+    const t = makeTopic("88888888-aaaa-bbbb-cccc-000000000008", {
+      mcpPolicy: "bridge-only",
+    });
+    ctx.saveSingleTopic(t);
+    expect(ctx.getTopicById(t.id)?.mcpPolicy).toBe("bridge-only");
+
+    // Clearing it round-trips too (absent, not a stuck value).
+    ctx.saveSingleTopic({ ...t, mcpPolicy: null });
+    expect(ctx.getTopicById(t.id)?.mcpPolicy).toBeUndefined();
+
+    // A normal topic never gains the field.
+    const plain = makeTopic("99999999-aaaa-bbbb-cccc-000000000009");
+    ctx.saveSingleTopic(plain);
+    expect(ctx.getTopicById(plain.id)?.mcpPolicy).toBeUndefined();
+  });
 });
