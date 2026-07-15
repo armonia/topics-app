@@ -1170,14 +1170,17 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
           {pending ? (
             <p className="text-xs leading-snug text-rose-200">{stripMarkdown(pending.question)}</p>
           ) : lastComment ? (
-            <p className="line-clamp-6 text-xs leading-relaxed text-neutral-300" title={`${lastComment.author}: ${lastComment.content}`}>
-              {/* No author prefix: for dispatched agents it's the topic name =
-                  the task title — noise dressed up as a username. Markdown
-                  syntax stripped to plain text — a clamped card preview can't
-                  render block markdown, and raw `**`/`#` reads as broken. */}
+            // Render the agent's last word as REAL markdown (bold/headings/lists
+            // format instead of showing raw `**`/`#`), capped in height with a
+            // fade so a long plan doesn't blow up the card. Tooltip = plain text.
+            <div
+              className={`relative max-h-40 overflow-hidden text-xs leading-relaxed text-neutral-300 ${COMPACT_MD_CLS}`}
+              title={`${lastComment.author}: ${stripMarkdown(lastComment.content)}`}
+            >
               {lastComment.author !== 'user' && <Bot className="mr-1 inline h-3 w-3 align-[-2px] text-neutral-400" />}
-              {stripMarkdown(lastComment.content)}
-            </p>
+              <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[var(--pane-bg,rgba(20,20,22,0.9))] to-transparent" />
+            </div>
           ) : null}
           {pending && pending.options.length > 0 && (
             <div className="flex flex-wrap gap-1">
