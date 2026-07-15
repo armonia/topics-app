@@ -1285,6 +1285,8 @@ function App() {
             onNewClaude={() => handleQuickCreateTerminal('claude-code', claudeSkipPermissions)}
             onNewCodex={() => handleQuickCreateTerminal('codex')}
             onNewTerminal={() => handleQuickCreateTerminal('shell')}
+            onCreateProject={handleOpenProjectPicker}
+            onNewProject={handleOpenProjectPicker}
             onToggleTheme={toggleTheme}
             onOpenSettings={() => { setShowSearch(false); setShowSettings(true); }}
             // "Reimposta pannelli" (collapse to one tabbed cell) + "Disponi
