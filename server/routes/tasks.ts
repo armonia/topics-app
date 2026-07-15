@@ -198,6 +198,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchEffort: typeof body?.dispatchEffort === "string" ? body.dispatchEffort : undefined,
               dispatchUseWorktree: typeof body?.dispatchUseWorktree === "boolean" ? body.dispatchUseWorktree : undefined,
               dispatchTimeoutMin: typeof body?.dispatchTimeoutMin === "number" ? body.dispatchTimeoutMin : undefined,
+              dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
             });
             broadcastToAll({ type: "board:settings", projectId, settings });
             // autoDispatch is global — every board header (not just this

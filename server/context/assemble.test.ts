@@ -588,3 +588,83 @@ describe("assembleTopicContext — fastMode flag (chat-fast-mode)", () => {
     expect(on.systemBlocks.find((b) => b.id.startsWith("synthetic:fast-mode"))).toBeUndefined();
   });
 });
+
+describe("assembleTopicContext — leanContext (dispatcher resume/continuation)", () => {
+  const baseDir = join(ROOT, "lean", "base");
+  const openclawDir = join(ROOT, "lean", "openclaw");
+  const projectDir = join(ROOT, "lean", "project");
+  mkdirSync(join(baseDir, "memory"), { recursive: true });
+  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(projectDir, { recursive: true });
+  writeFileSync(join(projectDir, "CLAUDE.md"), "# Heavy project doc\n".repeat(50));
+  writeFileSync(join(baseDir, "memory", "_global.md"), "global memory content");
+
+  const topic = makeTopic({ systemPrompt: "Role: task agent.", projectPath: projectDir });
+  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [], projectDir });
+
+  const full = assembleTopicContext(ctx, {
+    sessionKey: topic.sessionKey,
+    providerName: "claude-code",
+  });
+  const lean = assembleTopicContext(ctx, {
+    sessionKey: topic.sessionKey,
+    providerName: "claude-code",
+    leanContext: true,
+  });
+
+  it("lean emits ONLY the role prompt + project-awareness sentence", () => {
+    const ids = lean.systemBlocks.map((b) => b.id).sort();
+    expect(ids).toEqual(["prompt:system", "template:project-awareness"]);
+  });
+
+  it("lean drops the template files, browser/marker/topic-switch, memory & pinned", () => {
+    const ids = lean.systemBlocks.map((b) => b.id);
+    expect(ids).not.toContain("template:CLAUDE.md");
+    expect(ids).not.toContain("synthetic:browser-instruction");
+    expect(ids).not.toContain("synthetic:project-markers");
+    expect(ids).not.toContain("synthetic:topic-switch-directory");
+    expect(ids).not.toContain("memory:global");
+  });
+
+  it("lean keeps the load-bearing cwd in the awareness sentence", () => {
+    const aware = lean.systemBlocks.find((b) => b.id === "template:project-awareness")!;
+    expect(aware.content).toContain(projectDir);
+  });
+
+  it("lean costs far fewer tokens than the full envelope", () => {
+    // The heavy CLAUDE.md alone dwarfs the two lean blocks.
+    expect(lean.diagnostics.totalTokens).toBeLessThan(full.diagnostics.totalTokens);
+    expect(full.systemBlocks.map((b) => b.id)).toContain("template:CLAUDE.md");
+  });
+});
+
+describe("assembleTopicContext — graphify hint", () => {
+  const baseDir = join(ROOT, "graphify", "base");
+  const openclawDir = join(ROOT, "graphify", "openclaw");
+  const projectDir = join(ROOT, "graphify", "project");
+  mkdirSync(join(baseDir, "memory"), { recursive: true });
+  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+  mkdirSync(join(projectDir, "graphify-out"), { recursive: true });
+  writeFileSync(join(projectDir, "graphify-out", "graph.json"), "{}");
+
+  const topic = makeTopic({ projectPath: projectDir });
+  const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [], projectDir });
+
+  it("mentions graphify when graphify-out/graph.json exists in the project", () => {
+    const env = assembleTopicContext(ctx, { sessionKey: topic.sessionKey, providerName: "claude-code" });
+    const aware = env.systemBlocks.find((b) => b.id === "template:project-awareness")!;
+    expect(aware.content).toContain("graphify");
+    expect(aware.content).toContain(join(projectDir, "graphify-out", "graph.json"));
+  });
+
+  it("does not mention graphify when the graph is absent", () => {
+    // NB: dir name must not itself contain "graphify" (the path is in the text).
+    const bare = join(ROOT, "nohint", "plain-project");
+    mkdirSync(bare, { recursive: true });
+    const t2 = makeTopic({ sessionKey: "topic:nograph", projectPath: bare });
+    const ctx2 = makeMockCtx({ baseDir, openclawDir, topic: t2, messages: [], projectDir: bare });
+    const env = assembleTopicContext(ctx2, { sessionKey: t2.sessionKey, providerName: "claude-code" });
+    const aware = env.systemBlocks.find((b) => b.id === "template:project-awareness")!;
+    expect(aware.content).not.toContain("graphify");
+  });
+});

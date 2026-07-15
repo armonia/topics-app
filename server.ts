@@ -32,6 +32,7 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService } from "./server/services/tasks";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
+import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
 import { homedir } from "os";
@@ -52,7 +53,7 @@ import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
-import { pickTaskModel } from "./server/services/task-model-picker";
+import { pickTaskModelDetailed } from "./server/services/task-model-picker";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
 import { createPushRouter } from "./server/routes/push";
@@ -337,9 +338,12 @@ async function abortHeadlessTurn(sessionKey: string): Promise<void> {
   } catch { /* best-effort */ }
 }
 
-async function runHeadlessTurn(sessionKey: string, content: string, opts: { timeoutMs: number }): Promise<void> {
+async function runHeadlessTurn(sessionKey: string, content: string, opts: { timeoutMs: number; contextMode?: "full" | "lean" }): Promise<void> {
   const url = new URL("http://localhost/api/chat");
-  const body = JSON.stringify({ sessionKey, messages: [{ role: "user", content }] });
+  // contextMode "lean" (resume/continuation): the chat route skips re-injecting
+  // the heavy context envelope (CLAUDE.md/README/memory/…) since the persistent
+  // CLI session already has it — see assembleTopicContext(leanContext).
+  const body = JSON.stringify({ sessionKey, messages: [{ role: "user", content }], contextMode: opts.contextMode ?? "full" });
   const resp = await topicsRouter(
     new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
     url, "/api/chat", "POST",
@@ -381,6 +385,11 @@ function dispatchExtraPaths(): string[] {
   return paths;
 }
 
+// Incremental, dedup-by-message-id usage accounting over Claude Code
+// transcripts (see transcript-usage.ts). One instance: it caches per-path
+// byte offsets so the dispatcher's 4s live ticker stays O(appended bytes).
+const transcriptUsageReader = createTranscriptUsageReader();
+
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
   // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
@@ -406,8 +415,8 @@ const taskDispatcher = createTaskDispatcher({
       const snap = getSnapshotManager().getSnapshot();
       const cc = snap?.providers?.find((p) => p.name === "claude-code");
       const availableModels = cc?.models ?? [];
-      if (availableModels.length === 0) return null; // no snapshot yet → default
-      return await pickTaskModel(task, {
+      if (availableModels.length === 0) return { model: null, fuzzy: false }; // no snapshot yet → default
+      return await pickTaskModelDetailed(task, {
         // Force the cheapest tier for the classification itself.
         complete: (prompt) =>
           provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
@@ -416,7 +425,7 @@ const taskDispatcher = createTaskDispatcher({
         log: (m) => console.log(`[dispatcher] ${m}`),
       });
     } catch {
-      return null; // provider not ready / any failure → keep the default
+      return { model: null, fuzzy: false }; // provider not ready / any failure → keep the default
     }
   },
   resolveProject: (projectId) => {
@@ -457,7 +466,7 @@ const taskDispatcher = createTaskDispatcher({
     const { topic } = createDetachedTopic(
       // background: an agent session never pops a tab — it lives in the
       // sidebar; the task drawer's "apri tab" un-archives it on demand.
-      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model, background: true, standalone: o.standalone },
+      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model: o.model, background: true, standalone: o.standalone, mcpPolicy: o.mcpPolicy },
       {
         getTopicById: ctx.getTopicById,
         loadTopics: ctx.loadTopics,
@@ -478,25 +487,20 @@ const taskDispatcher = createTaskDispatcher({
   },
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   runTurn: runHeadlessTurn,
-  // Tokens consumed by the dispatched session so far: sum of the usage records
-  // in its Claude Code transcript (jsonl_path is kept fresh by the session
-  // tracker). Best-effort — a missing/unparsable transcript reads as 0, and the
+  // Usage consumed by the dispatched session so far, from its Claude Code
+  // transcript (jsonl_path is kept fresh by the session tracker). The reader
+  // (transcript-usage.ts) is incremental (per-path byte offset — the live
+  // ticker polls every 4s) and DEDUPLICATES usage rows by message.id (Claude
+  // Code writes one per content block; the old inline sum overcounted ~2.4x).
+  // Best-effort — a missing/unparsable transcript reads as zeros, and the
   // dispatcher only books per-turn deltas.
-  getSessionTokens: (sessionKey: string) => {
+  getSessionUsage: (sessionKey: string) => {
     const row = ctx.db
       .prepare("SELECT jsonl_path FROM claude_code_sessions WHERE session_key = ?")
       .get(sessionKey) as { jsonl_path?: string | null } | null;
     const path = row?.jsonl_path;
-    if (!path || !existsSync(path)) return 0;
-    let total = 0;
-    for (const line of readFileSync(path, "utf8").split("\n")) {
-      if (!line.includes('"usage"')) continue;
-      try {
-        const u = JSON.parse(line)?.message?.usage;
-        if (u) total += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-      } catch { /* partial line mid-write */ }
-    }
-    return total;
+    if (!path) return ZERO_USAGE;
+    return transcriptUsageReader.read(path);
   },
   broadcast: ctx.broadcastToAll,
 });

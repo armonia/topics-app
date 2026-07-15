@@ -130,6 +130,12 @@ export interface DetachedTopicOptions {
    * sessions so a project-less task doesn't spawn a phantom project node.
    */
   standalone?: boolean;
+  /**
+   * MCP fleet scoping for the topic's Claude Code session (migration 049).
+   * 'bridge-only' = only the per-session topics bridge (dispatch tool
+   * profile); absent = inherit the user's full fleet (interactive default).
+   */
+  mcpPolicy?: string;
 }
 
 /**
@@ -167,6 +173,7 @@ export function createDetachedTopic(
   if (opts.effort) newTopic.effort = opts.effort;
   if (opts.model) newTopic.model = opts.model;
   if (opts.standalone) newTopic.standalone = true;
+  if (opts.mcpPolicy) newTopic.mcpPolicy = opts.mcpPolicy;
   deps.saveSingleTopic(newTopic);
   deps.broadcastToAll({ type: "topic:created", topic: newTopic });
   return { topic: newTopic };

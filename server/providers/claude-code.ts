@@ -228,7 +228,7 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
  * `-c mcp_servers.topics.*`) wires the SAME bridge — the subprocess gets the
  * sessionKey + base URL + gateway token as argv to call back into topics-app.
  */
-export function topicsMcpBridgeSpec(sessionKey: string): { command: string; args: string[] } {
+export function topicsMcpBridgeSpec(sessionKey: string, profile?: string): { command: string; args: string[] } {
   return {
     command: process.execPath, // bun
     args: [
@@ -236,15 +236,35 @@ export function topicsMcpBridgeSpec(sessionKey: string): { command: string; args
       MCP_SERVER_SCRIPT,
       `--base-url=${topicsAppBaseUrl()}`,
       `--session-key=${sessionKey}`,
+      // Tool profile: "dispatch" trims the bridge to what a board agent needs
+      // (task tools + browser verification + processes) — fewer tool schemas
+      // in the agent's per-call context. Absent = full toolset (interactive).
+      ...(profile ? [`--profile=${profile}`] : []),
       ...(process.env.GATEWAY_TOKEN ? [`--gateway-token=${process.env.GATEWAY_TOKEN}`] : []),
     ],
   };
 }
 
-export function writeMcpConfigForSession(sessionKey: string): { path: string; strict: boolean } {
+export function writeMcpConfigForSession(
+  sessionKey: string,
+  opts?: { mcpPolicy?: string | null },
+): { path: string; strict: boolean } {
   try {
     mkdirSync(MCP_CONFIG_DIR, { recursive: true });
   } catch { /* race-tolerant */ }
+  // 'bridge-only' (dispatched board agents, topics.mcp_policy, migration 049):
+  // the session gets ONLY the topics bridge, spawned with the dispatch tool
+  // profile, and strict unconditionally — the global fleet's tool schemas are
+  // re-read on EVERY API call of every turn, a pure token tax for an agent
+  // that works one task. Web research stays available via the CLI's built-in
+  // WebSearch/WebFetch (not MCP). Per-board escape hatch: dispatch_mcp='inherit'.
+  if (opts?.mcpPolicy === "bridge-only") {
+    const config = { mcpServers: { topics: topicsMcpBridgeSpec(sessionKey, "dispatch") } };
+    const path = mcpConfigPathForSession(sessionKey);
+    writeFileSync(path, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
+    try { chmodSync(path, 0o600); } catch { /* best-effort */ }
+    return { path, strict: true };
+  }
   const topicsBridge = topicsMcpBridgeSpec(sessionKey);
   const inherited = resolveInheritedMcpServers();
   // strict ONLY when we scoped: the config then holds the full set the session
@@ -326,12 +346,12 @@ function getOrCreateClaudeSessionId(sessionKey: string): { id: string; isNew: bo
  * narrow row read (not the full `getTopicBySessionKey`) to avoid a circular
  * import with utils.ts.
  */
-function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null } {
+function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null } {
   try {
     const row = getDatabase()
-      .prepare("SELECT effort, model, provider FROM topics WHERE session_key = ? LIMIT 1")
-      .get(sessionKey) as { effort?: string | null; model?: string | null; provider?: string | null } | undefined;
-    if (!row) return { effort: null, model: null };
+      .prepare("SELECT effort, model, provider, mcp_policy FROM topics WHERE session_key = ? LIMIT 1")
+      .get(sessionKey) as { effort?: string | null; model?: string | null; provider?: string | null; mcp_policy?: string | null } | undefined;
+    if (!row) return { effort: null, model: null, mcpPolicy: null };
     const provider = row.provider ?? null;
     const providerIsUs = provider === null || provider === "claude-code" || provider === "claude-code-team";
     // Loose shape guard only (argv array — no shell involved): the CLI is the
@@ -340,9 +360,9 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
     const model = providerIsUs && typeof row.model === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(row.model)
       ? row.model
       : null;
-    return { effort: row.effort ?? null, model };
+    return { effort: row.effort ?? null, model, mcpPolicy: row.mcp_policy ?? null };
   } catch {
-    return { effort: null, model: null };
+    return { effort: null, model: null, mcpPolicy: null };
   }
 }
 
@@ -1049,8 +1069,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // Generate the per-session MCP config so the CLI can spawn our bridge
     // and surface `mcp__topics__open_browser_pane` as a callable tool. The
     // file path goes into argv as `--mcp-config`; the file lifetime is
-    // bounded by `killProcess` below.
-    const { path: mcpConfigPath, strict: mcpStrict } = writeMcpConfigForSession(sessionKey);
+    // bounded by `killProcess` below. Dispatched board agents carry
+    // topics.mcp_policy='bridge-only' → topics bridge only, dispatch profile.
+    const { path: mcpConfigPath, strict: mcpStrict } = writeMcpConfigForSession(sessionKey, { mcpPolicy: overrides.mcpPolicy });
 
     const args = [
       "--print",
@@ -1080,6 +1101,14 @@ export class ClaudeCodeProvider implements AIProvider {
     );
 
     const env = buildSafeEnv();
+    // Dispatch sessions: defer MCP tool schemas (threshold-based) so they load
+    // on-demand via ToolSearch instead of riding every API call's context.
+    // Haiku models don't support tool search (they'd load everything upfront
+    // anyway), so the env is only set for capable models; interactive sessions
+    // keep the CLI's own default behavior untouched.
+    if (overrides.mcpPolicy === "bridge-only" && !/haiku/i.test(model)) {
+      env.ENABLE_TOOL_SEARCH = env.ENABLE_TOOL_SEARCH ?? "auto";
+    }
 
     const proc = spawn(resolveCliPath(), args, {
       cwd: workspace,
