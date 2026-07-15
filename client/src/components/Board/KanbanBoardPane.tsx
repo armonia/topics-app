@@ -1168,18 +1168,17 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
           {pending ? (
-            <p className="text-xs leading-snug text-rose-200">{stripMarkdown(pending.question)}</p>
+            <p className="text-xs leading-snug text-neutral-200">{stripMarkdown(pending.question)}</p>
           ) : lastComment ? (
             // Render the agent's last word as REAL markdown (bold/headings/lists
-            // format instead of showing raw `**`/`#`), capped in height with a
-            // fade so a long plan doesn't blow up the card. Tooltip = plain text.
+            // format instead of showing raw `**`/`#`). Shown in full — no clamp,
+            // no fade. Tooltip = plain text.
             <div
-              className={`relative max-h-40 overflow-hidden text-xs leading-relaxed text-neutral-300 ${COMPACT_MD_CLS}`}
+              className={`text-xs leading-relaxed text-neutral-300 ${COMPACT_MD_CLS}`}
               title={`${lastComment.author}: ${stripMarkdown(lastComment.content)}`}
             >
               {lastComment.author !== 'user' && <Bot className="mr-1 inline h-3 w-3 align-[-2px] text-neutral-400" />}
               <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-[var(--pane-bg,rgba(20,20,22,0.9))] to-transparent" />
             </div>
           ) : null}
           {pending && pending.options.length > 0 && (
@@ -2525,7 +2524,7 @@ function CommentBody({ content }: { content: string }) {
     <div className="mt-0.5 space-y-1">
       {outside && <div className={`text-neutral-100 ${COMPACT_MD_CLS}`}><ChatMarkdown components={{}}>{outside}</ChatMarkdown></div>}
       <div className="rounded border border-rose-500/25 bg-rose-500/5 px-2 py-1.5">
-        <p className="text-[13px] leading-snug text-rose-200">{q.question}</p>
+        <p className="text-[13px] leading-snug text-neutral-100">{q.question}</p>
         {q.options.length > 0 && (
           <ul className="mt-1 space-y-0.5">
             {q.options.map((opt, i) => (
