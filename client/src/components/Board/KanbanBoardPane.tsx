@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, GitCompare, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, PackageCheck, Paperclip, Plus, Sparkles, Square, Trash2, UploadCloud, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Search, SlidersHorizontal } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, GitCompare, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, PackageCheck, Paperclip, Plus, Sparkles, Square, Trash2, UploadCloud, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Search } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
@@ -359,11 +359,36 @@ interface FilterPanelProps {
   mode: 'project' | 'all';
 }
 
-/** Filters shown INLINE in the board header (no funnel): a search box + priority
- *  chips always visible, with the less-used assignee/project filters in a compact
- *  "+altro" popover. Same filter model as before, just surfaced directly. */
+/** Row inside a filter dropdown — same markup as the composer's picker options
+ *  (dot/label + emerald check when selected), so filters and the create-task
+ *  input share one visual language. */
+function FilterOption({ selected, onClick, dot, label, title }: {
+  selected: boolean; onClick: () => void; dot?: React.ReactNode; label: string; title?: string;
+}) {
+  return (
+    <button
+      role="option" aria-selected={selected} onClick={onClick} title={title}
+      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+    >
+      {dot}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {selected && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+    </button>
+  );
+}
+
+/** Filters shown INLINE in the board header. Built from the SAME picker primitive
+ *  as the task composer (`Menu` chip + dropdown), just multi-select — no separate
+ *  bespoke widgets. Priority/assignee/project have no "auto" entry: filtering by
+ *  "let the agent decide" makes no sense, so it's dropped. */
 function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
-  const [moreOpen, setMoreOpen] = useState(false);
+  const prioBtnRef = useRef<HTMLButtonElement>(null);
+  const asgBtnRef = useRef<HTMLButtonElement>(null);
+  const projBtnRef = useRef<HTMLButtonElement>(null);
+  const [prioOpen, setPrioOpen] = useState(false);
+  const [asgOpen, setAsgOpen] = useState(false);
+  const [projOpen, setProjOpen] = useState(false);
+
   const togglePriority = (p: number) => {
     const updated = filters.priority.includes(p)
       ? filters.priority.filter((x) => x !== p)
@@ -387,9 +412,15 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
   const projects = Array.from(new Set(tasks.map((t) => t.projectId))).sort();
   const showProjects = mode === 'all' && projects.length > 0;
-  const hasMore = assignees.length > 0 || showProjects;
-  const moreActive = filters.assignedTo.length + (mode === 'all' ? filters.projectId.length : 0);
+  const projName = (pid: string) => (pid === UNASSIGNED_PROJECT_ID ? 'senza progetto' : pid.replace(/-[^-]+$/, ''));
   const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + (filters.text ? 1 : 0) > 0;
+
+  // Same chip look the composer uses for its model/priority/project pickers.
+  const chip = (active: boolean) =>
+    `flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors ${
+      active ? 'bg-white/15 text-neutral-100' : 'bg-white/5 text-neutral-300 hover:bg-white/10'
+    }`;
+  const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500';
 
   return (
     <div className="flex min-w-0 items-center gap-1.5">
@@ -404,72 +435,55 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           className="w-28 rounded bg-white/5 py-0.5 pl-6 pr-1.5 text-[11px] text-neutral-100 outline-none placeholder:text-neutral-600 focus:w-40 focus:bg-white/10"
         />
       </div>
-      {/* Priority chips — always visible */}
-      <div className="flex items-center gap-0.5">
-        {PRIORITY_ORDER.map((p) => {
-          const on = filters.priority.includes(p);
-          return (
-            <button
-              key={p}
-              onClick={() => togglePriority(p)}
-              title={PRIORITY_LABEL[p]}
-              className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] transition-colors ${on ? 'bg-white/15 text-neutral-100' : 'text-neutral-500 hover:bg-white/5'}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[p]}`} />
-              {on && PRIORITY_LABEL[p]}
-            </button>
-          );
-        })}
-      </div>
-      {/* +altro — assignee/project in a small popover */}
-      {hasMore && (
-        <div className="relative">
-          <button
-            onClick={() => setMoreOpen((s) => !s)}
-            title="Altri filtri"
-            className={`relative flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${moreOpen || moreActive ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
-          >
-            <SlidersHorizontal className="h-3 w-3" />
-            {moreActive > 0 && <span className="tabular-nums">{moreActive}</span>}
+
+      {/* Priority — chip + Menu (multi-select, no "auto") */}
+      <button ref={prioBtnRef} onClick={() => setPrioOpen(true)} title="Filtra per priorità" className={chip(filters.priority.length > 0)}>
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-neutral-500" />
+        Priorità{filters.priority.length > 0 && <span className="tabular-nums text-neutral-400">·{filters.priority.length}</span>}
+        <ChevronDown className="h-3 w-3 text-neutral-500" />
+      </button>
+      <Menu open={prioOpen} anchorRef={prioBtnRef} onClose={() => setPrioOpen(false)} minWidth={170} role="listbox">
+        <p className={menuHeader}>Priorità</p>
+        {PRIORITY_ORDER.map((p) => (
+          <FilterOption
+            key={p} selected={filters.priority.includes(p)} onClick={() => togglePriority(p)}
+            dot={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />} label={PRIORITY_LABEL[p]}
+          />
+        ))}
+      </Menu>
+
+      {/* Assignee — chip + Menu (only when there are assignees) */}
+      {assignees.length > 0 && (
+        <>
+          <button ref={asgBtnRef} onClick={() => setAsgOpen(true)} title="Filtra per assegnatario" className={chip(filters.assignedTo.length > 0)}>
+            Assegnatario{filters.assignedTo.length > 0 && <span className="tabular-nums text-neutral-400">·{filters.assignedTo.length}</span>}
+            <ChevronDown className="h-3 w-3 text-neutral-500" />
           </button>
-          {moreOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-              <div className="absolute left-0 top-full z-50 mt-1 w-56 space-y-2 rounded-lg border border-white/10 bg-neutral-900 p-2 shadow-xl">
-                {assignees.length > 0 && (
-                  <div>
-                    <p className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">Assegnatario</p>
-                    <div className="flex flex-wrap gap-1">
-                      {assignees.map((a) => (
-                        <button
-                          key={a} onClick={() => toggleAssignedTo(a)}
-                          className={`rounded px-1.5 py-0.5 text-[11px] ${filters.assignedTo.includes(a) ? 'bg-white/15 text-neutral-100' : 'bg-white/5 text-neutral-400 hover:bg-white/10'}`}
-                        >@{a}</button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {showProjects && (
-                  <div>
-                    <p className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">Progetto</p>
-                    <div className="flex flex-wrap gap-1">
-                      {projects.map((pid) => {
-                        const name = pid === UNASSIGNED_PROJECT_ID ? 'senza progetto' : pid.replace(/-[^-]+$/, '');
-                        return (
-                          <button
-                            key={pid} onClick={() => toggleProject(pid)}
-                            className={`rounded px-1.5 py-0.5 text-[11px] ${filters.projectId.includes(pid) ? 'bg-white/15 text-neutral-100' : 'bg-white/5 text-neutral-400 hover:bg-white/10'}`}
-                          >{name}</button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
+          <Menu open={asgOpen} anchorRef={asgBtnRef} onClose={() => setAsgOpen(false)} minWidth={170} role="listbox">
+            <p className={menuHeader}>Assegnatario</p>
+            {assignees.map((a) => (
+              <FilterOption key={a} selected={filters.assignedTo.includes(a)} onClick={() => toggleAssignedTo(a)} label={`@${a}`} />
+            ))}
+          </Menu>
+        </>
       )}
+
+      {/* Project — chip + Menu, only in the 'all' view */}
+      {showProjects && (
+        <>
+          <button ref={projBtnRef} onClick={() => setProjOpen(true)} title="Filtra per progetto" className={chip(filters.projectId.length > 0)}>
+            Progetto{filters.projectId.length > 0 && <span className="tabular-nums text-neutral-400">·{filters.projectId.length}</span>}
+            <ChevronDown className="h-3 w-3 text-neutral-500" />
+          </button>
+          <Menu open={projOpen} anchorRef={projBtnRef} onClose={() => setProjOpen(false)} minWidth={200} role="listbox">
+            <p className={menuHeader}>Progetto</p>
+            {projects.map((pid) => (
+              <FilterOption key={pid} selected={filters.projectId.includes(pid)} onClick={() => toggleProject(pid)} label={projName(pid)} />
+            ))}
+          </Menu>
+        </>
+      )}
+
       {/* Reset — only when something is active */}
       {anyActive && (
         <button onClick={reset} title="Resetta filtri" className="rounded p-0.5 text-neutral-500 hover:bg-white/10 hover:text-neutral-200">
