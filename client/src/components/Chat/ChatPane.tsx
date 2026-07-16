@@ -14,6 +14,7 @@ import { useVoiceRecording } from './useVoiceRecording';
 import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters';
 import { useToast } from '../Shared/Toast';
+import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 
 const SLASH_COMMANDS_HELP = [
   '/status — Show session status',
@@ -90,9 +91,13 @@ function ChatPaneComponent({
   const [message, setMessage] = useState(() => {
     try { return localStorage.getItem(draftKey) || ''; } catch { return ''; }
   });
-  // Restore draft on topic switch
+  // Restore draft + caret on topic switch / mount. The caret restore is deferred
+  // one frame so it runs after the setMessage re-render commits the text into the
+  // textarea — otherwise setSelectionRange would clamp against an empty value.
   useEffect(() => {
     try { setMessage(localStorage.getItem(`draft:${topic.id}`) || ''); } catch { setMessage(''); }
+    const raf = requestAnimationFrame(() => restoreCursor(`chat:${topic.id}`, textareaRef.current));
+    return () => cancelAnimationFrame(raf);
   }, [topic.id]);
   // Persist draft to localStorage
   useEffect(() => {
@@ -181,6 +186,29 @@ function ChatPaneComponent({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
   const [inputAreaHeight, setInputAreaHeight] = useState(0);
+
+  // Persist the caret/selection of the chat composer so a hot reload (bundle-rev
+  // or dev HMR) restores it exactly, not just the draft text. Listeners live here
+  // (ChatPane owns textareaRef) so ChatInput's JSX stays untouched.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const k = `chat:${topic.id}`;
+    const save = () => writeCursor(k, ta.selectionStart, ta.selectionEnd);
+    const active = () => markActiveComposer(k);
+    ta.addEventListener('keyup', save);
+    ta.addEventListener('click', save);
+    ta.addEventListener('select', save);
+    ta.addEventListener('input', save);
+    ta.addEventListener('focus', active);
+    return () => {
+      ta.removeEventListener('keyup', save);
+      ta.removeEventListener('click', save);
+      ta.removeEventListener('select', save);
+      ta.removeEventListener('input', save);
+      ta.removeEventListener('focus', active);
+    };
+  }, [topic.id]);
 
   // PANE-03 scroll-restore wiring (review I1). The pane id mirrors the
   // convention used by createPaneId('chat', topic.id) = `chat:${topic.id}`;
