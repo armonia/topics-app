@@ -91,6 +91,13 @@ function remember(path: string, s: IconStatus, verified = true): void {
   persist();
 }
 
+// Session cache of path → object-URL for icons recovered via the fetch
+// fallback below. In some WKWebView windows the native <img> load path to the
+// self-signed-TLS server fails while fetch() succeeds (the exact split varies
+// per window); once fetch has the bytes we keep serving them from a blob URL
+// so every later mount skips the broken transport entirely.
+const iconBlobUrls = new Map<string, string>();
+
 export function ProjectFavicon({
   path,
   size = 14,
@@ -106,10 +113,11 @@ export function ProjectFavicon({
 }) {
   const [status, setStatus] = useState<IconStatus | 'unknown'>(() => (path ? resolveStatus(path) : 'none'));
   const [loaded, setLoaded] = useState(false);
+  const [blobSrc, setBlobSrc] = useState<string | null>(() => (path ? iconBlobUrls.get(path) ?? null : null));
   // A row can be recycled for a different project (virtualised lists, memo
   // reuse) — re-resolve from cache when the path changes.
   // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot re-resolve when a recycled row points at a new project path; converges immediately (deps = [path])
-  useEffect(() => { setStatus(path ? resolveStatus(path) : 'none'); setLoaded(false); }, [path]);
+  useEffect(() => { setStatus(path ? resolveStatus(path) : 'none'); setLoaded(false); setBlobSrc(path ? iconBlobUrls.get(path) ?? null : null); }, [path]);
 
   // Known icon-less (or no path) → render the fallback (default: nothing at
   // all — no element, so no reserved width and no margin next to the name).
@@ -123,7 +131,7 @@ export function ProjectFavicon({
   const reserve = status === 'has' || loaded;
   return (
     <img
-      src={`/api/projects/icon?path=${encodeURIComponent(path)}`}
+      src={blobSrc ?? `/api/projects/icon?path=${encodeURIComponent(path)}`}
       width={size}
       height={size}
       alt=""
@@ -140,19 +148,38 @@ export function ProjectFavicon({
       onLoad={() => { setLoaded(true); setStatus('has'); remember(path, 'has'); }}
       onError={() => {
         // Hide this slot now. An <img> error can't distinguish a real 404 ("no
-        // icon") from a transient failure (server restarting / unreachable, or
-        // a 403 during a momentarily-empty allowlist), and persisting 'none'
-        // for a transient failure once poisoned the cache for the whole TTL.
-        // So: cache 'none' in memory immediately but UNVERIFIED (short TTL —
-        // this stops the re-probe storm that an error-remount loop otherwise
-        // produces, e.g. when fetch() itself is broken in a WKWebView), then
-        // try to confirm with a fetch: a definitive 404 upgrades it to a
-        // verified long-TTL 'none'; anything else leaves the short-TTL entry
-        // to expire and re-probe once the server is healthy.
+        // icon") from a transport failure (server restarting, or — seen on the
+        // Tauri app with its self-signed TLS cert — a WKWebView where native
+        // <img> loads to the server fail while fetch() works fine). Persisting
+        // 'none' for a transient failure once poisoned the cache for the whole
+        // TTL, so: cache 'none' in memory UNVERIFIED (short TTL — stops the
+        // error-remount re-probe storm), then re-request with fetch():
+        //   - 200 → the icon EXISTS and fetch can reach it: serve those bytes
+        //     via a blob URL (session-cached) and flip back to 'has' — this is
+        //     the path that fixes "icons show in the browser but not the app"
+        //   - 404 → verified real no-icon, long-TTL 'none'
+        //   - anything else → transient; the short-TTL entry re-probes later.
+        // A failure of the blob src itself (already-recovered bytes) stays a
+        // plain 'none' — no second recovery loop.
+        const wasBlob = blobSrc !== null;
         setStatus('none');
         remember(path, 'none', false);
+        if (wasBlob) return;
         fetch(`/api/projects/icon?path=${encodeURIComponent(path)}`)
-          .then((r) => { if (r.status === 404) remember(path, 'none', true); })
+          .then(async (r) => {
+            if (r.ok) {
+              const url = URL.createObjectURL(await r.blob());
+              const prev = iconBlobUrls.get(path);
+              if (prev) URL.revokeObjectURL(prev);
+              iconBlobUrls.set(path, url);
+              setBlobSrc(url);
+              setLoaded(false);
+              setStatus('has');
+              remember(path, 'has');
+            } else if (r.status === 404) {
+              remember(path, 'none', true);
+            }
+          })
           .catch(() => { /* unreachable → transient, keep only the short-TTL entry */ });
       }}
     />
