@@ -1140,6 +1140,16 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const saveCursor = () => { const ta = taRef.current; if (ta) writeCursor(COMPOSER_CURSOR_KEY, ta.selectionStart, ta.selectionEnd); };
   const wrapRef = useRef<HTMLDivElement>(null);
+  // Task composer hotkey listener (Cmd+Shift+;)
+  useEffect(() => {
+    const handleTaskComposerFocus = () => {
+      setFocused(true);
+      if (global) loadProjects();
+      setTimeout(() => { taRef.current?.focus(); }, 0);
+    };
+    window.addEventListener('task-composer:focus', handleTaskComposerFocus);
+    return () => window.removeEventListener('task-composer:focus', handleTaskComposerFocus);
+  }, [global]);
   // The Menu portals to <body>, so focus leaves the wrapper while it's open —
   // keep the composer expanded anyway.
   const expanded = focused || projOpen || modelOpen || prioOpen || text.trim().length > 0;
