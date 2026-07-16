@@ -30,6 +30,7 @@ import {
   type BoardProjectRef, type PublishProject, type DiffBundle, type DispatchCapacity,
 } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
+import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 
 /**
  * "claude-opus-4-8" → "Opus 4.8" — strip the `claude-` prefix, capitalize the
@@ -1020,6 +1021,9 @@ function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, onCreate,
   );
 }
 
+// Single shared new-task draft → single caret key (board composer is global).
+const COMPOSER_CURSOR_KEY = 'board:composer';
+
 function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
@@ -1066,6 +1070,9 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
         if (d.planFirst) setPlanFirst(true);
       }
       draftLoaded.current = true;
+      // Restore the caret one frame after the draft text commits into the
+      // textarea, so a hot reload lands you exactly where you were typing.
+      requestAnimationFrame(() => restoreCursor(COMPOSER_CURSOR_KEY, taRef.current));
     }).catch(() => { draftLoaded.current = true; });
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- restore-once on mount
@@ -1086,6 +1093,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   };
   useEffect(() => () => { modelsSubRef.current?.(); }, []);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const saveCursor = () => { const ta = taRef.current; if (ta) writeCursor(COMPOSER_CURSOR_KEY, ta.selectionStart, ta.selectionEnd); };
   const wrapRef = useRef<HTMLDivElement>(null);
   // The Menu portals to <body>, so focus leaves the wrapper while it's open —
   // keep the composer expanded anyway.
@@ -1096,6 +1104,7 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
   };
   const onFocus = () => {
     setFocused(true);
+    markActiveComposer(COMPOSER_CURSOR_KEY);
     if (global) loadProjects();
   };
   // Collapse only when focus truly LEFT the composer (not moving between its
@@ -1188,7 +1197,10 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
         <textarea
           value={text} rows={1}
           ref={(el) => { taRef.current = el; autoGrow(el); }}
-          onChange={(e) => { setText(e.target.value); autoGrow(e.currentTarget); }}
+          onChange={(e) => { setText(e.target.value); autoGrow(e.currentTarget); saveCursor(); }}
+          onSelect={saveCursor}
+          onKeyUp={saveCursor}
+          onClick={saveCursor}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
           placeholder="Descrivi un task per l'agent…"
           className="block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-sm leading-5 text-neutral-100 outline-none placeholder:text-neutral-500"
@@ -1670,6 +1682,9 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
+  const commentRef = useRef<HTMLTextAreaElement | null>(null);
+  const commentCursorKey = `board:task:${taskId}`;
+  const saveCommentCursor = () => { const ta = commentRef.current; if (ta) writeCursor(commentCursorKey, ta.selectionStart, ta.selectionEnd); };
   // Per-task server draft (bounded map in ui-state): restore once per task,
   // save debounced while typing, cleared on successful send.
   const taskDraftLoaded = useRef(false);
@@ -1677,7 +1692,12 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     taskDraftLoaded.current = false;
     let alive = true;
     boardDrafts.getTaskDraft(taskId).then((t) => {
-      if (alive) { setDraft((cur) => cur || t); taskDraftLoaded.current = true; }
+      if (alive) {
+        setDraft((cur) => cur || t);
+        taskDraftLoaded.current = true;
+        // Restore caret after the draft text commits (hot-reload continuity).
+        requestAnimationFrame(() => restoreCursor(`board:task:${taskId}`, commentRef.current));
+      }
     }).catch(() => { taskDraftLoaded.current = true; });
     return () => { alive = false; };
   }, [taskId]);
@@ -2606,7 +2626,10 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
                 className="rounded p-1.5 text-neutral-400 hover:bg-white/10 disabled:opacity-40"
               >{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
               <textarea
-                value={draft} onChange={(e) => setDraft(e.target.value)} rows={1}
+                ref={commentRef}
+                value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
+                onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
+                onFocus={() => markActiveComposer(commentCursorKey)}
                 placeholder={isAgentReview ? 'Rispondi all\'agent…' : 'Commenta…'}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                 onPaste={(e) => {
