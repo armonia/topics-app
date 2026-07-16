@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, PackageCheck, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Funnel } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, PackageCheck, Paperclip, Plus, Sparkles, Square, Trash2, UploadCloud, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Funnel } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
@@ -206,6 +206,60 @@ function DispatchChip({ state, error }: { state: string; error?: string | null }
       {Icon && <Icon className="h-3 w-3" aria-hidden />}
       {chip.text}
     </span>
+  );
+}
+
+/** Publish control: lists projects with unpushed commits on their current branch
+ *  and pushes on demand (→ deploy CI where configured). Lives in the header so it
+ *  works from the GLOBAL board too, where every project shows up together. */
+function PublishControl() {
+  const [projects, setProjects] = useState<{ projectId: string; name: string; branch: string; ahead: number }[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const refresh = useCallback(() => {
+    boardApi.publishStatus().then(setProjects).catch(() => setProjects([]));
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+  const pending = (projects ?? []).filter((p) => p.ahead > 0);
+  const total = pending.reduce((n, p) => n + p.ahead, 0);
+  const doPublish = async (p: { projectId: string; name: string; ahead: number }) => {
+    if (!window.confirm(`Pubblicare "${p.name}"?\n\ngit push origin (${p.ahead} commit) — avvia il deploy dove configurato.`)) return;
+    setBusy(p.projectId); setMsg(null);
+    try {
+      const r = await boardApi.publish(p.projectId);
+      setMsg(r.ok ? `${p.name}: pubblicato ✓` : `${p.name}: ${r.error ?? 'errore'}`);
+      refresh();
+    } catch (e) { setMsg(`${p.name}: ${(e as Error).message}`); }
+    finally { setBusy(null); }
+  };
+  return (
+    <div className="relative">
+      <button
+        onClick={() => { setOpen((s) => !s); refresh(); }}
+        title={pending.length ? `${total} commit da pubblicare` : 'Niente da pubblicare'}
+        className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${pending.length ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-white/10 text-neutral-400 hover:bg-white/15'}`}
+      >
+        <UploadCloud className="h-3 w-3" /> Pubblica{total > 0 && <span className="ml-0.5 rounded bg-amber-500/30 px-1 tabular-nums">{total}</span>}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-lg border border-white/10 bg-neutral-900 p-1 shadow-xl">
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-neutral-500">Da pubblicare</div>
+            {pending.length === 0 ? (
+              <div className="px-2 py-1.5 text-[11px] text-neutral-500">Niente da pubblicare — tutto già su remoto.</div>
+            ) : pending.map((p) => (
+              <div key={p.projectId} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-white/5">
+                <span className="min-w-0 flex-1 truncate text-[12px] text-neutral-200">{p.name}<span className="ml-1 text-[11px] text-neutral-500">{p.ahead} commit · {p.branch}</span></span>
+                <button disabled={busy === p.projectId} onClick={() => doPublish(p)} className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">{busy === p.projectId ? '…' : 'Pubblica'}</button>
+              </div>
+            ))}
+            {msg && <div className="mt-0.5 border-t border-white/10 px-2 py-1.5 text-[11px] text-neutral-400">{msg}</div>}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -637,6 +691,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               <Bot className="h-3 w-3" /> {dispatchOn ? 'agent: on' : 'agent: off'}
             </button>
           )}
+          <PublishControl />
           <button
             onClick={() => setShowFilters((s) => !s)}
             className={`relative rounded p-1 ${showFilters ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}

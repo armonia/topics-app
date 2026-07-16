@@ -55,6 +55,27 @@ export interface TasksRouterOpts {
   autoMerge?: TaskAutoMerge;
 }
 
+/**
+ * Run git in `cwd`, capturing stdout/stderr/exit. Never throws (code 1 on spawn
+ * failure) and disables the credential prompt so a push that needs auth fails
+ * fast instead of hanging the request.
+ */
+async function runGitCap(cwd: string, args: string[]): Promise<{ code: number; out: string; err: string }> {
+  try {
+    const p = Bun.spawn(["git", ...args], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+    const code = await p.exited;
+    return { code, out, err };
+  } catch (e) {
+    return { code: 1, out: "", err: String((e as Error)?.message ?? e) };
+  }
+}
+
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
   const svc = createTaskService(db);
@@ -122,6 +143,44 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Columns show ROOT tasks only — steps live in the parent's detail tree.
       try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true }) }); }
       catch (e) { return fail(e); }
+    }
+
+    // GET /api/all-boards/publish-status — per-project "commits not yet pushed"
+    // summary that feeds the board's Publish control (primarily the GLOBAL board,
+    // where every project shows up together). Best-effort git, never throws.
+    if (pathname === "/api/all-boards/publish-status" && method === "GET") {
+      let dirs: string[] = [];
+      try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+      const projects = (await Promise.all(dirs.map(async (path) => {
+        const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
+        const remotes = (await runGitCap(path, ["remote"])).out.trim();
+        if (!branch || !remotes) return null; // detached HEAD or no remote → not publishable
+        const upstream = (await runGitCap(path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])).out.trim();
+        const range = upstream && !upstream.includes("fatal") ? `${upstream}..HEAD` : `origin/${branch}..HEAD`;
+        const aheadRaw = (await runGitCap(path, ["rev-list", "--count", range])).out.trim();
+        const ahead = Number.parseInt(aheadRaw || "0", 10);
+        return { projectId: projectIdForPath(path), name: basename(path), branch, ahead: Number.isFinite(ahead) ? ahead : 0 };
+      }))).filter((p): p is NonNullable<typeof p> => !!p);
+      return json({ projects });
+    }
+
+    // POST /api/boards/:projectId/publish — push the project's current branch to
+    // its remote. On repos with deploy CI ([cliente]'s deploy.yml runs on push to
+    // main) this IS the deploy trigger — a deliberate, human-initiated action
+    // (the board UI gates it behind a confirm).
+    const bPublish = matchRoute(pathname, "/api/boards/:projectId/publish");
+    if (bPublish && method === "POST") {
+      let dirs: string[] = [];
+      try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+      const path = dirs.find((d) => projectIdForPath(d) === bPublish.projectId);
+      if (!path) return json({ error: "progetto non trovato", code: "not_found" }, 404);
+      const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
+      if (!branch) return json({ error: "HEAD staccato — niente da pubblicare", code: "invalid_input" }, 400);
+      const push = await runGitCap(path, ["push", "origin", branch]);
+      if (push.code !== 0) {
+        return json({ ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" }, 502);
+      }
+      return json({ ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) });
     }
 
     // /api/all-boards/settings — the GLOBAL auto-dispatch switch (one for every
