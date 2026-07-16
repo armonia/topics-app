@@ -824,11 +824,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               // fallback below (same "no fake glyph" rule as an icon-less project).
               null
             ) : pane.type === 'project' && pane.projectPath ? (
-              // Same real project favicon the sidebar shows (GET /api/projects/icon),
-              // with the SAME "no fake folder glyph" convention: projects WITHOUT a
-              // shipped favicon/manifest icon render nothing (fallback=null) and
-              // reserve no space — no fixed-size wrapper here so the slot collapses.
-              <ProjectFavicon path={pane.projectPath} size={14} fallback={null} className="flex-shrink-0" />
+              // Same real project favicon the sidebar shows (GET /api/projects/icon);
+              // projects WITHOUT a shipped favicon/manifest icon get the default
+              // per-project monogram tile (initial + hash colour), so a project tab
+              // always carries a distinctive mark.
+              <ProjectFavicon path={pane.projectPath} size={14} className="flex-shrink-0" />
             ) : Icon ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
                 <Icon size={14} />

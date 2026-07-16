@@ -131,8 +131,12 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
           }
         }
       } catch {}
-      if (!allowedRealDirs.has(realDir)) return new Response(null, { status: 403 });
+      if (!allowedRealDirs.has(realDir)) {
+        console.log(`[icon] 403 (not in allowlist): ${realDir}`);
+        return new Response(null, { status: 403 });
+      }
       const iconFile = resolveProjectIcon(realDir);
+      console.log(`[icon] ${iconFile ? "200 " + iconFile : "404 no-icon"} ← ${realDir}`);
       // Cache the "no icon" answer too so palette re-opens don't re-probe disk.
       if (!iconFile) return new Response(null, { status: 404, headers: { "cache-control": "max-age=120" } });
       // Containment: the resolved icon must live inside the project dir.

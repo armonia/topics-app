@@ -577,7 +577,8 @@ export function TopicTree({
           >
             {/* Real project icon when the folder ships a favicon / web-manifest
                 / index.html <link rel=icon> (resolved by /api/projects/icon).
-                Folders without one render nothing — no fake folder glyph. */}
+                Folders without one get the deterministic monogram tile (initial
+                + hash colour) so every project row carries a distinctive mark. */}
             <ProjectFavicon path={pp} size={14} className="mr-0.5" />
             <span className="truncate flex-1">{item.name}</span>
           </button>
