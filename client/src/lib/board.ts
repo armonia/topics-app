@@ -271,6 +271,26 @@ export interface PublishCommit {
   when: string;
 }
 
+/** Per-file summary line of a unified diff. status: A/M/D/R (git name-status). */
+export interface DiffFileStat {
+  path: string;
+  additions: number; // -1 = binary
+  deletions: number; // -1 = binary
+  status: string;
+}
+
+/** A unified-diff bundle: per-file stat + the raw patch, capped server-side. */
+export interface DiffBundle {
+  branch: string | null;
+  range?: string;
+  base?: string;
+  stat: DiffFileStat[];
+  patch: string;
+  truncated: boolean;
+  /** 'no_worktree' when a task has no isolated worktree to diff yet. */
+  code?: string;
+}
+
 /** A project's unpushed state for the Publish control. */
 export interface PublishProject {
   projectId: string;
@@ -327,6 +347,12 @@ export const boardApi = {
   /** Push a project's current branch to its remote (triggers deploy CI where configured). */
   publish: (projectId: string) =>
     req<{ ok: boolean; branch: string; output?: string; error?: string }>(`/boards/${enc(projectId)}/publish`, { method: 'POST', body: JSON.stringify({}) }),
+  /** Unified diff of the commits a publish would push (what ships). */
+  publishDiff: (projectId: string) =>
+    req<DiffBundle>(`/boards/${enc(projectId)}/publish-diff`),
+  /** Unified diff of what a dispatched task changed in its isolated worktree. */
+  taskDiff: (projectId: string, taskId: string) =>
+    req<DiffBundle>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/diff`),
   /** Scaffold a NEW workspace project (dir + CLAUDE.md); 409 on name collision. */
   createProject: (name: string) =>
     req<BoardProjectRef>('/all-boards/projects', { method: 'POST', body: JSON.stringify({ name }) }),
