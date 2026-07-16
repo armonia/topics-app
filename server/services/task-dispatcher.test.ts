@@ -540,6 +540,112 @@ describe("task-dispatcher", () => {
     expect(t.assignedTopicId).toBe("topic-live");
   });
 
+  it("reconcile RESUMES a working restart-orphan on its own session (no requeue, no attempt burn)", async () => {
+    // KANBAN-10: everything the turn needs survived the restart (topic, worktree,
+    // CLI --resume conversation) — only the in-memory driver died. The orphan
+    // must continue IN PLACE, never restart from zero on a fresh topic.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");           // never bounced through todo
+    expect(t.assignedTopicId).toBe("topic-live");   // SAME topic (same worktree, same conversation)
+    expect(t.dispatchAttempts).toBe(1);             // a restart consumes nothing
+    expect(t.dispatchState).toBe("working");
+    expect(h.topicsCreated.length).toBe(0);         // no fresh topic spawned
+    expect(h.turns.length).toBe(1);                 // one continuation turn on the SAME session
+    expect(h.turns[0].sessionKey).toBe("topic:" + "topic-live".slice(0, 8));
+    expect(h.turns[0].contextMode).toBe("lean");    // envelope already in the session history
+    expect(h.turns[0].content).toContain("Riprendi da dove eri");
+    const comments = h.svc.get("t1")!.comments;
+    expect(comments.some((c) => c.author === "system" && c.content.includes("riprendo la stessa sessione"))).toBe(true);
+  });
+
+  it("reconcile is idempotent under the poll: a resumed turn is never doubled", async () => {
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+    await h.dispatcher.reconcile(); // the 10s poll fires while the resumed turn is still live
+    await flush();
+
+    expect(h.turns.length).toBe(1); // inFlight guard: no double-fire
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+  });
+
+  it("reconcile re-dispatches FRESH a working orphan whose topic died during the downtime", async () => {
+    // No session left to resume → the requeue+re-claim path: rollback the
+    // interrupted attempt, clear the dead binding, and (dispatch on) re-launch
+    // from scratch on a brand-new topic.
+    const h = harness({ topicExists: () => false });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-dead", attempts: 1, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");
+    expect(t.assignedTopicId).toBe("topic-1");                    // FRESH topic, not the dead one
+    expect(t.dispatchAttempts).toBe(1);                            // rolled back to 0, re-claim bumped to 1
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].content).toContain("owner esclusivo del task"); // kickoff da capo
+  });
+
+  it("reconcile with the global switch OFF requeues without resuming and without a stranded chip", async () => {
+    // The human turned auto-dispatch off: no agent may relaunch. The orphan
+    // goes back to todo, and the requeue's `queued` chip is cleared — on a
+    // board that never dispatches it would strand forever.
+    const h = harness({ topicExists: () => true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 2, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");
+    expect(t.assignedTopicId).toBeNull();
+    expect(t.dispatchAttempts).toBe(1);   // interrupted attempt refunded
+    expect(t.dispatchState).toBeNull();   // no stranded 'queued'
+    expect(h.turns.length).toBe(0);
+  });
+
+  it("reconcile requeues a starting orphan (kickoff may never have reached the CLI)", async () => {
+    // Crash in the claim→bind window: there may be NO session to resume, so a
+    // clean re-claim beats resuming into a possibly-empty conversation.
+    const h = harness({ topicExists: () => true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: null, attempts: 1, dispatchState: "starting" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");        // auto off here → waits in todo
+    expect(t.dispatchAttempts).toBe(0);   // refunded
+    expect(h.turns.length).toBe(0);
+  });
+
+  it("reconcile resume at the retry cap delivers the last-chance nudge (a restart never parks)", async () => {
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true }); // default retry cap = 2
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 2, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");     // resumed, not parked
+    expect(t.dispatchAttempts).toBe(2);       // still no burn
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0].content).toContain("ULTIMO TURNO"); // budget exhausted → deliver-now nudge
+  });
+
   it("launch parks (not requeues) when setup fails and attempts are exhausted", async () => {
     const h = harness({ createWorktree: async () => { throw new Error("git worktree add failed"); } });
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
