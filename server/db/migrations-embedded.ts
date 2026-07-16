@@ -55,6 +55,7 @@ import m046 from "./migrations/047-classify-parked-dispatch-state.sql" with { ty
 import m047 from "./migrations/048-task-agent-cache-read.sql" with { type: "text" };
 import m048 from "./migrations/049-topic-mcp-policy.sql" with { type: "text" };
 import m049 from "./migrations/050-board-dispatch-retry.sql" with { type: "text" };
+import m050 from "./migrations/051-board-dispatch-auto-merge.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -114,4 +115,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 48, name: "048-task-agent-cache-read.sql", sql: m047 },
   { version: 49, name: "049-topic-mcp-policy.sql", sql: m048 },
   { version: 50, name: "050-board-dispatch-retry.sql", sql: m049 },
+  { version: 51, name: "051-board-dispatch-auto-merge.sql", sql: m050 },
 ];

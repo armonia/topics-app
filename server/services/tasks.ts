@@ -181,6 +181,15 @@ export interface BoardSettings {
   maxAgents: number;
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
+  /**
+   * Auto-merge the task's worktree branch into the project's main checkout when a
+   * human approves it (review → done). Programmatic: clean merge lands locally (NO
+   * push); a conflict hands the branch back to the task's own agent to resolve; an
+   * unready checkout (dirty / not on main) is skipped. Default OFF — no existing
+   * board changes behaviour until it's turned on. Only meaningful with
+   * `dispatchUseWorktree` on (an in-place task has no branch to merge).
+   */
+  dispatchAutoMerge: boolean;
   dispatchTimeoutMin: number;
   /**
    * MCP fleet for dispatched agents on this board (migration 049).
@@ -203,6 +212,7 @@ export interface UpdateBoardSettingsPatch {
   maxAgents?: number;
   dispatchEffort?: string;
   dispatchUseWorktree?: boolean;
+  dispatchAutoMerge?: boolean;
   dispatchTimeoutMin?: number;
   dispatchMcp?: string;
   dispatchRetryCap?: number;
@@ -1008,6 +1018,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         maxAgents: r ? (r.max_agents ?? 2) : 2,
         dispatchEffort: r?.dispatch_effort ?? "medium",
         dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
+        dispatchAutoMerge: r ? !!r.dispatch_auto_merge : false,
         dispatchTimeoutMin: r?.dispatch_timeout_min ?? 20,
         dispatchMcp: r?.dispatch_mcp ?? "bridge-only",
         dispatchRetryCap: r?.dispatch_retry_cap ?? 2,
@@ -1043,6 +1054,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.maxAgents !== undefined) { sets.push("max_agents = ?"); params.push(clampInt(patch.maxAgents, 1, 10)); }
       if (patch.dispatchEffort !== undefined) { sets.push("dispatch_effort = ?"); params.push(patch.dispatchEffort); }
       if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }
+      if (patch.dispatchAutoMerge !== undefined) { sets.push("dispatch_auto_merge = ?"); params.push(patch.dispatchAutoMerge ? 1 : 0); }
       if (patch.dispatchTimeoutMin !== undefined) { sets.push("dispatch_timeout_min = ?"); params.push(clampInt(patch.dispatchTimeoutMin, 1, 120)); }
       if (patch.dispatchMcp !== undefined) { sets.push("dispatch_mcp = ?"); params.push(patch.dispatchMcp); }
       if (patch.dispatchRetryCap !== undefined) { sets.push("dispatch_retry_cap = ?"); params.push(clampInt(patch.dispatchRetryCap, 1, 5)); }
