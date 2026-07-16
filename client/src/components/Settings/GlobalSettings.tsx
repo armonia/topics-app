@@ -300,7 +300,7 @@ function ShortcutsSection({ settings }: { settings: AppSettings }) {
           ['⌘N', 'New… (add menu)'],
           // ⌘⇧N is only live when the paid New Chat feature is enabled.
           ...(settings.enableNewChat ? [['⌘⇧N', 'New chat']] : []),
-          ['⌘⇧;', 'Focus task composer'],
+          ['Right ⌘ (tap)', 'Focus task composer'],
           ['⌘W', 'Close panel'],
           ['⌘B', 'Toggle sidebar'],
           ['⌘1-9', 'Switch panels'],

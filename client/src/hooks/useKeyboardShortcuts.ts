@@ -151,8 +151,23 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
       });
     };
 
+    // Right-⌘ TAP (press & release, alone) → focus the task composer. Armed by
+    // a bare MetaRight keydown; fires on its keyup only if nothing else happened
+    // in between (another key, click, wheel, focus loss) and the tap was quick —
+    // so right-⌘ held as a modifier (⌘C, ⌘click, ⌘tab) never triggers it.
+    let rightCmdTapAt = 0;
+    const disarmRightCmdTap = () => { rightCmdTapAt = 0; };
+
     const handler = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
+
+      if (e.code === 'MetaRight' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        rightCmdTapAt = Date.now();
+      } else {
+        // Any other key while (or before) the right-⌘ is down = it's a chord,
+        // not a tap.
+        rightCmdTapAt = 0;
+      }
 
       // Cmd+Z / Cmd+Shift+Z — UI undo/redo
       if (isMod && (e.key === 'z' || e.key === 'Z')) {
@@ -247,13 +262,6 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         e.preventDefault();
         const last = closedTabsRef.current[0];
         if (last) handleReopenClosedTab(last);
-        return;
-      }
-
-      // ⌘⇧; — focus the task composer (board panel).
-      if (isMod && e.shiftKey && e.key === ';') {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('task-composer:focus'));
         return;
       }
 
@@ -371,8 +379,28 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
 
     // Capture phase: fires before the per-PaneTabBar Cmd+1-9 handlers, so the
     // global tab list owns the mapping when it has a slot to claim.
+    // Companion listeners for the right-⌘ tap: the keyup decides (tap < 400 ms
+    // with nothing in between), everything else just disarms.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== 'MetaRight') return;
+      if (rightCmdTapAt && Date.now() - rightCmdTapAt < 400) {
+        window.dispatchEvent(new CustomEvent('task-composer:focus'));
+      }
+      rightCmdTapAt = 0;
+    };
+
     window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('mousedown', disarmRightCmdTap, true);
+    window.addEventListener('wheel', disarmRightCmdTap, true);
+    window.addEventListener('blur', disarmRightCmdTap);
+    return () => {
+      window.removeEventListener('keydown', handler, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('mousedown', disarmRightCmdTap, true);
+      window.removeEventListener('wheel', disarmRightCmdTap, true);
+      window.removeEventListener('blur', disarmRightCmdTap);
+    };
   }, [
     handleClosePanel,
     toggleSidebar,
