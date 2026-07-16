@@ -446,14 +446,25 @@ export function paneReducer(state: PaneState, action: PaneAction): void {
       // win the strip again on the next merge. Keep the NEWEST of the two
       // sides; either may have seen the more recent closed→open transition.
       const localOpenedAt = new Map<string, number>();
+      // `scrollOffset` is DEVICE-LOCAL: sanitizeSnapshot strips it from every
+      // inbound snapshot, so the wholesale `state.panes = clean.panes` below
+      // would zero the live scroll position of every open chat on every WS
+      // broadcast / server hydrate. Preserve local values across the apply —
+      // same pattern as `openedAt` just above.
+      const localScrollOffset = new Map<string, number>();
       for (const [id, p] of Object.entries(state.panes)) {
         if (typeof p.openedAt === 'number') localOpenedAt.set(id, p.openedAt);
+        if (typeof p.scrollOffset === 'number') localScrollOffset.set(id, p.scrollOffset);
       }
       if (clean.panes) {
         state.panes = clean.panes;
         for (const [id, ts] of localOpenedAt) {
           const p = state.panes[id];
           if (p && (typeof p.openedAt !== 'number' || p.openedAt < ts)) p.openedAt = ts;
+        }
+        for (const [id, off] of localScrollOffset) {
+          const p = state.panes[id];
+          if (p && typeof p.scrollOffset !== 'number') p.scrollOffset = off;
         }
       }
       if (clean.groups) state.groups = clean.groups;
