@@ -76,6 +76,49 @@ async function runGitCap(cwd: string, args: string[]): Promise<{ code: number; o
   }
 }
 
+/** Payload cap for a diff patch (~200 KB): a huge range renders the first slice
+ *  and flags `truncated` so the UI shows a "…troncato" note rather than shipping
+ *  megabytes into the client. */
+const DIFF_PATCH_CAP = 200_000;
+
+/**
+ * Build a unified-diff bundle for `range` (any `git diff` selector — a `a..b`
+ * range for a publish, or a base sha for a worktree). Returns the per-file stat
+ * (additions/deletions/status, -1 count = binary) and the raw unified patch,
+ * capped. Reuses `runGitCap`; never throws.
+ */
+async function gitDiffBundle(cwd: string, range: string): Promise<{
+  stat: { path: string; additions: number; deletions: number; status: string }[];
+  patch: string;
+  truncated: boolean;
+}> {
+  const [numstat, nameStatus] = await Promise.all([
+    runGitCap(cwd, ["diff", "--numstat", range]).then((r) => r.out),
+    runGitCap(cwd, ["diff", "--name-status", range]).then((r) => r.out),
+  ]);
+  const statusByPath = new Map<string, string>();
+  for (const line of nameStatus.split("\n").filter(Boolean)) {
+    const parts = line.split("\t");
+    const p = parts[parts.length - 1] ?? ""; // rename: status\told\tnew → take new
+    if (p) statusByPath.set(p, (parts[0] ?? "M")[0] ?? "M");
+  }
+  const stat = numstat.split("\n").filter(Boolean).map((line) => {
+    const parts = line.split("\t");
+    const add = parts[0] ?? "0";
+    const del = parts[1] ?? "0";
+    const path = parts[parts.length - 1] ?? "";
+    return {
+      path,
+      additions: add === "-" ? -1 : Number.parseInt(add, 10) || 0,
+      deletions: del === "-" ? -1 : Number.parseInt(del, 10) || 0,
+      status: statusByPath.get(path) ?? "M",
+    };
+  });
+  const full = (await runGitCap(cwd, ["diff", range])).out;
+  const truncated = full.length > DIFF_PATCH_CAP;
+  return { stat, patch: truncated ? full.slice(0, DIFF_PATCH_CAP) : full, truncated };
+}
+
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
   const svc = createTaskService(db);
@@ -193,6 +236,47 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         return json({ ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" }, 502);
       }
       return json({ ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) });
+    }
+
+    // GET /api/boards/:projectId/publish-diff — the unified diff of the commits a
+    // publish would push (the SAME range as publish-status' `ahead`). Lets the UI
+    // show WHAT ships, line by line, before pushing.
+    const bPubDiff = matchRoute(pathname, "/api/boards/:projectId/publish-diff");
+    if (bPubDiff && method === "GET") {
+      let dirs: string[] = [];
+      try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+      const path = dirs.find((d) => projectIdForPath(d) === bPubDiff.projectId);
+      if (!path) return json({ error: "progetto non trovato", code: "not_found" }, 404);
+      const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
+      if (!branch) return json({ error: "HEAD staccato", code: "invalid_input" }, 400);
+      const upstream = (await runGitCap(path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])).out.trim();
+      const range = upstream && !upstream.includes("fatal") ? `${upstream}..HEAD` : `origin/${branch}..HEAD`;
+      const bundle = await gitDiffBundle(path, range);
+      return json({ branch, range, ...bundle });
+    }
+
+    // GET /api/boards/:projectId/tasks/:taskId/diff — the unified diff of what a
+    // dispatched task changed in its own isolated worktree (vs the branch point).
+    // Resolves task → topic → worktree (same chain as auto-merge); returns an
+    // empty bundle with a code when the task has no isolated worktree yet.
+    const bTaskDiff = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/diff");
+    if (bTaskDiff && method === "GET") {
+      const empty = { stat: [], patch: "", truncated: false };
+      let topicId: string | null | undefined;
+      try { topicId = svc.get(bTaskDiff.taskId, { projectId: bTaskDiff.projectId })?.task.assignedTopicId; }
+      catch { topicId = null; }
+      if (!topicId) return json({ code: "no_worktree", branch: null, ...empty });
+      const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+      const wt = worktreeId ? ctx.worktreeStore.get(worktreeId) : null;
+      if (!wt || wt.mode !== "branch" || !wt.absPath || !existsSync(wt.absPath)) {
+        return json({ code: "no_worktree", branch: wt?.branchName ?? null, ...empty });
+      }
+      // Diff against the branch point (merge-base) so the bundle is exactly what
+      // this task did — committed work on its branch AND any uncommitted edits —
+      // without noise from commits main gained meanwhile.
+      const base = (await runGitCap(wt.absPath, ["merge-base", "main", "HEAD"])).out.trim() || "main";
+      const bundle = await gitDiffBundle(wt.absPath, base);
+      return json({ branch: wt.branchName, base, ...bundle });
     }
 
     // /api/all-boards/settings — the GLOBAL auto-dispatch switch (one for every

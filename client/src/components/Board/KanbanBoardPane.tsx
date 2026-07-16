@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, PackageCheck, Paperclip, Plus, Sparkles, Square, Trash2, UploadCloud, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Funnel } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, GitCompare, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, PackageCheck, Paperclip, Plus, Sparkles, Square, Trash2, UploadCloud, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Funnel } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
@@ -27,8 +27,9 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, isProjectlessId, boardDrafts,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
-  type BoardProjectRef, type PublishProject,
+  type BoardProjectRef, type PublishProject, type DiffBundle,
 } from '../../lib/board';
+import { UnifiedDiff } from './UnifiedDiff';
 
 /**
  * "claude-opus-4-8" → "Opus 4.8" — strip the `claude-` prefix, capitalize the
@@ -218,9 +219,21 @@ function PublishControl() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [diffs, setDiffs] = useState<Record<string, DiffBundle | 'loading' | 'error'>>({});
   const refresh = useCallback(() => {
     boardApi.publishStatus().then(setProjects).catch(() => setProjects([]));
   }, []);
+  const toggleExpand = (projectId: string, isOpen: boolean) => {
+    if (isOpen) { setExpanded(null); return; }
+    setExpanded(projectId);
+    // Lazy-load the diff once per project when it's first opened.
+    if (!diffs[projectId]) {
+      setDiffs((d) => ({ ...d, [projectId]: 'loading' }));
+      boardApi.publishDiff(projectId)
+        .then((b) => setDiffs((d) => ({ ...d, [projectId]: b })))
+        .catch(() => setDiffs((d) => ({ ...d, [projectId]: 'error' })));
+    }
+  };
   useEffect(() => { refresh(); }, [refresh]);
   const pending = (projects ?? []).filter((p) => p.ahead > 0);
   const total = pending.reduce((n, p) => n + p.ahead, 0);
@@ -260,9 +273,9 @@ function PublishControl() {
                 <div key={p.projectId} className="rounded">
                   <div className="flex items-center gap-1.5 px-1 py-1 hover:bg-white/5">
                     <button
-                      onClick={() => setExpanded(isOpen ? null : p.projectId)}
+                      onClick={() => toggleExpand(p.projectId, isOpen)}
                       className="flex min-w-0 flex-1 items-center gap-1 text-left"
-                      title={isOpen ? 'Nascondi i commit' : 'Mostra i commit da pubblicare'}
+                      title={isOpen ? 'Nascondi commit e diff' : 'Mostra commit e diff da pubblicare'}
                     >
                       {isOpen ? <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-neutral-500" />}
                       <span className="min-w-0 flex-1 truncate text-[12px] text-neutral-200">{p.name}<span className="ml-1 text-[11px] text-neutral-500">{p.ahead} commit · {p.branch}</span></span>
@@ -281,12 +294,59 @@ function PublishControl() {
                       {p.commits.length >= 50 && <li className="text-[10px] text-neutral-600">…troncato a 50</li>}
                     </ul>
                   )}
+                  {isOpen && (
+                    <div className="mb-1.5 ml-4 border-l border-white/10 pl-2">
+                      <div className="mb-0.5 text-[9px] uppercase tracking-wide text-neutral-600">Diff che verrà pubblicato</div>
+                      {diffs[p.projectId] === 'loading' && <div className="text-[11px] text-neutral-500">Carico il diff…</div>}
+                      {diffs[p.projectId] === 'error' && <div className="text-[11px] text-red-400">Errore nel caricare il diff.</div>}
+                      {diffs[p.projectId] && typeof diffs[p.projectId] === 'object' && (
+                        <UnifiedDiff bundle={diffs[p.projectId] as DiffBundle} />
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
             {msg && <div className="mt-0.5 border-t border-white/10 px-2 py-1.5 text-[11px] text-neutral-400">{msg}</div>}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/** Collapsible "Modifiche" panel in the task drawer: lazy-loads the unified diff
+ *  of what the task's dispatched agent changed in its isolated worktree, so a
+ *  reviewer can see the actual changes before approving. */
+function TaskChangesSection({ projectId, taskId, bump }: { projectId: string; taskId: string; bump?: string | number }) {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<DiffBundle | 'loading' | 'error' | null>(null);
+  const fetchDiff = useCallback(() => {
+    setState('loading');
+    boardApi.taskDiff(projectId, taskId).then(setState).catch(() => setState('error'));
+  }, [projectId, taskId]);
+  // Re-fetch when the task advances (bump changes) IF the panel is open — the
+  // agent may have committed more since it was last viewed.
+  useEffect(() => { if (open) fetchDiff(); }, [open, bump, fetchDiff]);
+  const toggle = () => setOpen((s) => !s);
+  const bundle = state && typeof state === 'object' ? state : null;
+  const fileCount = bundle && bundle.code !== 'no_worktree' ? bundle.stat.length : null;
+  return (
+    <div className="mb-2 rounded border border-white/10">
+      <button onClick={toggle} className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-neutral-300 hover:bg-white/5">
+        {open ? <ChevronDown className="h-3 w-3 text-neutral-500" /> : <ChevronRight className="h-3 w-3 text-neutral-500" />}
+        <GitCompare className="h-3 w-3 text-neutral-500" /> Modifiche
+        {fileCount != null && fileCount > 0 && <span className="text-neutral-500">({fileCount} file)</span>}
+      </button>
+      {open && (
+        <div className="max-h-[42vh] overflow-y-auto px-2 pb-1.5">
+          {state === 'loading' && <div className="text-[11px] text-neutral-500">Carico il diff…</div>}
+          {state === 'error' && <div className="text-[11px] text-red-400">Errore nel caricare il diff.</div>}
+          {bundle && bundle.code === 'no_worktree' && (
+            <div className="text-[11px] text-neutral-500">Nessun worktree isolato per questo task — niente diff da mostrare.</div>
+          )}
+          {bundle && bundle.code !== 'no_worktree' && <UnifiedDiff bundle={bundle} defaultOpenFirst />}
+        </div>
       )}
     </div>
   );
@@ -2421,6 +2481,8 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
           </div>
           )}
           <div className="border-t border-white/10 p-2">
+            {/* What the agent changed in its worktree — see the diff before deciding. */}
+            {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} />}
             {/* Review zone — decisions live HERE, where the agent's questions
                 land (end of the thread), not up in the header. */}
             {task.status === 'review' && (
