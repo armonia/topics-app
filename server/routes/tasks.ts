@@ -210,6 +210,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               maxAgents: typeof body?.maxAgents === "number" ? body.maxAgents : undefined,
               dispatchEffort: typeof body?.dispatchEffort === "string" ? body.dispatchEffort : undefined,
               dispatchUseWorktree: typeof body?.dispatchUseWorktree === "boolean" ? body.dispatchUseWorktree : undefined,
+              dispatchAutoMerge: typeof body?.dispatchAutoMerge === "boolean" ? body.dispatchAutoMerge : undefined,
               dispatchTimeoutMin: typeof body?.dispatchTimeoutMin === "number" ? body.dispatchTimeoutMin : undefined,
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
             });
