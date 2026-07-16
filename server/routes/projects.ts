@@ -20,7 +20,8 @@ import type { AppContext, RouteHandler } from "../types";
 import { SlugConflictError, ProjectInUseError } from "../services/project-store";
 import { unwatchGitDir } from "../git-watcher";
 import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
-import { join, dirname, extname } from "node:path";
+import { extname } from "node:path";
+import { resolveProjectIcon, ICON_CONTENT_TYPE } from "../lib/project-icon";
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
@@ -34,78 +35,8 @@ function stripCtrl(input: unknown): string | null {
 }
 
 // ── Project icon (favicon / web-manifest) resolution ─────────────────────
-const ICON_CONTENT_TYPE: Record<string, string> = {
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-};
-
-// Conventional favicon/logo locations, in priority order. Covers Vite/CRA
-// (public/), SvelteKit/Hugo (static/), Next.js app-dir (app/icon.*), and bare
-// roots. Returns the first existing FILE, or null.
-const ICON_CANDIDATES = [
-  "favicon.svg", "favicon.png", "favicon.ico", "icon.svg", "icon.png", "logo.svg", "logo.png",
-  "public/favicon.svg", "public/favicon.png", "public/favicon.ico", "public/icon.svg",
-  "public/icon.png", "public/apple-touch-icon.png", "public/logo.svg", "public/logo.png",
-  "static/favicon.svg", "static/favicon.png", "static/favicon.ico", "static/logo.png",
-  "src/favicon.svg", "src/favicon.png", "src/favicon.ico", "src/assets/favicon.png", "src/assets/logo.png",
-  "app/icon.svg", "app/icon.png", "app/favicon.ico", "app/apple-icon.png",
-  "assets/favicon.png", "assets/logo.png",
-];
-const MANIFEST_CANDIDATES = [
-  "public/manifest.json", "public/site.webmanifest", "public/manifest.webmanifest",
-  "manifest.json", "site.webmanifest", "manifest.webmanifest",
-];
-
-function isFile(p: string): boolean {
-  try { return existsSync(p) && statSync(p).isFile(); } catch { return false; }
-}
-
-/** Resolve a project's icon file (absolute path) from common favicon/manifest
- *  locations, or null if none. `dir` must already be a realpath'd directory. */
-function resolveProjectIcon(dir: string): string | null {
-  for (const rel of ICON_CANDIDATES) {
-    const p = join(dir, rel);
-    if (isFile(p) && extname(p).toLowerCase() in ICON_CONTENT_TYPE) return p;
-  }
-  // Web manifest: pick the icon with the largest declared size (fallback first).
-  for (const rel of MANIFEST_CANDIDATES) {
-    const mp = join(dir, rel);
-    if (!isFile(mp)) continue;
-    try {
-      const m = JSON.parse(readFileSync(mp, "utf-8"));
-      const icons: Array<{ src?: string; sizes?: string }> = Array.isArray(m.icons) ? m.icons : [];
-      const scored = icons
-        .filter((i) => typeof i.src === "string" && !/^(https?:)?\/\//.test(i.src!) && !i.src!.startsWith("data:"))
-        .map((i) => ({ src: i.src!, size: parseInt((i.sizes || "0").split("x")[0], 10) || 0 }))
-        .sort((a, b) => b.size - a.size);
-      for (const { src } of scored) {
-        const cand = join(dirname(mp), src.replace(/^\//, ""));
-        if (isFile(cand) && extname(cand).toLowerCase() in ICON_CONTENT_TYPE) return cand;
-      }
-    } catch { /* malformed manifest — ignore */ }
-  }
-  // index.html <link rel="icon">
-  for (const rel of ["index.html", "public/index.html"]) {
-    const hp = join(dir, rel);
-    if (!isFile(hp)) continue;
-    try {
-      const html = readFileSync(hp, "utf-8");
-      const m = html.match(/<link[^>]+rel=["'](?:shortcut )?icon["'][^>]*href=["']([^"']+)["']/i)
-        || html.match(/<link[^>]+href=["']([^"']+)["'][^>]*rel=["'](?:shortcut )?icon["']/i);
-      const href = m?.[1];
-      if (href && !/^(https?:)?\/\//.test(href) && !href.startsWith("data:")) {
-        const cand = join(dirname(hp), href.replace(/^\//, ""));
-        if (isFile(cand) && extname(cand).toLowerCase() in ICON_CONTENT_TYPE) return cand;
-      }
-    } catch { /* unreadable — ignore */ }
-  }
-  return null;
-}
+// Lives in ../lib/project-icon.ts (pure fs helpers, unit-tested); this route
+// only gates access (allowlist + realpath containment) and serves the bytes.
 
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll } = ctx;

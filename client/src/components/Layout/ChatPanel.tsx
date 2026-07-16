@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Settings, Pin, X, ExternalLink, Layers, Globe, Cloud } from 'lucide-react';
 import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
+import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SessionActivityBar } from '../Shared/SessionActivity';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
 import { topicsApi, commandApi } from '../../lib/api';
@@ -224,6 +225,9 @@ export function ChatPanel({
         {/* Banners */}
         {suggestedProject && (
           <div className="px-3 py-2 bg-primary/10 border-b border-primary/20 flex items-center gap-3 flex-shrink-0">
+            {/* Same real project favicon as the sidebar / tab bar; icon-less
+                projects render nothing (no fake folder glyph). */}
+            <ProjectFavicon path={suggestedProject} size={16} className="flex-shrink-0" />
             <div className="flex-1 min-w-0"><div className="text-[12px] font-medium text-primary">Link to a project?</div><div className="text-[11px] text-app-text-secondary truncate">{suggestedProject}</div></div>
             <button onClick={() => { onUpdateTopic(topic.id, { projectPath: suggestedProject }); setSuggestedProject(null); }} className="px-3 py-1 text-[11px] bg-primary text-white rounded-md hover:bg-primary-hover transition-colors">Link</button>
             <button onClick={() => setSuggestedProject(null)} className="px-2 py-1 text-[11px] text-app-text-muted hover:text-app-text transition-colors">Skip</button>
