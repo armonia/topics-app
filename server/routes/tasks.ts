@@ -578,6 +578,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                   const res = await autoMerge.tryMerge(taskId, task.text);
                   if (res.status === "merged") {
                     svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
+                    // Landing client sources without rebuilding leaves the served
+                    // bundle stale (the recurring "non la vedo"): rebuild now, on
+                    // the same per-repo queue, and surface the outcome.
+                    if (res.touchedClient) {
+                      const t2 = svc.get(taskId, { projectId })?.task;
+                      if (t2) broadcastToAll({ type: "task:updated", projectId, task: t2 });
+                      const build = await autoMerge.buildClient(res.repoPath);
+                      svc.addComment({
+                        taskId, author: "system",
+                        content: build.code === 0
+                          ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
+                          : `Build client fallita (exit ${build.code}) — lancia \`bun run build:client\` a mano.`,
+                      });
+                      if (build.code !== 0) console.error("[automerge] build:client failed for", taskId, build.stderr.slice(-2000));
+                    }
                   } else if (res.status === "conflict") {
                     // Not landed → hand it back to the task's own agent, which knows
                     // what it changed. Move it out of done so the resume has a home.

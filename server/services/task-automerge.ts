@@ -18,7 +18,7 @@
 //   • Serialized per repo path, so two approvals on the same project can't race.
 
 export type AutoMergeResult =
-  | { status: "merged"; commit: string; branch: string }
+  | { status: "merged"; commit: string; branch: string; repoPath: string; touchedClient: boolean }
   | { status: "conflict"; branch: string }
   | { status: "nothing"; branch: string }
   | { status: "skipped"; reason: string };
@@ -47,6 +47,11 @@ export interface AutoMergeDeps {
   resolveTaskMerge: (taskId: string) => TaskMergeTarget | null;
   /** Injected for tests. Default: real `git` via Bun.spawn (never throws — returns the code). */
   runGit?: (cwd: string, args: string[]) => Promise<GitRunResult>;
+  /**
+   * Injected for tests. Default: `bun run build:client` via Bun.spawn with a
+   * 5-minute kill switch (a wedged vite must never pin the approve queue).
+   */
+  runBuild?: (cwd: string) => Promise<GitRunResult>;
   log?: (msg: string, err?: unknown) => void;
 }
 
@@ -64,8 +69,27 @@ async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult>
   }
 }
 
+const BUILD_TIMEOUT_MS = 5 * 60_000;
+
+async function defaultRunBuild(cwd: string): Promise<GitRunResult> {
+  try {
+    const proc = Bun.spawn(["bun", "run", "build:client"], { cwd, stdout: "pipe", stderr: "pipe" });
+    const timer = setTimeout(() => { try { proc.kill(); } catch { /* already gone */ } }, BUILD_TIMEOUT_MS);
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const code = await proc.exited;
+    clearTimeout(timer);
+    return { code, stdout, stderr };
+  } catch (e) {
+    return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const runGit = deps.runGit ?? defaultRunGit;
+  const runBuild = deps.runBuild ?? defaultRunBuild;
   const log = deps.log ?? (() => {});
 
   // Serialize per repo path so two approvals on the same project never run
@@ -119,7 +143,13 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", msg, branch]);
         if (merge.code === 0) {
           const rev = await runGit(repoPath, ["rev-parse", "--short", "HEAD"]);
-          return { status: "merged", commit: rev.stdout.trim(), branch };
+          // First-parent diff = exactly what this landing introduced on main.
+          // Landing client sources without a rebuild leaves the served bundle
+          // stale ("non la vedo") — the caller uses this to trigger buildClient.
+          const diff = await runGit(repoPath, ["diff", "--name-only", "HEAD^1", "HEAD"]);
+          const touchedClient = diff.code === 0
+            && diff.stdout.split("\n").some((f) => f.startsWith("client/"));
+          return { status: "merged", commit: rev.stdout.trim(), branch, repoPath, touchedClient };
         }
 
         // Non-zero: conflict (or any failure). Abort so main is never left mid-merge.
@@ -134,7 +164,16 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     });
   }
 
-  return { tryMerge };
+  /**
+   * Rebuild the served client bundle after a landing that touched client/.
+   * Rides the same per-repo queue as tryMerge, so a build never overlaps a
+   * merge (or another build) on the same checkout.
+   */
+  function buildClient(repoPath: string): Promise<GitRunResult> {
+    return chain(repoPath, () => runBuild(repoPath));
+  }
+
+  return { tryMerge, buildClient };
 }
 
 export type TaskAutoMerge = ReturnType<typeof createTaskAutoMerge>;
