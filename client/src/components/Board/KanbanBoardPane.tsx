@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, GitCompare, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, PackageCheck, Paperclip, Plus, Sparkles, Square, Trash2, UploadCloud, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Funnel } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, GitCompare, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, PackageCheck, Paperclip, Plus, Sparkles, Square, Trash2, UploadCloud, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Search, SlidersHorizontal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
@@ -359,114 +359,123 @@ interface FilterPanelProps {
   mode: 'project' | 'all';
 }
 
-function FilterPanel({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
+/** Filters shown INLINE in the board header (no funnel): a search box + priority
+ *  chips always visible, with the less-used assignee/project filters in a compact
+ *  "+altro" popover. Same filter model as before, just surfaced directly. */
+function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
+  const [moreOpen, setMoreOpen] = useState(false);
   const togglePriority = (p: number) => {
     const updated = filters.priority.includes(p)
       ? filters.priority.filter((x) => x !== p)
       : [...filters.priority, p].sort((a, b) => b - a);
     onFiltersChange({ ...filters, priority: updated });
   };
-
-  const toggleAssignedTo = (assignee: string) => {
-    const updated = filters.assignedTo.includes(assignee)
-      ? filters.assignedTo.filter((x) => x !== assignee)
-      : [...filters.assignedTo, assignee];
+  const toggleAssignedTo = (a: string) => {
+    const updated = filters.assignedTo.includes(a)
+      ? filters.assignedTo.filter((x) => x !== a)
+      : [...filters.assignedTo, a];
     onFiltersChange({ ...filters, assignedTo: updated });
   };
-
-  const toggleProject = (projectId: string) => {
-    const updated = filters.projectId.includes(projectId)
-      ? filters.projectId.filter((x) => x !== projectId)
-      : [...filters.projectId, projectId];
+  const toggleProject = (pid: string) => {
+    const updated = filters.projectId.includes(pid)
+      ? filters.projectId.filter((x) => x !== pid)
+      : [...filters.projectId, pid];
     onFiltersChange({ ...filters, projectId: updated });
   };
+  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [] });
 
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
   const projects = Array.from(new Set(tasks.map((t) => t.projectId))).sort();
+  const showProjects = mode === 'all' && projects.length > 0;
+  const hasMore = assignees.length > 0 || showProjects;
+  const moreActive = filters.assignedTo.length + (mode === 'all' ? filters.projectId.length : 0);
+  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + (filters.text ? 1 : 0) > 0;
 
   return (
-    <div className="shrink-0 border-b border-white/10 bg-white/5 px-3 py-3 space-y-3">
-      <div>
-        <p className="text-xs font-semibold uppercase text-neutral-400 mb-2">Priorità</p>
-        <div className="flex flex-wrap gap-2">
-          {PRIORITY_ORDER.map((p) => (
-            <button
-              key={p}
-              onClick={() => togglePriority(p)}
-              className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
-                filters.priority.includes(p)
-                  ? 'bg-white/15 text-neutral-100'
-                  : 'bg-white/5 text-neutral-400 hover:bg-white/10'
-              }`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[p]}`} />
-              {PRIORITY_LABEL[p]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <p className="text-xs font-semibold uppercase text-neutral-400 mb-2">Ricerca testo</p>
+    <div className="flex min-w-0 items-center gap-1.5">
+      {/* Search — always visible */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-500" />
         <input
           value={filters.text}
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
-          placeholder="Cerca nei task…"
-          className="w-full rounded bg-white/5 px-2 py-1.5 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 focus:bg-white/10"
+          placeholder="cerca…"
+          aria-label="Cerca nei task"
+          className="w-28 rounded bg-white/5 py-0.5 pl-6 pr-1.5 text-[11px] text-neutral-100 outline-none placeholder:text-neutral-600 focus:w-40 focus:bg-white/10"
         />
       </div>
-
-      {assignees.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase text-neutral-400 mb-2">Assegnatario</p>
-          <div className="flex flex-wrap gap-2">
-            {assignees.map((a) => (
-              <button
-                key={a}
-                onClick={() => toggleAssignedTo(a)}
-                className={`rounded px-2 py-1 text-xs transition-colors ${
-                  filters.assignedTo.includes(a)
-                    ? 'bg-white/15 text-neutral-100'
-                    : 'bg-white/5 text-neutral-400 hover:bg-white/10'
-                }`}
-              >
-                @{a}
-              </button>
-            ))}
-          </div>
+      {/* Priority chips — always visible */}
+      <div className="flex items-center gap-0.5">
+        {PRIORITY_ORDER.map((p) => {
+          const on = filters.priority.includes(p);
+          return (
+            <button
+              key={p}
+              onClick={() => togglePriority(p)}
+              title={PRIORITY_LABEL[p]}
+              className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] transition-colors ${on ? 'bg-white/15 text-neutral-100' : 'text-neutral-500 hover:bg-white/5'}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[p]}`} />
+              {on && PRIORITY_LABEL[p]}
+            </button>
+          );
+        })}
+      </div>
+      {/* +altro — assignee/project in a small popover */}
+      {hasMore && (
+        <div className="relative">
+          <button
+            onClick={() => setMoreOpen((s) => !s)}
+            title="Altri filtri"
+            className={`relative flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${moreOpen || moreActive ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+          >
+            <SlidersHorizontal className="h-3 w-3" />
+            {moreActive > 0 && <span className="tabular-nums">{moreActive}</span>}
+          </button>
+          {moreOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
+              <div className="absolute left-0 top-full z-50 mt-1 w-56 space-y-2 rounded-lg border border-white/10 bg-neutral-900 p-2 shadow-xl">
+                {assignees.length > 0 && (
+                  <div>
+                    <p className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">Assegnatario</p>
+                    <div className="flex flex-wrap gap-1">
+                      {assignees.map((a) => (
+                        <button
+                          key={a} onClick={() => toggleAssignedTo(a)}
+                          className={`rounded px-1.5 py-0.5 text-[11px] ${filters.assignedTo.includes(a) ? 'bg-white/15 text-neutral-100' : 'bg-white/5 text-neutral-400 hover:bg-white/10'}`}
+                        >@{a}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {showProjects && (
+                  <div>
+                    <p className="mb-1 text-[10px] uppercase tracking-wide text-neutral-500">Progetto</p>
+                    <div className="flex flex-wrap gap-1">
+                      {projects.map((pid) => {
+                        const name = pid === UNASSIGNED_PROJECT_ID ? 'senza progetto' : pid.replace(/-[^-]+$/, '');
+                        return (
+                          <button
+                            key={pid} onClick={() => toggleProject(pid)}
+                            className={`rounded px-1.5 py-0.5 text-[11px] ${filters.projectId.includes(pid) ? 'bg-white/15 text-neutral-100' : 'bg-white/5 text-neutral-400 hover:bg-white/10'}`}
+                          >{name}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
-
-      {mode === 'all' && projects.length > 0 && (
-        <div>
-          <p className="text-xs font-semibold uppercase text-neutral-400 mb-2">Progetto</p>
-          <div className="flex flex-wrap gap-2">
-            {projects.map((pid) => {
-              const name = pid === UNASSIGNED_PROJECT_ID ? 'senza progetto' : pid.replace(/-[^-]+$/, '');
-              return (
-                <button
-                  key={pid}
-                  onClick={() => toggleProject(pid)}
-                  className={`rounded px-2 py-1 text-xs transition-colors ${
-                    filters.projectId.includes(pid)
-                      ? 'bg-white/15 text-neutral-100'
-                      : 'bg-white/5 text-neutral-400 hover:bg-white/10'
-                  }`}
-                >
-                  {name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+      {/* Reset — only when something is active */}
+      {anyActive && (
+        <button onClick={reset} title="Resetta filtri" className="rounded p-0.5 text-neutral-500 hover:bg-white/10 hover:text-neutral-200">
+          <X className="h-3 w-3" />
+        </button>
       )}
-
-      <button
-        onClick={() => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [] })}
-        className="text-xs text-neutral-500 hover:text-neutral-300"
-      >
-        Resetta filtri
-      </button>
     </div>
   );
 }
@@ -537,7 +546,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     projectId: string[];
   }
   const storageKey = `board:filters-${mode === 'all' ? 'all' : projectId}`;
-  const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>(() => {
     try {
       const stored = localStorage.getItem(storageKey);
@@ -772,6 +780,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         ) : (
           <span className="text-xs font-semibold text-neutral-200">Board generale</span>
         )}
+        <div className="ml-2 min-w-0">
+          <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
+        </div>
         <div className="ml-auto flex items-center gap-2">
           {mode === 'all' && <span className="text-[11px] text-neutral-500">{tasks.length} task · tutti i progetti</span>}
           {dispatchOn !== null && (
@@ -789,16 +800,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             </button>
           )}
           <PublishControl />
-          <button
-            onClick={() => setShowFilters((s) => !s)}
-            className={`relative rounded p-1 ${showFilters ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
-            title="Filtri board"
-          >
-            <Funnel className="h-3.5 w-3.5" />
-            {Object.values(filters).some((v) => (Array.isArray(v) ? v.length > 0 : v !== '')) && (
-              <span className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            )}
-          </button>
           {hasProject && (
             <button
               onClick={() => setShowSettings((s) => !s)}
@@ -809,14 +810,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         </div>
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">{error}</div>}
-      {showFilters && (
-        <FilterPanel
-          filters={filters}
-          onFiltersChange={setFilters}
-          tasks={tasks}
-          mode={mode}
-        />
-      )}
       {showSettings && hasProject && (
         <BoardSettingsPanel
           projectId={projectId}
