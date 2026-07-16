@@ -1,9 +1,10 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 
 /**
  * ProjectFavicon — shows a project's real icon when its folder ships one
- * (favicon.*, public/icon.*, a web manifest's icons[], or an index.html
- * <link rel="icon">), resolved + served by GET /api/projects/icon.
+ * (favicon.*, public/icon.*, a web manifest's icons[], an index.html
+ * <link rel="icon"> — file or inline data: URI — or a loosely-named logo),
+ * resolved + served by GET /api/projects/icon.
  *
  * Projects WITHOUT a real icon render `fallback` (default: NOTHING — no
  * element, no reserved width, zero horizontal footprint). This is a hard
@@ -11,36 +12,30 @@ import { useState, useEffect, type ReactNode } from 'react';
  * experiment was rejected): only a REAL shipped icon earns the space; no
  * letters, no generated tiles, no generic glyphs. Don't reintroduce synthetic
  * placeholders here.
+ *
+ * ARCHITECTURE — one shared, reactive resolver per path (module store below),
+ * NOT per-instance probing. The old per-instance model raced: the sidebar
+ * row's <img> error could write a session 'none' the exact moment the tab
+ * bar's instance mounted, freezing the tab on "no icon" while the sidebar
+ * later recovered — same project, icon on one surface and not the other.
+ * Here every instance subscribes to the same per-path status, a probe runs
+ * once (single-flight) per path, and a recovery flips ALL surfaces at once.
  */
 
-// Client-side cache of which project paths actually ship an icon. Without it,
-// every fresh load (e.g. an Electron app update / reload) re-discovers "this
-// folder has no icon" from scratch: the <img> mounts, reserves its width (and
-// briefly paints the broken-image glyph), then the 404 collapses it — a useless
-// empty-slot flash to the left of every icon-less folder. The server already
-// caches the 404; this cache is purely so the CLIENT doesn't re-flash on reload.
-//   - 'has'    → render the <img> and reserve its slot up-front (no shift when
-//                the cached icon decodes).
-//   - 'none'   → render nothing — no element, no width, no margin. Re-probed
-//                after NONE_TTL_MS so a folder that later gains a favicon shows
-//                it within a day.
-//   - unknown  → probe with a ZERO-width <img> (no reserved gap); promote to
-//                'has' on load or 'none' on error.
+// ── Persisted cache (localStorage) ──────────────────────────────────────
 //
 // INVARIANT — 'none' is NEVER persisted to localStorage, only kept in memory
 // for the current page lifetime. Four cache-key bumps (v1→v4) were spent
 // flushing 'none' entries latched by transient failures (server restarts,
-// allowlist warm-up 403s, dev-bundle reload storms): any code path that writes
-// 'none' to disk eventually poisons the cache for the whole TTL and real icons
-// vanish. Persisting only 'has' makes that class of bug impossible — the worst
-// transient failure now costs one zero-width re-probe per icon-less project on
-// the next reload (the server caches its 404 for 120s, so this is free).
-// Entries with s:'none' still found under the key (written by older bundles)
-// are dropped on load.
+// allowlist warm-up 403s, dev-bundle reload storms): any code path that
+// writes 'none' to disk eventually poisons the cache for the whole TTL and
+// real icons vanish. Persisting only 'has' makes that class of bug
+// impossible. Entries with s:'none' still found under the key (written by
+// older bundles) are dropped — and the purge is persisted immediately, so a
+// concurrent window still running an old bundle can't re-read the poison.
 const CACHE_KEY = 'topics-project-icon-cache-v4';
-// A VERIFIED 'none' (the re-check fetch confirmed a real 404) holds for hours;
-// an UNVERIFIED one (img error but the confirmation fetch could not run — e.g.
-// fetch() failing in a WKWebView while <img> loads work) only briefly, enough
+// A VERIFIED 'none' (a fetch confirmed a real 404) holds for hours; an
+// UNVERIFIED one (transport error without confirmation) only briefly, enough
 // to stop an error-remount storm without hiding a recovering icon for long.
 const NONE_VERIFIED_TTL_MS = 12 * 60 * 60 * 1000;
 const NONE_UNVERIFIED_TTL_MS = 5 * 60 * 1000;
@@ -52,12 +47,6 @@ function cache(): Record<string, CacheEntry> {
   if (memCache) return memCache;
   try { memCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); }
   catch { memCache = {}; }
-  // Migration + belt-and-braces: an older bundle (or a concurrent window still
-  // running one) may have persisted 'none' — drop those so they can't hide a
-  // real icon; they'll re-probe once. Persist the purge IMMEDIATELY: other app
-  // windows share this localStorage, and a stale-bundle window re-reading a
-  // still-poisoned blob was exactly how "icons show in the browser but not in
-  // the app" survived a partial reload.
   let hadNone = false;
   for (const k of Object.keys(memCache!)) {
     if (memCache![k].s === 'none') { delete memCache![k]; hadNone = true; }
@@ -72,7 +61,7 @@ function persist(): void {
   }
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(hasOnly)); } catch {}
 }
-function resolveStatus(path: string): IconStatus | 'unknown' {
+function cachedStatus(path: string): IconStatus | 'unknown' {
   const e = cache()[path];
   if (!e) return 'unknown';
   // 'none' self-heals after its TTL so a newly-added favicon eventually shows
@@ -83,20 +72,113 @@ function resolveStatus(path: string): IconStatus | 'unknown' {
 }
 function remember(path: string, s: IconStatus, verified = true): void {
   const c = cache();
-  if (c[path]?.s === s && c[path]?.v === verified) return; // only write on a real change
+  if (c[path]?.s === s && c[path]?.v === verified) return;
   c[path] = { s, t: Date.now(), v: verified };
-  // 'has' → persist; 'none' → memory-only, but still persist to SHED a stale
-  // 'has' entry for a project whose icon was since removed (persist() filters
-  // the 'none' itself out).
   persist();
 }
 
-// Session cache of path → object-URL for icons recovered via the fetch
-// fallback below. In some WKWebView windows the native <img> load path to the
-// self-signed-TLS server fails while fetch() succeeds (the exact split varies
-// per window); once fetch has the bytes we keep serving them from a blob URL
-// so every later mount skips the broken transport entirely.
-const iconBlobUrls = new Map<string, string>();
+// ── Shared reactive resolver (module store) ─────────────────────────────
+type Resolved =
+  | { s: 'probing' }
+  | { s: 'has'; src: string }
+  | { s: 'none' };
+const PROBING: Resolved = { s: 'probing' };
+
+const state = new Map<string, Resolved>();
+const listeners = new Map<string, Set<() => void>>();
+const inflight = new Set<string>();
+
+const endpointUrl = (path: string) => `/api/projects/icon?path=${encodeURIComponent(path)}`;
+
+function notify(path: string): void {
+  listeners.get(path)?.forEach((cb) => cb());
+}
+function setResolved(path: string, r: Resolved): void {
+  state.set(path, r);
+  notify(path);
+}
+function subscribe(path: string, cb: () => void): () => void {
+  let set = listeners.get(path);
+  if (!set) { set = new Set(); listeners.set(path, set); }
+  set.add(cb);
+  return () => { listeners.get(path)?.delete(cb); };
+}
+function getSnapshot(path: string): Resolved {
+  return state.get(path) ?? PROBING;
+}
+
+/** Settle a path's status via fetch — the recovery lane. Used when the native
+ *  <img> load path fails: in some WKWebView windows (Tauri app, self-signed
+ *  TLS cert) <img> loads to the server fail while fetch() works — the exact
+ *  split varies per window — so a 200 here is served to every surface from a
+ *  blob URL, bypassing the broken transport for the rest of the session. */
+function settleViaFetch(path: string): void {
+  fetch(endpointUrl(path))
+    .then(async (r) => {
+      if (r.ok) {
+        const src = URL.createObjectURL(await r.blob());
+        remember(path, 'has');
+        setResolved(path, { s: 'has', src });
+      } else if (r.status === 404) {
+        remember(path, 'none', true);
+        setResolved(path, { s: 'none' });
+      } else {
+        // 403 during allowlist warm-up / restart — transient, short TTL.
+        remember(path, 'none', false);
+        setResolved(path, { s: 'none' });
+      }
+    })
+    .catch(() => {
+      remember(path, 'none', false);
+      setResolved(path, { s: 'none' });
+    })
+    .finally(() => { inflight.delete(path); });
+}
+
+/** Ensure a (single-flight) probe for this path is running or settled. */
+function ensureProbe(path: string): void {
+  const cur = state.get(path);
+  if (cur?.s === 'has') return;
+  if (cur?.s === 'none' && cachedStatus(path) === 'none') return; // TTL still valid
+  if (inflight.has(path)) return;
+  // Persisted 'has' → trust it and go straight to the endpoint URL (the
+  // browser HTTP cache makes this instant); a broken window falls into
+  // reportImgError → blob recovery below.
+  if (cachedStatus(path) === 'has') {
+    setResolved(path, { s: 'has', src: endpointUrl(path) });
+    return;
+  }
+  inflight.add(path);
+  if (!cur || cur.s !== 'probing') setResolved(path, PROBING);
+  // Probe with a detached Image(): the natural, cache-friendly path. On error
+  // fall through to fetch, which distinguishes "no icon" (404) from a broken
+  // image transport (200 → recover via blob).
+  const img = new Image();
+  img.onload = () => {
+    remember(path, 'has');
+    setResolved(path, { s: 'has', src: endpointUrl(path) });
+    inflight.delete(path);
+  };
+  img.onerror = () => { settleViaFetch(path); };
+  img.src = endpointUrl(path);
+}
+
+/** A mounted <img> failed on a src the store believed in. Endpoint src →
+ *  attempt the fetch→blob recovery (single-flight); blob src → give up for
+ *  this session (short-TTL 'none', re-probed later). */
+function reportImgError(path: string, failedSrc: string): void {
+  const cur = state.get(path);
+  if (cur?.s !== 'has' || cur.src !== failedSrc) return; // stale report
+  if (failedSrc.startsWith('blob:')) {
+    remember(path, 'none', false);
+    setResolved(path, { s: 'none' });
+    return;
+  }
+  if (inflight.has(path)) return;
+  inflight.add(path);
+  setResolved(path, PROBING);
+  settleViaFetch(path);
+}
 
 export function ProjectFavicon({
   path,
@@ -111,77 +193,47 @@ export function ProjectFavicon({
    *  all (zero footprint); pass a custom node (e.g. a status dot) to opt in. */
   fallback?: ReactNode;
 }) {
-  const [status, setStatus] = useState<IconStatus | 'unknown'>(() => (path ? resolveStatus(path) : 'none'));
+  const subscribeToPath = useCallback(
+    (cb: () => void) => (path ? subscribe(path, cb) : () => {}),
+    [path],
+  );
+  const resolved = useSyncExternalStore(
+    subscribeToPath,
+    () => (path ? getSnapshot(path) : PROBING),
+  );
   const [loaded, setLoaded] = useState(false);
-  const [blobSrc, setBlobSrc] = useState<string | null>(() => (path ? iconBlobUrls.get(path) ?? null : null));
-  // A row can be recycled for a different project (virtualised lists, memo
-  // reuse) — re-resolve from cache when the path changes.
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot re-resolve when a recycled row points at a new project path; converges immediately (deps = [path])
-  useEffect(() => { setStatus(path ? resolveStatus(path) : 'none'); setLoaded(false); setBlobSrc(path ? iconBlobUrls.get(path) ?? null : null); }, [path]);
+  useEffect(() => {
+    if (path) ensureProbe(path);
+  }, [path]);
+  // Reset the decode gate whenever the effective src changes (endpoint → blob
+  // recovery, or a recycled row pointing at a new project), so a stale
+  // opacity:1 never paints a half-loaded frame.
+  const src = resolved.s === 'has' ? resolved.src : null;
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot gate reset per src change; converges immediately (deps = [src])
+  useEffect(() => { setLoaded(false); }, [src]);
 
-  // Known icon-less (or no path) → render the fallback (default: nothing at
-  // all — no element, so no reserved width and no margin next to the name).
-  if (!path || status === 'none') return <>{fallback}</>;
+  // No path, icon-less, or still probing → render the fallback (or, while
+  // probing, nothing): no element, no reserved width, zero footprint. The
+  // store flips every subscribed surface to 'has' the moment the probe lands.
+  if (!path || resolved.s === 'none') return <>{fallback}</>;
+  if (resolved.s === 'probing' || !src) return null;
 
-  // 'has' (cached) → reserve the slot immediately so a cached icon decodes with
-  // no layout shift. 'unknown' → zero width so an as-yet-unprobed folder that
-  // turns out icon-less never flashes a gap; it widens to `size` only once the
-  // image actually loads. opacity:0-until-load also hides the broken glyph that
-  // an erroring <img> would paint for a frame.
-  const reserve = status === 'has' || loaded;
   return (
     <img
-      src={blobSrc ?? `/api/projects/icon?path=${encodeURIComponent(path)}`}
+      src={src}
       width={size}
       height={size}
       alt=""
       draggable={false}
       className={`rounded-[3px] object-contain flex-shrink-0 ${className}`}
       style={{
+        // The probe already confirmed the icon exists, so the slot is
+        // reserved up-front (no layout shift); opacity-until-decode hides the
+        // broken-glyph frame an erroring <img> would paint.
         opacity: loaded ? 1 : 0,
-        width: reserve ? size : 0,
-        // Suppress any caller margin (e.g. mr-0.5) while the slot is collapsed,
-        // so an unknown/icon-less folder takes ZERO horizontal footprint.
-        marginLeft: reserve ? undefined : 0,
-        marginRight: reserve ? undefined : 0,
       }}
-      onLoad={() => { setLoaded(true); setStatus('has'); remember(path, 'has'); }}
-      onError={() => {
-        // Hide this slot now. An <img> error can't distinguish a real 404 ("no
-        // icon") from a transport failure (server restarting, or — seen on the
-        // Tauri app with its self-signed TLS cert — a WKWebView where native
-        // <img> loads to the server fail while fetch() works fine). Persisting
-        // 'none' for a transient failure once poisoned the cache for the whole
-        // TTL, so: cache 'none' in memory UNVERIFIED (short TTL — stops the
-        // error-remount re-probe storm), then re-request with fetch():
-        //   - 200 → the icon EXISTS and fetch can reach it: serve those bytes
-        //     via a blob URL (session-cached) and flip back to 'has' — this is
-        //     the path that fixes "icons show in the browser but not the app"
-        //   - 404 → verified real no-icon, long-TTL 'none'
-        //   - anything else → transient; the short-TTL entry re-probes later.
-        // A failure of the blob src itself (already-recovered bytes) stays a
-        // plain 'none' — no second recovery loop.
-        const wasBlob = blobSrc !== null;
-        setStatus('none');
-        remember(path, 'none', false);
-        if (wasBlob) return;
-        fetch(`/api/projects/icon?path=${encodeURIComponent(path)}`)
-          .then(async (r) => {
-            if (r.ok) {
-              const url = URL.createObjectURL(await r.blob());
-              const prev = iconBlobUrls.get(path);
-              if (prev) URL.revokeObjectURL(prev);
-              iconBlobUrls.set(path, url);
-              setBlobSrc(url);
-              setLoaded(false);
-              setStatus('has');
-              remember(path, 'has');
-            } else if (r.status === 404) {
-              remember(path, 'none', true);
-            }
-          })
-          .catch(() => { /* unreachable → transient, keep only the short-TTL entry */ });
-      }}
+      onLoad={() => setLoaded(true)}
+      onError={() => { setLoaded(false); reportImgError(path, src); }}
     />
   );
 }
