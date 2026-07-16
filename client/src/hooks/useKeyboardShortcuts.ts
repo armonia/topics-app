@@ -250,6 +250,13 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         return;
       }
 
+      // ⌘⇧; — focus the task composer (board panel).
+      if (isMod && e.shiftKey && e.key === ';') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('task-composer:focus'));
+        return;
+      }
+
       // Tauri only: ⌘R / ⌘⇧R reload the app. The native View ▸ Reload menu item
       // exists (lib.rs) but its key equivalent is swallowed by the focused
       // WKWebView before the menu sees it, so the accelerator never fires — we
