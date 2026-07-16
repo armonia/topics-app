@@ -317,7 +317,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Launch one already-claimed task: (worktree?) → topic → turn → reconcile. */
   async function launch(
     taskId: string,
-    settings: { useWorktree: boolean; timeoutMin: number; effort: string; mcp: string },
+    settings: { useWorktree: boolean; timeoutMin: number; effort: string; mcp: string; model?: string },
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
     inFlight.set(taskId, { sessionKey: "" });
@@ -362,7 +362,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // before spawn (never for a reused topic — it inherits the blocker's).
       // The picker never rejects and returns fast; a null/absent result keeps
       // the provider default, so dispatch is never blocked on this.
-      let chosenModel: string | undefined = task.model ?? undefined;
+      // Priority: explicit per-task model > board default (settings.model, when the
+      // board pins one instead of 'auto') > classifier pick. The board default skips
+      // the classifier entirely — a pinned board dispatches every task on that model.
+      let chosenModel: string | undefined = task.model ?? settings.model ?? undefined;
+      if (chosenModel && chosenModel !== task.model && !reuseTopicId) {
+        // Persist the board-default so the card shows the real model, not "auto".
+        deps.svc.setModel({ taskId, model: chosenModel });
+      }
       if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task);
         chosenModel = picked.model ?? undefined;
@@ -717,6 +724,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         timeoutMin: settings.dispatchTimeoutMin,
         effort: settings.dispatchEffort,
         mcp: settings.dispatchMcp,
+        model: settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined,
       }, resolved);
     }
   }

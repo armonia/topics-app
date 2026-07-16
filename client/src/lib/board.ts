@@ -246,6 +246,8 @@ export interface BoardSettings {
   dispatchTimeoutMin: number;
   /** MCP fleet for dispatched agents: 'bridge-only' (default, lean) | 'inherit'. */
   dispatchMcp: string;
+  /** Default model for dispatched agents: 'auto' (classifier picks) | a model id. */
+  dispatchModel: string;
   requireApprovalForDone: boolean;
   requireReviewBeforeDone: boolean;
 }
@@ -258,6 +260,24 @@ export interface BoardSettingsPatch {
   dispatchAutoMerge?: boolean;
   dispatchTimeoutMin?: number;
   dispatchMcp?: string;
+  dispatchModel?: string;
+}
+
+/** One commit that a publish (push) would ship. */
+export interface PublishCommit {
+  hash: string;
+  subject: string;
+  author: string;
+  when: string;
+}
+
+/** A project's unpushed state for the Publish control. */
+export interface PublishProject {
+  projectId: string;
+  name: string;
+  branch: string;
+  ahead: number;
+  commits: PublishCommit[];
 }
 
 /** One entry of the board index (task-detail project selector). */
@@ -300,9 +320,10 @@ export const boardApi = {
   /** Every board the server can resolve (the project selector's options). */
   projects: () =>
     req<{ projects: BoardProjectRef[] }>('/all-boards/projects').then(r => r.projects),
-  /** Per-project commits on the current branch not yet pushed — feeds the Publish control. */
+  /** Per-project commits on the current branch not yet pushed — feeds the Publish control.
+   *  `commits` is the exact list a push would ship (newest first, capped at 50). */
   publishStatus: () =>
-    req<{ projects: { projectId: string; name: string; branch: string; ahead: number }[] }>('/all-boards/publish-status').then(r => r.projects),
+    req<{ projects: PublishProject[] }>('/all-boards/publish-status').then(r => r.projects),
   /** Push a project's current branch to its remote (triggers deploy CI where configured). */
   publish: (projectId: string) =>
     req<{ ok: boolean; branch: string; output?: string; error?: string }>(`/boards/${enc(projectId)}/publish`, { method: 'POST', body: JSON.stringify({}) }),
