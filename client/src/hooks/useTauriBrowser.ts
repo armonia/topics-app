@@ -723,35 +723,39 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   useEffect(() => {
     let ws: WebSocket | null = null;
     let closed = false;
+    const openHandler = () => {
+      try { ws?.send(JSON.stringify({ type: 'register_native_executor' })); } catch { /* ignore */ }
+    };
+    const messageHandler = (e: MessageEvent) => {
+      let raw: unknown;
+      try { raw = JSON.parse(typeof e.data === 'string' ? e.data : ''); } catch { return; }
+      const m = raw as { type?: string; opId?: string; tool?: string; args?: unknown; active?: boolean; action?: string };
+      if (m && m.type === 'browser_op' && typeof m.opId === 'string' && typeof m.tool === 'string') {
+        void executeNativeBrowserOp(id, m.tool, m.args, tauriInvoke)
+          .then((out) => {
+            if (closed) return;
+            try { ws?.send(JSON.stringify({ type: 'browser_op_result', opId: m.opId, ...out })); } catch { /* ignore */ }
+          });
+        return;
+      }
+      const result = parseBrowserWsMessage(raw);
+      if (!result.ok || result.data.type !== 'agent_active') return;
+      setAgentActive(Boolean(result.data.active));
+      if (result.data.active && result.data.action) setAgentAction(result.data.action);
+    };
     try {
       ws = new WebSocket(`${serverWsBase()}/ws/browser/${encodeURIComponent(id)}`);
-      const socket = ws;
-      socket.addEventListener('open', () => {
-        // Claim this contextId as a native executor (raw msg, outside the strict
-        // browser-ws Zod envelope — the server handles it before parsing).
-        try { socket.send(JSON.stringify({ type: 'register_native_executor' })); } catch { /* ignore */ }
-      });
-      socket.addEventListener('message', (e) => {
-        let raw: unknown;
-        try { raw = JSON.parse(typeof e.data === 'string' ? e.data : ''); } catch { return; }
-        const m = raw as { type?: string; opId?: string; tool?: string; args?: unknown; active?: boolean; action?: string };
-        // Delegated agent op → execute on the native pane, reply with the result.
-        if (m && m.type === 'browser_op' && typeof m.opId === 'string' && typeof m.tool === 'string') {
-          void executeNativeBrowserOp(id, m.tool, m.args, tauriInvoke)
-            .then((out) => {
-              if (closed) return;
-              try { socket.send(JSON.stringify({ type: 'browser_op_result', opId: m.opId, ...out })); } catch { /* ignore */ }
-            });
-          return;
-        }
-        // Otherwise it's a strict-envelope message (agent_active for the pill).
-        const result = parseBrowserWsMessage(raw);
-        if (!result.ok || result.data.type !== 'agent_active') return;
-        setAgentActive(Boolean(result.data.active));
-        if (result.data.active && result.data.action) setAgentAction(result.data.action);
-      });
+      ws.addEventListener('open', openHandler);
+      ws.addEventListener('message', messageHandler);
     } catch { /* ws construction failed — pill stays off, no delegation */ }
-    return () => { closed = true; try { ws?.close(); } catch { /* ignore */ } };
+    return () => {
+      closed = true;
+      if (ws) {
+        ws.removeEventListener('open', openHandler);
+        ws.removeEventListener('message', messageHandler);
+        try { ws.close(); } catch { /* ignore */ }
+      }
+    };
   }, [id]);
 
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
