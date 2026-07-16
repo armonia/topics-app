@@ -1,14 +1,37 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { buildTaskLink, parseTaskLink, consumePendingTaskOpen, openTaskFromUrl } from './openTaskLink';
 
-// jsdom-less: stub the tiny window surface the module touches.
+// jsdom-less: a minimal, typed view of the global surface the module touches,
+// so the stubs below need no `any` (this file is linted under no-explicit-any).
+type StubWindow = {
+  location: { origin: string; href?: string; search?: string };
+  dispatchEvent?: (e: { type: string; detail?: unknown }) => boolean;
+  history?: { replaceState: (state: unknown, title: unknown, url: string) => void };
+};
+const g = globalThis as unknown as {
+  window: StubWindow;
+  CustomEvent: unknown;
+  URL: unknown;
+  URLSearchParams: unknown;
+};
+
 const origin = 'https://localhost:3333';
+
+// Minimal CustomEvent stand-in for the jsdom-less environment.
+class StubCustomEvent {
+  type: string;
+  detail: unknown;
+  constructor(type: string, opts?: { detail?: unknown }) {
+    this.type = type;
+    this.detail = opts?.detail;
+  }
+}
 
 describe('parseTaskLink', () => {
   test('round-trips a project slug + UUID', () => {
     const projectId = 'topics-app-ar3jt5';
     const taskId = '92a1091a-c9e3-4064-a098-2383bd37f2fe';
-    (globalThis as any).window = { location: { origin } };
+    g.window = { location: { origin } };
     const link = buildTaskLink(projectId, taskId);
     // The URL API percent-encodes '~' as %7E in the query — that's fine, it
     // round-trips through parseTaskLink (URLSearchParams decodes it back).
@@ -31,21 +54,21 @@ describe('parseTaskLink', () => {
 });
 
 describe('openTaskFromUrl', () => {
-  const events: Array<{ type: string; detail: any }> = [];
+  const events: Array<{ type: string; detail: unknown }> = [];
   let replaced: string | null = null;
 
   beforeEach(() => {
     events.length = 0;
     replaced = null;
     consumePendingTaskOpen(); // drain any leftover
-    (globalThis as any).window = {
+    g.window = {
       location: { origin, href: `${origin}/?task=proj-x~task-1&keep=1`, search: '?task=proj-x~task-1&keep=1' },
-      dispatchEvent: (e: any) => { events.push({ type: e.type, detail: e.detail }); return true; },
-      history: { replaceState: (_s: any, _t: any, url: string) => { replaced = url; } },
+      dispatchEvent: (e) => { events.push({ type: e.type, detail: e.detail }); return true; },
+      history: { replaceState: (_s, _t, url) => { replaced = url; } },
     };
-    (globalThis as any).CustomEvent = class { type: string; detail: any; constructor(t: string, o: any) { this.type = t; this.detail = o?.detail; } };
-    (globalThis as any).URL = URL;
-    (globalThis as any).URLSearchParams = URLSearchParams;
+    g.CustomEvent = StubCustomEvent;
+    g.URL = URL;
+    g.URLSearchParams = URLSearchParams;
   });
   afterEach(() => { consumePendingTaskOpen(); });
 
@@ -61,8 +84,8 @@ describe('openTaskFromUrl', () => {
   });
 
   test('no-op without ?task', () => {
-    (globalThis as any).window.location.search = '?keep=1';
-    (globalThis as any).window.location.href = `${origin}/?keep=1`;
+    g.window.location.search = '?keep=1';
+    g.window.location.href = `${origin}/?keep=1`;
     openTaskFromUrl();
     expect(events.length).toBe(0);
     expect(consumePendingTaskOpen()).toBeNull();
@@ -71,12 +94,12 @@ describe('openTaskFromUrl', () => {
 
 describe('consumePendingTaskOpen', () => {
   test('is one-shot', () => {
-    (globalThis as any).window = {
+    g.window = {
       location: { origin, href: `${origin}/?task=p~t`, search: '?task=p~t' },
       dispatchEvent: () => true,
       history: { replaceState: () => {} },
     };
-    (globalThis as any).CustomEvent = class { type: string; detail: any; constructor(t: string, o: any) { this.type = t; this.detail = o?.detail; } };
+    g.CustomEvent = StubCustomEvent;
     openTaskFromUrl();
     expect(consumePendingTaskOpen()).toEqual({ projectId: 'p', taskId: 't' });
     expect(consumePendingTaskOpen()).toBeNull();
