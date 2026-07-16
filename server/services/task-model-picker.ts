@@ -2,9 +2,13 @@
 //
 // When a task is on "modello auto" (task.model === null) the dispatcher asks a
 // FAST one-shot (haiku) to read the task and pick the right tier BEFORE the
-// real agent spawns. "Auto" used to mean a fixed sonnet default — this makes it
-// an actual, per-task decision: a typo fix runs on haiku, a cross-cutting
-// refactor or a data-modelling job runs on opus/fable.
+// real agent spawns. The standard is OPUS-first: the human works on opus by
+// default, so "auto" defaults to opus and only downgrades a task that is
+// clearly smaller — a typo/rename/version-bump drops to haiku, a small fully
+// specified one-spot fix to sonnet, deep research/modelling climbs to fable.
+// Everything real (a feature, a UI change, multi-file work, debugging, design)
+// stays on opus. The classifier judge itself runs on haiku (cheap), so the
+// prompt is framed to make it err UPWARD when unsure, never silently downgrade.
 //
 // Design guarantees:
 // - NEVER blocks dispatch: any failure (classifier error, timeout, unparsable
@@ -40,14 +44,16 @@ export interface PickModelDeps {
 
 const CLASSIFIER_PROMPT = (title: string, description: string) =>
   [
-    "Sei un router di task. Per il task software qui sotto rispondi con DUE parole separate da spazio: <modello> <chiarezza>.",
+    "Sei un router di task. Il modello DI DEFAULT è opus: l'umano lavora normalmente su opus.",
+    "Scendi a un modello più piccolo SOLO se il task è chiaramente più piccolo; nel dubbio scegli opus (mai declassare).",
+    "Rispondi con DUE parole separate da spazio: <modello> <chiarezza>.",
     "Modello, uno tra: haiku, sonnet, opus, fable. Chiarezza, uno tra: ok, fuzzy. Nient'altro, niente punteggiatura.",
     "",
-    "Modello (difficoltà del lavoro):",
-    "- haiku: banale/meccanico (typo, rinomina, bump versione, piccola modifica ovvia).",
-    "- sonnet: task standard ben definito (endpoint, componente, fix circoscritto, test mirati).",
-    "- opus: complesso/trasversale (refactor architetturale, debug non ovvio, più file/sistemi, design).",
-    "- fable: massima difficoltà/ambiguità (ricerca, modellazione dati, algoritmi, ragionamento profondo).",
+    "Modello (nel dubbio, il più capace):",
+    "- opus: DEFAULT. Qualsiasi lavoro reale — feature, modifica UI, logica, debug, più file/sistemi, design, refactor. Se non è palesemente banale, è opus.",
+    "- fable: massima difficoltà/ambiguità (ricerca, modellazione dati, algoritmi non ovvi, ragionamento profondo).",
+    "- sonnet: SOLO task piccolo e pienamente specificato in un punto solo (un fix circoscritto e ovvio, un test mirato, un ritocco isolato).",
+    "- haiku: SOLO banale/meccanico (typo, rinomina, bump versione, una riga ovvia).",
     "",
     "Chiarezza (quanto è definito l'obiettivo):",
     "- ok: obiettivo chiaro e verificabile, un agent può eseguirlo senza altre domande.",
