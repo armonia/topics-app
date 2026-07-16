@@ -384,6 +384,21 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     return r ? !!r.auto_dispatch : false;
   };
 
+  // The model shown on a task must ALWAYS reflect what actually ran: task.model
+  // may be null ("auto") even after dispatch, but the agent's TOPIC was created
+  // with the resolved model — so fall back to it. try/catch guards test contexts
+  // whose stub `topics` table has no `model` column.
+  function resolveModel(r: any): string | null {
+    if (r.model) return r.model;
+    if (r.assigned_topic_id) {
+      try {
+        const t = db.prepare("SELECT model FROM topics WHERE id = ?").get(r.assigned_topic_id) as { model?: string | null } | undefined;
+        if (t?.model) return t.model;
+      } catch { /* topics stub without a model column (tests) */ }
+    }
+    return null;
+  }
+
   function rowToTask(r: any): Task {
     return {
       id: r.id,
@@ -412,7 +427,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       agentTokens: r.agent_tokens ?? 0,
       agentCacheReadTokens: r.agent_cache_read_tokens ?? 0,
       priorityAuto: r.priority_auto == null ? true : !!r.priority_auto,
-      model: r.model ?? null,
+      model: resolveModel(r),
       blockedByTaskId: r.blocked_by_task_id ?? null,
       reuseBlockerContext: !!r.reuse_blocker_context,
       subtaskCount: 0,
