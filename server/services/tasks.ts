@@ -179,6 +179,9 @@ export interface BoardSettings {
   autoDispatch: boolean;
   /** Concurrency cap = max tasks running an agent at once on this board. */
   maxAgents: number;
+  /** When true, the cap is auto-sized from live machine capacity (dispatch-capacity.ts)
+   *  and `maxAgents` is ignored for dispatch (kept as the manual fallback value). */
+  maxAgentsAuto: boolean;
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
   /**
@@ -217,6 +220,7 @@ export interface BoardSettings {
 export interface UpdateBoardSettingsPatch {
   autoDispatch?: boolean;
   maxAgents?: number;
+  maxAgentsAuto?: boolean;
   dispatchEffort?: string;
   dispatchUseWorktree?: boolean;
   dispatchAutoMerge?: boolean;
@@ -1050,6 +1054,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         projectId,
         autoDispatch: readGlobalDispatch(),
         maxAgents: r ? (r.max_agents ?? 2) : 2,
+        maxAgentsAuto: r ? !!r.max_agents_auto : false,
         dispatchEffort: r?.dispatch_effort ?? "medium",
         dispatchUseWorktree: r ? !!r.dispatch_use_worktree : true,
         dispatchAutoMerge: r ? !!r.dispatch_auto_merge : false,
@@ -1087,6 +1092,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const sets: string[] = [];
       const params: any[] = [];
       if (patch.maxAgents !== undefined) { sets.push("max_agents = ?"); params.push(clampInt(patch.maxAgents, 1, 10)); }
+      if (patch.maxAgentsAuto !== undefined) { sets.push("max_agents_auto = ?"); params.push(patch.maxAgentsAuto ? 1 : 0); }
       if (patch.dispatchEffort !== undefined) { sets.push("dispatch_effort = ?"); params.push(patch.dispatchEffort); }
       if (patch.dispatchUseWorktree !== undefined) { sets.push("dispatch_use_worktree = ?"); params.push(patch.dispatchUseWorktree ? 1 : 0); }
       if (patch.dispatchAutoMerge !== undefined) { sets.push("dispatch_auto_merge = ?"); params.push(patch.dispatchAutoMerge ? 1 : 0); }

@@ -234,11 +234,22 @@ export interface UpdateTaskBody {
   planFirst?: boolean;
 }
 
+/** Live machine capacity for the auto concurrency cap (board settings "Auto"). */
+export interface DispatchCapacity {
+  recommended: number;
+  cores: number;
+  totalMemGB: number;
+  load1: number;
+  reason: string;
+}
+
 /** Per-board dispatch config (server: board_settings). */
 export interface BoardSettings {
   projectId: string;
   autoDispatch: boolean;
   maxAgents: number;
+  /** When true, the cap is auto-sized from live machine capacity (maxAgents is the manual fallback). */
+  maxAgentsAuto: boolean;
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
   /** Auto-merge the task's branch into main on approve (opt-in, default off). */
@@ -255,6 +266,7 @@ export interface BoardSettings {
 export interface BoardSettingsPatch {
   autoDispatch?: boolean;
   maxAgents?: number;
+  maxAgentsAuto?: boolean;
   dispatchEffort?: string;
   dispatchUseWorktree?: boolean;
   dispatchAutoMerge?: boolean;
@@ -360,6 +372,9 @@ export const boardApi = {
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`),
   updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  /** Recommended auto concurrency cap for this machine right now (CPU/load). */
+  dispatchCapacity: () =>
+    req<DispatchCapacity>('/system/dispatch-capacity'),
   /** The GLOBAL auto-dispatch switch (one for every board, incl. the global one). */
   getGlobalDispatch: () =>
     req<{ autoDispatch: boolean }>('/all-boards/settings').then(r => r.autoDispatch),

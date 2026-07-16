@@ -27,7 +27,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, isProjectlessId, boardDrafts,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
-  type BoardProjectRef, type PublishProject, type DiffBundle,
+  type BoardProjectRef, type PublishProject, type DiffBundle, type DispatchCapacity,
 } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
 
@@ -3094,6 +3094,9 @@ function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onTogg
     try { onChanged(await boardApi.updateSettings(projectId, p)); }
     catch (e) { onError(e instanceof Error ? e.message : 'settings save failed'); }
   };
+  // Live machine capacity for the "Auto" cap — fetched when the panel opens.
+  const [cap, setCap] = useState<DispatchCapacity | null>(null);
+  useEffect(() => { boardApi.dispatchCapacity().then(setCap).catch(() => setCap(null)); }, []);
 
   if (!s) return null;
   return (
@@ -3108,14 +3111,35 @@ function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onTogg
         <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
       </label>
 
-      <label className="flex items-center justify-between">
-        <span>Agent in parallelo (cap)</span>
-        <input
-          type="number" min={1} max={10} value={s.maxAgents}
-          onChange={(e) => patch({ maxAgents: Number(e.target.value) })}
-          className="w-14 rounded bg-white/5 px-1.5 py-0.5 text-right text-neutral-100 outline-none"
-        />
-      </label>
+      <div className="space-y-1">
+        <label className="flex cursor-pointer items-center justify-between">
+          <span>Agent in parallelo (cap)</span>
+          <span className="flex items-center gap-1.5 text-[11px] text-neutral-400">
+            Auto
+            <input
+              type="checkbox" checked={s.maxAgentsAuto}
+              onChange={(e) => patch({ maxAgentsAuto: e.target.checked })}
+              className="h-3.5 w-3.5 accent-emerald-500"
+              title="Dimensiona il cap in automatico dalle risorse della macchina (CPU/carico)"
+            />
+          </span>
+        </label>
+        {s.maxAgentsAuto ? (
+          <p className="text-[11px] text-neutral-500">
+            Auto: <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo
+            {cap && <span className="text-neutral-600"> — {cap.reason}</span>}
+          </p>
+        ) : (
+          <label className="flex items-center justify-between">
+            <span className="text-[11px] text-neutral-500">Valore manuale{cap && <span className="text-neutral-600"> (consigliato {cap.recommended})</span>}</span>
+            <input
+              type="number" min={1} max={10} value={s.maxAgents}
+              onChange={(e) => patch({ maxAgents: Number(e.target.value) })}
+              className="w-14 rounded bg-white/5 px-1.5 py-0.5 text-right text-neutral-100 outline-none"
+            />
+          </label>
+        )}
+      </div>
 
       <div className="flex items-center justify-between gap-2">
         <span>Effort</span>
