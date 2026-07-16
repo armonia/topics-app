@@ -410,9 +410,9 @@ const taskDispatcher = createTaskDispatcher({
     return dir;
   },
   // "modello auto" → a fast haiku one-shot classifies the task and picks the
-  // tier before the agent spawns. Everything is resolved lazily and defensively
-  // so a missing provider / empty snapshot just keeps the sonnet default — the
-  // picker itself never throws (see task-model-picker.ts).
+  // tier before the agent spawns. Standard is OPUS-first: unsure/unavailable/
+  // empty-snapshot all resolve to opus (the human's default), never a silent
+  // downgrade — the picker itself never throws (see task-model-picker.ts).
   pickAutoModel: async (task) => {
     try {
       const provider = getProvider("claude-code");
@@ -420,17 +420,19 @@ const taskDispatcher = createTaskDispatcher({
       const snap = getSnapshotManager().getSnapshot();
       const cc = snap?.providers?.find((p) => p.name === "claude-code");
       const availableModels = cc?.models ?? [];
-      if (availableModels.length === 0) return { model: null, fuzzy: false }; // no snapshot yet → default
+      // No snapshot yet → can't classify, but opus-first means we still hand the
+      // agent opus (the human's default + this host's primary), never a downgrade.
+      if (availableModels.length === 0) return { model: "claude-opus-4-8", fuzzy: false };
       return await pickTaskModelDetailed(task, {
         // Force the cheapest tier for the classification itself.
         complete: (prompt) =>
           provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
         availableModels,
-        fallback: "claude-sonnet-5",
+        fallback: "claude-opus-4-8",
         log: (m) => console.log(`[dispatcher] ${m}`),
       });
     } catch {
-      return { model: null, fuzzy: false }; // provider not ready / any failure → keep the default
+      return { model: "claude-opus-4-8", fuzzy: false }; // any failure → opus-first, never a silent downgrade
     }
   },
   resolveProject: (projectId) => {
