@@ -24,6 +24,7 @@ function Monogram({ path, size, className }: { path: string; size: number; class
   return (
     <span
       aria-hidden
+      data-testid="project-monogram"
       className={`rounded-[3px] flex-shrink-0 inline-flex items-center justify-center select-none ${className ?? ''}`}
       style={{
         width: size,
