@@ -144,6 +144,46 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.isInFlight("t1")).toBe(true);
   });
 
+  it("self-heals a DEAD binding: a todo bound to a reaped topic dispatches again", async () => {
+    // A task that ran before, reached done, then was dragged back to todo — its
+    // agent topic was reaped in between, so `assigned_topic_id` now dangles.
+    // Without the heal it would be skipped forever by the `!assignedTopicId`
+    // eligibility filter and sit in todo with no chip.
+    const h = harness({ topicExists: (id) => id !== "reaped-topic" });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", assignedTopicId: "reaped-topic" });
+    // Reap the topic row the way prod does — via a path that bypasses the FK
+    // (the topics(id) FK on assigned_topic_id has no ON DELETE SET NULL, so a
+    // normal delete is refused; the dangling binding is precisely what results).
+    h.db.run("PRAGMA foreign_keys=OFF");
+    h.db.run("DELETE FROM topics WHERE id = ?", ["reaped-topic"]);
+    h.db.run("PRAGMA foreign_keys=ON");
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");        // claimed, not stranded
+    expect(t.assignedTopicId).toBe("topic-1");   // dead link cleared → rebound to a fresh topic
+    expect(t.dispatchState).toBe("working");
+    expect(h.turns.length).toBe(1);              // an agent turn actually started
+  });
+
+  it("leaves a todo bound to a LIVE topic untouched (no false heal)", async () => {
+    // A live binding means a dispatch is already in flight for it — the heal
+    // must not release it. topicExists returns true, so it stays as-is.
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo", assignedTopicId: "live-topic", dispatchState: "working" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.assignedTopicId).toBe("live-topic"); // untouched
+    expect(h.turns.length).toBe(0);               // never re-claimed
+  });
+
   it("never claims a STEP as an independent task (todo subtask = checklist, not work item)", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true });

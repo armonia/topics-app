@@ -393,6 +393,10 @@ const transcriptUsageReader = createTranscriptUsageReader();
 
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
+  // Self-heal dead bindings: a todo task linked to a topic that was reaped
+  // (agent tab deleted after a prior run) would never dispatch. tick() clears
+  // the dead link so the task runs again.
+  topicExists: (id) => !!ctx.getTopicById(id),
   // Must match the catch-all dir tasks.ts scaffolds (join(workspaceDir,
   // "generale")): a session resolved here renders standalone, not as a project.
   catchAllProjectPath: join(DISPATCH_WORKSPACE_DIR, "generale"),
