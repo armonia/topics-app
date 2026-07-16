@@ -1434,6 +1434,15 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
     >
+      {/* Project eyebrow: favicon + plain project name ABOVE the title (no chip),
+          so a cross-project card reads "which project" first, then the title —
+          the name isn't competing as a pill down in the meta row. */}
+      {showProject && !unassigned && (
+        <div className="mb-1 flex items-center gap-1 text-[11px] text-neutral-400">
+          {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
+          <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+        </div>
+      )}
       {/* Header: title left, PRIMARY STATE pinned top-right — same slot on every
           card, so the eye finds "dov'è il task" without scanning the chip row.
           No delete icon here: archive/select live in the right-click menu. */}
@@ -1474,14 +1483,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
             {fmtModel(task.model)}
           </span>
         )}
-        {/* Project-less → no chip at all. It still runs (catch-all), so there's
-            nothing to warn about; only a real project shows a label. */}
-        {showProject && !unassigned && (
-          <span className="flex items-center gap-1 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[11px] text-emerald-300">
-            {projectPath && <ProjectFavicon path={projectPath} size={11} />}
-            {projectLabel}
-          </span>
-        )}
+        {/* (Project identity moved to the eyebrow above the title — no chip here.) */}
         {blocker && blocker.status !== 'done' && (
           <span
             title={`In attesa di: ${blocker.text}`}
@@ -1922,6 +1924,25 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
     finally { setBusy(false); }
   };
 
+  // Model selector (header chip): change the model the agent runs on. null =
+  // "auto" (the opus-first classifier picks per task); an explicit id pins it.
+  const modelBtnRef = useRef<HTMLButtonElement>(null);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [models, setModels] = useState<string[]>(
+    () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
+  );
+  useEffect(() => subscribeProvidersSnapshot((state) => {
+    setModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
+  }), []);
+  const changeModel = async (model: string | null) => {
+    setModelMenuOpen(false);
+    if (!task || (task.model ?? null) === model || busy) return;
+    setBusy(true);
+    try { await boardApi.update(projectId, taskId, { model }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
   // Project selector (header chip): move the task to another board, open the
   // current project's window, or scaffold a new workspace project. The list is
   // the server-resolvable board index — fetched lazily on first open.
@@ -2001,7 +2022,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   // reading the latest guard/close on each keystroke.
   const escGuardRef = useRef<() => boolean>(() => false);
   escGuardRef.current = () =>
-    editingTitle || editingDesc || statusMenuOpen || prioMenuOpen || projMenuOpen || blockerMenuOpen;
+    editingTitle || editingDesc || statusMenuOpen || prioMenuOpen || projMenuOpen || blockerMenuOpen || modelMenuOpen;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
@@ -2220,6 +2241,41 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             title={currentProject ? `Apri la finestra di ${currentProject.name}` : 'Percorso del progetto non risolvibile'}
             className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
           ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
+        </Menu>
+        {task && (
+          <button
+            ref={modelBtnRef}
+            onClick={() => setModelMenuOpen(true)}
+            data-testid="task-model-chip"
+            title="Cambia il modello dell'agent — Auto = il classificatore opus-first sceglie per task"
+            className="flex min-w-0 shrink items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
+          >
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+            <span className="truncate">{task.model ? friendlyModelLabel(task.model) : 'Auto'}</span>
+            <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
+          </button>
+        )}
+        <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
+          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello agent</p>
+          <button
+            role="option" aria-selected={!task?.model} disabled={busy}
+            onClick={() => changeModel(null)}
+            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+          >
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
+            <span className="min-w-0 flex-1">Auto <span className="text-neutral-500">(opus-first)</span></span>
+            {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+          </button>
+          {models.map((m) => (
+            <button
+              key={m} role="option" aria-selected={m === task?.model} disabled={busy}
+              onClick={() => changeModel(m)}
+              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+            >
+              <span className="min-w-0 flex-1">{friendlyModelLabel(m)}</span>
+              {m === task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+            </button>
+          ))}
         </Menu>
         {/* Primary STATE pinned to the right of the selector strip (coherent with
             the card's top-right slot): dispatch chip + agent effort, next to the
