@@ -537,3 +537,63 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     ).toBeVisible({ timeout: 10000 });
   });
 });
+
+test.describe("Sidebar — Project icons", () => {
+  // A project row must ALWAYS carry a visual mark: the real favicon when the
+  // folder ships one (favicon.* / web manifest / index.html <link rel=icon>,
+  // resolved by GET /api/projects/icon), the deterministic monogram tile
+  // (folder initial + hash colour) otherwise.
+  const ICONLESS_PROJECT = "/tmp/e2e-iconless-project";
+  const ICONFUL_PROJECT = "/tmp/e2e-iconful-project";
+  // Smallest valid 1x1 PNG — the favicon <img> must actually decode.
+  const PNG_1X1 = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const created: string[] = [];
+
+  test.beforeAll(async ({ request }) => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(ICONLESS_PROJECT, { recursive: true });
+    mkdirSync(ICONFUL_PROJECT, { recursive: true });
+    writeFileSync(`${ICONFUL_PROJECT}/favicon.png`, PNG_1X1);
+    // A topic bound to each path puts the dir in the icon endpoint's
+    // allowlist (topic projectPaths are one of its UNION sources) and makes
+    // the project row appear in the sidebar.
+    for (const p of [ICONLESS_PROJECT, ICONFUL_PROJECT]) {
+      const t = await createTopic(request, `E2E-Icon-${p.split("-").pop()}`, { projectPath: p });
+      created.push(t.id);
+    }
+  });
+
+  test.afterAll(async ({ request }) => {
+    for (const id of created) await deleteTopic(request, id).catch(() => {});
+    const { rmSync } = await import("node:fs");
+    rmSync(ICONLESS_PROJECT, { recursive: true, force: true });
+    rmSync(ICONFUL_PROJECT, { recursive: true, force: true });
+  });
+
+  test("icon-less project row shows the deterministic monogram tile", async ({ page }) => {
+    await goToApp(page);
+    const row = page.getByTestId("project-toggle-e2e-iconless-project");
+    await expect(row).toBeVisible({ timeout: 10000 });
+    const monogram = row.getByTestId("project-monogram");
+    await expect(monogram).toBeVisible({ timeout: 10000 });
+    // Initial of the folder name ("e2e-iconless-project" → "E").
+    await expect(monogram).toHaveText("E");
+  });
+
+  test("project with a shipped favicon shows the real icon, not the monogram", async ({ page }) => {
+    await goToApp(page);
+    const row = page.getByTestId("project-toggle-e2e-iconful-project");
+    await expect(row).toBeVisible({ timeout: 10000 });
+    const icon = row.locator('img[src*="/api/projects/icon"]');
+    await expect(icon).toBeVisible({ timeout: 10000 });
+    // The img actually decoded (naturalWidth > 0) — a 403/404 would have
+    // errored the img and swapped in the monogram instead.
+    await expect
+      .poll(async () => icon.evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 10000 })
+      .toBeGreaterThan(0);
+    await expect(row.getByTestId("project-monogram")).toHaveCount(0);
+  });
+});
