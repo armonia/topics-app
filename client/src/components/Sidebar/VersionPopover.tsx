@@ -28,13 +28,18 @@ function platformLabel(): string {
 export function VersionPopover({
   anchorEl,
   appVersion,
+  shellVersion,
   isDev,
   buildDate,
   buildSha,
   onClose,
 }: {
   anchorEl: HTMLElement | null;
+  /** The running CLIENT bundle version (moves on every deploy). */
   appVersion: string;
+  /** The native desktop shell binary version — shown only when it differs from
+   *  the client (i.e. after a client-only hot-deploy, before a shell release). */
+  shellVersion?: string;
   isDev: boolean;
   buildDate: string;
   /** Git short-hash of the webapp build ('' when unavailable) — the freshness
@@ -100,6 +105,12 @@ export function VersionPopover({
         <div className="flex justify-between"><span>Compilato</span><span className="text-app-text-secondary">{buildDate || '—'}</span></div>
         <div className="flex justify-between"><span>Build</span><span className="text-app-text-secondary font-mono">{buildSha || '—'}</span></div>
         <div className="flex justify-between"><span>Piattaforma</span><span className="text-app-text-secondary">{platformLabel()}{isDesktop ? ' · desktop' : ''}</span></div>
+        {/* Native shell version — surfaced ONLY when it lags the client (a
+            client hot-deploy landed but the .app binary hasn't been released
+            yet), so the two numbers never look like a contradiction. */}
+        {isDesktop && shellVersion && shellVersion !== appVersion && (
+          <div className="flex justify-between"><span>App nativa</span><span className="text-app-text-secondary tabular-nums">v{shellVersion}</span></div>
+        )}
       </div>
 
       {/* Auto-update box */}

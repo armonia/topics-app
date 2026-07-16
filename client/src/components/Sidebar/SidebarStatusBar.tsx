@@ -161,12 +161,17 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
       ? `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB} MB) — la memoria dell'app è disponibile solo nell'app desktop`
       : '';
 
-  // App version: build-time constant, overridden by the live Electron version
-  // when running in the desktop shell (more accurate after an auto-update).
-  const [appVersion, setAppVersion] = useState(BUILD_APP_VERSION);
+  // Chip = the CLIENT bundle version actually running. It moves on EVERY deploy,
+  // including client-only hot-deploys (the "chip che cresce = deploy atterrato"
+  // signal). The native shell binary version is a SEPARATE fact, resolved via the
+  // shell bridge and shown in the popover — never conflated here: overriding the
+  // chip with the shell version made a freshly hot-deployed client read as the
+  // OLD shell number, so a landed deploy looked like a no-op.
+  const appVersion = BUILD_APP_VERSION;
+  const [shellVersion, setShellVersion] = useState('');
   useEffect(() => {
-    // Shell-resolved: live Electron/Tauri app version, build-time constant on web.
-    getVersion().then(v => { if (v) setAppVersion(v); }).catch(() => {});
+    if (!isDesktop) return;
+    getVersion().then(v => { if (v) setShellVersion(v); }).catch(() => {});
   }, []);
 
   const handleRefresh = async () => {
@@ -436,6 +441,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
         <VersionPopover
           anchorEl={versionAnchor}
           appVersion={appVersion}
+          shellVersion={shellVersion}
           isDev={isDev}
           buildDate={BUILD_TIME ? formatBuildDate(BUILD_TIME) : ''}
           buildSha={BUILD_SHA}
