@@ -300,6 +300,12 @@ export const boardApi = {
   /** Every board the server can resolve (the project selector's options). */
   projects: () =>
     req<{ projects: BoardProjectRef[] }>('/all-boards/projects').then(r => r.projects),
+  /** Per-project commits on the current branch not yet pushed — feeds the Publish control. */
+  publishStatus: () =>
+    req<{ projects: { projectId: string; name: string; branch: string; ahead: number }[] }>('/all-boards/publish-status').then(r => r.projects),
+  /** Push a project's current branch to its remote (triggers deploy CI where configured). */
+  publish: (projectId: string) =>
+    req<{ ok: boolean; branch: string; output?: string; error?: string }>(`/boards/${enc(projectId)}/publish`, { method: 'POST', body: JSON.stringify({}) }),
   /** Scaffold a NEW workspace project (dir + CLAUDE.md); 409 on name collision. */
   createProject: (name: string) =>
     req<BoardProjectRef>('/all-boards/projects', { method: 'POST', body: JSON.stringify({ name }) }),
