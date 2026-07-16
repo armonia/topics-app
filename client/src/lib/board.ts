@@ -241,6 +241,8 @@ export interface BoardSettings {
   maxAgents: number;
   dispatchEffort: string;
   dispatchUseWorktree: boolean;
+  /** Auto-merge the task's branch into main on approve (opt-in, default off). */
+  dispatchAutoMerge: boolean;
   dispatchTimeoutMin: number;
   /** MCP fleet for dispatched agents: 'bridge-only' (default, lean) | 'inherit'. */
   dispatchMcp: string;
@@ -253,6 +255,7 @@ export interface BoardSettingsPatch {
   maxAgents?: number;
   dispatchEffort?: string;
   dispatchUseWorktree?: boolean;
+  dispatchAutoMerge?: boolean;
   dispatchTimeoutMin?: number;
   dispatchMcp?: string;
 }

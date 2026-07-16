@@ -23,6 +23,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
+import type { TaskAutoMerge } from "../services/task-automerge";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -47,6 +48,11 @@ export interface TasksRouterOpts {
   workspaceDir?: string;
   /** Abort a running headless turn (human "stop" on a dispatched task). */
   abortTurn?: (sessionKey: string) => Promise<void>;
+  /**
+   * Auto-merge a task's worktree branch into main on approve (opt-in per board via
+   * `dispatchAutoMerge`). Absent ⇒ approve never touches git.
+   */
+  autoMerge?: TaskAutoMerge;
 }
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
@@ -382,6 +388,37 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // Approve lands the task in done → its dependents are now claimable.
           if (dispatcher && decision === "approve" && task.status === "done") {
             dispatcher.onBlockerDone(bReview.taskId);
+            // Opt-in auto-merge (board setting): land the task's branch on main.
+            // Fire-and-forget — a slow/failed git op must never delay or break the
+            // approve response. All outcomes surface as a system comment.
+            const autoMerge = opts?.autoMerge;
+            if (autoMerge && svc.getBoardSettings(bReview.projectId).dispatchAutoMerge) {
+              const { projectId, taskId } = bReview;
+              void (async () => {
+                try {
+                  const res = await autoMerge.tryMerge(taskId, task.text);
+                  if (res.status === "merged") {
+                    svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
+                  } else if (res.status === "conflict") {
+                    // Not landed → hand it back to the task's own agent, which knows
+                    // what it changed. Move it out of done so the resume has a home.
+                    svc.update({ taskId, actor: "human", by: HUMAN, projectId, patch: { status: "in_progress" } });
+                    svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });
+                    void dispatcher.resume(
+                      taskId,
+                      'Il merge automatico del tuo branch su main è andato in conflitto. Porta main dentro il tuo branch (git merge main, oppure rebase), risolvi i conflitti, poi rimetti in review con update_task(status="review").',
+                    );
+                  } else if (res.status === "skipped") {
+                    svc.addComment({ taskId, author: "system", content: `Merge automatico saltato: ${res.reason}.` });
+                  }
+                  // 'nothing' (no commits to merge) → stay quiet.
+                  const updated = svc.get(taskId, { projectId })?.task;
+                  if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
+                } catch (e) {
+                  console.error("[automerge] post-approve wiring failed for", taskId, e);
+                }
+              })();
+            }
           }
           return json(task);
         } catch (e) { return fail(e); }

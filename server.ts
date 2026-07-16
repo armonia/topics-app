@@ -32,6 +32,7 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService } from "./server/services/tasks";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
+import { createTaskAutoMerge } from "./server/services/task-automerge";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
@@ -505,8 +506,28 @@ const taskDispatcher = createTaskDispatcher({
   broadcast: ctx.broadcastToAll,
 });
 
+// Opt-in auto-merge on approve (board setting `dispatchAutoMerge`). Resolves a
+// task → its dispatch topic → worktree → project's main checkout, then merges the
+// branch there. Only `branch`-mode worktrees on a ready project have something to
+// land; everything else resolves to null (skip). Default branch is `main`.
+const taskAutoMerge = createTaskAutoMerge({
+  resolveTaskMerge: (taskId) => {
+    const topicId = dispatcherSvc.get(taskId)?.task.assignedTopicId;
+    if (!topicId) return null;
+    const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+    if (!worktreeId) return null;
+    const wt = ctx.worktreeStore.get(worktreeId);
+    if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
+    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
+    if (!repoPath) return null;
+    return { repoPath, branch: wt.branchName, defaultBranch: "main" };
+  },
+  log: (msg, err) => console.error(msg, err ?? ""),
+});
+
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   workspaceDir: DISPATCH_WORKSPACE_DIR,
+  autoMerge: taskAutoMerge,
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,

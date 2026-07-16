@@ -1,0 +1,12 @@
+-- Opt-in auto-merge of a task's worktree branch into the project's main checkout
+-- when a human approves the task (review → done).
+--
+-- Programmatic + safe: a CLEAN merge lands locally (NO push — the release pipeline
+-- stays the only thing that pushes); a CONFLICT hands the branch back to the task's
+-- own agent to resolve (it has the context of what it changed); an UNREADY checkout
+-- (dirty working tree, or not on `main`) is SKIPPED with a comment — auto-merge never
+-- merges into someone else's uncommitted WIP.
+--
+-- Default 0 (OFF): no existing board changes behaviour until it's turned on. Only
+-- meaningful with dispatch_use_worktree on (an in-place task has no branch to merge).
+ALTER TABLE board_settings ADD COLUMN dispatch_auto_merge INTEGER NOT NULL DEFAULT 0;
