@@ -12,7 +12,8 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Funnel } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, PackageCheck, Paperclip, Plus, Sparkles, Square, Trash2, X, ShieldCheck, ShieldX, Send, Settings, ArrowUpRight, Funnel } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -172,7 +173,7 @@ const boardCollision: CollisionDetection = (args) => {
 };
 
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
-const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string }> = {
+const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string; Icon?: LucideIcon }> = {
   queued: { text: 'in coda', cls: 'bg-white/10 text-neutral-300' },
   starting: { text: 'avvio…', cls: 'bg-amber-500/15 text-amber-300' },
   working: { text: 'al lavoro', cls: 'bg-sky-500/15 text-sky-300' },
@@ -180,7 +181,7 @@ const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string 
   // needs_input = the agent ASKED (answer required); delivered = clean
   // hand-off, the agent believes it's done (approve/reject).
   needs_input: { text: 'serve te', cls: 'bg-rose-500/15 text-rose-300' },
-  delivered: { text: 'consegnato', cls: 'bg-emerald-500/15 text-emerald-300', title: "L'agent ha consegnato: aspetta la tua review" },
+  delivered: { text: 'consegnato', cls: 'bg-emerald-500/15 text-emerald-300', title: "L'agent ha consegnato: aspetta la tua review", Icon: PackageCheck },
   // Parked in backlog after a dispatch ended badly. 'failed' = the agent genuinely
   // failed (timeout without review after the cap / repeated setup errors) — a red,
   // ringed chip so it never reads as a neutral manual "fermato". 'blocked' = a
@@ -189,6 +190,24 @@ const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string 
   failed: { text: 'fallito', cls: 'bg-rose-500/25 text-rose-200 ring-1 ring-rose-400/40' },
   blocked: { text: 'da sistemare', cls: 'bg-amber-500/15 text-amber-300' },
 };
+
+/** Dispatch-state chip: state label + (optional) icon. DRYs the card + drawer
+ *  render sites so both stay in lockstep. 'delivered' carries a PackageCheck
+ *  glyph so "consegnato" reads at a glance, not just as colored text. */
+function DispatchChip({ state, error }: { state: string; error?: string | null }) {
+  const chip = DISPATCH_CHIP[state];
+  if (!chip) return null;
+  const Icon = chip.Icon;
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${chip.cls}`}
+      title={chip.title ?? error ?? undefined}
+    >
+      {Icon && <Icon className="h-3 w-3" aria-hidden />}
+      {chip.text}
+    </span>
+  );
+}
 
 interface FilterPanelProps {
   filters: { priority: number[]; assignedTo: string[]; text: string; projectId: string[] };
@@ -1278,9 +1297,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
             hash, branch) instead of spilling the card past the column edge. */}
         <span className="min-w-0 flex-1 break-words leading-snug">{task.text}</span>
         {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
-          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title ?? task.dispatchError ?? undefined}>
-            {DISPATCH_CHIP[task.dispatchState].text}
-          </span>
+          <DispatchChip state={task.dispatchState} error={task.dispatchError} />
         ) : (!task.dispatchState && task.dispatchError) ? (
           <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
         ) : null}
@@ -1297,6 +1314,18 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
           >
             <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
             {PRIORITY_LABEL[task.priority] ?? task.priority}
+          </span>
+        )}
+        {/* Modello effettivo: 'auto' è solo lo stato iniziale — appena il
+            dispatcher risolve un modello concreto lo mostriamo qui, così si
+            vede con cosa ha girato l'agent (non più un generico "auto"). */}
+        {task.model && (
+          <span
+            title={`Modello: ${fmtModel(task.model)}`}
+            className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
+          >
+            <Sparkles className="h-3 w-3 text-neutral-500" />
+            {fmtModel(task.model)}
           </span>
         )}
         {/* Project-less → no chip at all. It still runs (catch-all), so there's
@@ -2051,9 +2080,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
             window actions. Selettori a sinistra, stato a destra. */}
         <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
           {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
-            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title ?? task.dispatchError ?? undefined}>
-              {DISPATCH_CHIP[task.dispatchState].text}
-            </span>
+            <DispatchChip state={task.dispatchState} error={task.dispatchError} />
           )}
           {task && (task.agentMs > 0 || task.agentTokens > 0) && (
             <span
