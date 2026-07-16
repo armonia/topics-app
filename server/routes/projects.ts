@@ -135,35 +135,39 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         console.log(`[icon] 403 (not in allowlist): ${realDir}`);
         return new Response(null, { status: 403 });
       }
-      const iconFile = resolveProjectIcon(realDir);
-      console.log(`[icon] ${iconFile ? "200 " + iconFile : "404 no-icon"} ← ${realDir}`);
+      const resolved = resolveProjectIcon(realDir);
+      console.log(`[icon] ${resolved ? (resolved.kind === "file" ? "200 " + resolved.path : `200 inline(${resolved.contentType})`) : "404 no-icon"} ← ${realDir}`);
       // Cache the "no icon" answer too so palette re-opens don't re-probe disk.
-      if (!iconFile) return new Response(null, { status: 404, headers: { "cache-control": "max-age=120" } });
-      // Containment: the resolved icon must live inside the project dir.
+      if (!resolved) return new Response(null, { status: 404, headers: { "cache-control": "max-age=120" } });
+      // Project icons are arbitrary content from the project dir served on
+      // OUR origin. An SVG favicon (file OR inline data: URI) can carry
+      // <script>/<foreignObject> that executes if the icon URL is opened as a
+      // top-level document — a same-origin stored-XSS vector (this origin
+      // drives terminals/agents). Lock every icon response down so it can
+      // never run as script: sandboxed CSP (no allow-scripts) neutralises SVG
+      // scripts, nosniff blocks MIME confusion, inline disposition prevents
+      // the browser from treating it as a navigable document with privileges.
+      // <img>-loaded favicons (the only real use) are unaffected.
+      const iconHeaders = (ct: string) => ({
+        "content-type": ct,
+        "cache-control": "max-age=300",
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+        "x-content-type-options": "nosniff",
+        "content-disposition": 'inline; filename="icon"',
+      });
+      // Inline icons (index.html data: URI favicons) carry their own bytes —
+      // size-capped and content-type-allowlisted by the resolver.
+      if (resolved.kind === "inline") {
+        return new Response(Buffer.from(resolved.bytes), { headers: iconHeaders(resolved.contentType) });
+      }
+      // Containment: a resolved icon FILE must live inside the project dir.
       let realIcon: string;
-      try { realIcon = realpathSync(iconFile); } catch { return new Response(null, { status: 404 }); }
+      try { realIcon = realpathSync(resolved.path); } catch { return new Response(null, { status: 404 }); }
       if (realIcon !== realDir && !realIcon.startsWith(realDir + "/")) return new Response(null, { status: 403 });
       const ct = ICON_CONTENT_TYPE[extname(realIcon).toLowerCase()];
       if (!ct) return new Response(null, { status: 404 });
       try {
-        return new Response(readFileSync(realIcon), {
-          headers: {
-            "content-type": ct,
-            "cache-control": "max-age=300",
-            // Project icons are arbitrary files from the project dir served on
-            // OUR origin. An SVG favicon can carry inline <script>/<foreignObject>
-            // that executes if the icon URL is opened as a top-level document —
-            // a same-origin stored-XSS vector (this origin drives terminals/
-            // agents). Lock every icon response down so it can never run as
-            // script: sandboxed CSP (no allow-scripts) neutralises SVG scripts,
-            // nosniff blocks MIME confusion, inline disposition prevents the
-            // browser from treating it as a navigable document with privileges.
-            // <img>-loaded favicons (the only real use) are unaffected.
-            "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-            "x-content-type-options": "nosniff",
-            "content-disposition": 'inline; filename="icon"',
-          },
-        });
+        return new Response(readFileSync(realIcon), { headers: iconHeaders(ct) });
       } catch { return new Response(null, { status: 404 }); }
     }
 
