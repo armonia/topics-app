@@ -97,6 +97,64 @@ describe("task-automerge", () => {
     expect(git.calls.length).toBe(0);
   });
 
+  test("merged landing that touches client/ → touchedClient true + repoPath", async () => {
+    const git = fakeGit({
+      ...CLEAN_PRECONDITIONS,
+      "merge --no-ff": { code: 0 },
+      "rev-parse --short": { stdout: "abc1234\n" },
+      "diff --name-only": { stdout: "client/src/App.tsx\nserver/foo.ts\n" },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    if (res.status === "merged") {
+      expect(res.touchedClient).toBe(true);
+      expect(res.repoPath).toBe(TARGET.repoPath);
+    }
+  });
+
+  test("merged landing that only touches server/ → touchedClient false", async () => {
+    const git = fakeGit({
+      ...CLEAN_PRECONDITIONS,
+      "merge --no-ff": { code: 0 },
+      "rev-parse --short": { stdout: "abc1234\n" },
+      "diff --name-only": { stdout: "server/foo.ts\nREADME.md\n" },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    if (res.status === "merged") expect(res.touchedClient).toBe(false);
+    else throw new Error(`expected merged, got ${res.status}`);
+  });
+
+  test("buildClient rides the same per-repo queue as merges", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const enter = async () => {
+      active++; maxActive = Math.max(maxActive, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active--;
+    };
+    const run = async (_cwd: string, args: string[]): Promise<GitRunResult> => {
+      await enter();
+      if (args.slice(0, 2).join(" ") === "symbolic-ref --short") return { code: 0, stdout: "main\n", stderr: "" };
+      if (args.slice(0, 2).join(" ") === "status --porcelain") return { code: 0, stdout: "", stderr: "" };
+      if (args.slice(0, 2).join(" ") === "rev-list --count") return { code: 0, stdout: "0\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const runBuild = async (_cwd: string): Promise<GitRunResult> => {
+      await enter();
+      return { code: 0, stdout: "built", stderr: "" };
+    };
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: run, runBuild });
+    const [, , build] = await Promise.all([
+      am.tryMerge("a", "x"),
+      am.tryMerge("b", "y"),
+      am.buildClient(TARGET.repoPath),
+    ]);
+    expect(maxActive).toBe(1);
+    expect(build.code).toBe(0);
+  });
+
   test("serializes per repo path (no overlapping git ops on the same repo)", async () => {
     let active = 0;
     let maxActive = 0;
