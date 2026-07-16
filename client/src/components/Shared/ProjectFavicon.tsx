@@ -38,9 +38,14 @@ import { useState, useEffect, type ReactNode } from 'react';
 // Entries with s:'none' still found under the key (written by older bundles)
 // are dropped on load.
 const CACHE_KEY = 'topics-project-icon-cache-v4';
-const NONE_TTL_MS = 12 * 60 * 60 * 1000;
+// A VERIFIED 'none' (the re-check fetch confirmed a real 404) holds for hours;
+// an UNVERIFIED one (img error but the confirmation fetch could not run — e.g.
+// fetch() failing in a WKWebView while <img> loads work) only briefly, enough
+// to stop an error-remount storm without hiding a recovering icon for long.
+const NONE_VERIFIED_TTL_MS = 12 * 60 * 60 * 1000;
+const NONE_UNVERIFIED_TTL_MS = 5 * 60 * 1000;
 type IconStatus = 'has' | 'none';
-interface CacheEntry { s: IconStatus; t: number }
+interface CacheEntry { s: IconStatus; t: number; v?: boolean }
 
 let memCache: Record<string, CacheEntry> | null = null;
 function cache(): Record<string, CacheEntry> {
@@ -49,15 +54,20 @@ function cache(): Record<string, CacheEntry> {
   catch { memCache = {}; }
   // Migration + belt-and-braces: an older bundle (or a concurrent window still
   // running one) may have persisted 'none' — drop those so they can't hide a
-  // real icon; they'll re-probe once.
+  // real icon; they'll re-probe once. Persist the purge IMMEDIATELY: other app
+  // windows share this localStorage, and a stale-bundle window re-reading a
+  // still-poisoned blob was exactly how "icons show in the browser but not in
+  // the app" survived a partial reload.
+  let hadNone = false;
   for (const k of Object.keys(memCache!)) {
-    if (memCache![k].s === 'none') delete memCache![k];
+    if (memCache![k].s === 'none') { delete memCache![k]; hadNone = true; }
   }
+  if (hadNone) persist();
   return memCache!;
 }
 function persist(): void {
   const hasOnly: Record<string, CacheEntry> = {};
-  for (const [k, e] of Object.entries(cache())) {
+  for (const [k, e] of Object.entries(memCache ?? {})) {
     if (e.s === 'has') hasOnly[k] = e;
   }
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(hasOnly)); } catch {}
@@ -65,16 +75,16 @@ function persist(): void {
 function resolveStatus(path: string): IconStatus | 'unknown' {
   const e = cache()[path];
   if (!e) return 'unknown';
-  // 'none' self-heals after the TTL so a newly-added favicon eventually shows
+  // 'none' self-heals after its TTL so a newly-added favicon eventually shows
   // even in a long-lived window (the entry is memory-only, so a reload also
   // clears it).
-  if (e.s === 'none' && Date.now() - e.t > NONE_TTL_MS) return 'unknown';
+  if (e.s === 'none' && Date.now() - e.t > (e.v ? NONE_VERIFIED_TTL_MS : NONE_UNVERIFIED_TTL_MS)) return 'unknown';
   return e.s;
 }
-function remember(path: string, s: IconStatus): void {
+function remember(path: string, s: IconStatus, verified = true): void {
   const c = cache();
-  if (c[path]?.s === s) return; // only write on a real status change
-  c[path] = { s, t: Date.now() };
+  if (c[path]?.s === s && c[path]?.v === verified) return; // only write on a real change
+  c[path] = { s, t: Date.now(), v: verified };
   // 'has' → persist; 'none' → memory-only, but still persist to SHED a stale
   // 'has' entry for a project whose icon was since removed (persist() filters
   // the 'none' itself out).
@@ -129,17 +139,21 @@ export function ProjectFavicon({
       }}
       onLoad={() => { setLoaded(true); setStatus('has'); remember(path, 'has'); }}
       onError={() => {
-        // Hide this slot now, but DON'T blindly persist 'none': an <img> error
-        // can't distinguish a real 404 ("no icon") from a transient failure
-        // (server restarting / unreachable, or a 403 during a momentarily-empty
-        // allowlist). Persisting 'none' for a transient failure poisoned the
-        // cache and hid real favicons for the whole TTL. Verify with a fetch and
-        // remember 'none' ONLY on a definitive 404; anything else stays
-        // un-cached so the next mount re-probes once the server is healthy.
+        // Hide this slot now. An <img> error can't distinguish a real 404 ("no
+        // icon") from a transient failure (server restarting / unreachable, or
+        // a 403 during a momentarily-empty allowlist), and persisting 'none'
+        // for a transient failure once poisoned the cache for the whole TTL.
+        // So: cache 'none' in memory immediately but UNVERIFIED (short TTL —
+        // this stops the re-probe storm that an error-remount loop otherwise
+        // produces, e.g. when fetch() itself is broken in a WKWebView), then
+        // try to confirm with a fetch: a definitive 404 upgrades it to a
+        // verified long-TTL 'none'; anything else leaves the short-TTL entry
+        // to expire and re-probe once the server is healthy.
         setStatus('none');
+        remember(path, 'none', false);
         fetch(`/api/projects/icon?path=${encodeURIComponent(path)}`)
-          .then((r) => { if (r.status === 404) remember(path, 'none'); })
-          .catch(() => { /* unreachable → transient, leave the cache clean */ });
+          .then((r) => { if (r.status === 404) remember(path, 'none', true); })
+          .catch(() => { /* unreachable → transient, keep only the short-TTL entry */ });
       }}
     />
   );
