@@ -488,7 +488,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
           placeholder="cerca…"
           aria-label="Cerca nei task"
-          className="w-28 rounded bg-white/5 py-0.5 pl-6 pr-1.5 text-[11px] text-neutral-100 outline-none placeholder:text-neutral-600 focus:w-40 focus:bg-white/10"
+          className="w-28 rounded-md bg-white/5 py-1 pl-6 pr-1.5 text-[11px] text-neutral-100 outline-none placeholder:text-neutral-600 focus:w-40 focus:bg-white/10"
         />
       </div>
 
@@ -856,20 +856,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         </div>
         <div className="ml-auto flex items-center gap-2">
           {mode === 'all' && <span className="text-[11px] text-neutral-500">{tasks.length} task · tutti i progetti</span>}
-          {dispatchOn !== null && (
-            <button
-              onClick={toggleDispatch}
-              data-testid="board-dispatch-pill"
-              title={dispatchOn
-                ? 'Auto-dispatch attivo (globale): un task in Todo avvia un agent, su qualsiasi board — clicca per spegnere'
-                : 'Auto-dispatch spento (globale): i task in Todo NON partono da soli — clicca per attivarlo'}
-              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${
-                dispatchOn ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-white/10 text-neutral-400 hover:bg-white/15'
-              }`}
-            >
-              <Bot className="h-3 w-3" /> {dispatchOn ? 'agent: on' : 'agent: off'}
-            </button>
-          )}
+          {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
           <PublishControl />
           {hasProject && (
             <button
