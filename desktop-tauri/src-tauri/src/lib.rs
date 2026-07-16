@@ -3990,13 +3990,19 @@ fn win_size_file(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         .map(|d| d.join("topics-win-size.json"))
 }
 
-/// Write `{ "w": <logical>, "h": <logical>, "x": <physical>, "y": <physical> }`.
-/// SIZE is logical (scale-independent — see the module note on why); POSITION is
-/// the PHYSICAL outer-position (top-left) so the multi-monitor validation on
-/// restore can compare it directly against physical monitor bounds without any
-/// per-display scale-factor juggling. Ignores bogus/minimized sizes. `x`/`y` may
-/// be absent (older stores, or when the position can't be read) — the JSON keys
-/// are simply omitted so `read` falls back to centering.
+/// Write `{ "w": <logical>, "h": <logical>, "lx": <logical>, "ly": <logical> }`.
+/// EVERYTHING is logical (AppKit points). Position used to be stored as tao
+/// "physical" pixels — but on macOS tao's physical space is the LOGICAL global
+/// space scaled by each entity's OWN backing scale (`outer_position()` uses the
+/// window's current monitor, `Monitor::position()` uses that monitor's), so on a
+/// mixed-DPI setup (retina laptop scale 2 + external scale 1) coordinates saved
+/// while the window sat on a scale-1 display got re-interpreted at scale 2 on
+/// the next launch (the window is born on the primary, `center: true`) and the
+/// restore landed at HALF the coordinates — "la finestra perde la posizione"
+/// on every relaunch/update. Logical points are the one coherent global space
+/// on macOS (CGDisplayBounds units), so save + clamp + restore all use them.
+/// Ignores bogus/minimized sizes. `lx`/`ly` may be absent (position unreadable)
+/// — the JSON keys are simply omitted so `read` falls back to centering.
 fn save_win_size_logical(path: &std::path::Path, w: f64, h: f64, pos: Option<(i32, i32)>) {
     if !(w >= 200.0 && h >= 200.0 && w.is_finite() && h.is_finite()) {
         return;
@@ -4005,7 +4011,7 @@ fn save_win_size_logical(path: &std::path::Path, w: f64, h: f64, pos: Option<(i3
         let _ = std::fs::create_dir_all(parent);
     }
     let body = match pos {
-        Some((x, y)) => format!("{{\"w\":{:.0},\"h\":{:.0},\"x\":{},\"y\":{}}}", w, h, x, y),
+        Some((x, y)) => format!("{{\"w\":{:.0},\"h\":{:.0},\"lx\":{},\"ly\":{}}}", w, h, x, y),
         None => format!("{{\"w\":{:.0},\"h\":{:.0}}}", w, h),
     };
     let _ = std::fs::write(path, body);
@@ -4024,18 +4030,78 @@ fn read_win_size_logical(path: &std::path::Path) -> Option<(f64, f64)> {
     }
 }
 
-/// Read back the saved PHYSICAL outer-position, if the store carries one.
-/// Returns `None` for older size-only stores so the caller centers instead.
-fn read_win_position_physical(path: &std::path::Path) -> Option<(i32, i32)> {
+/// Read back the saved LOGICAL outer-position, if the store carries one.
+/// Returns `None` for older stores — including the legacy `x`/`y` keys, which
+/// held tao-"physical" (per-monitor-scaled) values that are ambiguous on
+/// mixed-DPI setups: misreading them as logical would restore to the wrong
+/// spot, so a legacy store centers ONCE and the next save writes `lx`/`ly`.
+fn read_win_position_logical(path: &std::path::Path) -> Option<(i32, i32)> {
     let s = std::fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&s).ok()?;
-    let x = v.get("x")?.as_i64()? as i32;
-    let y = v.get("y")?.as_i64()? as i32;
+    let x = v.get("lx")?.as_i64()? as i32;
+    let y = v.get("ly")?.as_i64()? as i32;
     Some((x, y))
 }
 
-/// Validate a saved PHYSICAL window rect against the currently-attached monitors
-/// and return a physical top-left that is guaranteed on-screen.
+/// The attached monitors as LOGICAL rects `(x, y, w, h)` — CGDisplayBounds
+/// units, the one coherent global space on macOS. tao's `Monitor::position()/
+/// size()` return "physical" values scaled by each monitor's OWN backing
+/// factor, so they must be unscaled per-monitor before any cross-monitor math.
+fn logical_monitors(win: &tauri::WebviewWindow) -> Vec<(i32, i32, u32, u32)> {
+    win.available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            let sf = m.scale_factor();
+            let p = m.position().to_logical::<f64>(sf);
+            let s = m.size().to_logical::<f64>(sf);
+            (
+                p.x.round() as i32,
+                p.y.round() as i32,
+                s.width.round().max(0.0) as u32,
+                s.height.round().max(0.0) as u32,
+            )
+        })
+        .collect()
+}
+
+/// The window's outer geometry in LOGICAL points: `((x, y), (w, h))`.
+/// Unscales tao's per-current-monitor "physical" values back to AppKit points.
+fn window_logical_geometry(win: &tauri::WebviewWindow) -> Option<((i32, i32), (u32, u32))> {
+    let sf = win.scale_factor().ok()?;
+    let pos = win.outer_position().ok()?.to_logical::<f64>(sf);
+    let size = win.outer_size().ok()?.to_logical::<f64>(sf);
+    Some((
+        (pos.x.round() as i32, pos.y.round() as i32),
+        (size.width.round().max(0.0) as u32, size.height.round().max(0.0) as u32),
+    ))
+}
+
+/// Persist the main window's LOGICAL geometry right now (size + position).
+/// Called on RunEvent::ExitRequested so the FINAL spot always survives a quit,
+/// the status-bar relaunch and the updater restart — the throttled Moved/Resized
+/// saves alone could drop the last move of a gesture (leading-edge throttle) and
+/// nothing else runs on the way out (CloseRequested hides to tray instead).
+fn save_main_window_geometry(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    for (label, win) in app.webview_windows() {
+        if label != "main" {
+            continue;
+        }
+        if win.is_minimized().unwrap_or(false) {
+            return; // a minimized frame is not a real position
+        }
+        if let (Some(path), Some(((lx, ly), (lw, lh)))) =
+            (win_size_file(app), window_logical_geometry(&win))
+        {
+            save_win_size_logical(&path, lw as f64, lh as f64, Some((lx, ly)));
+        }
+        return;
+    }
+}
+
+/// Validate a saved window rect against the currently-attached monitors and
+/// return a top-left that is guaranteed on-screen.
 ///
 /// Why this exists: the old `tauri-plugin-window-state` restored position blindly,
 /// so a window last seen on a now-disconnected/narrower display would be placed
@@ -4045,11 +4111,15 @@ fn read_win_position_physical(path: &std::path::Path) -> Option<(i32, i32)> {
 /// monitor (by center distance), falling back to the first, keeping the window
 /// fully inside that monitor's bounds.
 ///
-/// All math is in PHYSICAL pixels: monitor `position()`/`size()` and window
-/// `outer_position()`/`outer_size()` are all physical, so there is no scale-factor
-/// mixing here (the one lesson from the plugin's DPI bug).
+/// The math is unit-agnostic but every CALLER must feed it LOGICAL points
+/// (window geometry via `window_logical_geometry`, monitors via
+/// `logical_monitors`): tao's "physical" values are scaled by each entity's own
+/// backing factor, so on a mixed-DPI setup they don't share a coordinate space
+/// and cross-monitor comparisons in physical units place windows wrong (the
+/// actual field bug: saved from a scale-1 external, restored at half the
+/// coordinates while the window sat on the scale-2 primary).
 ///
-/// `monitors` is `(pos_x, pos_y, width, height)` per attached monitor, physical.
+/// `monitors` is `(pos_x, pos_y, width, height)` per attached monitor, logical.
 fn clamp_position_to_monitors(
     saved: (i32, i32),
     win: (u32, u32),
@@ -4115,20 +4185,13 @@ fn clamp_position_to_monitors(
 fn ensure_window_visible(win: &tauri::WebviewWindow) {
     let _ = win.show();
     let _ = win.unminimize();
-    if let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) {
-        let monitors: Vec<(i32, i32, u32, u32)> = win
-            .available_monitors()
-            .unwrap_or_default()
-            .iter()
-            .map(|m| {
-                let p = m.position();
-                let s = m.size();
-                (p.x, p.y, s.width, s.height)
-            })
-            .collect();
-        match clamp_position_to_monitors((pos.x, pos.y), (size.width, size.height), &monitors) {
-            Some((nx, ny)) if (nx, ny) != (pos.x, pos.y) => {
-                let _ = win.set_position(tauri::PhysicalPosition::new(nx, ny));
+    // LOGICAL points throughout (see clamp_position_to_monitors): tao physical
+    // values are per-entity-scaled on macOS, unusable across mixed-DPI monitors.
+    if let Some((pos, size)) = window_logical_geometry(win) {
+        let monitors = logical_monitors(win);
+        match clamp_position_to_monitors(pos, size, &monitors) {
+            Some((nx, ny)) if (nx, ny) != pos => {
+                let _ = win.set_position(tauri::LogicalPosition::new(nx as f64, ny as f64));
             }
             None => {
                 let _ = win.center();
@@ -5692,46 +5755,38 @@ pub fn run() {
                     // is only drained at gesture end), so we swap to an autoresizing frost
                     // cover for the duration of the drag.
                     wire_live_resize_cover(&win);
-                    // RESTORE the saved LOGICAL size + PHYSICAL position ourselves (see
-                    // win_size_file): the tauri-plugin-window-state plugin mis-handled scale on
-                    // this mixed-DPI multi-monitor setup — it saved PHYSICAL pixels as logical (a
-                    // 2x display wrote 2800x1800), failed to restore 1656x896, AND restored
-                    // position blindly (a disconnected display left the window off-screen or
-                    // ratcheted the width smaller). We store size in logical units and position in
-                    // physical pixels, re-apply size here, then validate the position against the
-                    // LIVE monitors (clamp_position_to_monitors) so it always lands on-screen; when
-                    // no position is stored (older store / read failure) we center.
+                    // RESTORE the saved geometry ourselves (see win_size_file) — ALL in
+                    // LOGICAL points, the one coherent global space on macOS. History of
+                    // this block: the tauri-plugin-window-state plugin mis-handled scale
+                    // (saved physical-as-logical, restored blindly off-screen); then our
+                    // own store kept position in tao-"physical" pixels, which are scaled
+                    // by the CURRENT monitor's backing factor — on a mixed-DPI setup the
+                    // window is born on the scale-2 primary (`center: true`) while the
+                    // position was saved from a scale-1 external, so the restore landed
+                    // at HALF the coordinates and the next throttled save ratcheted the
+                    // wrong spot into the store ("la finestra perde la posizione" on
+                    // every relaunch/update). Now: saved logical position → validated
+                    // against LOGICAL monitor rects → applied as LogicalPosition FIRST
+                    // (so the size below lands on the destination display), then the
+                    // logical size; center only when no usable position is stored.
                     if _label == "main" {
                         let store = win_size_file(app.handle());
-                        if let Some((lw, lh)) = store.as_ref().and_then(|p| read_win_size_logical(p)) {
-                            let _ = win.set_size(tauri::LogicalSize::new(lw, lh));
-                            eprintln!("[window-restore] applied logical {lw}x{lh}");
-                        }
-                        // Position: honor the saved physical top-left only if it (still) intersects
-                        // a live monitor; otherwise re-anchor onto the nearest one. Fall back to
-                        // centering when there is no saved position at all.
-                        let saved_pos = store.as_ref().and_then(|p| read_win_position_physical(p));
+                        let saved_size = store.as_ref().and_then(|p| read_win_size_logical(p));
+                        let saved_pos = store.as_ref().and_then(|p| read_win_position_logical(p));
                         let placed = if let Some(saved) = saved_pos {
-                            let win_size = win
-                                .outer_size()
-                                .map(|s| (s.width, s.height))
+                            // Clamp with the SAVED footprint (what the window is about to
+                            // become), not the pre-restore config-default frame.
+                            let win_size = saved_size
+                                .map(|(w, h)| (w.round() as u32, h.round() as u32))
                                 .unwrap_or((1200, 800));
-                            let monitors: Vec<(i32, i32, u32, u32)> = win
-                                .available_monitors()
-                                .unwrap_or_default()
-                                .iter()
-                                .map(|m| {
-                                    let p = m.position();
-                                    let s = m.size();
-                                    (p.x, p.y, s.width, s.height)
-                                })
-                                .collect();
+                            let monitors = logical_monitors(&win);
                             if let Some((nx, ny)) =
                                 clamp_position_to_monitors(saved, win_size, &monitors)
                             {
-                                let _ = win.set_position(tauri::PhysicalPosition::new(nx, ny));
+                                let _ = win
+                                    .set_position(tauri::LogicalPosition::new(nx as f64, ny as f64));
                                 eprintln!(
-                                    "[window-restore] applied physical position {nx},{ny} (saved {},{})",
+                                    "[window-restore] applied logical position {nx},{ny} (saved {},{})",
                                     saved.0, saved.1
                                 );
                                 true
@@ -5741,9 +5796,16 @@ pub fn run() {
                         } else {
                             false
                         };
+                        if let Some((lw, lh)) = saved_size {
+                            let _ = win.set_size(tauri::LogicalSize::new(lw, lh));
+                            eprintln!("[window-restore] applied logical {lw}x{lh}");
+                        }
                         if !placed {
-                            // No usable saved position — set_size grows from the top-left, so
-                            // center to keep the restored-size window on its display.
+                            // No usable saved position (fresh install, or a legacy store
+                            // whose physical x/y are ambiguous on mixed-DPI — dropped on
+                            // purpose, see read_win_position_logical) — set_size grows
+                            // from the top-left, so center to keep the window on its
+                            // display. The next save writes lx/ly and this never re-runs.
                             let _ = win.center();
                             eprintln!("[window-restore] no saved position — centered");
                         }
@@ -5774,19 +5836,16 @@ pub fn run() {
                         let mut g = match save_gate.lock() { Ok(g) => g, Err(_) => return };
                         if g.elapsed() >= std::time::Duration::from_millis(500) {
                             *g = std::time::Instant::now();
-                            if let (Some(p), Ok(os), Ok(sf)) =
-                                (size_file.as_ref(), w.outer_size(), w.scale_factor())
+                            if let (Some(p), Some(((lx, ly), (lw, lh)))) =
+                                (size_file.as_ref(), window_logical_geometry(w))
                             {
-                                // Persist SIZE (logical) + POSITION (physical outer top-left) so a
-                                // restart lands the window back on the same display/spot. Position
-                                // is best-effort — omit it if unreadable rather than clobber size.
-                                let pos = w.outer_position().ok().map(|p| (p.x, p.y));
-                                save_win_size_logical(
-                                    p,
-                                    os.width as f64 / sf,
-                                    os.height as f64 / sf,
-                                    pos,
-                                );
+                                // Persist SIZE + POSITION in LOGICAL points (see the
+                                // win_size_file note: tao-physical is per-monitor-scaled,
+                                // wrong across mixed-DPI displays). This throttle is
+                                // leading-edge (the last move of a gesture can be
+                                // dropped) — the ExitRequested save is the guaranteed
+                                // final write on quit/relaunch/update.
+                                save_win_size_logical(p, lw as f64, lh as f64, Some((lx, ly)));
                             }
                         }
                     };
@@ -5953,6 +6012,18 @@ pub fn run() {
                     ensure_window_visible(&w);
                 }
             }
+            // Final geometry save on the way out — fires on ⌘Q, tray "Esci", the
+            // status-bar relaunch AND the updater restart (AppHandle::restart()
+            // triggers ExitRequested before Exit). The throttled Moved/Resized
+            // saves are leading-edge and CloseRequested only hides to tray, so
+            // without this the last position before an "Aggiorna" could be lost.
+            // The windows are still alive at ExitRequested (not yet at Exit).
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                let _ = no_abort("exit-save-geometry", || {
+                    save_main_window_geometry(app_handle);
+                    Ok(())
+                });
+            }
             // Kill the bundled server sidecar (if we spawned one) as the app exits,
             // so no orphan server process outlives the shell. Exit fires on the real
             // quit paths (tray "Esci", ⌘Q → app.exit(0)); no-op when we deferred to
@@ -5961,6 +6032,48 @@ pub fn run() {
                 kill_sidecar();
             }
         });
+}
+
+#[cfg(test)]
+mod win_store_tests {
+    use super::{read_win_position_logical, read_win_size_logical, save_win_size_logical};
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "topics-win-store-test-{}-{}.json",
+            name,
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn round_trips_logical_size_and_position() {
+        let p = tmp("roundtrip");
+        save_win_size_logical(&p, 3440.0, 1084.0, Some((-784, -1410)));
+        assert_eq!(read_win_size_logical(&p), Some((3440.0, 1084.0)));
+        assert_eq!(read_win_position_logical(&p), Some((-784, -1410)));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn legacy_physical_keys_are_ignored_for_position() {
+        // Pre-logical stores wrote tao-"physical" x/y — per-monitor-scaled, so
+        // ambiguous on mixed-DPI. The reader must NOT interpret them: the size
+        // still restores, the position centers ONCE, the next save writes lx/ly.
+        let p = tmp("legacy");
+        std::fs::write(&p, "{\"w\":3440,\"h\":1084,\"x\":535,\"y\":-1410}").unwrap();
+        assert_eq!(read_win_size_logical(&p), Some((3440.0, 1084.0)));
+        assert_eq!(read_win_position_logical(&p), None);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn bogus_sizes_are_not_written() {
+        let p = tmp("bogus");
+        let _ = std::fs::remove_file(&p);
+        save_win_size_logical(&p, 10.0, 10.0, Some((0, 0)));
+        assert!(!p.exists());
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
