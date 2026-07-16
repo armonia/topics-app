@@ -1,5 +1,6 @@
 import { FolderOpen, ExternalLink, X } from 'lucide-react';
 import { hashToColor, hashToColorLight, hashToColorDark } from './projectColors';
+import { ProjectFavicon } from '../Shared/ProjectFavicon';
 
 interface ProjectHeaderProps {
   projectPath: string;
@@ -33,12 +34,22 @@ export function ProjectHeader({ projectPath, projectName, onOpenInFinder, onClos
         style={{ backgroundColor: accentColor }}
       />
       
-      <FolderOpen 
-        size={14} 
-        className="flex-shrink-0"
-        style={{ color: accentColor }}
+      {/* Real project favicon when the folder ships one (same resolution as the
+          sidebar / tab bar); accent-tinted FolderOpen otherwise — this header
+          already carries a strong identity treatment, so unlike the bare list
+          rows it keeps a glyph as fallback. */}
+      <ProjectFavicon
+        path={projectPath}
+        size={14}
+        fallback={
+          <FolderOpen
+            size={14}
+            className="flex-shrink-0"
+            style={{ color: accentColor }}
+          />
+        }
       />
-      
+
       <span 
         className="text-[13px] font-semibold truncate"
         style={{ color: accentColor }}

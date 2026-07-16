@@ -21,22 +21,17 @@ import { useState, useEffect, type ReactNode } from 'react';
 //                it within a day.
 //   - unknown  → probe with a ZERO-width <img> (no reserved gap); promote to
 //                'has' on load or 'none' on error.
-// v2: the v1 cache was poisoned by transient server failures (a restart /
-// unreachable window made every favicon <img> error → cached 'none' for the
-// 12h TTL, so real icons vanished). Bumping the key drops those stale 'none'
-// entries so every project re-probes once against a healthy server. The
-// onError handler below now also refuses to persist 'none' on a non-404, so
-// this can't recur.
-// v3: the /api/projects/icon allowlist was widened (open-but-unregistered
-// projects used to 403, and a 403/404 during the server restarts that shipped
-// that fix could still latch a stale 'none' for the 12h TTL — a project whose
-// favicon is now served would stay blank, e.g. a Next.js `app/icon.svg`). One
-// more key bump flushes those so every project re-probes once against the
-// now-fixed endpoint.
-// v4: a day of rapid server kickstarts + dev-bundle auto-reloads (every rsync
-// reloads all windows, often while the server is still warming its allowlist)
-// latched 'none' for projects whose icons the healthy endpoint serves fine
-// ([cliente], topics-app). Flush once more.
+//
+// INVARIANT — 'none' is NEVER persisted to localStorage, only kept in memory
+// for the current page lifetime. Four cache-key bumps (v1→v4) were spent
+// flushing 'none' entries latched by transient failures (server restarts,
+// allowlist warm-up 403s, dev-bundle reload storms): any code path that writes
+// 'none' to disk eventually poisons the cache for the whole TTL and real icons
+// vanish. Persisting only 'has' makes that class of bug impossible — the worst
+// transient failure now costs one zero-width re-probe per icon-less project on
+// the next reload (the server caches its 404 for 120s, so this is free).
+// Entries with s:'none' still found under the key (written by older bundles)
+// are dropped on load.
 const CACHE_KEY = 'topics-project-icon-cache-v4';
 const NONE_TTL_MS = 12 * 60 * 60 * 1000;
 type IconStatus = 'has' | 'none';
@@ -47,12 +42,27 @@ function cache(): Record<string, CacheEntry> {
   if (memCache) return memCache;
   try { memCache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); }
   catch { memCache = {}; }
+  // Migration + belt-and-braces: an older bundle (or a concurrent window still
+  // running one) may have persisted 'none' — drop those so they can't hide a
+  // real icon; they'll re-probe once.
+  for (const k of Object.keys(memCache!)) {
+    if (memCache![k].s === 'none') delete memCache![k];
+  }
   return memCache!;
+}
+function persist(): void {
+  const hasOnly: Record<string, CacheEntry> = {};
+  for (const [k, e] of Object.entries(cache())) {
+    if (e.s === 'has') hasOnly[k] = e;
+  }
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(hasOnly)); } catch {}
 }
 function resolveStatus(path: string): IconStatus | 'unknown' {
   const e = cache()[path];
   if (!e) return 'unknown';
-  // 'none' self-heals after the TTL so a newly-added favicon eventually shows.
+  // 'none' self-heals after the TTL so a newly-added favicon eventually shows
+  // even in a long-lived window (the entry is memory-only, so a reload also
+  // clears it).
   if (e.s === 'none' && Date.now() - e.t > NONE_TTL_MS) return 'unknown';
   return e.s;
 }
@@ -60,7 +70,10 @@ function remember(path: string, s: IconStatus): void {
   const c = cache();
   if (c[path]?.s === s) return; // only write on a real status change
   c[path] = { s, t: Date.now() };
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch {}
+  // 'has' → persist; 'none' → memory-only, but still persist to SHED a stale
+  // 'has' entry for a project whose icon was since removed (persist() filters
+  // the 'none' itself out).
+  persist();
 }
 
 export function ProjectFavicon({
