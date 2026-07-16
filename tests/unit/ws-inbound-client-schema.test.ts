@@ -126,6 +126,9 @@ describe('client inbound registry contract', () => {
     // server's "built client changed on disk" signal that reloads windows.
     // ui-state:patch joined in ad7e1c3f (sync refactor) — the incremental
     // key-level ui_state delta the client applies without a full re-init.
+    // ui:bundle-rev joined in 8a863ecf (bundle-rev handshake) — the server's
+    // freshness ping (WS open + real index-* rev change) so a stale window
+    // reloads only when the built bundle actually changed.
     expect(REGISTERED_INBOUND_TYPES).toEqual([
       'connected',
       'dashboard:updated',
@@ -146,6 +149,7 @@ describe('client inbound registry contract', () => {
       'ui-state:init',
       'ui-state:patch',
       'ui-state:updated',
+      'ui:bundle-rev',
       'ui:bundle-updated',
       'unread:init',
       'unread:updated',
