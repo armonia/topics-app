@@ -1165,6 +1165,9 @@ export interface TerminalSessionInfo {
 // continue to compile without churn during the cutover. New code should import
 // directly from '@/state/pane/types'.
 export type { Pane, PaneType } from '../state/pane/types';
+// `PANE_TYPES` is the runtime array `PaneType` is derived from — re-exported so
+// a pane-type picker or validator can import the canonical list from '@/types'.
+export { PANE_TYPES } from '../state/pane/types';
 
 export interface PaneLayoutRow {
   panes: string[];       // Pane IDs

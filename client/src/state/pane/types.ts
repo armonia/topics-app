@@ -1,39 +1,50 @@
-// Pane types — the authoritative `PaneType` union and single source of truth.
-// `client/src/types/index.ts` re-exports this type (it is no longer a separate
-// declaration), so there is only one union to keep in sync.
-// The runtime mirror is `KNOWN_PANE_TYPES` in
-// `client/src/state/pane/reducers/sanitizeSnapshot.ts`: it MUST stay in sync
-// with this union, otherwise sanitizeSnapshot silently drops panes whose type
-// it doesn't recognise (previous review-round-12 B2: `project`, `files`, `git`,
-// `activity`, `agents`, `all-boards`, `process-log`, `session-viewer` were
-// dispatched at runtime but dropped on every HYDRATE_FROM_SNAPSHOT round-trip).
-export type PaneType =
+// Pane types — the authoritative pane-type list and single source of truth.
+//
+// `PANE_TYPES` is the ONE runtime array; `PaneType` is DERIVED from it
+// (`typeof PANE_TYPES[number]`), and the sanitizer's runtime whitelist
+// `KNOWN_PANE_TYPES` (reducers/sanitizeSnapshot.ts) is a re-export of THIS same
+// array — not a hand-copied mirror. So the class of bug where a type was added
+// to the union but not to the whitelist, then silently dropped on every
+// HYDRATE_FROM_SNAPSHOT round-trip, is now structurally impossible: adding a
+// member here makes it both a valid `PaneType` AND persistable, in one edit.
+// (That bug bit twice: review-round-12 B2 — `project`/`files`/`git`/`activity`/
+// `agents`/`process-log`/`session-viewer` — and later `board`/`kanban`, the
+// "Board generale" tab vanishing on reload. The old `satisfies readonly
+// PaneType[]` guard never caught it: `satisfies` proves each element IS a
+// PaneType, never that the list COVERS the union.)
+//
+// `client/src/types/index.ts` re-exports `PaneType` (and `PANE_TYPES`), so there
+// is only one list.
+export const PANE_TYPES = [
   // Used at runtime today (must include every legacy type)
-  | 'chat'
-  | 'file'
-  | 'files'
-  | 'browser'
-  | 'git'
-  | 'terminal'
-  | 'activity'
-  | 'journal'
-  | 'agents'
-  | 'dashboard'
-  | 'kanban'
-  | 'board'
-  | 'project'
-  | 'process-log'
-  | 'session-viewer'
+  'chat',
+  'file',
+  'files',
+  'browser',
+  'git',
+  'terminal',
+  'activity',
+  'journal',
+  'agents',
+  'dashboard',
+  'kanban',
+  'board',
+  'project',
+  'process-log',
+  'session-viewer',
   // Reserved for future panes — keep so code paths that opt in don't get
   // silently sanitized away the moment they land.
-  | 'agent'
-  | 'session'
-  | 'context'
-  | 'editor'
-  | 'cron'
-  | 'remote-access'
-  | 'system-status'
-  | 'processes';
+  'agent',
+  'session',
+  'context',
+  'editor',
+  'cron',
+  'remote-access',
+  'system-status',
+  'processes',
+] as const;
+
+export type PaneType = (typeof PANE_TYPES)[number];
 
 export interface Pane {
   id: string;

@@ -254,6 +254,34 @@ test.describe("Kanban board", () => {
     await expect(row).toHaveAttribute("aria-selected", "true");
   });
 
+  test("BOARD-12: a persisted Board generale pane survives hydrate/render (persistence regression)", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
+    // Regression: `KNOWN_PANE_TYPES` omitted 'board', so `sanitizePane` dropped
+    // the __board__ pane on EVERY HYDRATE_FROM_SNAPSHOT (reload / warm-boot /
+    // cross-tab / server broadcast). The pane was SAVED correctly (outbound and
+    // the server do no type filtering) but stripped on the way back IN, and its
+    // now-dangling group ref was pruned as an entity-less ghost — so the tab
+    // vanished on reload.
+    //
+    // Seed the AUTHORITATIVE pane channel with the board pane exactly as an open
+    // "Board generale" leaves it (paneRecordForId('__board__') → type 'board',
+    // and __board__ in group:default.paneIds), then load. This exercises the
+    // GET → HYDRATE_FROM_SNAPSHOT → sanitizeSnapshot → render path directly:
+    // pre-fix the pane is stripped on hydrate and no tab renders; post-fix it
+    // survives and the tab is present. (We seed rather than open-then-reload so
+    // the test isn't coupled to the debounced-persist/empty-store-clobber timing
+    // — the same seed pattern tab-persistence.spec.ts relies on.)
+    await resetPaneStore(page.request, ["__board__"]);
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+
+    // The board pane survived sanitize/hydrate → its tab is rendered...
+    await expect(page.locator('[data-pane-id="__board__"]')).toBeVisible({ timeout: 10000 });
+    // ...and it gets its first-class sidebar row like every other open tab
+    // (focus-independent proof the pane entity is live, not a stranded ref).
+    await expect(page.getByTestId("sidebar-utility-board")).toBeVisible({ timeout: 10000 });
+  });
+
   test("BOARD-10: nested subtasks — quick-add in drawer, counter chip, done gate", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-08" });
     const text = `Epic task ${Date.now()}`;
