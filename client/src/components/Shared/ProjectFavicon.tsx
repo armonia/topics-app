@@ -1,45 +1,17 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { hashToColor, getProjectName } from '../Layout/projectColors';
 
 /**
  * ProjectFavicon — shows a project's real icon when its folder ships one
  * (favicon.*, public/icon.*, a web manifest's icons[], or an index.html
  * <link rel="icon">), resolved + served by GET /api/projects/icon.
  *
- * Projects without an icon file render a deterministic MONOGRAM tile (initial
- * letter on the project's hash colour) so every project carries a distinctive
- * mark everywhere. This supersedes the old "render nothing" default: most real
- * projects ship no favicon, so "nothing" meant the sidebar/tabs showed no icon
- * at all for them — the very complaint the monogram fixes. It is NOT the old
- * "fake folder glyph" anti-pattern (an identical generic icon on every row):
- * each tile is per-project (colour + letter). Pass an explicit `fallback`
- * (e.g. null, or a status dot) to override.
+ * Projects WITHOUT a real icon render `fallback` (default: NOTHING — no
+ * element, no reserved width, zero horizontal footprint). This is a hard
+ * product decision (Attilio, 2026-07-16, reconfirmed after a monogram-tile
+ * experiment was rejected): only a REAL shipped icon earns the space; no
+ * letters, no generated tiles, no generic glyphs. Don't reintroduce synthetic
+ * placeholders here.
  */
-
-/** Deterministic letter-tile for icon-less projects: initial of the folder
- *  name on the project's stable hash colour (same hue the rest of the app
- *  derives from the path). */
-function Monogram({ path, size, className }: { path: string; size: number; className?: string }) {
-  const letter = (getProjectName(path)[0] || '?').toUpperCase();
-  return (
-    <span
-      aria-hidden
-      data-testid="project-monogram"
-      className={`rounded-[3px] flex-shrink-0 inline-flex items-center justify-center select-none ${className ?? ''}`}
-      style={{
-        width: size,
-        height: size,
-        backgroundColor: hashToColor(path),
-        color: 'rgba(255,255,255,0.92)',
-        fontSize: Math.round(size * 0.62),
-        fontWeight: 600,
-        lineHeight: 1,
-      }}
-    >
-      {letter}
-    </span>
-  );
-}
 
 // Client-side cache of which project paths actually ship an icon. Without it,
 // every fresh load (e.g. an Electron app update / reload) re-discovers "this
@@ -113,13 +85,13 @@ export function ProjectFavicon({
   path,
   size = 14,
   className = '',
-  fallback,
+  fallback = null,
 }: {
   path: string;
   size?: number;
   className?: string;
-  /** Rendered when the project has no icon file. Omit for the default
-   *  per-project monogram tile; pass null (or a custom node) to override. */
+  /** Rendered when the project has no icon file. Default null = nothing at
+   *  all (zero footprint); pass a custom node (e.g. a status dot) to opt in. */
   fallback?: ReactNode;
 }) {
   const [status, setStatus] = useState<IconStatus | 'unknown'>(() => (path ? resolveStatus(path) : 'none'));
@@ -129,25 +101,16 @@ export function ProjectFavicon({
   // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot re-resolve when a recycled row points at a new project path; converges immediately (deps = [path])
   useEffect(() => { setStatus(path ? resolveStatus(path) : 'none'); setLoaded(false); }, [path]);
 
-  // No usable path → honour the explicit fallback only (a monogram needs a
-  // path to derive its letter/colour from).
-  if (!path) return <>{fallback}</>;
-  // Known icon-less → explicit fallback if the caller passed one, else the
-  // deterministic monogram tile.
-  if (status === 'none') {
-    return fallback !== undefined
-      ? <>{fallback}</>
-      : <Monogram path={path} size={size} className={className} />;
-  }
+  // Known icon-less (or no path) → render the fallback (default: nothing at
+  // all — no element, so no reserved width and no margin next to the name).
+  if (!path || status === 'none') return <>{fallback}</>;
 
   // 'has' (cached) → reserve the slot immediately so a cached icon decodes with
-  // no layout shift. 'unknown' with the DEFAULT monogram fallback → also
-  // reserve: the slot is guaranteed to fill with either the real icon or the
-  // monogram, so pre-reserving avoids a width jump. Only a caller with an
-  // explicit fallback (which may be null/zero-width) keeps the old collapse-
-  // until-loaded behaviour. opacity:0-until-load also hides the broken glyph
-  // that an erroring <img> would paint for a frame.
-  const reserve = status === 'has' || loaded || fallback === undefined;
+  // no layout shift. 'unknown' → zero width so an as-yet-unprobed folder that
+  // turns out icon-less never flashes a gap; it widens to `size` only once the
+  // image actually loads. opacity:0-until-load also hides the broken glyph that
+  // an erroring <img> would paint for a frame.
+  const reserve = status === 'has' || loaded;
   return (
     <img
       src={`/api/projects/icon?path=${encodeURIComponent(path)}`}

@@ -539,10 +539,10 @@ test.describe("Sidebar — Fissati (pinning)", () => {
 });
 
 test.describe("Sidebar — Project icons", () => {
-  // A project row must ALWAYS carry a visual mark: the real favicon when the
-  // folder ships one (favicon.* / web manifest / index.html <link rel=icon>,
-  // resolved by GET /api/projects/icon), the deterministic monogram tile
-  // (folder initial + hash colour) otherwise.
+  // A project row shows the REAL favicon when the folder ships one (favicon.*
+  // / web manifest / index.html <link rel=icon>, resolved by GET
+  // /api/projects/icon) and NOTHING otherwise — zero horizontal footprint, no
+  // fake glyph, no monogram (hard product decision, Attilio 2026-07-16).
   const ICONLESS_PROJECT = "/tmp/e2e-iconless-project";
   const ICONFUL_PROJECT = "/tmp/e2e-iconful-project";
   // Smallest valid 1x1 PNG — the favicon <img> must actually decode.
@@ -573,17 +573,19 @@ test.describe("Sidebar — Project icons", () => {
     rmSync(ICONFUL_PROJECT, { recursive: true, force: true });
   });
 
-  test("icon-less project row shows the deterministic monogram tile", async ({ page }) => {
+  test("icon-less project row renders NO icon element at all (zero footprint)", async ({ page }) => {
     await goToApp(page);
     const row = page.getByTestId("project-toggle-e2e-iconless-project");
     await expect(row).toBeVisible({ timeout: 10000 });
-    const monogram = row.getByTestId("project-monogram");
-    await expect(monogram).toBeVisible({ timeout: 10000 });
-    // Initial of the folder name ("e2e-iconless-project" → "E").
-    await expect(monogram).toHaveText("E");
+    // The zero-width probe <img> unmounts once the 404 settles: the row must
+    // end with NO icon element — no img, no synthetic placeholder of any kind.
+    await expect
+      .poll(async () => row.locator('img[src*="/api/projects/icon"]').count(), { timeout: 10000 })
+      .toBe(0);
+    await expect(row.getByTestId("project-monogram")).toHaveCount(0);
   });
 
-  test("project with a shipped favicon shows the real icon, not the monogram", async ({ page }) => {
+  test("project with a shipped favicon shows the real icon", async ({ page }) => {
     await goToApp(page);
     const row = page.getByTestId("project-toggle-e2e-iconful-project");
     await expect(row).toBeVisible({ timeout: 10000 });
