@@ -2688,6 +2688,7 @@ function Ticker({ since }: { since: string }) {
     const t = setInterval(() => force((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
+  // eslint-disable-next-line react-hooks/purity -- live ticker: force-re-renders every 1s (interval above) and reads the clock each render on purpose
   const ms = Date.now() - Date.parse(since);
   return <>{Number.isFinite(ms) && ms > 0 ? fmtLive(ms) : '0s'}</>;
 }
@@ -2720,6 +2721,7 @@ function LiveEffortChip({ usage }: { usage: LiveUsage }) {
     const t = setInterval(() => force((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
+  // eslint-disable-next-line react-hooks/purity -- live effort chip: force-re-renders every 1s (interval above) and reads the clock each render on purpose
   const ms = usage.baseMs + Math.max(0, Date.now() - usage.turnStartedAt);
   return (
     <span
