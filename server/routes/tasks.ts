@@ -173,11 +173,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   return async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
-    // Fast reject: only task paths — agent (session-scoped) or human (board-scoped).
+    // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
+    // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this
+    // router owns because it reads the same dispatch config).
     const isSession = pathname.startsWith("/api/sessions/");
     const isBoard = pathname.startsWith("/api/boards/");
     const isAllBoards = pathname.startsWith("/api/all-boards/");
-    if (!isSession && !isBoard && !isAllBoards) return null;
+    const isCapacity = pathname === "/api/system/dispatch-capacity";
+    if (!isSession && !isBoard && !isAllBoards && !isCapacity) return null;
 
     // GET /api/all-boards/tasks — the global cross-project feed (human overview).
     // Read-only: per-task mutations still go to /api/boards/:projectId/... using
