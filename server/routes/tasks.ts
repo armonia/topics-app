@@ -22,6 +22,7 @@ import { basename, join } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
+import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { TaskAutoMerge } from "../services/task-automerge";
 
@@ -186,6 +187,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Columns show ROOT tasks only — steps live in the parent's detail tree.
       try { return json({ tasks: svc.list({ scope: "all", status: status as any, rootsOnly: true }) }); }
       catch (e) { return fail(e); }
+    }
+
+    // GET /api/system/dispatch-capacity — the auto concurrency cap this machine
+    // can sustain right now (CPU/load), shown in the board settings' "Auto" option.
+    if (pathname === "/api/system/dispatch-capacity" && method === "GET") {
+      return json(computeDispatchCapacity());
     }
 
     // GET /api/all-boards/publish-status — per-project "commits not yet pushed"

@@ -76,6 +76,9 @@ export interface DispatcherDeps {
    * MUST resolve fast and never reject (the picker swallows its own errors).
    */
   pickAutoModel?: (task: Task) => Promise<{ model: string | null; fuzzy: boolean }>;
+  /** Auto concurrency cap for a board on `maxAgentsAuto`: live machine capacity
+   *  (CPU/load). Absent ⇒ auto falls back to the board's manual `maxAgents`. */
+  recommendedCap?: () => number;
   /** Drive ONE headless turn to completion; resolves when the turn ends. */
   /**
    * Drive ONE headless turn to completion; resolves when the turn ends.
@@ -700,6 +703,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return;
     }
 
+    // Effective concurrency cap for this tick: an auto board sizes it from live
+    // machine capacity (CPU/load), else the board's manual value. Computed once
+    // so every claim in this tick shares one budget.
+    const effectiveCap = settings.maxAgentsAuto && deps.recommendedCap
+      ? Math.max(1, deps.recommendedCap())
+      : settings.maxAgents;
+
     for (const t of todos) {
       if (inFlight.has(t.id)) continue;
       // Respect the grace debounce: a task still inside its window is claimed by
@@ -712,7 +722,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // would violate it).
       const claimed = deps.svc.claim({
         taskId: t.id,
-        cap: settings.maxAgents,
+        cap: effectiveCap,
         maxAttempts: settings.dispatchRetryCap,
       });
       if (!claimed) continue; // cap hit or lost the race

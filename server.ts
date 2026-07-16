@@ -32,6 +32,7 @@ import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService } from "./server/services/tasks";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
+import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
 import { createTaskAutoMerge } from "./server/services/task-automerge";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic } from "./server/lib/session-control-core";
@@ -435,6 +436,8 @@ const taskDispatcher = createTaskDispatcher({
       return { model: "claude-opus-4-8", fuzzy: false }; // any failure → opus-first, never a silent downgrade
     }
   },
+  // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
+  recommendedCap: () => computeDispatchCapacity().recommended,
   resolveProject: (projectId) => {
     const c = resolveProjectPath(
       projectId,
