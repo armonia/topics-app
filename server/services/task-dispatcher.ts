@@ -93,6 +93,15 @@ export interface DispatcherDeps {
    * task, so totals survive retries on fresh sessions.
    */
   getSessionUsage?: (sessionKey: string) => SessionUsage;
+  /**
+   * True if the topic still exists. Used to SELF-HEAL a dead binding: a task
+   * whose `assigned_topic_id` points at a topic that was later reaped (its agent
+   * tab deleted) would be skipped forever by the eligibility filter (`!assignedTopicId`)
+   * and sit in todo with no chip, never claimed. `tick` clears such dead links so
+   * the task is dispatchable again. Absent (tests/degraded) ⇒ no heal, bindings
+   * are trusted as-is (the pre-existing behaviour).
+   */
+  topicExists?: (topicId: string) => boolean;
   /** Broadcast a WS message so live boards reflect chip/state changes. */
   broadcast: (message: object) => void;
   log?: (msg: string, err?: unknown) => void;
@@ -623,6 +632,32 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // independent task (it's the checklist of a parent, worked by ITS agent).
     try { todos = deps.svc.list({ scope: "project", projectId, status: "todo", rootsOnly: true }); }
     catch (err) { log(`list todo failed for ${projectId}`, err); return; }
+    // Self-heal DEAD bindings: a todo task still linked to a topic that no longer
+    // exists (its agent tab was reaped after a prior run — done→todo re-queue is
+    // the common trigger) is otherwise skipped forever by the `!assignedTopicId`
+    // filter below, stranded in todo with no chip. Clear the dead link (release →
+    // requeue) so it becomes claimable again, then re-read the list.
+    if (deps.topicExists) {
+      let healed = false;
+      for (const t of todos) {
+        if (!t.assignedTopicId) continue;
+        let exists = true;
+        try { exists = deps.topicExists(t.assignedTopicId); } catch { exists = true; /* trust binding on probe failure */ }
+        if (exists) continue;
+        try {
+          emit(deps.svc.release({
+            taskId: t.id,
+            requeue: true,
+            reason: "Il topic dell'agent precedente non esiste più (ripulito): binding morto azzerato, il task riparte.",
+          }));
+          healed = true;
+        } catch (err) { log(`heal dead binding failed for ${t.id}`, err); }
+      }
+      if (healed) {
+        try { todos = deps.svc.list({ scope: "project", projectId, status: "todo", rootsOnly: true }); }
+        catch (err) { log(`re-list after heal failed for ${projectId}`, err); return; }
+      }
+    }
     todos = todos
       .filter((t) => !t.assignedTopicId && t.dispatchAttempts < settings.dispatchRetryCap)
       // Dependency gate: a todo whose blocker is still open WAITS (no claim
