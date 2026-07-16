@@ -1,17 +1,55 @@
 import { describe, test, expect } from "bun:test";
 import { sanitizeSnapshot, KNOWN_PANE_TYPES } from "./sanitizeSnapshot";
 import type { ClosedPaneRecord } from "../types";
-import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, SPACES_MAX } from "../types";
+import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, PANE_TYPES, SPACES_MAX } from "../types";
 
 describe("sanitizeSnapshot (audit fixes)", () => {
-  test("KNOWN_PANE_TYPES includes the full PaneType union", () => {
-    // Spot-check a handful of entries so a regression (typo, drift from
-    // types.ts) fails loudly at test time.
-    expect(KNOWN_PANE_TYPES).toContain("chat");
-    expect(KNOWN_PANE_TYPES).toContain("terminal");
-    expect(KNOWN_PANE_TYPES).toContain("file");
-    expect(KNOWN_PANE_TYPES).toContain("processes");
+  test("KNOWN_PANE_TYPES IS the authoritative PANE_TYPES list (drift impossible)", () => {
+    // KNOWN_PANE_TYPES is now a re-export of PANE_TYPES (types.ts), from which
+    // the `PaneType` union is derived — so the runtime whitelist can never fall
+    // behind the union again (the review-round-12 B2 / board-kanban silent-drop
+    // class). Assert IDENTITY so a future refactor that reintroduces a
+    // hand-copied mirror array fails loudly here.
+    expect(KNOWN_PANE_TYPES).toBe(PANE_TYPES);
+    // Regression lock for the actual bug this test missed for two releases: the
+    // two board pane kinds MUST be persistable, or the "Board generale" tab
+    // vanishes on every reload / cross-tab / server broadcast.
+    expect(KNOWN_PANE_TYPES).toContain("board");
+    expect(KNOWN_PANE_TYPES).toContain("kanban");
+    // Adversarial / unknown types still rejected.
     expect(KNOWN_PANE_TYPES).not.toContain("exec" as never);
+  });
+
+  test("board + kanban panes survive a hydrate round-trip (board-tab-not-persisted regression)", () => {
+    // The global 'Board generale' pane (id __board__, type 'board') and the
+    // per-project 'kanban' pane were dropped by sanitizePane on every
+    // HYDRATE_FROM_SNAPSHOT because KNOWN_PANE_TYPES omitted their types. The
+    // pane was saved correctly (outbound + server do no type filtering) but
+    // pruned on the way back in, so the tab disappeared on reload. Lock the
+    // full round-trip: the pane records survive AND their group refs are NOT
+    // pruned as entity-less ghosts.
+    const out = sanitizeSnapshot({
+      panes: {
+        "__board__": { id: "__board__", type: "board", title: "Board generale" },
+        "kanban:abc": { id: "kanban:abc", type: "kanban", title: "Board" },
+      },
+      groups: {
+        "group:default": {
+          id: "group:default",
+          paneIds: ["__board__", "kanban:abc"],
+          splitRatio: 0.5,
+          splitAxis: "horizontal",
+        },
+      },
+      server_seq: 1,
+    });
+    expect(out!.panes!["__board__"]).toEqual({
+      id: "__board__",
+      type: "board",
+      title: "Board generale",
+    });
+    expect(out!.panes!["kanban:abc"].type).toBe("kanban");
+    expect(out!.groups!["group:default"].paneIds).toEqual(["__board__", "kanban:abc"]);
   });
 
   test("closedStack round trip preserves outer topicId and filePath", () => {
@@ -377,10 +415,14 @@ describe("sanitizeSnapshot (Spazi)", () => {
 
 describe("entity-ref invariant — group refs without a pane record", () => {
   test("prunes group paneIds that have no matching panes entry", () => {
+    // A genuinely entity-less ghost ref (no `panes` record) is pruned. NB: use a
+    // synthetic id — `__board__` is a REAL persistable pane now (type 'board'),
+    // so it is only a ghost when its record is actually absent, which is not the
+    // invariant this test is about.
     const clean = sanitizeSnapshot({
       panes: { p1: { id: "p1", type: "chat", topicId: "p1" } },
       groups: {
-        "group:default": { id: "group:default", paneIds: ["p1", "__board__"], splitRatio: 0.5, splitAxis: "horizontal" },
+        "group:default": { id: "group:default", paneIds: ["p1", "__ghost__"], splitRatio: 0.5, splitAxis: "horizontal" },
       },
       server_seq: 7,
     })!;

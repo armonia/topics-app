@@ -20,7 +20,7 @@
  */
 
 import type { Pane, PaneType, Group, ClosedPaneRecord, SpaceMeta } from '../types';
-import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, SPACES_MAX, TOMBSTONES_MAX } from '../types';
+import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID, PANE_TYPES, SPACES_MAX, TOMBSTONES_MAX } from '../types';
 
 export interface SanitizedSnapshot {
   panes?: Record<string, Pane>;
@@ -42,46 +42,21 @@ export interface SanitizedSnapshot {
 }
 
 /**
- * Runtime whitelist for PaneType. Kept in sync with the `PaneType` union in
- * ../types.ts. Exported so tests can assert the set and so other call sites
- * (e.g. reducers/panes.ts inferTypeFromId) can share the authoritative list.
+ * Runtime whitelist for PaneType — the SINGLE source of truth is `PANE_TYPES`
+ * in ../types.ts, from which the `PaneType` union is itself derived. This is a
+ * re-export under the historical name `KNOWN_PANE_TYPES` for the existing
+ * importers (reducers/panes.ts `inferTypeFromId`, the tests). Because it IS
+ * `PANE_TYPES` — not a hand-copied mirror — the whitelist can never again fall
+ * behind the union and silently drop a newly-added pane type on hydrate. That
+ * drift bit twice (review-round-12 B2: `project`/`files`/`git`/`activity`/
+ * `agents`/`process-log`/`session-viewer`; then `board`/`kanban`, which made
+ * the "Board generale" tab vanish on every reload).
  *
- * Audit fix: sanitizePane previously cast `raw.type as Pane['type']` without
- * narrowing. An adversarial payload with `{ type: "exec" }` would slip through
- * into the store. We now drop panes whose type is not in this list.
+ * Audit fix (still enforced below): sanitizePane drops panes whose type is not
+ * in this list, so an adversarial payload with `{ type: "exec" }` can't slip
+ * into the store.
  */
-// Keep in sync with the `PaneType` union (types.ts). Review-round-12 B2: this
-// list previously omitted every legacy-only type (`project`, `files`, `git`,
-// `activity`, `agents`, `all-boards`, `process-log`, `session-viewer`). Those
-// types are still dispatched by the running app (see buildSidebarItems,
-// StandaloneChatGroup, ProjectWindow), so sanitizePane dropped them on every
-// HYDRATE_FROM_SNAPSHOT — i.e. every server broadcast silently erased any
-// non-enumerated pane from the user's layout.
-export const KNOWN_PANE_TYPES = [
-  // Runtime-active types (current app surface)
-  'chat',
-  'file',
-  'files',
-  'browser',
-  'git',
-  'terminal',
-  'activity',
-  'journal',
-  'agents',
-  'dashboard',
-  'project',
-  'process-log',
-  'session-viewer',
-  // Reserved (opt-in future work)
-  'agent',
-  'session',
-  'context',
-  'editor',
-  'cron',
-  'remote-access',
-  'system-status',
-  'processes',
-] as const satisfies readonly PaneType[];
+export const KNOWN_PANE_TYPES = PANE_TYPES;
 
 function isKnownPaneType(v: unknown): v is PaneType {
   return typeof v === 'string' && (KNOWN_PANE_TYPES as readonly string[]).includes(v);
