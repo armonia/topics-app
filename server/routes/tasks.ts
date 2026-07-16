@@ -292,17 +292,29 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // projectId) tells every open board header to update.
     if (pathname === "/api/all-boards/settings") {
       if (method === "GET") {
-        try { return json({ autoDispatch: svc.getGlobalAutoDispatch() }); } catch (e) { return fail(e); }
+        try {
+          return json({ autoDispatch: svc.getGlobalAutoDispatch(), maxAgentsAuto: svc.getGlobalCap().auto });
+        } catch (e) { return fail(e); }
       }
       if (method === "PATCH") {
         const body = (await readJSON(req)) as any;
-        if (typeof body?.autoDispatch !== "boolean") {
-          return json({ error: "autoDispatch (boolean) is required", code: "invalid_input" }, 400);
+        const hasAuto = typeof body?.autoDispatch === "boolean";
+        const hasCap = typeof body?.maxAgentsAuto === "boolean";
+        if (!hasAuto && !hasCap) {
+          return json({ error: "autoDispatch and/or maxAgentsAuto (boolean) required", code: "invalid_input" }, 400);
         }
         try {
-          const autoDispatch = svc.setGlobalAutoDispatch(body.autoDispatch);
-          broadcastToAll({ type: "board:dispatch", autoDispatch });
-          return json({ autoDispatch });
+          let autoDispatch = svc.getGlobalAutoDispatch();
+          if (hasAuto) {
+            autoDispatch = svc.setGlobalAutoDispatch(body.autoDispatch);
+            broadcastToAll({ type: "board:dispatch", autoDispatch });
+          }
+          // The global cap toggle lives on the reserved '*' row's max_agents_auto;
+          // the dispatcher reads it via getGlobalCap() and enforces it machine-wide.
+          if (hasCap) svc.setGlobalCap(body.maxAgentsAuto);
+          const maxAgentsAuto = svc.getGlobalCap().auto;
+          broadcastToAll({ type: "board:global-cap", maxAgentsAuto });
+          return json({ autoDispatch, maxAgentsAuto });
         } catch (e) { return fail(e); }
       }
       return null;

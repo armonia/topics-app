@@ -707,10 +707,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return;
     }
 
-    // Effective concurrency cap for this tick: an auto board sizes it from live
-    // machine capacity (CPU/load), else the board's manual value. Computed once
-    // so every claim in this tick shares one budget.
-    const effectiveCap = settings.maxAgentsAuto && deps.recommendedCap
+    // Effective concurrency cap for this tick.
+    //   • GLOBAL auto-cap ON (general-board switch): one machine-wide budget
+    //     sized from live capacity (CPU/load) and counted across EVERY board —
+    //     N boards can't multiply into N×cap agents. Per-board caps are moot.
+    //   • else: an auto board sizes from capacity, a manual board uses its own
+    //     number, counted per-board (legacy behavior).
+    // Computed once so every claim in this tick shares one budget.
+    let globalCapAuto = false;
+    try { globalCapAuto = deps.svc.getGlobalCap().auto; } catch { /* default off */ }
+    const capScope: "board" | "global" = globalCapAuto ? "global" : "board";
+    const effectiveCap = (globalCapAuto || settings.maxAgentsAuto) && deps.recommendedCap
       ? Math.max(1, deps.recommendedCap())
       : settings.maxAgents;
 
@@ -728,6 +735,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         taskId: t.id,
         cap: effectiveCap,
         maxAttempts: settings.dispatchRetryCap,
+        scope: capScope,
       });
       if (!claimed) continue; // cap hit or lost the race
       clearGrace(t.id);

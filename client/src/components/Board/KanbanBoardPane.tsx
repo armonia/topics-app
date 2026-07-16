@@ -27,7 +27,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, isProjectlessId, boardDrafts,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
-  type BoardProjectRef, type PublishProject, type DiffBundle, type DispatchCapacity,
+  type BoardProjectRef, type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
@@ -313,6 +313,61 @@ function PublishControl() {
         </>
       )}
     </div>
+  );
+}
+
+/** Machine-wide dispatch settings, reachable from EVERY board header (incl. the
+ *  general board): the global auto-dispatch switch + the auto concurrency cap
+ *  that is sized from live capacity and enforced across ALL boards. Per-board
+ *  overrides still live in the project board's ⚙ inline panel. */
+function GlobalSettingsMenu() {
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [g, setG] = useState<GlobalSettings | null>(null);
+  const [cap, setCap] = useState<DispatchCapacity | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => {
+    boardApi.getGlobalSettings().then(setG).catch(() => { /* keep last */ });
+    boardApi.dispatchCapacity().then(setCap).catch(() => { /* optional */ });
+  };
+  const toggleAuto = async (v: boolean) => {
+    setG((p) => (p ? { ...p, autoDispatch: v } : p));
+    try { await boardApi.setGlobalDispatch(v); } catch { load(); }
+  };
+  const toggleCap = async (v: boolean) => {
+    setBusy(true);
+    setG((p) => (p ? { ...p, maxAgentsAuto: v } : p));
+    try { setG(await boardApi.setGlobalCap(v)); } catch { load(); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => { setOpen((o) => !o); if (!open) load(); }}
+        title="Impostazioni dispatch — globali (tutte le board)"
+        className={`flex items-center gap-0.5 rounded p-1 ${open ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+      ><Settings className="h-3.5 w-3.5" /><ChevronDown className="h-3 w-3" /></button>
+      <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288} unmanagedFocus>
+        <div className="space-y-2.5 px-3 py-2.5 text-xs text-neutral-300">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Dispatch — tutte le board</p>
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-neutral-400" /> Auto-dispatch</span>
+            <input type="checkbox" checked={!!g?.autoDispatch} onChange={(e) => toggleAuto(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
+          </label>
+          <div className="space-y-1 border-t border-white/5 pt-2">
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              <span>Cap agent automatico</span>
+              <input type="checkbox" checked={!!g?.maxAgentsAuto} disabled={busy} onChange={(e) => toggleCap(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
+            </label>
+            <p className="text-[11px] leading-snug text-neutral-500">
+              {g?.maxAgentsAuto
+                ? <>Su tutta la macchina: <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo{cap && <span className="text-neutral-600"> — {cap.reason}</span>}</>
+                : <>Off: ogni board usa il suo cap (⚙ sulla board di progetto).</>}
+            </p>
+          </div>
+        </div>
+      </Menu>
+    </>
   );
 }
 
@@ -795,6 +850,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         ) : (
           <span className="text-xs font-semibold text-neutral-200">Board generale</span>
         )}
+        <GlobalSettingsMenu />
         <div className="ml-2 min-w-0">
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
