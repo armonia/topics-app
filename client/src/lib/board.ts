@@ -243,6 +243,15 @@ export interface DispatchCapacity {
   reason: string;
 }
 
+/** Machine-wide dispatch settings (server: reserved board_settings row '*'). */
+export interface GlobalSettings {
+  /** Auto-dispatch master switch — a Todo task starts an agent on any board. */
+  autoDispatch: boolean;
+  /** When true, one machine-wide concurrency cap (sized from live capacity) is
+   *  enforced across ALL boards, instead of each board's own cap. */
+  maxAgentsAuto: boolean;
+}
+
 /** Per-board dispatch config (server: board_settings). */
 export interface BoardSettings {
   projectId: string;
@@ -380,6 +389,12 @@ export const boardApi = {
     req<{ autoDispatch: boolean }>('/all-boards/settings').then(r => r.autoDispatch),
   setGlobalDispatch: (autoDispatch: boolean) =>
     req<{ autoDispatch: boolean }>('/all-boards/settings', { method: 'PATCH', body: JSON.stringify({ autoDispatch }) }).then(r => r.autoDispatch),
+  /** GLOBAL settings: auto-dispatch switch + the machine-wide auto cap toggle. */
+  getGlobalSettings: () =>
+    req<GlobalSettings>('/all-boards/settings'),
+  /** Flip the machine-wide auto-cap toggle (row '*'.max_agents_auto). */
+  setGlobalCap: (maxAgentsAuto: boolean) =>
+    req<GlobalSettings>('/all-boards/settings', { method: 'PATCH', body: JSON.stringify({ maxAgentsAuto }) }),
 };
 
 // ── Server-persisted drafts ──────────────────────────────────────────────────

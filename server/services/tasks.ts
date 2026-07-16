@@ -336,7 +336,7 @@ export interface TaskService {
    * `assigned_topic_id` has a FK to topics(id) (migration 026), so a
    * placeholder id can never be written there.
    */
-  claim(args: { taskId: string; cap: number; maxAttempts: number; agentId?: string | null }): Task | null;
+  claim(args: { taskId: string; cap: number; maxAttempts: number; agentId?: string | null; scope?: "board" | "global" }): Task | null;
   /**
    * Bump the attempt counter of a LIVE claim (in_progress + bound topic) —
    * the dispatcher's resume-continuation after a timed-out turn. Returns the
@@ -379,6 +379,13 @@ export interface TaskService {
   getGlobalAutoDispatch(): boolean;
   /** Flip the GLOBAL auto-dispatch switch; returns the new value. */
   setGlobalAutoDispatch(on: boolean): boolean;
+  /** Read the GLOBAL cap switch (row '*'.max_agents_auto): when true, the
+   *  dispatcher sizes the concurrency cap from live machine capacity and
+   *  enforces it ACROSS ALL boards (one machine-wide budget) rather than
+   *  per-board. When false, per-board caps apply as before. */
+  getGlobalCap(): { auto: boolean };
+  /** Flip the GLOBAL cap switch (row '*'.max_agents_auto); returns the new value. */
+  setGlobalCap(auto: boolean): { auto: boolean };
 }
 
 /** Reserved board_settings row that carries the global auto-dispatch switch. */
@@ -896,17 +903,23 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    claim({ taskId, cap, maxAttempts, agentId }): Task | null {
+    claim({ taskId, cap, maxAttempts, agentId, scope }): Task | null {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // Concurrency cap: count tasks already claimed by a dispatch (in_progress
-      // with a live dispatch chip) on this board. The task itself is still
-      // `todo` here, so it is not in the count. bun:sqlite is synchronous +
-      // single-process, so this read-then-CAS is atomic w.r.t. other claims.
-      const running = (db.prepare(
-        "SELECT COUNT(*) AS c FROM tasks WHERE project_id = ? AND status = 'in_progress' AND dispatch_state IN ('starting','working') AND archived = 0",
-      ).get(row.project_id) as any).c as number;
-      if (running >= cap) return null;
+      // with a live dispatch chip). Per-board by default; scope 'global' counts
+      // across EVERY board so a machine-wide cap holds no matter how many boards
+      // dispatch at once. The task itself is still `todo` here, so it is not in
+      // the count. bun:sqlite is synchronous + single-process, so this
+      // read-then-CAS is atomic w.r.t. other claims.
+      const running = (scope === "global"
+        ? db.prepare(
+            "SELECT COUNT(*) AS c FROM tasks WHERE status = 'in_progress' AND dispatch_state IN ('starting','working') AND archived = 0",
+          ).get()
+        : db.prepare(
+            "SELECT COUNT(*) AS c FROM tasks WHERE project_id = ? AND status = 'in_progress' AND dispatch_state IN ('starting','working') AND archived = 0",
+          ).get(row.project_id)) as any;
+      if ((running.c as number) >= cap) return null;
       const ts = now();
       const res = db.prepare(
         `UPDATE tasks
@@ -1046,6 +1059,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         "ON CONFLICT(project_id) DO UPDATE SET auto_dispatch = excluded.auto_dispatch",
       ).run(GLOBAL_SETTINGS_KEY, on ? 1 : 0);
       return readGlobalDispatch();
+    },
+
+    getGlobalCap(): { auto: boolean } {
+      const r = db.prepare("SELECT max_agents_auto FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
+      return { auto: r ? !!r.max_agents_auto : false };
+    },
+
+    setGlobalCap(auto: boolean): { auto: boolean } {
+      db.prepare(
+        "INSERT INTO board_settings (project_id, max_agents_auto, max_agents) VALUES (?, ?, 2) " +
+        "ON CONFLICT(project_id) DO UPDATE SET max_agents_auto = excluded.max_agents_auto",
+      ).run(GLOBAL_SETTINGS_KEY, auto ? 1 : 0);
+      const r = db.prepare("SELECT max_agents_auto FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
+      return { auto: r ? !!r.max_agents_auto : false };
     },
 
     getBoardSettings(projectId: string): BoardSettings {
