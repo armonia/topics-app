@@ -49,10 +49,12 @@ const COMPACT_MD_CLS =
   // them ul/ol render as unindented plain text and a bullet/numbered description
   // "non sembra formattata md". Headings get weight/size back too (preflight
   // flattens them), so an agent's plan reads as structured markdown.
-  '[&_p]:my-0.5 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 ' +
-  '[&_ul]:my-0.5 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-0.5 [&_ol]:pl-4 [&_ol]:list-decimal [&_li]:my-0.5 [&_li]:marker:text-neutral-500 ' +
+  // break-words on prose (p/li/a) so a long unbreakable token — a URL, a path,
+  // a hash — wraps instead of forcing the surface (card / drawer) to overflow.
+  '[&_p]:my-0.5 [&_p]:break-words [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-black/40 [&_pre]:p-2 ' +
+  '[&_ul]:my-0.5 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-0.5 [&_ol]:pl-4 [&_ol]:list-decimal [&_li]:my-0.5 [&_li]:break-words [&_li]:marker:text-neutral-500 ' +
   '[&_h1]:font-semibold [&_h1]:text-[13px] [&_h2]:font-semibold [&_h2]:text-[13px] [&_h3]:font-semibold [&_h3]:text-xs [&_h1]:mt-1 [&_h2]:mt-1 [&_h3]:mt-1 ' +
-  '[&_code]:text-[11px] [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-2 [&_blockquote]:text-neutral-400 [&_strong]:font-semibold';
+  '[&_code]:text-[11px] [&_a]:break-words [&_a]:text-sky-400 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-white/20 [&_blockquote]:pl-2 [&_blockquote]:text-neutral-400 [&_strong]:font-semibold';
 
 // A PLAN is a document, not a chat bubble: this reading typography gives it a
 // roomy vertical rhythm, section-divider headings, and prominent numbered steps
@@ -1271,7 +1273,10 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
           card, so the eye finds "dov'è il task" without scanning the chip row.
           No delete icon here: archive/select live in the right-click menu. */}
       <div className="flex items-start gap-2">
-        <span className="flex-1 leading-snug">{task.text}</span>
+        {/* min-w-0 lets the flex item shrink below its content's intrinsic
+            width; break-words then wraps long unbreakable tokens (URL, path,
+            hash, branch) instead of spilling the card past the column edge. */}
+        <span className="min-w-0 flex-1 break-words leading-snug">{task.text}</span>
         {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] ${DISPATCH_CHIP[task.dispatchState].cls}`} title={DISPATCH_CHIP[task.dispatchState].title ?? task.dispatchError ?? undefined}>
             {DISPATCH_CHIP[task.dispatchState].text}
@@ -1350,7 +1355,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
               with quick-reply buttons when it's a question block, plain text
               otherwise. Approving/rejecting blind was the bug. */}
           {pending ? (
-            <p className="text-xs leading-snug text-neutral-200">{stripMarkdown(pending.question)}</p>
+            <p className="break-words text-xs leading-snug text-neutral-200">{stripMarkdown(pending.question)}</p>
           ) : lastComment ? (
             // Render the agent's last word as REAL markdown (bold/headings/lists
             // format instead of showing raw `**`/`#`). Shown in full — no clamp,
