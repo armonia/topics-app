@@ -354,6 +354,9 @@ export interface TaskService {
   bindTopic(args: { taskId: string; topicId: string }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
+  /** Persist the model actually resolved for a run (auto-pick → concrete id) so
+   *  the card stops showing "auto" once the agent has run. */
+  setModel(args: { taskId: string; model: string | null }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
   /** Read the per-board dispatch config (defaults when no row exists). */
@@ -995,6 +998,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       db.prepare("UPDATE tasks SET dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?")
         .run(state, error ?? null, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    setModel({ taskId, model }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare("UPDATE tasks SET model = ?, updated_at = ? WHERE id = ?")
+        .run(model || null, now(), taskId);
       return rowToTask(getTaskRow(taskId));
     },
 

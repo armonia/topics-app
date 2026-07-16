@@ -366,6 +366,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (!chosenModel && !reuseTopicId && deps.pickAutoModel) {
         const picked = await deps.pickAutoModel(task);
         chosenModel = picked.model ?? undefined;
+        // "auto" è solo lo stato INIZIALE: appena il classifier risolve un
+        // modello concreto lo persisto sul task, così la card mostra quello
+        // davvero usato (non più "auto"). Nessun emit qui: la setDispatchState
+        // subito sotto rilegge la riga e ne fa il broadcast.
+        if (chosenModel) deps.svc.setModel({ taskId, model: chosenModel });
       }
 
       // Plan-first is opt-in only (the "piano prima" toggle). The dispatcher used
