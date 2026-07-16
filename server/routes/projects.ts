@@ -136,7 +136,7 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         return new Response(null, { status: 403 });
       }
       const resolved = resolveProjectIcon(realDir);
-      console.log(`[icon] ${resolved ? (resolved.kind === "file" ? "200 " + resolved.path : `200 inline(${resolved.contentType})`) : "404 no-icon"} ← ${realDir}`);
+      console.log(`[icon] ${resolved ? (resolved.kind === "file" ? "200 " + resolved.path : `200 inline(${resolved.contentType})`) : "404 no-icon"} ← ${realDir} [ua=${(req.headers.get("user-agent") || "?").slice(0, 60)} ref=${(req.headers.get("referer") || "?").slice(0, 60)} dest=${req.headers.get("sec-fetch-dest") || "?"}]`);
       // Cache the "no icon" answer too so palette re-opens don't re-probe disk.
       if (!resolved) return new Response(null, { status: 404, headers: { "cache-control": "max-age=120" } });
       // Project icons are arbitrary content from the project dir served on
