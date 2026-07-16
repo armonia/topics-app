@@ -593,8 +593,12 @@ export function CommandPalette({
           {onNewTerminal && (
             <ActionPill icon={<TerminalSquare size={12} />} label="Terminal" onClick={() => { onNewTerminal(); onClose(); }} />
           )}
-          {(onOpenProject || onCreateProject || onNewProject) && (
-            <ActionPill icon={<FolderOpen size={12} />} label="Apri Progetto" onClick={() => { (onOpenProject || onCreateProject || onNewProject)?.(); onClose(); }} />
+          {(onCreateProject || onNewProject) && (
+            // "Apri Progetto" = apri il picker (folder dialog). onOpenProject NON va
+            // qui: richiede un projectPath specifico ed è usato dalla LISTA progetti
+            // (righe sopra), non da questo pill generico — chiamarlo senza path era
+            // sia un errore tsc sia un no-op a runtime (handleProjectClick(undefined)).
+            <ActionPill icon={<FolderOpen size={12} />} label="Apri Progetto" onClick={() => { (onCreateProject || onNewProject)?.(); onClose(); }} />
           )}
           {(onCreateProject || onNewProject) && (
             <ActionPill icon={<FolderPlus size={12} />} label="Crea Progetto" onClick={() => { (onCreateProject || onNewProject)?.(); onClose(); }} />
