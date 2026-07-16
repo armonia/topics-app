@@ -135,7 +135,11 @@ export interface TaskDispatcher {
    * conversation continues instead of spawning a fresh one.
    */
   resume(taskId: string, humanMessage: string): Promise<void>;
-  /** Boot + periodic sweep: requeue orphaned in-progress tasks, then tick every board. */
+  /**
+   * Boot + periodic sweep. A restart-orphaned in-progress task RESUMES on its
+   * own persisted session (topic/worktree/CLI --resume) when it still has one;
+   * only orphans without a resumable session are requeued. Then tick every board.
+   */
   reconcile(): Promise<void>;
   /** Cancel all timers (test teardown / shutdown). */
   shutdown(): void;
@@ -795,23 +799,53 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   async function reconcile(): Promise<void> {
-    // 1) Requeue orphaned in-progress tasks (server restarted mid-turn): they are
-    //    in_progress + bound to a topic, but we have no live launch for them.
+    // 1) Recover orphaned in-progress tasks (server restarted mid-turn): they are
+    //    in_progress + mid-dispatch chip, but we have no live launch for them.
     let running: Task[] = [];
     try { running = deps.svc.list({ scope: "all", status: "in_progress" }); }
     catch (err) { log("reconcile list failed", err); }
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
-      // Only requeue tasks that were genuinely mid-dispatch (starting/working)
+      // Only touch tasks that were genuinely mid-dispatch (starting/working)
       // when the process died — including a claim that never got its topic
       // bound (claim precedes bindTopic, so an early crash leaves the binding
       // NULL). A human who drags a review/done card (chip null or needs_input)
       // into In Progress is NOT an orphan — leave it be.
       if (!ACTIVE_DISPATCH_STATES.has(t.dispatchState ?? "")) continue;
-      // The server restarted mid-turn — OUR interruption, never the agent's
-      // failure. ALWAYS requeue and roll back the interrupted attempt so a few
-      // deploys/kickstarts can't exhaust the retry budget and park a healthy
-      // task in backlog "per errore". Genuine failures still park via onTurnEnd.
+      // Everything a `working` orphan needs to CONTINUE survived the restart in
+      // SQLite: the topic (systemPrompt/worktree/model), the task binding, and
+      // the CLI conversation (claude_code_sessions + --resume). Only the
+      // in-memory turn driver died. So resume IN PLACE — same topic, same
+      // worktree, lean continuation nudge — instead of release+re-claim, which
+      // would spawn a fresh topic+worktree and restart the agent from zero on
+      // every deploy/hot-reload (KANBAN-10; same principle as the post-timeout
+      // continuation). No attempt is consumed: a restart is never the agent's
+      // fault. The resume gate: chip `working` (a `starting` orphan may have
+      // died before the kickoff ever reached the CLI — re-claim is cleaner),
+      // a LIVE topic (absent probe ⇒ trust the binding, like the tick heal),
+      // and the global dispatch switch still ON.
+      let autoOn = false;
+      try { autoOn = deps.svc.getBoardSettings(t.projectId).autoDispatch; } catch { /* treat as off */ }
+      if (t.dispatchState === CHIP_WORKING && t.assignedTopicId && autoOn) {
+        let alive = true;
+        try { alive = deps.topicExists ? deps.topicExists(t.assignedTopicId) : true; } catch { alive = true; }
+        if (alive) {
+          try {
+            deps.svc.addComment({
+              taskId: t.id, author: "system",
+              content: "Il server è ripartito mentre l'agent lavorava: riprendo la stessa sessione da dove era rimasta (nessun tentativo consumato).",
+            });
+          } catch { /* dedupe/best-effort */ }
+          // Sets inFlight synchronously → the 10s poll can never double-fire.
+          void resume(t.id, "", { continuation: true });
+          continue;
+        }
+      }
+      // No session to resume (binding never made, topic reaped, kickoff never
+      // launched, or dispatch turned off): requeue and roll back the interrupted
+      // attempt so a few deploys/kickstarts can't exhaust the retry budget and
+      // park a healthy task in backlog "per errore". Genuine failures still
+      // park via onTurnEnd.
       try {
         emit(deps.svc.release({
           taskId: t.id,
@@ -819,6 +853,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           rollbackAttempt: true,
           reason: "Il server è ripartito mentre l'agent lavorava: task rimesso in coda (il riavvio non consuma un tentativo).",
         }));
+        // On a board that never dispatches the requeue's `queued` chip would
+        // strand forever (tick no-ops with the switch off) — clear it.
+        if (!autoOn) emit(deps.svc.setDispatchState({ taskId: t.id, state: null }));
       } catch (err) { log(`reconcile release failed for ${t.id}`, err); }
     }
     // 2) Opportunistically fill free slots on every board that has queued todos.
