@@ -1203,7 +1203,9 @@ function FloatingTaskComposer({ projectId, global, onCreated, onError }: {
           onClick={saveCursor}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
           placeholder="Descrivi un task per l'agent…"
-          className="block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-sm leading-5 text-neutral-100 outline-none placeholder:text-neutral-500"
+          className={`block max-h-40 w-full resize-none overflow-y-auto bg-transparent px-3.5 py-3 text-sm leading-5 text-neutral-100 outline-none transition-[min-height] duration-200 ease-out placeholder:text-neutral-500 ${
+            expanded ? 'min-h-[4.5rem]' : 'min-h-0'
+          }`}
         />
         <div className={`flex items-center gap-2 overflow-hidden px-2.5 transition-all duration-200 ease-out ${expanded ? 'max-h-12 pb-2 opacity-100' : 'max-h-0 pb-0 opacity-0'}`}>
           {global && (
