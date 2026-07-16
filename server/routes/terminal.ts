@@ -2000,8 +2000,13 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
     return;
   }
 
-  const sockets = sessionSockets.get(sessionId);
-  if (sockets) sockets.add(ws);
+  let sockets = sessionSockets.get(sessionId);
+  if (!sockets) {
+    console.warn(`[Terminal] session ${sessionId} not initialized; creating socket set`);
+    sockets = new Set();
+    sessionSockets.set(sessionId, sockets);
+  }
+  sockets.add(ws);
 
   // Request output buffer from bridge (async). The buffered scrollback is
   // delivered as ONE binary frame, then we follow it with a `replay-end`
