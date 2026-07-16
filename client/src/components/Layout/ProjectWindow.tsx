@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType } from '../../types';
 import { LazyPane } from './LazyPane';
 import { useTopics } from '../../contexts/TopicsContext';
-import { ProjectHeader } from './ProjectHeader';
-import { getProjectName } from './projectColors';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
@@ -15,13 +13,11 @@ import {
   isTaskWorkspacePath,
   useClosedTabs,
 } from '../../state/pane/adapters';
-import { DND_TYPES } from '../../lib/dndTypes';
 import { isRealUrl, shouldPersistBrowserTitle } from '../../state/pane/browserPaneUrl';
 import { computeProjectGridWeight, setProjectGridWeight, clearProjectGridWeight } from '../../state/projectGridWeights';
 import { sendFocusTopic, sendBlur } from '../../lib/focusMessaging';
 import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
-import { ToastOutlet } from '../Shared/Toast';
 import { useProjectPersistenceLoad } from './hooks/useProjectPersistenceLoad';
 import { useProjectLayout } from './hooks/useProjectLayout';
 import { useProjectChatSync } from './hooks/useProjectChatSync';
@@ -453,7 +449,11 @@ export function ProjectWindowPane({
 
   return (
     <>
-      <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
+      {/* data-testid: the e2e suite scopes "project window's own tabs" queries
+          to this wrapper (grid-split flatten invariant). It used to live on the
+          long-dead ProjectWindow wrapper component — matching nothing — which
+          made that oracle silently vacuous. */}
+      <div data-testid="project-window" className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
         <ProjectSidebar
           projectPath={projectPath}
           displayName={taskDisplayName}
@@ -516,122 +516,5 @@ export function ProjectWindowPane({
         </Suspense>
       )}
     </>
-  );
-}
-
-// --- Original ProjectWindow: thin wrapper with header ---
-
-interface ProjectWindowProps {
-  projectPath: string;
-  topicIds: string[];
-  focusedPanelId: string | null;
-  onFocusPanel: (topicId: string) => void;
-  onClosePanel: (topicId: string) => void;
-  getSessionMessages: (sk: string) => ChatMessage[];
-  isSessionLoading: (sk: string) => boolean;
-  isSessionStreaming: (sk: string) => boolean;
-  stopSession: (sk: string) => boolean;
-  sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
-  editMessage?: (sk: string, messageId: string, newContent: string) => Promise<boolean>;
-  regenerateMessage?: (sk: string, messageId: string) => Promise<boolean>;
-  deleteMessage?: (sk: string, messageId: string) => Promise<boolean>;
-  switchBranch?: (sk: string, messageId: string, branchIndex: number) => Promise<boolean>;
-  loadHistory: (sk: string) => Promise<boolean>;
-  chatError: string | null;
-  sendWS: (msg: WSMessage) => void;
-  onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
-  onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
-  onOpenInFinder?: () => void;
-  onGroupDragStart?: (e: React.DragEvent) => void;
-  onCloseProject?: () => void;
-  pendingPane?: PaneType;
-  onPendingPaneConsumed?: () => void;
-  onNewChat?: () => void;
-  onAcceptTopicDrop?: (topicId: string) => void;
-}
-
-export function ProjectWindow({
-  projectPath, topicIds, focusedPanelId,
-  onFocusPanel, onClosePanel,
-  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
-  sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-  onOpenInFinder, onGroupDragStart, onCloseProject, pendingPane, onPendingPaneConsumed, onNewChat,
-  onAcceptTopicDrop,
-}: ProjectWindowProps) {
-  // Cross-panel-type drop: accept standalone chat drops
-  const [panelDragOver, setPanelDragOver] = useState(false);
-
-  const handleProjectDragOver = useCallback((e: React.DragEvent) => {
-    if (!onAcceptTopicDrop) return;
-    if (!e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
-    if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
-    e.preventDefault();
-    setPanelDragOver(true);
-  }, [onAcceptTopicDrop]);
-
-  const handleProjectDragLeave = useCallback(() => {
-    setPanelDragOver(false);
-  }, []);
-
-  const handleProjectDrop = useCallback((e: React.DragEvent) => {
-    if (!onAcceptTopicDrop) return;
-    const topicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
-    if (!topicId) return;
-    if (topicIds.includes(topicId)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setPanelDragOver(false);
-    onAcceptTopicDrop(topicId);
-  }, [onAcceptTopicDrop, topicIds]);
-
-  return (
-    <div
-      data-testid="project-window"
-      className={`relative flex flex-col min-h-0 min-w-[200px] overflow-hidden transition-all ${panelDragOver ? 'ring-2 ring-primary/50' : ''}`}
-      style={{ flex: 1 }}
-      onDragOver={handleProjectDragOver}
-      onDragLeave={handleProjectDragLeave}
-      onDrop={handleProjectDrop}
-    >
-      {/* Project header — draggable for group reordering */}
-      <div
-        draggable={!!onGroupDragStart}
-        onDragStart={onGroupDragStart}
-        className={onGroupDragStart ? 'cursor-grab active:cursor-grabbing' : ''}
-      >
-        <ProjectHeader
-          projectPath={projectPath}
-          projectName={getProjectName(projectPath)}
-          onOpenInFinder={onOpenInFinder}
-          onClose={onCloseProject}
-        />
-      </div>
-
-      {/* Main content: delegates to ProjectWindowPane */}
-      <ProjectWindowPane
-        projectPath={projectPath}
-        focusedPanelId={focusedPanelId}
-        onFocusPanel={onFocusPanel}
-        onClosePanel={onClosePanel}
-        getSessionMessages={getSessionMessages}
-        isSessionLoading={isSessionLoading}
-        isSessionStreaming={isSessionStreaming}
-        stopSession={stopSession}
-        sendMessage={sendMessage}
-        editMessage={editMessage}
-        regenerateMessage={regenerateMessage}
-        deleteMessage={deleteMessage}
-        switchBranch={switchBranch}
-        loadHistory={loadHistory}
-        chatError={chatError}
-        sendWS={sendWS}
-        onWSMessage={onWSMessage}
-        onUpdateTopic={onUpdateTopic}
-        pendingPane={pendingPane}
-        onPendingPaneConsumed={onPendingPaneConsumed}
-        onNewChat={onNewChat}
-      />
-      <ToastOutlet />
-    </div>
   );
 }
