@@ -891,6 +891,26 @@ describe("HYDRATE_FROM_SNAPSHOT cross-client UNION (multi-client clobber)", () =
     expect(state.groups["group:default"].paneIds).toContain("project:Q");
   });
 
+  test("preserves device-local scrollOffset across the wholesale pane apply", () => {
+    // sanitizeSnapshot strips scrollOffset from every inbound snapshot, so the
+    // `state.panes = clean.panes` apply would zero the live scroll position of
+    // every open chat on every WS broadcast — the hydrate must carry the local
+    // value over (same pattern as openedAt).
+    const state = blankState();
+    state.lastServerSeq = 5;
+    state.panes["chat:T"] = { ...mkPane("chat:T", "chat"), scrollOffset: 420 } as (typeof state.panes)[string];
+    state.groups["group:default"] = grp(["chat:T"]);
+    state.groupOrder = ["group:default"];
+
+    hydrate(state, {
+      panes: { "chat:T": mkPane("chat:T", "chat") }, // remote copy: no scrollOffset
+      groups: { "group:default": grp(["chat:T"]) },
+      closedStack: [], groupOrder: ["group:default"], lastSeq: 10, server_seq: 10, seq: 10,
+    });
+
+    expect(state.panes["chat:T"].scrollOffset).toBe(420);
+  });
+
   test("concurrent opens on two clients converge to the union", () => {
     const state = blankState();
     state.lastServerSeq = 1;
