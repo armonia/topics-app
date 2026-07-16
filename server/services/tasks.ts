@@ -199,6 +199,13 @@ export interface BoardSettings {
    * (for boards whose tasks genuinely need those tools).
    */
   dispatchMcp: string;
+  /**
+   * Default model for dispatched agents on this board.
+   * 'auto' (the NULL default) → the classifier picks a model per task (prior
+   * behaviour). A concrete model id (e.g. 'claude-opus-4-8') pins every dispatch
+   * on this board to it. An explicit per-task model still wins over the board default.
+   */
+  dispatchModel: string;
   /** Launch attempts before a task is parked (default 2). */
   dispatchRetryCap: number;
   /** Backoff (s) before resuming a turn that died faster than it (outage guard, default 60). */
@@ -215,6 +222,7 @@ export interface UpdateBoardSettingsPatch {
   dispatchAutoMerge?: boolean;
   dispatchTimeoutMin?: number;
   dispatchMcp?: string;
+  dispatchModel?: string;
   dispatchRetryCap?: number;
   dispatchRetryBackoffS?: number;
 }
@@ -1047,6 +1055,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchAutoMerge: r ? !!r.dispatch_auto_merge : false,
         dispatchTimeoutMin: r?.dispatch_timeout_min ?? 20,
         dispatchMcp: r?.dispatch_mcp ?? "bridge-only",
+        dispatchModel: r?.dispatch_model ?? "auto",
         dispatchRetryCap: r?.dispatch_retry_cap ?? 2,
         dispatchRetryBackoffS: r?.dispatch_retry_backoff_s ?? 60,
         requireApprovalForDone: r ? !!r.require_approval_for_done : false,
@@ -1083,6 +1092,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchAutoMerge !== undefined) { sets.push("dispatch_auto_merge = ?"); params.push(patch.dispatchAutoMerge ? 1 : 0); }
       if (patch.dispatchTimeoutMin !== undefined) { sets.push("dispatch_timeout_min = ?"); params.push(clampInt(patch.dispatchTimeoutMin, 1, 120)); }
       if (patch.dispatchMcp !== undefined) { sets.push("dispatch_mcp = ?"); params.push(patch.dispatchMcp); }
+      // 'auto' (or empty) collapses to NULL so the classifier keeps picking; any other
+      // string pins the board to that model id. No allowlist here — the model set is
+      // provider-driven (see /api/claude/models); an unknown id simply fails at spawn.
+      if (patch.dispatchModel !== undefined) { sets.push("dispatch_model = ?"); params.push(patch.dispatchModel && patch.dispatchModel !== "auto" ? patch.dispatchModel : null); }
       if (patch.dispatchRetryCap !== undefined) { sets.push("dispatch_retry_cap = ?"); params.push(clampInt(patch.dispatchRetryCap, 1, 5)); }
       if (patch.dispatchRetryBackoffS !== undefined) { sets.push("dispatch_retry_backoff_s = ?"); params.push(clampInt(patch.dispatchRetryBackoffS, 10, 600)); }
       if (sets.length) db.prepare(`UPDATE board_settings SET ${sets.join(", ")} WHERE project_id = ?`).run(...params, projectId);

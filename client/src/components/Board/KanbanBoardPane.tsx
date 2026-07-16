@@ -27,7 +27,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import {
   boardApi, boardIdForPath, TASK_STATUSES, STATUS_LABEL, parseQuestionBlock, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, isProjectlessId, boardDrafts,
   type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch,
-  type BoardProjectRef,
+  type BoardProjectRef, type PublishProject,
 } from '../../lib/board';
 
 /**
@@ -213,8 +213,9 @@ function DispatchChip({ state, error }: { state: string; error?: string | null }
  *  and pushes on demand (→ deploy CI where configured). Lives in the header so it
  *  works from the GLOBAL board too, where every project shows up together. */
 function PublishControl() {
-  const [projects, setProjects] = useState<{ projectId: string; name: string; branch: string; ahead: number }[] | null>(null);
+  const [projects, setProjects] = useState<PublishProject[] | null>(null);
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const refresh = useCallback(() => {
@@ -223,8 +224,12 @@ function PublishControl() {
   useEffect(() => { refresh(); }, [refresh]);
   const pending = (projects ?? []).filter((p) => p.ahead > 0);
   const total = pending.reduce((n, p) => n + p.ahead, 0);
-  const doPublish = async (p: { projectId: string; name: string; ahead: number }) => {
-    if (!window.confirm(`Pubblicare "${p.name}"?\n\ngit push origin (${p.ahead} commit) — avvia il deploy dove configurato.`)) return;
+  const doPublish = async (p: PublishProject) => {
+    // Show the exact commits in the confirm so a wrong-project / un-approved
+    // commit is caught before the push — a push ships the WHOLE branch tip.
+    const preview = p.commits.slice(0, 8).map((c) => `  • ${c.subject} (${c.hash}, ${c.author})`).join('\n');
+    const more = p.commits.length > 8 ? `\n  …e altri ${p.commits.length - 8}` : '';
+    if (!window.confirm(`Pubblicare "${p.name}" — push di ${p.ahead} commit su origin/${p.branch}?\n\n${preview}${more}\n\nAvvia il deploy dove configurato.`)) return;
     setBusy(p.projectId); setMsg(null);
     try {
       const r = await boardApi.publish(p.projectId);
@@ -245,16 +250,40 @@ function PublishControl() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-lg border border-white/10 bg-neutral-900 p-1 shadow-xl">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-neutral-500">Da pubblicare</div>
+          <div className="absolute right-0 top-full z-50 mt-1 max-h-[70vh] w-96 overflow-y-auto rounded-lg border border-white/10 bg-neutral-900 p-1 shadow-xl">
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-neutral-500">Da pubblicare — controlla i commit prima</div>
             {pending.length === 0 ? (
               <div className="px-2 py-1.5 text-[11px] text-neutral-500">Niente da pubblicare — tutto già su remoto.</div>
-            ) : pending.map((p) => (
-              <div key={p.projectId} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-white/5">
-                <span className="min-w-0 flex-1 truncate text-[12px] text-neutral-200">{p.name}<span className="ml-1 text-[11px] text-neutral-500">{p.ahead} commit · {p.branch}</span></span>
-                <button disabled={busy === p.projectId} onClick={() => doPublish(p)} className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">{busy === p.projectId ? '…' : 'Pubblica'}</button>
-              </div>
-            ))}
+            ) : pending.map((p) => {
+              const isOpen = expanded === p.projectId;
+              return (
+                <div key={p.projectId} className="rounded">
+                  <div className="flex items-center gap-1.5 px-1 py-1 hover:bg-white/5">
+                    <button
+                      onClick={() => setExpanded(isOpen ? null : p.projectId)}
+                      className="flex min-w-0 flex-1 items-center gap-1 text-left"
+                      title={isOpen ? 'Nascondi i commit' : 'Mostra i commit da pubblicare'}
+                    >
+                      {isOpen ? <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-neutral-500" />}
+                      <span className="min-w-0 flex-1 truncate text-[12px] text-neutral-200">{p.name}<span className="ml-1 text-[11px] text-neutral-500">{p.ahead} commit · {p.branch}</span></span>
+                    </button>
+                    <button disabled={busy === p.projectId} onClick={() => doPublish(p)} className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">{busy === p.projectId ? '…' : 'Pubblica'}</button>
+                  </div>
+                  {isOpen && (
+                    <ul className="mb-1 ml-4 space-y-0.5 border-l border-white/10 pl-2">
+                      {p.commits.map((c) => (
+                        <li key={c.hash} className="flex items-baseline gap-1.5 text-[11px] leading-tight">
+                          <code className="shrink-0 text-neutral-500">{c.hash}</code>
+                          <span className="min-w-0 flex-1 truncate text-neutral-300" title={c.subject}>{c.subject}</span>
+                          <span className="shrink-0 text-neutral-600">{c.author} · {c.when}</span>
+                        </li>
+                      ))}
+                      {p.commits.length >= 50 && <li className="text-[10px] text-neutral-600">…troncato a 50</li>}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
             {msg && <div className="mt-0.5 border-t border-white/10 px-2 py-1.5 text-[11px] text-neutral-400">{msg}</div>}
           </div>
         </>
@@ -396,6 +425,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Provider model list for the board-default picker (settings panel). Seeded
+  // from the snapshot and kept live — same source the composer's picker uses.
+  const [claudeModels, setClaudeModels] = useState<string[]>(
+    () => getProvidersSnapshotState().snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? [],
+  );
+  useEffect(() => subscribeProvidersSnapshot((state) => {
+    setClaudeModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
+  }), []);
   // Deep-link target (from ?task=… via openTaskLink): the GLOBAL board owns it
   // (that's what the link opens). Seeded from the one-shot boot pending, and
   // fed live by `topics:open-task` when the board is already open. Held until
@@ -725,6 +762,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           projectId={projectId}
           settings={settings}
           dispatchOn={dispatchOn}
+          models={claudeModels}
           onToggleDispatch={toggleDispatch}
           onChanged={setSettings}
           onClose={() => setShowSettings(false)}
@@ -2928,12 +2966,14 @@ function CommentBody({ content }: { content: string }) {
 // ── Board settings (auto-dispatch config) ───────────────────────────────────
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
-function BoardSettingsPanel({ projectId, settings: s, dispatchOn, onToggleDispatch, onChanged, onClose, onError }: {
+function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onToggleDispatch, onChanged, onClose, onError }: {
   projectId: string;
   /** Owned by the board (per-project config) — this panel only renders and patches it. */
   settings: BoardSettings | null;
   /** The GLOBAL start switch — owned by the board header (same value as the pill). */
   dispatchOn: boolean | null;
+  /** Model ids from the provider snapshot (for the board-default picker). */
+  models: string[];
   onToggleDispatch: () => void;
   onChanged: (s: BoardSettings) => void;
   onClose: () => void;
@@ -2977,6 +3017,20 @@ function BoardSettingsPanel({ projectId, settings: s, dispatchOn, onToggleDispat
           ))}
         </div>
       </div>
+
+      <label className="flex items-center justify-between gap-2" title="Auto: un classificatore sceglie il modello per ogni task. Un modello fisso forza OGNI dispatch di questa board su quel modello (un task con modello esplicito vince comunque).">
+        <span>Modello</span>
+        <select
+          value={s.dispatchModel || 'auto'}
+          onChange={(e) => patch({ dispatchModel: e.target.value })}
+          className="max-w-[55%] rounded bg-white/5 px-1.5 py-0.5 text-neutral-100 outline-none"
+        >
+          <option value="auto">Auto (sceglie il classificatore)</option>
+          {models.map((m) => (
+            <option key={m} value={m}>{friendlyModelLabel(m)}</option>
+          ))}
+        </select>
+      </label>
 
       <label className="flex cursor-pointer items-center justify-between">
         <span>Isola ogni agent in un git worktree</span>

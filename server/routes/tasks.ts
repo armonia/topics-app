@@ -159,7 +159,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const range = upstream && !upstream.includes("fatal") ? `${upstream}..HEAD` : `origin/${branch}..HEAD`;
         const aheadRaw = (await runGitCap(path, ["rev-list", "--count", range])).out.trim();
         const ahead = Number.parseInt(aheadRaw || "0", 10);
-        return { projectId: projectIdForPath(path), name: basename(path), branch, ahead: Number.isFinite(ahead) ? ahead : 0 };
+        // The actual commit list that a push would ship — so the UI can show WHAT
+        // goes out (subject + author + short hash) instead of a blind count, and
+        // the human can spot a wrong-project / un-approved commit before pushing.
+        // %x1f = unit separator (safe field delimiter); one commit per line, newest first.
+        let commits: { hash: string; subject: string; author: string; when: string }[] = [];
+        if (ahead > 0) {
+          const logRaw = (await runGitCap(path, ["log", range, "--pretty=format:%h%x1f%s%x1f%an%x1f%ar", "--max-count=50"])).out;
+          commits = logRaw.split("\n").filter(Boolean).map((line) => {
+            const [hash, subject, author, when] = line.split("\x1f");
+            return { hash: hash ?? "", subject: subject ?? "", author: author ?? "", when: when ?? "" };
+          });
+        }
+        return { projectId: projectIdForPath(path), name: basename(path), branch, ahead: Number.isFinite(ahead) ? ahead : 0, commits };
       }))).filter((p): p is NonNullable<typeof p> => !!p);
       return json({ projects });
     }
@@ -272,6 +284,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchAutoMerge: typeof body?.dispatchAutoMerge === "boolean" ? body.dispatchAutoMerge : undefined,
               dispatchTimeoutMin: typeof body?.dispatchTimeoutMin === "number" ? body.dispatchTimeoutMin : undefined,
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
+              dispatchModel: typeof body?.dispatchModel === "string" ? body.dispatchModel : undefined,
             });
             broadcastToAll({ type: "board:settings", projectId, settings });
             // autoDispatch is global — every board header (not just this
