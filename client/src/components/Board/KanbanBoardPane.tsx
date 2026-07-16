@@ -472,8 +472,10 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
   const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + (filters.text ? 1 : 0) > 0;
 
   // Same chip look the composer uses for its model/priority/project pickers.
+  // Explicit h-6 (not py-*) so the search <input> — which renders taller from
+  // its UA line-height — sits at the exact same height as these buttons.
   const chip = (active: boolean) =>
-    `flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors ${
+    `flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${
       active ? 'bg-white/15 text-neutral-100' : 'bg-white/5 text-neutral-300 hover:bg-white/10'
     }`;
   const menuHeader = 'px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500';
@@ -488,7 +490,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
           placeholder="cerca…"
           aria-label="Cerca nei task"
-          className="w-28 rounded-md bg-white/5 py-1 pl-6 pr-1.5 text-[11px] text-neutral-100 outline-none placeholder:text-neutral-600 focus:w-40 focus:bg-white/10"
+          className="h-6 w-28 rounded-md bg-white/5 pl-6 pr-1.5 text-[11px] leading-none text-neutral-100 outline-none placeholder:text-neutral-600 focus:w-40 focus:bg-white/10"
         />
       </div>
 
