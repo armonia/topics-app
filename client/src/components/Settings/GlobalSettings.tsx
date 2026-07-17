@@ -3,7 +3,8 @@ import { X, Type, AlignJustify, Rows3, Sun, Moon, Monitor, Bell, Cpu, Check, Che
 import type { AppSettings, ProviderSnapshotEntry, ProviderStatus, ThemeMode } from '../../types';
 import { saveSettings } from '../../lib/settings';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
-import { providersApi } from '../../lib/api';
+import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
+import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { isDesktop } from '../../lib/shell';
 
@@ -507,6 +508,8 @@ function AIProvidersSection() {
         AI Providers
       </label>
 
+      <BehaviorDefaults />
+
       <div className="space-y-1.5">
         {entries.map((entry) => (
           <ProviderCard
@@ -525,6 +528,143 @@ function AIProvidersSection() {
           <div className="text-[12px] text-app-text-muted">No providers registered.</div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Behaviour defaults promoted out of env vars (env-var audit, Phase B). Each
+// control persists to /api/app-settings; "Auto" clears the override so the env
+// var (or built-in default) wins again. NON-secret only.
+const AUTO = '__auto__';
+
+function SettingSelect({
+  label, hint, value, options, onChange, disabled,
+}: {
+  label: string;
+  hint?: string;
+  value: string | null;
+  options: Array<{ value: string; label: string }>;
+  onChange: (v: string | null) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3 py-1.5">
+      <span className="flex flex-col">
+        <span className="text-[12px] text-app-text">{label}</span>
+        {hint && <span className="text-[11px] text-app-text-muted">{hint}</span>}
+      </span>
+      <select
+        aria-label={label}
+        disabled={disabled}
+        value={value ?? AUTO}
+        onChange={(e) => onChange(e.target.value === AUTO ? null : e.target.value)}
+        className="text-[12px] bg-surface border border-app-border rounded-md px-2 py-1 min-w-[140px]"
+      >
+        <option value={AUTO}>Auto (env/default)</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function BehaviorDefaults() {
+  const [settings, setSettings] = useState<AppBehaviorSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    appSettingsApi.get()
+      .then((s) => { if (live) setSettings(s); })
+      .catch((e) => { if (live) setError(e instanceof Error ? e.message : 'Failed to load settings'); });
+    return () => { live = false; };
+  }, []);
+
+  const save = async (patch: Partial<AppBehaviorSettings>) => {
+    if (!settings) return;
+    setSaving(true);
+    setError(null);
+    // Optimistic: reflect the change immediately, reconcile with the server echo.
+    setSettings({ ...settings, ...patch });
+    try {
+      const next = await appSettingsApi.update(patch);
+      setSettings(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save');
+      // Re-fetch to drop the optimistic value on failure.
+      try { setSettings(await appSettingsApi.get()); } catch { /* keep last */ }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!settings) {
+    return (
+      <div className="mb-4 text-[12px] text-app-text-muted">
+        {error ? <span className="text-red-500">{error}</span> : 'Loading defaults…'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-4 rounded-lg border border-app-border bg-surface/40 px-3 py-2">
+      <div className="text-[12px] font-medium text-app-text mb-1">Behaviour defaults</div>
+      <div className="text-[11px] text-app-text-muted mb-2">
+        App-wide defaults. “Auto” keeps the current env/built-in behaviour.
+      </div>
+
+      <SettingSelect
+        label="Default provider"
+        value={settings.aiProvider}
+        disabled={saving}
+        onChange={(v) => save({ aiProvider: v })}
+        options={[
+          { value: 'claude', label: 'Claude (API)' },
+          { value: 'claude-code', label: 'Claude Code' },
+          { value: 'openai', label: 'OpenAI' },
+          { value: 'codex', label: 'Codex' },
+          { value: 'openclaw', label: 'OpenClaw' },
+        ]}
+      />
+      <SettingSelect
+        label="Claude effort"
+        value={settings.claudeEffort}
+        disabled={saving}
+        onChange={(v) => save({ claudeEffort: v })}
+        options={['low', 'medium', 'high', 'xhigh', 'max'].map((v) => ({ value: v, label: v }))}
+      />
+      <SettingSelect
+        label="Codex reasoning effort"
+        value={settings.codexReasoningEffort}
+        disabled={saving}
+        onChange={(v) => save({ codexReasoningEffort: v })}
+        options={['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ultra'].map((v) => ({ value: v, label: v }))}
+      />
+      <SettingSelect
+        label="Codex approval mode"
+        value={settings.codexApprovalMode}
+        disabled={saving}
+        onChange={(v) => save({ codexApprovalMode: v })}
+        options={[
+          { value: 'auto', label: 'auto' },
+          { value: 'full-access', label: 'full-access' },
+        ]}
+      />
+      <SettingSelect
+        label="Claude Code enabled"
+        hint="Force on/off; Auto detects the CLI"
+        value={enabledToSelect(settings.claudeCodeEnabled)}
+        disabled={saving}
+        onChange={(v) => save({ claudeCodeEnabled: selectToEnabled(v) })}
+        options={[
+          { value: 'on', label: 'Enabled' },
+          { value: 'off', label: 'Disabled' },
+        ]}
+      />
+
+      {error && <div className="mt-1 text-[11px] text-red-500">{error}</div>}
     </div>
   );
 }

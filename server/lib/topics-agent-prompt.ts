@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { warnDeprecatedEnv } from './env-alias';
+import { settingClaudeEffort, settingCodexReasoningEffort } from '../services/app-settings';
 
 /**
  * System-prompt fragment appended to every Topics-launched Claude session
@@ -59,6 +60,10 @@ export function resolveClaudeEffort(topicOverride?: string | null): string | nul
   const perTopic = (topicOverride ?? '').trim().toLowerCase();
   if (perTopic && VALID_CLAUDE_EFFORTS.has(perTopic)) return perTopic;
 
+  // Global Settings default (Phase B) wins over env, below the per-topic pick.
+  const setting = (settingClaudeEffort() ?? '').trim().toLowerCase();
+  if (setting && VALID_CLAUDE_EFFORTS.has(setting)) return setting;
+
   const override = (process.env.TOPICS_CLAUDE_EFFORT ?? '').trim().toLowerCase();
   if (override === 'off' || override === 'none' || override === 'default') return null;
   // `CLAUDE_EFFORT` is a deprecated alias (the Warp shell convention we used to
@@ -98,6 +103,10 @@ const VALID_CODEX_REASONING_EFFORTS = new Set([
 ]);
 
 export function resolveCodexReasoningEffort(opts?: { configPath?: string }): string | null {
+  // Global Settings default (Phase B) wins over env.
+  const setting = (settingCodexReasoningEffort() ?? '').trim().toLowerCase();
+  if (setting && VALID_CODEX_REASONING_EFFORTS.has(setting)) return setting;
+
   const override = (process.env.TOPICS_CODEX_REASONING_EFFORT ?? '').trim().toLowerCase();
   if (override === 'off' || override === 'default') return null;
   // `CODEX_REASONING_EFFORT` is a deprecated alias (shell mirror). Still honoured

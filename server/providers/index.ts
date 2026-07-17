@@ -16,14 +16,27 @@ export * from "./types";
 
 import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig } from "./types";
 import { warnDeprecatedEnv } from "../lib/env-alias";
+import {
+  getAppSettings,
+  resolveAiProvider,
+  resolveClaudeModel,
+  resolveClaudeMaxTokens,
+  resolveOpenaiModel,
+  resolveOpenaiMaxTokens,
+  resolveCodexModel,
+  resolveClaudeCodePermissionMode,
+  resolveCodexApprovalMode,
+  resolveClaudeCodeEnabled,
+  type AppSettings,
+} from "../services/app-settings";
 
 /**
- * Resolve the Claude-Code model id. `CLAUDE_CODE_MODEL` is a deprecated alias
- * of the canonical `CLAUDE_MODEL`: the old name still wins when set (so no
- * behaviour changes for existing setups) and warns once; `CLAUDE_MODEL` is the
- * shared fallback both providers now honour.
+ * Resolve the Claude-Code model id. A settings override wins; else
+ * `CLAUDE_CODE_MODEL` (a deprecated alias of the canonical `CLAUDE_MODEL` —
+ * still honoured with a one-time warning); else `CLAUDE_MODEL`.
  */
-function resolveClaudeCodeModel(): string | undefined {
+function resolveClaudeCodeModel(settings: AppSettings): string | undefined {
+  if (settings.claudeModel) return settings.claudeModel;
   const legacy = process.env.CLAUDE_CODE_MODEL;
   if (legacy) {
     warnDeprecatedEnv("CLAUDE_CODE_MODEL", "CLAUDE_MODEL");
@@ -117,7 +130,8 @@ export function setDefaultProvider(name: string): void {
  */
 export function recomputeDefault(): boolean {
   const previous = _defaultName;
-  const explicit = process.env.AI_PROVIDER?.toLowerCase();
+  // Explicit default: a Settings override wins, else the AI_PROVIDER env.
+  const explicit = resolveAiProvider()?.toLowerCase();
   if (explicit && _providers.has(explicit)) {
     _defaultName = explicit;
     return _defaultName !== previous;
@@ -238,6 +252,10 @@ function invalidateSnapshot(name: string): void {
 export async function initProviders(): Promise<AIProvider[]> {
   const started: AIProvider[] = [];
 
+  // Snapshot the promoted behaviour toggles once (setting ?? env ?? default).
+  // Reading the row up-front keeps a single DB hit for the whole init pass.
+  const settings = getAppSettings();
+
   // OpenClaw — init if GATEWAY_URL is set
   if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
     try {
@@ -261,10 +279,8 @@ export async function initProviders(): Promise<AIProvider[]> {
       const config: ClaudeProviderConfig = {
         type: "claude",
         apiKey: process.env.ANTHROPIC_API_KEY,
-        model: process.env.CLAUDE_MODEL || undefined,
-        maxTokens: process.env.CLAUDE_MAX_TOKENS
-          ? parseInt(process.env.CLAUDE_MAX_TOKENS, 10)
-          : undefined,
+        model: resolveClaudeModel(settings),
+        maxTokens: resolveClaudeMaxTokens(settings),
       };
       const p = createProvider(config);
       p.start();
@@ -277,18 +293,17 @@ export async function initProviders(): Promise<AIProvider[]> {
 
   // Claude Code — auto-detect (CLI installed). Legacy CLAUDE_CODE_ENABLED still works.
   if (!_providers.has("claude-code")) {
-    const explicitlyEnabled = process.env.CLAUDE_CODE_ENABLED === "true";
+    const explicitlyEnabled = resolveClaudeCodeEnabled(settings);
     const cliAvailable = await detectClaudeCodeCli();
     if (explicitlyEnabled || cliAvailable) {
       try {
         const config: ClaudeCodeProviderConfig = {
           type: "claude-code",
-          // `CLAUDE_CODE_MODEL` is a deprecated alias of the canonical
-          // `CLAUDE_MODEL`; both name the Claude model id. The old name still
-          // wins when set (no behaviour change for existing setups) and warns
-          // once; `CLAUDE_MODEL` is the new shared fallback.
-          model: resolveClaudeCodeModel() || undefined,
-          permissionMode: process.env.CLAUDE_CODE_PERMISSION_MODE || undefined,
+          // Model: a settings override wins; else `CLAUDE_CODE_MODEL` (deprecated
+          // alias of the canonical `CLAUDE_MODEL`, still honoured with a one-time
+          // warning); else `CLAUDE_MODEL`.
+          model: resolveClaudeCodeModel(settings) || undefined,
+          permissionMode: resolveClaudeCodePermissionMode(settings),
           defaultWorkspace: process.env.CLAUDE_CODE_WORKSPACE || undefined,
         };
         const p = createProvider(config);
@@ -304,19 +319,13 @@ export async function initProviders(): Promise<AIProvider[]> {
   // Codex — auto-detect (CLI installed or Codex.app present)
   if (!_providers.has("codex") && await detectCodexCli()) {
     try {
-      // Validate against the known union instead of `as any` — a typo like
-      // CODEX_APPROVAL_MODE=full_access would otherwise pass through as a
-      // fake-valid value and SILENTLY downgrade Codex to sandboxed (the
-      // consumer only grants full access on an exact "full-access" match).
-      const rawApprovalMode = process.env.CODEX_APPROVAL_MODE;
-      const approvalMode = rawApprovalMode === "auto" || rawApprovalMode === "full-access" ? rawApprovalMode : undefined;
-      if (rawApprovalMode && !approvalMode) {
-        console.warn(`[Providers] Ignoring invalid CODEX_APPROVAL_MODE=${rawApprovalMode} (expected 'auto' | 'full-access')`);
-      }
+      // Approval mode is validated to the known union (auto|full-access) inside
+      // the resolver — a typo like full_access must not SILENTLY downgrade Codex
+      // to sandboxed (the consumer only grants full access on an exact match).
       const config: CodexProviderConfig = {
         type: "codex",
-        model: process.env.CODEX_MODEL || undefined,
-        approvalMode,
+        model: resolveCodexModel(settings),
+        approvalMode: resolveCodexApprovalMode(settings),
         defaultWorkspace: process.env.CODEX_WORKSPACE || undefined,
       };
       const p = createProvider(config);
@@ -334,10 +343,8 @@ export async function initProviders(): Promise<AIProvider[]> {
       const config: OpenAIProviderConfig = {
         type: "openai",
         apiKey: process.env.OPENAI_API_KEY,
-        model: process.env.OPENAI_MODEL || undefined,
-        maxTokens: process.env.OPENAI_MAX_TOKENS
-          ? parseInt(process.env.OPENAI_MAX_TOKENS, 10)
-          : undefined,
+        model: resolveOpenaiModel(settings),
+        maxTokens: resolveOpenaiMaxTokens(settings),
       };
       const p = createProvider(config);
       p.start();
