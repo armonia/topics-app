@@ -8,6 +8,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveCodexReasoningEffort, resolveClaudeEffort } from './topics-agent-prompt';
+import { __resetDeprecatedEnvWarnings } from './env-alias';
 
 const ENV_KEYS = ['TOPICS_CODEX_REASONING_EFFORT', 'CODEX_REASONING_EFFORT'] as const;
 const CLAUDE_ENV_KEYS = ['TOPICS_CLAUDE_EFFORT', 'CLAUDE_EFFORT'] as const;
@@ -116,5 +117,28 @@ describe('resolveClaudeEffort — per-topic override (migration 033)', () => {
     expect(resolveClaudeEffort(null)).toBeNull();
     // …but a valid per-topic override still wins over the "off" policy.
     expect(resolveClaudeEffort('high')).toBe('high');
+  });
+});
+
+describe('deprecated effort aliases (dedupe warning)', () => {
+  test('CLAUDE_EFFORT still honoured but warns once; TOPICS_CLAUDE_EFFORT wins silently', () => {
+    __resetDeprecatedEnvWarnings();
+    const calls: string[] = [];
+    const orig = console.warn;
+    console.warn = (...a: any[]) => { calls.push(String(a[0])); };
+    try {
+      process.env.CLAUDE_EFFORT = 'medium';
+      expect(resolveClaudeEffort(null)).toBe('medium'); // legacy fallback still works
+      expect(resolveClaudeEffort(null)).toBe('medium'); // second read: no new warning
+      expect(calls.filter((c) => c.includes('CLAUDE_EFFORT')).length).toBe(1);
+
+      __resetDeprecatedEnvWarnings();
+      calls.length = 0;
+      process.env.TOPICS_CLAUDE_EFFORT = 'high';
+      expect(resolveClaudeEffort(null)).toBe('high'); // canonical wins
+      expect(calls.length).toBe(0); // canonical never warns
+    } finally {
+      console.warn = orig;
+    }
   });
 });

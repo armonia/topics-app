@@ -15,6 +15,22 @@
 export * from "./types";
 
 import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig } from "./types";
+import { warnDeprecatedEnv } from "../lib/env-alias";
+
+/**
+ * Resolve the Claude-Code model id. `CLAUDE_CODE_MODEL` is a deprecated alias
+ * of the canonical `CLAUDE_MODEL`: the old name still wins when set (so no
+ * behaviour changes for existing setups) and warns once; `CLAUDE_MODEL` is the
+ * shared fallback both providers now honour.
+ */
+function resolveClaudeCodeModel(): string | undefined {
+  const legacy = process.env.CLAUDE_CODE_MODEL;
+  if (legacy) {
+    warnDeprecatedEnv("CLAUDE_CODE_MODEL", "CLAUDE_MODEL");
+    return legacy;
+  }
+  return process.env.CLAUDE_MODEL || undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -267,7 +283,11 @@ export async function initProviders(): Promise<AIProvider[]> {
       try {
         const config: ClaudeCodeProviderConfig = {
           type: "claude-code",
-          model: process.env.CLAUDE_CODE_MODEL || undefined,
+          // `CLAUDE_CODE_MODEL` is a deprecated alias of the canonical
+          // `CLAUDE_MODEL`; both name the Claude model id. The old name still
+          // wins when set (no behaviour change for existing setups) and warns
+          // once; `CLAUDE_MODEL` is the new shared fallback.
+          model: resolveClaudeCodeModel() || undefined,
           permissionMode: process.env.CLAUDE_CODE_PERMISSION_MODE || undefined,
           defaultWorkspace: process.env.CLAUDE_CODE_WORKSPACE || undefined,
         };

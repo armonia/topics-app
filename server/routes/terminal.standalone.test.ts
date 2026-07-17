@@ -11,6 +11,8 @@ import net from "net";
 import { ensureBridge, isPtyBridgeDisabled } from "./terminal";
 
 const FLAGS = ["TOPICS_DISABLE_PTY_BRIDGE", "TOPICS_EMBEDDED"] as const;
+// TOPICS_NODE_BIN / TOPICS_PTY_BRIDGE_PATH (the removed legacy Node bridge) are kept
+// here only so the cleanup hook wipes them and the regression test below is honest.
 const BUNDLE_ENV = ["TOPICS_PTY_BRIDGE_BIN", "TOPICS_NODE_BIN", "TOPICS_PTY_BRIDGE_PATH"] as const;
 
 afterEach(() => {
@@ -40,18 +42,16 @@ test("the bundled Rust bridge binary RE-ENABLES terminals even under a standalon
   expect(isPtyBridgeDisabled()).toBe(false); // Rust bridge present — terminals allowed
 });
 
-test("the legacy bundled Node bridge (node + bridge path) also RE-ENABLES terminals", () => {
-  // Back-compat: a non-Rust bundle can still hand over Node + pty-bridge.mjs. BOTH
-  // envs must be set to flip the gate; one alone is not enough (a half-configured
-  // bundle stays safely disabled).
+test("the removed legacy Node bridge envs no longer re-enable terminals", () => {
+  // The legacy bundled-Node flavour (TOPICS_NODE_BIN + TOPICS_PTY_BRIDGE_PATH) was
+  // dropped in the 2026-07 env audit: every shipped bundle uses the Rust sidecar.
+  // Setting the old envs must NOT flip the standalone gate anymore.
   process.env.TOPICS_EMBEDDED = "1";
   expect(isPtyBridgeDisabled()).toBe(true);
 
   process.env.TOPICS_NODE_BIN = "/Applications/Topics.app/Contents/Resources/node";
-  expect(isPtyBridgeDisabled()).toBe(true); // node alone — not enough
-
   process.env.TOPICS_PTY_BRIDGE_PATH = "/Applications/Topics.app/Contents/Resources/pty-bridge.mjs";
-  expect(isPtyBridgeDisabled()).toBe(false); // both present — terminals allowed
+  expect(isPtyBridgeDisabled()).toBe(true); // legacy envs are inert — still disabled
 });
 
 for (const flag of FLAGS) {
