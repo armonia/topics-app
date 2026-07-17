@@ -268,6 +268,22 @@ describe("review gate (KANBAN-05)", () => {
     expect(ap.status).toBe("rejected");
   });
 
+  test("reject resets the attempt budget (new work cycle); approve keeps it", () => {
+    const t = s.create({ projectId: PID, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    db.prepare("UPDATE tasks SET dispatch_attempts = 2 WHERE id = ?").run(t.id);
+    const back = s.reviewDecision({ taskId: t.id, by: "attilio", decision: "reject" });
+    expect(back.dispatchAttempts).toBe(0);
+
+    const t2 = s.create({ projectId: PID, text: "work2" });
+    s.addComment({ taskId: t2.id, author: "claude", content: "fatto" });
+    s.update({ taskId: t2.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    db.prepare("UPDATE tasks SET dispatch_attempts = 2 WHERE id = ?").run(t2.id);
+    const done = s.reviewDecision({ taskId: t2.id, by: "attilio", decision: "approve" });
+    expect(done.dispatchAttempts).toBe(2);
+  });
+
   test("projectId guard blocks cross-project get/update/comment", () => {
     const t = s.create({ projectId: "p1", text: "x" });
     expect(s.get(t.id, { projectId: "p2" })).toBeNull();
