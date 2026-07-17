@@ -32,6 +32,12 @@ export HOME=/tmp/topics-test-data/.home
 # Claude PTYs the test reconcile then kills (knocking dev sessions dormant).
 # Defaulted (`:-`) so an explicit value from globalSetup still wins.
 export TOPICS_PTY_SOCKET="${TOPICS_PTY_SOCKET:-/tmp/topics-pty-bridge-e2e-test.sock}"
+# Same isolation for the ai-bridge (stream-json broker) socket, for the same
+# reason: a test server (or an in-test restart) must NEVER derive the cwd-based
+# socket = the PRODUCTION ai-bridge. Harmless when TOPICS_AI_BRIDGE is unset
+# (nothing connects); required the moment a broker restart-survival test enables
+# the flag. Enable the feature for such a test with TOPICS_AI_BRIDGE=1.
+export TOPICS_AI_BRIDGE_SOCKET="${TOPICS_AI_BRIDGE_SOCKET:-/tmp/topics-ai-bridge-e2e-test.sock}"
 export GATEWAY_TOKEN="${GATEWAY_TOKEN:-test-token}"
 export GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
 

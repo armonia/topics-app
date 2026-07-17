@@ -90,6 +90,17 @@ export interface DispatcherDeps {
    */
   runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number; contextMode?: "full" | "lean" }) => Promise<void>;
   /**
+   * True if a still-running agent turn for this session survived a server
+   * restart in the ai-bridge broker (provider.hasLiveSession). When present and
+   * true, reconcile REATTACHES to the live turn (non-lossy) instead of RESUMING
+   * from scratch. Absent (non-broker provider / flag off) ⇒ reconcile always
+   * resumes, unchanged.
+   */
+  hasLiveSession?: (sessionKey: string) => Promise<boolean>;
+  /** Drive a REATTACH turn to completion (adopt the surviving broker child and
+   *  finish it). Injected alongside hasLiveSession. */
+  reattach?: (sessionKey: string, opts: { timeoutMs: number }) => Promise<void>;
+  /**
    * Usage consumed so far by this session (from its transcript usage records,
    * deduplicated by API message id — see transcript-usage.ts). Best-effort —
    * absent/throwing = zeros. The dispatcher records the PER-TURN DELTA on the
@@ -642,6 +653,34 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
   }
 
+  // Non-lossy restart recovery: ADOPT the agent turn still running in the broker
+  // and drive it to completion, instead of resume-from-scratch. Mirrors resume's
+  // inFlight/live-turn/onTurnEnd scaffolding but injects NO message (reattach
+  // continues the exact turn — the CLI context is untouched). Falls back to
+  // resume if the reattach dep reports the session vanished (TOCTOU).
+  async function reattachTask(taskId: string): Promise<void> {
+    const t = deps.svc.get(taskId)?.task;
+    if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
+    if (inFlight.has(taskId)) return;
+    const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
+    inFlight.set(taskId, { sessionKey });
+    try {
+      emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
+      let timeoutMin = 20;
+      try { timeoutMin = deps.svc.getBoardSettings(t.projectId).dispatchTimeoutMin; } catch { /* default */ }
+      const t0 = Date.now();
+      const usage0 = sessionUsage(sessionKey);
+      startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
+      try { await deps.reattach!(sessionKey, { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
+      catch (err) { log(`reattach turn failed for ${taskId}`, err); }
+      endLiveTurn(taskId);
+      recordUsage(taskId, t0, usage0, sessionKey);
+      onTurnEnd(taskId, Date.now() - t0);
+    } finally {
+      inFlight.delete(taskId);
+    }
+  }
+
   async function tick(projectId: string): Promise<void> {
     // Project-less tasks are never dispatchable (no cwd): they WAIT quietly on
     // the global board — parking them with "progetto non risolvibile" would be
@@ -844,6 +883,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         let alive = true;
         try { alive = deps.topicExists ? deps.topicExists(t.assignedTopicId) : true; } catch { alive = true; }
         if (alive) {
+          // Broker survived the restart with the turn STILL RUNNING → reattach
+          // in place (seamless, no re-run). Only when there's no live session do
+          // we fall back to resume-from-scratch (the pre-broker behaviour).
+          let live = false;
+          if (deps.hasLiveSession && deps.reattach) {
+            const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
+            try { live = await deps.hasLiveSession(sessionKey); } catch { live = false; }
+          }
+          if (live) {
+            try {
+              deps.svc.addComment({
+                taskId: t.id, author: "system",
+                content: "Ripreso in diretta dopo un riavvio del server: nessuna interruzione della sessione, nessun tentativo consumato.",
+              });
+            } catch { /* dedupe/best-effort */ }
+            void reattachTask(t.id);
+            continue;
+          }
           try {
             deps.svc.addComment({
               taskId: t.id, author: "system",

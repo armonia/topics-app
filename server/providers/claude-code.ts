@@ -9,6 +9,7 @@
 import { spawn, ChildProcess } from "child_process";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
+import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import type {
@@ -60,6 +61,10 @@ const HEARTBEAT_QUIET_MS = 30_000;                 // emit only after 30s silenc
 const CLI_VERSIONS_DIR = join(process.env.HOME || "", ".local/share/claude/versions");
 
 function resolveCliPath(): string {
+  // Explicit pin (operators / the ai-bridge restart-survival E2E, which points
+  // this at a fake stream-json CLI). Wins over version scanning when set.
+  const override = process.env.TOPICS_CLAUDE_CLI_PATH;
+  if (override) return override;
   // Scan for latest installed version
   try {
     const versions = readdirSync(CLI_VERSIONS_DIR)
@@ -334,6 +339,19 @@ function getOrCreateClaudeSessionId(sessionKey: string): { id: string; isNew: bo
   return { id: row.claude_session_id, isNew: row.created_at === now };
 }
 
+/** Read-only lookup of a session's claude_session_id (never INSERTs). Used by
+ *  reattach, which must not conjure a row for a session it's only adopting. */
+function peekClaudeSessionId(sessionKey: string): string | null {
+  try {
+    const row = getDatabase()
+      .prepare(`SELECT claude_session_id FROM claude_code_sessions WHERE session_key = ?`)
+      .get(sessionKey) as { claude_session_id?: string } | undefined;
+    return row?.claude_session_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Read the per-topic spawn-time overrides for a session: reasoning-effort
  * tier (migration 033) and model (migration 013, picked via the provider/model
@@ -545,9 +563,68 @@ export function renderReplayPrologue(turns: ReplayTurn[]): string {
 
 // ============ Persistent Process ============
 
+/**
+ * Feature flag (default OFF): route persistent stream-json sessions through the
+ * detached ai-bridge daemon so a turn survives a server restart AND crash. When
+ * off, the direct child_process.spawn path below runs byte-identically — prod is
+ * untouched until the broker is proven. See server/ai-bridge.mjs + ai-bridge-client.
+ */
+const USE_AI_BRIDGE = process.env.TOPICS_AI_BRIDGE === "1";
+
+/**
+ * The stdin/signal/kill surface of a session — the ONLY child-coupled operations
+ * left after the pool state (streamHandler, pending promises, tool state, timers)
+ * was made transport-agnostic. Direct mode drives the spawned child's pipes;
+ * broker mode drives the daemon over the socket. Everything else (stdout parsing,
+ * stderr scan, close handling) is shared via the extracted methods.
+ */
+interface SessionIO {
+  writeStdin(data: string): void;
+  signal(sig: string): void;
+  kill(): void;
+}
+
+function directIO(proc: ChildProcess): SessionIO {
+  return {
+    writeStdin: (data) => { try { proc.stdin?.write(data); } catch { /* PROCESS_DEAD handled by callers */ } },
+    signal: (sig) => { try { proc.kill(sig as NodeJS.Signals); } catch { /* already gone */ } },
+    kill: () => {
+      try { proc.kill("SIGTERM"); } catch { /* already gone */ }
+      setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* already gone */ } }, KILL_GRACE_MS);
+    },
+  };
+}
+
+function brokerIO(client: AiBridgeClient, sessionKey: string): SessionIO {
+  return {
+    writeStdin: (data) => client.write(sessionKey, data),
+    signal: (sig) => client.signal(sessionKey, sig),
+    kill: () => client.kill(sessionKey),
+  };
+}
+
 interface PersistentProcess {
-  proc: ChildProcess;
-  readline: Interface;
+  /** Set in DIRECT mode only (the spawned child); null in broker mode. */
+  proc: ChildProcess | null;
+  /** stdout line parser — over proc.stdout (direct) or a PassThrough fed by the
+   *  broker's `data` frames (broker). null only transiently during construction. */
+  readline: Interface | null;
+  /** stdin/signal/kill surface — direct child pipes or broker socket RPCs. */
+  io: SessionIO;
+  /** Resolves when the child is up (broker: spawn ack; direct: immediately).
+   *  The first stdin write awaits this so a write never races ahead of spawn. */
+  ready: Promise<void>;
+  /** The topics sessionKey (also the broker session id). */
+  sessionKey: string;
+  /** Byte cursor consumed from the broker store (for reattach). Direct: unused. */
+  consumedOffset: number;
+  /** True while replaying buffered NDJSON on reattach — suppresses live-only
+   *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
+  replaySilent?: boolean;
+  /** Accumulated stderr tail for the rate-limit / missing-session scan. */
+  stderrBuf: string;
+  /** Spawn-time facts the stderr scan + reattach need. */
+  spawnMeta: { claudeSessionId: string; isNewSession: boolean };
   createdAt: number;
   lastActivity: number;
   alive: boolean;
@@ -783,6 +860,11 @@ export class ClaudeCodeProvider implements AIProvider {
       messageTimeout = setTimeout(() => reject(new Error("TIMEOUT")), MESSAGE_TIMEOUT_MS);
     });
 
+    // Broker mode: wait for the child to actually exist before the first stdin
+    // write (spawn + write share the socket FIFO, but spawn's send is behind an
+    // ensureConnected microtask). No-op in direct mode (ready resolved at spawn).
+    await pp.ready;
+
     const messagePromise = new Promise<{ runId: string }>((resolve, reject) => {
       pp.pendingResolve = resolve;
       pp.pendingReject = reject;
@@ -793,7 +875,7 @@ export class ClaudeCodeProvider implements AIProvider {
         return;
       }
 
-      pp.proc.stdin!.write(input);
+      pp.io.writeStdin(input);
     });
 
     try {
@@ -964,7 +1046,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // SIGINT cancels the current turn without killing the process
     try {
-      pp.proc.kill("SIGINT");
+      pp.io.signal("SIGINT");
     } catch {}
 
     // The aborted turn may have had outstanding human-input requests. Drop
@@ -1135,14 +1217,6 @@ export class ClaudeCodeProvider implements AIProvider {
       env.ENABLE_TOOL_SEARCH = env.ENABLE_TOOL_SEARCH ?? "auto";
     }
 
-    const proc = spawn(resolveCliPath(), args, {
-      cwd: workspace,
-      stdio: ["pipe", "pipe", "pipe"],
-      env,
-    });
-
-    const rl = createInterface({ input: proc.stdout! });
-
     // Resilience layer: a fresh `--session-id` spawn is normal for a brand-
     // new topic, but it's *also* what happens after `forgetClaudeSessionId`
     // wipes a doomed `--resume`. If the DB already holds prior turns, we
@@ -1156,8 +1230,14 @@ export class ClaudeCodeProvider implements AIProvider {
     }
 
     const pp: PersistentProcess = {
-      proc,
-      readline: rl,
+      proc: null,
+      readline: null,
+      io: null as unknown as SessionIO, // set below, before pp is returned/used
+      ready: Promise.resolve(),
+      sessionKey,
+      consumedOffset: 0,
+      stderrBuf: "",
+      spawnMeta: { claudeSessionId, isNewSession },
       createdAt: Date.now(),
       lastActivity: Date.now(),
       alive: true,
@@ -1175,87 +1255,37 @@ export class ClaudeCodeProvider implements AIProvider {
       pendingInputs: new Map(),
     };
 
-    // --- NDJSON stdout parsing ---
-    rl.on("line", (line: string) => {
-      try {
-        const event = JSON.parse(line);
-        this.handleStreamEvent(pp, event);
-      } catch {
-        // non-JSON line, ignore
-      }
-    });
+    // stdout NDJSON → the SAME line parser for both transports.
+    const onLine = (line: string) => {
+      try { this.handleStreamEvent(pp, JSON.parse(line)); } catch { /* non-JSON line, ignore */ }
+    };
 
-    // --- stderr: rate limit + missing-session detection ---
-    let stderrBuf = "";
-    proc.stderr!.on("data", (d: Buffer) => {
-      stderrBuf += d.toString();
-      if (stderrBuf.length > 2048) stderrBuf = stderrBuf.slice(-2048);
-
-      // Detect on the ACCUMULATED tail, not the single chunk: the CLI can
-      // flush an error across multiple write()s, splitting the pattern over
-      // two data events — neither chunk alone would match, and a real
-      // rate-limit would go undetected until the 30-min hard timeout (or a
-      // doomed --resume would retry forever). The 2 KiB cap keeps the scan
-      // cheap; both detections are latch-style (idempotent on re-match).
-      if (!isNewSession && looksLikeMissingSessionError(stderrBuf)) {
-        // The CLI was asked to `--resume` a session that no longer exists on
-        // disk. Wipe the DB row so the next spawn falls back to --session-id
-        // instead of looping forever on a doomed resume. We don't kill here —
-        // the close handler will fire shortly with the non-zero exit code.
-        console.warn(
-          `[claude-code] Resume failed for ${sessionKey} (claude_session_id=${claudeSessionId}); forgetting and will respawn fresh on next call`
-        );
-        forgetClaudeSessionId(sessionKey);
-      }
-
-      if (
-        (stderrBuf.includes("rate_limit") || stderrBuf.includes("429") || /overloaded/i.test(stderrBuf)) &&
-        pp.pendingReject
-      ) {
-        const reject = pp.pendingReject;
-        setTimeout(() => {
-          if (pp.pendingReject === reject) {
-            pp.pendingResolve = null;
-            pp.pendingReject = null;
-            pp.streamHandler = null;
-            reject(new Error("RATE_LIMIT"));
-          }
-        }, RATE_LIMIT_GRACE_MS);
-      }
-    });
-
-    // --- Process exit ---
-    proc.on("close", (code) => {
-      pp.alive = false;
-      console.log(`[claude-code] Process exited with code ${code}`);
-      if (pp.pendingReject) {
-        const reject = pp.pendingReject;
-        pp.pendingResolve = null;
-        pp.pendingReject = null;
-        reject(new Error(`PROCESS_DIED_${code}`));
-      }
-      if (pp.streamHandler) {
-        pp.streamHandler.onError(`Process exited with code ${code}`);
-        pp.streamHandler = null;
-      }
-      this.cleanupTimers(pp);
-    });
-
-    proc.on("error", (err) => {
-      pp.alive = false;
-      console.error(`[claude-code] Process error: ${err.message}`);
-      if (pp.pendingReject) {
-        const reject = pp.pendingReject;
-        pp.pendingResolve = null;
-        pp.pendingReject = null;
-        reject(err);
-      }
-      if (pp.streamHandler) {
-        pp.streamHandler.onError(err.message);
-        pp.streamHandler = null;
-      }
-      this.cleanupTimers(pp);
-    });
+    if (USE_AI_BRIDGE) {
+      // Broker mode: the child lives in the detached ai-bridge daemon and
+      // survives a server restart. `data` frames are folded SYNCHRONOUSLY (a
+      // manual line buffer, not an async PassThrough) so that on reattach, once
+      // `client.attach` resolves, the replayed NDJSON is fully processed —
+      // determinism the four-case reattach branch relies on.
+      const client = getAiBridgeClient();
+      this.wireBrokerHandlers(pp, client, sessionKey, onLine);
+      pp.io = brokerIO(client, sessionKey);
+      // Fire the spawn; expose readiness so the first stdin write (sendChat)
+      // waits for the child to exist. spawn and write share the socket FIFO,
+      // but spawn's send sits behind an ensureConnected microtask.
+      pp.ready = client.spawn(sessionKey, { cliPath: resolveCliPath(), args, cwd: workspace, env })
+        .then(() => { /* child up (or resumed) */ })
+        .catch((err) => this.onSessionErrored(pp, err instanceof Error ? err : new Error(String(err))));
+    } else {
+      const proc = spawn(resolveCliPath(), args, { cwd: workspace, stdio: ["pipe", "pipe", "pipe"], env });
+      const rl = createInterface({ input: proc.stdout! });
+      rl.on("line", onLine);
+      pp.proc = proc;
+      pp.readline = rl;
+      pp.io = directIO(proc);
+      proc.stderr!.on("data", (d: Buffer) => this.handleStderrData(pp, sessionKey, d));
+      proc.on("close", (code) => this.onSessionClosed(pp, code));
+      proc.on("error", (err) => this.onSessionErrored(pp, err));
+    }
 
     // --- Max lifetime timer ---
     pp.lifetimeTimer = setTimeout(() => {
@@ -1268,6 +1298,206 @@ export class ClaudeCodeProvider implements AIProvider {
     }, MAX_LIFETIME_MS);
 
     return pp;
+  }
+
+  // Register the broker's per-session frame callbacks. `data` is folded through
+  // a SYNCHRONOUS line buffer (not an async PassThrough) so that on reattach,
+  // the moment `client.attach` resolves the replayed NDJSON is fully processed.
+  private wireBrokerHandlers(
+    pp: PersistentProcess,
+    client: AiBridgeClient,
+    sessionKey: string,
+    onLine: (line: string) => void,
+  ): void {
+    let lineBuf = "";
+    client.registerHandlers(sessionKey, {
+      onData: (chunk, offset) => {
+        lineBuf += chunk.toString();
+        let nl: number;
+        while ((nl = lineBuf.indexOf("\n")) !== -1) {
+          const line = lineBuf.slice(0, nl);
+          lineBuf = lineBuf.slice(nl + 1);
+          onLine(line);
+        }
+        pp.consumedOffset = offset + chunk.byteLength;
+      },
+      onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
+      onExit: (code) => this.onSessionClosed(pp, code),
+    });
+  }
+
+  // Build a PersistentProcess around an ALREADY-RUNNING broker session (no
+  // spawn): reattach's counterpart to spawnPersistentProcess. Volatile turn
+  // state starts empty and is rebuilt by replaying the store (see reattach).
+  private adoptBrokerProcess(sessionKey: string): PersistentProcess {
+    const client = getAiBridgeClient();
+    const pp: PersistentProcess = {
+      proc: null,
+      readline: null,
+      io: null as unknown as SessionIO,
+      ready: Promise.resolve(),
+      sessionKey,
+      consumedOffset: 0,
+      stderrBuf: "",
+      spawnMeta: { claudeSessionId: peekClaudeSessionId(sessionKey) ?? "", isNewSession: false },
+      createdAt: Date.now(),
+      lastActivity: Date.now(),
+      alive: true,
+      streamHandler: null,
+      pendingResolve: null,
+      pendingReject: null,
+      fullText: "",
+      activeToolCalls: new Set(),
+      inactivityTimer: null,
+      lifetimeTimer: null,
+      heartbeatInterval: null,
+      lastEventAt: Date.now(),
+      needsHistoryReplay: false,
+      sidechain: new SidechainTracker(),
+      pendingInputs: new Map(),
+    };
+    const onLine = (line: string) => {
+      try { this.handleStreamEvent(pp, JSON.parse(line)); } catch { /* non-JSON line, ignore */ }
+    };
+    this.wireBrokerHandlers(pp, client, sessionKey, onLine);
+    pp.io = brokerIO(client, sessionKey);
+    pp.lifetimeTimer = setTimeout(() => {
+      this.killProcess(pp);
+      for (const [key, p] of this.processes) { if (p === pp) { this.processes.delete(key); break; } }
+    }, MAX_LIFETIME_MS);
+    return pp;
+  }
+
+  /** True if a still-running broker session exists for `sessionKey`. The signal
+   *  the dispatcher uses to REATTACH (non-lossy) vs RESUME-from-scratch. */
+  async hasLiveSession(sessionKey: string): Promise<boolean> {
+    if (!USE_AI_BRIDGE) return false;
+    const pp = this.processes.get(sessionKey);
+    if (pp && pp.alive) return true;
+    return getAiBridgeClient().hasLiveSession(sessionKey);
+  }
+
+  /**
+   * Re-attach to an in-flight turn that survived a server restart in the broker
+   * (the non-lossy counterpart of resume-from-scratch). Adopts the live child,
+   * replays its buffered NDJSON through the SAME fold to rebuild turn state, then
+   * branches on the replayed terminal state:
+   *   - completed  → the `result` was buffered; onDone already fired, no re-run.
+   *   - live       → mid-generation; keep reading until the live `result`.
+   *   - awaiting-input → an unanswered AskUserQuestion; re-surface it and wait.
+   *   - dead       → child gone (TOCTOU / exited without result) → finalize as a
+   *                  died turn so the caller degrades to resume-from-scratch.
+   * Resolves when the turn ends (like sendChatInternal), returning the outcome.
+   */
+  async reattach(sessionKey: string, handler: StreamHandler): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
+    const existing = this.processes.get(sessionKey);
+    if (existing && existing.alive && existing.streamHandler) return "live"; // already driving
+
+    const client = getAiBridgeClient();
+    const pp = this.adoptBrokerProcess(sessionKey);
+    this.processes.set(sessionKey, pp);
+
+    pp.streamHandler = handler;
+    pp.replaySilent = true;
+    const turnDone = new Promise<void>((resolve, reject) => {
+      pp.pendingResolve = () => resolve();
+      pp.pendingReject = (e) => reject(e);
+    });
+
+    const res = await client.attach(sessionKey, 0);
+    pp.replaySilent = false;
+
+    // Replay is fully folded now (synchronous onData). Classify from pp state.
+    if (res.missing) { this.finalizeDeadReattach(pp); return "dead"; }
+    if (pp.streamHandler === null) return "completed"; // `result` was in the replay
+    if (!res.alive) { this.finalizeDeadReattach(pp); return "dead"; }
+
+    if (pp.pendingInputs.size > 0) {
+      // Case 3: re-surface the questions still awaiting a human, then stay live.
+      for (const [toolId, entry] of pp.pendingInputs) handler.onUserInputRequired?.(toolId, "", entry.schema);
+      await turnDone;
+      return "awaiting-input";
+    }
+    // Case 2: mid-generation — keep reading live until the result event.
+    await turnDone;
+    return "live";
+  }
+
+  private finalizeDeadReattach(pp: PersistentProcess): void {
+    pp.alive = false;
+    if (pp.pendingResolve) { const r = pp.pendingResolve; pp.pendingResolve = null; pp.pendingReject = null; r({ runId: "" }); }
+    if (pp.streamHandler) { pp.streamHandler.onAborted?.(); pp.streamHandler = null; }
+    this.cleanupTimers(pp);
+  }
+
+  // stderr scan (rate limit + missing-session), shared by direct + broker mode.
+  // Detects on the ACCUMULATED tail (pp.stderrBuf), not a single chunk: the CLI
+  // can split an error across write()s; the 2 KiB cap keeps the scan cheap and
+  // both detections are latch-style (idempotent on re-match).
+  private handleStderrData(pp: PersistentProcess, sessionKey: string, d: Buffer): void {
+    pp.stderrBuf += d.toString();
+    if (pp.stderrBuf.length > 2048) pp.stderrBuf = pp.stderrBuf.slice(-2048);
+    const { claudeSessionId, isNewSession } = pp.spawnMeta;
+
+    if (!isNewSession && looksLikeMissingSessionError(pp.stderrBuf)) {
+      // Asked to `--resume` a session no longer on disk. Wipe the DB row so the
+      // next spawn falls back to --session-id instead of looping on a doomed
+      // resume. Don't kill here — the close handler fires shortly with the code.
+      console.warn(
+        `[claude-code] Resume failed for ${sessionKey} (claude_session_id=${claudeSessionId}); forgetting and will respawn fresh on next call`
+      );
+      forgetClaudeSessionId(sessionKey);
+    }
+
+    if (
+      (pp.stderrBuf.includes("rate_limit") || pp.stderrBuf.includes("429") || /overloaded/i.test(pp.stderrBuf)) &&
+      pp.pendingReject
+    ) {
+      const reject = pp.pendingReject;
+      setTimeout(() => {
+        if (pp.pendingReject === reject) {
+          pp.pendingResolve = null;
+          pp.pendingReject = null;
+          pp.streamHandler = null;
+          reject(new Error("RATE_LIMIT"));
+        }
+      }, RATE_LIMIT_GRACE_MS);
+    }
+  }
+
+  // Child exited (direct: proc 'close'; broker: daemon `exit` frame). Rejects a
+  // pending turn and surfaces the error to a live stream, then drops timers.
+  private onSessionClosed(pp: PersistentProcess, code: number | null): void {
+    pp.alive = false;
+    console.log(`[claude-code] Process exited with code ${code}`);
+    if (pp.pendingReject) {
+      const reject = pp.pendingReject;
+      pp.pendingResolve = null;
+      pp.pendingReject = null;
+      reject(new Error(`PROCESS_DIED_${code}`));
+    }
+    if (pp.streamHandler) {
+      pp.streamHandler.onError(`Process exited with code ${code}`);
+      pp.streamHandler = null;
+    }
+    this.cleanupTimers(pp);
+  }
+
+  // Child failed to spawn / errored (direct: proc 'error'; broker: spawn ack rejection).
+  private onSessionErrored(pp: PersistentProcess, err: Error): void {
+    pp.alive = false;
+    console.error(`[claude-code] Process error: ${err.message}`);
+    if (pp.pendingReject) {
+      const reject = pp.pendingReject;
+      pp.pendingResolve = null;
+      pp.pendingReject = null;
+      reject(err);
+    }
+    if (pp.streamHandler) {
+      pp.streamHandler.onError(err.message);
+      pp.streamHandler = null;
+    }
+    this.cleanupTimers(pp);
   }
 
   // --- NDJSON Event Handling ---
@@ -1449,7 +1679,10 @@ export class ClaudeCodeProvider implements AIProvider {
               if (sessionKey) {
                 pp.pendingInputs.set(toolId, { sessionKey, schema, awaitingSince: Date.now() });
               }
-              handler.onUserInputRequired?.(toolId, toolName, schema);
+              // During a reattach REPLAY we rebuild pendingInputs (above) but do
+              // NOT re-surface the form live — reattach() re-fires onUserInputRequired
+              // once, after replay, for the entries that are STILL unanswered.
+              if (!pp.replaySilent) handler.onUserInputRequired?.(toolId, toolName, schema);
             }
           }
         } else if (block.type === "tool_result") {
@@ -1486,6 +1719,10 @@ export class ClaudeCodeProvider implements AIProvider {
           handler.onToolResult(toolId, resultContent, isError);
           pp.activeToolCalls.delete(toolId);
           settled.add(toolId);
+          // A result for this tool means any user-input request it represented
+          // is answered — drop it so that after a reattach REPLAY, pendingInputs
+          // holds EXACTLY the questions still awaiting a human (Case 3).
+          pp.pendingInputs.delete(toolId);
         }
       }
     }
@@ -1563,9 +1800,8 @@ export class ClaudeCodeProvider implements AIProvider {
   private killProcess(pp: PersistentProcess): void {
     pp.alive = false;
     this.cleanupTimers(pp);
-    try { pp.readline.close(); } catch {}
-    try { pp.proc.kill("SIGTERM"); } catch {}
-    setTimeout(() => { try { pp.proc.kill("SIGKILL"); } catch {} }, KILL_GRACE_MS);
+    try { pp.readline?.close(); } catch {}
+    pp.io.kill();
     // Best-effort cleanup of the per-session MCP config file. Doesn't block
     // the kill — if removal fails (file already gone, fs error), the next
     // spawn for the same sessionKey will overwrite the path anyway.
@@ -1657,7 +1893,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.pendingInputs.delete(toolCallId);
 
     try {
-      pp.proc.stdin!.write(input);
+      pp.io.writeStdin(input);
     } catch (err: any) {
       // Restore the entry so a retry from the route can succeed if the
       // stdin transient hiccups (rare; mostly here as defence-in-depth).

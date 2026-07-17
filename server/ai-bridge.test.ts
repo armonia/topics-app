@@ -1,0 +1,156 @@
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import net from "node:net";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Integration test for server/ai-bridge.mjs — the detached broker daemon.
+// Uses `cat` as a clean-pipe child (echoes stdin→stdout, no PTY) so we can
+// assert the offset/replay/idempotency contract deterministically.
+
+const SOCK = join(tmpdir(), `ai-bridge-test-${process.pid}.sock`);
+let storeDir = "";
+let daemon: ReturnType<typeof Bun.spawn> | null = null;
+
+/** One NDJSON socket connection with a frame queue + async waiter. */
+function connect(): Promise<{
+  send: (m: object) => void;
+  next: (pred: (m: any) => boolean, timeoutMs?: number) => Promise<any>;
+  close: () => void;
+}> {
+  return new Promise((resolve, reject) => {
+    const sock = net.connect(SOCK);
+    const frames: any[] = [];
+    const waiters: Array<{ pred: (m: any) => boolean; resolve: (m: any) => void }> = [];
+    let buf = "";
+    sock.on("data", (chunk) => {
+      buf += chunk.toString();
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        let m: any; try { m = JSON.parse(line); } catch { continue; }
+        const wi = waiters.findIndex((w) => w.pred(m));
+        if (wi >= 0) { const [w] = waiters.splice(wi, 1); w.resolve(m); }
+        else frames.push(m);
+      }
+    });
+    sock.on("error", reject);
+    sock.on("connect", () => resolve({
+      send: (m) => sock.write(JSON.stringify(m) + "\n"),
+      next: (pred, timeoutMs = 3000) => new Promise((res, rej) => {
+        const hit = frames.findIndex(pred);
+        if (hit >= 0) { const [m] = frames.splice(hit, 1); return res(m); }
+        const t = setTimeout(() => rej(new Error("frame timeout")), timeoutMs);
+        waiters.push({ pred, resolve: (m) => { clearTimeout(t); res(m); } });
+      }),
+      close: () => sock.destroy(),
+    }));
+  });
+}
+
+const b64 = (s: string) => Buffer.from(s, "base64").toString("utf8");
+
+beforeAll(async () => {
+  storeDir = mkdtempSync(join(tmpdir(), "ai-bridge-store-"));
+  daemon = Bun.spawn([process.execPath, join(import.meta.dir, "ai-bridge.mjs"), "--socket", SOCK, "--store-dir", storeDir], {
+    stdout: "ignore", stderr: "inherit",
+  });
+  // Wait for the socket FILE to exist first — net.connect to a not-yet-created
+  // unix path can hang rather than error under Bun, so never connect blind.
+  for (let i = 0; i < 100 && !existsSync(SOCK); i++) await new Promise((r) => setTimeout(r, 100));
+  const c = await connect();
+  c.close();
+}, 20000);
+
+afterAll(() => {
+  try { daemon?.kill(); } catch {}
+  try { rmSync(storeDir, { recursive: true, force: true }); } catch {}
+});
+
+describe("ai-bridge daemon", () => {
+  test("spawn → write echoes back as offset-addressed data frames; attach replays losslessly", async () => {
+    const c = await connect();
+    const id = "topic:echo1";
+    c.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    const spawned = await c.next((m) => m.type === "spawned" && m.id === id);
+    expect(typeof spawned.pid).toBe("number");
+
+    c.send({ type: "write", id, data: "line1\n" });
+    const d1 = await c.next((m) => m.type === "data" && m.id === id);
+    expect(d1.offset).toBe(0);
+    expect(b64(d1.chunk)).toBe("line1\n");
+
+    c.send({ type: "write", id, data: "line2\n" });
+    const d2 = await c.next((m) => m.type === "data" && m.id === id && m.offset === 6);
+    expect(b64(d2.chunk)).toBe("line2\n");
+
+    // A SECOND client attaches from 0 → gets the whole buffer replayed, line-aligned.
+    const c2 = await connect();
+    c2.send({ type: "attach", id, fromOffset: 0 });
+    const replay = await c2.next((m) => m.type === "data" && m.id === id);
+    expect(b64(replay.chunk)).toBe("line1\nline2\n");
+    const ack = await c2.next((m) => m.type === "attached" && m.id === id);
+    expect(ack.endOffset).toBe(12);
+    expect(ack.alive).toBe(true);
+
+    // Attach from a mid-offset → only the tail.
+    const c3 = await connect();
+    c3.send({ type: "attach", id, fromOffset: 6 });
+    const tail = await c3.next((m) => m.type === "data" && m.id === id);
+    expect(b64(tail.chunk)).toBe("line2\n");
+
+    c.close(); c2.close(); c3.close();
+  });
+
+  test("spawn is idempotent per id (never a second child on the same transcript)", async () => {
+    const c = await connect();
+    const id = "topic:idem1";
+    c.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    const first = await c.next((m) => m.type === "spawned" && m.id === id);
+    c.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    const second = await c.next((m) => m.type === "spawned" && m.id === id);
+    expect(second.resumed).toBe(true);
+    expect(second.pid).toBe(first.pid);
+    c.close();
+  });
+
+  test("list reports the session; kill removes it", async () => {
+    const c = await connect();
+    const id = "topic:kill1";
+    c.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    await c.next((m) => m.type === "spawned" && m.id === id);
+
+    c.send({ type: "list" });
+    const list = await c.next((m) => m.type === "list");
+    expect(list.sessions.some((s: any) => s.id === id && s.alive)).toBe(true);
+
+    c.send({ type: "kill", id });
+    await c.next((m) => m.type === "killed" && m.id === id);
+
+    c.send({ type: "list" });
+    const list2 = await c.next((m) => m.type === "list");
+    expect(list2.sessions.some((s: any) => s.id === id)).toBe(false);
+    c.close();
+  });
+
+  test("exit frame fires when the child ends; a late attach still replays the completed output", async () => {
+    const c = await connect();
+    const id = "topic:done1";
+    // `sh -c 'printf ...'` writes then exits → completed-while-down analogue.
+    c.send({ type: "spawn", id, cliPath: "/bin/sh", args: ["-c", "printf 'done-line\\n'"], cwd: storeDir, env: {} });
+    await c.next((m) => m.type === "spawned" && m.id === id);
+    const exit = await c.next((m) => m.type === "exit" && m.id === id);
+    expect(exit.exitCode).toBe(0);
+    expect(exit.endOffset).toBe(10);
+
+    // Late attach after exit → the buffer is still replayable (Case 1).
+    const c2 = await connect();
+    c2.send({ type: "attach", id, fromOffset: 0 });
+    const replay = await c2.next((m) => m.type === "data" && m.id === id);
+    expect(b64(replay.chunk)).toBe("done-line\n");
+    const ack = await c2.next((m) => m.type === "attached" && m.id === id);
+    expect(ack.alive).toBe(false);
+    expect(ack.exitCode).toBe(0);
+    c.close(); c2.close();
+  });
+});
