@@ -15,6 +15,13 @@ cd "$APP_DIR"
 export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 BUN="$(command -v bun || echo "$HOME/.bun/bin/bun")"
 
+# ─── Optional LOCAL env overrides (per-machine, NOT committed) ──────────────
+# A developer's own machine can enable experimental server flags (e.g.
+# TOPICS_AI_BRIDGE=1 to run the detached AI broker) by dropping `export FOO=bar`
+# lines in ~/.topics-server-env. The file never exists on a downloaded/other
+# install, so released builds stay clean — this line is a harmless no-op there.
+[ -f "$HOME/.topics-server-env" ] && source "$HOME/.topics-server-env"
+
 # ─── Single-instance guard (2026-05-11) ────────────────────────────────────
 # Without this, every `launchctl bootout`/`bootstrap` cycle (or any glitchy
 # `KeepAlive=true` restart) leaves a SECOND `start-prod.sh` running in
