@@ -36,7 +36,6 @@ const TRACKED_FILES = [
   "client/src/components/Chat/ToolCallRow.tsx",
   "client/src/components/Chat/ReasoningRow.tsx",
   "client/src/components/Chat/MessageMetaFooter.tsx",
-  "client/src/components/Chat/toolIcon.ts",
 ];
 
 const ANY_RE = /(?<![A-Za-z0-9_$])any(?![A-Za-z0-9_$])/;
