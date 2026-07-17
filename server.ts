@@ -564,8 +564,14 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     try {
       if (realpathSync(repoPath) !== realpathSync(process.cwd())) return false;
     } catch { return false; }
-    console.log("[automerge] server code landed — self-restart when the merge queue drains (+3s)");
-    taskAutoMerge.whenIdle(repoPath, () => setTimeout(() => process.exit(0), 3_000));
+    console.log("[automerge] server code landed — self-restart when the merge queue drains + agents quiescent (+3s)");
+    // Drain the git queue first, THEN wait for no agent turn to be in flight
+    // (quiescence gate) so the self-restart never cuts a working agent — the
+    // exact thing that made a working task show "il server è ripartito".
+    taskAutoMerge.whenIdle(repoPath, async () => {
+      await waitForDispatcherQuiescent("approve self-restart");
+      setTimeout(() => process.exit(0), 3_000);
+    });
     return true;
   },
   // Human "stop" on a dispatched task cuts the running turn (same abort path
@@ -868,6 +874,20 @@ const server = Bun.serve<WSData>({
         // later so the existing graceful-shutdown handler runs.
         setTimeout(() => process.kill(process.pid, "SIGTERM"), 50);
         return new Response(JSON.stringify({ ok: true }), {
+          status: 202, headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "POST" && pathname === "/__daemon/restart-when-idle") {
+        // Graceful restart that WAITS for agent turns to finish first — the
+        // safe way to apply a server fix without cutting a working agent
+        // (use this instead of `kickstart -k`, which SIGKILLs mid-turn).
+        // Reply 202 now; wait for quiescence, then SIGTERM ourselves so
+        // gracefulShutdown runs and launchd/start-prod.sh relaunches.
+        const busy = taskDispatcher.busyCount();
+        void waitForDispatcherQuiescent("restart-when-idle").then(() => {
+          process.kill(process.pid, "SIGTERM");
+        });
+        return new Response(JSON.stringify({ ok: true, inFlight: busy }), {
           status: 202, headers: { "content-type": "application/json" },
         });
       }
@@ -1452,6 +1472,30 @@ console.log(`[Daemon] state written → pid=${daemonState.pid} port=${daemonStat
 browserService.restoreAllContexts(Object.values(ctx.loadTopics().topics))
   .then(r => console.log(`[server] browser restore: ${r.restored} restored, ${r.failed} failed`))
   .catch(err => console.warn(`[server] browser restore failed (non-fatal):`, err.message));
+
+// Quiescence gate: a PLANNED restart (approve self-restart, or an explicit
+// restart-when-idle request) must not cut an agent mid-turn. Poll the
+// dispatcher's in-flight count until it drains, capped so a stuck/very long
+// turn can't wedge the restart forever — past the cap we proceed and the
+// reload-resilience path resumes whatever was still running. Only for
+// CONTROLLED restarts; raw SIGTERM/SIGINT (OS shutdown) stay fast.
+const QUIESCENCE_CAP_MS = 5 * 60_000;
+async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_MS): Promise<void> {
+  const deadline = Date.now() + capMs;
+  let logged = false;
+  while (taskDispatcher.busyCount() > 0) {
+    if (Date.now() >= deadline) {
+      console.warn(`[quiescence] ${label}: ${taskDispatcher.busyCount()} turn(s) still in flight after ${Math.round(capMs / 1000)}s — proceeding anyway (reload-resilience will resume them)`);
+      return;
+    }
+    if (!logged) {
+      console.log(`[quiescence] ${label}: waiting for ${taskDispatcher.busyCount()} in-flight turn(s) to finish before restart`);
+      logged = true;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  if (logged) console.log(`[quiescence] ${label}: all turns finished — proceeding with restart`);
+}
 
 // Graceful shutdown
 async function gracefulShutdown(signal: string) {

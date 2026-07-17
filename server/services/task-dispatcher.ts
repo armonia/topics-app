@@ -145,6 +145,14 @@ export interface TaskDispatcher {
   shutdown(): void;
   /** True while a launch for this task is in flight (test/introspection). */
   isInFlight(taskId: string): boolean;
+  /**
+   * How many task launches are in flight right now (setup + turn + teardown).
+   * The quiescence signal a restart must wait on: a planned restart
+   * (approve self-restart / graceful shutdown) blocks until this is 0 so it
+   * never cuts an agent mid-turn. Backed by `inFlight`, not `liveTurns`
+   * (the latter is only the turn window, missing setup/wind-down).
+   */
+  busyCount(): number;
 }
 
 const CHIP_QUEUED = "queued";
@@ -879,5 +887,5 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     pendingResume.clear();
   }
 
-  return { tick, onEnterTodo, onLeaveTodo, onBlockerDone, resume, reconcile, shutdown, isInFlight: (id) => inFlight.has(id) };
+  return { tick, onEnterTodo, onLeaveTodo, onBlockerDone, resume, reconcile, shutdown, isInFlight: (id) => inFlight.has(id), busyCount: () => inFlight.size };
 }
