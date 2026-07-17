@@ -345,8 +345,8 @@ function GlobalSettingsMenu() {
         ref={btnRef}
         onClick={() => { setOpen((o) => !o); if (!open) load(); }}
         title="Impostazioni dispatch — globali (tutte le board)"
-        className={`flex items-center gap-0.5 rounded p-1 ${open ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
-      ><Settings className="h-3.5 w-3.5" /><ChevronDown className="h-3 w-3" /></button>
+        className={`flex items-center rounded p-1 ${open ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
+      ><ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288} unmanagedFocus>
         <div className="space-y-2.5 px-3 py-2.5 text-xs text-neutral-300">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Dispatch — tutte le board</p>
@@ -490,7 +490,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
           placeholder="cerca…"
           aria-label="Cerca nei task"
-          className="h-6 w-28 rounded-md bg-white/5 pl-6 pr-1.5 text-[11px] leading-none text-neutral-100 outline-none placeholder:text-neutral-600 focus:w-40 focus:bg-white/10"
+          className="h-6 w-40 rounded-md bg-white/5 pl-6 pr-1.5 text-[11px] leading-none text-neutral-100 outline-none placeholder:text-neutral-600 focus:bg-white/10"
         />
       </div>
 
