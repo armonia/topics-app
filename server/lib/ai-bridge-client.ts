@@ -61,6 +61,7 @@ export class AiBridgeClient {
   private readonly reconnectCbs = new Set<() => void>();
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private lastPongAt = 0;
+  private disposed = false;
 
   readonly socketPath: string;
   readonly storeDir: string;
@@ -129,6 +130,7 @@ export class AiBridgeClient {
       this.ready = false;
       this.socket = null;
       if (this.watchdog) { clearInterval(this.watchdog); this.watchdog = null; }
+      if (this.disposed) return; // shut down deliberately — do NOT respawn
       console.log("[AI Bridge] socket closed — reconnecting");
       setTimeout(() => {
         this.ensureConnected()
@@ -237,6 +239,16 @@ export class AiBridgeClient {
     this.reconnectCbs.add(cb);
     return () => this.reconnectCbs.delete(cb);
   }
+
+  /** Tear down the connection WITHOUT triggering the auto-reconnect (which would
+   *  otherwise respawn the daemon). For a deliberate shutdown / test teardown. */
+  dispose(): void {
+    this.disposed = true;
+    if (this.watchdog) { clearInterval(this.watchdog); this.watchdog = null; }
+    try { this.socket?.destroy(); } catch { /* already gone */ }
+    this.socket = null;
+    this.ready = false;
+  }
 }
 
 /** Socket path: isolated per data-instance so a test server never touches prod's
@@ -255,4 +267,13 @@ let singleton: AiBridgeClient | null = null;
 export function getAiBridgeClient(): AiBridgeClient {
   if (!singleton) singleton = new AiBridgeClient();
   return singleton;
+}
+
+/** Test-only: drop the cached singleton so the next getAiBridgeClient() picks up
+ *  a fresh socket/store from the current env. Prevents a prior test file's client
+ *  (with a different TOPICS_AI_BRIDGE_SOCKET) leaking into a later one when many
+ *  broker tests share one `bun test` process. No-op effect in production. */
+export function __resetAiBridgeClientForTests(): void {
+  try { singleton?.dispose(); } catch { /* best effort */ }
+  singleton = null;
 }
