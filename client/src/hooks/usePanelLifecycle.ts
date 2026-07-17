@@ -2168,6 +2168,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       topicIds: presenceTopicIds,
       focusedTopicId: focusedTopicForPresence,
     });
+    // Same trigger, same topic set: declare the open topics for per-token delta
+    // routing (server → WSData.openTopicIds). Kept in lock-step with the presence
+    // announce so a window never has a stale subscription and misses its stream;
+    // a window that never sends this still receives everything (legacy branch).
+    sendWS({ type: 'subscribe', topicIds: presenceTopicIds });
   }, [wsStatus, windowId, isDetached, presenceTopicIds, focusedTopicForPresence, sendWS]);
 
   return {
