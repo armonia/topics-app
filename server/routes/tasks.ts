@@ -54,6 +54,24 @@ export interface TasksRouterOpts {
    * `dispatchAutoMerge`). Absent ⇒ approve never touches git.
    */
   autoMerge?: TaskAutoMerge;
+  /**
+   * Real uncommitted changes in the task's branch worktree (junk excluded), or
+   * null when the task has no branch worktree. Powers the structural review
+   * gate: an agent delivery with uncommitted work is refused with coaching.
+   */
+  taskWorktreeDirt?: (taskId: string) => Promise<string[] | null>;
+  /**
+   * Delete the task's worktree + branch + store row (the worktree-manager
+   * path). Called after a landing: once merged, the worktree has no value and
+   * keeping it is how 30+ stale worktrees accumulated.
+   */
+  deleteTaskWorktree?: (taskId: string) => Promise<boolean>;
+  /**
+   * A landing touched server code of the repo THIS server runs from — the
+   * callee decides whether that's the case and self-restarts (detached), so
+   * approved server work goes live without a manual kickstart.
+   */
+  onServerCodeLanded?: (repoPath: string) => boolean;
 }
 
 /**
@@ -585,6 +603,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                   const res = await autoMerge.tryMerge(taskId, task.text);
                   if (res.status === "merged") {
                     svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
+                    // Merged ⇒ the worktree has no remaining value: reap it now
+                    // (worktree + branch + row) instead of letting it pile up.
+                    if (opts?.deleteTaskWorktree) {
+                      const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
+                      if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
+                    }
                     // Landing client sources without rebuilding leaves the served
                     // bundle stale (the recurring "non la vedo"): rebuild now, on
                     // the same per-repo queue, and surface the outcome.
@@ -600,6 +624,28 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                       });
                       if (build.code !== 0) console.error("[automerge] build:client failed for", taskId, build.stderr.slice(-2000));
                     }
+                    if (res.touchedNative) {
+                      svc.addComment({
+                        taskId, author: "system",
+                        content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch).",
+                      });
+                    }
+                    // LAST: a server-code landing self-restarts the process
+                    // (detached, delayed) — every comment above must be on disk
+                    // and broadcast before the restart cuts us off.
+                    if (res.touchedServer && opts?.onServerCodeLanded) {
+                      const restarting = opts.onServerCodeLanded(res.repoPath);
+                      svc.addComment({
+                        taskId, author: "system",
+                        content: restarting
+                          ? "Il landing tocca il server: riavvio in corso (le sessioni riprendono da sole)."
+                          : "Il landing tocca codice server di un altro progetto: ricordati di riavviarlo.",
+                      });
+                    }
+                  } else if (res.status === "nothing") {
+                    // No commits to land — the deliverable (if any) lives in the
+                    // thread. The worktree is value-free either way: reap it.
+                    if (opts?.deleteTaskWorktree) await opts.deleteTaskWorktree(taskId).catch(() => false);
                   } else if (res.status === "conflict") {
                     // Not landed → hand it back to the task's own agent, which knows
                     // what it changed. Move it out of done so the resume has a home.
@@ -821,6 +867,33 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       }
       if (method === "PATCH") {
         const body = (await readJSON(req)) as any;
+        // Structural review gate: a DELIVERY with work still uncommitted in the
+        // task's worktree is not reviewable — approve would find nothing to
+        // merge and the work would strand ("implementato, NON committato").
+        // Questions are exempt: an agent asking mid-work legitimately has a
+        // dirty worktree. Prompt instructions alone never fixed this; the 409
+        // coaches the retry like review_needs_summary does.
+        if (body?.status === "review" && opts?.taskWorktreeDirt) {
+          try {
+            const got = svc.get(item.taskId, { projectId: sess.projectId });
+            const lastOwn = got ? [...got.comments].reverse().find(
+              (c) => c.author !== "user" && c.author !== "system" && c.kind === "comment",
+            ) : null;
+            const isQuestion = !!lastOwn?.content?.includes("```question");
+            if (got && got.task.status !== "review" && !isQuestion) {
+              const dirt = await opts.taskWorktreeDirt(item.taskId);
+              if (dirt && dirt.length > 0) {
+                return json({
+                  error:
+                    `your worktree has ${dirt.length} uncommitted change${dirt.length === 1 ? "" : "s"} ` +
+                    `(${dirt.slice(0, 3).join(", ")}${dirt.length > 3 ? ", …" : ""}) — ` +
+                    "commit them on your branch (or discard leftovers), THEN set status='review'",
+                  code: "review_needs_commit",
+                }, 409);
+              }
+            }
+          } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
+        }
         try {
           const task = svc.update({
             taskId: item.taskId,

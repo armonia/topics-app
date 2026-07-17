@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { createTaskAutoMerge, type GitRunResult, type TaskMergeTarget } from "./task-automerge";
+import { createTaskAutoMerge, worktreeRealDirt, type GitRunResult, type TaskMergeTarget } from "./task-automerge";
 
 const TARGET: TaskMergeTarget = { repoPath: "/repo", branch: "topics/lyrical-cobra", defaultBranch: "main" };
 
@@ -111,6 +111,57 @@ describe("task-automerge", () => {
       expect(res.touchedClient).toBe(true);
       expect(res.repoPath).toBe(TARGET.repoPath);
     }
+  });
+
+  test("merged landing flags per area: server.ts root file and desktop-tauri/", async () => {
+    const git = fakeGit({
+      ...CLEAN_PRECONDITIONS,
+      "merge --no-ff": { code: 0 },
+      "rev-parse --short": { stdout: "abc1234\n" },
+      "diff --name-only": { stdout: "server.ts\ndesktop-tauri/src-tauri/src/lib.rs\nREADME.md\n" },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    if (res.status !== "merged") throw new Error(`expected merged, got ${res.status}`);
+    expect(res.touchedServer).toBe(true);
+    expect(res.touchedNative).toBe(true);
+    expect(res.touchedClient).toBe(false);
+    // "serverless" name must not fool the prefix check.
+    const git2 = fakeGit({
+      ...CLEAN_PRECONDITIONS,
+      "merge --no-ff": { code: 0 },
+      "rev-parse --short": { stdout: "abc1234\n" },
+      "diff --name-only": { stdout: "serverless.md\nclient/src/App.tsx\n" },
+    });
+    const am2 = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git2.run });
+    const res2 = await am2.tryMerge("t1", "x");
+    if (res2.status !== "merged") throw new Error("expected merged");
+    expect(res2.touchedServer).toBe(false);
+    expect(res2.touchedClient).toBe(true);
+  });
+
+  test("worktreeRealDirt: junk excluded, tracked+real untracked counted, rename/quoted parsed", async () => {
+    const run = async (_cwd: string, _args: string[]): Promise<GitRunResult> => ({
+      code: 0,
+      stdout: [
+        " M desktop-tauri/src-tauri/src/lib.rs",
+        "?? .topics-daemon/daemon-process.lock",
+        "?? graphify-out/graph.json",
+        "?? .claude-task-summary.md",
+        '?? "file with spaces.txt"',
+      ].join("\n") + "\n",
+      stderr: "",
+    });
+    expect(await worktreeRealDirt("/wt", run)).toEqual([
+      "desktop-tauri/src-tauri/src/lib.rs",
+      "file with spaces.txt",
+    ]);
+    // status failure → empty (the gate must never hard-fail on a git hiccup)
+    const boom = async (): Promise<GitRunResult> => ({ code: 128, stdout: "", stderr: "not a repo" });
+    expect(await worktreeRealDirt("/wt", boom)).toEqual([]);
+    // fully committed worktree → empty
+    const clean = async (): Promise<GitRunResult> => ({ code: 0, stdout: "", stderr: "" });
+    expect(await worktreeRealDirt("/wt", clean)).toEqual([]);
   });
 
   test("merged landing that only touches server/ → touchedClient false", async () => {

@@ -18,7 +18,15 @@
 //   • Serialized per repo path, so two approvals on the same project can't race.
 
 export type AutoMergeResult =
-  | { status: "merged"; commit: string; branch: string; repoPath: string; touchedClient: boolean }
+  | {
+      status: "merged"; commit: string; branch: string; repoPath: string;
+      /** Landing introduced files under client/ → the served bundle is stale until a rebuild. */
+      touchedClient: boolean;
+      /** Landing touched server code (server/ or server.ts) → live process needs a restart. */
+      touchedServer: boolean;
+      /** Landing touched desktop-tauri/ → the native shell needs a cargo rebuild + relaunch. */
+      touchedNative: boolean;
+    }
   | { status: "conflict"; branch: string }
   | { status: "nothing"; branch: string }
   | { status: "skipped"; reason: string };
@@ -144,12 +152,17 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         if (merge.code === 0) {
           const rev = await runGit(repoPath, ["rev-parse", "--short", "HEAD"]);
           // First-parent diff = exactly what this landing introduced on main.
-          // Landing client sources without a rebuild leaves the served bundle
-          // stale ("non la vedo") — the caller uses this to trigger buildClient.
+          // The caller reacts per area: client/ → rebuild the served bundle
+          // ("non la vedo"), server → restart the live process, desktop-tauri
+          // → tell the human the native shell needs a rebuild.
           const diff = await runGit(repoPath, ["diff", "--name-only", "HEAD^1", "HEAD"]);
-          const touchedClient = diff.code === 0
-            && diff.stdout.split("\n").some((f) => f.startsWith("client/"));
-          return { status: "merged", commit: rev.stdout.trim(), branch, repoPath, touchedClient };
+          const files = diff.code === 0 ? diff.stdout.split("\n").filter(Boolean) : [];
+          return {
+            status: "merged", commit: rev.stdout.trim(), branch, repoPath,
+            touchedClient: files.some((f) => f.startsWith("client/")),
+            touchedServer: files.some((f) => f.startsWith("server/") || f === "server.ts"),
+            touchedNative: files.some((f) => f.startsWith("desktop-tauri/")),
+          };
         }
 
         // Non-zero: conflict (or any failure). Abort so main is never left mid-merge.
@@ -177,3 +190,30 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
 }
 
 export type TaskAutoMerge = ReturnType<typeof createTaskAutoMerge>;
+
+/**
+ * Generated artifacts that agent tooling drops into a worktree — never part of
+ * the deliverable, never a reason to refuse a review or keep a worktree alive.
+ */
+const WORKTREE_JUNK = [/^\.topics-daemon\//, /^graphify-out\//, /^\.claude-task-summary\.md$/];
+
+/**
+ * Paths with REAL uncommitted changes in `path` (tracked modifications plus
+ * non-junk untracked files). Empty array = the worktree's work is fully
+ * committed (or the status call failed — the caller must not hard-fail on a
+ * git hiccup). Used as the structural review gate: an agent that "delivers"
+ * with work still sitting uncommitted in its worktree gets a 409 coaching it
+ * to commit first — the failure mode prompts alone never fixed.
+ */
+export async function worktreeRealDirt(
+  path: string,
+  runGit: (cwd: string, args: string[]) => Promise<GitRunResult> = defaultRunGit,
+): Promise<string[]> {
+  const st = await runGit(path, ["status", "--porcelain"]);
+  if (st.code !== 0) return [];
+  return st.stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.slice(3).replace(/^"|"$/g, ""))
+    .filter((p) => !WORKTREE_JUNK.some((rx) => rx.test(p)));
+}
