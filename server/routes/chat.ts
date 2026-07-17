@@ -77,7 +77,7 @@ export interface ChatDeps {
 
 export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService?: BrowserService): RouteHandler {
   const {
-    broadcastToAll, db, json, readJSON,
+    broadcastToAll, broadcastToTopicSubscribers, db, json, readJSON,
     getTopicBySessionKey,
     appendLocalMessage,
     createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
@@ -463,6 +463,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let fullContent = "";
           let fullThinking = "";
           let lastTextDelta = ""; // track cumulative text from delta events
+          // Carry-over tail for the localhost auto-nav scan: instead of
+          // re-scanning the whole accumulated fullContent every delta (O(n²) over
+          // a stream), we scan only `carry + newDelta` where `carry` holds the
+          // last few chars of what we already scanned — enough to catch a
+          // `localhost:PORT` URL split across two chunks (max ~22 chars).
+          let localhostScanCarry = "";
           // Cumulative marker-stripped content that has already been broadcast
           // to clients. Delta to broadcast on each chunk =
           //   currentMarkerStrippedFullContent - lastBroadcastClean
@@ -932,7 +938,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // Topic/project/browser are now driven by tools, not markers.
                 // The only surviving heuristic is auto-opening the browser pane
                 // when the model mentions a localhost:PORT dev server in prose.
-                detectLocalhostAutoNav(fullContent, matchedTopic);
+                // Scan only the new delta plus a small carry-over tail (a URL can
+                // straddle two chunks) — not the whole accumulated fullContent.
+                const localhostScanWindow = localhostScanCarry + newText;
+                detectLocalhostAutoNav(localhostScanWindow, matchedTopic);
+                // Keep enough trailing context for a `localhost:PORT` split across
+                // the boundary (`http://localhost:65535` ≈ 22 chars).
+                localhostScanCarry = localhostScanWindow.slice(-24);
 
                 // Broadcast clean content as a true delta against the cumulative
                 // marker-stripped state. See computeCleanBroadcastDelta() for
@@ -944,7 +956,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   computeCleanBroadcastDelta(fullContent, lastBroadcastClean);
                 lastBroadcastClean = cumulativeClean;
                 if (deltaToBroadcast) {
-                  broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: deltaToBroadcast });
+                  const chunk = { type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: deltaToBroadcast };
+                  if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, chunk);
+                  else broadcastToAll(chunk);
                   writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: deltaToBroadcast } }] }));
                 }
               }
@@ -971,7 +985,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               resetStreamTimer();
               fullThinking += text;
               appendThinkingBlock(text);
-              broadcastToAll({ type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: text });
+              const thinkingChunk = { type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: text };
+              if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, thinkingChunk);
+              else broadcastToAll(thinkingChunk);
               updateStreamContent(sessionKey, fullContent, fullThinking);
             },
 
@@ -1216,7 +1232,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   if (extra) {
                     fullContent = finalText;
                     if (extra) {
-                      broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: extra });
+                      const extraChunk = { type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: extra };
+                      if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, extraChunk);
+                      else broadcastToAll(extraChunk);
                     }
                   }
                 }
@@ -1545,8 +1563,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 const content = delta.content;
                 if (content.includes('<thinking>')) { isInThinking = true; broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
                 if (content.includes('</thinking>')) { isInThinking = false; broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
-                if (isInThinking) { const cleaned = content.replace(/<\/?thinking>/g, ''); fullThinking += cleaned; broadcastToAll({ type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned }); }
-                else { const cleaned = content.replace(/<\/?thinking>/g, ''); if (cleaned) { fullContent += cleaned; broadcastToAll({ type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned }); } }
+                if (isInThinking) { const cleaned = content.replace(/<\/?thinking>/g, ''); fullThinking += cleaned; const tc = { type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, tc); else broadcastToAll(tc); }
+                else { const cleaned = content.replace(/<\/?thinking>/g, ''); if (cleaned) { fullContent += cleaned; const cc = { type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cc); else broadcastToAll(cc); } }
                 chunkCount++;
                 updateStreamContent(sessionKey, fullContent, fullThinking);
                 if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) { lastSaveChunk = chunkCount; updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined }); }

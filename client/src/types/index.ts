@@ -490,6 +490,16 @@ export interface WSPresenceAnnounceMessage {
   focusedTopicId?: string;
 }
 
+/** Per-topic delta routing — this window declaring the set of topics it
+ *  currently has open (outbound client → server). The server stores it on the
+ *  connection (`WSData.openTopicIds`) and routes streaming per-token deltas only
+ *  to windows showing that topic. WS-ephemeral; never persisted. Re-sent on
+ *  every open/close/focus change and on reconnect, so the set stays fresh. */
+export interface WSSubscribeMessage {
+  type: 'subscribe';
+  topicIds: string[];
+}
+
 /** Full-list presence snapshot (inbound server → client). */
 export interface WSPresenceWindowsMessage {
   type: 'presence:windows';
@@ -1019,6 +1029,7 @@ export type WSMessage =
   | WSOpenProjectMessage
   | WSDragMessage
   | WSPresenceAnnounceMessage
+  | WSSubscribeMessage
   | WSPresenceWindowsMessage
   | WSStreamStartMessage
   | WSStreamEndMessage
