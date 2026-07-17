@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseTier, parseFuzzy, tierToAvailableModel, pickTaskModel, pickTaskModelDetailed } from "./task-model-picker";
+import { parseTier, parseFuzzy, tierToAvailableModel, pickTaskModel, pickTaskModelDetailed, floorTier } from "./task-model-picker";
 
 const ALL = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"];
 
@@ -132,5 +132,27 @@ describe("pickTaskModelDetailed", () => {
   test("unparsable tier still surfaces the fuzzy flag with the fallback model", async () => {
     const r = await pickTaskModelDetailed({ text: "x" }, { ...base, complete: async () => "boh fuzzy" });
     expect(r).toEqual({ model: "claude-sonnet-5", fuzzy: true });
+  });
+
+  test("execution floor: a haiku pick is clamped UP to sonnet (haiku is judge-only)", async () => {
+    const r = await pickTaskModelDetailed({ text: "bump versione" }, { ...base, complete: async () => "haiku ok" });
+    expect(r.model).toBe("claude-sonnet-5");
+  });
+
+  test("execution floor: haiku pick on a host without sonnet resolves to opus, NEVER haiku", async () => {
+    const r = await pickTaskModelDetailed(
+      { text: "typo" },
+      { availableModels: ["claude-haiku-4-5", "claude-opus-4-8"], fallback: "claude-opus-4-8", complete: async () => "haiku ok" },
+    );
+    expect(r.model).toBe("claude-opus-4-8");
+  });
+});
+
+describe("floorTier", () => {
+  test("haiku clamps to sonnet; sonnet/opus/fable unchanged", () => {
+    expect(floorTier("haiku")).toBe("sonnet");
+    expect(floorTier("sonnet")).toBe("sonnet");
+    expect(floorTier("opus")).toBe("opus");
+    expect(floorTier("fable")).toBe("fable");
   });
 });

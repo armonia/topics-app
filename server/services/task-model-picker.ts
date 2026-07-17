@@ -23,6 +23,20 @@
 export const MODEL_TIERS = ["haiku", "sonnet", "opus", "fable"] as const;
 export type ModelTier = (typeof MODEL_TIERS)[number];
 
+/**
+ * Execution FLOOR. Haiku is "troppo poco potente" for real agent work (explicit
+ * Attilio directive, opus-first standard), so it is NEVER an execution target:
+ * it stays only the cheap classifier JUDGE. Any pick at or below this tier is
+ * clamped UP to it, and haiku is stripped from the candidate set before
+ * resolution so a host missing sonnet still can't degrade an agent onto haiku.
+ */
+export const MIN_EXECUTION_TIER: ModelTier = "sonnet";
+
+/** Clamp a tier up to the execution floor (haiku → sonnet). */
+export function floorTier(tier: ModelTier): ModelTier {
+  return MODEL_TIERS.indexOf(tier) < MODEL_TIERS.indexOf(MIN_EXECUTION_TIER) ? MIN_EXECUTION_TIER : tier;
+}
+
 /** Canonical model id for each tier (matches the claude-code snapshot ids). */
 const TIER_TO_MODEL: Record<ModelTier, string> = {
   haiku: "claude-haiku-4-5",
@@ -47,13 +61,12 @@ const CLASSIFIER_PROMPT = (title: string, description: string) =>
     "Sei un router di task. Il modello DI DEFAULT è opus: l'umano lavora normalmente su opus.",
     "Scendi a un modello più piccolo SOLO se il task è chiaramente più piccolo; nel dubbio scegli opus (mai declassare).",
     "Rispondi con DUE parole separate da spazio: <modello> <chiarezza>.",
-    "Modello, uno tra: haiku, sonnet, opus, fable. Chiarezza, uno tra: ok, fuzzy. Nient'altro, niente punteggiatura.",
+    "Modello, uno tra: sonnet, opus, fable. Chiarezza, uno tra: ok, fuzzy. Nient'altro, niente punteggiatura.",
     "",
-    "Modello (nel dubbio, il più capace):",
+    "Modello (nel dubbio, il più capace — sonnet è il MINIMO, non esiste un modello più piccolo):",
     "- opus: DEFAULT. Qualsiasi lavoro reale — feature, modifica UI, logica, debug, più file/sistemi, design, refactor. Se non è palesemente banale, è opus.",
     "- fable: massima difficoltà/ambiguità (ricerca, modellazione dati, algoritmi non ovvi, ragionamento profondo).",
-    "- sonnet: SOLO task piccolo e pienamente specificato in un punto solo (un fix circoscritto e ovvio, un test mirato, un ritocco isolato).",
-    "- haiku: SOLO banale/meccanico (typo, rinomina, bump versione, una riga ovvia).",
+    "- sonnet: MINIMO assoluto — SOLO task piccolo e pienamente specificato in un punto solo (un fix circoscritto e ovvio, un test mirato, un ritocco isolato, un typo/rinomina/bump). Mai scendere sotto.",
     "",
     "Chiarezza (quanto è definito l'obiettivo):",
     "- ok: obiettivo chiaro e verificabile, un agent può eseguirlo senza altre domande.",
@@ -135,19 +148,25 @@ export async function pickTaskModelDetailed(
     const description = (task.description ?? "").slice(0, 1200);
     const raw = (await deps.complete(CLASSIFIER_PROMPT(title, description))) ?? "";
     const fuzzy = parseFuzzy(raw);
-    const tier = parseTier(raw);
-    if (!tier) {
+    const rawTier = parseTier(raw);
+    if (!rawTier) {
       deps.log?.(`model-picker: unparsable answer ${JSON.stringify(raw.slice(0, 60))} → fallback`);
       return { model: deps.fallback, fuzzy };
     }
-    const model = tierToAvailableModel(tier, deps.availableModels);
+    // Clamp to the execution floor (haiku → sonnet) and strip haiku from the
+    // candidate set, so neither a haiku pick NOR a walk-down on a host missing
+    // sonnet can ever land an agent on haiku.
+    const tier = floorTier(rawTier);
+    const execAvailable = deps.availableModels.filter((m) => m !== TIER_TO_MODEL.haiku);
+    const model = tierToAvailableModel(tier, execAvailable);
     if (!model) {
       deps.log?.(`model-picker: tier ${tier} has no available model → fallback`);
       return { model: deps.fallback, fuzzy };
     }
     // Always log the raw answer: a misroute must be diagnosable from the log
     // alone (the parsed tier hides whether the judge really said that).
-    deps.log?.(`model-picker: ${tier}${fuzzy ? " (fuzzy)" : ""} → ${model} — raw ${JSON.stringify(raw.slice(0, 60))}`);
+    const clamped = tier !== rawTier ? ` (floor da ${rawTier})` : "";
+    deps.log?.(`model-picker: ${tier}${clamped}${fuzzy ? " (fuzzy)" : ""} → ${model} — raw ${JSON.stringify(raw.slice(0, 60))}`);
     return { model, fuzzy };
   } catch (err) {
     deps.log?.(`model-picker: failed (${err instanceof Error ? err.message : String(err)}) → fallback`);
