@@ -7,7 +7,6 @@
  */
 
 import { spawn, ChildProcess } from "child_process";
-import { PassThrough } from "stream";
 import { join } from "path";
 import { createInterface, Interface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
@@ -340,6 +339,19 @@ function getOrCreateClaudeSessionId(sessionKey: string): { id: string; isNew: bo
   return { id: row.claude_session_id, isNew: row.created_at === now };
 }
 
+/** Read-only lookup of a session's claude_session_id (never INSERTs). Used by
+ *  reattach, which must not conjure a row for a session it's only adopting. */
+function peekClaudeSessionId(sessionKey: string): string | null {
+  try {
+    const row = getDatabase()
+      .prepare(`SELECT claude_session_id FROM claude_code_sessions WHERE session_key = ?`)
+      .get(sessionKey) as { claude_session_id?: string } | undefined;
+    return row?.claude_session_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Read the per-topic spawn-time overrides for a session: reasoning-effort
  * tier (migration 033) and model (migration 013, picked via the provider/model
@@ -606,6 +618,9 @@ interface PersistentProcess {
   sessionKey: string;
   /** Byte cursor consumed from the broker store (for reattach). Direct: unused. */
   consumedOffset: number;
+  /** True while replaying buffered NDJSON on reattach — suppresses live-only
+   *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
+  replaySilent?: boolean;
   /** Accumulated stderr tail for the rate-limit / missing-session scan. */
   stderrBuf: string;
   /** Spawn-time facts the stderr scan + reattach need. */
@@ -1247,19 +1262,13 @@ export class ClaudeCodeProvider implements AIProvider {
 
     if (USE_AI_BRIDGE) {
       // Broker mode: the child lives in the detached ai-bridge daemon and
-      // survives a server restart. Its stdout `data` frames feed a PassThrough
-      // consumed by the identical readline, so line semantics match direct mode.
+      // survives a server restart. `data` frames are folded SYNCHRONOUSLY (a
+      // manual line buffer, not an async PassThrough) so that on reattach, once
+      // `client.attach` resolves, the replayed NDJSON is fully processed —
+      // determinism the four-case reattach branch relies on.
       const client = getAiBridgeClient();
-      const pass = new PassThrough();
-      const rl = createInterface({ input: pass });
-      rl.on("line", onLine);
-      pp.readline = rl;
+      this.wireBrokerHandlers(pp, client, sessionKey, onLine);
       pp.io = brokerIO(client, sessionKey);
-      client.registerHandlers(sessionKey, {
-        onData: (chunk, offset) => { pass.write(chunk); pp.consumedOffset = offset + chunk.byteLength; },
-        onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
-        onExit: (code) => this.onSessionClosed(pp, code),
-      });
       // Fire the spawn; expose readiness so the first stdin write (sendChat)
       // waits for the child to exist. spawn and write share the socket FIFO,
       // but spawn's send sits behind an ensureConnected microtask.
@@ -1289,6 +1298,136 @@ export class ClaudeCodeProvider implements AIProvider {
     }, MAX_LIFETIME_MS);
 
     return pp;
+  }
+
+  // Register the broker's per-session frame callbacks. `data` is folded through
+  // a SYNCHRONOUS line buffer (not an async PassThrough) so that on reattach,
+  // the moment `client.attach` resolves the replayed NDJSON is fully processed.
+  private wireBrokerHandlers(
+    pp: PersistentProcess,
+    client: AiBridgeClient,
+    sessionKey: string,
+    onLine: (line: string) => void,
+  ): void {
+    let lineBuf = "";
+    client.registerHandlers(sessionKey, {
+      onData: (chunk, offset) => {
+        lineBuf += chunk.toString();
+        let nl: number;
+        while ((nl = lineBuf.indexOf("\n")) !== -1) {
+          const line = lineBuf.slice(0, nl);
+          lineBuf = lineBuf.slice(nl + 1);
+          onLine(line);
+        }
+        pp.consumedOffset = offset + chunk.byteLength;
+      },
+      onStderr: (chunk) => this.handleStderrData(pp, sessionKey, chunk),
+      onExit: (code) => this.onSessionClosed(pp, code),
+    });
+  }
+
+  // Build a PersistentProcess around an ALREADY-RUNNING broker session (no
+  // spawn): reattach's counterpart to spawnPersistentProcess. Volatile turn
+  // state starts empty and is rebuilt by replaying the store (see reattach).
+  private adoptBrokerProcess(sessionKey: string): PersistentProcess {
+    const client = getAiBridgeClient();
+    const pp: PersistentProcess = {
+      proc: null,
+      readline: null,
+      io: null as unknown as SessionIO,
+      ready: Promise.resolve(),
+      sessionKey,
+      consumedOffset: 0,
+      stderrBuf: "",
+      spawnMeta: { claudeSessionId: peekClaudeSessionId(sessionKey) ?? "", isNewSession: false },
+      createdAt: Date.now(),
+      lastActivity: Date.now(),
+      alive: true,
+      streamHandler: null,
+      pendingResolve: null,
+      pendingReject: null,
+      fullText: "",
+      activeToolCalls: new Set(),
+      inactivityTimer: null,
+      lifetimeTimer: null,
+      heartbeatInterval: null,
+      lastEventAt: Date.now(),
+      needsHistoryReplay: false,
+      sidechain: new SidechainTracker(),
+      pendingInputs: new Map(),
+    };
+    const onLine = (line: string) => {
+      try { this.handleStreamEvent(pp, JSON.parse(line)); } catch { /* non-JSON line, ignore */ }
+    };
+    this.wireBrokerHandlers(pp, client, sessionKey, onLine);
+    pp.io = brokerIO(client, sessionKey);
+    pp.lifetimeTimer = setTimeout(() => {
+      this.killProcess(pp);
+      for (const [key, p] of this.processes) { if (p === pp) { this.processes.delete(key); break; } }
+    }, MAX_LIFETIME_MS);
+    return pp;
+  }
+
+  /** True if a still-running broker session exists for `sessionKey`. The signal
+   *  the dispatcher uses to REATTACH (non-lossy) vs RESUME-from-scratch. */
+  async hasLiveSession(sessionKey: string): Promise<boolean> {
+    if (!USE_AI_BRIDGE) return false;
+    const pp = this.processes.get(sessionKey);
+    if (pp && pp.alive) return true;
+    return getAiBridgeClient().hasLiveSession(sessionKey);
+  }
+
+  /**
+   * Re-attach to an in-flight turn that survived a server restart in the broker
+   * (the non-lossy counterpart of resume-from-scratch). Adopts the live child,
+   * replays its buffered NDJSON through the SAME fold to rebuild turn state, then
+   * branches on the replayed terminal state:
+   *   - completed  → the `result` was buffered; onDone already fired, no re-run.
+   *   - live       → mid-generation; keep reading until the live `result`.
+   *   - awaiting-input → an unanswered AskUserQuestion; re-surface it and wait.
+   *   - dead       → child gone (TOCTOU / exited without result) → finalize as a
+   *                  died turn so the caller degrades to resume-from-scratch.
+   * Resolves when the turn ends (like sendChatInternal), returning the outcome.
+   */
+  async reattach(sessionKey: string, handler: StreamHandler): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
+    const existing = this.processes.get(sessionKey);
+    if (existing && existing.alive && existing.streamHandler) return "live"; // already driving
+
+    const client = getAiBridgeClient();
+    const pp = this.adoptBrokerProcess(sessionKey);
+    this.processes.set(sessionKey, pp);
+
+    pp.streamHandler = handler;
+    pp.replaySilent = true;
+    const turnDone = new Promise<void>((resolve, reject) => {
+      pp.pendingResolve = () => resolve();
+      pp.pendingReject = (e) => reject(e);
+    });
+
+    const res = await client.attach(sessionKey, 0);
+    pp.replaySilent = false;
+
+    // Replay is fully folded now (synchronous onData). Classify from pp state.
+    if (res.missing) { this.finalizeDeadReattach(pp); return "dead"; }
+    if (pp.streamHandler === null) return "completed"; // `result` was in the replay
+    if (!res.alive) { this.finalizeDeadReattach(pp); return "dead"; }
+
+    if (pp.pendingInputs.size > 0) {
+      // Case 3: re-surface the questions still awaiting a human, then stay live.
+      for (const [toolId, entry] of pp.pendingInputs) handler.onUserInputRequired?.(toolId, "", entry.schema);
+      await turnDone;
+      return "awaiting-input";
+    }
+    // Case 2: mid-generation — keep reading live until the result event.
+    await turnDone;
+    return "live";
+  }
+
+  private finalizeDeadReattach(pp: PersistentProcess): void {
+    pp.alive = false;
+    if (pp.pendingResolve) { const r = pp.pendingResolve; pp.pendingResolve = null; pp.pendingReject = null; r({ runId: "" }); }
+    if (pp.streamHandler) { pp.streamHandler.onAborted?.(); pp.streamHandler = null; }
+    this.cleanupTimers(pp);
   }
 
   // stderr scan (rate limit + missing-session), shared by direct + broker mode.
@@ -1540,7 +1679,10 @@ export class ClaudeCodeProvider implements AIProvider {
               if (sessionKey) {
                 pp.pendingInputs.set(toolId, { sessionKey, schema, awaitingSince: Date.now() });
               }
-              handler.onUserInputRequired?.(toolId, toolName, schema);
+              // During a reattach REPLAY we rebuild pendingInputs (above) but do
+              // NOT re-surface the form live — reattach() re-fires onUserInputRequired
+              // once, after replay, for the entries that are STILL unanswered.
+              if (!pp.replaySilent) handler.onUserInputRequired?.(toolId, toolName, schema);
             }
           }
         } else if (block.type === "tool_result") {
@@ -1577,6 +1719,10 @@ export class ClaudeCodeProvider implements AIProvider {
           handler.onToolResult(toolId, resultContent, isError);
           pp.activeToolCalls.delete(toolId);
           settled.add(toolId);
+          // A result for this tool means any user-input request it represented
+          // is answered — drop it so that after a reattach REPLAY, pendingInputs
+          // holds EXACTLY the questions still awaiting a human (Case 3).
+          pp.pendingInputs.delete(toolId);
         }
       }
     }
