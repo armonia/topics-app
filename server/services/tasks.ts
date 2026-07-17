@@ -813,8 +813,19 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Clear the dispatch chip on the human decision: an approved (done) card must
       // not keep a stale "working"/"serve te" chip, and a rejected one is about to
       // be re-kicked by the dispatcher (resume sets "working" itself).
-      db.prepare("UPDATE tasks SET status = ?, completed_at = ?, dispatch_state = NULL, updated_at = ? WHERE id = ?")
-        .run(target, target === "done" ? ts : null, ts, taskId);
+      // A reject ALSO resets the attempt budget: it opens a new work cycle on the
+      // same session, so the turn-end safety net (auto-continue with the "deliver
+      // now" nudge) must be available again. Without this, attempts carried over
+      // from the previous cycle arrive already exhausted and the first premature
+      // turn-end skips the nudge — the system force-delivers instead of letting
+      // the agent reach review on its own.
+      if (decision === "reject") {
+        db.prepare("UPDATE tasks SET status = ?, completed_at = NULL, dispatch_state = NULL, dispatch_attempts = 0, updated_at = ? WHERE id = ?")
+          .run(target, ts, taskId);
+      } else {
+        db.prepare("UPDATE tasks SET status = ?, completed_at = ?, dispatch_state = NULL, updated_at = ? WHERE id = ?")
+          .run(target, ts, ts, taskId);
+      }
       logStatus(taskId, "review", target, by);
       return rowToTask(getTaskRow(taskId));
     },
