@@ -418,6 +418,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         return storeOrder;
       });
       setFocusedPanelId(prev => {
+        // Deep-link intent wins over the restored focus: a `?task=` open must
+        // keep the board active through the boot hydrate storm. Only applies
+        // once the board pane is in the (UNION-preserved) store order.
+        const intent = deepLinkFocusRef.current;
+        if (intent && storeOrder.includes(intent)) return intent;
         if (prev === storeFocus) return prev;
         if (storeFocus && storeOrder.includes(storeFocus)) return storeFocus;
         if (prev && storeOrder.includes(prev)) return prev;
@@ -461,6 +466,18 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       s.dispatch({ type: 'FOCUS_PANE', payload: { id: focusedPanelId } });
     }
   }, [focusedPanelId, isDetached]);
+
+  // ---- Deep-link focus intent (survives the pane-store hydrate) ----
+  // A `?task=` deep-link must ACTIVATE the global board and keep it active even
+  // as boot-time WS hydrates (`ui-state:init`/`updated`) re-run Effect A and try
+  // to restore the previously-focused pane. This ref is a high-precedence local
+  // intent: while set, Effect A's focus reconciliation forces it (above the
+  // storeFocus/fallback branches) after EVERY hydrate — no timer, no grace TTL,
+  // and the server_seq UNION gate is untouched (the board pane rides the UNION's
+  // local-pane re-injection; focus is device-local). Set on `topics:open-task`
+  // (only deep-links emit it), released when the drawer actually opens
+  // (`topics:task-opened`) or when the user focuses another pane.
+  const deepLinkFocusRef = useRef<string | null>(null);
 
   // ---- Pending focus / project state ----
   const [pendingProjectFocus, setPendingProjectFocus] = useState<PendingProjectFocus | null>(null);
@@ -895,6 +912,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       setOpenPanels(prev => prev.includes(id) ? prev : [...prev, id]);
     }
     setFocusedPanelId(id);
+    // Plant the focus in the pane store SYNCHRONOUSLY, not just in React state.
+    // `focusedPaneId` is device-local (HYDRATE never overwrites it), so setting
+    // it here makes this pane the focus BEFORE any in-flight WS hydrate lands.
+    // Effect C would do the same, but only after the next render commit — a
+    // hydrate arriving in that gap re-runs Effect A, and with the store focus
+    // still on the OLD pane its `visibleOrder[0]` fallback could steal focus
+    // away (the deep-link "board opens but isn't active" bug). Doing it now
+    // closes that race without touching the server_seq UNION gate.
+    usePaneStore.getState().dispatch({ type: 'FOCUS_PANE', payload: { id } });
   }, [isMobile, setSidebarCollapsed]);
 
   // Utility panes opened from surfaces that don't get handleOpenAsPage as a
@@ -909,6 +935,22 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     window.addEventListener('topics:open-utility', onOpenUtility as EventListener);
     return () => window.removeEventListener('topics:open-utility', onOpenUtility as EventListener);
   }, [handleOpenAsPage]);
+
+  // Deep-link focus intent lifecycle. `topics:open-task` (emitted only by the
+  // board deep-link path — boot URL + in-app self-link) arms the intent so the
+  // board survives the hydrate storm; the board fires `topics:task-opened` once
+  // the drawer actually opens, which releases it (the user is where they asked
+  // to be — later hydrates may focus elsewhere normally again).
+  useEffect(() => {
+    const onOpenTask = () => { deepLinkFocusRef.current = utilityPanelId('board'); };
+    const onTaskOpened = () => { deepLinkFocusRef.current = null; };
+    window.addEventListener('topics:open-task', onOpenTask as EventListener);
+    window.addEventListener('topics:task-opened', onTaskOpened as EventListener);
+    return () => {
+      window.removeEventListener('topics:open-task', onOpenTask as EventListener);
+      window.removeEventListener('topics:task-opened', onTaskOpened as EventListener);
+    };
+  }, []);
 
   // Open/focus a project window from any surface (e.g. the board task detail's
   // project selector). Local mirror of the WS `open-project` branch below —
@@ -1285,6 +1327,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [archiveTopic, topicsRef]);
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
+    // A deliberate tab switch releases any pending deep-link focus intent, so a
+    // later hydrate doesn't yank the user back to the board.
+    deepLinkFocusRef.current = null;
     const topic = topics[topicId];
     // Project chat / TASK WORKSPACE session → its splittable project pane. A
     // `standalone` non-task topic falls through to the loose-chat funnel.
@@ -1534,6 +1579,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   }, [focusedPanelIdRef]);
 
   const handleFocusPanel = useCallback((topicId: string) => {
+    // A deliberate focus change releases any pending deep-link focus intent.
+    deepLinkFocusRef.current = null;
     // Direct terminal pane ids (e.g. `terminal:<sessionId>`) — produced by
     // the Master sessions endpoint when surfacing Claude Code terminals.
     // These aren't topics, so handleTerminalClick handles them: if the cwd
