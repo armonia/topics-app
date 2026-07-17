@@ -345,8 +345,8 @@ function GlobalSettingsMenu() {
         ref={btnRef}
         onClick={() => { setOpen((o) => !o); if (!open) load(); }}
         title="Impostazioni dispatch — globali (tutte le board)"
-        className={`flex items-center rounded p-1 ${open ? 'bg-white/15 text-neutral-100' : 'text-neutral-400 hover:bg-white/5'}`}
-      ><ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
+        className={`-ml-1 flex items-center bg-transparent p-0 ${open ? 'text-neutral-200' : 'text-neutral-500 hover:text-neutral-300'}`}
+      ><ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={288} unmanagedFocus>
         <div className="space-y-2.5 px-3 py-2.5 text-xs text-neutral-300">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Dispatch — tutte le board</p>
