@@ -558,12 +558,14 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // A landing that touches server code of THIS very repo goes live via a
   // delayed exit: launchd (KeepAlive) restarts the chain, sessions resume on
   // their own (reload-resilience). Other repos' servers are their own problem.
+  // The exit waits for the per-repo git queue to drain (whenIdle) + 3s, so a
+  // burst of approvals never gets its later merges cut mid-flight.
   onServerCodeLanded: (repoPath) => {
     try {
       if (realpathSync(repoPath) !== realpathSync(process.cwd())) return false;
     } catch { return false; }
-    console.log("[automerge] server code landed — scheduling self-restart in 3s");
-    setTimeout(() => process.exit(0), 3_000);
+    console.log("[automerge] server code landed — self-restart when the merge queue drains (+3s)");
+    taskAutoMerge.whenIdle(repoPath, () => setTimeout(() => process.exit(0), 3_000));
     return true;
   },
   // Human "stop" on a dispatched task cuts the running turn (same abort path

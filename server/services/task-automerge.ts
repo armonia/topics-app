@@ -186,7 +186,17 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     return chain(repoPath, () => runBuild(repoPath));
   }
 
-  return { tryMerge, buildClient };
+  /**
+   * Run `fn` only after every git operation currently queued on `repoPath`
+   * has drained. Used to schedule the post-landing self-restart: an exit that
+   * fires while a LATER approval's merge is mid-flight would leave the main
+   * checkout mid-merge.
+   */
+  function whenIdle(repoPath: string, fn: () => void): void {
+    void chain(repoPath, async () => { fn(); });
+  }
+
+  return { tryMerge, buildClient, whenIdle };
 }
 
 export type TaskAutoMerge = ReturnType<typeof createTaskAutoMerge>;
