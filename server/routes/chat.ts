@@ -1339,12 +1339,21 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // deltas live to the client. Awaiting here would buffer the
             // whole stream into the TransformStream and release it all at
             // once when the Response is finally returned.
-            topicProvider.sendChat(
-              sessionKey,
-              userContent,
-              handler,
-              Object.keys(sendOptions).length > 0 ? sendOptions : undefined,
-            ).then((result) => {
+            // Reattach mode (ai-bridge restart recovery): adopt the turn still
+            // running in the broker and drive it to completion, instead of
+            // starting a new one. No user message is sent; everything else
+            // (handler, partial row, SSE, finalize) is reused. Falls back to a
+            // normal send when the provider has no reattach (flag off / other providers).
+            const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler) => Promise<string> }).reattach;
+            const drive = (body.mode === "reattach" && typeof reattachFn === "function")
+              ? reattachFn.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
+              : topicProvider.sendChat(
+                  sessionKey,
+                  userContent,
+                  handler,
+                  Object.keys(sendOptions).length > 0 ? sendOptions : undefined,
+                );
+            drive.then((result) => {
               topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
               console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
             }).catch(async (err: any) => {

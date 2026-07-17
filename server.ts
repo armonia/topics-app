@@ -366,6 +366,30 @@ async function runHeadlessTurn(sessionKey: string, content: string, opts: { time
   if (timedOut) throw new Error("turn exceeded wall-clock timeout");
 }
 
+// Reattach variant: POST /api/chat with mode:"reattach" and NO user message —
+// the route calls provider.reattach (adopt the surviving broker turn) instead of
+// sendChat. Same SSE drain to learn when the turn ends. Used by the dispatcher's
+// reconcile REATTACH branch after a server restart.
+async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number }): Promise<void> {
+  const url = new URL("http://localhost/api/chat");
+  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach" });
+  const resp = await topicsRouter(
+    new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
+    url, "/api/chat", "POST",
+  );
+  if (!resp || !resp.body) return;
+  const reader = resp.body.getReader();
+  let timedOut = false;
+  const deadline = setTimeout(() => {
+    timedOut = true;
+    abortHeadlessTurn(sessionKey).catch(() => {});
+    reader.cancel().catch(() => {});
+  }, opts.timeoutMs);
+  try { while (true) { const { done } = await reader.read(); if (done) break; } }
+  finally { clearTimeout(deadline); try { reader.releaseLock(); } catch { /* already released */ } }
+  if (timedOut) throw new Error("reattach turn exceeded wall-clock timeout");
+}
+
 // Ad-hoc dirs the server already references: topic projectPaths + terminal
 // cwds. Most boards belong to projects opened this way (folder picker, Claude
 // terminals) that were never registered in the ProjectStore — without these
@@ -497,6 +521,14 @@ const taskDispatcher = createTaskDispatcher({
   },
   deleteWorktree: async (worktreeId) => { await ctx.worktreeManager.delete(worktreeId); },
   runTurn: runHeadlessTurn,
+  // ai-bridge restart recovery: the provider answers whether a turn survived in
+  // the broker (returns false when the flag is off / provider lacks it), and
+  // runHeadlessReattach drives the adopted turn. Both are safe no-ops off-broker.
+  hasLiveSession: (sessionKey) => {
+    const p = getProvider("claude-code") as unknown as { hasLiveSession?: (sk: string) => Promise<boolean> };
+    return typeof p?.hasLiveSession === "function" ? p.hasLiveSession(sessionKey) : Promise.resolve(false);
+  },
+  reattach: (sessionKey, opts) => runHeadlessReattach(sessionKey, opts),
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
   // (transcript-usage.ts) is incremental (per-path byte offset — the live
