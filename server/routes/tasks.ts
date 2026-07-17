@@ -644,8 +644,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                     }
                   } else if (res.status === "nothing") {
                     // No commits to land — the deliverable (if any) lives in the
-                    // thread. The worktree is value-free either way: reap it.
-                    if (opts?.deleteTaskWorktree) await opts.deleteTaskWorktree(taskId).catch(() => false);
+                    // thread. Reap the worktree ONLY when it's clean: with real
+                    // uncommitted changes sitting there (a system-forced review
+                    // can carry those), reaping would destroy the only copy of
+                    // the agent's work.
+                    if (opts?.deleteTaskWorktree) {
+                      const dirt = opts?.taskWorktreeDirt ? await opts.taskWorktreeDirt(taskId).catch(() => null) : [];
+                      if (!dirt || dirt.length === 0) await opts.deleteTaskWorktree(taskId).catch(() => false);
+                      else svc.addComment({ taskId, author: "system", content: "Worktree NON ripulito: contiene modifiche non committate — recuperale o cancellalo a mano." });
+                    }
                   } else if (res.status === "conflict") {
                     // Not landed → hand it back to the task's own agent, which knows
                     // what it changed. Move it out of done so the resume has a home.
