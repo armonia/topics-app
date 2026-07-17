@@ -13,7 +13,7 @@ import { ChatPane } from '../Chat/ChatPane';
 import { AuraWave } from '../AuraWave';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
-import { useTopicLoading } from '@/state/signals';
+import { useTopicLoading, useTopicWatching } from '@/state/signals';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 
 function errorMessage(e: unknown): string {
@@ -135,6 +135,7 @@ export function ChatPanel({
   // The ring element exists in the DOM ONLY while working (conditional render,
   // not display:none) — zero cost when idle, per the perf rationale in index.css.
   const showWorkingRing = isWorking && workingGlowEnabled;
+  const isWatching = useTopicWatching(topic.id);
 
   return (
     <>
@@ -142,8 +143,8 @@ export function ChatPanel({
         {/* Apple-Intelligence "working" glow — a thin rotating ring hugging the
             pane edge while the session streams. Rendered only when working so
             it costs nothing at rest; transform-only animation (see index.css).
-            aria-hidden: purely decorative. */}
-        {showWorkingRing && <AuraWave activityId={topic.sessionKey} />}
+            aria-hidden: purely decorative. Muted when watching (Monitor armed). */}
+        {showWorkingRing && <AuraWave activityId={topic.sessionKey} muted={isWatching} />}
         {/* Header — skipped in `bodyOnly` mode (parent owns it). On mobile
             with tabs: floating overlay with blur for scroll-through effect. */}
         {!bodyOnly && <div className={`flex items-center ${headerLeft

@@ -957,7 +957,8 @@ export type ClaudeSessionPhase =
   | 'paused'
   | 'completed'
   | 'error'
-  | 'dormant';
+  | 'dormant'
+  | 'watching';
 
 /**
  * The two visual tiers of "a session needs you", split so the UI can paint them

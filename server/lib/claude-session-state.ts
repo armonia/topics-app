@@ -17,16 +17,17 @@ export type ClaudeSessionPhase =
   | 'paused'
   | 'completed'
   | 'error'
-  | 'dormant';
+  | 'dormant'
+  | 'watching';
 
 export const ALL_PHASES: ReadonlyArray<ClaudeSessionPhase> = [
   'starting', 'running', 'tool-running', 'awaiting-user',
-  'awaiting-approval', 'paused', 'completed', 'error', 'dormant',
+  'awaiting-approval', 'paused', 'completed', 'error', 'dormant', 'watching',
 ];
 
 const TERMINAL_PHASES = new Set<ClaudeSessionPhase>(['completed', 'error']);
 const ACTIVE_PHASES = new Set<ClaudeSessionPhase>([
-  'starting', 'running', 'tool-running', 'awaiting-user', 'awaiting-approval',
+  'starting', 'running', 'tool-running', 'awaiting-user', 'awaiting-approval', 'watching',
 ]);
 
 export function isTerminalPhase(p: ClaudeSessionPhase): boolean {
@@ -107,11 +108,13 @@ export type HookEventName =
   | 'PostToolUse'
   | 'Notification'
   | 'Stop'
-  | 'SubagentStop';
+  | 'SubagentStop'
+  | 'MonitorArmed'
+  | 'MonitorClosed';
 
 export const KNOWN_HOOK_EVENTS: ReadonlyArray<HookEventName> = [
   'SessionStart', 'SessionEnd', 'UserPromptSubmit', 'PreToolUse',
-  'PostToolUse', 'Notification', 'Stop', 'SubagentStop',
+  'PostToolUse', 'Notification', 'Stop', 'SubagentStop', 'MonitorArmed', 'MonitorClosed',
 ];
 
 export function isKnownHookEvent(name: string): name is HookEventName {
@@ -290,6 +293,27 @@ export function applyHook(
     case 'SubagentStop':
       // Subagent completions are recorded but don't move the parent's phase.
       return base;
+
+    case 'MonitorArmed':
+      // A Monitor/watch is now active in the background. The session is idle but
+      // awaiting an event (task completion, notification), so move to 'watching':
+      // a semi-active phase that shows the ring (unlike awaiting-user, which is
+      // resting) but doesn't imply Claude is currently producing output. Clears
+      // transient fields (approval/tool) as the session is parked.
+      return transition(base, {
+        phase: 'watching',
+        pendingApproval: undefined,
+        lastTool: undefined,
+      }, now);
+
+    case 'MonitorClosed':
+      // The Monitor/watch was closed (completed, cancelled, or timed out).
+      // Return to awaiting-user: the session is idle, not actively watching.
+      return transition(base, {
+        phase: 'awaiting-user',
+        pendingApproval: undefined,
+        lastTool: undefined,
+      }, now);
 
     case 'SessionEnd':
       return transition(base, {
