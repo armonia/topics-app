@@ -100,6 +100,17 @@ The system SHALL run a periodic sweep that demotes sessions stuck in transient p
 - **WHEN** the reaper runs
 - **THEN** the session transitions to `phase = 'error'` with `error = {code:'pty-crashed', message:'PTY exited with code N', failedAt:now}`
 
+#### Scenario: running with silent PTY demoted to dormant (DB-backed and in-memory alike)
+- **GIVEN** a session with `phase = 'running'` whose PTY has been idle beyond `runningTimeoutMs` (a missed `Stop` hook, not a long turn — a live turn keeps the PTY busy)
+- **WHEN** the reaper runs
+- **THEN** the session transitions to `phase = 'dormant'` (revivable: the next PTY frame or transcript line brings it back to `running`)
+- **AND** the rule applies to DB-backed topic sessions exactly as to in-memory terminal sessions — both sweeps receive the PTY-idle signal
+
+#### Scenario: abandoned running session without any PTY signal demoted to dormant
+- **GIVEN** a session with `phase = 'running'` and no PTY signal at all (a headless dispatcher task via `claude --print`, a chat session, or a PTY that vanished with the bridge) whose `updatedAt` — advanced by every hook and every consumed transcript line — has been frozen beyond `abandonedTimeoutMs` (default 60 min)
+- **WHEN** the reaper runs
+- **THEN** the session transitions to `phase = 'dormant'`, never a terminal phase — the live tail still covers dormant sessions, so a merely-quiet session is revived by its next transcript line
+
 ### Requirement: CCS-05 — WS broadcast contract
 
 The system SHALL broadcast `{type:'session:state', sessionKey, state}` on every phase transition, with coalescing of rapid bursts.

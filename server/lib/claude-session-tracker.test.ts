@@ -181,10 +181,41 @@ describe('ClaudeSessionTracker — PTY / reaper / dormant', () => {
     db.prepare(`UPDATE claude_code_sessions SET phase='tool-running', phase_updated_at=?, rev=2 WHERE session_key='topic-a'`)
       .run(new Date(T0).toISOString());
     const trk = makeTracker(db, rec, {
-      reaperConfig: { toolRunningTimeoutMs: 1000, awaitingApprovalTimeoutMs: 1000, startTimeoutMs: 1000, runningTimeoutMs: 1000 },
+      reaperConfig: { toolRunningTimeoutMs: 1000, awaitingApprovalTimeoutMs: 1000, startTimeoutMs: 1000, runningTimeoutMs: 1000, abandonedTimeoutMs: 60_000 },
     });
     expect(trk.reapOnce(T0 + 2000)).toBe(1);
     expect(trk.getSession('cli-1')!.phase).toBe('running');
+  });
+
+  it('reapOnce consults ptyIdleMs for DB-backed sessions too — silent-PTY running demoted to dormant', () => {
+    // Regression: the DB-backed sweep used to call reapStaleSession WITHOUT the
+    // PTY-idle signal, so a topic session whose Stop hook was missed stayed
+    // `running` forever (the "12–90h running corpses" bug).
+    const db = freshDb();
+    seedSession(db, 'topic-a', 'cli-1');
+    db.prepare(`UPDATE claude_code_sessions SET phase='running', phase_updated_at=?, rev=2 WHERE session_key='topic-a'`)
+      .run(new Date(T0).toISOString());
+    const trk = makeTracker(db, makeRecorder(), {
+      reaperConfig: { toolRunningTimeoutMs: 1000, awaitingApprovalTimeoutMs: 1000, startTimeoutMs: 1000, runningTimeoutMs: 1000, abandonedTimeoutMs: 60_000 },
+      ptyIdleMs: () => 2000, // PTY known and silent past runningTimeoutMs
+    });
+    expect(trk.reapOnce(T0 + 5000)).toBe(1);
+    expect(trk.getSession('cli-1')!.phase).toBe('dormant');
+  });
+
+  it('reapOnce demotes an abandoned DB-backed running session (no PTY signal, updatedAt frozen)', () => {
+    // Headless dispatcher tasks (`claude --print`) have no PTY at all; when the
+    // process dies without SessionEnd, updatedAt is the only tell.
+    const db = freshDb();
+    seedSession(db, 'topic-a', 'cli-1');
+    db.prepare(`UPDATE claude_code_sessions SET phase='running', phase_updated_at=?, rev=2 WHERE session_key='topic-a'`)
+      .run(new Date(T0).toISOString());
+    const trk = makeTracker(db, makeRecorder(), {
+      reaperConfig: { toolRunningTimeoutMs: 1000, awaitingApprovalTimeoutMs: 1000, startTimeoutMs: 1000, runningTimeoutMs: 1000, abandonedTimeoutMs: 60_000 },
+      // no ptyIdleMs override → null for every session
+    });
+    expect(trk.reapOnce(T0 + 61_000)).toBe(1);
+    expect(trk.getSession('cli-1')!.phase).toBe('dormant');
   });
 
   it('reapOnce is a no-op when nothing is stale', () => {
@@ -518,7 +549,7 @@ describe('ClaudeSessionTracker — terminal (topic-less) sessions', () => {
   });
 
   it('reaper sweeps stale in-memory tool-running back to running', () => {
-    const trk = makeTracker(db, rec, { reaperConfig: { toolRunningTimeoutMs: 100, awaitingApprovalTimeoutMs: 100, startTimeoutMs: 100, runningTimeoutMs: 100 } });
+    const trk = makeTracker(db, rec, { reaperConfig: { toolRunningTimeoutMs: 100, awaitingApprovalTimeoutMs: 100, startTimeoutMs: 100, runningTimeoutMs: 100, abandonedTimeoutMs: 60_000 } });
     trk.registerTerminalSession('term-1', { now: T0 });
     trk.ingestHook({ hook_event_name: 'PreToolUse', session_id: 'term-1', tool_name: 'Bash' }, T0 + 10);
     expect(trk.getSession('term-1')!.phase).toBe('tool-running');
