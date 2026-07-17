@@ -247,9 +247,10 @@ export interface DispatchCapacity {
 export interface GlobalSettings {
   /** Auto-dispatch master switch — a Todo task starts an agent on any board. */
   autoDispatch: boolean;
-  /** When true, one machine-wide concurrency cap (sized from live capacity) is
-   *  enforced across ALL boards, instead of each board's own cap. */
+  /** The ONE machine-wide concurrency cap is auto-sized from live capacity. */
   maxAgentsAuto: boolean;
+  /** The fixed machine-wide cap used when `maxAgentsAuto` is off. */
+  maxAgents: number;
 }
 
 /** Per-board dispatch config (server: board_settings). */
@@ -389,12 +390,18 @@ export const boardApi = {
     req<{ autoDispatch: boolean }>('/all-boards/settings').then(r => r.autoDispatch),
   setGlobalDispatch: (autoDispatch: boolean) =>
     req<{ autoDispatch: boolean }>('/all-boards/settings', { method: 'PATCH', body: JSON.stringify({ autoDispatch }) }).then(r => r.autoDispatch),
-  /** GLOBAL settings: auto-dispatch switch + the machine-wide auto cap toggle. */
+  /** GLOBAL settings: auto-dispatch switch + the ONE machine-wide cap (auto/number). */
   getGlobalSettings: () =>
     req<GlobalSettings>('/all-boards/settings'),
-  /** Flip the machine-wide auto-cap toggle (row '*'.max_agents_auto). */
-  setGlobalCap: (maxAgentsAuto: boolean) =>
-    req<GlobalSettings>('/all-boards/settings', { method: 'PATCH', body: JSON.stringify({ maxAgentsAuto }) }),
+  /** Update the machine-wide cap: `auto` toggle and/or a fixed `max` number. */
+  setGlobalCap: (patch: { auto?: boolean; max?: number }) =>
+    req<GlobalSettings>('/all-boards/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...(patch.auto !== undefined ? { maxAgentsAuto: patch.auto } : {}),
+        ...(patch.max !== undefined ? { maxAgents: patch.max } : {}),
+      }),
+    }),
 };
 
 // ── Server-persisted drafts ──────────────────────────────────────────────────

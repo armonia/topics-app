@@ -296,15 +296,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     if (pathname === "/api/all-boards/settings") {
       if (method === "GET") {
         try {
-          return json({ autoDispatch: svc.getGlobalAutoDispatch(), maxAgentsAuto: svc.getGlobalCap().auto });
+          const cap = svc.getGlobalCap();
+          return json({ autoDispatch: svc.getGlobalAutoDispatch(), maxAgentsAuto: cap.auto, maxAgents: cap.max });
         } catch (e) { return fail(e); }
       }
       if (method === "PATCH") {
         const body = (await readJSON(req)) as any;
         const hasAuto = typeof body?.autoDispatch === "boolean";
-        const hasCap = typeof body?.maxAgentsAuto === "boolean";
-        if (!hasAuto && !hasCap) {
-          return json({ error: "autoDispatch and/or maxAgentsAuto (boolean) required", code: "invalid_input" }, 400);
+        const hasCapAuto = typeof body?.maxAgentsAuto === "boolean";
+        const hasCapMax = Number.isFinite(body?.maxAgents);
+        if (!hasAuto && !hasCapAuto && !hasCapMax) {
+          return json({ error: "autoDispatch, maxAgentsAuto (boolean) and/or maxAgents (number) required", code: "invalid_input" }, 400);
         }
         try {
           let autoDispatch = svc.getGlobalAutoDispatch();
@@ -312,12 +314,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             autoDispatch = svc.setGlobalAutoDispatch(body.autoDispatch);
             broadcastToAll({ type: "board:dispatch", autoDispatch });
           }
-          // The global cap toggle lives on the reserved '*' row's max_agents_auto;
-          // the dispatcher reads it via getGlobalCap() and enforces it machine-wide.
-          if (hasCap) svc.setGlobalCap(body.maxAgentsAuto);
-          const maxAgentsAuto = svc.getGlobalCap().auto;
-          broadcastToAll({ type: "board:global-cap", maxAgentsAuto });
-          return json({ autoDispatch, maxAgentsAuto });
+          // The ONE machine-wide cap lives on the reserved '*' row; the dispatcher
+          // reads it via getGlobalCap() and enforces it across every board.
+          if (hasCapAuto || hasCapMax) {
+            svc.setGlobalCap({
+              auto: hasCapAuto ? body.maxAgentsAuto : undefined,
+              max: hasCapMax ? body.maxAgents : undefined,
+            });
+          }
+          const cap = svc.getGlobalCap();
+          broadcastToAll({ type: "board:global-cap", maxAgentsAuto: cap.auto, maxAgents: cap.max });
+          return json({ autoDispatch, maxAgentsAuto: cap.auto, maxAgents: cap.max });
         } catch (e) { return fail(e); }
       }
       return null;

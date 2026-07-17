@@ -379,13 +379,13 @@ export interface TaskService {
   getGlobalAutoDispatch(): boolean;
   /** Flip the GLOBAL auto-dispatch switch; returns the new value. */
   setGlobalAutoDispatch(on: boolean): boolean;
-  /** Read the GLOBAL cap switch (row '*'.max_agents_auto): when true, the
-   *  dispatcher sizes the concurrency cap from live machine capacity and
-   *  enforces it ACROSS ALL boards (one machine-wide budget) rather than
-   *  per-board. When false, per-board caps apply as before. */
-  getGlobalCap(): { auto: boolean };
-  /** Flip the GLOBAL cap switch (row '*'.max_agents_auto); returns the new value. */
-  setGlobalCap(auto: boolean): { auto: boolean };
+  /** Read the GLOBAL concurrency cap (reserved row '*'): the ONE machine-wide
+   *  budget the dispatcher enforces across ALL boards. `auto` → size it from live
+   *  machine capacity; otherwise use the fixed `max`. Auto is the default until a
+   *  manual number is explicitly chosen, so the machine is protected out of the box. */
+  getGlobalCap(): { auto: boolean; max: number };
+  /** Update the GLOBAL cap (row '*': max_agents_auto / max_agents). */
+  setGlobalCap(patch: { auto?: boolean; max?: number }): { auto: boolean; max: number };
 }
 
 /** Reserved board_settings row that carries the global auto-dispatch switch. */
@@ -1061,18 +1061,23 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return readGlobalDispatch();
     },
 
-    getGlobalCap(): { auto: boolean } {
-      const r = db.prepare("SELECT max_agents_auto FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
-      return { auto: r ? !!r.max_agents_auto : false };
+    getGlobalCap(): { auto: boolean; max: number } {
+      const r = db.prepare("SELECT max_agents, max_agents_auto FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
+      // Auto is the default until a manual number is explicitly picked (NULL = never
+      // set → auto), so a fresh install caps concurrency by capacity, not at nothing.
+      const auto = r?.max_agents_auto == null ? true : !!r.max_agents_auto;
+      return { auto, max: clampInt(r?.max_agents ?? 3, 1, 20) };
     },
 
-    setGlobalCap(auto: boolean): { auto: boolean } {
-      db.prepare(
-        "INSERT INTO board_settings (project_id, max_agents_auto, max_agents) VALUES (?, ?, 2) " +
-        "ON CONFLICT(project_id) DO UPDATE SET max_agents_auto = excluded.max_agents_auto",
-      ).run(GLOBAL_SETTINGS_KEY, auto ? 1 : 0);
-      const r = db.prepare("SELECT max_agents_auto FROM board_settings WHERE project_id = ?").get(GLOBAL_SETTINGS_KEY) as any;
-      return { auto: r ? !!r.max_agents_auto : false };
+    setGlobalCap(patch: { auto?: boolean; max?: number }): { auto: boolean; max: number } {
+      db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 3)").run(GLOBAL_SETTINGS_KEY);
+      if (patch.auto !== undefined) {
+        db.prepare("UPDATE board_settings SET max_agents_auto = ? WHERE project_id = ?").run(patch.auto ? 1 : 0, GLOBAL_SETTINGS_KEY);
+      }
+      if (patch.max !== undefined) {
+        db.prepare("UPDATE board_settings SET max_agents = ? WHERE project_id = ?").run(clampInt(patch.max, 1, 20), GLOBAL_SETTINGS_KEY);
+      }
+      return this.getGlobalCap();
     },
 
     getBoardSettings(projectId: string): BoardSettings {
