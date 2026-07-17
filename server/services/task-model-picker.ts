@@ -69,13 +69,22 @@ const CLASSIFIER_PROMPT = (title: string, description: string) =>
 
 /** Parse the classifier's free text into a tier, or null if unrecognisable. */
 export function parseTier(raw: string): ModelTier | null {
-  const t = raw.toLowerCase();
-  // First tier keyword that appears wins — tolerant of stray words/punctuation
-  // the model might add despite the instruction.
+  const t = (raw ?? "").toLowerCase();
+  // Well-formed answer ("<tier> <ok|fuzzy>", possibly after whitespace) wins
+  // outright — this is what the prompt asks for.
+  const exact = t.match(/^\s*(haiku|sonnet|opus|fable)\s+(ok|fuzzy)\b/);
+  if (exact) return exact[1] as ModelTier;
+  // Otherwise: the EARLIEST tier keyword in the text wins. Scanning tiers in
+  // MODEL_TIERS order instead (the old behavior) made "haiku" win whenever it
+  // appeared ANYWHERE — a verbose answer ("non è haiku, è opus") or an error
+  // string carrying a model id ("claude-haiku-4-5 …") routed every real task
+  // to haiku. The model states its pick first, so first-position is the pick.
+  let best: { tier: ModelTier; at: number } | null = null;
   for (const tier of MODEL_TIERS) {
-    if (new RegExp(`(^|[^a-z])${tier}([^a-z]|$)`).test(t)) return tier;
+    const m = new RegExp(`(^|[^a-z])${tier}([^a-z]|$)`).exec(t);
+    if (m && (best === null || m.index < best.at)) best = { tier, at: m.index };
   }
-  return null;
+  return best?.tier ?? null;
 }
 
 /** True if the classifier flagged the task as fuzzy (vague/under-specified). */
@@ -128,7 +137,7 @@ export async function pickTaskModelDetailed(
     const fuzzy = parseFuzzy(raw);
     const tier = parseTier(raw);
     if (!tier) {
-      deps.log?.(`model-picker: unparsable answer ${JSON.stringify(raw.slice(0, 40))} → fallback`);
+      deps.log?.(`model-picker: unparsable answer ${JSON.stringify(raw.slice(0, 60))} → fallback`);
       return { model: deps.fallback, fuzzy };
     }
     const model = tierToAvailableModel(tier, deps.availableModels);
@@ -136,7 +145,9 @@ export async function pickTaskModelDetailed(
       deps.log?.(`model-picker: tier ${tier} has no available model → fallback`);
       return { model: deps.fallback, fuzzy };
     }
-    deps.log?.(`model-picker: ${tier}${fuzzy ? " (fuzzy)" : ""} → ${model}`);
+    // Always log the raw answer: a misroute must be diagnosable from the log
+    // alone (the parsed tier hides whether the judge really said that).
+    deps.log?.(`model-picker: ${tier}${fuzzy ? " (fuzzy)" : ""} → ${model} — raw ${JSON.stringify(raw.slice(0, 60))}`);
     return { model, fuzzy };
   } catch (err) {
     deps.log?.(`model-picker: failed (${err instanceof Error ? err.message : String(err)}) → fallback`);
