@@ -565,6 +565,30 @@ describe("task-dispatcher", () => {
     expect(comments.some((c) => c.author === "system" && c.content.includes("riprendo la stessa sessione"))).toBe(true);
   });
 
+  it("reconcile REATTACHES in place (not resume) when a live broker session survived the restart", async () => {
+    // ai-bridge: the turn kept running in the detached daemon → adopt it, don't
+    // re-run. hasLiveSession true routes to reattach; NO continuation turn fires.
+    const reattached: string[] = [];
+    const h = harness({
+      topicExists: () => true,
+      hasLiveSession: async () => true,
+      // Stay in-flight (like the harness runTurn) so onTurnEnd doesn't fire and
+      // spawn a follow-up — we only assert the REATTACH branch was chosen.
+      reattach: (sk: string) => { reattached.push(sk); return new Promise<void>(() => {}); },
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "in_progress", assignedTopicId: "topic-live", attempts: 1, dispatchState: "working" });
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(reattached).toEqual(["topic:" + "topic-live".slice(0, 8)]); // adopted in place
+    expect(h.turns.length).toBe(0);                 // NO resume/continuation turn
+    expect(h.task("t1")!.dispatchAttempts).toBe(1); // a restart consumes nothing
+    const comments = h.svc.get("t1")!.comments;
+    expect(comments.some((c) => c.author === "system" && c.content.includes("Ripreso in diretta"))).toBe(true);
+  });
+
   it("reconcile is idempotent under the poll: a resumed turn is never doubled", async () => {
     const h = harness({ topicExists: () => true });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
