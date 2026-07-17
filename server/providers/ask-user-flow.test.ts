@@ -54,6 +54,18 @@ function makeProviderWithStubProcess(sessionKey: string) {
   const pp: any = {
     proc: stub,
     readline: { on() {}, close() {} },
+    // Mirrors the real SessionIO; writes go through stub.stdin so `stub.writes`
+    // still captures the exact stream-json payload the test asserts on.
+    io: {
+      writeStdin: (data: string) => stub.stdin.write(data),
+      signal: () => {},
+      kill: () => {},
+    },
+    ready: Promise.resolve(),
+    sessionKey,
+    consumedOffset: 0,
+    stderrBuf: "",
+    spawnMeta: { claudeSessionId: "test-session", isNewSession: false },
     createdAt: Date.now(),
     lastActivity: Date.now(),
     alive: true,
