@@ -1,5 +1,5 @@
 import { basename, join, resolve, sep } from "path";
-import { existsSync, readFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, realpathSync } from "fs";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
@@ -33,7 +33,7 @@ import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService } from "./server/services/tasks";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
-import { createTaskAutoMerge } from "./server/services/task-automerge";
+import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
@@ -519,13 +519,17 @@ const taskDispatcher = createTaskDispatcher({
 // task → its dispatch topic → worktree → project's main checkout, then merges the
 // branch there. Only `branch`-mode worktrees on a ready project have something to
 // land; everything else resolves to null (skip). Default branch is `main`.
+const worktreeOfTask = (taskId: string) => {
+  const topicId = dispatcherSvc.get(taskId)?.task.assignedTopicId;
+  if (!topicId) return null;
+  const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
+  if (!worktreeId) return null;
+  return ctx.worktreeStore.get(worktreeId) ?? null;
+};
+
 const taskAutoMerge = createTaskAutoMerge({
   resolveTaskMerge: (taskId) => {
-    const topicId = dispatcherSvc.get(taskId)?.task.assignedTopicId;
-    if (!topicId) return null;
-    const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
-    if (!worktreeId) return null;
-    const wt = ctx.worktreeStore.get(worktreeId);
+    const wt = worktreeOfTask(taskId);
     if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
     const repoPath = ctx.projectStore.get(wt.projectId)?.path;
     if (!repoPath) return null;
@@ -537,6 +541,31 @@ const taskAutoMerge = createTaskAutoMerge({
 const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   workspaceDir: DISPATCH_WORKSPACE_DIR,
   autoMerge: taskAutoMerge,
+  // Structural review gate: real uncommitted changes in the task's branch
+  // worktree (junk excluded); null = no worktree, gate skipped.
+  taskWorktreeDirt: async (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch") return null;
+    return worktreeRealDirt(wt.absPath);
+  },
+  // Post-landing reap: merged (or empty) worktrees have no remaining value —
+  // the manager path removes worktree + branch + row, serialized per project.
+  deleteTaskWorktree: async (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt) return false;
+    return ctx.worktreeManager.delete(wt.id);
+  },
+  // A landing that touches server code of THIS very repo goes live via a
+  // delayed exit: launchd (KeepAlive) restarts the chain, sessions resume on
+  // their own (reload-resilience). Other repos' servers are their own problem.
+  onServerCodeLanded: (repoPath) => {
+    try {
+      if (realpathSync(repoPath) !== realpathSync(process.cwd())) return false;
+    } catch { return false; }
+    console.log("[automerge] server code landed — scheduling self-restart in 3s");
+    setTimeout(() => process.exit(0), 3_000);
+    return true;
+  },
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,
