@@ -19,6 +19,18 @@ describe("parseTier", () => {
     // substring of a bigger word must NOT match (word-boundary).
     expect(parseTier("sonnets")).toBeNull();
   });
+  test("well-formed '<tier> <clarity>' answer wins outright", () => {
+    expect(parseTier("opus ok")).toBe("opus");
+    expect(parseTier("  fable fuzzy\n")).toBe("fable");
+  });
+  test("earliest tier wins in verbose answers — never MODEL_TIERS scan order", () => {
+    // Old bug: 'haiku' won whenever it appeared ANYWHERE in the text.
+    expect(parseTier("opus ok — non è un task da haiku")).toBe("opus");
+    expect(parseTier("sonnet ok (non serve opus né haiku)")).toBe("sonnet");
+    // Error string carrying a model id must not route to haiku silently as a
+    // "valid" pick of a REAL task… it parses as haiku only if haiku is first.
+    expect(parseTier("opus fuzzy — fallback da claude-haiku-4-5")).toBe("opus");
+  });
 });
 
 describe("tierToAvailableModel", () => {
