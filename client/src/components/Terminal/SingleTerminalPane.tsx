@@ -9,7 +9,7 @@ import { serverWsBase } from '../../lib/shell/net';
 import { isTauri } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
-import { signalsActions, useTerminalFinished, useTerminalReloading, useTerminalWorkingRing } from '../../state/signals';
+import { signalsActions, useTerminalFinished, useTerminalReloading, useTerminalWorkingRing, useTerminalWatching } from '../../state/signals';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import { AuraWave } from '../AuraWave';
@@ -171,6 +171,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // Suppress the ring while the "expired"/"reloading" overlays own the pane —
   // those are their own state, and a glow around a dead pane would be noise.
   const showWorkingRing = isWorking && workingGlowEnabled && !stale && !reloading;
+  const isWatching = useTerminalWatching(sessionId);
   const [copied, setCopied] = useState(false);
   const isDarkRef = useRef(document.documentElement.classList.contains('dark'));
 
@@ -667,8 +668,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             model as ChatPanel (transform-only, masked to a ~1.5px ring,
             pointer-events:none, z-30, border-radius inherit). Absolutely
             positioned over the xterm container, so it never touches xterm's
-            layout or fit. Rendered only when working → zero idle cost. */}
-        {showWorkingRing && <AuraWave activityId={sessionId} />}
+            layout or fit. Rendered only when working → zero idle cost.
+            Muted when watching (Monitor armed). */}
+        {showWorkingRing && <AuraWave activityId={sessionId} muted={isWatching} />}
         {/* Copy button for non-touch */}
         {!isTouchDevice && !stale && (
           <button
