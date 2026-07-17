@@ -9,6 +9,7 @@ import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
 import { basename } from '../lib/path-utils';
 import { openExternalOnce } from '../lib/openExternal';
+import { selfTaskLinkTarget, openTaskInApp } from '../lib/openTaskLink';
 import { PartialIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
@@ -620,11 +621,15 @@ export const markdownComponents: Components = {
       className="text-blue-500 hover:text-blue-600 underline"
       onClick={(e) => {
         if (href) {
-          // Route every external link through the deduped opener so a single
-          // click never opens twice (double-click / duplicate handler guard),
-          // in both Electron (system browser) and web (new tab).
           e.preventDefault();
-          openExternalOnce(href);
+          // A self-origin board deep-link (e.g. a "copia link" URL pasted into a
+          // review comment) points back at THIS app — open its drawer in-app
+          // instead of spawning an external browser. Everything else routes
+          // through the deduped opener so a single click never opens twice
+          // (double-click / duplicate handler guard), in Electron & web.
+          const selfTask = selfTaskLinkTarget(href);
+          if (selfTask) openTaskInApp(selfTask);
+          else openExternalOnce(href);
         }
       }}
     >{children}</a>

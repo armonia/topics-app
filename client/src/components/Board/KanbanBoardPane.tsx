@@ -21,7 +21,13 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { getMediaUrl } from '../../lib/api';
 import { openExternalOnce } from '../../lib/openExternal';
-import { buildTaskLink, consumePendingTaskOpen } from '../../lib/openTaskLink';
+import {
+  buildTaskLink,
+  currentTaskTarget,
+  reflectTaskOpen,
+  reflectTaskClose,
+  subscribePopstateTask,
+} from '../../lib/openTaskLink';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import {
@@ -590,11 +596,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     setClaudeModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
   }), []);
   // Deep-link target (from ?task=… via openTaskLink): the GLOBAL board owns it
-  // (that's what the link opens). Seeded from the one-shot boot pending, and
-  // fed live by `topics:open-task` when the board is already open. Held until
-  // the task shows up in the loaded list, then it becomes the selection.
+  // (that's what the link opens). Seeded from the CURRENT URL (not a one-shot
+  // boot pending) so it survives a remount and an inactive→active board tab —
+  // the URL is the source of truth. Fed live by `topics:open-task` when the
+  // board is already open. Held until the task shows up in the loaded list,
+  // then it becomes the selection.
   const [pendingSelect, setPendingSelect] = useState<string | null>(
-    () => (global ? consumePendingTaskOpen()?.taskId ?? null : null),
+    () => (global ? currentTaskTarget()?.taskId ?? null : null),
   );
   useEffect(() => {
     if (!global) return;
@@ -842,8 +850,31 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     if (tasks.some((t) => t.id === pendingSelect)) {
       setSelectedId(pendingSelect);
       setPendingSelect(null);
+      // The deep-link is fulfilled (drawer opening) → release the board focus
+      // intent held in usePanelLifecycle so later hydrates behave normally.
+      window.dispatchEvent(new CustomEvent('topics:task-opened'));
     }
   }, [pendingSelect, tasks]);
+
+  // URL ⇄ drawer reflection (GLOBAL board only — `?task=` semantics point at the
+  // global board, matching buildTaskLink). Opening a drawer pushes `?task=`;
+  // closing it removes the param — so every open drawer has a copyable,
+  // refresh-survivable URL and Back closes it. While a deep-link is still
+  // resolving (pendingSelect set, task not yet loaded) leave the URL alone so
+  // the incoming ?task isn't wiped before the drawer opens.
+  useEffect(() => {
+    if (!global) return;
+    if (selected) { reflectTaskOpen({ projectId: selected.projectId, taskId: selected.id }); return; }
+    if (pendingSelect) return; // deep-link mid-flight — keep the URL
+    reflectTaskClose();
+  }, [global, selectedId, selected?.projectId, pendingSelect]);
+
+  // Back/forward drive the drawer from history: the value-equality guard in
+  // reflect* means setting the selection here won't re-push a duplicate entry.
+  useEffect(() => {
+    if (!global) return;
+    return subscribePopstateTask((target) => setSelectedId(target?.taskId ?? null));
+  }, [global]);
 
   if (loading) {
     return <div className="flex h-full items-center justify-center text-neutral-400"><Loader2 className="h-5 w-5 animate-spin" /></div>;
