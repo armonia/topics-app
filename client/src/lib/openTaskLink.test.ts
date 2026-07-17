@@ -75,10 +75,18 @@ describe('parseTaskLink / buildTaskLink', () => {
     const projectId = 'topics-app-ar3jt5';
     const taskId = '92a1091a-c9e3-4064-a098-2383bd37f2fe';
     const link = buildTaskLink(projectId, taskId);
-    // The URL API percent-encodes '~' as %7E in the query — that's fine, it
-    // round-trips through parseTaskLink (URLSearchParams decodes it back).
+    // The '~' separator stays LITERAL in the copied link (not %7E form-encoded)
+    // so the URL is human-readable; it still round-trips through parseTaskLink.
     expect(link.startsWith(`${origin}/?task=`)).toBe(true);
+    expect(link).toContain(`${projectId}~${taskId}`);
+    expect(link.includes('%7E')).toBe(false);
     expect(parseTaskLink(new URL(link).search)).toEqual({ projectId, taskId });
+  });
+
+  test('never form-encodes the ~ separator (no %7E in the copied link)', () => {
+    const link = buildTaskLink('[cliente]-v1skoz', 'd8ea1091-c9e3-4064-a098-2383bd37f2fe');
+    expect(link.includes('%7E')).toBe(false);
+    expect(link).toContain('?task=[cliente]-v1skoz~d8ea1091-c9e3-4064-a098-2383bd37f2fe');
   });
 
   test('splits on the FIRST ~ (project slug may not, but be defensive)', () => {
@@ -130,11 +138,13 @@ describe('selfTaskLinkTarget', () => {
 });
 
 describe('URL reflection (reflectTaskOpen / reflectTaskClose)', () => {
-  test('open pushes ?task=, preserving other params', () => {
+  test('open pushes ?task=, preserving other params, ~ stays literal', () => {
     stubWindow(`${origin}/?keep=1`);
     reflectTaskOpen({ projectId: 'proj', taskId: 't1' });
     expect(currentTaskTarget()).toEqual({ projectId: 'proj', taskId: 't1' });
     expect(g.window.location.search).toContain('keep=1');
+    expect(g.window.location.search).toContain('task=proj~t1');
+    expect(g.window.location.search.includes('%7E')).toBe(false);
   });
 
   test('open is a no-op when already reflected (no duplicate push)', () => {
