@@ -41,8 +41,24 @@ export function buildTaskLink(projectId: string, taskId: string): string {
   // the LAN host and is out of scope.
   const base = serverHttpBase() || window.location.origin;
   const u = new URL(base);
-  u.searchParams.set(PARAM, `${projectId}${SEP}${taskId}`);
+  u.search = composeSearch(u.search, `${projectId}${SEP}${taskId}`);
   return u.toString();
+}
+
+// Serialize a query string with the task param kept LITERAL (`projectId~taskId`).
+// URLSearchParams form-encodes '~' to %7E — valid (it round-trips through
+// parseTaskLink) but ugly in a copied/shared link. '~' is an RFC 3986 unreserved
+// char and both ids are URL-safe (slug + UUID), so we emit the task param raw via
+// `url.search =` (the WHATWG query percent-encode set excludes '~'). OTHER params
+// keep their normal URLSearchParams encoding. The task goes FIRST so a copied
+// link reads `?task=…` up front.
+function composeSearch(search: string, taskValue: string | null): string {
+  const others = new URLSearchParams(search);
+  others.delete(PARAM);
+  const rest = others.toString();
+  const task = taskValue === null ? '' : `${PARAM}=${taskValue}`;
+  const q = [task, rest].filter(Boolean).join('&');
+  return q ? `?${q}` : '';
 }
 
 export function parseTaskLink(search: string): TaskTarget | null {
@@ -101,13 +117,14 @@ export function selfTaskLinkTarget(url: string): TaskTarget | null {
 function writeTaskParam(next: string | null): void {
   try {
     const u = new URL(window.location.href);
+    // Guard (also the popstate loop guard): searchParams.get/has DECODE, so a
+    // literal '~' and a stale %7E both compare equal to `next` here — no dup push.
     if (next === null) {
       if (!u.searchParams.has(PARAM)) return; // nothing to remove
-      u.searchParams.delete(PARAM);
     } else {
       if (u.searchParams.get(PARAM) === next) return; // already reflected
-      u.searchParams.set(PARAM, next);
     }
+    u.search = composeSearch(u.search, next); // keeps '~' literal
     window.history.pushState(null, '', u.toString());
   } catch {
     /* history unavailable — local state still drives the UI, URL just stays put */
