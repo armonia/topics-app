@@ -384,7 +384,12 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     const t = overrideNow ?? now();
     let changed = 0;
     repo.forEachLive((prev) => {
-      const next = reapStaleSession(prev, t, reaperConfig);
+      // DB-backed (topic) sessions need the PTY-idle signal too: without it the
+      // `running` rules never fire for them, so a topic session whose Stop hook
+      // was missed — or whose headless task process died — stayed `running`
+      // forever, pinning the active-session count.
+      const idle = ptyIdleMs?.(prev.claudeSessionId) ?? null;
+      const next = reapStaleSession(prev, t, reaperConfig, idle);
       if (next !== prev) {
         repo.update(next);
         scheduleBroadcast(next);

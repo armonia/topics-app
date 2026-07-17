@@ -606,12 +606,34 @@ describe('reapStaleSession', () => {
     expect(s1).toBe(s0);
   });
 
-  it('does not reap running when there is no PTY signal (null) — preserves chat-session behaviour', () => {
-    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0 });
+  it('leaves a no-PTY-signal running session alone while updatedAt is inside the abandoned window', () => {
+    // updatedAt moving = hooks/transcript lines still landing = alive. A long
+    // turn keeps advancing updatedAt, so it never trips the abandoned rule.
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0, updatedAt: T0 + 59 * 60 * 1000 });
     const s1 = reapStaleSession(s0, T0 + 60 * 60 * 1000, undefined, null);
     expect(s1).toBe(s0);
     // omitting the arg entirely behaves the same (defaults to null).
     expect(reapStaleSession(s0, T0 + 60 * 60 * 1000)).toBe(s0);
+  });
+
+  it('demotes an ABANDONED running session (no PTY signal, updatedAt frozen past the window) to dormant', () => {
+    // The stuck-forever bug: a headless task / chat session whose process died
+    // (or whose Stop hook was missed with no PTY to consult) claimed `running`
+    // for days. No hook and no transcript line has advanced updatedAt for the
+    // whole abandoned window → corpse, not work.
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0, updatedAt: T0, lastTool: { name: 'X', startedAt: T0 } });
+    const s1 = reapStaleSession(s0, T0 + 60 * 60 * 1000, undefined, null);
+    expect(s1.phase).toBe('dormant');
+    expect(s1.lastTool).toBeUndefined();
+    expect(s1.rev).toBe(4);
+  });
+
+  it('abandoned rule only applies when the PTY signal is absent — a briefly-idle PTY wins', () => {
+    // ptyIdleMs present and under runningTimeoutMs → the PTY is the honest
+    // signal and says "recently alive", regardless of how old updatedAt is.
+    const s0 = freshState({ phase: 'running', rev: 3, phaseUpdatedAt: T0, updatedAt: T0 });
+    const s1 = reapStaleSession(s0, T0 + 24 * 60 * 60 * 1000, undefined, 9 * 60 * 1000);
+    expect(s1).toBe(s0);
   });
 
   it('leaves a running session with brief PTY idleness alone', () => {

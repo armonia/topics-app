@@ -472,6 +472,23 @@ export function reapStaleSession(
           pendingApproval: undefined,
         }, now);
       }
+      // No PTY signal at all — a headless/chat session (dispatcher tasks run
+      // `claude --print` with no PTY) or one whose PTY vanished without the
+      // exit signal (bridge died, server crashed). For these, updatedAt is the
+      // only life signal we have, and it DOES move while real work happens:
+      // every hook and every consumed transcript line advances it (the live
+      // tail sweeps ~1.5s). A session claiming `running` whose updatedAt has
+      // been frozen for the whole abandoned window is a corpse pinning the
+      // active count, not a long turn. Demote to `dormant`, never terminal:
+      // the tail still covers dormant sessions, so a merely-quiet one is
+      // revived by its next transcript line (or PTY frame) → running.
+      if (ptyIdleMs == null && now - prev.updatedAt >= config.abandonedTimeoutMs) {
+        return transition({ ...prev, updatedAt: now }, {
+          phase: 'dormant',
+          lastTool: undefined,
+          pendingApproval: undefined,
+        }, now);
+      }
       return prev;
 
     case 'awaiting-approval':
@@ -505,6 +522,12 @@ export interface ReaperConfig {
    *  missed Stop hook and demoted to dormant. Generous because it's gated on
    *  real PTY silence — only a session producing NO output for this long. */
   runningTimeoutMs: number;
+  /** Max time a `running` session with NO PTY signal (ptyIdleMs null: headless
+   *  task, chat session, PTY vanished with the bridge) may go without ANY life
+   *  signal — no hook, no consumed transcript line (both advance updatedAt) —
+   *  before it's treated as abandoned and demoted to dormant. Very generous:
+   *  a genuinely working session moves updatedAt every few seconds. */
+  abandonedTimeoutMs: number;
 }
 
 export const DEFAULT_REAPER_CONFIG: ReaperConfig = {
@@ -512,6 +535,7 @@ export const DEFAULT_REAPER_CONFIG: ReaperConfig = {
   awaitingApprovalTimeoutMs: 10 * 60 * 1000,
   startTimeoutMs: 5 * 60 * 1000,
   runningTimeoutMs: 10 * 60 * 1000,
+  abandonedTimeoutMs: 60 * 60 * 1000,
 };
 
 /**
