@@ -52,9 +52,13 @@ beforeAll(async () => {
     ).run(id, id, id, sessionKey, now, now);
   };
   ProviderCtor = (await import("./claude-code")).ClaudeCodeProvider;
+  // Drop any singleton a prior broker test file created with a different socket.
+  (await import("../lib/ai-bridge-client")).__resetAiBridgeClientForTests();
 });
 
 afterAll(async () => {
+  // Dispose the client FIRST so killing the daemon doesn't trigger auto-reconnect.
+  (await import("../lib/ai-bridge-client")).__resetAiBridgeClientForTests();
   try { (await import("../db")).closeDatabase(); } catch {}
   try {
     const pidPath = SOCK.replace(/\.sock$/, ".pid");
