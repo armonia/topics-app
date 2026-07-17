@@ -1,37 +1,47 @@
 // URL router for the kanban board — the ONE module that reads and writes the
-// app's location for board deep-links. Everything about `?task=` lives here so
-// there is a single, testable contract.
+// app's location for board deep-links. Everything about the `/task/…` route
+// lives here so there is a single, testable contract.
 //
-// ── Supported URL params (the whole client surface) ──────────────────────────
-//   ?task=<projectId>~<taskId>
+// ── Supported URL forms (the whole client surface) ───────────────────────────
+//   /task/<taskId>   (PATH-BASED, current)
 //       Deep-link to a task in the GLOBAL board ("Board generale"). Opening the
 //       URL ACTIVATES the global board pane (surviving the pane-store hydrate,
 //       see usePanelLifecycle deep-link intent), selects the task and opens its
 //       drawer. It is ALSO the live reflection of the open drawer: opening a
-//       drawer pushes this param, closing it removes the param — so every
-//       kanban view has a copyable, refresh-survivable URL and back/forward
-//       navigate the drawer. Both ids contain '-' but never '~', so '~' is an
-//       unambiguous split point (split on the FIRST '~': the taskId is a
-//       fixed-length UUID, the projectId a free-form slug).
+//       drawer pushes this path, closing it returns to '/' — so every kanban
+//       view has a copyable, refresh-survivable URL and back/forward navigate
+//       the drawer. The taskId is a globally-unique UUID, so it resolves the
+//       task on its own (WHERE id=<uuid>); the project slug is redundant and no
+//       longer part of the URL. The board resolves `projectId` from the loaded
+//       task list (it holds every task) when it needs the /api/boards/:projectId
+//       endpoints.
+//   ?task=<projectId>~<taskId>   (LEGACY query form — read-only back-compat)
+//       The previous deep-link format. Links already pasted into merged review
+//       comments still open in-app: parse() reads this too, and the first
+//       drawer reflection upgrades the URL to the clean `/task/<id>` path.
 //   ?topics=a,b,c   (alias: ?topic=a)   — handled in App.tsx, NOT here
 //       Detached / pop-out window contract: the OS window boots showing exactly
 //       these topics and skips pane-store sync (see popOutTopic.ts + App
 //       `detachedTopicIds`). Documented here so the param map is in one place.
 //
-// This module never strips ?task on load (a refresh must recover the drawer);
-// the param leaves the URL only when the drawer is closed.
+// This module never strips the deep-link on load (a refresh must recover the
+// drawer); the path returns to '/' only when the drawer is closed.
 
 import { serverHttpBase } from './shell/net';
 
-const PARAM = 'task';
-const SEP = '~';
+// Legacy query form (`?task=<projectId>~<taskId>`), kept for read back-compat.
+const LEGACY_PARAM = 'task';
+const LEGACY_SEP = '~';
+
+// New path form: /task/<taskId>. Match a single non-empty segment; a trailing
+// slash is tolerated. Anything deeper (/task/a/b) is not a deep-link.
+const TASK_PATH_RE = /^\/task\/([^/]+)\/?$/;
 
 export interface TaskTarget {
-  projectId: string;
   taskId: string;
 }
 
-export function buildTaskLink(projectId: string, taskId: string): string {
+export function buildTaskLink(taskId: string): string {
   // Build against a REAL, openable server origin — NOT window.location.origin.
   // On the Tauri desktop shell the UI is served from `tauri://localhost`, an
   // origin that can't be opened/shared (opening it just spawns a browser);
@@ -41,33 +51,37 @@ export function buildTaskLink(projectId: string, taskId: string): string {
   // the LAN host and is out of scope.
   const base = serverHttpBase() || window.location.origin;
   const u = new URL(base);
-  u.search = composeSearch(u.search, `${projectId}${SEP}${taskId}`);
+  u.pathname = `/task/${taskId}`;
+  u.search = '';
   return u.toString();
 }
 
-// Serialize a query string with the task param kept LITERAL (`projectId~taskId`).
-// URLSearchParams form-encodes '~' to %7E — valid (it round-trips through
-// parseTaskLink) but ugly in a copied/shared link. '~' is an RFC 3986 unreserved
-// char and both ids are URL-safe (slug + UUID), so we emit the task param raw via
-// `url.search =` (the WHATWG query percent-encode set excludes '~'). OTHER params
-// keep their normal URLSearchParams encoding. The task goes FIRST so a copied
-// link reads `?task=…` up front.
-function composeSearch(search: string, taskValue: string | null): string {
-  const others = new URLSearchParams(search);
-  others.delete(PARAM);
-  const rest = others.toString();
-  const task = taskValue === null ? '' : `${PARAM}=${taskValue}`;
-  const q = [task, rest].filter(Boolean).join('&');
-  return q ? `?${q}` : '';
+/** Parse a location (pathname + search) into a task target, or null. Reads the
+ *  new `/task/<id>` path first, then falls back to the legacy `?task=slug~id`
+ *  query so links pasted before the migration still resolve. */
+export function parseTaskLocation(pathname: string, search: string): TaskTarget | null {
+  const m = TASK_PATH_RE.exec(pathname);
+  if (m && m[1]) {
+    try {
+      return { taskId: decodeURIComponent(m[1]) };
+    } catch {
+      return { taskId: m[1] };
+    }
+  }
+  return parseLegacyQuery(search);
 }
 
-export function parseTaskLink(search: string): TaskTarget | null {
+// Legacy `?task=<projectId>~<taskId>`. Both ids contain '-' but never '~', so
+// '~' is an unambiguous split point (split on the FIRST '~'; the projectId is a
+// free-form slug, the taskId a fixed-length UUID). Only the taskId survives —
+// the projectId was always redundant.
+function parseLegacyQuery(search: string): TaskTarget | null {
   try {
-    const raw = new URLSearchParams(search).get(PARAM);
+    const raw = new URLSearchParams(search).get(LEGACY_PARAM);
     if (!raw) return null;
-    const i = raw.indexOf(SEP);
+    const i = raw.indexOf(LEGACY_SEP);
     if (i <= 0 || i >= raw.length - 1) return null;
-    return { projectId: raw.slice(0, i), taskId: raw.slice(i + 1) };
+    return { taskId: raw.slice(i + 1) };
   } catch {
     return null;
   }
@@ -78,7 +92,7 @@ export function parseTaskLink(search: string): TaskTarget | null {
  *  survives a remount / an inactive→active board tab (the old `pending` was
  *  consumed once and lost if the board wasn't the mounted-active pane). */
 export function currentTaskTarget(): TaskTarget | null {
-  return parseTaskLink(window.location.search);
+  return parseTaskLocation(window.location.pathname, window.location.search);
 }
 
 // ── Self-origin detection (in-app link interception) ─────────────────────────
@@ -98,49 +112,49 @@ function isSelfOrigin(origin: string): boolean {
 /** If `url` is a SELF-origin board deep-link, return its target so the caller
  *  can open the drawer IN-APP instead of spawning an external browser (a
  *  buildTaskLink URL pasted into a review comment points back at this very
- *  app). Non-self URLs return null → caller falls back to openExternalOnce. */
+ *  app). Recognizes BOTH the new `/task/<id>` path and the legacy
+ *  `?task=slug~id` query. Non-self URLs return null → caller falls back to
+ *  openExternalOnce. */
 export function selfTaskLinkTarget(url: string): TaskTarget | null {
   try {
     const u = new URL(url, window.location.origin);
     if (!isSelfOrigin(u.origin)) return null;
-    return parseTaskLink(u.search);
+    return parseTaskLocation(u.pathname, u.search);
   } catch {
     return null;
   }
 }
 
-// ── URL reflection (drawer open/close ⇄ ?task=) ──────────────────────────────
+// ── URL reflection (drawer open/close ⇄ /task/<id>) ──────────────────────────
 
-// The value-equality checks below are also the loop guard: when a popstate
-// drives the selection, the reflect effect re-runs but the URL already carries
-// the target, so writeTaskParam no-ops instead of pushing a duplicate entry.
-function writeTaskParam(next: string | null): void {
+// The pathname check below is also the loop guard: when a popstate drives the
+// selection, the reflect effect re-runs but the URL already carries the target
+// path, so reflectPath no-ops instead of pushing a duplicate entry. Reflecting
+// also DROPS any legacy `?task=` query, so an old link that opened a drawer is
+// upgraded to the clean `/task/<id>` path on first reflection.
+function reflectPath(target: TaskTarget | null): void {
   try {
+    const desired = target ? `/task/${target.taskId}` : '/';
+    if (window.location.pathname === desired && !window.location.search) return;
     const u = new URL(window.location.href);
-    // Guard (also the popstate loop guard): searchParams.get/has DECODE, so a
-    // literal '~' and a stale %7E both compare equal to `next` here — no dup push.
-    if (next === null) {
-      if (!u.searchParams.has(PARAM)) return; // nothing to remove
-    } else {
-      if (u.searchParams.get(PARAM) === next) return; // already reflected
-    }
-    u.search = composeSearch(u.search, next); // keeps '~' literal
+    u.pathname = desired;
+    u.search = '';
     window.history.pushState(null, '', u.toString());
   } catch {
     /* history unavailable — local state still drives the UI, URL just stays put */
   }
 }
 
-/** Drawer opened for a task → push `?task=` (a new history entry, so Back
+/** Drawer opened for a task → push `/task/<id>` (a new history entry, so Back
  *  closes it). No-op if the URL already reflects this target. */
 export function reflectTaskOpen(target: TaskTarget): void {
-  writeTaskParam(`${target.projectId}${SEP}${target.taskId}`);
+  reflectPath(target);
 }
 
-/** Drawer closed → remove `?task=` (a new history entry, so Back reopens the
- *  previous task). No-op if the param is already absent. */
+/** Drawer closed → return to '/' (a new history entry, so Back reopens the
+ *  previous task). No-op if the path is already '/'. */
 export function reflectTaskClose(): void {
-  writeTaskParam(null);
+  reflectPath(null);
 }
 
 /** Subscribe to browser back/forward: `cb` gets the task now in the URL (or
@@ -164,11 +178,11 @@ export function openTaskInApp(target: TaskTarget): void {
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
-/** Called once at boot (App). If the URL carries ?task=, ACTIVATE the global
- *  board and hand it the target. Unlike before, the param is NOT stripped: the
- *  URL stays the source of truth (a refresh recovers the drawer; the board
- *  reads `currentTaskTarget()` on mount whenever it activates), and it is the
- *  reflection cleared only when the drawer closes.
+/** Called once at boot (App). If the URL carries a deep-link (new `/task/<id>`
+ *  path or legacy `?task=`), ACTIVATE the global board and hand it the target.
+ *  The location is NOT stripped: the URL stays the source of truth (a refresh
+ *  recovers the drawer; the board reads `currentTaskTarget()` on mount whenever
+ *  it activates), cleared only when the drawer closes.
  *
  *  Emits a live `topics:open-task` for a board already open, and
  *  `topics:open-utility` (board) which usePanelLifecycle turns into a

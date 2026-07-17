@@ -4,6 +4,7 @@ import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
 import { closeDatabase } from "./server/db";
+import { shouldServeSpaFallback } from "./server/spa-fallback";
 import {
   acquireLock, releaseLock, writeState, readState,
   uptimeMsSince, LiveLockError, worktreeIsolationHome,
@@ -1055,6 +1056,26 @@ const server = Bun.serve<WSData>({
         return response;
       }
       logRequest(method, pathname, 404, startTime);
+      return new Response("Not Found", { status: 404 });
+    }
+
+    // SPA navigation fallback. Client-side routes like `/task/<uuid>` have no
+    // file on disk; a full-page load (refresh / pasted link) must still boot the
+    // app so openTaskLink can read the path. Serve the app shell for GET HTML
+    // navigations only. This sits AFTER all api/asset routing on purpose: a
+    // missing asset (`/assets/foo.js`) or unknown `/api/*` route already returned
+    // its real 404 above — never masked by index.html. The decision lives in
+    // `shouldServeSpaFallback` (server/spa-fallback.ts) so it's unit-tested.
+    // Same no-store headers as the "/" branch.
+    if (shouldServeSpaFallback({ method, pathname, accept: req.headers.get("accept") })) {
+      let html = await Bun.file(join(PUBLIC_DIR, "index.html")).text();
+      if (isDevPort) {
+        html = html
+          .replace(/\/icons\/icon-180\.png/g, '/icons/icon-180-dev.png')
+          .replace(/\/icons\/icon-192\.png/g, '/icons/icon-192-dev.png')
+          .replace('href="/manifest.json"', 'href="/manifest-dev.json"');
+      }
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
 
     return new Response("Not Found", { status: 404 });
