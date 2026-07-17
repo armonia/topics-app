@@ -337,7 +337,12 @@ function GlobalSettingsMenu() {
   const toggleCap = async (v: boolean) => {
     setBusy(true);
     setG((p) => (p ? { ...p, maxAgentsAuto: v } : p));
-    try { setG(await boardApi.setGlobalCap(v)); } catch { load(); } finally { setBusy(false); }
+    try { setG(await boardApi.setGlobalCap({ auto: v })); } catch { load(); } finally { setBusy(false); }
+  };
+  const setManual = async (n: number) => {
+    const max = Math.max(1, Math.min(20, Math.round(n)));
+    setG((p) => (p ? { ...p, maxAgents: max } : p));
+    try { setG(await boardApi.setGlobalCap({ max })); } catch { load(); }
   };
   return (
     <>
@@ -356,14 +361,24 @@ function GlobalSettingsMenu() {
           </label>
           <div className="space-y-1 border-t border-white/5 pt-2">
             <label className="flex cursor-pointer items-center justify-between gap-3">
-              <span>Cap agent automatico</span>
+              <span>Agent in parallelo — auto</span>
               <input type="checkbox" checked={!!g?.maxAgentsAuto} disabled={busy} onChange={(e) => toggleCap(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
             </label>
-            <p className="text-[11px] leading-snug text-neutral-500">
-              {g?.maxAgentsAuto
-                ? <>Su tutta la macchina: <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo{cap && <span className="text-neutral-600"> — {cap.reason}</span>}</>
-                : <>Off: ogni board usa il suo cap (⚙ sulla board di progetto).</>}
-            </p>
+            {g?.maxAgentsAuto ? (
+              <p className="text-[11px] leading-snug text-neutral-500">
+                <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo su tutta la macchina{cap && <span className="text-neutral-600"> — {cap.reason}</span>}
+              </p>
+            ) : (
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-[11px] text-neutral-500">Numero fisso{cap && <span className="text-neutral-600"> (consigliato {cap.recommended})</span>}</span>
+                <input
+                  type="number" min={1} max={20} value={g?.maxAgents ?? 3}
+                  onChange={(e) => setManual(Number(e.target.value))}
+                  className="w-14 rounded bg-white/5 px-1.5 py-0.5 text-right text-neutral-100 outline-none"
+                />
+              </label>
+            )}
+            <p className="text-[10px] leading-snug text-neutral-600">Vale su TUTTE le board (una sola macchina, un solo limite).</p>
           </div>
         </div>
       </Menu>
@@ -3188,10 +3203,6 @@ function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onTogg
     try { onChanged(await boardApi.updateSettings(projectId, p)); }
     catch (e) { onError(e instanceof Error ? e.message : 'settings save failed'); }
   };
-  // Live machine capacity for the "Auto" cap — fetched when the panel opens.
-  const [cap, setCap] = useState<DispatchCapacity | null>(null);
-  useEffect(() => { boardApi.dispatchCapacity().then(setCap).catch(() => setCap(null)); }, []);
-
   if (!s) return null;
   return (
     <div className="shrink-0 space-y-2 border-b border-white/10 bg-neutral-900/60 px-3 py-2.5 text-xs text-neutral-300">
@@ -3205,35 +3216,9 @@ function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models, onTogg
         <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
       </label>
 
-      <div className="space-y-1">
-        <label className="flex cursor-pointer items-center justify-between">
-          <span>Agent in parallelo (cap)</span>
-          <span className="flex items-center gap-1.5 text-[11px] text-neutral-400">
-            Auto
-            <input
-              type="checkbox" checked={s.maxAgentsAuto}
-              onChange={(e) => patch({ maxAgentsAuto: e.target.checked })}
-              className="h-3.5 w-3.5 accent-emerald-500"
-              title="Dimensiona il cap in automatico dalle risorse della macchina (CPU/carico)"
-            />
-          </span>
-        </label>
-        {s.maxAgentsAuto ? (
-          <p className="text-[11px] text-neutral-500">
-            Auto: <b className="text-emerald-300">{cap ? cap.recommended : '…'}</b> agent in parallelo
-            {cap && <span className="text-neutral-600"> — {cap.reason}</span>}
-          </p>
-        ) : (
-          <label className="flex items-center justify-between">
-            <span className="text-[11px] text-neutral-500">Valore manuale{cap && <span className="text-neutral-600"> (consigliato {cap.recommended})</span>}</span>
-            <input
-              type="number" min={1} max={10} value={s.maxAgents}
-              onChange={(e) => patch({ maxAgents: Number(e.target.value) })}
-              className="w-14 rounded bg-white/5 px-1.5 py-0.5 text-right text-neutral-100 outline-none"
-            />
-          </label>
-        )}
-      </div>
+      <p className="text-[11px] leading-snug text-neutral-500">
+        Agent in parallelo: <b className="text-neutral-300">cap globale</b> — una sola macchina, un solo limite. Impostalo dal <b>▾</b> accanto al titolo della board.
+      </p>
 
       <div className="flex items-center justify-between gap-2">
         <span>Effort</span>

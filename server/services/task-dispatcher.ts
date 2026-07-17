@@ -707,19 +707,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return;
     }
 
-    // Effective concurrency cap for this tick.
-    //   • GLOBAL auto-cap ON (general-board switch): one machine-wide budget
-    //     sized from live capacity (CPU/load) and counted across EVERY board —
-    //     N boards can't multiply into N×cap agents. Per-board caps are moot.
-    //   • else: an auto board sizes from capacity, a manual board uses its own
-    //     number, counted per-board (legacy behavior).
-    // Computed once so every claim in this tick shares one budget.
-    let globalCapAuto = false;
-    try { globalCapAuto = deps.svc.getGlobalCap().auto; } catch { /* default off */ }
-    const capScope: "board" | "global" = globalCapAuto ? "global" : "board";
-    const effectiveCap = (globalCapAuto || settings.maxAgentsAuto) && deps.recommendedCap
+    // Effective concurrency cap for this tick: ONE machine-wide budget counted
+    // across EVERY board (scope 'global'), so N boards can't multiply into N×cap
+    // agents. 'auto' sizes it from live capacity (CPU/load); otherwise the fixed
+    // number set in the global settings dropdown. Computed once so every claim in
+    // this tick shares the same budget.
+    let gcap = { auto: true, max: 3 };
+    try { gcap = deps.svc.getGlobalCap(); } catch { /* defaults */ }
+    const capScope: "board" | "global" = "global";
+    const effectiveCap = gcap.auto && deps.recommendedCap
       ? Math.max(1, deps.recommendedCap())
-      : settings.maxAgents;
+      : Math.max(1, gcap.max);
 
     for (const t of todos) {
       if (inFlight.has(t.id)) continue;
