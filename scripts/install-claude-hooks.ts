@@ -47,6 +47,12 @@ const HOOK_EVENTS = [
   "PostToolUse",
   "Notification",
   "Stop",
+  // Monitor/watch lifecycle — arm/close a background watch. MonitorArmed pins
+  // the session in `watching` (ring stays on while it waits for an event);
+  // MonitorClosed releases it. Harmless no-ops on a Claude Code that doesn't
+  // emit them (the endpoint just never receives the event).
+  "MonitorArmed",
+  "MonitorClosed",
 ] as const;
 
 interface HookEntry {

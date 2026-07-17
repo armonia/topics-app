@@ -108,7 +108,7 @@ export interface ClaudeSessionRepo {
 }
 
 const ACTIVE_PHASES: ReadonlyArray<ClaudeSessionPhase> = [
-  'starting', 'running', 'tool-running', 'awaiting-user', 'awaiting-approval', 'paused',
+  'starting', 'running', 'tool-running', 'awaiting-user', 'awaiting-approval', 'paused', 'watching',
 ];
 
 const LIVE_PHASES: ReadonlyArray<ClaudeSessionPhase> = [...ACTIVE_PHASES, 'dormant'];
