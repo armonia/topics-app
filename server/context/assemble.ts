@@ -536,9 +536,27 @@ function pushProjectTemplateBlocks(
   const graphRepo = topic.projectPath || projectDir;
   const graphPath = graphRepo ? join(graphRepo, "graphify-out", "graph.json") : "";
   if (graphPath && existsSync(graphPath)) {
+    // Report the graph's age so the agent can gauge how much to trust it. The
+    // graph is auto-rebuilt by a git post-commit hook (scripts/graphify-regen.sh),
+    // so under normal use it tracks HEAD; if it's stale the agent must be told,
+    // otherwise it silently reasons over an out-of-date map of the code.
+    let ageNote = "";
+    try {
+      const ageMs = Date.now() - statSync(graphPath).mtimeMs;
+      const ageDays = ageMs / 86_400_000;
+      const label =
+        ageDays >= 1 ? `${Math.floor(ageDays)}d`
+        : ageMs >= 3_600_000 ? `${Math.floor(ageMs / 3_600_000)}h`
+        : `${Math.max(1, Math.floor(ageMs / 60_000))}m`;
+      ageNote = ageDays > 2
+        ? ` The graph was last rebuilt ${label} ago — STALE (>2 days): it may miss recent changes, so verify any hit against the live source before trusting it.`
+        : ` The graph was last rebuilt ${label} ago.`;
+    } catch { /* stat can race a rebuild; skip the age note if so */ }
     awarenessBase +=
       `\n\nCode graph available for this project: prefer \`graphify query/explain/path\` ` +
-      `(graph at ${graphPath}) over broad Grep/Read exploration when locating code.`;
+      `(graph at ${graphPath}) over broad Grep/Read exploration when locating code — ` +
+      `e.g. \`graphify query 'who calls streamEditResponse' --graph ${graphPath}\`.` +
+      ageNote;
   }
 
   // Snapshot carries the "Project root files: a, b/, c" listing plus the

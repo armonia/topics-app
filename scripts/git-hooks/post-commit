@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Auto-installed by scripts/install-graphify-hooks.sh.
+# Async, debounced code-graph refresh — never blocks the commit.
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+regen="$root/scripts/graphify-regen.sh"
+[ -x "$regen" ] && "$regen" || true
+exit 0
