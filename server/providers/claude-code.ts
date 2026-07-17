@@ -618,6 +618,41 @@ interface PersistentProcess {
 
 // ============ Provider ============
 
+/**
+ * Parse the stdout of a `claude --print --output-format json` one-shot into a
+ * CompletionResult. Handles BOTH shapes: the single result object, and the
+ * full event ARRAY that `--verbose` used to switch on (the result then lives
+ * in the final `{type:"result"}` event). NEVER falls back to the raw JSON as
+ * "the completion": that poisoned every downstream parser — the model-picker
+ * read `haiku` out of the init event's model id and routed real tasks to
+ * haiku. Missing result ⇒ empty content, so callers engage their own
+ * fallbacks (the picker's is opus). Non-JSON stdout is passed through as
+ * plain text (the CLI answered without the json wrapper).
+ */
+export function parseCompletionStdout(stdout: string): CompletionResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return { content: stdout.trim() };
+  }
+  const resultEvent: any = Array.isArray(parsed)
+    ? parsed.find((e: any) => e?.type === "result")
+    : parsed;
+  const content = typeof resultEvent?.result === "string" ? resultEvent.result : "";
+  if (!content) {
+    console.warn(`[claude-code] complete(): no result text in CLI json output (${stdout.slice(0, 80)}…)`);
+  }
+  const usage = resultEvent?.usage;
+  return {
+    content,
+    usage: usage ? {
+      promptTokens: (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
+      completionTokens: usage.output_tokens ?? 0,
+    } : undefined,
+  };
+}
+
 export class ClaudeCodeProvider implements AIProvider {
   readonly name = "claude-code";
   readonly capabilities: Set<ProviderCapability> = new Set([
@@ -817,6 +852,7 @@ export class ClaudeCodeProvider implements AIProvider {
   // --- Non-streaming Completion ---
 
   async complete(messages: ChatMessage[], options?: { model?: string }): Promise<CompletionResult> {
+    // (stdout parsing lives in parseCompletionStdout, exported for tests)
     // Build a single prompt from all messages
     const prompt = messages
       .map((m) => {
@@ -849,7 +885,9 @@ export class ClaudeCodeProvider implements AIProvider {
     const args = [
       "--print",
       "--permission-mode", permissionMode,
-      "--verbose",
+      // NO --verbose here: with --output-format json it switches stdout to the
+      // full EVENT ARRAY and the single result object disappears — that's how
+      // complete() ended up returning raw stream JSON as "the completion".
       "--model", model,
       "--setting-sources", "user,project,local",
       ...oneshotMcpArgs,
@@ -884,20 +922,7 @@ export class ClaudeCodeProvider implements AIProvider {
           resolve({ content: `Error: CLI exited with code ${code}` });
           return;
         }
-        try {
-          const parsed = JSON.parse(stdout);
-          const resultText = parsed.result ?? stdout.trim();
-          const usage = parsed.usage;
-          resolve({
-            content: resultText,
-            usage: usage ? {
-              promptTokens: (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
-              completionTokens: usage.output_tokens ?? 0,
-            } : undefined,
-          });
-        } catch {
-          resolve({ content: stdout.trim() });
-        }
+        resolve(parseCompletionStdout(stdout));
       });
 
       proc.on("error", (err) => {
