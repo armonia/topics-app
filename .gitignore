@@ -75,7 +75,9 @@ research/
 competitor-screenshots/
 backups/
 tasks/
-docs/
+docs/*
+# ENV.md is the public env-var reference (env audit 2026-07) — committable.
+!docs/ENV.md
 
 # Reference repos (local only)
 .reference/
