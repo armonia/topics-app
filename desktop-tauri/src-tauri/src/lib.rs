@@ -4541,6 +4541,145 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
     std::mem::forget(block);
 }
 
+// ─────────────────── Global right-⌘ tap → focus the task composer ──────────────
+//
+// Renderer-parity for the "tap right-⌘ to jump to the board composer" gesture,
+// but working from ANY app (when Topics is in the background). The in-app path
+// (useKeyboardShortcuts, MetaRight keyup within 400 ms) only sees keys while the
+// webview has focus; a GLOBAL NSEvent monitor sees them system-wide. The two
+// don't collide: a global monitor is only delivered while OUR app is inactive —
+// once Topics is frontmost the renderer path owns the gesture.
+//
+// Detection mirrors the renderer: a bare right-⌘ PRESS arms a timestamp; the
+// matching RELEASE fires only if it came quickly (< 400 ms) with nothing in
+// between — any other key, modifier, mouse, or scroll disarms it, so right-⌘
+// held as a modifier (⌘C, ⌘-click) never triggers. On a real tap we activate
+// Topics and re-dispatch the existing `task-composer:focus` renderer event.
+//
+// Keyboard events reach a global monitor ONLY when the process is trusted for
+// Accessibility — `install_accessibility_prompt` requests that; until it's
+// granted (may need a relaunch) the monitor is installed but simply receives
+// nothing, so this degrades to "in-app only" rather than breaking.
+#[cfg(target_os = "macos")]
+fn install_global_cmd_tap(app: &tauri::AppHandle) {
+    use cocoa::base::{id, YES};
+    use objc::{class, msg_send, sel, sel_impl};
+    use std::cell::Cell;
+    use tauri::Manager; // get_webview / get_webview_window on AppHandle
+
+    // NSEventType / NSEventMask
+    const NS_KEY_DOWN: u64 = 10;
+    const NS_FLAGS_CHANGED: u64 = 12;
+    let mask: u64 = (1 << NS_FLAGS_CHANGED)   // modifier changes (⌘ press/release)
+        | (1 << NS_KEY_DOWN)                  // any other key → disarm
+        | (1 << 1)  | (1 << 3)                // left/right mouse down → disarm
+        | (1 << 22);                          // scroll wheel → disarm
+
+    // kVK_RightCommand. Left ⌘ is 55; we intentionally only bind the right one.
+    const RIGHT_CMD_KEYCODE: u16 = 54;
+    // Device-independent modifier bits (mask off the low device-dependent byte).
+    const DEVICE_INDEPENDENT: u64 = 0xffff_0000;
+    const FLAG_COMMAND: u64 = 1 << 20;
+    // Every OTHER modifier we must be absent for a *bare* right-⌘ tap.
+    const OTHER_MODS: u64 =
+        (1 << 16) | (1 << 17) | (1 << 18) | (1 << 19) | (1 << 23); // caps/shift/ctrl/opt/fn
+
+    let app = app.clone();
+    // Armed timestamp (NSEvent.timestamp, seconds since boot); 0.0 = disarmed.
+    let armed_at = Cell::new(0.0_f64);
+
+    let block = block::ConcreteBlock::new(move |event: id| {
+        unsafe {
+            let etype: u64 = msg_send![event, r#type];
+            if etype != NS_FLAGS_CHANGED {
+                // A keydown / mouse / scroll landed → this is a chord, not a tap.
+                armed_at.set(0.0);
+                return;
+            }
+
+            let key_code: u16 = msg_send![event, keyCode];
+            let flags: u64 = msg_send![event, modifierFlags];
+            let dev = flags & DEVICE_INDEPENDENT;
+            let cmd_now = dev & FLAG_COMMAND != 0;
+            let others = dev & OTHER_MODS != 0;
+            let ts: f64 = msg_send![event, timestamp];
+
+            if key_code == RIGHT_CMD_KEYCODE {
+                if cmd_now && !others {
+                    armed_at.set(ts); // bare right-⌘ pressed → arm
+                } else if !cmd_now {
+                    // Right-⌘ released — fire only for a quick, uninterrupted tap.
+                    let start = armed_at.get();
+                    armed_at.set(0.0);
+                    if start > 0.0 && ts - start < 0.4 {
+                        if let Some(win) = app.get_webview_window("main") {
+                            // Bring Topics to the foreground (it was inactive), then
+                            // re-use the exact event the in-app tap fires.
+                            let nsapp: id = msg_send![class!(NSApplication), sharedApplication];
+                            let _: () = msg_send![nsapp, activateIgnoringOtherApps: YES];
+                            ensure_window_visible(&win);
+                            if let Some(wv) = app.get_webview("main") {
+                                let _ = wv.eval("window.dispatchEvent(new CustomEvent('task-composer:focus'))");
+                            }
+                        }
+                    }
+                } else {
+                    armed_at.set(0.0); // right-⌘ + another modifier → chord
+                }
+            } else {
+                // Any other modifier changed (left ⌘, shift, …) → disarm.
+                armed_at.set(0.0);
+            }
+        }
+    });
+    let block = block.copy();
+    unsafe {
+        let _monitor: id = msg_send![class!(NSEvent),
+            addGlobalMonitorForEventsMatchingMask: mask
+            handler: &*block];
+    }
+    // Keep the heap block alive for the app lifetime (the monitor is never removed).
+    std::mem::forget(block);
+}
+
+// Request Accessibility trust so the global monitor above receives key events.
+// AXIsProcessTrustedWithOptions with the prompt option shows the one-time system
+// dialog (and drops the app into System Settings ▸ Privacy ▸ Accessibility). Once
+// already trusted it's a silent no-op. Not fatal: without trust the app still runs,
+// only the GLOBAL tap is inert (the in-app gesture is unaffected).
+#[cfg(target_os = "macos")]
+fn install_accessibility_prompt() {
+    use cocoa::base::{id, nil, YES};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrusted() -> bool;
+        // Takes a CFDictionaryRef; NSDictionary is toll-free bridged, so we pass an id.
+        fn AXIsProcessTrustedWithOptions(options: id) -> bool;
+    }
+
+    unsafe {
+        if AXIsProcessTrusted() {
+            return; // already granted — no prompt
+        }
+        // options = @{ @"AXTrustedCheckOptionPrompt": @YES } — the constant's value
+        // IS this string, so a literal key avoids linking the CFString global.
+        let key = NSString::alloc(nil).init_str("AXTrustedCheckOptionPrompt");
+        let yes: id = msg_send![class!(NSNumber), numberWithBool: YES];
+        let opts: id = msg_send![class!(NSDictionary), dictionaryWithObject: yes forKey: key];
+        let trusted = AXIsProcessTrustedWithOptions(opts);
+        if !trusted {
+            log::warn!(
+                "[topics] Accessibility not yet granted — global right-⌘ tap stays inert \
+                 until it's enabled in System Settings ▸ Privacy & Security ▸ Accessibility \
+                 (a relaunch may be needed)."
+            );
+        }
+    }
+}
+
 // ───────────────────────── Pop-out to a real OS window ─────────────────────────
 //
 // A group of topics can be "moved to a new window": a real detached NSWindow that
@@ -5394,6 +5533,15 @@ pub fn run() {
             // the keydown. macOS-only (NSEvent local monitor); see the fn doc.
             #[cfg(target_os = "macos")]
             install_shortcut_forwarder(app.handle());
+
+            // Global right-⌘ TAP → focus the board task composer, even when Topics
+            // is in the background (from any other app). Needs Accessibility trust
+            // for the global key monitor — request it, then arm the monitor.
+            #[cfg(target_os = "macos")]
+            {
+                install_accessibility_prompt();
+                install_global_cmd_tap(app.handle());
+            }
 
             // UserNotifications delegate + one-time authorization request (first
             // launch shows the system prompt). Bundled-only; see the module doc.
