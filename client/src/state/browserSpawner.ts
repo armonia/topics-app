@@ -92,6 +92,22 @@ export function getSpawnedBrowser(spawnerTopicId: string): string | null {
   return state.topicToBrowser[spawnerTopicId] ?? null;
 }
 
+/**
+ * Resolve the browser contextId to CLOSE for a server `browser:close-pane`
+ * broadcast. A browser pane opened from a TERMINAL mounts under the owning
+ * topic/project's browser contextId, NOT the server-side `term-<id>` the close
+ * broadcast carries — so a naive `browser:<term-id>` lookup never matches and
+ * the pane leaks as an unclosable ghost (the session that opened it can't close
+ * it). The open path recorded the real ctx against the terminal's pane id
+ * (`terminal:<id>`), so map it back here. Non-terminal ids — chat topics bind
+ * their pane to their own ctx — pass through unchanged.
+ */
+export function resolveTerminalBrowserContext(contextId: string): string {
+  const m = /^term-(.+)$/.exec(contextId);
+  if (!m) return contextId;
+  return getSpawnedBrowser(`terminal:${m[1]}`) ?? contextId;
+}
+
 export function clearBrowserSpawner(browserContextId: string): void {
   const topic = state.browserToTopic[browserContextId];
   if (!topic) return;

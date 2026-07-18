@@ -69,6 +69,7 @@ import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors'
 import { isLiveSpaceId } from '../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID } from '../state/pane/types';
 import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
+import { resolveTerminalBrowserContext } from '../state/browserSpawner';
 import {
   buildTerminalSessionBody,
   normalizeTerminalAgent,
@@ -1490,10 +1491,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     return onWSMessage((msg) => {
       const m = msg as { type?: string; contextId?: string };
       if (m.type !== 'browser:close-pane' || !m.contextId) return;
+      // A pane opened from a TERMINAL mounts under the owning topic/project's
+      // browser ctx, not the `term-<id>` the server broadcasts — resolve it via
+      // the spawner registry so the session that opened it can actually close
+      // it (otherwise it leaks as an unclosable ghost). Non-terminal ids pass
+      // through, so the topic/chat close path is unchanged.
+      const contextId = resolveTerminalBrowserContext(m.contextId);
       window.dispatchEvent(new CustomEvent('browser:request-close', {
-        detail: { contextId: m.contextId },
+        detail: { contextId },
       }));
-      const paneId = createPaneId('browser', m.contextId);
+      const paneId = createPaneId('browser', contextId);
       const state = usePaneStore.getState();
       const atAppLevel = Object.values(state.groups).some(g => g.paneIds.includes(paneId));
       if (atAppLevel || openPanelsRef.current.includes(paneId)) {

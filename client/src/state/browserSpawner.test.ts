@@ -43,6 +43,7 @@ const {
   getSpawnedBrowser,
   clearBrowserSpawner,
   subscribeBrowserSpawner,
+  resolveTerminalBrowserContext,
 } = await import("./browserSpawner");
 
 function reset(): void {
@@ -116,5 +117,33 @@ describe("browserSpawner", () => {
     clearBrowserSpawner("b1");
     expect(fires).toBe(3);
     off();
+  });
+});
+
+describe("resolveTerminalBrowserContext", () => {
+  beforeEach(() => {
+    (globalThis as unknown as { sessionStorage: Storage }).sessionStorage.clear();
+    clearBrowserSpawner("browser-ctx-1");
+  });
+
+  test("non-terminal ids pass through unchanged", () => {
+    // A chat topic's pane binds to its own ctx — the close broadcast already
+    // carries the right id, so no remap.
+    expect(resolveTerminalBrowserContext("topic-abc")).toBe("topic-abc");
+    setBrowserSpawner("browser-ctx-1", "topic-abc");
+    expect(resolveTerminalBrowserContext("topic-abc")).toBe("topic-abc");
+  });
+
+  test("term-<id> resolves to the browser ctx the terminal spawned", () => {
+    // Open path records: setBrowserSpawner(browserCtx, `terminal:<id>`).
+    setBrowserSpawner("browser-ctx-1", "terminal:d1b33bbe");
+    // Server close broadcast carries `term-<id>` — map it back to the real pane
+    // so the terminal that opened it can actually close it.
+    expect(resolveTerminalBrowserContext("term-d1b33bbe")).toBe("browser-ctx-1");
+  });
+
+  test("term-<id> with no recorded spawner falls back to itself", () => {
+    // Nothing opened → nothing to remap; the raw id is a harmless no-op target.
+    expect(resolveTerminalBrowserContext("term-unknown")).toBe("term-unknown");
   });
 });
