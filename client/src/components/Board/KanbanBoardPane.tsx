@@ -294,7 +294,7 @@ function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelPro
           onChange={(e) => onFiltersChange({ ...filters, text: e.target.value })}
           placeholder="cerca…"
           aria-label="Cerca nei task"
-          className="h-6 w-40 rounded-md bg-white/5 pl-6 pr-1.5 text-[11px] leading-none text-neutral-100 outline-none placeholder:text-neutral-600 focus:bg-white/10"
+          className="h-6 w-28 rounded-md bg-white/5 pl-6 pr-1.5 text-[11px] leading-none text-neutral-100 outline-none placeholder:text-neutral-600 focus:bg-white/10 sm:w-40"
         />
       </div>
 
@@ -671,8 +671,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden" data-testid="kanban-board">
-      {/* Header: a project/all toggle inside a project, a static label globally. */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-3 py-1.5">
+      {/* Header: a project/all toggle inside a project, a static label globally.
+          On phone the toolbar is too dense to fit — it becomes a single
+          horizontally-scrollable strip (no wrap, hidden scrollbar) so nothing is
+          clipped; on desktop it sits inline with the trailing actions ml-auto'd. */}
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-white/10 px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 sm:px-3">
         {canToggle ? (
           <>
             <button
@@ -692,7 +695,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {mode === 'all' && <span className="text-[11px] text-neutral-500">{tasks.length} task · tutti i progetti</span>}
+          {mode === 'all' && <span className="hidden text-[11px] text-neutral-500 sm:inline">{tasks.length} task · tutti i progetti</span>}
           {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
           <PublishControl />
           {hasProject && (
