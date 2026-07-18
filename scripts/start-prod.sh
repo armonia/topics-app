@@ -137,6 +137,34 @@ fi
 # (`bun --watch` is also rejected: it restarts via SIGKILL, bypassing
 # server.ts gracefulShutdown and orphaning the PTY bridge + claude children.)
 
+# ─── Server hot-reload (OPT-IN, GRACEFUL) — 2026-07-18 ─────────────────────
+# Default OFF → released/other installs stay byte-identical & STABLE. A dev
+# machine can `export TOPICS_SERVER_WATCH=1` in ~/.topics-server-env to get hot
+# reload done the SAFE way: on a server-source change we send SIGTERM to the
+# running server so server.ts gracefulShutdown runs (clean singleton-lock
+# release + bridge disconnect), and the restart loop below relaunches it — the
+# new process re-acquires the lock cleanly and the ai-bridge broker + PTY-bridge
+# sidecars reattach live chat/dispatch/terminal sessions (reload-resilience,
+# landed after the 2026-06-22 incident). This is deliberately NOT `bun --watch`
+# (SIGKILL → bypasses gracefulShutdown, races the lock) and NOT the old
+# fswatch-on-every-save (no debounce → pane flap): fswatch is debounced 2s so a
+# multi-file merge coalesces into ONE graceful reload. Only server/** + server.ts
+# are watched (source-only; runtime writes go to data/, ai-bridge/, /tmp, public/).
+if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
+  (
+    fswatch -o -l 2 --event Updated --event Created --event Removed --event Renamed \
+      "$APP_DIR/server/" "$APP_DIR/server.ts" 2>/dev/null \
+    | while read -r _; do
+        SP=$(cat "$SERVER_PIDFILE" 2>/dev/null)
+        if [ -n "$SP" ] && kill -0 "$SP" 2>/dev/null; then
+          echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
+          kill -TERM "$SP" 2>/dev/null
+        fi
+      done
+  ) &
+  echo "[start-prod] server hot-reload watch ON (graceful SIGTERM, debounce 2s, TOPICS_SERVER_WATCH=1)"
+fi
+
 # Restart-on-CRASH loop. An UNEXPECTED server exit drops us out of `wait` and we
 # relaunch after 1s; launchd KeepAlive=true is the outer backstop if
 # start-prod.sh itself dies. A SIGTERM to THIS script (launchd `bootout`, or the
