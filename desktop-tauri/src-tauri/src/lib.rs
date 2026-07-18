@@ -4981,6 +4981,13 @@ fn dev_auto_update_enabled() -> bool {
             _ => {} // unrecognized ⇒ fall through to the marker
         }
     }
+    // A debug build is the dev's OWN source compile (`cargo run`) — never silently swap
+    // it for a signed release binary: that would nuke an in-progress native-dev session
+    // and replace your local build with CI's. The passive marker opt-in only ever arms
+    // an INSTALLED release shell; an explicit `TOPICS_AUTO_UPDATE=1` above still wins.
+    if cfg!(debug_assertions) {
+        return false;
+    }
     let Some(marker) =
         user_config_dir().map(|d| d.join(BUNDLE_IDENTIFIER).join("topics-dev.json"))
     else {
