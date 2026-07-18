@@ -649,10 +649,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface });
   browserRef.current = browser;
   // Seed the first browser tab from the review output_url once, when the task
-  // has no tabs yet (so the reviewer lands on the delivered page).
+  // has no tabs yet (so the reviewer lands on the delivered page). NO forced
+  // "Output" label — it's just a normal browser tab: the bar shows the system
+  // default ("Browser") until the page loads, then the page's OWN title (auto).
   useEffect(() => {
     if (!task?.outputUrl) return;
-    void browser.seedFromUrl(task.outputUrl, 'Output');
+    void browser.seedFromUrl(task.outputUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seedFromUrl is stable per taskId; refire only when the output_url changes
   }, [task?.outputUrl]);
 
@@ -781,10 +783,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
             ><ExternalLink className="h-4 w-4" /></button>
           )}
+          {/* Espandi/riduci ha senso solo sul side-panel desktop: su mobile il
+              drawer è già full-screen, quindi il toggle è nascosto (<lg). */}
           <button
             onClick={toggleWide}
             title={wide ? 'Riduci il drawer (vedi la board)' : 'Allarga il drawer (più spazio per il tiling)'}
-            className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+            className="hidden rounded p-1.5 text-neutral-400 hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
           <button onClick={onClose} className="rounded p-1.5 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
