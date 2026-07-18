@@ -156,11 +156,24 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
     try { await boardApi.archive(task.projectId, task.id); onRefetch(); }
     catch (e) { onError(e instanceof Error ? e.message : 'archive failed'); }
   };
+  // Steer a WORKING agent: a comment on an in_progress task is buffered by the
+  // dispatcher and handed over at the next turn (Claude-Code style). Same
+  // /comments endpoint as the drawer composer — the server routes it to resume().
+  const steer = async (text: string) => {
+    const v = text.trim();
+    if (busy || !v) return;
+    setBusy(true);
+    try { await boardApi.comment(task.projectId, task.id, v); setFreeText(''); onRefetch(); }
+    catch (e) { onError(e instanceof Error ? e.message : 'steer failed'); }
+    finally { setBusy(false); }
+  };
   // Human-readable project label = the dirName prefix before the id hash.
   // Project-less = truly unassigned OR the catch-all board (which runs the task
   // standalone). Both render with NO chip — the "generale" label is noise.
   const unassigned = isProjectlessId(task.projectId);
   const projectLabel = task.projectId.replace(/-[^-]+$/, '');
+  const hasState = !!(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) || (!task.dispatchState && !!task.dispatchError);
+  const agentBusy = ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
 
   return (
     <div
@@ -174,26 +187,27 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       {/* Project eyebrow: favicon + plain project name ABOVE the title (no chip),
           so a cross-project card reads "which project" first, then the title —
           the name isn't competing as a pill down in the meta row. */}
-      {showProject && !unassigned && (
-        <div className="mb-1 flex items-center gap-1 text-[11px] text-neutral-400">
-          {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
-          <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+      {/* Top row: project eyebrow (cross-project) on the LEFT, PRIMARY dispatch
+          state on the RIGHT — aligned with the project, so the title below gets
+          the FULL width instead of sharing its line with the chip. On a
+          single-project board (no eyebrow) a spacer keeps the chip top-right. */}
+      {((showProject && !unassigned) || hasState) && (
+        <div className="mb-1 flex items-center gap-2">
+          {showProject && !unassigned ? (
+            <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400">
+              {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
+              <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+            </div>
+          ) : <div className="min-w-0 flex-1" />}
+          {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+            <DispatchChip state={task.dispatchState} error={task.dispatchError} />
+          ) : (!task.dispatchState && task.dispatchError) ? (
+            <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
+          ) : null}
         </div>
       )}
-      {/* Header: title left, PRIMARY STATE pinned top-right — same slot on every
-          card, so the eye finds "dov'è il task" without scanning the chip row.
-          No delete icon here: archive/select live in the right-click menu. */}
-      <div className="flex items-start gap-2">
-        {/* min-w-0 lets the flex item shrink below its content's intrinsic
-            width; break-words then wraps long unbreakable tokens (URL, path,
-            hash, branch) instead of spilling the card past the column edge. */}
-        <span className="min-w-0 flex-1 break-words leading-snug">{task.text}</span>
-        {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
-          <DispatchChip state={task.dispatchState} error={task.dispatchError} />
-        ) : (!task.dispatchState && task.dispatchError) ? (
-          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
-        ) : null}
-      </div>
+      {/* Title — FULL width (the dispatch state moved up to the top row). */}
+      <span className="block break-words leading-snug">{task.text}</span>
       {/* Meta: every informational chip stays VISIBLE, zoned below the title in a
           tidy row (attributi del task). State + archive live top-right, above. */}
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -259,6 +273,24 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           ><ArrowUpRight className="h-3 w-3" /> apri tab</button>
         )}
       </div>
+      {/* Steer a WORKING agent right from the card ("anche da kanban"): the
+          message is buffered and handed to the agent at the next turn. */}
+      {agentBusy && (
+        <div className="mt-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <input
+            value={freeText} disabled={busy}
+            onChange={(e) => setFreeText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && freeText.trim()) { e.preventDefault(); steer(freeText); } }}
+            placeholder="Scrivi all'agent…"
+            className="min-w-0 flex-1 rounded-md bg-black/30 px-2.5 py-1.5 text-xs text-neutral-100 outline-none placeholder:text-neutral-500"
+          />
+          <button
+            disabled={busy || !freeText.trim()} onClick={() => steer(freeText)}
+            title="Invia all'agent — lo riceve al prossimo turno (come Claude Code)"
+            className="flex shrink-0 items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
+          ><Send className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
       {task.status === 'review' && isAgentReview && (
         <div className="mt-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
           {/* The agent's last word, ALWAYS on the card — a formatted question
