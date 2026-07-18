@@ -36,7 +36,9 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // columns sit in normal flow, and Review widens for its inline controls.
   const isReview = status === 'review';
   const snapCls = 'snap-center lg:snap-align-none';
-  const widthCls = isReview ? 'w-72 lg:w-[32rem]' : 'w-72';
+  // Review is the approval surface — give it more room than the working columns
+  // on every viewport (wider slide on mobile, 32rem on desktop).
+  const widthCls = isReview ? 'w-[22rem] lg:w-[32rem]' : 'w-72';
   const borderCls = isOver ? 'border-emerald-400/60' : 'border-white/10';
   const bgCls = isOver ? 'bg-emerald-400/5' : 'bg-white/5';
 
