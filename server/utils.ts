@@ -5,6 +5,7 @@ import { timingSafeEqual } from "crypto";
 import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
+import { warnThrottled } from "./lib/warn-throttled";
 import type {
   WSData, StoredMessage, ToolCall, Topic, TopicsData, UnreadData,
   ActiveStream, ErrorResponseOptions, AppContext,
@@ -405,7 +406,11 @@ export function createAppContext(baseDir: string): AppContext {
         msg.toolCalls = Array.isArray(parsed)
           ? parsed.map(sanitizeToolCallDetail)
           : parsed;
-      } catch {}
+      } catch (err) {
+        // Corrupt tool_calls JSON → message hydrates without its tool calls
+        // (recoverable, but silently lossy). Observe it.
+        warnThrottled("rowToMessage:tool_calls", `[Store] Failed to parse tool_calls for message ${row.id}:`, err);
+      }
     }
     if (row.blocks) {
       try {
@@ -422,10 +427,16 @@ export function createAppContext(baseDir: string): AppContext {
             return block;
           });
         }
-      } catch {}
+      } catch (err) {
+        // Corrupt blocks JSON → message hydrates without its rich blocks.
+        warnThrottled("rowToMessage:blocks", `[Store] Failed to parse blocks for message ${row.id}:`, err);
+      }
     }
     if (row.media) {
-      try { msg.media = JSON.parse(row.media); } catch {}
+      try { msg.media = JSON.parse(row.media); } catch (err) {
+        // Corrupt media JSON → message hydrates without attachments.
+        warnThrottled("rowToMessage:media", `[Store] Failed to parse media for message ${row.id}:`, err);
+      }
     }
     if (row.partial) msg.partial = true;
     if (row.streamed_at) msg.streamedAt = row.streamed_at;
@@ -477,7 +488,11 @@ export function createAppContext(baseDir: string): AppContext {
       }
     }
     // Trigger push notifications for meaningful events
-    try { maybeSendPush(message as Record<string, any>); } catch {}
+    try { maybeSendPush(message as Record<string, any>); } catch (err) {
+      // Push is best-effort, but a persistent throw here means notifications
+      // are silently dead — surface it (throttled) instead of never knowing.
+      warnThrottled("maybeSendPush", `[Push] maybeSendPush threw:`, err);
+    }
   }
 
   function broadcastToTopic(topicId: string, message: object, exclude?: ServerWebSocket<WSData>) {

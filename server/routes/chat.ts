@@ -673,7 +673,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // No separate "grace expired" log line — the soft-timeout entry
             // already exists; recovery would have logged on the way out.
             // Failing to recover IS the absence of a recovery log entry.
-            writeSSE("[DONE]").then(() => closeClient());
+            writeSSE("[DONE]").then(() => closeClient())
+              .catch((err) => console.warn(`[StreamWS] DONE/close on grace-expiry failed:`, err));
             clearAllTimers();
           };
 
@@ -702,7 +703,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               durationMs: Date.now() - requestStartMs,
               toolCallCount: trackedToolCallIds.length,
             });
-            writeSSE("[DONE]").then(() => closeClient());
+            writeSSE("[DONE]").then(() => closeClient())
+              .catch((err) => console.warn(`[StreamWS] DONE/close on hard-timeout failed:`, err));
             clearAllTimers();
           };
 
