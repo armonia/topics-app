@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, GitCompare, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ExternalLink, GitCompare, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, Paperclip, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -10,21 +10,17 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
-import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, SIDEPANEL_MIN, type TaskSurface } from './constants';
+import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, type TaskSurface } from './constants';
 import { friendlyModelLabel, commentTime, fmtMs, fmtLive, fmtTok, autoGrow } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { GroupLayout } from '../Layout/GroupLayout';
-import { useTaskBrowserGroupLayout } from './useTaskBrowserGroupLayout';
+import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
 
 /** Feature flag (per-client kill-switch): the task's browser lives as a
  *  task-owned tiling group driven by the app's real GroupLayout engine (split /
  *  drag / tab-stack / resize), scoped to the drawer and OUT of pane-store-v2.
  *  Default ON; set `localStorage['board:taskBrowser'] = '0'` to force it off. */
-const TASK_BROWSER_ENABLED = (() => {
-  try { return localStorage.getItem('board:taskBrowser') !== '0'; } catch { return true; }
-})();
-
 /** Hostname of a URL for a compact tab label, or '' if unparseable. */
 function hostLabel(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
@@ -84,13 +80,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 }) {
   const [task, setTask] = useState<BoardTask | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
-  // The task's surfaces (plan / output / media attachments) are ONE tab group of
-  // the task: `activeSurfaceId` is the selected surface tab. `null` ⟺ the Thread
-  // (the always-present primary body). This single selection drives both the
-  // inline tab bar (narrow pane) and the side panel (wide pane), replacing the
-  // old bodyTab + previewOff + previewPath tangle. Sticky across the drawer's
-  // life; a surface that disappears (output cleared) falls back to the Thread.
-  const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
   const commentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -147,19 +136,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     try { localStorage.setItem('board:taskDetailWide', next ? '1' : '0'); } catch { /* private mode */ }
     return next;
   });
-  // Actual rendered width of the drawer — the side panel only makes sense past a
-  // threshold. Measured (not derived from `wide`) so the fold is truly dynamic:
-  // even an expanded drawer on a small screen stays inline. This is the "…in
-  // anteprima se la vista troppo stretta" rule.
+  // The drawer body is ONE task-scoped GroupLayout (Thread + browser tabs +
+  // Piano + media as panes → the app's real PaneTabBar). `wide` is now a pure
+  // width preference (more room for the native tiling), no side-panel fold.
   const rootRef = useRef<HTMLDivElement>(null);
-  const [containerW, setContainerW] = useState(0);
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver((entries) => setContainerW(entries[0]!.contentRect.width));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -214,57 +194,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     ? ([...speech].reverse().find((c) => c.author !== 'user' && c.author !== 'system') ?? null)
     : null;
 
-  // Task-owned browser group (flag ON): the task's browser tabs render through
-  // the app's REAL layout engine (GroupLayout), scoped to this drawer and never
-  // in pane-store-v2. The hook owns identity + tiling; here we just place it.
-  const browser = useTaskBrowserGroupLayout(taskId);
-  // Seed the first tab from the review output_url once, when the task has no
-  // tabs (so the reviewer lands on the delivered page). The store owns it after.
-  useEffect(() => {
-    if (!TASK_BROWSER_ENABLED || !task?.outputUrl) return;
-    void browser.seedFromUrl(task.outputUrl, 'Output');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- seedFromUrl is stable per taskId; refire only when the output_url changes
-  }, [task?.outputUrl]);
-
-  // The task's auxiliary surfaces as ONE ordered tab group: the review target
-  // (output_url, or the browser tabs when flag ON) first, then the plan-first
-  // plan, then each media attachment. The Thread is not in this list — it's the
-  // always-present primary body; these are what the side panel (wide) / inline
-  // tab bar (narrow) switch between.
-  const surfaces = useMemo<TaskSurface[]>(() => {
-    const list: TaskSurface[] = [];
-    // The whole browser group is ONE surface (its multi-tab / split UX lives
-    // inside GroupLayout); it supersedes the inert Output iframe when present.
-    if (TASK_BROWSER_ENABLED && browser.hasBrowser) {
-      list.push({ id: 'browser', kind: 'browser', label: browser.liveCount > 1 ? `Browser · ${browser.liveCount}` : 'Browser' });
-    } else if (task?.outputUrl) {
-      list.push({ id: 'output', kind: 'output', label: 'Output', url: task.outputUrl });
-    }
-    if (planComment) list.push({ id: 'piano', kind: 'plan', label: 'Piano', content: planComment.content });
-    for (const p of mediaPaths) list.push({ id: `media:${p}`, kind: 'media', label: p.split('/').pop() || 'Allegato', url: getMediaUrl(p), path: p });
-    return list;
-  }, [task?.outputUrl, planComment, mediaPaths, browser.hasBrowser, browser.liveCount]);
-  const hasSurfaces = surfaces.length > 0;
-  // Wide enough to host the side panel? Measured, so an expanded-but-cramped
-  // drawer still folds inline. Below the threshold the surfaces live in the body.
-  const sidepanel = wide && hasSurfaces && containerW >= SIDEPANEL_MIN;
-  const inlineTabs = !sidepanel && hasSurfaces;
-  // The selected surface (undefined ⟺ Thread). A stale id (surface vanished)
-  // resolves to null → Thread, so the body never blanks.
-  const activeSurface = surfaces.find((s) => s.id === activeSurfaceId) ?? null;
-  // Side panel always shows something (default = first surface); inline defaults
-  // to the Thread until the user picks a surface tab.
-  const sideSurface = activeSurface ?? surfaces[0] ?? null;
-  // Select a surface tab; if the pane is wide enough to host the side panel but
-  // it's collapsed, open it so the surface shows BESIDE the thread rather than
-  // replacing it. Clicking a thread attachment routes through here.
-  const selectSurface = (id: string) => {
-    setActiveSurfaceId(id);
-    if (!wide && containerW >= SIDEPANEL_MIN) toggleWide();
-  };
-  // Select a surface tab. 'thread' ⟺ null. The browser group is a single
-  // surface; its own tabs/splits live inside GroupLayout.
-  const activateSurface = (id: string) => setActiveSurfaceId(id === 'thread' ? null : id);
 
   const deliverAnswer = async (v: string, media?: string[]): Promise<boolean> => {
     try {
@@ -595,6 +524,83 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       m.timestamp && (!from || m.timestamp > from) && (!to || m.timestamp <= to));
   }, [sessionMsgs]);
 
+  // ── Drawer body = ONE task-scoped GroupLayout ─────────────────────────────
+  // Thread, live browser tabs, Piano and each media attachment are all PANES of
+  // the app's REAL PaneTabBar (a single tab bar; native split/resize/drag). The
+  // hook owns identity + tiling; the derived (thread/plan/media) pane bodies
+  // render through `renderSurface`. Defined here (after the thread deps:
+  // sliceBetween/agentBusy/streamPreview…) so every dep array is in scope.
+  const browserRef = useRef<TaskBrowserGroupLayout | null>(null);
+  const renderThread = useCallback((): React.ReactNode => {
+    if (!task) return null;
+    return (
+      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+        {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-neutral-500">Nessun commento.</p>}
+        {comments.map((c, i) => (
+          <div key={c.id} className="space-y-2">
+            {task.assignedTopicId && (
+              <SessionSlice msgs={sliceBetween(comments[i - 1]?.createdAt ?? null, c.createdAt)} />
+            )}
+            {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => browserRef.current?.focusPane(`media:${p}`)} />}
+          </div>
+        ))}
+        {task.assignedTopicId && (
+          <SessionSlice
+            msgs={sliceBetween(comments[comments.length - 1]?.createdAt ?? null, null)}
+            label={agentBusy ? 'Ragionamento in corso' : undefined}
+            preview={streamPreview}
+          />
+        )}
+        {agentBusy && (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-2">
+                {[0, 150, 300].map((d) => (
+                  <span key={d} className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-400/80" style={{ animationDelay: `${d}ms` }} />
+                ))}
+                <span className="ml-1.5 text-[11px] text-neutral-400">
+                  {task.dispatchState === 'queued' ? 'in coda…' : task.dispatchState === 'starting' ? 'avvio agent…' : 'agent al lavoro…'}
+                  {task.inProgressAt && task.dispatchState === 'working' && (
+                    <span className="text-neutral-500"> <Ticker since={task.inProgressAt} /></span>
+                  )}
+                </span>
+              </div>
+              <button
+                disabled={busy} onClick={stopAgent}
+                title="Ferma l'agent (il task torna in Backlog con il motivo)"
+                className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
+              >{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3 fill-current" />} Ferma</button>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/bottomRef are stable enough; the meaningful inputs are listed
+  }, [task, comments, sliceBetween, agentBusy, streamPreview, busy]);
+
+  const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
+    if (pane.id.startsWith('thread:')) return renderThread();
+    if (pane.id.startsWith('plan:') && planComment)
+      return <SurfaceContent surface={{ id: pane.id, kind: 'plan', label: 'Piano', content: planComment.content }} taskId={taskId} />;
+    if (pane.id.startsWith('media:')) {
+      const p = pane.id.slice('media:'.length);
+      return <SurfaceContent surface={{ id: pane.id, kind: 'media', label: pane.title || 'Allegato', url: getMediaUrl(p), path: p }} taskId={taskId} />;
+    }
+    return null;
+  }, [renderThread, planComment, taskId]);
+
+  // The single GroupLayout that IS the drawer body's tab system.
+  const browser = useTaskBrowserGroupLayout(taskId, { planActive: !!planComment, mediaPaths, renderSurface });
+  browserRef.current = browser;
+  // Seed the first browser tab from the review output_url once, when the task
+  // has no tabs yet (so the reviewer lands on the delivered page).
+  useEffect(() => {
+    if (!task?.outputUrl) return;
+    void browser.seedFromUrl(task.outputUrl, 'Output');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seedFromUrl is stable per taskId; refire only when the output_url changes
+  }, [task?.outputUrl]);
+
   const doneCount = children.filter((c) => c.status === 'done').length;
 
   return (
@@ -784,13 +790,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
             ><ExternalLink className="h-4 w-4" /></button>
           )}
-          {hasSurfaces && (
-            <button
-              onClick={toggleWide}
-              title={wide ? 'Riduci a drawer (vedi la board)' : 'Espandi: mostra il pannello del task a lato'}
-              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
-            >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
-          )}
+          <button
+            onClick={toggleWide}
+            title={wide ? 'Riduci il drawer (vedi la board)' : 'Allarga il drawer (più spazio per il tiling)'}
+            className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+          >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
           <button onClick={onClose} className="rounded p-1.5 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
@@ -805,11 +809,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <Loader2 className="h-5 w-5 animate-spin text-neutral-500" />
         </div>
       ) : (
-      <div className="flex min-h-0 flex-1">
-        {/* Left column: meta + subtask tree + chat thread. With the side panel
-            open it holds the drawer's left width; the task's surface panel takes
-            the rest. */}
-        <div className={`flex min-w-0 flex-col ${sidepanel ? 'w-96 shrink-0 border-r border-white/10' : 'flex-1'}`}>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Single column: meta + subtask tree + the one GroupLayout body +
+            composer/review actions. No more left/right surface split — the
+            GroupLayout tiles natively when the user splits. */}
+        <div className="flex min-w-0 flex-1 flex-col">
           <div className="border-b border-white/10 px-3 py-3">
             {task?.parentTaskId && onOpenTask && (
               <button
@@ -915,13 +919,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
           </div>
           {/* Closed-tab tray — ONLY the soft-closed browser tabs live here under
-              the description, so a closed tab stays reopenable and previewable
-              ("quando chiuso"). LIVE tabs belong solely to the real layout's tab
-              bar inside GroupLayout — duplicating them here is the "two tab
-              systems" bug. When the task has no live tab yet, this strip is also
-              the bootstrap entry point (the `+`), since GroupLayout isn't mounted
-              until the first tab exists (once it is, its own `+` owns "add"). */}
-          {TASK_BROWSER_ENABLED && (browser.parkedTabs.length > 0 || browser.liveCount === 0) && (
+              the description so a closed tab stays reopenable and previewable
+              ("quando chiuso"). Live tabs (and the "+" to add one) belong to the
+              GroupLayout's own PaneTabBar below — the single tab system. */}
+          {browser.parkedTabs.length > 0 && (
             <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-white/10 px-3 py-2 scrollbar-topbar" data-testid="task-browser-previews">
               {browser.parkedTabs.map((t) => {
                 const label = t.title || hostLabel(t.url) || 'Nuova scheda';
@@ -931,7 +932,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     className="group/prev flex shrink-0 items-center rounded-md border border-white/10 bg-white/[0.02] text-xs text-neutral-500"
                   >
                     <button
-                      onClick={() => { browser.reopenTab(t.contextId); selectSurface('browser'); }}
+                      onClick={() => browser.reopenTab(t.contextId)}
                       title="Riapri questa scheda"
                       className="flex items-center gap-1.5 px-2 py-1"
                     >
@@ -947,13 +948,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   </div>
                 );
               })}
-              {browser.liveCount === 0 && (
-                <button
-                  onClick={() => { browser.addBrowserTab(); selectSurface('browser'); }}
-                  title="Apri una scheda browser nel task"
-                  className="flex shrink-0 items-center gap-1 rounded p-1 text-[11px] text-neutral-500 hover:bg-white/10 hover:text-neutral-200"
-                ><Plus className="h-3.5 w-3.5" />{browser.parkedTabs.length === 0 && <span>scheda browser</span>}</button>
-              )}
             </div>
           )}
           {/* Subtask tree — unlimited depth, lazy-expanded. The agent's steps
@@ -976,70 +970,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-neutral-400" />}
             </div>
           </div>
-          {/* The task's tab group, folded INTO the body (narrow pane): Thread +
-              its surfaces (plan / output / media) as one strip. Selecting a
-              surface swaps the body; the review actions below stay visible on
-              every tab. Wide enough → the surfaces move to the side panel and
-              this bar disappears (inlineTabs false). */}
-          {inlineTabs && (
-            <TaskTabBar
-              surfaces={surfaces}
-              activeId={activeSurface ? activeSurface.id : 'thread'}
-              onSelect={activateSurface}
-              includeThread
-            />
-          )}
-          {inlineTabs && activeSurface ? (
-            <div className="flex min-h-0 flex-1 flex-col">
-              {activeSurface.kind === 'browser'
-                ? <GroupLayout {...browser.groupLayoutProps} />
-                : <SurfaceContent surface={activeSurface} taskId={taskId} />}
-            </div>
-          ) : (
-          <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
-            {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-neutral-500">Nessun commento.</p>}
-            {comments.map((c, i) => (
-              <div key={c.id} className="space-y-2">
-                {task.assignedTopicId && (
-                  <SessionSlice msgs={sliceBetween(comments[i - 1]?.createdAt ?? null, c.createdAt)} />
-                )}
-                {c.kind === 'status' ? <StatusEventRow comment={c} /> : <CommentBubble comment={c} onPreview={(p) => selectSurface(`media:${p}`)} />}
-              </div>
-            ))}
-            {/* Turn still running (or ended after the last comment): its
-                reasoning-so-far hangs at the tail, before the indicator. */}
-            {task.assignedTopicId && (
-              <SessionSlice
-                msgs={sliceBetween(comments[comments.length - 1]?.createdAt ?? null, null)}
-                label={agentBusy ? 'Ragionamento in corso' : undefined}
-                preview={streamPreview}
-              />
-            )}
-            {agentBusy && (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-2">
-                    {[0, 150, 300].map((d) => (
-                      <span key={d} className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-400/80" style={{ animationDelay: `${d}ms` }} />
-                    ))}
-                    <span className="ml-1.5 text-[11px] text-neutral-400">
-                      {task.dispatchState === 'queued' ? 'in coda…' : task.dispatchState === 'starting' ? 'avvio agent…' : 'agent al lavoro…'}
-                      {task.inProgressAt && task.dispatchState === 'working' && (
-                        <span className="text-neutral-500"> <Ticker since={task.inProgressAt} /></span>
-                      )}
-                    </span>
-                  </div>
-                  <button
-                    disabled={busy} onClick={stopAgent}
-                    title="Ferma l'agent (il task torna in Backlog con il motivo)"
-                    className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
-                  >{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3 fill-current" />} Ferma</button>
-                </div>
-              </div>
-            )}
-            <div ref={bottomRef} />
+          {/* The task's body = ONE GroupLayout: Thread, live browser tabs, Piano
+              and each media attachment are all panes of the app's real
+              PaneTabBar (single tab bar; native split / resize / drag). The
+              review actions below stay visible whatever pane is active. */}
+          <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
+            <GroupLayout {...browser.groupLayoutProps} />
           </div>
-          )}
           <div className="border-t border-white/10 p-2">
             {/* What the agent changed in its worktree — see the diff before deciding. */}
             {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} />}
@@ -1125,30 +1062,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </div>
           </div>
         </div>
-        {/* Side panel: the task's surface tab group, only when it fits AND there
-            IS a surface — never an empty frame. Thread stays in the left column;
-            here the selected surface renders with its own tab strip. */}
-        {sidepanel && sideSurface && (
-          <div className="flex min-w-0 flex-1 flex-col bg-neutral-950/40" data-testid="task-output-panel">
-            <TaskTabBar
-              surfaces={surfaces}
-              activeId={sideSurface.id}
-              onSelect={activateSurface}
-              trailing={
-                <button
-                  onClick={toggleWide}
-                  title="Chiudi il pannello"
-                  className="shrink-0 rounded p-1.5 text-neutral-400 hover:bg-white/10"
-                ><X className="h-4 w-4" /></button>
-              }
-            />
-            <div className="flex min-h-0 flex-1 flex-col">
-              {sideSurface.kind === 'browser'
-                ? <GroupLayout {...browser.groupLayoutProps} />
-                : <SurfaceContent surface={sideSurface} taskId={taskId} />}
-            </div>
-          </div>
-        )}
       </div>
       )}
     </div>
@@ -1202,55 +1115,6 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
       {open && kids?.map((k) => (
         <SubtaskNode key={k.id} projectId={projectId} node={k} depth={depth + 1} onOpenTask={onOpenTask} />
       ))}
-    </div>
-  );
-}
-
-/** Glyph per surface kind (+ the Thread pseudo-tab), so the task's tab strip
- *  reads in the same icon language as the app's real tab bar. */
-export function SurfaceIcon({ kind }: { kind: TaskSurface['kind'] | 'thread' }) {
-  const cls = 'h-3.5 w-3.5 shrink-0';
-  if (kind === 'thread') return <MessageSquare className={cls} />;
-  if (kind === 'plan') return <ClipboardList className={cls} />;
-  if (kind === 'output' || kind === 'browser') return <Globe className={cls} />;
-  return <ImageIcon className={cls} />; // media
-}
-
-/**
- * The task's surface tab strip — a lightweight, task-scoped version of the app's
- * PaneTabBar: one row of tabs (optionally led by the Thread), the active one
- * raised. Drives both the inline (narrow) body switch and the side panel (wide).
- * `trailing` hosts a per-context action (e.g. the side panel's close button).
- */
-export function TaskTabBar({ surfaces, activeId, onSelect, includeThread, trailing }: {
-  surfaces: TaskSurface[];
-  activeId: string;
-  onSelect: (id: string) => void;
-  includeThread?: boolean;
-  trailing?: React.ReactNode;
-}) {
-  const tabs: Array<{ id: string; label: string; kind: TaskSurface['kind'] | 'thread' }> = [
-    ...(includeThread ? [{ id: 'thread', label: 'Thread', kind: 'thread' as const }] : []),
-    ...surfaces.map((s) => ({ id: s.id, label: s.label, kind: s.kind })),
-  ];
-  return (
-    <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-2 py-1">
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-topbar">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => onSelect(t.id)}
-            title={t.label}
-            className={`group flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-xs ${
-              activeId === t.id ? 'bg-white/10 font-medium text-neutral-100' : 'text-neutral-400 hover:bg-white/5 group-hover:text-neutral-200'
-            }`}
-          >
-            <SurfaceIcon kind={t.kind} />
-            <span className="max-w-[11rem] truncate">{t.label || 'Browser'}</span>
-          </button>
-        ))}
-      </div>
-      {trailing}
     </div>
   );
 }

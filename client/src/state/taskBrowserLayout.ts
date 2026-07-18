@@ -67,6 +67,11 @@ export function reconcilePanesIntoGroups(
   livePaneIds: readonly string[],
   focusedGroupId: string | null,
   genId: GenId = defaultGenId,
+  // Which freshly-appeared panes may steal their group's active slot. A browser
+  // tab (agent-opened / seeded output) SHOULD surface; a derived thread/plan/
+  // media pane arriving mid-read must NOT yank the user off what they're viewing.
+  // Default: everything auto-activates (keeps browsers-only callers + tests green).
+  shouldActivateOrphan: (paneId: string) => boolean = () => true,
 ): { groups: PaneGroup[]; changed: boolean } {
   const live = new Set(livePaneIds);
   let changed = false;
@@ -90,12 +95,18 @@ export function reconcilePanesIntoGroups(
   if (orphans.length > 0) {
     const focusedIdx = focusedGroupId ? updated.findIndex((g) => g.id === focusedGroupId) : -1;
     const targetIdx = focusedIdx >= 0 ? focusedIdx : (updated.length > 0 ? 0 : -1);
+    // Activate the LAST orphan that's allowed to steal focus; if none qualifies,
+    // keep the group's current active pane (a media pane appended mid-read must
+    // not pull the user off the Thread).
+    const activateId = [...orphans].reverse().find(shouldActivateOrphan);
     if (targetIdx >= 0) {
       updated = updated.map((g, i) => (i === targetIdx
-        ? { ...g, paneIds: [...g.paneIds, ...orphans], activePaneId: orphans[orphans.length - 1] }
+        ? { ...g, paneIds: [...g.paneIds, ...orphans], activePaneId: activateId ?? g.activePaneId }
         : g));
     } else {
-      updated = [{ id: genId(), paneIds: [...orphans], activePaneId: orphans[orphans.length - 1], type: GROUP_TYPE }];
+      // Empty layout: nothing was active, so the first mint activates its last
+      // orphan regardless (the drawer must open on something).
+      updated = [{ id: genId(), paneIds: [...orphans], activePaneId: activateId ?? orphans[orphans.length - 1], type: GROUP_TYPE }];
     }
     changed = true;
   }
@@ -191,8 +202,9 @@ export function reconcileTaskLayout(
   state: TaskLayoutState,
   livePaneIds: readonly string[],
   genId: GenId = defaultGenId,
+  shouldActivateOrphan?: (paneId: string) => boolean,
 ): TaskLayoutState {
-  const g = reconcilePanesIntoGroups(state.groups, livePaneIds, state.focusedGroupId, genId);
+  const g = reconcilePanesIntoGroups(state.groups, livePaneIds, state.focusedGroupId, genId, shouldActivateOrphan);
   const r = syncRowsWithGroups(g.groups, state.rows, state.rowHeights);
   let focusedGroupId = state.focusedGroupId;
   // A pruned focused group, or a never-set focus with groups present, defaults

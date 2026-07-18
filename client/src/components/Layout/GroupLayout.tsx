@@ -77,6 +77,11 @@ interface GroupLayoutProps {
    *  update) and browser tabs (pins pane.title). Forwarded to each PaneTabBar. */
   onRenameChat?: (topicId: string, name: string) => void;
   onRenameBrowser?: (paneId: string, name: string) => void;
+  /** Pane ids whose close affordance (tab X + context-menu "Close") must be
+   *  hidden — panes the host owns structurally, not free-standing tabs (the
+   *  task drawer's derived Thread/Piano/media surfaces). Forwarded to each
+   *  PaneTabBar. Default undefined: every tab stays closable (app unchanged). */
+  nonClosablePaneIds?: Set<string>;
 }
 
 
@@ -86,7 +91,7 @@ export function GroupLayout({
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
   renderPane, availableTypesForGroup, contextPercent, onContextRingClick, onStopStreaming,
-  onSettings, onPopOut, onPinPane, onRenameChat, onRenameBrowser,
+  onSettings, onPopOut, onPinPane, onRenameChat, onRenameBrowser, nonClosablePaneIds,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -810,6 +815,7 @@ export function GroupLayout({
             onRenameBrowser={onRenameBrowser}
             onPinPane={onPinPane ? (paneId) => onPinPane(gid, paneId) : undefined}
             tabNotifications={groupNotifications}
+            nonClosablePaneIds={nonClosablePaneIds}
           />
           </div>
         </div>

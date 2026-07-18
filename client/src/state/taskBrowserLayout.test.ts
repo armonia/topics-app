@@ -174,6 +174,26 @@ describe('reconcilePanesIntoGroups / syncRowsWithGroups (units)', () => {
     expect(r.changed).toBe(false);
     expect(r.groups).toBe(s.groups);
   });
+  test('shouldActivateOrphan: a non-browser orphan does NOT steal the active slot', () => {
+    const s = build([P('a')]);                       // group active = browser:a
+    const activeBefore = s.groups[0].activePaneId;
+    const r = reconcilePanesIntoGroups(
+      s.groups, [P('a'), 'thread:t'], s.focusedGroupId, mkGen(),
+      (id) => id.startsWith('browser:'),
+    );
+    expect(r.changed).toBe(true);
+    const g = r.groups.find((x) => x.paneIds.includes('thread:t'))!;
+    expect(g.activePaneId).toBe(activeBefore);        // still browser:a, not thread:t
+  });
+  test('shouldActivateOrphan: a browser orphan still activates', () => {
+    const s = build([P('a')]);
+    const r = reconcilePanesIntoGroups(
+      s.groups, [P('a'), P('b')], s.focusedGroupId, mkGen(),
+      (id) => id.startsWith('browser:'),
+    );
+    const g = r.groups.find((x) => x.paneIds.includes(P('b')))!;
+    expect(g.activePaneId).toBe(P('b'));
+  });
   test('syncRowsWithGroups appends an orphan group to a row', () => {
     const groups = [
       { id: 'gX', paneIds: [P('a')], activePaneId: P('a'), type: 'utility' as const },
