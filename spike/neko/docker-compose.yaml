@@ -1,0 +1,66 @@
+# spike/neko/docker-compose.yaml
+#
+# SPIKE — validazione transport WebRTC per co-op (browser condiviso). NON è
+# infra di produzione: config minima per un test LAN. Vedi
+# docs/spikes/neko-webrtc.md per la decisione e spike/neko/README.md per
+# istruzioni d'uso passo-passo.
+#
+# Questo file NON va lanciato da Claude/agent — richiede `docker compose up`
+# esplicito dell'utente (avviare container = azione sull'ambiente umano).
+
+services:
+  neko:
+    image: "m1k1o/neko:chromium"
+    restart: "unless-stopped"
+    shm_size: "2gb"          # Chromium in Docker crasha/rallenta con lo shm default (64mb)
+    ports:
+      - "8080:8080"          # HTTP + WebSocket signaling (neko UI, http://<LAN-IP>:8080)
+      # --- Trasporto WebRTC: UDPMUX single-port (scelta di questo spike) ---
+      # Un solo binding UDP inbound per tutte le sessioni: più semplice da aprire
+      # su router/firewall di una LAN casa/ufficio rispetto a un range EPR.
+      - "59000:59000/udp"
+    environment:
+      NEKO_SCREEN: "1280x720@30"
+      NEKO_PASSWORD: "neko"            # utente member — CAMBIARE prima di qualsiasi uso reale
+      NEKO_PASSWORD_ADMIN: "admin"     # utente admin (host: force-control/kick/lock) — CAMBIARE
+
+      # --- Trasporto WebRTC: UDPMUX (attivo in questa config) ---
+      NEKO_WEBRTC_UDPMUX: "59000"
+      # NAT1TO1: l'IP che neko ANNUNCIA ai peer nei candidate ICE. Per un test
+      # LAN dev'essere l'IP LAN della macchina host (NON 127.0.0.1, NON il
+      # default docker-bridge) — altrimenti i client su altri device della LAN
+      # ricevono un candidate ICE non raggiungibile e il video non parte.
+      # Trovalo con `ipconfig getifaddr en0` (Wi-Fi) o `en1`/`en0` a seconda
+      # dell'interfaccia attiva — vedi README.md.
+      NEKO_WEBRTC_NAT1TO1: "192.168.1.100"   # <-- SOSTITUIRE con il tuo IP LAN
+
+      # ICELITE: minimal-ICE per IP pubblico statico. Va tenuto OFF qui:
+      # è incompatibile con l'uso di ICE server (STUN/TURN) sotto, e in LAN
+      # non serve (i peer sono sulla stessa subnet, niente NAT da attraversare
+      # lato client).
+      NEKO_WEBRTC_ICELITE: "false"
+
+      # --- Alternativa A: EPR range invece di UDPMUX (COMMENTATA) ---
+      # Un range di porte UDP pubblicate 1:1 (nessun remap Docker), una porta
+      # per sessione WebRTC attiva invece di un mux condiviso. Più porte da
+      # aprire sul firewall, ma isola ogni sessione sulla propria porta —
+      # utile se il mux dà problemi con firewall/NAT particolari.
+      # NEKO_WEBRTC_EPR: "59000-59100"
+      # (in tal caso il blocco `ports:` sotto va esteso con "59000-59100:59000-59100/udp"
+      #  e NEKO_WEBRTC_UDPMUX va rimosso)
+
+      # --- Alternativa B: ICE servers (STUN/TURN) per uso oltre la LAN ---
+      # (internet pubblico, Tailscale in strict NAT, doppio-NAT, CGNAT).
+      # Con ICE server configurati, ICELITE deve essere "false" (mutuamente
+      # esclusivi: ICE-lite presume un solo path server pubblico, niente
+      # negoziazione multi-candidate). Serve un TURN reale (es. Coturn) perché
+      # WebRTC NON passa da un reverse proxy 443/TLS: è UDP peer-to-peer con
+      # fallback relay, un livello di rete diverso da HTTP. Vedi
+      # docs/spikes/neko-webrtc.md per l'implicazione sul relay Hetzner del
+      # task co-op.
+      #
+      # NEKO_WEBRTC_ICESERVERS_FRONTEND: >
+      #   [{"urls": ["stun:stun.l.google.com:19302"]},
+      #    {"urls": ["turn:YOUR_TURN_HOST:3478"], "username": "USER", "credential": "PASS"}]
+      # NEKO_WEBRTC_ICESERVERS_BACKEND: >
+      #   [{"urls": ["turn:YOUR_TURN_HOST:3478"], "username": "USER", "credential": "PASS"}]

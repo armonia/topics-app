@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<title>Spike neko/WebRTC — embed demo</title>
+<style>
+  body { margin: 0; font: 14px -apple-system, system-ui, sans-serif; background: #111; color: #eee; }
+  .note { padding: 10px 14px; background: #1c1c1c; border-bottom: 1px solid #333; }
+  .note code { background: #2a2a2a; padding: 1px 5px; border-radius: 3px; }
+  iframe { display: block; width: 100%; height: calc(100vh - 90px); border: 0; }
+</style>
+</head>
+<body>
+  <div class="note">
+    <strong>Spike neko/WebRTC — demo embed.</strong>
+    Sostituisci <code>LAN-IP</code> nel <code>src</code> qui sotto con l'IP
+    trovato via <code>ipconfig getifaddr en0</code> (stesso IP messo in
+    <code>NEKO_WEBRTC_NAT1TO1</code> nel docker-compose). Richiede
+    <code>docker compose up -d</code> già lanciato in questa cartella.
+    Vedi <code>README.md</code> e <code>../../docs/spikes/neko-webrtc.md</code>.
+  </div>
+  <iframe
+    src="http://LAN-IP:8080"
+    title="neko shared browser session"
+    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+    referrerpolicy="no-referrer-when-downgrade"
+  ></iframe>
+</body>
+</html>
