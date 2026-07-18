@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
 import {
   buildTaskLink,
-  parseTaskLink,
+  parseTaskLocation,
   currentTaskTarget,
   selfTaskLinkTarget,
   reflectTaskOpen,
@@ -15,7 +15,7 @@ import {
 // so the stubs below need no `any` (this file is linted under no-explicit-any).
 type Listener = (e: unknown) => void;
 type StubWindow = {
-  location: { origin: string; href: string; search: string };
+  location: { origin: string; href: string; pathname: string; search: string };
   dispatchEvent?: (e: { type: string; detail?: unknown }) => boolean;
   history?: { pushState: (state: unknown, title: unknown, url: string) => void };
   addEventListener?: (type: string, cb: Listener) => void;
@@ -48,11 +48,13 @@ function stubWindow(href: string, opts?: { withHistory?: boolean; listeners?: bo
   const sync = (url: string) => {
     const u = new URL(url);
     g.window.location.href = u.href;
+    g.window.location.pathname = u.pathname;
     g.window.location.search = u.search;
     g.window.location.origin = u.origin;
   };
+  const u0 = new URL(href);
   g.window = {
-    location: { origin: new URL(href).origin, href, search: new URL(href).search },
+    location: { origin: u0.origin, href, pathname: u0.pathname, search: u0.search },
     dispatchEvent: (e) => { events.push({ type: e.type, detail: e.detail }); return true; },
     history: opts?.withHistory === false ? undefined
       : { pushState: (_s, _t, url) => sync(url) },
@@ -70,43 +72,71 @@ function stubWindow(href: string, opts?: { withHistory?: boolean; listeners?: bo
 
 beforeEach(() => { stubWindow(`${origin}/`); });
 
-describe('parseTaskLink / buildTaskLink', () => {
-  test('round-trips a project slug + UUID', () => {
-    const projectId = 'topics-app-ar3jt5';
+describe('buildTaskLink / parseTaskLocation (path-based)', () => {
+  test('emits a clean /task/<uuid> path — no query, no %7E', () => {
     const taskId = '92a1091a-c9e3-4064-a098-2383bd37f2fe';
-    const link = buildTaskLink(projectId, taskId);
-    // The '~' separator stays LITERAL in the copied link (not %7E form-encoded)
-    // so the URL is human-readable; it still round-trips through parseTaskLink.
-    expect(link.startsWith(`${origin}/?task=`)).toBe(true);
-    expect(link).toContain(`${projectId}~${taskId}`);
+    const link = buildTaskLink(taskId);
+    expect(link).toBe(`${origin}/task/${taskId}`);
+    expect(link.includes('?')).toBe(false);
     expect(link.includes('%7E')).toBe(false);
-    expect(parseTaskLink(new URL(link).search)).toEqual({ projectId, taskId });
   });
 
-  test('never form-encodes the ~ separator (no %7E in the copied link)', () => {
-    const link = buildTaskLink('[cliente]-v1skoz', 'd8ea1091-c9e3-4064-a098-2383bd37f2fe');
-    expect(link.includes('%7E')).toBe(false);
-    expect(link).toContain('?task=[cliente]-v1skoz~d8ea1091-c9e3-4064-a098-2383bd37f2fe');
+  test('build → parse round-trip', () => {
+    const taskId = 'd8ea2ff3-d412-4771-810d-401faa1d1754';
+    const link = buildTaskLink(taskId);
+    const u = new URL(link);
+    expect(parseTaskLocation(u.pathname, u.search)).toEqual({ taskId });
   });
 
-  test('splits on the FIRST ~ (project slug may not, but be defensive)', () => {
-    expect(parseTaskLink('?task=a~b~c')).toEqual({ projectId: 'a', taskId: 'b~c' });
+  test('parses /task/<id> from the pathname, ignores query junk', () => {
+    expect(parseTaskLocation('/task/t1', '?keep=1')).toEqual({ taskId: 't1' });
   });
 
-  test('rejects missing / malformed', () => {
-    expect(parseTaskLink('')).toBeNull();
-    expect(parseTaskLink('?task=')).toBeNull();
-    expect(parseTaskLink('?task=noseparator')).toBeNull();
-    expect(parseTaskLink('?task=~onlytask')).toBeNull();
-    expect(parseTaskLink('?task=onlyproject~')).toBeNull();
-    expect(parseTaskLink('?other=x')).toBeNull();
+  test('tolerates a trailing slash', () => {
+    expect(parseTaskLocation('/task/t1/', '')).toEqual({ taskId: 't1' });
+  });
+
+  test('rejects non-task / malformed paths', () => {
+    expect(parseTaskLocation('/', '')).toBeNull();
+    expect(parseTaskLocation('/task', '')).toBeNull();
+    expect(parseTaskLocation('/task/', '')).toBeNull();
+    expect(parseTaskLocation('/task/a/b', '')).toBeNull();
+    expect(parseTaskLocation('/other/t1', '')).toBeNull();
+  });
+});
+
+describe('parseTaskLocation — legacy ?task= back-compat', () => {
+  test('reads the taskId from the old ?task=<slug>~<uuid> form', () => {
+    const uuid = 'd8ea1091-c9e3-4064-a098-2383bd37f2fe';
+    expect(parseTaskLocation('/', `?task=[cliente]-v1skoz~${uuid}`)).toEqual({ taskId: uuid });
+  });
+
+  test('splits on the FIRST ~ (defensive: slug should never contain one)', () => {
+    expect(parseTaskLocation('/', '?task=a~b~c')).toEqual({ taskId: 'b~c' });
+  });
+
+  test('a legacy link with a task path wins over the query', () => {
+    expect(parseTaskLocation('/task/newid', '?task=slug~oldid')).toEqual({ taskId: 'newid' });
+  });
+
+  test('rejects missing / malformed legacy queries', () => {
+    expect(parseTaskLocation('/', '')).toBeNull();
+    expect(parseTaskLocation('/', '?task=')).toBeNull();
+    expect(parseTaskLocation('/', '?task=noseparator')).toBeNull();
+    expect(parseTaskLocation('/', '?task=~onlytask')).toBeNull();
+    expect(parseTaskLocation('/', '?task=onlyproject~')).toBeNull();
+    expect(parseTaskLocation('/', '?other=x')).toBeNull();
   });
 });
 
 describe('currentTaskTarget', () => {
-  test('reads the task from the current location', () => {
+  test('reads the task from the current path', () => {
+    stubWindow(`${origin}/task/task-1`);
+    expect(currentTaskTarget()).toEqual({ taskId: 'task-1' });
+  });
+  test('reads a legacy ?task= location too', () => {
     stubWindow(`${origin}/?task=proj-x~task-1&keep=1`);
-    expect(currentTaskTarget()).toEqual({ projectId: 'proj-x', taskId: 'task-1' });
+    expect(currentTaskTarget()).toEqual({ taskId: 'task-1' });
   });
   test('null when absent', () => {
     stubWindow(`${origin}/?keep=1`);
@@ -115,19 +145,23 @@ describe('currentTaskTarget', () => {
 });
 
 describe('selfTaskLinkTarget', () => {
-  test('same page origin → target', () => {
+  test('same page origin, new path → target', () => {
     stubWindow(`${origin}/`);
-    expect(selfTaskLinkTarget(`${origin}/?task=proj~t1`)).toEqual({ projectId: 'proj', taskId: 't1' });
+    expect(selfTaskLinkTarget(`${origin}/task/t1`)).toEqual({ taskId: 't1' });
+  });
+  test('same page origin, LEGACY ?task → target (pasted-comment back-compat)', () => {
+    stubWindow(`${origin}/`);
+    expect(selfTaskLinkTarget(`${origin}/?task=proj~t1`)).toEqual({ taskId: 't1' });
   });
   test('relative self URL → target', () => {
     stubWindow(`${origin}/`);
-    expect(selfTaskLinkTarget('/?task=proj~t1')).toEqual({ projectId: 'proj', taskId: 't1' });
+    expect(selfTaskLinkTarget('/task/t1')).toEqual({ taskId: 't1' });
   });
   test('foreign origin → null (falls back to external open)', () => {
     stubWindow(`${origin}/`);
-    expect(selfTaskLinkTarget('https://evil.example/?task=proj~t1')).toBeNull();
+    expect(selfTaskLinkTarget('https://evil.example/task/t1')).toBeNull();
   });
-  test('self origin but no ?task → null', () => {
+  test('self origin but not a task URL → null', () => {
     stubWindow(`${origin}/`);
     expect(selfTaskLinkTarget(`${origin}/docs`)).toBeNull();
   });
@@ -138,32 +172,38 @@ describe('selfTaskLinkTarget', () => {
 });
 
 describe('URL reflection (reflectTaskOpen / reflectTaskClose)', () => {
-  test('open pushes ?task=, preserving other params, ~ stays literal', () => {
+  test('open pushes /task/<id>, dropping any leftover query', () => {
     stubWindow(`${origin}/?keep=1`);
-    reflectTaskOpen({ projectId: 'proj', taskId: 't1' });
-    expect(currentTaskTarget()).toEqual({ projectId: 'proj', taskId: 't1' });
-    expect(g.window.location.search).toContain('keep=1');
-    expect(g.window.location.search).toContain('task=proj~t1');
-    expect(g.window.location.search.includes('%7E')).toBe(false);
+    reflectTaskOpen({ taskId: 't1' });
+    expect(currentTaskTarget()).toEqual({ taskId: 't1' });
+    expect(g.window.location.pathname).toBe('/task/t1');
+    expect(g.window.location.search).toBe('');
   });
 
   test('open is a no-op when already reflected (no duplicate push)', () => {
-    const { sync } = stubWindow(`${origin}/`);
+    const { sync } = stubWindow(`${origin}/task/t1`);
     let pushes = 0;
     g.window.history = { pushState: (_s, _t, url) => { pushes++; sync(url); } };
-    reflectTaskOpen({ projectId: 'proj', taskId: 't1' });
-    reflectTaskOpen({ projectId: 'proj', taskId: 't1' });
-    expect(pushes).toBe(1);
+    reflectTaskOpen({ taskId: 't1' });
+    reflectTaskOpen({ taskId: 't1' });
+    expect(pushes).toBe(0);
   });
 
-  test('close removes ?task=, keeping other params', () => {
-    stubWindow(`${origin}/?task=proj~t1&keep=1`);
+  test('open UPGRADES a legacy ?task URL to the clean path', () => {
+    stubWindow(`${origin}/?task=proj~t1`);
+    reflectTaskOpen({ taskId: 't1' });
+    expect(g.window.location.pathname).toBe('/task/t1');
+    expect(g.window.location.search).toBe('');
+  });
+
+  test('close returns to /', () => {
+    stubWindow(`${origin}/task/t1`);
     reflectTaskClose();
     expect(currentTaskTarget()).toBeNull();
-    expect(g.window.location.search).toContain('keep=1');
+    expect(g.window.location.pathname).toBe('/');
   });
 
-  test('close is a no-op when the param is already absent', () => {
+  test('close is a no-op when already at / (clean)', () => {
     const { sync } = stubWindow(`${origin}/`);
     let pushes = 0;
     g.window.history = { pushState: (_s, _t, url) => { pushes++; sync(url); } };
@@ -174,19 +214,17 @@ describe('URL reflection (reflectTaskOpen / reflectTaskClose)', () => {
 
 describe('subscribePopstateTask', () => {
   test('reports the URL target on back/forward and unsubscribes', () => {
-    const { popstateCbs } = stubWindow(`${origin}/?task=proj~t1`);
-    const seen: Array<{ projectId: string; taskId: string } | null> = [];
+    const { popstateCbs, sync } = stubWindow(`${origin}/task/t1`);
+    const seen: Array<{ taskId: string } | null> = [];
     const off = subscribePopstateTask((t) => seen.push(t));
-    // simulate a back nav that lands on ?task=proj~t2
-    g.window.location.search = '?task=proj~t2';
-    g.window.location.href = `${origin}/?task=proj~t2`;
+    // simulate a back nav that lands on /task/t2
+    sync(`${origin}/task/t2`);
     popstateCbs.forEach((cb) => cb({ type: 'popstate' }));
     // and a forward/back to a clean URL
-    g.window.location.search = '';
-    g.window.location.href = `${origin}/`;
+    sync(`${origin}/`);
     popstateCbs.forEach((cb) => cb({ type: 'popstate' }));
     off();
-    expect(seen).toEqual([{ projectId: 'proj', taskId: 't2' }, null]);
+    expect(seen).toEqual([{ taskId: 't2' }, null]);
     expect(popstateCbs.length).toBe(0);
   });
 });
@@ -194,22 +232,29 @@ describe('subscribePopstateTask', () => {
 describe('openTaskInApp / openTaskFromUrl', () => {
   test('openTaskInApp activates the board + emits open-task', () => {
     const { events } = stubWindow(`${origin}/`);
-    openTaskInApp({ projectId: 'proj', taskId: 't1' });
+    openTaskInApp({ taskId: 't1' });
     expect(events.map((e) => e.type)).toEqual(['topics:open-utility', 'topics:open-task']);
     expect(events[0].detail).toEqual({ type: 'board' });
-    expect(events[1].detail).toEqual({ projectId: 'proj', taskId: 't1' });
+    expect(events[1].detail).toEqual({ taskId: 't1' });
   });
 
-  test('openTaskFromUrl opens when ?task present, and does NOT strip it', () => {
+  test('openTaskFromUrl opens on a /task path, and does NOT strip it', () => {
+    const { events } = stubWindow(`${origin}/task/t1`);
+    openTaskFromUrl();
+    expect(events.map((e) => e.type)).toEqual(['topics:open-utility', 'topics:open-task']);
+    // The path stays — the URL is the source of truth (refresh recovers it);
+    // it is cleared only when the drawer closes, not on load.
+    expect(currentTaskTarget()).toEqual({ taskId: 't1' });
+  });
+
+  test('openTaskFromUrl opens on a LEGACY ?task URL (boot back-compat)', () => {
     const { events } = stubWindow(`${origin}/?task=proj~t1&keep=1`);
     openTaskFromUrl();
     expect(events.map((e) => e.type)).toEqual(['topics:open-utility', 'topics:open-task']);
-    // The param stays — the URL is the source of truth (refresh recovers it);
-    // it is cleared only when the drawer closes, not on load.
-    expect(currentTaskTarget()).toEqual({ projectId: 'proj', taskId: 't1' });
+    expect(events[1].detail).toEqual({ taskId: 't1' });
   });
 
-  test('openTaskFromUrl is a no-op without ?task', () => {
+  test('openTaskFromUrl is a no-op without a deep-link', () => {
     const { events } = stubWindow(`${origin}/?keep=1`);
     openTaskFromUrl();
     expect(events.length).toBe(0);
