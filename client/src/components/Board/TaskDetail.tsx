@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ExternalLink, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, Paperclip, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ExternalLink, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -26,9 +26,12 @@ function hostLabel(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 }
 
-/** Collapsible "Modifiche" panel in the task drawer: lazy-loads the unified diff
- *  of what the task's dispatched agent changed in its isolated worktree, so a
- *  reviewer can see the actual changes before approving. */
+/** Collapsible "Modifiche" panel in the task drawer: the unified diff of what
+ *  the task's dispatched agent changed in its isolated worktree, so a reviewer
+ *  can see the actual changes before approving. Renders NOTHING when there's no
+ *  worktree or the diff is empty ("non mostrare modifiche se non ci sono") — it
+ *  probes eagerly and owns its own section chrome so an unchanged task shows no
+ *  bar at all. */
 export function TaskChangesSection({ projectId, taskId, bump }: { projectId: string; taskId: string; bump?: string | number }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<DiffBundle | 'loading' | 'error' | null>(null);
@@ -36,27 +39,25 @@ export function TaskChangesSection({ projectId, taskId, bump }: { projectId: str
     setState('loading');
     boardApi.taskDiff(projectId, taskId).then(setState).catch(() => setState('error'));
   }, [projectId, taskId]);
-  // Re-fetch when the task advances (bump changes) IF the panel is open — the
-  // agent may have committed more since it was last viewed.
-  useEffect(() => { if (open) fetchDiff(); }, [open, bump, fetchDiff]);
-  const toggle = () => setOpen((s) => !s);
+  // Eager (not lazy): visibility depends on whether the worktree has changes, so
+  // we must probe up-front. Re-runs when the task advances (bump) — the agent
+  // may have committed more.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
+  useEffect(() => { fetchDiff(); }, [fetchDiff, bump]);
   const bundle = state && typeof state === 'object' ? state : null;
-  const fileCount = bundle && bundle.code !== 'no_worktree' ? bundle.stat.length : null;
+  const fileCount = bundle && bundle.code !== 'no_worktree' ? bundle.stat.length : 0;
+  // Nothing to show → nothing at all (no empty bar): still probing, errored, no
+  // worktree, or a zero-file diff.
+  if (!bundle || bundle.code === 'no_worktree' || fileCount === 0) return null;
   return (
-    <div>
-      <button onClick={toggle} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300">
+    <div className="shrink-0 border-b border-white/10 px-3 py-2">
+      <button onClick={() => setOpen((s) => !s)} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300">
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        Modifiche
-        {fileCount != null && fileCount > 0 && <span className="normal-case tracking-normal text-neutral-600">· {fileCount} file</span>}
+        Modifiche <span className="normal-case tracking-normal text-neutral-600">· {fileCount} file</span>
       </button>
       {open && (
         <div className="mt-1.5 max-h-[42vh] overflow-y-auto">
-          {state === 'loading' && <div className="text-[11px] text-neutral-500">Carico il diff…</div>}
-          {state === 'error' && <div className="text-[11px] text-red-400">Errore nel caricare il diff.</div>}
-          {bundle && bundle.code === 'no_worktree' && (
-            <div className="text-[11px] text-neutral-500">Nessun worktree isolato per questo task — niente diff da mostrare.</div>
-          )}
-          {bundle && bundle.code !== 'no_worktree' && <UnifiedDiff bundle={bundle} defaultOpenFirst />}
+          <UnifiedDiff bundle={bundle} defaultOpenFirst />
         </div>
       )}
     </div>
@@ -401,7 +402,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // board. The dispatcher won't start it until the blocker is done (server
   // validates cycles — a 400 surfaces through the same showError as everything
   // else here).
-  const blockerBtnRef = useRef<HTMLButtonElement>(null);
   const [blockerMenuOpen, setBlockerMenuOpen] = useState(false);
   const [boardTasks, setBoardTasks] = useState<BoardTask[] | null>(null);
   const openBlockerMenu = () => {
@@ -416,6 +416,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     ? (boardTasks?.find((t) => t.id === task.blockedByTaskId) ?? null)
     : null;
 
+  // Overflow "⋯" menu (header): the less-frequent task config lives here instead
+  // of as always-on chips in the meta row — blocked-by, plan-first, reuse
+  // context, plus "aggiungi sottotask". Keeps the meta row to priorità + modello.
+  const optionsBtnRef = useRef<HTMLButtonElement>(null);
+  const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
+  // Reveal the subtask composer even when there are no subtasks yet (the section
+  // is hidden when empty — this opens it on demand from the ⋯ menu).
+  const [subtaskComposerOpen, setSubtaskComposerOpen] = useState(false);
+
   // Esc closes the drawer — UNLESS Esc belongs to something inside it: an
   // inline title/desc edit (Esc cancels the edit) or an open menu (Esc closes
   // the menu). Menus use useDismissable (capture + stopPropagation on document)
@@ -425,7 +434,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // reading the latest guard/close on each keystroke.
   const escGuardRef = useRef<() => boolean>(() => false);
   escGuardRef.current = () =>
-    editingTitle || editingDesc || statusMenuOpen || prioMenuOpen || projMenuOpen || blockerMenuOpen || modelMenuOpen;
+    editingTitle || editingDesc || statusMenuOpen || prioMenuOpen || projMenuOpen || blockerMenuOpen || modelMenuOpen || optionsMenuOpen;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
@@ -661,6 +670,53 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         <div className="flex shrink-0 items-center gap-0.5">
           {task && (
             <button
+              ref={optionsBtnRef}
+              onClick={() => setOptionsMenuOpen((o) => !o)}
+              data-testid="task-options-menu"
+              title="Altre opzioni: piano prima, bloccato da, sottotask…"
+              className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
+            ><MoreHorizontal className="h-4 w-4" /></button>
+          )}
+          {task && (
+            <Menu open={optionsMenuOpen} anchorRef={optionsBtnRef} onClose={() => setOptionsMenuOpen(false)} align="right" minWidth={240}>
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Opzioni task</p>
+              <button
+                role="menuitem" disabled={busy} onClick={togglePlanFirst}
+                title="L'agent consegna un piano da approvare PRIMA di implementare"
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+              >
+                <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                <span className="min-w-0 flex-1">Piano prima</span>
+                {task.planFirst && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+              </button>
+              <button
+                role="menuitem" onClick={() => { setOptionsMenuOpen(false); openBlockerMenu(); }}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+              >
+                <Lock className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                <span className="min-w-0 flex-1 truncate">{blockerTask ? `Bloccato da: ${blockerTask.text}` : 'Bloccato da…'}</span>
+                <ChevronRight className="h-3 w-3 shrink-0 text-neutral-500" />
+              </button>
+              {task.blockedByTaskId && (
+                <button
+                  role="menuitem" disabled={busy} onClick={toggleReuseContext}
+                  title="Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo"
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                >
+                  <Bot className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                  <span className="min-w-0 flex-1">Riusa il contesto del bloccante</span>
+                  {task.reuseBlockerContext && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                </button>
+              )}
+              <div className="my-1 border-t border-white/10" />
+              <button
+                role="menuitem" onClick={() => { setOptionsMenuOpen(false); setSubtasksOpen(true); setSubtaskComposerOpen(true); }}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+              ><Plus className="h-3.5 w-3.5 shrink-0 text-neutral-400" /> Aggiungi sottotask</button>
+            </Menu>
+          )}
+          {task && (
+            <button
               onClick={copyLink}
               data-testid="task-copy-link"
               title={copied ? 'Link copiato' : 'Copia il link al task (deep-link apribile, per debug/condivisione)'}
@@ -854,25 +910,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     </button>
                   ))}
                 </Menu>
-                <button
-                  onClick={togglePlanFirst}
-                  data-testid="task-plan-first-toggle"
-                  title="L'agent consegna un piano da approvare PRIMA di implementare (utile per task fuzzy: prima un checkpoint, meno token sprecati)"
-                  aria-pressed={task.planFirst}
-                  className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
-                    task.planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-500 hover:bg-white/10'
-                  }`}
-                >piano prima</button>
-                <button
-                  ref={blockerBtnRef}
-                  onClick={openBlockerMenu}
-                  data-testid="task-blocked-chip"
-                  title={blockerTask ? `Bloccato da: ${blockerTask.text}` : 'Fai partire questo task solo dopo un altro'}
-                  className={`flex max-w-[14rem] items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
-                    blockerTask && blockerTask.status !== 'done' ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
-                  }`}
-                ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">{blockerTask ? `Bloccato da: ${blockerTask.text}` : 'Bloccato da…'}</span></button>
-                <Menu open={blockerMenuOpen} anchorRef={blockerBtnRef} onClose={() => setBlockerMenuOpen(false)} minWidth={220} role="listbox" unmanagedFocus>
+                {/* Blocked-by / plan-first / reuse moved to the ⋯ header menu.
+                    Only the blocker PICKER stays here — portaled, anchored to the
+                    ⋯ button, opened from that menu. */}
+                <Menu open={blockerMenuOpen} anchorRef={optionsBtnRef} onClose={() => setBlockerMenuOpen(false)} align="right" minWidth={220} role="listbox" unmanagedFocus>
                   <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Bloccato da…</p>
                   <button
                     role="option" aria-selected={!task.blockedByTaskId}
@@ -899,17 +940,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     ))}
                   </div>
                 </Menu>
-                {task.blockedByTaskId && (
-                  <button
-                    onClick={toggleReuseContext}
-                    data-testid="task-reuse-context-toggle"
-                    title="Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo"
-                    aria-pressed={task.reuseBlockerContext}
-                    className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
-                      task.reuseBlockerContext ? 'bg-sky-500/15 text-sky-300' : 'bg-white/5 text-neutral-500 hover:bg-white/10'
-                    }`}
-                  >Riusa il contesto dell'agent del task bloccante</button>
-                )}
               </div>
             )}
           </div>
@@ -982,7 +1012,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </div>
           )}
           {/* Subtask tree — collapsible; unlimited depth, lazy-expanded. The
-              agent's steps live here too: dots flip green as it checks them off. */}
+              agent's steps live here too: dots flip green as it checks them off.
+              Hidden entirely when there are no subtasks ("non mostrare se non ci
+              sono") — added on demand from the ⋯ menu (subtaskComposerOpen). */}
+          {(children.length > 0 || subtaskComposerOpen) && (
           <div className="max-h-[40%] shrink-0 overflow-y-auto border-b border-white/10 px-3 py-2" data-testid="task-detail-subtasks">
             <button
               onClick={toggleSubtasksOpen}
@@ -999,6 +1032,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <div className="relative mt-1">
                   <input
                     value={subDraft} disabled={addingSub}
+                    autoFocus={subtaskComposerOpen && children.length === 0}
                     onChange={(e) => setSubDraft(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
                     placeholder="+ sottotask…"
@@ -1009,14 +1043,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               </div>
             )}
           </div>
-          {/* "Modifiche" (worktree diff) lives HERE — above the body, OUT of the
-              chat composer area ("sopra la chat era fastidioso"). Self-collapsing
-              panel (closed by default); when opened it scrolls in its own height. */}
-          {task.assignedTopicId && (
-            <div className="shrink-0 border-b border-white/10 px-3 py-2">
-              <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} />
-            </div>
           )}
+          {/* "Modifiche" (worktree diff) lives HERE — above the body, OUT of the
+              chat composer area ("sopra la chat era fastidioso"). It renders
+              NOTHING when there's no worktree / an empty diff (owns its own
+              section chrome), so an unchanged task shows no "Modifiche" bar. */}
+          {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} />}
           {/* The task's body = ONE GroupLayout: Thread, live browser tabs, Piano
               and each media attachment are all panes of the app's real
               PaneTabBar (single tab bar; native split / resize / drag). The
