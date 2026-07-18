@@ -620,12 +620,19 @@ export function renderReplayPrologue(turns: ReplayTurn[]): string {
 // ============ Persistent Process ============
 
 /**
- * Feature flag (default OFF): route persistent stream-json sessions through the
- * detached ai-bridge daemon so a turn survives a server restart AND crash. When
- * off, the direct child_process.spawn path below runs byte-identically — prod is
- * untouched until the broker is proven. See server/ai-bridge.mjs + ai-bridge-client.
+ * Restart/crash survival: route persistent stream-json sessions through the
+ * detached ai-bridge daemon so a turn survives a server restart AND crash
+ * (mid-turn reattach) instead of being cut and burning a retry.
+ *
+ * DEFAULT ON where it works, not behind an opt-in flag. The one hard constraint
+ * is transport: the broker talks over a UNIX DOMAIN SOCKET (`net.connect` on a
+ * `.sock` path), which Windows doesn't support (it needs named pipes), so it
+ * stays OFF on win32 — there the direct child_process.spawn path runs
+ * byte-identically. Explicit override wins on any platform: TOPICS_AI_BRIDGE=1
+ * forces on, =0 forces off. See server/ai-bridge.mjs + ai-bridge-client.
  */
-const USE_AI_BRIDGE = process.env.TOPICS_AI_BRIDGE === "1";
+const USE_AI_BRIDGE = process.env.TOPICS_AI_BRIDGE === "1"
+  || (process.env.TOPICS_AI_BRIDGE !== "0" && process.platform !== "win32");
 
 /**
  * The stdin/signal/kill surface of a session — the ONLY child-coupled operations
