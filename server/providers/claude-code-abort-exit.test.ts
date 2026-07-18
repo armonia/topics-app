@@ -81,14 +81,21 @@ describe("onSessionClosed — clean/aborted exit is not an error", () => {
     expect(() => close(pp, 0)).not.toThrow();
   });
 
-  test("recovering (resume hit a missing session) → clear resend note, not a raw exit code", () => {
+  test("recovering (resume hit a missing session) → SESSION_RESET, NO user-facing error", () => {
+    // A lost --resume is a recoverable reset: the pending turn rejects with the
+    // distinct SESSION_RESET marker (so sendChat can transparently respawn+resend)
+    // and NOTHING is surfaced to the handler — no "code 1", no resend note here.
     const h = spyHandler();
-    const pp = fakePP({ streamHandler: h, recovering: true });
+    let rejected = "";
+    const pp = fakePP({
+      streamHandler: h,
+      recovering: true,
+      pendingReject: (e: Error) => { rejected = e.message; },
+    });
     close(pp, 1);
-    expect(h.calls.length).toBe(1);
-    expect(h.calls[0]).toContain("error:");
-    expect(h.calls[0]).toContain("ripristinata");
-    expect(h.calls[0]).not.toContain("code 1");
+    expect(rejected).toBe("SESSION_RESET");
+    expect(h.calls).toEqual([]);
+    expect(pp.streamHandler).toBeNull();
   });
 });
 
@@ -106,5 +113,97 @@ describe("abort() marks the process as aborting", () => {
     await provider.abort("sess-x");
     expect(pp.aborting).toBe(true);
     expect(signals).toEqual(["SIGINT"]);
+  });
+});
+
+/**
+ * Missing-session recovery must trigger from the STDOUT `result` frame, not just
+ * stderr: `claude --resume <gone>` reports "No conversation found with session
+ * ID" as an `error_during_execution` result on stdout. Without this the dead id
+ * is never forgotten and every turn re-resumes it → infinite "code 1" loop.
+ */
+describe("missing-session recovery is detected on the stdout result frame", () => {
+  const provider = new ClaudeCodeProvider({ type: "claude-code" });
+  const emit = (pp: unknown, event: unknown) => (provider as any).handleStreamEvent(pp, event);
+
+  const resumedPP = (over: Record<string, unknown> = {}): any =>
+    fakePP({
+      sessionKey: "topic:test",
+      spawnMeta: { claudeSessionId: "dead-id", isNewSession: false },
+      lastEventAt: 0,
+      ...over,
+    });
+
+  test("error result + 'No conversation found' → pp.recovering (dead id forgotten)", () => {
+    const pp = resumedPP();
+    emit(pp, {
+      type: "result",
+      is_error: true,
+      subtype: "error_during_execution",
+      errors: ["No conversation found with session ID: dead-id"],
+    });
+    expect(pp.recovering).toBe(true);
+  });
+
+  test("a fresh --session-id spawn never enters recovery (can't lose a new session)", () => {
+    const pp = resumedPP({ spawnMeta: { claudeSessionId: "new-id", isNewSession: true } });
+    emit(pp, {
+      type: "result",
+      is_error: true,
+      subtype: "error_during_execution",
+      errors: ["No conversation found with session ID: new-id"],
+    });
+    expect(pp.recovering).toBeFalsy();
+  });
+
+  test("an unrelated error result does NOT trigger recovery", () => {
+    const pp = resumedPP();
+    emit(pp, { type: "result", is_error: true, subtype: "error_during_execution", errors: ["disk full"] });
+    expect(pp.recovering).toBeFalsy();
+  });
+});
+
+/**
+ * End-to-end of the invisible recovery: a lost session makes the FIRST turn
+ * reject SESSION_RESET; sendChat drops the dead child and resends the same prompt
+ * ONCE on a fresh session. The cap prevents any loop, and the caller only ever
+ * sees the successful turn (or, if the fresh spawn somehow reset too, one note).
+ */
+describe("sendChat resends transparently once on a lost session (capped)", () => {
+  test("SESSION_RESET → exactly one fresh resend, then a single note (no loop, no raw crash)", async () => {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const noop = () => {};
+    let spawns = 0;
+    const makeFake = () => {
+      const pp: any = fakePP({
+        alive: true,
+        sessionKey: "topic:x",
+        spawnMeta: { claudeSessionId: "dead", isNewSession: false },
+        recovering: true,
+        ready: Promise.resolve(),
+        needsHistoryReplay: false,
+        fullText: "",
+        sidechain: { clear: noop },
+        activeToolCalls: { clear: noop },
+        settledToolCalls: { clear: noop },
+        pendingInputs: new Map(),
+      });
+      // The first stdin write drives the session straight into a lost-session
+      // close, exactly like `claude --resume <gone>` exiting after its error frame.
+      pp.io = { writeStdin: () => (provider as any).onSessionClosed(pp, 1), signal: noop, kill: noop };
+      return pp;
+    };
+    (provider as any).getOrCreateProcess = () => { spawns++; return makeFake(); };
+    (provider as any).startHeartbeat = noop;
+    (provider as any).stopHeartbeat = noop;
+    (provider as any).resetInactivityTimer = noop;
+
+    const h = spyHandler();
+    await (provider as any).sendChatInternal("topic:x", "hi", h);
+
+    expect(spawns).toBe(2); // original attempt + exactly one resend, then capped
+    expect(h.calls.filter((c) => c.includes("ripristinata")).length).toBe(1);
+    expect(h.calls.some((c) => c.includes("code 1"))).toBe(false);
+    expect(h.calls.some((c) => c.includes("died"))).toBe(false);
   });
 });
