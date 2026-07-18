@@ -690,11 +690,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // the main task's. Best-effort: the comment above is already saved.
           try {
             const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
-            if (dispatcher && root && root.status === "review" && root.assignedTopicId) {
-              const rejected = svc.reviewDecision({
-                taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId,
-              });
-              broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: rejected });
+            // A human comment on a dispatched task is DELIVERED to the agent, not
+            // left as an unread note. Two live cases, both through resume():
+            //  • review       → the agent is waiting: reject-with-text re-kicks it;
+            //  • in_progress   → the agent is working: resume() BUFFERS the message
+            //    mid-turn (pendingResume) and hands it over at the next turn
+            //    boundary; if idle it continues immediately. This is the
+            //    Claude-Code steering path — add a message while it runs and it
+            //    picks it up.
+            if (dispatcher && root && root.assignedTopicId && (root.status === "review" || root.status === "in_progress")) {
+              if (root.status === "review") {
+                const rejected = svc.reviewDecision({
+                  taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId,
+                });
+                broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: rejected });
+              }
               const text = typeof body?.content === "string" ? body.content : "";
               let msg = root.id === bComments.taskId
                 ? text

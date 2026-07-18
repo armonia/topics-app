@@ -144,6 +144,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const [subtasksOpen, setSubtasksOpen] = useState(() => { try { return localStorage.getItem('board:taskSubtasksOpen') !== '0'; } catch { return true; } });
   const toggleDescOpen = () => setDescOpen((o) => { const n = !o; try { localStorage.setItem('board:taskDescOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
   const toggleSubtasksOpen = () => setSubtasksOpen((o) => { const n = !o; try { localStorage.setItem('board:taskSubtasksOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
+  // The workspace (the task's GroupLayout: thread + browser + piano + media) is
+  // itself an accordion, coherent with the others — the tab bar sits UNDER a
+  // "Spazio di lavoro" label. Default open.
+  const [workspaceOpen, setWorkspaceOpen] = useState(() => { try { return localStorage.getItem('board:taskWorkspaceOpen') !== '0'; } catch { return true; } });
+  const toggleWorkspaceOpen = () => setWorkspaceOpen((o) => { const n = !o; try { localStorage.setItem('board:taskWorkspaceOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
   // The drawer body is ONE task-scoped GroupLayout (Thread + browser tabs +
   // Piano + media as panes → the app's real PaneTabBar). `wide` is now a pure
   // width preference (more room for the native tiling), no side-panel fold.
@@ -773,21 +778,28 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
               >⤴ Task padre</button>
             )}
-            {/* Project EYEBROW — favicon + name ABOVE the title (not a pill),
-                exactly like the card's cross-project eyebrow. Clickable: opens
-                the move / open / create-project picker (portaled Menu). */}
+            {/* Project EYEBROW + PRIMARY STATE on one row — favicon + name on the
+                left, the dispatch chip aligned right (card's top-right slot). The
+                title below then gets the FULL width, no chip competing with it. */}
             {task && (
-              <button
-                ref={projChipRef}
-                onClick={openProjMenu}
-                data-testid="task-project-chip"
-                title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
-                className="mb-1 flex min-w-0 max-w-full items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200"
-              >
-                <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
-                <span className="min-w-0 truncate font-medium">{projectLabel}</span>
-                <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
-              </button>
+              <div className="mb-1 flex items-center gap-2">
+                <button
+                  ref={projChipRef}
+                  onClick={openProjMenu}
+                  data-testid="task-project-chip"
+                  title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
+                  className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200"
+                >
+                  <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
+                  <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
+                </button>
+                {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+                  <DispatchChip state={task.dispatchState} error={task.dispatchError} />
+                ) : (!task.dispatchState && task.dispatchError) ? (
+                  <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
+                ) : null}
+              </div>
             )}
             <Menu
               open={projMenuOpen}
@@ -814,32 +826,23 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
               ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
             </Menu>
-            {/* Title row: title on the left, PRIMARY dispatch state pinned
-                top-right — the card's exact header slot. */}
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                {editingTitle ? (
-                  <textarea
-                    autoFocus value={titleDraft} rows={1} ref={autoGrow}
-                    onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
-                    onBlur={saveTitle}
-                    onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
-                    className="-mx-1.5 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-neutral-100 outline-none"
-                  />
-                ) : (
-                  <p
-                    onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
-                    title="Clicca per modificare il titolo"
-                    className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-neutral-100 hover:bg-white/5"
-                  >{task?.text}</p>
-                )}
-              </div>
-              {task && ((task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
-                <DispatchChip state={task.dispatchState} error={task.dispatchError} />
-              ) : (!task.dispatchState && task.dispatchError) ? (
-                <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
-              ) : null)}
-            </div>
+            {/* Title — FULL width (the dispatch state moved up to the project
+                eyebrow row, so nothing competes with it here). */}
+            {editingTitle ? (
+              <textarea
+                autoFocus value={titleDraft} rows={1} ref={autoGrow}
+                onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
+                onBlur={saveTitle}
+                onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
+                className="-mx-1.5 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-neutral-100 outline-none"
+              />
+            ) : (
+              <p
+                onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
+                title="Clicca per modificare il titolo"
+                className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-neutral-100 hover:bg-white/5"
+              >{task?.text}</p>
+            )}
             {/* Meta row — compact chips that wrap, card-style: priorità,
                 modello · ⏱ effort (UN chip, come la card), piano-prima,
                 blocked-by + reuse. Editable selectors keep their portaled Menus. */}
@@ -1049,13 +1052,26 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               NOTHING when there's no worktree / an empty diff (owns its own
               section chrome), so an unchanged task shows no "Modifiche" bar. */}
           {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} />}
-          {/* The task's body = ONE GroupLayout: Thread, live browser tabs, Piano
-              and each media attachment are all panes of the app's real
-              PaneTabBar (single tab bar; native split / resize / drag). The
-              review actions below stay visible whatever pane is active. */}
-          <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
-            <GroupLayout {...browser.groupLayoutProps} />
+          {/* "Spazio di lavoro" — the task's ONE GroupLayout (Thread + browser
+              tabs + Piano + media, the app's real PaneTabBar). Collapsible like
+              the other sections: the tab bar sits UNDER this label. Default open;
+              when collapsed the panes hide and a flex spacer keeps the composer
+              pinned to the bottom. */}
+          <div className={`flex min-w-0 flex-col ${workspaceOpen ? 'min-h-0 flex-1' : 'shrink-0'}`}>
+            <button
+              onClick={toggleWorkspaceOpen}
+              className="flex w-full shrink-0 items-center gap-1 border-b border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+            >
+              {workspaceOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              Spazio di lavoro
+            </button>
+            {workspaceOpen && (
+              <div className="flex min-h-0 flex-1 flex-col" data-testid="task-drawer-body">
+                <GroupLayout {...browser.groupLayoutProps} />
+              </div>
+            )}
           </div>
+          {!workspaceOpen && <div className="flex-1" />}
           <div className="border-t border-white/10 p-2">
             {/* Review zone — decisions live HERE, where the agent's questions
                 land (end of the thread), not up in the header. ("Modifiche" moved
@@ -1122,7 +1138,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
                 onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
                 onFocus={() => markActiveComposer(commentCursorKey)}
-                placeholder={isAgentReview ? 'Rispondi all\'agent…' : 'Commenta…'}
+                placeholder={isAgentReview ? 'Rispondi all\'agent…' : agentBusy ? 'Scrivi all\'agent mentre lavora — lo riceve al prossimo turno…' : 'Commenta…'}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
                 onPaste={(e) => {
                   const imgs = Array.from(e.clipboardData?.items ?? [])
@@ -1134,8 +1150,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               />
               <button
                 onClick={send} disabled={sending || (!draft.trim() && attachments.length === 0)}
-                title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : 'Commenta'}
-                className={`rounded p-1.5 text-white disabled:opacity-50 ${isAgentReview ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
+                title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : agentBusy ? "Invia all'agent — lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
+                className={`rounded p-1.5 text-white disabled:opacity-50 ${isAgentReview || agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
               >{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
             </div>
           </div>
