@@ -57,7 +57,7 @@ import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
-import { pickTaskModelDetailed } from "./server/services/task-model-picker";
+import { pickTaskModel } from "./server/services/task-model-picker";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
 import { createPushRouter } from "./server/routes/push";
@@ -451,8 +451,8 @@ const taskDispatcher = createTaskDispatcher({
       const availableModels = cc?.models ?? [];
       // No snapshot yet → can't classify, but opus-first means we still hand the
       // agent opus (the human's default + this host's primary), never a downgrade.
-      if (availableModels.length === 0) return { model: "claude-opus-4-8", fuzzy: false };
-      return await pickTaskModelDetailed(task, {
+      if (availableModels.length === 0) return { model: "claude-opus-4-8" };
+      const model = await pickTaskModel(task, {
         // Force the cheapest tier for the classification itself.
         complete: (prompt) =>
           provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5" }).then((r) => r.content ?? ""),
@@ -460,8 +460,9 @@ const taskDispatcher = createTaskDispatcher({
         fallback: "claude-opus-4-8",
         log: (m) => console.log(`[dispatcher] ${m}`),
       });
+      return { model };
     } catch {
-      return { model: "claude-opus-4-8", fuzzy: false }; // any failure → opus-first, never a silent downgrade
+      return { model: "claude-opus-4-8" }; // any failure → opus-first, never a silent downgrade
     }
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.

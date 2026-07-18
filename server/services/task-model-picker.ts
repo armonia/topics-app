@@ -60,17 +60,12 @@ const CLASSIFIER_PROMPT = (title: string, description: string) =>
   [
     "Sei un router di task. Il modello DI DEFAULT è opus: l'umano lavora normalmente su opus.",
     "Scendi a un modello più piccolo SOLO se il task è chiaramente più piccolo; nel dubbio scegli opus (mai declassare).",
-    "Rispondi con DUE parole separate da spazio: <modello> <chiarezza>.",
-    "Modello, uno tra: sonnet, opus, fable. Chiarezza, uno tra: ok, fuzzy. Nient'altro, niente punteggiatura.",
+    "Rispondi con UNA sola parola: il modello, uno tra sonnet, opus, fable. Nient'altro, niente punteggiatura.",
     "",
     "Modello (nel dubbio, il più capace — sonnet è il MINIMO, non esiste un modello più piccolo):",
     "- opus: DEFAULT. Qualsiasi lavoro reale — feature, modifica UI, logica, debug, più file/sistemi, design, refactor. Se non è palesemente banale, è opus.",
     "- fable: massima difficoltà/ambiguità (ricerca, modellazione dati, algoritmi non ovvi, ragionamento profondo).",
     "- sonnet: MINIMO assoluto — SOLO task piccolo e pienamente specificato in un punto solo (un fix circoscritto e ovvio, un test mirato, un ritocco isolato, un typo/rinomina/bump). Mai scendere sotto.",
-    "",
-    "Chiarezza (quanto è definito l'obiettivo):",
-    "- ok: obiettivo chiaro e verificabile, un agent può eseguirlo senza altre domande.",
-    "- fuzzy: titolo vago, nessuna descrizione utile, obiettivo non verificabile, o richiede scelte che spettano all'umano (es. 'sistema X', 'valuta Y', 'bug non specificato').",
     "",
     `Titolo: ${title}`,
     description ? `Descrizione: ${description}` : "",
@@ -83,9 +78,9 @@ const CLASSIFIER_PROMPT = (title: string, description: string) =>
 /** Parse the classifier's free text into a tier, or null if unrecognisable. */
 export function parseTier(raw: string): ModelTier | null {
   const t = (raw ?? "").toLowerCase();
-  // Well-formed answer ("<tier> <ok|fuzzy>", possibly after whitespace) wins
+  // Well-formed answer (the single tier word, possibly after whitespace) wins
   // outright — this is what the prompt asks for.
-  const exact = t.match(/^\s*(haiku|sonnet|opus|fable)\s+(ok|fuzzy)\b/);
+  const exact = t.match(/^\s*(haiku|sonnet|opus|fable)\b/);
   if (exact) return exact[1] as ModelTier;
   // Otherwise: the EARLIEST tier keyword in the text wins. Scanning tiers in
   // MODEL_TIERS order instead (the old behavior) made "haiku" win whenever it
@@ -98,11 +93,6 @@ export function parseTier(raw: string): ModelTier | null {
     if (m && (best === null || m.index < best.at)) best = { tier, at: m.index };
   }
   return best?.tier ?? null;
-}
-
-/** True if the classifier flagged the task as fuzzy (vague/under-specified). */
-export function parseFuzzy(raw: string): boolean {
-  return /(^|[^a-z])fuzzy([^a-z]|$)/.test((raw ?? "").toLowerCase());
 }
 
 /**
@@ -127,31 +117,22 @@ export function tierToAvailableModel(tier: ModelTier, available: readonly string
   return null;
 }
 
-export interface PickModelResult {
-  /** Chosen model id (always set — `fallback` on any problem). */
-  model: string;
-  /** Classifier flagged the task as vague / under-specified for autonomous work. */
-  fuzzy: boolean;
-}
-
 /**
- * Pick a model id AND a fuzzy flag for a task. Never throws — returns
- * `{ model: fallback, fuzzy: false }` on any problem (a picker hiccup must never
- * force plan-first on a task that didn't ask for it).
+ * Pick a model id for a task. Never throws — returns `fallback` on any problem
+ * (a picker hiccup must never strand or misroute a dispatch).
  */
-export async function pickTaskModelDetailed(
+export async function pickTaskModel(
   task: { text: string; description?: string | null },
   deps: PickModelDeps,
-): Promise<PickModelResult> {
+): Promise<string> {
   try {
     const title = (task.text ?? "").slice(0, 300);
     const description = (task.description ?? "").slice(0, 1200);
     const raw = (await deps.complete(CLASSIFIER_PROMPT(title, description))) ?? "";
-    const fuzzy = parseFuzzy(raw);
     const rawTier = parseTier(raw);
     if (!rawTier) {
       deps.log?.(`model-picker: unparsable answer ${JSON.stringify(raw.slice(0, 60))} → fallback`);
-      return { model: deps.fallback, fuzzy };
+      return deps.fallback;
     }
     // Clamp to the execution floor (haiku → sonnet) and strip haiku from the
     // candidate set, so neither a haiku pick NOR a walk-down on a host missing
@@ -161,27 +142,15 @@ export async function pickTaskModelDetailed(
     const model = tierToAvailableModel(tier, execAvailable);
     if (!model) {
       deps.log?.(`model-picker: tier ${tier} has no available model → fallback`);
-      return { model: deps.fallback, fuzzy };
+      return deps.fallback;
     }
     // Always log the raw answer: a misroute must be diagnosable from the log
     // alone (the parsed tier hides whether the judge really said that).
     const clamped = tier !== rawTier ? ` (floor da ${rawTier})` : "";
-    deps.log?.(`model-picker: ${tier}${clamped}${fuzzy ? " (fuzzy)" : ""} → ${model} — raw ${JSON.stringify(raw.slice(0, 60))}`);
-    return { model, fuzzy };
+    deps.log?.(`model-picker: ${tier}${clamped} → ${model} — raw ${JSON.stringify(raw.slice(0, 60))}`);
+    return model;
   } catch (err) {
     deps.log?.(`model-picker: failed (${err instanceof Error ? err.message : String(err)}) → fallback`);
-    return { model: deps.fallback, fuzzy: false };
+    return deps.fallback;
   }
-}
-
-/**
- * Pick a model id for a task. Never throws — returns `fallback` on any problem.
- * Thin wrapper over {@link pickTaskModelDetailed} for callers that only need the
- * model.
- */
-export async function pickTaskModel(
-  task: { text: string; description?: string | null },
-  deps: PickModelDeps,
-): Promise<string> {
-  return (await pickTaskModelDetailed(task, deps)).model;
 }
