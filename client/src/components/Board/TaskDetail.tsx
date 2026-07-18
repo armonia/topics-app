@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ExternalLink, GitCompare, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, Paperclip, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ExternalLink, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, Paperclip, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -43,14 +43,14 @@ export function TaskChangesSection({ projectId, taskId, bump }: { projectId: str
   const bundle = state && typeof state === 'object' ? state : null;
   const fileCount = bundle && bundle.code !== 'no_worktree' ? bundle.stat.length : null;
   return (
-    <div className="mb-2 rounded border border-white/10">
-      <button onClick={toggle} className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-neutral-300 hover:bg-white/5">
-        {open ? <ChevronDown className="h-3 w-3 text-neutral-500" /> : <ChevronRight className="h-3 w-3 text-neutral-500" />}
-        <GitCompare className="h-3 w-3 text-neutral-500" /> Modifiche
-        {fileCount != null && fileCount > 0 && <span className="text-neutral-500">({fileCount} file)</span>}
+    <div>
+      <button onClick={toggle} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300">
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        Modifiche
+        {fileCount != null && fileCount > 0 && <span className="normal-case tracking-normal text-neutral-600">· {fileCount} file</span>}
       </button>
       {open && (
-        <div className="max-h-[42vh] overflow-y-auto px-2 pb-1.5">
+        <div className="mt-1.5 max-h-[42vh] overflow-y-auto">
           {state === 'loading' && <div className="text-[11px] text-neutral-500">Carico il diff…</div>}
           {state === 'error' && <div className="text-[11px] text-red-400">Errore nel caricare il diff.</div>}
           {bundle && bundle.code === 'no_worktree' && (
@@ -912,6 +912,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 )}
               </div>
             )}
+          </div>
+          {/* Descrizione — accordion coerente con Sottotask/Modifiche: stesso
+              container (px-3 py-2), stessa label (chevron + uppercase), corpo a
+              mt-1.5. Spazio sopra/sotto la label uguale (il py-2 del contenitore). */}
+          <div className="shrink-0 border-b border-white/10 px-3 py-2">
             {editingDesc ? (
               <textarea
                 autoFocus value={descDraft} rows={1} ref={autoGrow}
@@ -919,14 +924,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onBlur={saveDesc}
                 onKeyDown={cancelKey}
                 placeholder="Descrizione…"
-                className="-mx-1.5 mt-1 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-neutral-300 outline-none"
+                className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-neutral-300 outline-none"
               />
             ) : task?.description ? (
-              <div className="mt-1.5">
-                {/* Collapsible: the header toggles, the body edits on click. */}
+              <>
                 <button
                   onClick={toggleDescOpen}
-                  className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                  className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
                 >
                   {descOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} Descrizione
                 </button>
@@ -934,14 +938,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <div
                     onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
                     title="Clicca per modificare la descrizione"
-                    className={`-mx-1.5 mt-1 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-neutral-300 hover:bg-white/5 ${COMPACT_MD_CLS}`}
+                    className={`mt-1.5 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-neutral-300 hover:bg-white/5 ${COMPACT_MD_CLS}`}
                   ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
                 )}
-              </div>
+              </>
             ) : (
               <button
                 onClick={() => { setDescDraft(''); setEditingDesc(true); }}
-                className="mt-1 text-[11px] text-neutral-600 hover:text-neutral-400"
+                className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-600 hover:text-neutral-400"
               >+ descrizione…</button>
             )}
           </div>
@@ -982,13 +986,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <div className="max-h-[40%] shrink-0 overflow-y-auto border-b border-white/10 px-3 py-2" data-testid="task-detail-subtasks">
             <button
               onClick={toggleSubtasksOpen}
-              className="mb-1 flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+              className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
             >
               {subtasksOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               Sottotask{children.length > 0 ? ` · ${doneCount}/${children.length}` : ''}
             </button>
             {subtasksOpen && (
-              <>
+              <div className="mt-1.5">
                 {children.map((c) => (
                   <SubtaskNode key={c.id} projectId={projectId} node={c} depth={0} onOpenTask={onOpenTask} />
                 ))}
@@ -1002,14 +1006,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   />
                   {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-neutral-400" />}
                 </div>
-              </>
+              </div>
             )}
           </div>
           {/* "Modifiche" (worktree diff) lives HERE — above the body, OUT of the
               chat composer area ("sopra la chat era fastidioso"). Self-collapsing
               panel (closed by default); when opened it scrolls in its own height. */}
           {task.assignedTopicId && (
-            <div className="shrink-0 border-b border-white/10 px-3 pt-2">
+            <div className="shrink-0 border-b border-white/10 px-3 py-2">
               <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} />
             </div>
           )}
