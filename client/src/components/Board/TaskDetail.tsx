@@ -618,11 +618,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         wide ? 'w-[min(64rem,72%)] shadow-2xl' : 'w-96 max-w-[75%]'
       }`}
     >
-      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
-        {/* Chips live in a shrinkable strip; the expand/close buttons sit
-            OUTSIDE it (shrink-0) so a narrow drawer/pane can never push them
-            past the edge ("ho stretto la tab e non riesco a riaprirla"). */}
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+      <div className="flex shrink-0 items-start gap-2 border-b border-white/10 px-3 py-2.5">
+        {/* Chips WRAP onto multiple lines (flex-wrap) instead of clipping on a
+            single row — from narrow the strip stacks so every selector stays
+            reachable ("quando è stretto non si vedono"). The expand/close
+            buttons sit OUTSIDE this strip (shrink-0, top-anchored via
+            items-start) so a narrow drawer/pane can never push them past the
+            edge, and they stay pinned top-right however many rows the chips
+            wrap into. */}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
         <button
           ref={statusBtnRef}
           onClick={() => task && setStatusMenuOpen(true)}
@@ -750,10 +754,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </button>
           ))}
         </Menu>
-        {/* Primary STATE pinned to the right of the selector strip (coherent with
-            the card's top-right slot): dispatch chip + agent effort, next to the
-            window actions. Selettori a sinistra, stato a destra. */}
-        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
+        {/* Dispatch chip + agent effort flow WITH the selectors in the wrapping
+            strip (no `ml-auto`): pushing them to the far right would leave a gap
+            mid-wrap and could shove them under the action cluster when narrow.
+            Packed left, they wrap alongside the other chips. */}
+        <div className="flex shrink-0 items-center gap-1.5">
           {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
             <DispatchChip state={task.dispatchState} error={task.dispatchError} />
           )}
@@ -812,8 +817,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Single column: meta + subtask tree + the one GroupLayout body +
             composer/review actions. No more left/right surface split — the
-            GroupLayout tiles natively when the user splits. */}
-        <div className="flex min-w-0 flex-1 flex-col">
+            GroupLayout tiles natively when the user splits. `min-h-0` is
+            load-bearing: without it this column grows to its content instead of
+            the drawer height, so the subtask tray's `max-h-[40%]` and the
+            thread's `overflow-y-auto` never get a bounded height → nothing
+            scrolls. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="border-b border-white/10 px-3 py-3">
             {task?.parentTaskId && onOpenTask && (
               <button
