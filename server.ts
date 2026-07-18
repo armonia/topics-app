@@ -35,6 +35,7 @@ import { createTaskService } from "./server/services/tasks";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
+import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
@@ -927,6 +928,15 @@ const server = Bun.serve<WSData>({
           status: 202, headers: { "content-type": "application/json" },
         });
       }
+      if (method === "POST" && pathname === "/__daemon/worktree-gc") {
+        // Run the worktree GC sweep on demand (the periodic one runs every 30m).
+        // Reaps only what's provably safe; lands a closed task's clean unmerged
+        // commits first. Returns the summary.
+        const summary = await runWorktreeGc();
+        return new Response(JSON.stringify({ ok: true, summary }), {
+          status: 200, headers: { "content-type": "application/json" },
+        });
+      }
       return new Response("Not Found", { status: 404 });
     }
 
@@ -1511,6 +1521,61 @@ const dispatchTimer = setInterval(() => {
   taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] poll reconcile failed", err));
 }, DISPATCH_POLL_MS);
 
+// ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
+// Dispatch worktrees were only reaped on a successful approve→automerge; every
+// other terminal path (reject+abandon, delete, an approve the old dirty-main
+// bug skipped, an orphan) leaked one forever. This periodic sweep applies the
+// SAME safety contract to the whole population — reaping only when there is
+// provably nothing to lose, landing a closed task's unmerged-but-clean commits
+// first. See server/services/worktree-gc.ts.
+const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
+async function gitExit(cwd: string, args: string[]): Promise<number> {
+  try {
+    const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "ignore", stderr: "ignore" });
+    return await proc.exited;
+  } catch { return 1; }
+}
+// Branch state read from the PROJECT repo, so it's correct even after the
+// worktree dir was removed (the common ghost case): gone / merged / unmerged.
+async function branchStatusFromRepo(repoPath: string, branch: string | null): Promise<"gone" | "merged" | "unmerged"> {
+  if (!branch) return "gone";
+  if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) !== 0) return "gone";
+  return (await gitExit(repoPath, ["merge-base", "--is-ancestor", branch, "main"])) === 0 ? "merged" : "unmerged";
+}
+function runWorktreeGc() {
+  return sweepWorktrees({
+    listWorktrees: () => ctx.worktreeStore.list({ status: "ready" }).map((w) => ({
+      id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode,
+    })),
+    resolveTask: (worktreeId) => {
+      const topic = ctx.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
+      if (!topic?.id) return { taskId: null };
+      const t = ctx.db.prepare("SELECT id, status, archived FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string; status?: string; archived?: number } | undefined;
+      if (!t?.id) return { taskId: null };
+      return { taskId: t.id, status: (t.status ?? "todo") as GcTaskStatus, archived: !!t.archived };
+    },
+    isBusy: (taskId) => taskDispatcher.isInFlight(taskId),
+    diskPresent: (absPath) => existsSync(absPath),
+    realDirt: (absPath) => worktreeRealDirt(absPath),
+    branchStatus: (w) => {
+      const repoPath = ctx.projectStore.get(w.projectId)?.path;
+      if (!repoPath) return Promise.resolve("gone" as const);
+      return branchStatusFromRepo(repoPath, w.branchName);
+    },
+    autoMergeEnabled: (projectId) => { try { return !!dispatcherSvc.getBoardSettings(projectId).dispatchAutoMerge; } catch { return false; } },
+    tryLand: async (taskId) => {
+      const text = dispatcherSvc.get(taskId)?.task.text ?? "";
+      const res = await taskAutoMerge.tryMerge(taskId, text);
+      return res.status === "merged" ? "landed" : res.status === "nothing" ? "nothing" : res.status === "conflict" ? "conflict" : "skipped";
+    },
+    reap: (worktreeId) => ctx.worktreeManager.delete(worktreeId),
+    log: (msg) => console.log(msg),
+  }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });
+}
+// First pass 2 min after boot (let dispatch settle), then every 30 min.
+const worktreeGcBoot = setTimeout(runWorktreeGc, 120_000);
+const worktreeGcTimer = setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS);
+
 const proto = useTls ? "https" : "http";
 const wsProto = useTls ? "wss" : "ws";
 console.log(`🚀 Topics App running at ${proto}://localhost:${PORT}`);
@@ -1561,6 +1626,8 @@ async function gracefulShutdown(signal: string) {
   clearInterval(wsHeartbeatTimer);
   clearInterval(staleStreamTimer);
   clearInterval(dispatchTimer);
+  clearTimeout(worktreeGcBoot);
+  clearInterval(worktreeGcTimer);
   taskDispatcher.shutdown();
   stopHeartbeatChecker();      // agent FSM stale-checker (was an unstoppable leak)
   activityMonitor.destroy();   // closes the log fs.watch + batch/persist timers
