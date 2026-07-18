@@ -1490,7 +1490,12 @@ export function SessionSlice({ msgs, label, preview }: {
   preview?: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  if (msgs.length === 0 && !preview) return null;
+  // Only the AGENT's turns are "passaggi". Human/dispatcher turns injected into
+  // the session (your steering, the kickoff envelope) are noise here: your side
+  // already shows as comment bubbles in the thread — showing it again as a step
+  // is pure duplication. Hide it.
+  const steps = msgs.filter((m) => m.role !== 'user');
+  if (steps.length === 0 && !preview) return null;
   return (
     <div className="rounded-md border border-white/5 bg-white/[0.02]">
       <button
@@ -1499,7 +1504,7 @@ export function SessionSlice({ msgs, label, preview }: {
         className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-neutral-500 hover:text-neutral-300"
       >
         <Footprints className="h-3 w-3 shrink-0" />
-        <span>{label ?? 'Passaggi'}{msgs.length > 0 && <span className="text-neutral-600"> · {msgs.length}</span>}</span>
+        <span>{label ?? 'Passaggi'}{steps.length > 0 && <span className="text-neutral-600"> · {steps.length}</span>}</span>
         <ChevronDown className={`ml-auto h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {!open && preview && (
@@ -1511,18 +1516,16 @@ export function SessionSlice({ msgs, label, preview }: {
       )}
       {open && (
         <div className="max-h-72 space-y-2 overflow-y-auto border-t border-white/5 bg-black/20 px-2.5 py-2">
-          {msgs.map((m, i) => (
+          {steps.map((m, i) => (
             <div key={i} className="space-y-1">
               {/* Coherent with the real chat: assistant thinking renders through
                   the SAME ReasoningRow the topic chat uses, then the prose. */}
-              {m.role !== 'user' && m.thinking?.trim() && (
+              {m.thinking?.trim() && (
                 <ReasoningRow content={m.thinking} />
               )}
               {m.content.trim() && (
                 <div className="flex gap-1.5 text-xs leading-relaxed">
-                  <span className={`shrink-0 font-semibold ${m.role === 'user' ? 'text-sky-400' : 'text-neutral-500'}`}>
-                    {m.role === 'user' ? '›' : '⏺'}
-                  </span>
+                  <span className="shrink-0 font-semibold text-neutral-500">⏺</span>
                   <div className={`min-w-0 flex-1 text-neutral-300 ${COMPACT_MD_CLS}`}>
                     <ChatMarkdown components={{}}>{m.content}</ChatMarkdown>
                   </div>
