@@ -53,6 +53,24 @@ export function commentTime(iso: string): string {
     : `${d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })} ${hm}`;
 }
 
+/**
+ * "Ultimo aggiornamento" for a card/drawer title: relative while fresh, a clock
+ * (same day) or date (older) once it ages — short enough to trail a title.
+ * ora · 5m fa · 3h fa · HH:MM · dd/MM HH:MM.
+ */
+export function fmtUpdatedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const ms = Date.now() - d.getTime();
+  if (ms < 45_000) return 'ora';
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m}m fa`;
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const h = Math.floor(m / 60);
+  if (sameDay && h < 12) return `${h}h fa`;
+  return commentTime(iso);
+}
+
 /** Compact duration: 42s · 7m · 1h12m. */
 export const fmtMs = (ms: number): string => {
   const s = Math.round(ms / 1000);

@@ -9,7 +9,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, STATUS_LABEL, parseQuestionBlock, isProjectlessId, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
-import { fmtMs, fmtLive, fmtTok, fmtModel } from './format';
+import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 
 // ── Column ────────────────────────────────────────────────────────────────
@@ -210,8 +210,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           ) : null}
         </div>
       )}
-      {/* Title — FULL width (the dispatch state moved up to the top row). */}
-      <span className="block break-words leading-snug">{task.text}</span>
+      {/* Title — FULL width (the dispatch state moved up to the top row). The
+          "ultimo aggiornamento" trails the title, muted and non-wrapping. */}
+      <span className="block break-words leading-snug">
+        {task.text}
+        <span
+          className="ml-1.5 whitespace-nowrap align-baseline text-[10px] font-normal text-neutral-500"
+          title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
+        >· {fmtUpdatedAt(task.updatedAt)}</span>
+      </span>
       {/* Meta: every informational chip stays VISIBLE, zoned below the title in a
           tidy row (attributi del task). State + archive live top-right, above. */}
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
