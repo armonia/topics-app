@@ -688,7 +688,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
             >Tutti i progetti</button>
           </>
         ) : (
-          <span className="text-xs font-semibold text-neutral-200">Board generale</span>
+          <span className="text-xs font-semibold text-neutral-200">Board<span className="hidden sm:inline"> generale</span></span>
         )}
         <GlobalSettingsMenu />
         <div className="ml-2 min-w-0">
