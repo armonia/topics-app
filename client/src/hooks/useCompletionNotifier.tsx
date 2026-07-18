@@ -22,6 +22,10 @@ interface CompletionNotifierProps {
   /** Live terminal roster — lets the pty-`finished` notifier resolve a
    *  terminal id → its claudeSessionId (cross-path cooldown dedup) + name. */
   terminalSessions: TerminalSessionInfo[];
+  /** Resolve a topic id → the dispatched task it works, if any. When a
+   *  completion banner is for a dispatched-task topic, the taskId rides into the
+   *  notification so a click opens that task's drawer (openTaskInApp). */
+  taskIdForTopic?: (topicId: string) => string | null;
 }
 
 /**
@@ -86,7 +90,7 @@ function playCompletionTone(): void {
  * Returns true iff a banner was actually posted, so the caller can drop the
  * redundant in-app toast (the OS notification already covers the "done" cue).
  */
-function emitSystemNotification(message: string): boolean {
+function emitSystemNotification(message: string, taskId?: string | null): boolean {
   const sep = message.indexOf(': ');
   const title = sep > 0 ? message.slice(0, sep) : 'Topics';
   const body = sep > 0 ? message.slice(sep + 2) : message;
@@ -95,7 +99,7 @@ function emitSystemNotification(message: string): boolean {
   // Electron/web use the web Notification API, Tauri the native `notify` command
   // (WKWebView's web Notification API is unreliable). Returns true only when a
   // banner posted synchronously (Electron/web) so the caller drops the in-app toast.
-  return notifyNative(title, body, { silent: true });
+  return notifyNative(title, body, { silent: true, taskId: taskId ?? undefined });
 }
 
 /** Pull the topic id out of a panel id like `chat:abc-123`. Returns null
@@ -131,6 +135,7 @@ export function useCompletionNotifier({
   topics,
   focusedPanelId,
   terminalSessions,
+  taskIdForTopic,
 }: CompletionNotifierProps): void {
   // Prime OS-notification permission once on mount. In the Electron main window
   // the default session already reports 'granted'; in a browser tab this raises
@@ -154,14 +159,16 @@ export function useCompletionNotifier({
   // event: one from main, one from here. The pty `terminal:activity` path is
   // genuinely uncovered by main, so it keeps osBanner=true; in a plain browser
   // tab / the Tauri build there is no Electron main, so everything banners.
-  const fire = useCallback((_level: 'ok' | 'warn', message: string, sound: boolean, osBanner = true) => {
+  const fire = useCallback((_level: 'ok' | 'warn', message: string, sound: boolean, osBanner = true, taskId?: string | null) => {
     // The OS system banner is the ONLY surface now (no in-app toast — user pref):
     // it fires for BOTH an action-required event (awaiting-approval / error) AND
     // a finish (turn done / completed / agent idle). Every call site is already
     // guarded by a 10s per-topic cooldown (and focused-pane suppression), so the
     // same session can't re-banner in a tight loop. `osBanner` is false only on
     // Electron for channels its main process already banners (avoids a double).
-    if (osBanner) emitSystemNotification(message);
+    // taskId (when the topic works a dispatched task) makes the banner clickable
+    // → opens that task's drawer.
+    if (osBanner) emitSystemNotification(message, taskId);
     if (sound) playCompletionTone();
   }, []);
 
@@ -191,6 +198,7 @@ export function useCompletionNotifier({
   const topicsRef = useRefMirror(topics);
   const focusedRef = useRefMirror(focusedPanelId);
   const terminalSessionsRef = useRefMirror(terminalSessions);
+  const taskIdForTopicRef = useRefMirror(taskIdForTopic);
 
   // Per-topic cooldown (10s) so two completions in quick succession on
   // the same topic don't double-toast. Mirrors the cooldown in
@@ -255,8 +263,10 @@ export function useCompletionNotifier({
 
               const topic = topicsRef.current[topicId];
               const label = topic?.name ?? 'Topic';
+              // Dispatched-task topic → carry the taskId so a click opens the task.
+              const taskId = taskIdForTopicRef.current?.(topicId) ?? null;
               // osBanner off in Electron — main.ts already banners agents:sessions.
-              fire(justErrored ? 'warn' : 'ok', `${label}: ${justErrored ? 'agent error' : 'agent done'}`, cfg.notificationsSound);
+              fire(justErrored ? 'warn' : 'ok', `${label}: ${justErrored ? 'agent error' : 'agent done'}`, cfg.notificationsSound, true, taskId);
             }
           } else if (shouldShow && !topicId) {
             // Session without a topic id — still surface it, but without
@@ -428,20 +438,22 @@ export function useCompletionNotifier({
       if (now - last < 10_000) return;
       cooldownRef.current.set(cooldownKey, now);
 
+      // Dispatched-task topic → the banner carries the taskId so a click opens it.
+      const taskId = topicId ? (taskIdForTopicRef.current?.(topicId) ?? null) : null;
       // osBanner off in Electron — main.ts already banners chat replies
       // (message:new) and session:state error/approval; firing here too doubles.
       switch (phase) {
         case 'awaiting-user':
-          fire('ok', `${label}: in attesa di te`, cfg.notificationsSound);
+          fire('ok', `${label}: in attesa di te`, cfg.notificationsSound, true, taskId);
           break;
         case 'awaiting-approval':
-          fire('warn', `${label}: serve un'approvazione`, cfg.notificationsSound);
+          fire('warn', `${label}: serve un'approvazione`, cfg.notificationsSound, true, taskId);
           break;
         case 'completed':
-          fire('ok', `${label}: lavoro completato`, cfg.notificationsSound);
+          fire('ok', `${label}: lavoro completato`, cfg.notificationsSound, true, taskId);
           break;
         case 'error':
-          fire('warn', `${label}: errore — interventi richiesti`, cfg.notificationsSound);
+          fire('warn', `${label}: errore — interventi richiesti`, cfg.notificationsSound, true, taskId);
           break;
       }
   });

@@ -930,15 +930,32 @@ mod macos_notifications {
             fn did_receive(
                 &self,
                 _center: &UNUserNotificationCenter,
-                _response: &UNNotificationResponse,
+                response: &UNNotificationResponse,
                 completion: &block2::DynBlock<dyn Fn()>,
             ) {
+                // A task-bound banner encodes its task id in the request identifier
+                // (`topics-task-<id>`, see post()). Read it here (on the delegate
+                // queue), then hop to the main thread to surface the window AND open
+                // the task in the webview. Charset-gated to UUID-safe chars so the
+                // id can be inlined into the eval'd JS with no injection surface.
+                let task_id: Option<String> = {
+                    let ident = response.notification().request().identifier().to_string();
+                    ident
+                        .strip_prefix("topics-task-")
+                        .filter(|t| t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+                        .map(|t| t.to_string())
+                };
                 let app = self.ivars().app.clone();
                 let app2 = app.clone();
                 let _ = app.run_on_main_thread(move || {
                     use tauri::Manager;
                     if let Some(w) = app2.get_webview_window("main") {
                         super::ensure_window_visible(&w);
+                        if let Some(tid) = task_id {
+                            let _ = w.eval(&format!(
+                                "window.__topicsOpenTask && window.__topicsOpenTask('{tid}');"
+                            ));
+                        }
                     }
                 });
                 completion.call(());
@@ -1033,7 +1050,7 @@ mod macos_notifications {
     /// When macOS never authorized the app (unsigned build, see UN_AUTHORIZED),
     /// posting as ourselves is a guaranteed silent drop — ride the signed
     /// helper instead.
-    pub fn post(title: &str, body: &str) {
+    pub fn post(title: &str, body: &str, task_id: Option<&str>) {
         if !is_bundled() {
             return;
         }
@@ -1044,11 +1061,18 @@ mod macos_notifications {
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(title));
         content.setBody(&NSString::from_str(body));
-        let id = format!(
-            "topics-notif-{}-{}",
-            std::process::id(),
-            NOTIF_SEQ.fetch_add(1, Ordering::Relaxed)
-        );
+        // The task id (when the banner is task-bound) rides in the request
+        // IDENTIFIER — a plain string we read back verbatim from the click
+        // response in the delegate (no NSDictionary/userInfo plumbing). A stable
+        // `topics-task-<id>` also means a task's newer banner replaces its older.
+        let id = match task_id {
+            Some(t) => format!("topics-task-{t}"),
+            None => format!(
+                "topics-notif-{}-{}",
+                std::process::id(),
+                NOTIF_SEQ.fetch_add(1, Ordering::Relaxed)
+            ),
+        };
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
             &NSString::from_str(&id),
             &content,
@@ -1066,12 +1090,15 @@ mod macos_notifications {
 /// macOS posts via `macos_notifications` (UserNotifications framework); the
 /// plugin/notify-rust path remains for Windows/Linux and un-bundled dev runs.
 #[tauri::command]
-fn notify(app: tauri::AppHandle, title: String, body: String) {
+fn notify(app: tauri::AppHandle, title: String, body: String, task_id: Option<String>) {
     #[cfg(target_os = "macos")]
     if macos_notifications::is_bundled() {
-        macos_notifications::post(&title, &body);
+        macos_notifications::post(&title, &body, task_id.as_deref());
         return;
     }
+    // Windows/Linux plugin path: no click→task routing yet (the web Notification
+    // API covers those hosts); just show the banner.
+    let _ = &task_id;
     use tauri_plugin_notification::NotificationExt;
     let _ = app.notification().builder().title(title).body(body).show();
 }

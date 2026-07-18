@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type
 import { createPortal } from 'react-dom';
 import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2 } from 'lucide-react';
 import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
+import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
+import { openTaskInApp } from './lib/openTaskLink';
 import { useClaudeEventNotifications } from './hooks/useClaudeEventNotifications';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
@@ -351,6 +353,18 @@ function App() {
   // Live count of active (non-done) tasks across all projects — gates the
   // "Board generale" sidebar row and shows its badge.
   const boardTaskCount = useGlobalBoardCount(onWSMessage);
+
+  // topicId → taskId index for dispatched tasks: lets a completion banner carry
+  // the taskId so clicking it opens that task's drawer (useCompletionNotifier).
+  const taskIdForTopic = useTaskTopicIndex(onWSMessage);
+
+  // A stable global the native (Tauri) notification delegate can call on click to
+  // open a task — the web/Electron path opens it directly via notifyNative.onclick.
+  useEffect(() => {
+    (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask =
+      (id: string) => { if (id) openTaskInApp({ taskId: id }); };
+    return () => { delete (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask; };
+  }, []);
 
   // Native desktop banner for P0/P1 Claude session events (replaces the
   // stop-hook's osascript banner — no more Apple Events / iTunes prompt).
@@ -738,6 +752,7 @@ function App() {
       topics={topics}
       focusedPanelId={focusedPanelId}
       terminalSessions={terminalSessions}
+      taskIdForTopic={taskIdForTopic}
     />
     {/*
       countdownMs=1500: soft-destructive close window. 3s was the original
