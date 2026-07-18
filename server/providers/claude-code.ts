@@ -681,6 +681,16 @@ interface PersistentProcess {
   createdAt: number;
   lastActivity: number;
   alive: boolean;
+  /** Set by abort() before it SIGINTs the child, so the subsequent process
+   *  exit is recognised as a user-requested stop (a clean end, NOT a crash) —
+   *  the CLI exits code 0 on SIGINT, and without this flag onSessionClosed
+   *  surfaced it as "⚠️ Process exited with code 0". */
+  aborting?: boolean;
+  /** Set when a `--resume` failed because the session is gone (we've already
+   *  forgotten it, next spawn is fresh). The turn can't finish, but it's a
+   *  recoverable reset — onSessionClosed surfaces a clear "resend" note instead
+   *  of a raw "Process exited with code N". */
+  recovering?: boolean;
   /** Current streaming handler (set during sendChat, null otherwise) */
   streamHandler: StreamHandler | null;
   /** Pending promise resolvers for sendChat */
@@ -1097,6 +1107,10 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
 
+    // Mark BEFORE signalling: the CLI exits (code 0) on SIGINT, so the exit
+    // event that follows must be read as a clean user-stop, not a crash.
+    pp.aborting = true;
+
     // SIGINT cancels the current turn without killing the process
     try {
       pp.io.signal("SIGINT");
@@ -1508,6 +1522,7 @@ export class ClaudeCodeProvider implements AIProvider {
         `[claude-code] Resume failed for ${sessionKey} (claude_session_id=${claudeSessionId}); forgetting and will respawn fresh on next call`
       );
       forgetClaudeSessionId(sessionKey);
+      pp.recovering = true;
     }
 
     if (
@@ -1530,15 +1545,31 @@ export class ClaudeCodeProvider implements AIProvider {
   // pending turn and surfaces the error to a live stream, then drops timers.
   private onSessionClosed(pp: PersistentProcess, code: number | null): void {
     pp.alive = false;
-    console.log(`[claude-code] Process exited with code ${code}`);
+    // A user-requested stop (aborting) or a clean exit (code 0) is NOT a crash:
+    // the CLI exits code 0 on SIGINT, and a persistent session can also exit 0
+    // between/after turns. Only a non-zero exit with a turn still open is a real
+    // failure worth an error stub — everything else finalizes gracefully so the
+    // chat never shows "⚠️ Process exited with code 0".
+    const graceful = pp.aborting === true || code === 0;
+    console.log(`[claude-code] Process exited with code ${code}${pp.aborting ? " (user stop)" : ""}`);
     if (pp.pendingReject) {
       const reject = pp.pendingReject;
       pp.pendingResolve = null;
       pp.pendingReject = null;
-      reject(new Error(`PROCESS_DIED_${code}`));
+      reject(new Error(graceful ? "ABORTED" : `PROCESS_DIED_${code}`));
     }
     if (pp.streamHandler) {
-      pp.streamHandler.onError(`Process exited with code ${code}`);
+      if (pp.recovering) {
+        // Resume hit a session that no longer exists (already forgotten). Not a
+        // crash — tell the user plainly; the next message spawns fresh.
+        pp.streamHandler.onError("La sessione era scaduta ed è stata ripristinata — reinvia il messaggio e riparto da capo.");
+      } else if (graceful) {
+        // Flush any partial assistant content as a finalized message (same path
+        // as an explicit abort) instead of an error stub.
+        pp.streamHandler.onAborted?.();
+      } else {
+        pp.streamHandler.onError(`Process exited with code ${code}`);
+      }
       pp.streamHandler = null;
     }
     this.cleanupTimers(pp);
