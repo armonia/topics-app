@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
@@ -580,7 +580,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   }, [patchLocal, refetch]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  // Mouse: pick a card up after a 4px drag. Touch: require a 200ms press-and-hold
+  // (with an 8px slop) before a drag starts, so a horizontal swipe scrolls the
+  // snap carousel instead of yanking the card under the finger.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
   const flushDrag = useCallback(() => {
     draggingRef.current = false;
     if (pendingRefetch.current) { pendingRefetch.current = false; refetch(); }
@@ -719,7 +725,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
-            <div className="flex h-full min-w-0 gap-2 overflow-x-auto px-2 py-3 pb-20 sm:gap-3 sm:px-3">
+            <div className="flex h-full min-w-0 snap-x snap-mandatory scroll-smooth gap-2 overflow-x-auto px-2 py-3 pb-20 sm:gap-3 sm:px-3 lg:snap-none">
               {TASK_STATUSES.map((status) => (
                 <Column
                   key={status}
