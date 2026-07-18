@@ -136,6 +136,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     try { localStorage.setItem('board:taskDetailWide', next ? '1' : '0'); } catch { /* private mode */ }
     return next;
   });
+  // Collapsible description + subtask sections (sticky per client): the drawer
+  // header can grow tall, and both are secondary to the thread/body — collapsing
+  // them reclaims vertical room for the chat.
+  const [descOpen, setDescOpen] = useState(() => { try { return localStorage.getItem('board:taskDescOpen') !== '0'; } catch { return true; } });
+  const [subtasksOpen, setSubtasksOpen] = useState(() => { try { return localStorage.getItem('board:taskSubtasksOpen') !== '0'; } catch { return true; } });
+  const toggleDescOpen = () => setDescOpen((o) => { const n = !o; try { localStorage.setItem('board:taskDescOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
+  const toggleSubtasksOpen = () => setSubtasksOpen((o) => { const n = !o; try { localStorage.setItem('board:taskSubtasksOpen', n ? '1' : '0'); } catch { /* private mode */ } return n; });
   // The drawer body is ONE task-scoped GroupLayout (Thread + browser tabs +
   // Piano + media as panes → the app's real PaneTabBar). `wide` is now a pure
   // width preference (more room for the native tiling), no side-panel fold.
@@ -721,7 +728,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
                 className="mb-1 flex min-w-0 max-w-full items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200"
               >
-                <ProjectFavicon path={currentProject?.path ?? ''} size={12} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
+                <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
                 <span className="min-w-0 truncate font-medium">{projectLabel}</span>
                 <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
               </button>
@@ -915,11 +922,22 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 className="-mx-1.5 mt-1 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-sm leading-5 text-neutral-300 outline-none"
               />
             ) : task?.description ? (
-              <div
-                onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
-                title="Clicca per modificare la descrizione"
-                className={`-mx-1.5 mt-1 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-neutral-300 hover:bg-white/5 ${COMPACT_MD_CLS}`}
-              ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
+              <div className="mt-1.5">
+                {/* Collapsible: the header toggles, the body edits on click. */}
+                <button
+                  onClick={toggleDescOpen}
+                  className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+                >
+                  {descOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} Descrizione
+                </button>
+                {descOpen && (
+                  <div
+                    onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
+                    title="Clicca per modificare la descrizione"
+                    className={`-mx-1.5 mt-1 cursor-text rounded px-1.5 py-0.5 text-sm leading-5 text-neutral-300 hover:bg-white/5 ${COMPACT_MD_CLS}`}
+                  ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
+                )}
+              </div>
             ) : (
               <button
                 onClick={() => { setDescDraft(''); setEditingDesc(true); }}
@@ -959,26 +977,42 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               })}
             </div>
           )}
-          {/* Subtask tree — unlimited depth, lazy-expanded. The agent's steps
-              live here too: dots flip green as it checks them off. */}
-          <div className="max-h-[40%] overflow-y-auto border-b border-white/10 px-3 py-2" data-testid="task-detail-subtasks">
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+          {/* Subtask tree — collapsible; unlimited depth, lazy-expanded. The
+              agent's steps live here too: dots flip green as it checks them off. */}
+          <div className="max-h-[40%] shrink-0 overflow-y-auto border-b border-white/10 px-3 py-2" data-testid="task-detail-subtasks">
+            <button
+              onClick={toggleSubtasksOpen}
+              className="mb-1 flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
+            >
+              {subtasksOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               Sottotask{children.length > 0 ? ` · ${doneCount}/${children.length}` : ''}
-            </p>
-            {children.map((c) => (
-              <SubtaskNode key={c.id} projectId={projectId} node={c} depth={0} onOpenTask={onOpenTask} />
-            ))}
-            <div className="relative mt-1">
-              <input
-                value={subDraft} disabled={addingSub}
-                onChange={(e) => setSubDraft(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
-                placeholder="+ sottotask…"
-                className="w-full rounded bg-white/5 px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 disabled:opacity-60"
-              />
-              {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-neutral-400" />}
-            </div>
+            </button>
+            {subtasksOpen && (
+              <>
+                {children.map((c) => (
+                  <SubtaskNode key={c.id} projectId={projectId} node={c} depth={0} onOpenTask={onOpenTask} />
+                ))}
+                <div className="relative mt-1">
+                  <input
+                    value={subDraft} disabled={addingSub}
+                    onChange={(e) => setSubDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
+                    placeholder="+ sottotask…"
+                    className="w-full rounded bg-white/5 px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-600 disabled:opacity-60"
+                  />
+                  {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-neutral-400" />}
+                </div>
+              </>
+            )}
           </div>
+          {/* "Modifiche" (worktree diff) lives HERE — above the body, OUT of the
+              chat composer area ("sopra la chat era fastidioso"). Self-collapsing
+              panel (closed by default); when opened it scrolls in its own height. */}
+          {task.assignedTopicId && (
+            <div className="shrink-0 border-b border-white/10 px-3 pt-2">
+              <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} />
+            </div>
+          )}
           {/* The task's body = ONE GroupLayout: Thread, live browser tabs, Piano
               and each media attachment are all panes of the app's real
               PaneTabBar (single tab bar; native split / resize / drag). The
@@ -987,10 +1021,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             <GroupLayout {...browser.groupLayoutProps} />
           </div>
           <div className="border-t border-white/10 p-2">
-            {/* What the agent changed in its worktree — see the diff before deciding. */}
-            {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} />}
             {/* Review zone — decisions live HERE, where the agent's questions
-                land (end of the thread), not up in the header. */}
+                land (end of the thread), not up in the header. ("Modifiche" moved
+                up above the body, out of this composer area.) */}
             {task.status === 'review' && (
               <div className="mb-2 space-y-1.5">
                 {pending && pending.options.length > 0 && (
