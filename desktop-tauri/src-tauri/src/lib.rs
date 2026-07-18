@@ -4964,6 +4964,37 @@ fn resolve_dev_serve() -> Option<DevServe> {
     Some(DevServe { public_dir })
 }
 
+/// Local-dev auto-update opt-in, resolved once and AppHandle-free (same per-machine
+/// dev marker as `resolve_dev_serve`, so "in locale in sviluppo" is a single source of
+/// truth). ON when env `TOPICS_AUTO_UPDATE` is truthy, or `<config>/<identifier>/
+/// topics-dev.json` carries `"autoUpdate": true`. A released install with no marker ⇒
+/// OFF, so the client's opt-in toast flow (`autoDownload:false`, "no surprise
+/// downloads") is byte-for-byte unchanged and this NEVER fires for prod users. It
+/// exists so a dev's local shell silently pulls each signed release "da sotto" and
+/// relaunches, instead of nagging with a manual toast. An explicit falsy env value
+/// force-disables it even when the marker opts in.
+fn dev_auto_update_enabled() -> bool {
+    if let Ok(v) = std::env::var("TOPICS_AUTO_UPDATE") {
+        match v.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => return true,
+            "0" | "false" | "no" | "off" => return false,
+            _ => {} // unrecognized ⇒ fall through to the marker
+        }
+    }
+    let Some(marker) =
+        user_config_dir().map(|d| d.join(BUNDLE_IDENTIFIER).join("topics-dev.json"))
+    else {
+        return false;
+    };
+    let Ok(text) = std::fs::read_to_string(&marker) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    v.get("autoUpdate").and_then(|x| x.as_bool()).unwrap_or(false)
+}
+
 /// Minimal, dep-free percent-encode for a query-value component: keep the
 /// RFC-3986 unreserved set verbatim, escape everything else (notably ',' — the
 /// `?topics=` list separator — and non-ASCII bytes) as `%XX`. Enough to carry
@@ -5535,6 +5566,49 @@ pub fn run() {
                         .level(log::LevelFilter::Info)
                         .build(),
                 )?;
+            }
+
+            // Local-dev auto-update (opt-in, per-machine): when this shell runs on a
+            // dev machine that opted in (see `dev_auto_update_enabled`), silently pull
+            // + install the newest signed release "da sotto" and relaunch — instead of
+            // the client's manual opt-in toast. Gated on the dev marker so it NEVER
+            // fires for prod installs. Runs once per launch, off-thread; the network
+            // check itself defers the swap a beat past first paint, so the relaunch (if
+            // any) lands right after a fresh start rather than mid-session.
+            if dev_auto_update_enabled() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use tauri_plugin_updater::UpdaterExt;
+                    let updater = match handle.updater() {
+                        Ok(u) => u,
+                        Err(e) => {
+                            log_hot_reload_decision(&format!("auto-update: no updater ({e})"));
+                            return;
+                        }
+                    };
+                    match updater.check().await {
+                        Ok(Some(update)) => {
+                            let v = update.version.clone();
+                            log_hot_reload_decision(&format!("auto-update: installing {v}"));
+                            if let Err(e) =
+                                update.download_and_install(|_, _| {}, || {}).await
+                            {
+                                log_hot_reload_decision(&format!(
+                                    "auto-update: install {v} failed ({e})"
+                                ));
+                                return;
+                            }
+                            log_hot_reload_decision(&format!(
+                                "auto-update: installed {v}, relaunching"
+                            ));
+                            handle.restart();
+                        }
+                        Ok(None) => log_hot_reload_decision("auto-update: up to date"),
+                        Err(e) => {
+                            log_hot_reload_decision(&format!("auto-update: check failed ({e})"))
+                        }
+                    }
+                });
             }
 
             // Global hotkey (Electron parity): Cmd/Ctrl+Alt+T toggles always-on-top.
