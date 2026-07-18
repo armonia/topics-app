@@ -393,6 +393,51 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
 }
 
 /**
+ * Resolve the OS working directory for a session's spawn, mirroring the
+ * `ctx.resolveTopicCwd` precedence (a ready worktree's absPath, else the
+ * topic's projectPath) directly from the DB — the provider module can't reach
+ * the ctx closure. Returns null when the topic has no bound dir or the
+ * resolved path is missing, so the caller falls back to defaultWorkspace/HOME.
+ *
+ * WHY this matters (2026-07-18): the CLI child spawns with THIS cwd, and the
+ * agent's relative-path tools (Bash/Glob/Grep) resolve against it. We used to
+ * spawn EVERY session in HOME and rely on the "You are working in <path>"
+ * awareness block alone. For a plain interactive project chat that diverges:
+ * asked to "analizza tutta la repository", the agent — sitting in HOME — ran
+ * `find ~/Projects`, wandered into the WRONG repo, and piled up 60s no-data
+ * timeouts (the "chat keeps freezing" report). Aligning the OS cwd with
+ * resolveTopicCwd removes the divergence; for worktree-bound board agents the
+ * cwd now equals the isolated worktree the awareness block already names.
+ */
+export function getTopicWorkspaceForSession(sessionKey: string): string | null {
+  try {
+    const row = getDatabase()
+      .prepare(
+        `SELECT t.project_path AS projectPath, w.abs_path AS wtAbs, w.status AS wtStatus
+         FROM topics t LEFT JOIN worktrees w ON w.id = t.worktree_id
+         WHERE t.session_key = ? LIMIT 1`,
+      )
+      .get(sessionKey) as { projectPath?: string | null; wtAbs?: string | null; wtStatus?: string | null } | undefined;
+    if (!row) return null;
+    // A ready worktree wins — same precedence as resolveTopicCwd, and it matches
+    // the path the awareness block already tells the agent to work in.
+    if (row.wtAbs && row.wtStatus === "ready" && existsSync(row.wtAbs)) return row.wtAbs;
+    // Otherwise the project checkout. Expand a leading ~ like resolveProjectPath.
+    let p = row.projectPath ?? "";
+    if (!p) return null;
+    if (p.startsWith("~")) {
+      const home = process.env.HOME;
+      if (!home) return null;
+      p = p.replace(/^~/, home);
+    }
+    // Guard existence: spawning with a stale/missing cwd throws → fall back.
+    return existsSync(p) ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Forget the persisted Claude session UUID for a sessionKey. Called when the
  * CLI signals the on-disk session file is gone (missing/corrupted/upgrade) so
  * the next spawn starts fresh with `--session-id` instead of looping on a
@@ -1176,7 +1221,11 @@ export class ClaudeCodeProvider implements AIProvider {
     const overrides = getTopicSpawnOverridesForSession(sessionKey);
     const model = overrides.model ?? this.config.model ?? DEFAULT_MODEL;
     const permissionMode = this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
-    const workspace = this.config.defaultWorkspace || process.env.HOME || "/tmp";
+    // Spawn IN the topic's resolved working dir (worktree/project) so the CLI's
+    // relative-path tools match the "You are working in <path>" awareness block.
+    // Falls back to the global workspace/HOME for topics with no bound project.
+    const workspace = getTopicWorkspaceForSession(sessionKey)
+      || this.config.defaultWorkspace || process.env.HOME || "/tmp";
 
     // Look up (or create) the persistent Claude CLI session UUID for this
     // sessionKey. On first spawn we use `--session-id` to pin the UUID; on
