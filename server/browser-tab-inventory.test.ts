@@ -38,6 +38,7 @@ function baseDeps(over: Partial<TabInventoryDeps> = {}): TabInventoryDeps {
     getTopicById: () => null,
     findTopicByContextId: () => null,
     getTerminalSessionById: () => undefined,
+    getTaskByContextId: () => null,
     fetchNativeStatus: async () => null,
     ...over,
   };
@@ -76,6 +77,25 @@ test("labelForContext resolves a terminal `term-<id>` with cwd basename", () => 
     label: "Claude — topics-app",
     kind: "terminal",
   });
+});
+
+test("labelForContext labels a task-owned `task-<id8>-…` ctx as 'Task: <text>'", () => {
+  const deps = baseDeps({
+    getTaskByContextId: (c) => (/^task-125aafd5-/.test(c) ? { text: "Refactor auth" } : null),
+  });
+  expect(labelForContext("task-125aafd5-a3f00abc", deps)).toEqual({ label: "Task: Refactor auth", kind: "other" });
+  expect(labelForContext("task-125aafd5-0", deps)).toEqual({ label: "Task: Refactor auth", kind: "other" });
+});
+
+test("labelForContext: task branch ignores non-hex id8 and empty task text", () => {
+  // 'nothex' isn't a hex id8 → the regex never fires, no lookup, plain fallback.
+  const spy = { called: false };
+  const deps = baseDeps({ getTaskByContextId: () => { spy.called = true; return null; } });
+  expect(labelForContext("task-nothex-1", deps, { title: "Fallback" })).toEqual({ label: "Fallback", kind: "other" });
+  expect(spy.called).toBe(false);
+  // Valid shape but the task has no text → labelled "Task".
+  const deps2 = baseDeps({ getTaskByContextId: () => ({ text: "" }) });
+  expect(labelForContext("task-deadbeef-0", deps2)).toEqual({ label: "Task", kind: "other" });
 });
 
 test("labelForContext falls back to title → hostname → contextId for unknown ids", () => {

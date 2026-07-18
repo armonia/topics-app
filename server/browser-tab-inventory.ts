@@ -46,6 +46,9 @@ export interface TabInventoryDeps {
   findTopicByContextId(contextId: string): Topic | null;
   /** Resolve a terminal session by id (contextId `term-<id>` → this). */
   getTerminalSessionById(id: string): { id: string; name: string; cwd: string } | undefined;
+  /** Resolve a task-owned browser ctx (`task-<id8>-…`) → the owning task's text,
+   *  for the "Task: <text>" label. Null when the prefix matches no task. */
+  getTaskByContextId(contextId: string): { text: string } | null;
   /** Fetch fresh {url,title} from a live native pane (delegated browser_status). */
   fetchNativeStatus(contextId: string): Promise<{ url?: string; title?: string } | null>;
   /** Cap for the per-pane status round-trip (default 2000ms). */
@@ -91,6 +94,16 @@ export function labelForContext(
 
   const byCtx = deps.findTopicByContextId(contextId);
   if (byCtx) return { label: byCtx.name, kind: "topic" };
+
+  // Task-owned browser tab (`task-<id8>-…`, feature-flagged): label it by the
+  // owning task's text so `browser_list_tabs` reads "Task: <title>" instead of
+  // a bare hostname. Kept `kind:"other"` (no union churn) — the label carries
+  // the meaning. Guard on the hex id8 shape so a non-task ctx that happens to
+  // start with "task-" never triggers a spurious DB lookup.
+  if (/^task-[0-9a-f]{1,32}-/i.test(contextId)) {
+    const task = deps.getTaskByContextId(contextId);
+    if (task) return { label: task.text ? `Task: ${task.text}` : "Task", kind: "other" };
+  }
 
   const termMatch = /^term-(.+)$/.exec(contextId);
   if (termMatch) {
