@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
 import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ExternalLink, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { Menu } from '../Shared/Menu';
@@ -154,6 +154,40 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // width preference (more room for the native tiling), no side-panel fold.
   const rootRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Swipe-to-close (mobile full-screen overlay only). Track the first touch and
+  // lock onto a horizontal drag (dominant X vs Y) so a vertical scroll inside the
+  // drawer never turns into a dismiss; drag follows the finger, release past a
+  // threshold closes. Disabled on lg+ where the drawer is an in-flow side panel.
+  const [dragX, setDragX] = useState(0);
+  const [swiping, setSwiping] = useState(false);
+  const swipeStart = useRef<{ x: number; y: number; locked: boolean } | null>(null);
+  const onSwipeStart = (e: ReactTouchEvent) => {
+    if (window.innerWidth >= 1024) return;
+    const t = e.touches[0];
+    swipeStart.current = { x: t.clientX, y: t.clientY, locked: false };
+  };
+  const onSwipeMove = (e: ReactTouchEvent) => {
+    const s = swipeStart.current;
+    if (!s) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.x;
+    const dy = t.clientY - s.y;
+    if (!s.locked) {
+      if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+      if (Math.abs(dx) <= Math.abs(dy)) { swipeStart.current = null; return; }
+      s.locked = true;
+      setSwiping(true);
+    }
+    setDragX(Math.max(0, dx));
+  };
+  const onSwipeEnd = () => {
+    const s = swipeStart.current;
+    if (s?.locked && dragX > 90) { onClose(); return; }
+    swipeStart.current = null;
+    setSwiping(false);
+    setDragX(0);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -628,15 +662,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     <div
       ref={rootRef}
       data-testid="task-detail-drawer"
-      // Always a layout SIBLING (relative, in-flow, shrink-0): the columns
-      // viewport shrinks beside it and keeps its own horizontal scroll, so the
-      // board is never cut behind the drawer — at any width. Wide is just a
-      // bigger review surface (room for the output panel); the 72% cap keeps a
-      // usable strip of board even on a small pane, and on a wide screen the
-      // 64rem cap leaves most of the board visible. Was `absolute` takeover in
-      // wide mode, which hid the board and blocked its scroll on large screens.
-      className={`glass-surface relative flex shrink-0 flex-col border-l border-white/10 ${
-        wide ? 'w-[min(64rem,72%)] shadow-2xl' : 'w-96 max-w-[75%]'
+      onTouchStart={onSwipeStart}
+      onTouchMove={onSwipeMove}
+      onTouchEnd={onSwipeEnd}
+      onTouchCancel={onSwipeEnd}
+      style={dragX ? { transform: `translateX(${dragX}px)` } : undefined}
+      // Mobile (<lg): a FULL-SCREEN overlay (`absolute inset-0`) that sits ABOVE
+      // the board's own topbar (z-40) with swipe-right-to-close — no compact
+      // side strip on a phone. Desktop (lg+): a layout SIBLING (relative, in-flow,
+      // shrink-0) so the columns viewport shrinks beside it and the board stays
+      // scrollable; wide just grows the review surface (72%/64rem caps keep a
+      // strip of board visible).
+      className={`glass-surface flex flex-col border-white/10 ${swiping ? '' : 'transition-transform duration-200'} absolute inset-0 z-40 w-full lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
+        wide ? 'lg:w-[min(64rem,72%)] lg:shadow-2xl' : 'lg:w-96 lg:max-w-[75%]'
       }`}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2.5">
