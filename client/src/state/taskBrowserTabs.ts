@@ -28,6 +28,15 @@ export interface TaskBrowserTab {
   title: string;
   /** Monotonic within a task; also the `<seq>` in the contextId. */
   seq: number;
+  /**
+   * Soft-close marker. A parked tab is NOT in the live layout but is kept as a
+   * clickable preview under the task description, so closing a tab doesn't
+   * destroy it — the user (or agent) can reopen it (`unparkTab`) to its last
+   * url. `removeTab` is the explicit hard-delete (the preview's trash). Absent
+   * ⟺ live. `titleSource='user'` pins the label against the live-title poll.
+   */
+  parked?: boolean;
+  titleSource?: 'auto' | 'user';
 }
 
 export interface TaskBrowserTabsState {
@@ -66,15 +75,16 @@ export function addTab(state: TaskBrowserTabsState, taskId: string, url: string,
 }
 
 /** Append/reuse a tab under a contextId minted ELSEWHERE (agent/server open).
- *  Idempotent: an existing ctx is refreshed (url/title) + activated, never
- *  duplicated. `nextSeq` is advanced past any embedded seq so a later client
- *  mint can't collide. */
+ *  Idempotent: an existing ctx is refreshed (url/title), UN-PARKED (a re-open
+ *  of a soft-closed tab brings it back live) + activated, never duplicated.
+ *  `nextSeq` is advanced past any embedded seq so a later client mint can't
+ *  collide. */
 export function upsertTab(state: TaskBrowserTabsState, contextId: string, url: string, title = ''): TaskBrowserTabsState {
   const existing = state.tabs.find((t) => t.contextId === contextId);
   if (existing) {
     return {
       ...state,
-      tabs: state.tabs.map((t) => (t.contextId === contextId ? { ...t, url: url || t.url, title: title || t.title } : t)),
+      tabs: state.tabs.map((t) => (t.contextId === contextId ? { ...t, url: url || t.url, title: title || t.title, parked: false } : t)),
       activeContextId: contextId,
     };
   }
@@ -86,21 +96,60 @@ export function upsertTab(state: TaskBrowserTabsState, contextId: string, url: s
   };
 }
 
-/** Close a tab; if it was active, focus the neighbour that slides into its slot. */
-export function closeTab(state: TaskBrowserTabsState, contextId: string): TaskBrowserTabsState {
-  const idx = state.tabs.findIndex((t) => t.contextId === contextId);
-  if (idx < 0) return state;
-  const tabs = state.tabs.filter((t) => t.contextId !== contextId);
-  let activeContextId = state.activeContextId;
-  if (activeContextId === contextId) {
-    activeContextId = tabs.length ? tabs[Math.min(idx, tabs.length - 1)].contextId : null;
-  }
-  return { ...state, tabs, activeContextId };
+/** Live (non-parked) tabs — the ones that render in the layout. Parked tabs
+ *  stay in `tabs` as previews under the description. */
+export function liveTabs(state: TaskBrowserTabsState): TaskBrowserTab[] {
+  return state.tabs.filter((t) => !t.parked);
 }
 
-/** Set the active tab (no-op if the ctx isn't in the group). */
+/** Pick the active ctx after `contextId` leaves the live set: the live neighbour
+ *  that slides into its slot, or null when none remain live. */
+function neighbourActive(state: TaskBrowserTabsState, contextId: string): string | null {
+  const live = liveTabs(state);
+  const idx = live.findIndex((t) => t.contextId === contextId);
+  const rest = live.filter((t) => t.contextId !== contextId);
+  if (!rest.length) return null;
+  return rest[Math.min(Math.max(idx, 0), rest.length - 1)].contextId;
+}
+
+/** Soft-close: PARK a tab (kept as a preview) instead of destroying it; if it
+ *  was active, focus the live neighbour that slides into its slot. Idempotent. */
+export function closeTab(state: TaskBrowserTabsState, contextId: string): TaskBrowserTabsState {
+  const tab = state.tabs.find((t) => t.contextId === contextId);
+  if (!tab || tab.parked) return state;
+  const activeContextId = state.activeContextId === contextId ? neighbourActive(state, contextId) : state.activeContextId;
+  return {
+    ...state,
+    tabs: state.tabs.map((t) => (t.contextId === contextId ? { ...t, parked: true } : t)),
+    activeContextId,
+  };
+}
+
+/** Reopen a parked tab (from the preview strip): un-park + activate. No-op for
+ *  an unknown or already-live ctx. */
+export function unparkTab(state: TaskBrowserTabsState, contextId: string): TaskBrowserTabsState {
+  const tab = state.tabs.find((t) => t.contextId === contextId);
+  if (!tab || !tab.parked) return state;
+  return {
+    ...state,
+    tabs: state.tabs.map((t) => (t.contextId === contextId ? { ...t, parked: false } : t)),
+    activeContextId: contextId,
+  };
+}
+
+/** Hard-remove a tab entirely (the preview's trash). If it was the live active,
+ *  focus the live neighbour. */
+export function removeTab(state: TaskBrowserTabsState, contextId: string): TaskBrowserTabsState {
+  const idx = state.tabs.findIndex((t) => t.contextId === contextId);
+  if (idx < 0) return state;
+  const activeContextId = state.activeContextId === contextId ? neighbourActive(state, contextId) : state.activeContextId;
+  return { ...state, tabs: state.tabs.filter((t) => t.contextId !== contextId), activeContextId };
+}
+
+/** Set the active tab (no-op if the ctx isn't a LIVE tab of the group — a
+ *  parked tab is reopened via `unparkTab`, never activated in place). */
 export function setActiveTab(state: TaskBrowserTabsState, contextId: string | null): TaskBrowserTabsState {
-  if (contextId !== null && !state.tabs.some((t) => t.contextId === contextId)) return state;
+  if (contextId !== null && !state.tabs.some((t) => t.contextId === contextId && !t.parked)) return state;
   if (contextId === state.activeContextId) return state;
   return { ...state, activeContextId: contextId };
 }
@@ -117,15 +166,23 @@ export function reorderTabs(state: TaskBrowserTabsState, from: number, to: numbe
   return { ...state, tabs };
 }
 
-/** Merge a partial (url/title) into a tab, e.g. after in-pane navigation. */
-export function updateTab(state: TaskBrowserTabsState, contextId: string, patch: { url?: string; title?: string }): TaskBrowserTabsState {
+/** Merge a partial (url/title/titleSource) into a tab, e.g. after in-pane
+ *  navigation, or a user rename (`titleSource:'user'` pins the label so the
+ *  live page-title poll stops overwriting it — same contract as a pane's
+ *  browser title). */
+export function updateTab(state: TaskBrowserTabsState, contextId: string, patch: { url?: string; title?: string; titleSource?: 'auto' | 'user' }): TaskBrowserTabsState {
   const t = state.tabs.find((x) => x.contextId === contextId);
   if (!t) return state;
-  if ((patch.url === undefined || patch.url === t.url) && (patch.title === undefined || patch.title === t.title)) return state;
+  // A user-pinned title is not overwritten by an automatic (poll) title update.
+  const titleLocked = t.titleSource === 'user' && patch.titleSource !== 'user';
+  const nextTitle = patch.title !== undefined && !titleLocked ? patch.title : t.title;
+  const nextSource = patch.titleSource ?? t.titleSource;
+  const nextUrl = patch.url ?? t.url;
+  if (nextUrl === t.url && nextTitle === t.title && nextSource === t.titleSource) return state;
   return {
     ...state,
     tabs: state.tabs.map((x) => (x.contextId === contextId
-      ? { ...x, url: patch.url ?? x.url, title: patch.title ?? x.title }
+      ? { ...x, url: nextUrl, title: nextTitle, titleSource: nextSource }
       : x)),
   };
 }
@@ -145,11 +202,17 @@ export function sanitizeTaskTabs(v: unknown): TaskBrowserTabsState | null {
       url: typeof r.url === 'string' ? r.url : '',
       title: typeof r.title === 'string' ? r.title : '',
       seq: typeof r.seq === 'number' ? r.seq : 0,
+      ...(r.parked === true ? { parked: true } : {}),
+      ...(r.titleSource === 'user' ? { titleSource: 'user' as const } : {}),
     });
   }
-  const activeContextId = typeof o.activeContextId === 'string' && tabs.some((t) => t.contextId === o.activeContextId)
+  // The active ctx must reference a LIVE (non-parked) tab; fall back to the
+  // first live tab so a persisted state where the active tab was parked
+  // rehydrates onto something the layout can show.
+  const liveList = tabs.filter((t) => !t.parked);
+  const activeContextId = typeof o.activeContextId === 'string' && liveList.some((t) => t.contextId === o.activeContextId)
     ? o.activeContextId
-    : (tabs[0]?.contextId ?? null);
+    : (liveList[0]?.contextId ?? null);
   const maxSeq = tabs.reduce((m, t) => Math.max(m, t.seq), -1);
   const nextSeq = typeof o.nextSeq === 'number' && o.nextSeq > maxSeq ? o.nextSeq : maxSeq + 1;
   return { tabs, activeContextId, nextSeq };
@@ -229,10 +292,15 @@ export const taskBrowserTabs = {
     return next.activeContextId!;
   },
   upsertTab: (taskId: string, contextId: string, url: string, title?: string) => commit(taskId, upsertTab(getTaskTabs(taskId), contextId, url, title)),
+  /** Soft-close (park as preview). */
   closeTab: (taskId: string, contextId: string) => commit(taskId, closeTab(getTaskTabs(taskId), contextId)),
+  /** Reopen a parked tab from the preview strip. */
+  unparkTab: (taskId: string, contextId: string) => commit(taskId, unparkTab(getTaskTabs(taskId), contextId)),
+  /** Hard-remove a tab (preview trash). */
+  removeTab: (taskId: string, contextId: string) => commit(taskId, removeTab(getTaskTabs(taskId), contextId)),
   setActive: (taskId: string, contextId: string | null) => commit(taskId, setActiveTab(getTaskTabs(taskId), contextId)),
   reorder: (taskId: string, from: number, to: number) => commit(taskId, reorderTabs(getTaskTabs(taskId), from, to)),
-  updateTab: (taskId: string, contextId: string, patch: { url?: string; title?: string }) => commit(taskId, updateTab(getTaskTabs(taskId), contextId, patch)),
+  updateTab: (taskId: string, contextId: string, patch: { url?: string; title?: string; titleSource?: 'auto' | 'user' }) => commit(taskId, updateTab(getTaskTabs(taskId), contextId, patch)),
 };
 
 export function subscribeTaskTabs(listener: () => void): () => void {
