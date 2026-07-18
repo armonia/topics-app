@@ -340,6 +340,55 @@ describe("task-dispatcher", () => {
     expect(t.assignedTopicId).not.toBeNull();   // binding kept: a reject resumes it
   });
 
+  it("MIRRORS the agent's final message as a comment when it worked but never called comment_task", async () => {
+    // The exact gap the human hit: the agent did the work and summarised in its
+    // LAST message, but never called comment_task. Without the mirror this task
+    // would park as `failed` and the summary would be lost.
+    const h = harness({ getLastAgentText: () => "Ho implementato login e i test. Guarda /demo." });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true }); // default cap 2
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurn(); await flush(); // attempt 1 → last-chance continuation
+    h.finishTurn(); await flush(); // attempt 2 at cap → exhausted
+    const t = h.task("t1")!;
+    expect(t.status).toBe("review");             // delivered WITH its summary, not failed
+    expect(t.assignedTopicId).not.toBeNull();
+    const comments = h.svc.get("t1")!.comments;
+    // The agent's own words are in the thread, authored as the agent (not system/user).
+    expect(comments.some((c) => c.author !== "user" && c.author !== "system" && c.content.includes("Ho implementato login"))).toBe(true);
+  });
+
+  it("still parks when the agent produced NOTHING (no comment AND no final message)", async () => {
+    const h = harness({ getLastAgentText: () => null });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurn(); await flush();
+    h.finishTurn(); await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("failed"); // genuinely empty → failure, not review
+  });
+
+  it("does NOT mirror when the agent already left a real comment (no duplicate)", async () => {
+    // The mirror is a fallback, not an always-on echo: an agent that DID call
+    // comment_task must not get its final message posted a second time.
+    const h = harness({ getLastAgentText: () => "Questo NON deve comparire." });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "Consegna: fatto tutto." });
+    h.finishTurn(); await flush(); // attempt 1 → continuation
+    h.finishTurn(); await flush(); // attempt 2 → exhausted, but agent already spoke
+    const t = h.task("t1")!;
+    expect(t.status).toBe("review");
+    const comments = h.svc.get("t1")!.comments;
+    expect(comments.some((c) => c.content.includes("Questo NON deve comparire"))).toBe(false);
+  });
+
   it("respects the concurrency cap", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 1 });

@@ -549,6 +549,19 @@ const taskDispatcher = createTaskDispatcher({
     if (!path) return ZERO_USAGE;
     return transcriptUsageReader.read(path);
   },
+  // Last assistant prose in the session — the dispatcher mirrors it into a task
+  // comment at delivery when the agent forgot comment_task, so a review always
+  // carries the agent's own summary. Reads the local message store (sync).
+  getLastAgentText: (sessionKey: string) => {
+    try {
+      const msgs = ctx.loadLocalMessages(sessionKey);
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (m.role === "assistant" && typeof m.content === "string" && m.content.trim()) return m.content;
+      }
+    } catch { /* best-effort — no mirror on failure */ }
+    return null;
+  },
   broadcast: ctx.broadcastToAll,
 });
 
@@ -1355,8 +1368,14 @@ const server = Bun.serve<WSData>({
             // AbortController plumbed through BrowserService dispatchInput / handlers).
             console.log(`[WS][browser] take_control received for ctx ${ctxId}`);
             browserService.broadcastAgentActive(ctxId, false);
+          } else if (parsed.type === 'resize') {
+            // Match the server viewport (+HiDPI) to the pane's real size so the
+            // page reflows responsively and renders sharp — no fixed-1280 letterbox.
+            browserService.resize(ctxId, parsed.width, parsed.height, parsed.deviceScaleFactor).catch(err =>
+              console.warn(`[WS][browser] resize failed for ${ctxId}:`, err.message)
+            );
           }
-          // Ignore other message types from client (frame/agent_active/console are server -> client only).
+          // Ignore other message types from client (frame/agent_active/console/download are server -> client only).
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn(`[WS][browser] Failed to parse message from ${ws.data.id}:`, msg);
