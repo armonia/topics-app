@@ -66,12 +66,6 @@ export interface TasksRouterOpts {
    * keeping it is how 30+ stale worktrees accumulated.
    */
   deleteTaskWorktree?: (taskId: string) => Promise<boolean>;
-  /**
-   * A landing touched server code of the repo THIS server runs from — the
-   * callee decides whether that's the case and self-restarts (detached), so
-   * approved server work goes live without a manual kickstart.
-   */
-  onServerCodeLanded?: (repoPath: string) => boolean;
 }
 
 /**
@@ -632,16 +626,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                         content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch).",
                       });
                     }
-                    // LAST: a server-code landing self-restarts the process
-                    // (detached, delayed) — every comment above must be on disk
-                    // and broadcast before the restart cuts us off.
-                    if (res.touchedServer && opts?.onServerCodeLanded) {
-                      const restarting = opts.onServerCodeLanded(res.repoPath);
+                    // A server-code landing no longer self-restarts the process
+                    // (removed 2026-07-18). It goes live via the opt-in graceful
+                    // hot-reload watch (TOPICS_SERVER_WATCH) or a manual restart.
+                    if (res.touchedServer) {
                       svc.addComment({
                         taskId, author: "system",
-                        content: restarting
-                          ? "Il landing tocca il server: riavvio in corso (le sessioni riprendono da sole)."
-                          : "Il landing tocca codice server di un altro progetto: ricordati di riavviarlo.",
+                        content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale).",
                       });
                     }
                   } else if (res.status === "nothing") {

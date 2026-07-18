@@ -1,5 +1,5 @@
 import { basename, join, resolve, sep } from "path";
-import { existsSync, readFileSync, mkdirSync, realpathSync } from "fs";
+import { existsSync, readFileSync, mkdirSync } from "fs";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
@@ -591,25 +591,12 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     if (!wt) return false;
     return ctx.worktreeManager.delete(wt.id);
   },
-  // A landing that touches server code of THIS very repo goes live via a
-  // delayed exit: launchd (KeepAlive) restarts the chain, sessions resume on
-  // their own (reload-resilience). Other repos' servers are their own problem.
-  // The exit waits for the per-repo git queue to drain (whenIdle) + 3s, so a
-  // burst of approvals never gets its later merges cut mid-flight.
-  onServerCodeLanded: (repoPath) => {
-    try {
-      if (realpathSync(repoPath) !== realpathSync(process.cwd())) return false;
-    } catch { return false; }
-    console.log("[automerge] server code landed — self-restart when the merge queue drains + agents quiescent (+3s)");
-    // Drain the git queue first, THEN wait for no agent turn to be in flight
-    // (quiescence gate) so the self-restart never cuts a working agent — the
-    // exact thing that made a working task show "il server è ripartito".
-    taskAutoMerge.whenIdle(repoPath, async () => {
-      await waitForDispatcherQuiescent("approve self-restart");
-      setTimeout(() => process.exit(0), 3_000);
-    });
-    return true;
-  },
+  // NOTE: the server no longer SELF-RESTARTS when an approve lands server code
+  // (removed 2026-07-18, Attilio: "l'auto-riavvio sporca tutto"). A landed
+  // server change goes live either via the opt-in graceful hot-reload watch
+  // (TOPICS_SERVER_WATCH=1 in start-prod.sh) or a deliberate manual restart —
+  // never an autonomous restart triggered by task approval. tasks.ts just posts
+  // an informational note on a server-touching landing.
   // Human "stop" on a dispatched task cuts the running turn (same abort path
   // as the dispatcher's wall-clock timeout).
   abortTurn: abortHeadlessTurn,
