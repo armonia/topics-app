@@ -14,6 +14,20 @@ import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORD
 import { friendlyModelLabel, commentTime, fmtMs, fmtLive, fmtTok, autoGrow } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
+import { RemoteBrowserPanel } from '../Browser/RemoteBrowserPanel';
+import { useTaskBrowserTabs, taskBrowserTabs, ensureTaskTabsLoaded, getTaskTabs } from '../../state/taskBrowserTabs';
+
+/** Feature flag (per-client): the task's Output becomes a task-owned, multi-tab
+ *  browser group rendered in the drawer, instead of the single inert iframe.
+ *  Read once at load — flip via `localStorage['board:taskBrowser'] = '1'`. */
+const TASK_BROWSER_ENABLED = (() => {
+  try { return localStorage.getItem('board:taskBrowser') === '1'; } catch { return false; }
+})();
+
+/** Hostname of a URL for a compact tab label, or '' if unparseable. */
+function hostLabel(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
+}
 
 /** Collapsible "Modifiche" panel in the task drawer: lazy-loads the unified diff
  *  of what the task's dispatched agent changed in its isolated worktree, so a
@@ -199,17 +213,41 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     ? ([...speech].reverse().find((c) => c.author !== 'user' && c.author !== 'system') ?? null)
     : null;
 
+  // Task-owned browser tabs (flag ON): the Output becomes a multi-tab browser
+  // group living only in this drawer. Seeded once from outputUrl when empty; the
+  // store then owns the tab list (survives reload via ui-state).
+  const browserTabs = useTaskBrowserTabs(TASK_BROWSER_ENABLED ? taskId : null);
+  useEffect(() => {
+    if (!TASK_BROWSER_ENABLED || !taskId) return;
+    let cancelled = false;
+    (async () => {
+      await ensureTaskTabsLoaded(taskId);
+      if (cancelled) return;
+      if (getTaskTabs(taskId).tabs.length === 0 && task?.outputUrl) {
+        taskBrowserTabs.addTab(taskId, task.outputUrl, 'Output');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [taskId, task?.outputUrl]);
+
   // The task's auxiliary surfaces as ONE ordered tab group: the review target
-  // (output_url) first, then the plan-first plan, then each media attachment.
-  // The Thread is not in this list — it's the always-present primary body; these
-  // are what the side panel (wide) / inline tab bar (narrow) switch between.
+  // (output_url, or the browser tabs when flag ON) first, then the plan-first
+  // plan, then each media attachment. The Thread is not in this list — it's the
+  // always-present primary body; these are what the side panel (wide) / inline
+  // tab bar (narrow) switch between.
   const surfaces = useMemo<TaskSurface[]>(() => {
     const list: TaskSurface[] = [];
-    if (task?.outputUrl) list.push({ id: 'output', kind: 'output', label: 'Output', url: task.outputUrl });
+    if (TASK_BROWSER_ENABLED) {
+      for (const t of browserTabs.tabs) {
+        list.push({ id: `browser:${t.contextId}`, kind: 'browser', label: t.title || hostLabel(t.url) || 'Browser', url: t.url, contextId: t.contextId });
+      }
+    } else if (task?.outputUrl) {
+      list.push({ id: 'output', kind: 'output', label: 'Output', url: task.outputUrl });
+    }
     if (planComment) list.push({ id: 'piano', kind: 'plan', label: 'Piano', content: planComment.content });
     for (const p of mediaPaths) list.push({ id: `media:${p}`, kind: 'media', label: p.split('/').pop() || 'Allegato', url: getMediaUrl(p), path: p });
     return list;
-  }, [task?.outputUrl, planComment, mediaPaths]);
+  }, [task?.outputUrl, planComment, mediaPaths, browserTabs.tabs]);
   const hasSurfaces = surfaces.length > 0;
   // Wide enough to host the side panel? Measured, so an expanded-but-cramped
   // drawer still folds inline. Below the threshold the surfaces live in the body.
@@ -912,7 +950,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           )}
           {inlineTabs && activeSurface ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <SurfaceContent surface={activeSurface} />
+              <SurfaceContent surface={activeSurface} taskId={taskId} />
             </div>
           ) : (
           <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
@@ -1062,7 +1100,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               }
             />
             <div className="flex min-h-0 flex-1 flex-col">
-              <SurfaceContent surface={sideSurface} />
+              <SurfaceContent surface={sideSurface} taskId={taskId} />
             </div>
           </div>
         )}
@@ -1129,7 +1167,7 @@ export function SurfaceIcon({ kind }: { kind: TaskSurface['kind'] | 'thread' }) 
   const cls = 'h-3.5 w-3.5 shrink-0';
   if (kind === 'thread') return <MessageSquare className={cls} />;
   if (kind === 'plan') return <ClipboardList className={cls} />;
-  if (kind === 'output') return <Globe className={cls} />;
+  if (kind === 'output' || kind === 'browser') return <Globe className={cls} />;
   return <ImageIcon className={cls} />; // media
 }
 
@@ -1173,11 +1211,14 @@ export function TaskTabBar({ surfaces, activeId, onSelect, includeThread, traili
 }
 
 /**
- * Renders one task surface full-height (output iframe / media viewer / plan).
- * The caller places it inside a flex-col so the flex-1 children fill the space.
+ * Renders one task surface full-height (browser pane / output iframe / media
+ * viewer / plan). The caller places it inside a flex-col so the flex-1 children
+ * fill the space. `taskId` is only needed by the browser surface (to persist
+ * its live url/title back to the task's tab store).
  */
-export function SurfaceContent({ surface }: { surface: TaskSurface }) {
+export function SurfaceContent({ surface, taskId }: { surface: TaskSurface; taskId?: string }) {
   if (surface.kind === 'output') return <OutputFrame key={surface.url} url={surface.url} />;
+  if (surface.kind === 'browser') return <TaskBrowserSurface key={surface.contextId} taskId={taskId} contextId={surface.contextId} url={surface.url} />;
   if (surface.kind === 'media') return <MediaViewer key={surface.url} url={surface.url} path={surface.path} />;
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
@@ -1187,6 +1228,27 @@ export function SurfaceContent({ surface }: { surface: TaskSurface }) {
           <ChatMarkdown components={{}}>{surface.content}</ChatMarkdown>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A task-owned browser tab rendered in the drawer: a real, agent-drivable
+ * RemoteBrowserPanel scoped to a canonical `task-<id8>-<seq>` contextId. Live
+ * url/title changes flow back into the task's tab store so the label + restore
+ * url stay current. (Phase 1: mounts while its tab is active; parking across
+ * surface switches lands with the persistent board-level layer in a later phase.)
+ */
+function TaskBrowserSurface({ taskId, contextId, url }: { taskId?: string; contextId: string; url: string }) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <RemoteBrowserPanel
+        contextId={contextId}
+        initialUrl={url}
+        isVisible
+        onUrlChange={(u) => { if (taskId && u) taskBrowserTabs.updateTab(taskId, contextId, { url: u }); }}
+        onTitleChange={(t) => { if (taskId && t) taskBrowserTabs.updateTab(taskId, contextId, { title: t }); }}
+      />
     </div>
   );
 }
