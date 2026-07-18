@@ -33,17 +33,14 @@ export interface TaskBrowserGroupLayout {
   /** True when the task has at least one LIVE (non-parked) browser tab. */
   hasBrowser: boolean;
   liveCount: number;
-  /** Every tab (live + parked) for the preview strip under the description. */
-  allTabs: TaskBrowserTab[];
+  /** The soft-closed tabs for the closed-tab tray under the description. */
   parkedTabs: TaskBrowserTab[];
-  /** Open a fresh browser tab (preview strip "+" / empty-state affordance). */
+  /** Open a fresh browser tab (tray "+" / empty-state affordance). */
   addBrowserTab: () => void;
   /** Reopen a parked tab into the layout. */
   reopenTab: (contextId: string) => void;
-  /** Hard-remove a tab (preview trash). */
+  /** Hard-remove a tab (tray trash). */
   removeTab: (contextId: string) => void;
-  /** Activate a live tab in its host group (preview-strip click). */
-  focusTab: (contextId: string) => void;
   /** Seed the first tab from a url only when the task has no tabs yet. */
   seedFromUrl: (url: string, title?: string) => Promise<void>;
   /** Spread straight into `<GroupLayout {...props} />`. */
@@ -123,12 +120,6 @@ export function useTaskBrowserGroupLayout(taskId: string): TaskBrowserGroupLayou
   const addBrowserTab = useCallback(() => { taskBrowserTabs.addTab(taskId, '', ''); }, [taskId]);
   const reopenTab = useCallback((ctx: string) => taskBrowserTabs.unparkTab(taskId, ctx), [taskId]);
   const removeTab = useCallback((ctx: string) => taskBrowserTabs.removeTab(taskId, ctx), [taskId]);
-  /** Activate a live tab in whichever group hosts it (preview-strip click). */
-  const focusTab = useCallback((ctx: string) => {
-    const paneId = `browser:${ctx}`;
-    const g = reconciled.groups.find((gr) => gr.paneIds.includes(paneId));
-    if (g) taskBrowserLayout.activatePane(taskId, g.id, paneId);
-  }, [taskId, reconciled.groups]);
   /** Open a first tab from a url (e.g. the review output_url) ONLY when the task
    *  has no tabs yet. Hydrates first so it never double-seeds over persisted tabs. */
   const seedFromUrl = useCallback(async (url: string, title?: string) => {
@@ -140,12 +131,10 @@ export function useTaskBrowserGroupLayout(taskId: string): TaskBrowserGroupLayou
   return {
     hasBrowser: live.length > 0,
     liveCount: live.length,
-    allTabs: tabsState.tabs,
     parkedTabs: useMemo(() => tabsState.tabs.filter((t) => t.parked), [tabsState.tabs]),
     addBrowserTab,
     reopenTab,
     removeTab,
-    focusTab,
     seedFromUrl,
     groupLayoutProps: {
       panes,
