@@ -199,9 +199,10 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   // instance over the shared db (same pattern as the dispatcher's service).
   const taskSvc = createTaskService(ctx.db);
   // Server gate for the task-owned browser fork (client mirror:
-  // localStorage['board:taskBrowser']). Default OFF → open-pane keeps emitting
-  // the layout-level `browser:navigate`, zero behaviour change.
-  const TASK_BROWSER_ENABLED = process.env.TOPICS_TASK_BROWSER === "1";
+  // localStorage['board:taskBrowser']). Default ON → an agent open-pane on a
+  // task topic routes to the task's browser group; set TOPICS_TASK_BROWSER='0'
+  // as a kill-switch to fall back to the layout-level `browser:navigate`.
+  const TASK_BROWSER_ENABLED = process.env.TOPICS_TASK_BROWSER !== "0";
 
   /**
    * If `topic` is a task dispatch AND the fork is enabled, the canonical

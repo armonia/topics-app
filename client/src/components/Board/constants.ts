@@ -86,10 +86,11 @@ export type TaskSurface =
   | { id: string; kind: 'output'; label: string; url: string }
   | { id: string; kind: 'plan'; label: string; content: string }
   | { id: string; kind: 'media'; label: string; url: string; path: string }
-  // A task-owned browser tab (feature-flagged): a real, drivable RemoteBrowserPanel
-  // scoped to the task via a canonical `task-<id8>-<seq>` contextId. Kept out of the
-  // global pane store — it lives only in the task's drawer (see state/taskBrowserTabs).
-  | { id: string; kind: 'browser'; label: string; url: string; contextId: string };
+  // The task-owned browser GROUP (feature-flagged): a single surface whose
+  // content is the app's real GroupLayout engine driving the task's browser tabs
+  // (split / drag / tab-stack / resize). Task-scoped, never in the global pane
+  // store (see state/taskBrowserTabs + state/taskBrowserLayout).
+  | { id: 'browser'; kind: 'browser'; label: string };
 
 /** Min drawer width (px) before the surface tab group earns its own side panel;
  *  below it the surfaces fold inline into the body. */
