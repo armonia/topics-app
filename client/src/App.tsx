@@ -53,6 +53,7 @@ import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
 import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
 import { useSignalsSync } from './state/useSignalsSync';
+import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { useAgentActivityCounts } from './state/signals';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { RESTING_SURFACE, ROW_INSET } from './lib/selectionStyles';
@@ -354,6 +355,12 @@ function App() {
   // Native desktop banner for P0/P1 Claude session events (replaces the
   // stop-hook's osascript banner — no more Apple Events / iTunes prompt).
   useClaudeEventNotifications(onWSMessage);
+
+  // Task-owned browser fork → per-task tab store. Consumes the server's
+  // `browser:open-task-tab` frame (feature-flagged) so an agent's browser lands
+  // in its task's in-drawer group, never the global layout. App-level so it's
+  // captured whichever drawer is open. See useTaskBrowserTabsSync.
+  useTaskBrowserTabsSync(onWSMessage);
 
   // Wire up chat stream handler to WebSocket (enables cross-window streaming)
   useEffect(() => {

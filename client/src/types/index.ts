@@ -865,6 +865,25 @@ export interface WSBrowserForceOpenMessage {
   url: string;
 }
 /**
+ * Task-owned browser open (feature-flagged, server env TOPICS_TASK_BROWSER):
+ * the agent working a task called open_browser_pane on its dispatch topic, so
+ * instead of the layout-level `browser:navigate` the server forks a task-scoped
+ * open. The GLOBAL layout hooks (usePaneOrdering / useProjectLayout) DELIBERATELY
+ * ignore this frame — that's the fork that keeps the tab out of the global pane
+ * store; only the task's in-drawer group (state/taskBrowserTabs via
+ * useTaskBrowserTabsSync) consumes it, upserting `{contextId,url}` under `taskId`.
+ * `contextId` is the canonical, self-describing `task-<id8>-…` the pane registers
+ * its native target under, so the agent's browser_* tools drive the SAME tab.
+ */
+export interface WSBrowserOpenTaskTabMessage {
+  type: 'browser:open-task-tab';
+  /** Task that owns the tab group (its ui-state key `task-browser-tabs:<taskId>`). */
+  taskId: string;
+  /** Canonical task-scoped browser contextId (`task-<id8>-…`). */
+  contextId: string;
+  url: string;
+}
+/**
  * Remote pane close (close_browser_pane MCP tool / REST): every window that
  * renders `browser:<contextId>` closes it through its NORMAL close flow (same
  * as the tab's X — closedStack tombstone, membership persist, native
@@ -1067,6 +1086,7 @@ export type WSMessage =
   | WSBrowserNavigateMessage
   | WSBrowserOpenNearPaneMessage
   | WSBrowserForceOpenMessage
+  | WSBrowserOpenTaskTabMessage
   | WSBrowserClosePaneMessage
   | WSBrowserFocusPaneMessage
   | WSUIStateInitMessage

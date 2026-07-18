@@ -321,6 +321,21 @@ export interface TaskService {
    */
   boardProjectForTopic(topicId: string): string | null;
   /**
+   * The task dispatched to `topicId` (its `assigned_topic_id`) — the whole
+   * handle the task-owned browser fork needs: id (→ the canonical
+   * `task-<id8>-…` browser contextId), project, and text (→ the tab-inventory
+   * label). Same resolution as boardProjectForTopic (prefer non-archived, most
+   * recent). Null when the topic owns no task (a normal chat, not a dispatch).
+   */
+  taskForTopic(topicId: string): { id: string; projectId: string; text: string } | null;
+  /**
+   * Resolve a task from the 8-char id prefix embedded in a `task-<id8>-…`
+   * browser contextId → { id, text }, so the tab inventory can label it
+   * "Task: <text>". Prefers a non-archived, most-recent row if a prefix ever
+   * collides (astronomically unlikely on 32 bits). Null when none matches.
+   */
+  taskByIdPrefix(id8: string): { id: string; text: string } | null;
+  /**
    * Move a ROOT task (and its whole subtree) to another board. Subtasks never
    * move alone (same-board parent invariant) and a task with a live agent
    * stays put (its worktree/topic belong to the source project).
@@ -873,6 +888,28 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           ORDER BY archived ASC, updated_at DESC LIMIT 1`,
       ).get(topicId) as any;
       return r?.project_id ?? null;
+    },
+
+    taskForTopic(topicId) {
+      if (!topicId) return null;
+      const r = db.prepare(
+        `SELECT id, project_id, text FROM tasks
+          WHERE assigned_topic_id = ?
+          ORDER BY archived ASC, updated_at DESC LIMIT 1`,
+      ).get(topicId) as any;
+      return r ? { id: r.id, projectId: r.project_id, text: r.text ?? "" } : null;
+    },
+
+    taskByIdPrefix(id8) {
+      const p = (id8 ?? "").trim();
+      // id8 is a hex slice of a uuid → no LIKE metacharacters to escape.
+      if (!/^[0-9a-f]{1,32}$/i.test(p)) return null;
+      const r = db.prepare(
+        `SELECT id, text FROM tasks
+          WHERE id LIKE ? || '%'
+          ORDER BY archived ASC, updated_at DESC LIMIT 1`,
+      ).get(p) as any;
+      return r ? { id: r.id, text: r.text ?? "" } : null;
     },
 
     moveToProject({ taskId, toProjectId, projectId }): Task {

@@ -13,6 +13,7 @@ import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { getTerminalSessionById } from "./terminal";
+import { createTaskService } from "../services/tasks";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
@@ -194,6 +195,28 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     projectStore,
   } = ctx;
 
+  // Task lookup for the task-owned browser fork + tab-inventory label. One
+  // instance over the shared db (same pattern as the dispatcher's service).
+  const taskSvc = createTaskService(ctx.db);
+  // Server gate for the task-owned browser fork (client mirror:
+  // localStorage['board:taskBrowser']). Default OFF → open-pane keeps emitting
+  // the layout-level `browser:navigate`, zero behaviour change.
+  const TASK_BROWSER_ENABLED = process.env.TOPICS_TASK_BROWSER === "1";
+
+  /**
+   * If `topic` is a task dispatch AND the fork is enabled, the canonical
+   * task-scoped browser handle. The contextId is STABLE per (task, topic) so
+   * repeated opens reuse the SAME in-drawer tab (idempotent client upsert), and
+   * self-describing (`task-<id8>-…`) so labelForContext + the store recognise it
+   * without a lookup. Null → the caller falls back to the normal chat pane.
+   */
+  function resolveTaskBrowserContext(topic: Topic): { taskId: string; contextId: string } | null {
+    if (!TASK_BROWSER_ENABLED) return null;
+    const task = taskSvc.taskForTopic(topic.id);
+    if (!task) return null;
+    return { taskId: task.id, contextId: `task-${task.id.slice(0, 8)}-a${topic.id.slice(0, 8)}` };
+  }
+
   /** Resolve the AI provider for a topic. Uses topic.provider if set, else default. */
   function resolveProvider(topic?: Topic | null): AIProvider {
     if (topic?.provider) {
@@ -264,6 +287,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       getTerminalSessionById: (id) => {
         const t = getTerminalSessionById(id);
         return t ? { id: t.id, name: t.name, cwd: t.cwd } : undefined;
+      },
+      getTaskByContextId: (contextId) => {
+        // `task-<id8>-…` → owning task (label "Task: <text>"). id8 is the task
+        // id's 8-char hex prefix; resolve it back to the row.
+        const m = /^task-([0-9a-f]{1,32})-/i.exec(contextId);
+        if (!m) return null;
+        const task = taskSvc.taskByIdPrefix(m[1]);
+        return task ? { text: task.text } : null;
       },
       fetchNativeStatus: async (contextId) => {
         if (!nativeDelegateRegistry.isDelegated(contextId)) return null;
@@ -1339,6 +1370,29 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         const body = (await readJSON(req)) as { url?: unknown } | null;
         const url = typeof body?.url === "string" ? body.url : "";
         if (!url) return json({ error: "url (string) is required" }, 400);
+
+        // Task-owned browser fork (feature-flagged): the agent working a task
+        // opens a browser into that task's IN-DRAWER group, not the global
+        // layout. Mirror the terminal path above — broadcast + return, NO
+        // server-side dispatchBrowserToolCallByContext: the task pane may be
+        // unmounted (drawer closed), so a headless browser_open would drive an
+        // invisible Playwright phantom. The client's RemoteBrowserPanel loads
+        // `url` (initialUrl) once the pane mounts and registers its native
+        // target under contextId; the agent's later observe/act reach that same
+        // pane because we bind topic.browserState.contextId to it here.
+        const taskCtx = resolveTaskBrowserContext(topic);
+        if (taskCtx) {
+          topic.browserState = {
+            url,
+            contextId: taskCtx.contextId,
+            lastActiveAt: Date.now(),
+            viewport: topic.browserState?.viewport,
+          };
+          saveSingleTopic(topic);
+          browserNavigatedTopics.add(topic.id);
+          broadcastToAll({ type: "browser:open-task-tab", taskId: taskCtx.taskId, contextId: taskCtx.contextId, url });
+          return json({ url, title: "" });
+        }
 
         const ctxId = resolveContextIdForTopic(topic);
         // 1. Broadcast FIRST (carrying contextId) so the client mounts/seeds the

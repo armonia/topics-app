@@ -375,6 +375,55 @@ describe("boundRootOf (dispatch root of a subtree)", () => {
   });
 });
 
+describe("taskForTopic / taskByIdPrefix (task-owned browser fork)", () => {
+  let db: Database;
+  // Hex uuids so `taskByIdPrefix` (guarded on hex id8) is testable end to end.
+  const hexSvc = (d: Database): TaskService => {
+    let n = 0;
+    return createTaskService(d, {
+      now: () => "2026-07-18T10:00:00.000Z",
+      uuid: () => `125aafd${n++}-0e15-4aa0-ab25-f00000000000`,
+    });
+  };
+  beforeEach(() => { db = freshDb(); });
+
+  test("taskForTopic returns the bound task's id/project/text, null for an unbound topic", () => {
+    const s = hexSvc(db);
+    db.run("INSERT INTO topics (id) VALUES ('top-1')");
+    const t = s.create({ projectId: PID, text: "build the thing", status: "in_progress" });
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1' WHERE id = ?").run(t.id);
+    expect(s.taskForTopic("top-1")).toEqual({ id: t.id, projectId: PID, text: "build the thing" });
+    expect(s.taskForTopic("top-nope")).toBeNull();
+    expect(s.taskForTopic("")).toBeNull();
+  });
+
+  test("taskForTopic prefers a non-archived, most-recent binding", () => {
+    const s = hexSvc(db);
+    db.run("INSERT INTO topics (id) VALUES ('top-1')");
+    const older = s.create({ projectId: PID, text: "older" });
+    const newer = s.create({ projectId: PID, text: "newer" });
+    db.prepare("UPDATE tasks SET assigned_topic_id='top-1', archived=1, updated_at='2026-07-18T09:00:00.000Z' WHERE id=?").run(older.id);
+    db.prepare("UPDATE tasks SET assigned_topic_id='top-1', archived=0, updated_at='2026-07-18T11:00:00.000Z' WHERE id=?").run(newer.id);
+    expect(s.taskForTopic("top-1")?.id).toBe(newer.id);
+  });
+
+  test("taskByIdPrefix resolves the `task-<id8>` hex prefix → { id, text }", () => {
+    const s = hexSvc(db);
+    const t = s.create({ projectId: PID, text: "hello world" });
+    const id8 = t.id.slice(0, 8); // "125aafd0"
+    expect(s.taskByIdPrefix(id8)).toEqual({ id: t.id, text: "hello world" });
+    expect(s.taskByIdPrefix("125aafd0")).toEqual({ id: t.id, text: "hello world" });
+  });
+
+  test("taskByIdPrefix rejects non-hex / empty input and unknown prefixes", () => {
+    const s = hexSvc(db);
+    s.create({ projectId: PID, text: "x" });
+    expect(s.taskByIdPrefix("")).toBeNull();
+    expect(s.taskByIdPrefix("not-hex")).toBeNull(); // '-' and 'n/t' aren't hex
+    expect(s.taskByIdPrefix("deadbeef")).toBeNull(); // valid hex, no match
+  });
+});
+
 describe("moveToProject", () => {
   let db: Database; let s: TaskService;
   beforeEach(() => { db = freshDb(); s = svc(db); });
