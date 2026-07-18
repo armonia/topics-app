@@ -3,6 +3,7 @@
 
 import { shellKind } from './index';
 import { tauriInvoke } from './tauri';
+import { openTaskInApp } from '../openTaskLink';
 
 /** Open a URL in the user's default browser (never inside the app shell). */
 export async function openExternal(url: string): Promise<void> {
@@ -43,14 +44,30 @@ export async function selectDirectory(): Promise<string | null> {
  * guarantee (you still get the native banner too when permission is granted).
  * Never throws — a denied permission or locked-down env just means no banner.
  */
-export function notifyNative(title: string, body: string, opts?: { silent?: boolean; tag?: string }): boolean {
+export function notifyNative(
+  title: string,
+  body: string,
+  opts?: { silent?: boolean; tag?: string; taskId?: string },
+): boolean {
   if (shellKind === 'tauri') {
-    void tauriInvoke('notify', { title, body });
+    // taskId rides into the native notification's userInfo; the Rust delegate
+    // reads it back on click and emits `open-task` → the client opens the drawer
+    // (see the listener in App). null when the banner isn't task-bound.
+    void tauriInvoke('notify', { title, body, taskId: opts?.taskId ?? null });
     return false;
   }
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
-    new Notification(title, { body, silent: opts?.silent, tag: opts?.tag });
+    const n = new Notification(title, { body, silent: opts?.silent, tag: opts?.tag });
+    // Click a task-bound banner → focus the app and open that task's drawer.
+    if (opts?.taskId) {
+      const taskId = opts.taskId;
+      n.onclick = () => {
+        try { window.focus(); } catch { /* focus may be blocked — the deep-link still opens */ }
+        openTaskInApp({ taskId });
+        n.close();
+      };
+    }
     return true;
   } catch {
     return false;
