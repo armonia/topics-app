@@ -26,6 +26,7 @@ import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
+import { warnThrottled } from "../lib/warn-throttled";
 
 // ============ Config ============
 
@@ -71,7 +72,14 @@ function resolveCliPath(): string {
       .filter((f) => /^\d/.test(f))
       .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
     if (versions.length > 0) return `${CLI_VERSIONS_DIR}/${versions[0]}`;
-  } catch { /* directory not readable */ }
+  } catch (err) {
+    // Load-bearing: a versions dir that EXISTS but can't be read (permissions /
+    // corruption) silently drops us to PATH `claude`, which may be the wrong or
+    // a missing binary. The normal "not installed" case (dir absent) stays quiet.
+    if (existsSync(CLI_VERSIONS_DIR)) {
+      warnThrottled("resolveCliPath:versions", `[ClaudeCode] Could not read CLI versions dir ${CLI_VERSIONS_DIR}, falling back:`, err);
+    }
+  }
 
   // Fallback: stable launcher
   const launcher = join(process.env.HOME || "", ".local/bin/claude");
@@ -1047,7 +1055,11 @@ export class ClaudeCodeProvider implements AIProvider {
     // SIGINT cancels the current turn without killing the process
     try {
       pp.io.signal("SIGINT");
-    } catch {}
+    } catch (err) {
+      // Load-bearing: a failed SIGINT means the turn is NOT actually cancelled —
+      // the user asked to abort and silently didn't get it. Observe (throttled).
+      warnThrottled("claudeCode:abort:sigint", `[ClaudeCode] SIGINT on abort failed for ${sessionKey}:`, err);
+    }
 
     // The aborted turn may have had outstanding human-input requests. Drop
     // them so a stale `POST /api/chat/tool-response` can't write a tool
