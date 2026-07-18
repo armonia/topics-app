@@ -458,6 +458,9 @@ const SESSION_NOT_FOUND_PATTERNS = [
   /no\s+such\s+session/i,
   /could not find session/i,
   /session id .* not found/i,
+  // The CLI's exact stream-json phrasing when `--resume <id>` finds nothing:
+  // reported as an `error_during_execution` result frame on stdout.
+  /no conversation found with session id/i,
 ];
 
 function looksLikeMissingSessionError(stderrChunk: string): boolean {
@@ -869,6 +872,7 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
+    retriedReset = false,
   ): Promise<{ runId?: string }> {
     const pp = this.getOrCreateProcess(sessionKey);
     const runId = crypto.randomUUID();
@@ -973,6 +977,23 @@ export class ClaudeCodeProvider implements AIProvider {
       if (errMsg === "RATE_LIMIT") {
         console.warn(`[claude-code] Rate limited for ${sessionKey}`);
         handler.onError("Rate limited — please try again later");
+        return { runId };
+      }
+
+      if (errMsg === "SESSION_RESET") {
+        // The `--resume` hit a session that no longer exists; the dead id is
+        // already forgotten (markMissingSessionRecovery). Drop the dead child and
+        // resend the SAME prompt ONCE on a fresh session — spawnPersistentProcess
+        // adds a recap prologue via needsHistoryReplay, so the model keeps the
+        // thread. Transparent: no error surfaced, no dispatch attempt burned. The
+        // cap prevents a loop if the fresh spawn were to reset again (impossible
+        // in practice: a brand-new --session-id can't be "not found").
+        this.processes.delete(sessionKey);
+        if (!retriedReset) {
+          console.log(`[claude-code] Session reset for ${sessionKey} — respawning fresh and resending`);
+          return this.sendChatInternal(sessionKey, message, handler, true);
+        }
+        handler.onError("La sessione era scaduta ed è stata ripristinata — riprova.");
         return { runId };
       }
 
@@ -1505,25 +1526,31 @@ export class ClaudeCodeProvider implements AIProvider {
     this.cleanupTimers(pp);
   }
 
+  // Route a lost `--resume` into recovery: wipe the DB row so the NEXT spawn
+  // falls back to `--session-id` (fresh) instead of looping on a doomed resume,
+  // and flag the process so the imminent exit is read as a recoverable reset
+  // (SESSION_RESET), not a crash. Shared by the stderr scan and the stdout
+  // `result`-error path — the CLI can report the miss on either channel.
+  // Idempotent, and a no-op for a fresh --session-id spawn (can't lose a session
+  // that was just created). Don't kill here: the close handler fires shortly.
+  private markMissingSessionRecovery(pp: PersistentProcess): void {
+    if (pp.recovering || pp.spawnMeta.isNewSession) return;
+    console.warn(
+      `[claude-code] Resume failed for ${pp.sessionKey} (claude_session_id=${pp.spawnMeta.claudeSessionId}); forgetting and will respawn fresh`,
+    );
+    forgetClaudeSessionId(pp.sessionKey);
+    pp.recovering = true;
+  }
+
   // stderr scan (rate limit + missing-session), shared by direct + broker mode.
   // Detects on the ACCUMULATED tail (pp.stderrBuf), not a single chunk: the CLI
   // can split an error across write()s; the 2 KiB cap keeps the scan cheap and
   // both detections are latch-style (idempotent on re-match).
-  private handleStderrData(pp: PersistentProcess, sessionKey: string, d: Buffer): void {
+  private handleStderrData(pp: PersistentProcess, _sessionKey: string, d: Buffer): void {
     pp.stderrBuf += d.toString();
     if (pp.stderrBuf.length > 2048) pp.stderrBuf = pp.stderrBuf.slice(-2048);
-    const { claudeSessionId, isNewSession } = pp.spawnMeta;
 
-    if (!isNewSession && looksLikeMissingSessionError(pp.stderrBuf)) {
-      // Asked to `--resume` a session no longer on disk. Wipe the DB row so the
-      // next spawn falls back to --session-id instead of looping on a doomed
-      // resume. Don't kill here — the close handler fires shortly with the code.
-      console.warn(
-        `[claude-code] Resume failed for ${sessionKey} (claude_session_id=${claudeSessionId}); forgetting and will respawn fresh on next call`
-      );
-      forgetClaudeSessionId(sessionKey);
-      pp.recovering = true;
-    }
+    if (looksLikeMissingSessionError(pp.stderrBuf)) this.markMissingSessionRecovery(pp);
 
     if (
       (pp.stderrBuf.includes("rate_limit") || pp.stderrBuf.includes("429") || /overloaded/i.test(pp.stderrBuf)) &&
@@ -1550,19 +1577,24 @@ export class ClaudeCodeProvider implements AIProvider {
     // between/after turns. Only a non-zero exit with a turn still open is a real
     // failure worth an error stub — everything else finalizes gracefully so the
     // chat never shows "⚠️ Process exited with code 0".
+    // A lost `--resume` (recovering) is a recoverable reset, NOT a crash: reject
+    // the turn with the distinct SESSION_RESET marker so sendChat transparently
+    // respawns fresh and resends. A user stop (aborting) or a clean exit (code 0)
+    // is ABORTED. Only a genuine non-zero exit is PROCESS_DIED.
     const graceful = pp.aborting === true || code === 0;
-    console.log(`[claude-code] Process exited with code ${code}${pp.aborting ? " (user stop)" : ""}`);
+    const kind = pp.recovering ? " (session reset)" : pp.aborting ? " (user stop)" : "";
+    console.log(`[claude-code] Process exited with code ${code}${kind}`);
     if (pp.pendingReject) {
       const reject = pp.pendingReject;
       pp.pendingResolve = null;
       pp.pendingReject = null;
-      reject(new Error(graceful ? "ABORTED" : `PROCESS_DIED_${code}`));
+      reject(new Error(pp.recovering ? "SESSION_RESET" : graceful ? "ABORTED" : `PROCESS_DIED_${code}`));
     }
     if (pp.streamHandler) {
       if (pp.recovering) {
-        // Resume hit a session that no longer exists (already forgotten). Not a
-        // crash — tell the user plainly; the next message spawns fresh.
-        pp.streamHandler.onError("La sessione era scaduta ed è stata ripristinata — reinvia il messaggio e riparto da capo.");
+        // Recoverable reset — surface NO user-facing error. The sendChat retry
+        // re-attaches this handler to a fresh session and resends (with a recap
+        // prologue), so the lost session stays invisible.
       } else if (graceful) {
         // Flush any partial assistant content as a finalized message (same path
         // as an explicit abort) instead of an error stub.
@@ -1607,6 +1639,16 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // Result event: stream is done for this turn
     if (event.type === "result") {
+      // A missing-session miss ("No conversation found with session ID …") is
+      // reported as an ERROR result on STDOUT, not on stderr — route it into the
+      // same resume-recovery as the stderr scan so a dead `--resume` id is
+      // forgotten instead of retried forever. Gated inside the helper to resumed
+      // sessions only; the missing-session regex avoids false positives on any
+      // other error result.
+      if (event.is_error === true || event.subtype === "error_during_execution") {
+        const errText = [event.subtype, ...(Array.isArray(event.errors) ? event.errors : [])].join(" ");
+        if (looksLikeMissingSessionError(errText)) this.markMissingSessionRecovery(pp);
+      }
       const resultText = event.result ?? "";
       if (!resultText || resultText === "waiting for message") return;
 
