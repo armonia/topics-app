@@ -52,7 +52,11 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
         </span>
         <span className="rounded bg-white/10 px-1.5 text-xs text-neutral-400">{tasks.length}</span>
       </div>
-      <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
+      {/* Bottom clearance lives on the scroll body (not the outer board padding)
+          so the column FRAME reaches the bottom of the pane, while a full column's
+          last card can still scroll clear of the floating "Descrivi un task" box.
+          On a short column it is invisible slack below the already-empty area. */}
+      <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-16">
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {tasks.map((t) => (
             <Card
