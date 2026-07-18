@@ -61,6 +61,8 @@ import { createTasksRouter } from "./server/routes/tasks";
 import { createPushRouter } from "./server/routes/push";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
+import { createAppSettingsRouter } from "./server/routes/app-settings";
+import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./server/services/app-settings";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { createProjectsRouter } from "./server/routes/projects";
@@ -198,7 +200,7 @@ try {
 //   5. graceful fallback to "claude" so the picker UI still has a target;
 //      initProviders() below auto-registers anything else available.
 const providerType =
-  (process.env.AI_PROVIDER as any) ||
+  (resolveAiProvider() as any) ||
   (process.env.ANTHROPIC_API_KEY ? 'claude' :
    process.env.OPENAI_API_KEY ? 'openai' :
    process.env.GATEWAY_URL ? 'openclaw' :
@@ -212,10 +214,10 @@ const aiProvider = initProvider({
     refreshToken: () => ctx.refreshGatewayToken(),
   } : providerType === 'openai' ? {
     apiKey: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL,
+    model: resolveOpenaiModel(),
   } : {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
-    model: process.env.CLAUDE_MODEL,
+    model: resolveClaudeModel(),
   }),
 } as any);
 
@@ -629,6 +631,7 @@ startProcessDetection(ctx, getClaudeSessionsForDetection);
 const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
+const appSettingsRouter = createAppSettingsRouter(ctx);
 
 const claudeHooksRouter = createClaudeHooksRouter(ctx, claudeSessionTracker);
 // Replay JSONL tails for any session whose state was lost on the previous
@@ -1099,6 +1102,7 @@ const server = Bun.serve<WSData>({
         || await pushRouter(req, url, pathname, method)
         || await uiStateRouter(req, url, pathname, method)
         || await providersRouter(req, url, pathname, method)
+        || await appSettingsRouter(req, url, pathname, method)
         || await claudeHooksRouter(req, url, pathname, method)
 ;
 

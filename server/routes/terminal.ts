@@ -233,13 +233,13 @@ const SOCKET_PATH = getSocketPath();
 
 /**
  * A bundled PTY bridge the compiled sidecar can spawn on a virgin install (where
- * there's no external bridge and Bun itself can't run node-pty). Two flavours:
+ * there's no external bridge and Bun itself can't run node-pty): a self-contained
+ * **Rust** bridge binary shipped as a Tauri sidecar, pointed at via
+ * TOPICS_PTY_BRIDGE_BIN (desktop-tauri lib.rs). ~0.5 MB, zero Node dependency;
+ * a wire-compatible port of pty-bridge.mjs.
  *
- *  • PREFERRED — a self-contained **Rust** bridge binary shipped as a Tauri sidecar,
- *    pointed at via TOPICS_PTY_BRIDGE_BIN (desktop-tauri lib.rs). ~0.5 MB, zero Node
- *    dependency; a wire-compatible port of pty-bridge.mjs.
- *  • LEGACY — a bundled Node runtime + pty-bridge.mjs via TOPICS_NODE_BIN +
- *    TOPICS_PTY_BRIDGE_PATH (kept so a non-Rust bundle still works if ever staged).
+ * (A legacy bundled-Node flavour — TOPICS_NODE_BIN + TOPICS_PTY_BRIDGE_PATH — was
+ * removed in the 2026-07 env audit; every shipped bundle uses the Rust sidecar.)
  *
  * The DATA_DIR-derived short socket (getSocketPath) keeps this sidecar's bridge from
  * ever touching a real server's — the 2026-07-02 isolation invariant holds either way.
@@ -249,9 +249,6 @@ const SOCKET_PATH = getSocketPath();
 function bundledBridge(): { cmd: string; args: string[] } | null {
   const rustBin = process.env.TOPICS_PTY_BRIDGE_BIN;
   if (rustBin) return { cmd: rustBin, args: [] };
-  const node = process.env.TOPICS_NODE_BIN;
-  const bridge = process.env.TOPICS_PTY_BRIDGE_PATH;
-  if (node && bridge) return { cmd: node, args: [bridge] };
   return null;
 }
 
@@ -264,9 +261,9 @@ function bundledBridge(): { cmd: string; args: string[] } | null {
  * accidentally shares a checkout's cwd must be STRUCTURALLY unable to reconcile-kill
  * a real server's live PTYs (the 2026-07-02 incident). Terminal endpoints answer 503.
  *
- * EXCEPTION: a bundledBridge() (the shell-provided Rust bridge binary, or a legacy
- * bundled Node + bridge path) re-enables terminals — the sidecar spawns it against
- * its OWN isolated socket, so the standalone concerns above no longer apply.
+ * EXCEPTION: a bundledBridge() (the shell-provided Rust bridge binary) re-enables
+ * terminals — the sidecar spawns it against its OWN isolated socket, so the
+ * standalone concerns above no longer apply.
  *
  * Read LIVE (not a module-const) so a test can flip the env per-case, and accept two
  * spellings: TOPICS_DISABLE_PTY_BRIDGE (precise) and TOPICS_EMBEDDED (the broader
