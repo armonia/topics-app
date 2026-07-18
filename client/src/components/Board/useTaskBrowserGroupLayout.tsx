@@ -170,7 +170,11 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
           contextId={ctx}
           initialUrl={pane.url}
           isVisible={isVisible}
-          onUrlChange={(u) => { if (u) taskBrowserTabs.updateTab(taskId, ctx, { url: u }); }}
+          // Ignore `about:blank`: a failed navigation (dead/unreachable target)
+          // reports about:blank, which would CLOBBER the seeded URL and strand
+          // the tab on a blank page (the seeded output_url would be lost). Keep
+          // the intended URL so a retry / server-up still loads it.
+          onUrlChange={(u) => { if (u && u !== 'about:blank') taskBrowserTabs.updateTab(taskId, ctx, { url: u }); }}
           onTitleChange={(t) => { if (t) taskBrowserTabs.updateTab(taskId, ctx, { title: t, titleSource: 'auto' }); }}
         />
       </div>
