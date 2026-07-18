@@ -1225,6 +1225,39 @@ export const providersApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// App-settings — promoted behaviour toggles (env-var audit, Phase B).
+// NON-secret defaults; `null` on any field means "not set → env/default wins".
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AppBehaviorSettings {
+  aiProvider: string | null;
+  claudeModel: string | null;
+  claudeMaxTokens: number | null;
+  claudeEffort: string | null;
+  openaiModel: string | null;
+  openaiMaxTokens: number | null;
+  codexModel: string | null;
+  codexReasoningEffort: string | null;
+  claudeCodePermissionMode: string | null;
+  codexApprovalMode: string | null;
+  claudeCodeEnabled: boolean | null;
+}
+
+export const appSettingsApi = {
+  async get(): Promise<AppBehaviorSettings> {
+    const r = await request<{ settings: AppBehaviorSettings }>('/app-settings');
+    return r.settings;
+  },
+  async update(patch: Partial<AppBehaviorSettings>): Promise<AppBehaviorSettings> {
+    const r = await request<{ ok: boolean; settings: AppBehaviorSettings }>('/app-settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+    return r.settings;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase A — Project + Worktree domain (migrations 016-018)
 // ─────────────────────────────────────────────────────────────────────────────
 
