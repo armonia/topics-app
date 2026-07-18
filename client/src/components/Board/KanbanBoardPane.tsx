@@ -542,6 +542,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       (m[t.status] ??= []).push(t);
     }
     for (const s of TASK_STATUSES) m[s].sort((a, b) => a.kanbanOrder - b.kanbanOrder);
+    // Review is a human inbox, not a hand-ordered lane: order it by LAST UPDATE
+    // (most recent first) so a fresh delivery or a just-answered "serve te" floats
+    // to the top — matching the "ultimo aggiornamento" shown on each card. The
+    // other columns keep their manual kanbanOrder.
+    m.review.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
     return m;
   }, [tasks, filters]);
 
