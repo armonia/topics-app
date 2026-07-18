@@ -104,7 +104,7 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
   // The derived (non-browser) surface panes. Stable ids so GroupLayout's
   // keep-alive never remounts the Thread subtree across tab switches.
   const threadPane = useMemo<Pane>(() => ({
-    id: threadPaneId(taskId), type: 'chat', title: 'Thread', stableKey: threadPaneId(taskId),
+    id: threadPaneId(taskId), type: 'chat', title: 'Sessione', stableKey: threadPaneId(taskId),
   }), [taskId]);
   const planPane = useMemo<Pane | null>(() => (planActive
     ? { id: planPaneId(taskId), type: 'journal', title: 'Piano', stableKey: planPaneId(taskId) }
