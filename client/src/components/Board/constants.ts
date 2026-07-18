@@ -85,7 +85,11 @@ export const COMPOSER_CURSOR_KEY = 'board:composer';
 export type TaskSurface =
   | { id: string; kind: 'output'; label: string; url: string }
   | { id: string; kind: 'plan'; label: string; content: string }
-  | { id: string; kind: 'media'; label: string; url: string; path: string };
+  | { id: string; kind: 'media'; label: string; url: string; path: string }
+  // A task-owned browser tab (feature-flagged): a real, drivable RemoteBrowserPanel
+  // scoped to the task via a canonical `task-<id8>-<seq>` contextId. Kept out of the
+  // global pane store — it lives only in the task's drawer (see state/taskBrowserTabs).
+  | { id: string; kind: 'browser'; label: string; url: string; contextId: string };
 
 /** Min drawer width (px) before the surface tab group earns its own side panel;
  *  below it the surfaces fold inline into the body. */
