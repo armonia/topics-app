@@ -106,6 +106,15 @@ export interface DispatcherDeps {
    */
   getSessionUsage?: (sessionKey: string) => SessionUsage;
   /**
+   * The agent's LAST assistant prose in the session (trimmed), or null. Used to
+   * GUARANTEE a delivery carries the agent's own words: when a turn ends and the
+   * agent never called comment_task, the dispatcher mirrors this text into a task
+   * comment so the reviewer always reads "what I did" — instead of landing on a
+   * bare system note (or losing a worked task to `failed`). Synchronous (reads
+   * the local message store). Absent (tests/degraded) ⇒ no mirror, old behaviour.
+   */
+  getLastAgentText?: (sessionKey: string) => string | null;
+  /**
    * True if the topic still exists. Used to SELF-HEAL a dead binding: a task
    * whose `assigned_topic_id` points at a topic that was later reaped (its agent
    * tab deleted) would be skipped forever by the eligibility filter (`!assignedTopicId`)
@@ -491,6 +500,36 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch (err) { log(`worktree cleanup failed for ${worktreeId}`, err); }
   }
 
+  /**
+   * Guarantee the agent's own words are in the thread for a delivery. If a real
+   * agent comment already exists → true (nothing to do). Otherwise MIRROR the
+   * agent's last session message into a task comment — authored as the agent, so
+   * it reads as the agent speaking and the "delivered" chip logic below sees it —
+   * and broadcast the update. Returns whether the thread now carries an agent
+   * comment. This is why a turn that did real work but never called comment_task
+   * reaches the human WITH a summary, instead of a bare system note (or, worse, a
+   * `failed` park that discards the work). No-op without getLastAgentText.
+   */
+  function ensureAgentSummary(task: Task): boolean {
+    const topicId = task.assignedTopicId;
+    if (!topicId) return false;
+    try {
+      const comments = deps.svc.get(task.id)?.comments ?? [];
+      if (comments.some((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment")) return true;
+    } catch { /* fall through to mirror */ }
+    if (!deps.getLastAgentText) return false;
+    try {
+      const finalText = deps.getLastAgentText("topic:" + topicId.slice(0, 8))?.trim();
+      if (!finalText) return false;
+      // Same author real agent comments get (topic name = task text slice), so the
+      // mirror groups with them and the chip detection reads it as the agent.
+      const author = task.text.slice(0, 60).trim() || "claude";
+      deps.svc.addComment({ taskId: task.id, author, content: finalText });
+      try { deps.broadcast({ type: "task:updated", projectId: task.projectId, task: deps.svc.get(task.id)?.task }); } catch { /* best-effort */ }
+      return true;
+    } catch (err) { log(`mirror final agent message failed for ${task.id}`, err); return false; }
+  }
+
   function onTurnEnd(taskId: string, turnMs?: number): void {
     const cur = deps.svc.get(taskId)?.task;
     if (!cur) { pendingResume.delete(taskId); return; }
@@ -508,6 +547,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // agent's last word = "serve te" (decision required); anything else =
       // "delivered" (the agent believes it's done, ready to approve). Binding
       // stays for the deep-link and the resume-on-answer path either way.
+      // (No mirror needed here: the service's `review_needs_summary` gate already
+      // guarantees an agent comment exists before a self-delivery to review.)
       let chip = CHIP_NEEDS_INPUT;
       try {
         const comments = deps.svc.get(taskId)?.comments ?? [];
@@ -551,17 +592,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         }
       }
       // Retry budget exhausted. Distinguish "did work but forgot to deliver"
-      // from a genuine no-output failure: if the agent left a real comment trail
-      // (≥1 comment, not a status event / system note), HAND IT TO THE HUMAN in
-      // review instead of dumping it in backlog as `failed`. A parked task the
-      // agent actually worked on reads as an opaque error and wastes the effort;
-      // review lets the human approve, take over, or send it back (a rejection
-      // resumes the same agent). Only a task that produced nothing fails.
-      let agentSpoke = false;
-      try {
-        const comments = deps.svc.get(taskId)?.comments ?? [];
-        agentSpoke = comments.some((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
-      } catch { /* default: treat as no-output */ }
+      // from a genuine no-output failure. ensureAgentSummary makes this robust:
+      // an agent comment already there → true; else it MIRRORS the agent's last
+      // session message as its comment (so a turn that worked but never called
+      // comment_task still delivers WITH a summary, not a `failed` park). Only a
+      // task that produced literally nothing (no comment, no final message) fails.
+      const agentSpoke = ensureAgentSummary(cur);
       if (cur.assignedTopicId && agentSpoke) {
         try {
           emit(deps.svc.deliverToReviewBySystem({
