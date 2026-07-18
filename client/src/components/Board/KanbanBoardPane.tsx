@@ -7,7 +7,7 @@
  * Review column (approve → done / reject → in_progress). Talks only to the
  * project-scoped board API (client/src/lib/board.ts).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, closestCorners, pointerWithin, useDroppable, PointerSensor, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -1440,6 +1440,9 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
   const [adding, setAdding] = useState(false);
   const [text, setText] = useState('');
   const submit = () => { const v = text.trim(); if (v) { onCreate(v); } setText(''); setAdding(false); };
+  // Stable identity across the board's 4s live-usage tick: SortableContext gets a
+  // fresh array only when the task set actually changes, not every render.
+  const itemIds = useMemo(() => tasks.map((t) => t.id), [tasks]);
 
   return (
     <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex shrink-0 flex-col rounded-lg border ${status === 'review' ? 'w-80 max-h-screen sticky right-0 z-20 lg:static lg:w-[32rem] lg:max-h-none' : 'w-72'} ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
@@ -1451,7 +1454,7 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
         <span className="rounded bg-white/10 px-1.5 text-xs text-neutral-400">{tasks.length}</span>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto px-2 pb-2">
-        <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {tasks.map((t) => (
             <Card
               key={t.id} task={t} onOpen={onOpen} showProject={showProject} onError={onError} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
@@ -1485,7 +1488,13 @@ function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onErr
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────
-function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath, live }: {
+// Memoized: the board re-renders every 4s as the live-usage ticker rebuilds
+// `liveById`. Without memo every card re-renders on each tick; with it only the
+// cards whose `live` prop actually changed (the working ones) do. All handler
+// props from the parent (onOpen/onError/onRefetch/onOpenTopic) are stable
+// (useCallback / state setters), and task/blocker come from tasks-keyed memos,
+// so the shallow prop compare holds for idle cards.
+const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, parentTitle, blocker, projectPath, live }: {
   task: BoardTask; onOpen: (id: string) => void; showProject: boolean;
   onError: (e: string) => void; onRefetch: () => void; onOpenTopic?: (topicId: string) => void;
   /** Text of the parent task when this card is a subtask (context chip). */
@@ -1744,7 +1753,7 @@ function Card({ task, onOpen, showProject, onError, onRefetch, onOpenTopic, pare
       )}
     </div>
   );
-}
+});
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
 
