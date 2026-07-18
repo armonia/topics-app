@@ -1918,7 +1918,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           // immediately appears nested under its parent in the sidebar tree.
           broadcastTerminalSessions();
           // Seed the first prompt once the TUI is ready (async, non-blocking).
-          void seedAgentPrompt(id, prompt);
+          seedAgentPrompt(id, prompt)
+            .catch((err) => console.warn(`[Terminal] seedAgentPrompt failed for ${id}:`, err));
           return json({ agentId: id, name: session.name, cwd: session.cwd });
         } catch (err: any) {
           return errorResponse(502, `Failed to spawn sub-agent: ${err.message}`);

@@ -437,6 +437,6 @@ export function initProvider(config?: ProviderConfig): AIProvider {
   }
   // Sync caller without config: initialize providers eagerly via a deferred init.
   // We can't await here, so bootstrap and return whatever we can synchronously.
-  void initProviders();
+  initProviders().catch((err) => console.warn(`[Providers] Deferred init failed: ${err?.message ?? err}`));
   return getDefaultProvider();
 }

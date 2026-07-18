@@ -511,7 +511,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 if (root && root.status === "review" && root.assignedTopicId) {
                   const rejected = svc.reviewDecision({ taskId: root.id, by: "user", decision: "reject", projectId });
                   broadcastToAll({ type: "task:updated", projectId, task: rejected });
-                  void dispatcher.resume(root.id, `L'umano ha aggiunto un nuovo step al tuo task: "${task.text.slice(0, 80)}" (id=${task.id}). Lavoralo e marcalo done prima della consegna.`);
+                  dispatcher.resume(root.id, `L'umano ha aggiunto un nuovo step al tuo task: "${task.text.slice(0, 80)}" (id=${task.id}). Lavoralo e marcalo done prima della consegna.`)
+                    .catch((err) => console.warn(`[Tasks] resume after add-step failed for ${root.id}:`, err));
                 }
               }
             } catch { /* best-effort — the step itself is already created */ }
@@ -587,7 +588,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // resumes instead of a fresh agent spawning. reviewDecision already
           // moved it back to in_progress.
           if (dispatcher && decision === "reject" && task.assignedTopicId) {
-            void dispatcher.resume(bReview.taskId, comment ?? "");
+            dispatcher.resume(bReview.taskId, comment ?? "")
+              .catch((err) => console.warn(`[Tasks] resume after reject failed for ${bReview.taskId}:`, err));
           }
           // Approve lands the task in done → its dependents are now claimable.
           if (dispatcher && decision === "approve" && task.status === "done") {
@@ -658,10 +660,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                     // what it changed. Move it out of done so the resume has a home.
                     svc.update({ taskId, actor: "human", by: HUMAN, projectId, patch: { status: "in_progress" } });
                     svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });
-                    void dispatcher.resume(
+                    dispatcher.resume(
                       taskId,
                       'Il merge automatico del tuo branch su main è andato in conflitto. Porta main dentro il tuo branch (git merge main, oppure rebase), risolvi i conflitti, poi rimetti in review con update_task(status="review").',
-                    );
+                    ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
                   } else if (res.status === "skipped") {
                     svc.addComment({ taskId, author: "system", content: `Merge automatico saltato: ${res.reason}.` });
                   }
@@ -709,7 +711,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               // Attachments ride along as disk paths — the agent reads them
               // directly (screenshots, docs, mockups the human dropped in).
               if (comment.media.length) msg += `\nAllegati (file su disco, leggili): ${comment.media.join(" ")}`;
-              void dispatcher.resume(root.id, msg);
+              dispatcher.resume(root.id, msg)
+                .catch((err) => console.warn(`[Tasks] resume after comment failed for ${root.id}:`, err));
             }
           } catch { /* the root may have moved meanwhile */ }
           return json(comment, 201);
