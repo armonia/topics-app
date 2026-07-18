@@ -4,9 +4,9 @@
  * mirrored Zod schemas (this file is the canonical source).
  *
  * Direction conventions:
- *   - frame, agent_active, console:  server -> client only
- *   - input, take_control:           client -> server only
- *   - nav:                           both directions (request from either side, response broadcast)
+ *   - frame, agent_active, console, download:  server -> client only
+ *   - input, take_control, resize:             client -> server only
+ *   - nav:                                     both directions (request from either side, response broadcast)
  *
  * KEEP IN SYNC: client/src/types/browser-ws-messages.ts mirrors this file.
  * The composite tsconfig boundary forbids cross-import via TS6307, so the
@@ -92,6 +92,32 @@ const takeControlMessageSchema = z.object({
   type: z.literal('take_control'),
 });
 
+/** Client -> server: the pane's real on-screen size (CSS px) + its
+ *  devicePixelRatio, so the server viewport matches the pane (kills the fixed
+ *  1280 letterbox) and renders HiDPI-sharp. width/height are CSS px; the server
+ *  clamps deviceScaleFactor and multiplies the screencast frame dims by it.
+ *  NOTE (Playwright): deviceScaleFactor is immutable per BrowserContext — it is
+ *  applied when the context is CREATED (first-DPR-wins) via a per-context hint;
+ *  a later DPR change only takes effect after the context is reaped+recreated. */
+const resizeMessageSchema = z.object({
+  type: z.literal('resize'),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  deviceScaleFactor: z.number().min(1).max(3).optional(),
+});
+
+/** Server -> client: a download the headless page triggered, saved server-side
+ *  under our own origin. `href` points at the saved file (user-clicked link),
+ *  which satisfies the "no silent/auto download" rule — the web streaming pane
+ *  has no native download shelf otherwise (DownloadStrip is Tauri-only). */
+const downloadMessageSchema = z.object({
+  type: z.literal('download'),
+  filename: z.string(),
+  href: z.string(),
+  size: z.number().optional(),
+  state: z.enum(['started', 'completed', 'failed']),
+});
+
 // ----- Top-level discriminated union ----------------------------------------
 
 export const browserWsMessageSchema = z.discriminatedUnion('type', [
@@ -101,6 +127,8 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   agentActiveMessageSchema,
   consoleMessageSchema,
   takeControlMessageSchema,
+  resizeMessageSchema,
+  downloadMessageSchema,
 ]);
 
 export type BrowserWsMessage = z.infer<typeof browserWsMessageSchema>;

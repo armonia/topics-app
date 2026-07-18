@@ -1,5 +1,5 @@
 import type { Page, BrowserContext, Browser } from "playwright-core";
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl } from "./browser-state-store";
 import type { Topic } from "./types";
@@ -23,6 +23,10 @@ interface BrowserContextEntry {
   autoSaveCleanup?: () => void;
   /** Guard: page event listeners (console/load) already bound by setupPage. */
   listenersBound?: boolean;
+  /** HiDPI factor this context was CREATED with (Playwright fixes it at
+   *  newContext() — immutable for the context lifetime). Drives the screencast
+   *  frame-dimension multiplier so retina panes render sharp. Defaults to 1. */
+  deviceScaleFactor?: number;
 }
 
 interface BrowserServiceOptions {
@@ -71,7 +75,7 @@ export interface BrowserService {
   close(): Promise<void>;
   /** Get the CDP target ID for a context's page (used for OpenClaw browser tool routing) */
   getTargetId(id: string): Promise<string | null>;
-  createContext(id: string, opts?: { viewport?: { width: number; height: number }; persistCookies?: boolean }): Promise<void>;
+  createContext(id: string, opts?: { viewport?: { width: number; height: number }; persistCookies?: boolean; deviceScaleFactor?: number }): Promise<void>;
   destroyContext(id: string): Promise<void>;
   getOrCreate(id: string): Promise<BrowserContextEntry>;
   /** `error` present when goto failed (refused connection, DNS, timeout…):
@@ -94,7 +98,10 @@ export interface BrowserService {
   getConsoleMessages(id: string): { level: string; text: string; timestamp: number }[];
   getUrl(id: string): { url: string; title: string } | null;
   listContexts(): { id: string; url: string; title: string; createdAt: string; lastActivity: number }[];
-  resize(id: string, width: number, height: number): Promise<void>;
+  /** width/height are CSS px (the pane's real size). deviceScaleFactor (HiDPI)
+   *  is applied only when the context is CREATED — see the per-context hint +
+   *  the immutability note on resize()'s impl. */
+  resize(id: string, width: number, height: number, deviceScaleFactor?: number): Promise<void>;
   isLaunched(): boolean;
   saveCookies(id: string): Promise<void>;
   loadCookies(id: string): Promise<void>;
@@ -165,6 +172,13 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   const cookieDir = join(process.env.HOME || "/tmp", ".openclaw", "workspace", "topics-app", ".browser-cookies");
   try { mkdirSync(cookieDir, { recursive: true }); } catch {}
 
+  // Downloads triggered by the headless page are saved here and served at
+  // /media/browser/downloads/<file> (mediaBase = ~/.openclaw/media, see server.ts).
+  // The web streaming pane has no native download shelf, so it surfaces a
+  // user-clickable link to the saved file instead of losing the download.
+  const browserDownloadDir = join(process.env.HOME || "/tmp", ".openclaw", "media", "browser", "downloads");
+  try { mkdirSync(browserDownloadDir, { recursive: true }); } catch {}
+
   const contexts = new Map<string, BrowserContextEntry>();
   const targetIds = new Map<string, string>();  // contextId → CDP targetId
   // Human-readable label of the in-flight agent action, keyed by contextId.
@@ -185,6 +199,19 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     // with the same format/quality but the NEW viewport-derived dims.
     opts?: { format?: 'jpeg' | 'png'; quality?: number; maxWidth?: number; maxHeight?: number; everyNthFrame?: number };
   }>();
+  // Desired viewport + HiDPI per contextId, recorded by resize() BEFORE the
+  // context may exist. createContext() consults it so the FIRST-open size + DPR
+  // take effect at creation (the client sends resize on ws.onopen, which lands
+  // inside the 250ms screencast grace, before getOrCreate creates the context).
+  // deviceScaleFactor is immutable per Playwright context → for an already-live
+  // context a new DPR only applies after a reap+recreate (first-DPR-wins).
+  const pendingViewportHints = new Map<string, { width: number; height: number; deviceScaleFactor: number }>();
+  /** Clamp DPR to a bandwidth-safe range: 2× covers virtually all retina Macs;
+   *  3× would quadruple+ frame bytes and trip the backpressure drop. */
+  const clampDsf = (dsf: number | undefined): number => {
+    if (!dsf || !Number.isFinite(dsf) || dsf < 1) return 1;
+    return Math.min(dsf, 2);
+  };
   let browser: Browser | null = null;
   // Single-flight launch guard: in-flight chromium.launch() promise, shared by
   // all concurrent ensureBrowser() callers so a cold start spawns ONE Chromium.
@@ -343,16 +370,59 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     entry.listenersBound = true;
     const page = entry.page;
 
-    // Console capture
+    // Live console forwarding to the web streaming pane (schema `console`, which
+    // the client already handles). error/warn always pass; log/info/debug go
+    // through a token bucket (10/s, burst 10) so a chatty page can't flood the
+    // WS. The full ring buffer is still available via REST /console unthrottled.
+    let consoleTokens = 10;
+    let consoleLastRefill = Date.now();
+    const mapConsoleLevel = (t: string): 'log' | 'warn' | 'error' =>
+      t === 'error' ? 'error' : (t === 'warning' || t === 'warn') ? 'warn' : 'log';
     page.on("console", (msg) => {
+      const rawType = msg.type();
+      const text = msg.text();
       entry.consoleMessages.push({
-        level: msg.type(),
-        text: msg.text(),
+        level: rawType,
+        text,
         timestamp: Date.now(),
       });
       if (entry.consoleMessages.length > MAX_CONSOLE_MESSAGES) {
         entry.consoleMessages.shift();
       }
+      const level = mapConsoleLevel(rawType);
+      if (level === 'log') {
+        const now = Date.now();
+        consoleTokens = Math.min(10, consoleTokens + (now - consoleLastRefill) / 100);
+        consoleLastRefill = now;
+        if (consoleTokens < 1) return;
+        consoleTokens -= 1;
+      }
+      opts.broadcastToBrowserWs?.(id, {
+        type: 'console',
+        level,
+        text: text.length > 2000 ? text.slice(0, 2000) + '…' : text,
+      });
+    });
+
+    // Downloads: the web streaming pane has no native download shelf (the Tauri
+    // DownloadStrip is native-only). Save each download under our served media
+    // dir and surface a user-clickable link — no silent loss, no auto-open.
+    page.on("download", (download) => {
+      const rawName = download.suggestedFilename() || "download";
+      const safeName = rawName.replace(/[^\w.\-]+/g, "_").slice(-120);
+      const safeCtx = id.replace(/[^\w.\-]+/g, "_");
+      const stamped = `${safeCtx}__${Date.now()}__${safeName}`;
+      const dest = join(browserDownloadDir, stamped);
+      const href = `/media/browser/downloads/${encodeURIComponent(stamped)}`;
+      opts.broadcastToBrowserWs?.(id, { type: "download", filename: rawName, href, state: "started" });
+      download.saveAs(dest).then(() => {
+        let size: number | undefined;
+        try { size = statSync(dest).size; } catch {}
+        opts.broadcastToBrowserWs?.(id, { type: "download", filename: rawName, href, size, state: "completed" });
+      }).catch((err: any) => {
+        console.warn(`[BrowserService] download saveAs failed for ${id}:`, err?.message);
+        opts.broadcastToBrowserWs?.(id, { type: "download", filename: rawName, href, state: "failed" });
+      });
     });
 
     // Track navigation
@@ -459,13 +529,24 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         throw new Error(`Max contexts (${maxContexts}) reached`);
       }
       const b = await ensureBrowser();
-      const viewport = opts?.viewport || defaultViewport;
+      // Prefer the client's latest resize hint (real pane size + DPR) over the
+      // caller viewport/default, so the FIRST-open render already matches the
+      // pane and is HiDPI-sharp instead of the fixed 1280 letterbox.
+      const hint = pendingViewportHints.get(id);
+      const viewport = hint
+        ? { width: hint.width, height: hint.height }
+        : (opts?.viewport || defaultViewport);
+      const deviceScaleFactor = clampDsf(hint?.deviceScaleFactor ?? opts?.deviceScaleFactor);
 
       // Load persisted storageState if available (cookies + localStorage).
       // null is fine — newContext accepts undefined storageState.
       const persistedState = await loadStorageState(id);
       const context = await b.newContext({
         viewport,
+        // deviceScaleFactor is immutable per context — this is the ONLY place it
+        // is set. >1 makes CDP render the page at retina backing-store size; the
+        // screencast then clamps frames to width*dsf (see startScreencast/resize).
+        deviceScaleFactor,
         ...(persistedState ? { storageState: persistedState } : {}),
       });
 
@@ -501,6 +582,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           title: "",
           consoleMessages: [],
           persistCookies: opts?.persistCookies,
+          deviceScaleFactor,
         };
         contexts.set(id, entry);
         lastActivityAt = entry.lastActivity;  // a fresh context counts as activity
@@ -599,6 +681,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // otherwise leave a stale entry that never gets deleted, growing the Map
       // unbounded over the process lifetime as contexts churn.
       agentActionHints.delete(id);
+      // Same bound for the viewport hint — a reopened pane re-sends resize on
+      // ws.onopen (within the screencast grace), so the recreate gets a fresh one.
+      pendingViewportHints.delete(id);
       // Flush per-context caches (e.g. the browser_observe element cache).
       // Without this, the cleanup-timer auto-close + a later getOrCreate(id)
       // recreate a blank context under the same id while a stale IndexedElement[]
@@ -802,15 +887,24 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }));
     },
 
-    async resize(id, width, height) {
+    async resize(id, width, height, deviceScaleFactor) {
+      // Record desired size + DPR BEFORE getOrCreate: on FIRST open the context
+      // doesn't exist yet, and createContext() consults this hint so the context
+      // is born at the pane's real size AND deviceScaleFactor (immutable after).
+      const dsf = clampDsf(deviceScaleFactor ?? pendingViewportHints.get(id)?.deviceScaleFactor);
+      pendingViewportHints.set(id, { width, height, deviceScaleFactor: dsf });
       const entry = await service.getOrCreate(id);
       await entry.page.setViewportSize({ width, height });
       touchActivity(entry);
+      // The ACTUAL frame resolution follows the context's CREATION-time DPR: a
+      // later DPR change can't mutate a live Playwright context (first-DPR-wins),
+      // so the clamp uses entry.deviceScaleFactor, not the incoming value.
+      const effectiveDsf = clampDsf(entry.deviceScaleFactor);
       // Live screencast: Page.startScreencast locks maxWidth/maxHeight at start
       // time, so after an enlarge the stream stayed capped at the OLD dims —
       // blurry upscaled frames until the WS reconnected. Restart the cast on the
       // SAME CDP session (the Page.screencastFrame listener and the subscriber
-      // fan-out stay attached) with dims re-derived from the new viewport.
+      // fan-out stay attached) with dims re-derived from the new viewport × DPR.
       // Explicit caller-set maxWidth/maxHeight (a deliberate clamp) is preserved.
       const session = screencastSessions.get(id);
       if (session) {
@@ -818,9 +912,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           await session.cdpSession.send("Page.stopScreencast");
           await session.cdpSession.send("Page.startScreencast", {
             format: session.opts?.format ?? "jpeg",
-            quality: session.opts?.quality ?? 70,
-            maxWidth: session.opts?.maxWidth ?? width,
-            maxHeight: session.opts?.maxHeight ?? height,
+            // At >1× the frame carries ~4× the pixels — trim quality to hold the band.
+            quality: session.opts?.quality ?? (effectiveDsf > 1 ? 60 : 70),
+            maxWidth: session.opts?.maxWidth ?? Math.round(width * effectiveDsf),
+            maxHeight: session.opts?.maxHeight ?? Math.round(height * effectiveDsf),
             everyNthFrame: session.opts?.everyNthFrame ?? 2,
           });
         } catch (err: any) {
@@ -949,12 +1044,18 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       //   - everyNthFrame 2 → effective 30 → 15 FPS (Nyquist floor)
       //   - maxWidth/maxHeight clamp to viewport (no upscale)
       const viewport = entry.page.viewportSize() || { width: 1280, height: 720 };
+      // HiDPI: the page is rendered at deviceScaleFactor backing-store size;
+      // clamping to viewport.width (CSS) would downscale that retina detail away.
+      // Clamp to width×dsf so the first frames are already sharp (resize() keeps
+      // them so on later size changes). deviceWidth in frame metadata stays CSS
+      // px (DIP), so click mapping is unaffected.
+      const dsf = clampDsf(entry.deviceScaleFactor);
       try {
         await cdpSession.send("Page.startScreencast", {
           format: opts?.format ?? "jpeg",
-          quality: opts?.quality ?? 70,
-          maxWidth: opts?.maxWidth ?? viewport.width,
-          maxHeight: opts?.maxHeight ?? viewport.height,
+          quality: opts?.quality ?? (dsf > 1 ? 60 : 70),
+          maxWidth: opts?.maxWidth ?? Math.round(viewport.width * dsf),
+          maxHeight: opts?.maxHeight ?? Math.round(viewport.height * dsf),
           everyNthFrame: opts?.everyNthFrame ?? 2,
         });
       } catch (err) {

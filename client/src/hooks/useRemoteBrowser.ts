@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { parseBrowserWsMessage, type BrowserWsMessage } from '@/types/browser-ws-messages';
 import { serverWsBase } from '@/lib/shell/net';
+import { mapCoordinates } from './browserCoords';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -10,6 +11,15 @@ export interface SelectedElementInfo {
   cssPath: string;
   bbox: { x: number; y: number; w: number; h: number };
   text?: string;
+}
+
+/** A download the headless page triggered, saved server-side. `href` points at
+ *  our own origin (user-clicked link) — the web pane has no native shelf. */
+export interface DownloadInfo {
+  filename: string;
+  href: string;
+  size?: number;
+  state: 'started' | 'completed' | 'failed';
 }
 
 interface RemoteBrowserState {
@@ -30,6 +40,8 @@ interface RemoteBrowserState {
   selectMode: boolean;
   selectedElement: SelectedElementInfo | null;
   pageScaleFactor: number;
+  /** Downloads the headless page triggered (server-saved, surfaced as links). */
+  downloads: DownloadInfo[];
 }
 
 interface InteractionHandlers {
@@ -45,6 +57,9 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   reload: () => void;
   goHome: () => void;
   imgRef: React.RefObject<HTMLImageElement | null>;
+  /** Callback ref for the pane content element — wires a debounced ResizeObserver
+   *  that streams the pane's real size (+DPR) to the server (kills the letterbox). */
+  containerRef: (el: HTMLElement | null) => void;
   // Phase 30 BROWSER-CHAT-04 — take-control + select-element actions.
   takeControl: () => void;
   enterSelectMode: () => void;
@@ -52,13 +67,16 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   setSelectedElement: (el: SelectedElementInfo | null) => void;
 }
 
-const VIEWPORT_WIDTH = 1280;
-const VIEWPORT_HEIGHT = 720;
-
 const IDLE_INTERVAL = 2000;
 const ACTIVE_INTERVAL = 300;
 const ACTIVE_DURATION = 3000;
 const FALLBACK_DELAY_MS = 2000;
+// WS auto-reconnect: exponential backoff capped here. A transient drop now
+// restores the full-fidelity stream instead of stranding the pane in HTTP
+// polling forever (fallback-http stays as a parallel floor until WS returns).
+const MAX_RECONNECT_DELAY_MS = 10000;
+// Match the server's bandwidth-safe DPR ceiling (browser-service clampDsf).
+const MAX_DSF = 2;
 // Watchdog: `loading` is set true on navigate/reload and is normally cleared by
 // the server's `nav`/`response` message. If that message is lost (server crash,
 // dropped WS frame, a disconnect right after the request), `loading` — and thus
@@ -77,45 +95,6 @@ const SPECIAL_KEYS = new Set([
   'Home', 'End', 'PageUp', 'PageDown',
   'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
 ]);
-
-function mapCoordinates(
-  e: React.MouseEvent<HTMLImageElement>,
-  img: HTMLImageElement,
-  pageScaleFactor = 1,
-): { x: number; y: number } | null {
-  const rect = img.getBoundingClientRect();
-  const naturalW = img.naturalWidth || VIEWPORT_WIDTH;
-  const naturalH = img.naturalHeight || VIEWPORT_HEIGHT;
-  const imgAspect = naturalW / naturalH;
-  const containerAspect = rect.width / rect.height;
-
-  let displayW: number, displayH: number, offsetX: number, offsetY: number;
-
-  if (containerAspect > imgAspect) {
-    displayH = rect.height;
-    displayW = displayH * imgAspect;
-    offsetX = (rect.width - displayW) / 2;
-    offsetY = 0;
-  } else {
-    displayW = rect.width;
-    displayH = displayW / imgAspect;
-    offsetX = 0;
-    offsetY = (rect.height - displayH) / 2;
-  }
-
-  const localX = e.clientX - rect.left - offsetX;
-  const localY = e.clientY - rect.top - offsetY;
-
-  if (localX < 0 || localX > displayW || localY < 0 || localY > displayH) {
-    return null;
-  }
-
-  const scale = pageScaleFactor || 1;
-  return {
-    x: Math.round(((localX / displayW) * naturalW) / scale),
-    y: Math.round(((localY / displayH) * naturalH) / scale),
-  };
-}
 
 /**
  * @param isVisible When false (pane is hidden behind another tab/split), inbound
@@ -148,6 +127,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     selectMode: false,
     selectedElement: null,
     pageScaleFactor: 1,
+    downloads: [],
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -158,6 +138,18 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   const lastFrameSrcRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pageScaleFactorRef = useRef<number>(1);
+  // Latest CDP frame metadata (CSS-px device dims) for click mapping at HiDPI.
+  const frameMetaRef = useRef<{ deviceWidth?: number; deviceHeight?: number }>({});
+  // This client's DPR, clamped to the server's bandwidth-safe ceiling (2×).
+  const dsfRef = useRef<number>(
+    Math.max(1, Math.min(MAX_DSF, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)),
+  );
+  // Pane content element + its ResizeObserver, and the last size actually sent
+  // (dedup guard). See containerRef + sendResize below.
+  const containerElRef = useRef<HTMLElement | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const resizeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSentSizeRef = useRef<{ w: number; h: number; dsf: number }>({ w: 0, h: 0, dsf: 0 });
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeUntilRef = useRef<number>(0);
@@ -204,6 +196,46 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       connected: next === 'connected' || next === 'fallback-http',
     }));
   }, []);
+
+  // Stream the pane's real size (+DPR) to the server so its viewport matches the
+  // pane — kills the fixed-1280 letterbox and renders HiDPI-sharp. Deduped (a
+  // no-op resize is skipped) and only sent while the WS is live; the value is
+  // force-re-sent on every (re)connect (see ws.onopen) so the server viewport
+  // is correct even after a context recreate.
+  const sendResize = useCallback((width: number, height: number) => {
+    if (width <= 0 || height <= 0) return;
+    const dsf = dsfRef.current;
+    const last = lastSentSizeRef.current;
+    if (last.w === width && last.h === height && last.dsf === dsf) return;
+    lastSentSizeRef.current = { w: width, h: height, dsf };
+    if (connectionStateRef.current === 'connected' && wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        const msg: BrowserWsMessage = { type: 'resize', width, height, deviceScaleFactor: dsf };
+        wsRef.current.send(JSON.stringify(msg));
+      } catch { /* dropped — re-sent on next reconnect/resize */ }
+    }
+  }, []);
+
+  // Callback ref for the pane content element: wires a debounced (~150ms)
+  // ResizeObserver that reports size changes via sendResize. Re-attaching (or
+  // null on unmount) tears down the previous observer + timer.
+  const containerRef = useCallback((el: HTMLElement | null) => {
+    if (resizeObserverRef.current) { resizeObserverRef.current.disconnect(); resizeObserverRef.current = null; }
+    if (resizeDebounceRef.current) { clearTimeout(resizeDebounceRef.current); resizeDebounceRef.current = null; }
+    containerElRef.current = el;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      sendResize(Math.round(r.width), Math.round(r.height));
+    };
+    const ro = new ResizeObserver(() => {
+      if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
+      resizeDebounceRef.current = setTimeout(measure, 150);
+    });
+    ro.observe(el);
+    resizeObserverRef.current = ro;
+    measure(); // initial size (also force-re-sent on ws.onopen)
+  }, [sendResize]);
 
   // REST fallback — kept for graceful degradation when the WS bridge is down.
   // The interact endpoint does getOrCreate server-side.
@@ -278,35 +310,55 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     interact({ action, ...payload });
   }, [interact]);
 
-  // WebSocket lifecycle. Opens once per contextId, retries to fallback-http
-  // on close/error after FALLBACK_DELAY_MS.
+  // WebSocket lifecycle with exponential-backoff auto-reconnect. `connect()` is
+  // (re)invoked by the mount effect, the backoff timer, and focus/online wake —
+  // a transient drop restores the full-fidelity stream instead of stranding the
+  // pane in HTTP polling. fallback-http stays as a parallel floor until the WS
+  // returns (a successful onopen supersedes it).
   useEffect(() => {
     mountedRef.current = true;
-    const wsUrl = `${serverWsBase()}/ws/browser/${encodedId}`;
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(wsUrl);
-    } catch {
-      // Browser blocked WS — go straight to fallback.
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot fallback in a rare synchronous-throw path (WS constructor blocked); not a cascading update, the effect returns immediately after
-      updateConnectionState('fallback-http');
-      return () => {
-        mountedRef.current = false;
-      };
-    }
-    wsRef.current = ws;
-    updateConnectionState('connecting');
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    ws.onopen = () => {
+    const connect = () => {
       if (!mountedRef.current) return;
+      // Dedup guard: if a socket is already connecting or open, don't spawn a
+      // duplicate. The backoff timer, focus/online wake, and React StrictMode's
+      // double-mount can all race a second connect(); only (re)connect when the
+      // current socket is truly gone (null / CLOSING / CLOSED).
+      const cur = wsRef.current;
+      if (cur && (cur.readyState === WebSocket.CONNECTING || cur.readyState === WebSocket.OPEN)) return;
+      const wsUrl = `${serverWsBase()}/ws/browser/${encodedId}`;
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch {
+        // Browser blocked WS — go straight to fallback (no retry loop).
+        updateConnectionState('fallback-http');
+        return;
+      }
+      wsRef.current = ws;
+      if (connectionStateRef.current !== 'connected') updateConnectionState('connecting');
+
+    // Every handler is inert unless `ws` is STILL the current socket — a
+    // superseded socket (StrictMode double-mount, a reconnect that replaced it)
+    // must not touch connection state or it would flap the pane to disconnected.
+    ws.onopen = () => {
+      if (!mountedRef.current || wsRef.current !== ws) return;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       updateConnectionState('connected');
+      // NOTE: reconnectAttempt is NOT reset here — only a real FRAME (stable
+      // connection) resets the backoff. A flapping server (open→close→open→…
+      // with no frame) must let the backoff GROW so its reconnects move away
+      // from the fallback timer and polling can engage. See the 'frame' case.
       // Don't clear `error` here: it's a NAVIGATION error now (BRW-REL-02),
       // owned by navigate()/nav-response. Clearing on (re)connect let the WS
       // retry churn wipe the strip milliseconds after a failed nav set it.
-      if (fallbackTimerRef.current) {
-        clearTimeout(fallbackTimerRef.current);
-        fallbackTimerRef.current = null;
-      }
+      //
+      // Do NOT clear the fallback timer here: a FLAPPING server (open→close→
+      // open→close before delivering any frame) would otherwise reset it on
+      // every brief open and never degrade to polling. The fallback timer is
+      // cleared only once a real FRAME proves the stream works (see 'frame').
       // Sync url/title from the server's known context state once on connect.
       // The bridge streams `frame`s but only emits a `nav` message on an
       // actual navigation — a pane that (re)connects to an already-navigated
@@ -315,10 +367,18 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       // GET is the server's source of truth; `data.url || s.url` never clobbers
       // a fresher optimistic/nav value.
       fetchInfo();
+      // Force-(re)send the pane size so the server viewport matches on (re)connect
+      // — after a context recreate the server starts at the default otherwise.
+      lastSentSizeRef.current = { w: 0, h: 0, dsf: 0 };
+      const el = containerElRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        sendResize(Math.round(r.width), Math.round(r.height));
+      }
     };
 
     ws.onmessage = (event) => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || wsRef.current !== ws) return;
       try {
         const raw = JSON.parse(event.data);
         const result = parseBrowserWsMessage(raw);
@@ -333,6 +393,15 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         const msg = result.data;
         switch (msg.type) {
           case 'frame': {
+            // A real frame proves the WS stream works: clear any pending
+            // fallback-to-polling timer and (re)assert 'connected'. Done BEFORE
+            // the isVisible gate so a hidden pane still counts as connected, and
+            // this is the ONLY place the fallback timer + reconnect backoff are
+            // reset (a flapping server that never delivers a frame must still
+            // degrade to polling, with a GROWING backoff).
+            reconnectAttempt = 0;
+            if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
+            if (connectionStateRef.current !== 'connected') updateConnectionState('connected');
             // Hidden pane: drop the frame (keep the last one painted) to skip the
             // base64 decode + img repaint. See the isVisible param docs above.
             if (!isVisibleRef.current) break;
@@ -340,6 +409,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             if (psf) {
               pageScaleFactorRef.current = psf;
             }
+            // Stash the device (CSS-px) dims for HiDPI-correct click mapping.
+            frameMetaRef.current = {
+              deviceWidth: msg.metadata?.deviceWidth,
+              deviceHeight: msg.metadata?.deviceHeight,
+            };
             const src = `data:image/jpeg;base64,${msg.data}`;
             // Steady-state frames are DIRECT DOM writes (same pattern as the
             // drag paths in SplitTree/useGridResize): at ~15fps a setState
@@ -390,6 +464,18 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
               agentAction: msg.active && msg.action ? msg.action : s.agentAction,
             }));
             break;
+          case 'download':
+            // Surface the server-saved download as a clickable link (the web
+            // pane has no native shelf). Dedup by href: update its state, or
+            // append; keep the strip bounded to the most recent few.
+            setState(s => {
+              const next = s.downloads.slice();
+              const i = next.findIndex(d => d.href === msg.href);
+              const info: DownloadInfo = { filename: msg.filename, href: msg.href, size: msg.size, state: msg.state };
+              if (i >= 0) next[i] = info; else next.push(info);
+              return { ...s, downloads: next.slice(-8) };
+            });
+            break;
           default:
             break;
         }
@@ -399,27 +485,55 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
 
     ws.onerror = () => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || wsRef.current !== ws) return;
       updateConnectionState('disconnected');
     };
 
     ws.onclose = () => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || wsRef.current !== ws) return;
       updateConnectionState('disconnected');
-      // Schedule fallback transition. 2s grace allows brief network hiccups
-      // to recover via WS retry (added in 30-05 if needed) before falling
-      // back to polling.
-      fallbackTimerRef.current = setTimeout(() => {
-        if (!mountedRef.current) return;
-        if (connectionStateRef.current !== 'connected') {
-          updateConnectionState('fallback-http');
-        }
-      }, FALLBACK_DELAY_MS);
+      // (a) Floor: after a 2s grace, degrade to HTTP polling so the pane stays
+      // usable even if the WS can't be restored. Only arm once.
+      if (!fallbackTimerRef.current) {
+        fallbackTimerRef.current = setTimeout(() => {
+          if (!mountedRef.current) return;
+          if (connectionStateRef.current !== 'connected') {
+            updateConnectionState('fallback-http');
+          }
+        }, FALLBACK_DELAY_MS);
+      }
+      // (b) But keep trying to restore the full WS stream with exponential
+      // backoff — a successful reconnect (onopen) supersedes polling.
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      const delay = Math.min(1000 * 2 ** reconnectAttempt, MAX_RECONNECT_DELAY_MS);
+      reconnectAttempt += 1;
+      reconnectTimer = setTimeout(connect, delay);
     };
+    }; // end connect()
+
+    connect();
+
+    // Reconnect immediately when the tab regains focus or the network returns
+    // (e.g. after sleep) instead of waiting out the backoff.
+    const onWake = () => {
+      if (!mountedRef.current) return;
+      // Only kick a reconnect when we're actually down — never interrupt an
+      // in-flight connect (connecting) or a healthy socket (connected).
+      const st = connectionStateRef.current;
+      if (st === 'connected' || st === 'connecting') return;
+      reconnectAttempt = 0;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      connect();
+    };
+    window.addEventListener('online', onWake);
+    window.addEventListener('focus', onWake);
 
     return () => {
       mountedRef.current = false;
-      try { ws.close(); } catch {}
+      window.removeEventListener('online', onWake);
+      window.removeEventListener('focus', onWake);
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      try { wsRef.current?.close(); } catch { /* already gone */ }
       wsRef.current = null;
       if (fallbackTimerRef.current) {
         clearTimeout(fallbackTimerRef.current);
@@ -428,7 +542,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
       clearLoadingWatchdog();
     };
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo]);
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize]);
 
   // HTTP polling effect — runs ONLY when the WS dropped to fallback-http.
   // Mirrors the legacy polling loop but gated on connectionState.
@@ -526,7 +640,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   const onClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
     if (connectionStateRef.current === 'disconnected') return;
     const img = e.currentTarget;
-    const coords = mapCoordinates(e, img, pageScaleFactorRef.current);
+    const coords = mapCoordinates(e, img, {
+      pageScaleFactor: pageScaleFactorRef.current,
+      deviceWidth: frameMetaRef.current.deviceWidth,
+      deviceHeight: frameMetaRef.current.deviceHeight,
+      deviceScaleFactor: dsfRef.current,
+    });
     if (!coords) return;
     markActive();
     setState(s => ({ ...s, lastClickPos: { x: e.clientX, y: e.clientY, t: Date.now() } }));
@@ -540,7 +659,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     lastScrollRef.current = now;
 
     const img = e.currentTarget;
-    const coords = mapCoordinates(e as unknown as React.MouseEvent<HTMLImageElement>, img, pageScaleFactorRef.current);
+    const coords = mapCoordinates(e as unknown as React.MouseEvent<HTMLImageElement>, img, {
+      pageScaleFactor: pageScaleFactorRef.current,
+      deviceWidth: frameMetaRef.current.deviceWidth,
+      deviceHeight: frameMetaRef.current.deviceHeight,
+      deviceScaleFactor: dsfRef.current,
+    });
     if (!coords) return;
 
     markActive();
@@ -625,9 +749,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     onWheel,
     onKeyDown,
     imgRef,
+    containerRef,
     takeControl,
     enterSelectMode,
     exitSelectMode,
     setSelectedElement,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, takeControl, enterSelectMode, exitSelectMode, setSelectedElement]);
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement]);
 }

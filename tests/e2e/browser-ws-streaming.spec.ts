@@ -307,14 +307,55 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
     }
   });
 
-  test("fallback-http: WS close transitions to polling within ceiling without screenshotSrc null [BROWSER-CHAT-02 / @plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("auto-reconnect: a transient WS drop re-opens the socket, screenshot never blanks [native-grade]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
-      connected: true,
-      url: "https://example.com",
-      title: "Example",
-      hasScreenshot: true,
+      connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
+    });
+
+    const topic = await createTopic(request, `E2E-WSReconnect-${Date.now()}`);
+    try {
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await mountBrowserPane(page, topic.id);
+
+      // The screenshot rendering proves the WS is streaming (connected).
+      const img = page.locator('img[alt="Browser page"]').or(page.locator('img[alt="Example"]'));
+      await expect(img.first()).toBeVisible({ timeout: 10000 });
+      expect(await img.first().getAttribute("src")).toBeTruthy();
+      const connectsBefore = browserProcessPageV2.getWsConnectCount();
+
+      // Transient drop: the client must auto-reconnect (open a NEW socket) rather
+      // than be stranded in polling. Observed via the mock's connection count so
+      // we don't race the connection-indicator class transitions.
+      browserProcessPageV2.closeWs();
+      await expect
+        .poll(() => browserProcessPageV2.getWsConnectCount(), { timeout: 8000 })
+        .toBeGreaterThan(connectsBefore);
+      // The last frame is retained across the blip — no blank on reveal.
+      expect(await img.first().getAttribute("src")).toBeTruthy();
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("fallback-http: WS unavailable → degrades to REST polling (screenshot via snapshot) [BROWSER-CHAT-02 / @plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+    await browserProcessPageV2.mockBrowserContexts([]);
+    await browserProcessPageV2.mockRemoteBrowserPane({
+      connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
+    });
+    // Make the browser WS constructor throw so no socket can open — the client
+    // then can't reconnect and degrades to the fallback-http polling FLOOR.
+    await page.addInitScript(() => {
+      const orig = window.WebSocket;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).WebSocket = class extends orig {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          if (String(url).includes("/ws/browser/")) throw new Error("WS blocked (test)");
+          super(url, protocols);
+        }
+      };
     });
 
     const topic = await createTopic(request, `E2E-WSFallback-${Date.now()}`);
@@ -325,78 +366,85 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
 
       const indicator = page.locator('[data-testid="browser-connection-indicator"]');
       await expect(indicator).toBeVisible({ timeout: 10000 });
-
-      // Wait for connection-live class.
-      await expect(indicator).toHaveClass(/connection-(live|connecting)/, { timeout: 5000 });
-
-      // Force-close the WS.
-      browserProcessPageV2.closeWs();
-
-      // B4 FIX: ceiling = 4000ms = 2x FALLBACK_DELAY_MS (2000ms internal
-      // timer in useRemoteBrowser.ts:56).
+      // No WS → straight to fallback-http (polling), never stuck "connecting".
       await expect(indicator).toHaveClass(/connection-fallback/, {
         timeout: PERF.fallback_http_grace_ms_ceiling,
       });
-
-      // Screenshot src should still be present (no null/blank).
-      const img = page
-        .locator('img[alt="Browser page"]')
-        .or(page.locator('img[alt="Example"]'));
+      // Screenshot still renders via REST snapshot polling — no blank.
+      const img = page.locator('img[alt="Browser page"]').or(page.locator('img[alt="Example"]'));
       await expect(img.first()).toBeVisible({ timeout: 5000 });
-      const src = await img.first().getAttribute("src");
-      expect(src).toBeTruthy();
+      expect(await img.first().getAttribute("src")).toBeTruthy();
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
 
-  test("connection indicator transitions live -> fallback -> disconnected [BROWSER-CHAT-02 / @plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("resize: pane streams its real size (+DPR) on open AND on size change [native-grade]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
-      connected: true,
-      url: "https://example.com",
-      title: "Example",
-      hasScreenshot: true,
+      connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
     });
 
-    const topic = await createTopic(request, `E2E-WSIndicator-${Date.now()}`);
+    const topic = await createTopic(request, `E2E-WSResize-${Date.now()}`);
     try {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
 
-      const indicator = page.locator('[data-testid="browser-connection-indicator"]');
-      await expect(indicator).toBeVisible({ timeout: 10000 });
+      // Accumulate inbound messages (drainInputMessages clears each call).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const seen: any[] = [];
+      const pollResizes = () => {
+        seen.push(...browserProcessPageV2.drainInputMessages());
+        return seen.filter((m) => m?.type === "resize");
+      };
 
-      // 1. Live state.
-      await expect(indicator).toHaveClass(/connection-(live|connecting)/, { timeout: 5000 });
+      // 1. A resize is sent right on WS open — kills the fixed-1280 letterbox.
+      await expect.poll(pollResizes, { timeout: 6000 }).not.toHaveLength(0);
+      const first = seen.find((m) => m?.type === "resize");
+      expect(first.width).toBeGreaterThan(0);
+      expect(first.height).toBeGreaterThan(0);
+      expect(first.deviceScaleFactor).toBeGreaterThanOrEqual(1);
 
-      // 2. Force WS close -> fallback class within fallback_http_grace_ms_ceiling.
-      browserProcessPageV2.closeWs();
-      await expect(indicator).toHaveClass(/connection-fallback/, {
-        timeout: PERF.fallback_http_grace_ms_ceiling,
+      // 2. Changing the window size drives the ResizeObserver → a new resize.
+      const before = pollResizes().length;
+      await page.setViewportSize({ width: 700, height: 620 });
+      await expect.poll(() => pollResizes().length, { timeout: 6000 }).toBeGreaterThan(before);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
+  test("download strip: a headless-page download surfaces as a clickable link [native-grade]", async ({ page, browserProcessPageV2, request }) => {
+    await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockBrowserContexts([]);
+    await browserProcessPageV2.mockRemoteBrowserPane({
+      connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
+    });
+
+    const topic = await createTopic(request, `E2E-WSDownload-${Date.now()}`);
+    try {
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await mountBrowserPane(page, topic.id);
+      // The screenshot rendering proves the WS is streaming (connected), so a
+      // sendDownload will reach the client. Avoids racing the indicator class.
+      const img = page.locator('img[alt="Browser page"]').or(page.locator('img[alt="Example"]'));
+      await expect(img.first()).toBeVisible({ timeout: 10000 });
+
+      browserProcessPageV2.sendDownload({
+        filename: "report.pdf",
+        href: "/media/browser/downloads/report.pdf",
+        size: 4096,
+        state: "completed",
       });
 
-      // 3. Now break REST too -> disconnected/fallback class within 8s.
-      await page.route(/\/api\/browsers\/[^/]+\/snapshot/, async (route) => {
-        await route.fulfill({ status: 503, body: "service unavailable" });
-      });
-      await page.route(/\/api\/browsers\/[^/]+$/, async (route) => {
-        if (route.request().method() === "GET") {
-          await route.fulfill({ status: 503, body: "service unavailable" });
-        } else {
-          await route.fallback();
-        }
-      });
-      // Polling loop runs every 2s in fallback-http. The indicator currently
-      // stays in fallback class even after REST 503s in this hook iteration
-      // (the disconnect transition is reserved for a follow-up); accept either
-      // the disconnected class OR sustained fallback as evidence the system
-      // is failing safely.
-      await expect(indicator).toHaveClass(/connection-disconnected|connection-fallback/, {
-        timeout: 8000,
-      });
+      const strip = page.locator('[data-testid="browser-download-strip"]');
+      await expect(strip).toBeVisible({ timeout: 5000 });
+      const link = strip.locator('[data-testid="browser-download-item"]');
+      await expect(link).toContainText("report.pdf");
+      await expect(link).toHaveAttribute("href", "/media/browser/downloads/report.pdf");
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

@@ -1,5 +1,5 @@
 import { BrowserToolbar } from './BrowserToolbar';
-import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw } from 'lucide-react';
+import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download } from 'lucide-react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
@@ -519,8 +519,11 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
         agentAction={browser.agentAction}
       />
 
-      {/* Content — screenshot viewer */}
+      {/* Content — screenshot viewer. containerRef wires a debounced
+          ResizeObserver → the server viewport tracks this element's real size
+          (+DPR), so the page reflows to fill it with no fixed-1280 letterbox. */}
       <div
+        ref={browser.containerRef}
         className="flex-1 min-h-0 overflow-hidden relative bg-surface focus-within:ring-1 focus-within:ring-primary/30"
         tabIndex={0}
         onKeyDown={browser.onKeyDown}
@@ -662,6 +665,39 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
           onCancel={() => browser.exitSelectMode()}
         />
       </div>
+
+      {/* Download strip — the web streaming pane has no native download shelf,
+          so headless-page downloads (saved server-side under our origin) surface
+          here as user-clickable links. Newest last, bounded by the hook. */}
+      {browser.downloads.length > 0 && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 border-t border-app-border bg-app-bg flex-shrink-0 overflow-x-auto"
+          data-testid="browser-download-strip"
+        >
+          <Download size={13} className="text-app-text-muted flex-shrink-0" aria-hidden />
+          {browser.downloads.map((d) => (
+            <a
+              key={d.href}
+              href={d.href}
+              download
+              target="_blank"
+              rel="noreferrer"
+              title={d.state === 'failed' ? 'Download fallito' : d.filename}
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-app-border text-[12px] text-app-text hover:bg-app-hover transition-colors flex-shrink-0 max-w-[220px]"
+              data-testid="browser-download-item"
+            >
+              {d.state === 'completed' ? (
+                <Check size={12} className="text-green-600 dark:text-green-400 flex-shrink-0" aria-hidden />
+              ) : d.state === 'failed' ? (
+                <X size={12} className="text-red-500 flex-shrink-0" aria-hidden />
+              ) : (
+                <Loader2 size={12} className="animate-spin text-app-spinner flex-shrink-0" aria-hidden />
+              )}
+              <span className="truncate">{d.filename}</span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
