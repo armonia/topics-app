@@ -914,11 +914,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               >+ descrizione…</button>
             )}
           </div>
-          {/* Browser previews — every task tab (live + soft-closed), always here
-              under the description so a closed tab stays reopenable and every
-              tab is a one-click preview. Live → focus it in the layout; parked →
-              reopen; × → hard-remove. */}
-          {TASK_BROWSER_ENABLED && browser.allTabs.length > 0 && (
+          {/* Browser strip — every task tab (live + soft-closed), always here
+              under the description so a closed tab stays reopenable and every tab
+              is a one-click preview. The `+` is ALWAYS available (the user's
+              entry point to open a browser in the task, next to the agent's).
+              Live → focus in the layout; parked → reopen; × → hard-remove. */}
+          {TASK_BROWSER_ENABLED && (
             <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-white/10 px-3 py-2 scrollbar-topbar" data-testid="task-browser-previews">
               {browser.allTabs.map((t) => {
                 const label = t.title || hostLabel(t.url) || 'Nuova scheda';
@@ -946,9 +947,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               })}
               <button
                 onClick={() => { browser.addBrowserTab(); selectSurface('browser'); }}
-                title="Nuova scheda browser"
-                className="shrink-0 rounded p-1 text-neutral-500 hover:bg-white/10 hover:text-neutral-200"
-              ><Plus className="h-3.5 w-3.5" /></button>
+                title="Apri una scheda browser nel task"
+                className="flex shrink-0 items-center gap-1 rounded p-1 text-[11px] text-neutral-500 hover:bg-white/10 hover:text-neutral-200"
+              ><Plus className="h-3.5 w-3.5" />{browser.allTabs.length === 0 && <span>scheda browser</span>}</button>
             </div>
           )}
           {/* Subtask tree — unlimited depth, lazy-expanded. The agent's steps
