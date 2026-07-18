@@ -28,14 +28,15 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // fresh array only when the task set actually changes, not every render.
   const itemIds = useMemo(() => tasks.map((t) => t.id), [tasks]);
 
-  // Responsive columns. On phone/tablet (<lg) the board is a scroll-snap carousel:
-  // every column is a fixed w-72 that fits a 320px viewport with a peek of its
-  // neighbours on both sides, and `snap-center` makes each column glide to the
-  // middle as its own "slide" when you swipe — so Review simply arrives as one of
-  // the slides instead of being pinned on screen. On desktop (lg+) snapping is off,
-  // columns sit in normal flow, and Review widens for its inline controls.
+  // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
+  // each column `snap-center`s to the middle as its own "slide", so whenever the
+  // columns overflow the viewport (a phone, or a narrow desktop pane / open drawer)
+  // scrolling glides column-by-column and always frames a useful one — instead of
+  // stopping half-way between two. When everything already fits (wide desktop),
+  // there is no overflow so snapping is inert. Columns are a fixed w-72 with a peek
+  // of their neighbours on both sides; Review is wider (its own, roomier slide).
   const isReview = status === 'review';
-  const snapCls = 'snap-center lg:snap-align-none';
+  const snapCls = 'snap-center';
   // Review is the approval surface — give it more room than the working columns
   // on every viewport (wider slide on mobile, 32rem on desktop).
   const widthCls = isReview ? 'w-[22rem] lg:w-[32rem]' : 'w-72';

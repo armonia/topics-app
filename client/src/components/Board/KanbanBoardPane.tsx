@@ -728,7 +728,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
-            <div className="flex h-full min-w-0 snap-x snap-mandatory scroll-smooth gap-2 overflow-x-auto px-2 py-3 pb-20 sm:gap-3 sm:px-3 lg:snap-none">
+            <div className="flex h-full min-w-0 snap-x snap-mandatory scroll-smooth gap-2 overflow-x-auto px-2 py-3 pb-20 sm:gap-3 sm:px-3">
               {TASK_STATUSES.map((status) => (
                 <Column
                   key={status}
