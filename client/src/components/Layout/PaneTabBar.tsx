@@ -119,6 +119,13 @@ interface PaneTabBarProps {
    * page-title poll stops overwriting it (see browserPaneUrl.setBrowserPaneUserTitle).
    */
   onRenameBrowser?: (paneId: string, name: string) => void;
+  /**
+   * Pane ids whose close affordance (the tab X + the context-menu "Close"
+   * entries) must be hidden: panes the host owns structurally rather than
+   * free-standing tabs — the task drawer's derived Thread / Piano / media
+   * surfaces. Default undefined ⇒ every tab is closable (app unchanged).
+   */
+  nonClosablePaneIds?: Set<string>;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
   onStopStreaming?: (paneId: string) => void;
@@ -161,7 +168,7 @@ interface PaneTabBarProps {
   addMenuScope?: PaneScope;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project' }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -844,11 +851,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 the spinner and notification badge are the trailing-most things on
                 the tab ("loading e stato a fine tab"). The close X is revealed on
                 hover in this slot; idle it shows the ⌘N index (Electron). */}
-            <PaneCloseButton
-              paneId={pane.id}
-              onClose={onClose}
-              isTouch={isTouch}
-            />
+            {!nonClosablePaneIds?.has(pane.id) && (
+              <PaneCloseButton
+                paneId={pane.id}
+                onClose={onClose}
+                isTouch={isTouch}
+              />
+            )}
             {/* Loading spinner — one canonical widget per pane kind.
                 All three read from StreamingContext; rendering only when
                 the corresponding signal is on. Chat is interruptible
@@ -1063,25 +1072,30 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           {/* Right-click "Close" is the explicit-confirmation path — bypass
               the PendingAction countdown that gates the default X button.
               Falls back to onClose for legacy callers that don't pass
-              onCloseImmediate. */}
-          <button
-            onClick={() => {
-              (onCloseImmediate ?? onClose)(ctxMenu.paneId);
-              setCtxMenu(null);
-            }}
-            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-          >
-            <X size={14} />
-            <span className="flex-1 text-left">Close now</span>
-          </button>
-          <button
-            onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
-            className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-            title="Queues a 3-second confirmation toast"
-          >
-            <X size={14} />
-            <span className="flex-1 text-left">Close (with countdown)</span>
-          </button>
+              onCloseImmediate. Hidden for structurally-owned (non-closable)
+              panes, same as the tab X. */}
+          {!nonClosablePaneIds?.has(ctxMenu.paneId) && (
+            <>
+              <button
+                onClick={() => {
+                  (onCloseImmediate ?? onClose)(ctxMenu.paneId);
+                  setCtxMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+              >
+                <X size={14} />
+                <span className="flex-1 text-left">Close now</span>
+              </button>
+              <button
+                onClick={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
+                className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                title="Queues a 3-second confirmation toast"
+              >
+                <X size={14} />
+                <span className="flex-1 text-left">Close (with countdown)</span>
+              </button>
+            </>
+          )}
           {panes.length > 1 && (
             <button
               onClick={() => {

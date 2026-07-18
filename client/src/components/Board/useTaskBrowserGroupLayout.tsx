@@ -1,19 +1,20 @@
 /**
  * useTaskBrowserGroupLayout — drive the app's real layout engine (`GroupLayout`)
- * for a task's browser tabs, task-scoped and OUTSIDE `pane-store-v2`.
+ * for the WHOLE task drawer body, task-scoped and OUTSIDE `pane-store-v2`.
  *
- * It marries the two task-scoped stores — identity (`taskBrowserTabs`) and the
- * tiling descriptor (`taskBrowserLayout`) — into the exact prop set `GroupLayout`
- * expects: `panes` derived from the live (non-parked) tabs, the reconciled
- * groups/rows, and every mutation callback routed back into the task-scoped
- * reducers. Pop-out / move-to-Space / settings are deliberately NOT wired (the
- * only gestures that would cross into the global pane store), so the reused
- * engine can never leak a task pane into the app layout.
+ * The drawer's surfaces are ONE tab group of the app's real `PaneTabBar`: a
+ * always-present Thread pane, the task's live browser tabs, an optional Piano
+ * pane, and one pane per media attachment. Thread/plan/media are DERIVED from
+ * task data (not persisted identities), so they're composed into the pane list
+ * at render-time here; only the browser tabs have a persisted identity store
+ * (`taskBrowserTabs`). The tiling descriptor (`taskBrowserLayout`) is pane-id
+ * agnostic, so it hosts the synthetic panes for free.
  *
- * The reconciled layout is committed back to the store in an effect, so the
- * handlers (which read the persisted state) always operate on the same groups
- * the user sees rendered — the first render mints groups from the tabs, the
- * effect persists them, and every later interaction is structural.
+ * Reuse boundary: `GroupLayout` + `SplitTree` + `PaneTabBar` are the real app
+ * components (split / resize / drag / drop are native). Pop-out / move-to-Space
+ * / settings / rename-chat are deliberately NOT wired (the only gestures that
+ * would cross into the global pane store). The synthetic panes are marked
+ * non-closable so the shared `PaneTabBar` hides their X.
  */
 import { useCallback, useEffect, useMemo } from 'react';
 import type { Pane, PaneType, PaneGroupType, GroupLayoutRow, PaneGroup } from '../../types';
@@ -29,19 +30,44 @@ import {
 
 const BROWSER_ONLY: PaneType[] = ['browser'];
 
+// Stable ids for the derived (non-browser) surfaces. They never enter
+// pane-store-v2; they live only in this task's tiling descriptor.
+const threadPaneId = (taskId: string) => `thread:${taskId}`;
+const planPaneId = (taskId: string) => `plan:${taskId}`;
+const mediaPaneId = (path: string) => `media:${path}`;
+const isBrowserPane = (paneId: string) => paneId.startsWith('browser:');
+
+/** Only browser tabs (agent-opened / seeded output) and the Thread may claim
+ *  the active slot when they appear; a plan/media pane arriving mid-read must
+ *  never yank the user off what they're viewing. Thread wins only when no
+ *  browser exists (it's first, browsers are appended after it → last-match). */
+const canAutoActivate = (paneId: string) => isBrowserPane(paneId) || paneId.startsWith('thread:');
+
+/** How TaskDetail renders the body of a non-browser (thread/plan/media) pane. */
+export type RenderSurface = (pane: Pane, isVisible: boolean) => React.ReactNode;
+
+export interface TaskDrawerLayoutInput {
+  /** True when the task has a plan-first plan to surface (planComment != null). */
+  planActive: boolean;
+  /** Attachment paths, already deduped/ordered by TaskDetail. */
+  mediaPaths: string[];
+  /** Renders thread/plan/media pane bodies (closure from TaskDetail). */
+  renderSurface: RenderSurface;
+}
+
 export interface TaskBrowserGroupLayout {
-  /** True when the task has at least one LIVE (non-parked) browser tab. */
-  hasBrowser: boolean;
   liveCount: number;
-  /** The soft-closed tabs for the closed-tab tray under the description. */
+  /** The soft-closed browser tabs for the closed-tab tray under the description. */
   parkedTabs: TaskBrowserTab[];
   /** Open a fresh browser tab (tray "+" / empty-state affordance). */
   addBrowserTab: () => void;
-  /** Reopen a parked tab into the layout. */
+  /** Reopen a parked browser tab into the layout. */
   reopenTab: (contextId: string) => void;
-  /** Hard-remove a tab (tray trash). */
+  /** Hard-remove a parked browser tab (tray trash). */
   removeTab: (contextId: string) => void;
-  /** Seed the first tab from a url only when the task has no tabs yet. */
+  /** Activate a pane in whichever group hosts it (thread-attachment click). */
+  focusPane: (paneId: string) => void;
+  /** Seed the first browser tab from a url only when the task has no tabs yet. */
   seedFromUrl: (url: string, title?: string) => Promise<void>;
   /** Spread straight into `<GroupLayout {...props} />`. */
   groupLayoutProps: {
@@ -51,6 +77,7 @@ export interface TaskBrowserGroupLayout {
     rowHeights: number[];
     focusedGroupId: string | null;
     dndScope: string;
+    nonClosablePaneIds: Set<string>;
     onActivatePane: (groupId: string, paneId: string) => void;
     onClosePane: (groupId: string, paneId: string) => void;
     onClosePaneImmediate: (groupId: string, paneId: string) => void;
@@ -67,17 +94,44 @@ export interface TaskBrowserGroupLayout {
   };
 }
 
-export function useTaskBrowserGroupLayout(taskId: string): TaskBrowserGroupLayout {
+export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayoutInput): TaskBrowserGroupLayout {
+  const { planActive, mediaPaths, renderSurface } = input;
   const tabsState = useTaskBrowserTabs(taskId);
   const persisted = usePersistedTaskLayout(taskId);
 
   const live = useMemo(() => liveTabs(tabsState), [tabsState]);
-  const livePaneIds = useMemo(() => live.map((t) => `browser:${t.contextId}`), [live]);
-  const panes = useMemo(() => live.map(tabToPane), [live]);
 
-  // Reconcile the persisted layout against the live pane set (append new tabs,
-  // prune closed/parked ones, preserve manual sizes). Same-reference stable.
-  const reconciled = useMemo(() => reconcileTaskLayout(persisted, livePaneIds), [persisted, livePaneIds]);
+  // The derived (non-browser) surface panes. Stable ids so GroupLayout's
+  // keep-alive never remounts the Thread subtree across tab switches.
+  const threadPane = useMemo<Pane>(() => ({
+    id: threadPaneId(taskId), type: 'chat', title: 'Thread', stableKey: threadPaneId(taskId),
+  }), [taskId]);
+  const planPane = useMemo<Pane | null>(() => (planActive
+    ? { id: planPaneId(taskId), type: 'journal', title: 'Piano', stableKey: planPaneId(taskId) }
+    : null), [taskId, planActive]);
+  const mediaPanes = useMemo<Pane[]>(() => mediaPaths.map((p) => ({
+    id: mediaPaneId(p), type: 'file', title: p.split('/').pop() || 'Allegato', stableKey: mediaPaneId(p),
+  })), [mediaPaths]);
+
+  // Composed pane list: Thread first, then live browsers, then Piano, then media.
+  const panes = useMemo<Pane[]>(() => [
+    threadPane,
+    ...live.map(tabToPane),
+    ...(planPane ? [planPane] : []),
+    ...mediaPanes,
+  ], [threadPane, live, planPane, mediaPanes]);
+  const livePaneIds = useMemo(() => panes.map((p) => p.id), [panes]);
+  const nonClosablePaneIds = useMemo(
+    () => new Set(panes.filter((p) => !isBrowserPane(p.id)).map((p) => p.id)),
+    [panes],
+  );
+
+  // Reconcile the persisted layout against the live pane set (append new panes,
+  // prune gone ones, preserve manual sizes). Same-reference stable.
+  const reconciled = useMemo(
+    () => reconcileTaskLayout(persisted, livePaneIds, undefined, canAutoActivate),
+    [persisted, livePaneIds],
+  );
 
   // Persist the reconciled layout so the reducers (which read getTaskLayout)
   // see the same groups that are rendered. Idempotent: once committed, the next
@@ -87,7 +141,12 @@ export function useTaskBrowserGroupLayout(taskId: string): TaskBrowserGroupLayou
   }, [taskId, reconciled, persisted]);
 
   const onActivatePane = useCallback((groupId: string, paneId: string) => taskBrowserLayout.activatePane(taskId, groupId, paneId), [taskId]);
-  const onClosePane = useCallback((_groupId: string, paneId: string) => taskBrowserTabs.closeTab(taskId, paneIdToContextId(paneId)), [taskId]);
+  // Close routing: a browser tab parks (soft-close → reopenable tray); the
+  // derived thread/plan/media panes have no X (nonClosablePaneIds), so this is
+  // only ever reached for browsers. Guard anyway.
+  const onClosePane = useCallback((_groupId: string, paneId: string) => {
+    if (isBrowserPane(paneId)) taskBrowserTabs.closeTab(taskId, paneIdToContextId(paneId));
+  }, [taskId]);
   const onAddPaneToGroup = useCallback((groupId: string) => {
     // Land the new tab in the bar the user clicked, then let reconcile place it.
     taskBrowserLayout.focusGroup(taskId, groupId);
@@ -103,6 +162,7 @@ export function useTaskBrowserGroupLayout(taskId: string): TaskBrowserGroupLayou
   const availableTypesForGroup = useCallback(() => BROWSER_ONLY, []);
 
   const renderPane = useCallback((pane: Pane, _isFocused: boolean, isVisible: boolean) => {
+    if (!isBrowserPane(pane.id)) return renderSurface(pane, isVisible);
     const ctx = paneIdToContextId(pane.id);
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -115,13 +175,18 @@ export function useTaskBrowserGroupLayout(taskId: string): TaskBrowserGroupLayou
         />
       </div>
     );
-  }, [taskId]);
+  }, [taskId, renderSurface]);
 
   const addBrowserTab = useCallback(() => { taskBrowserTabs.addTab(taskId, '', ''); }, [taskId]);
   const reopenTab = useCallback((ctx: string) => taskBrowserTabs.unparkTab(taskId, ctx), [taskId]);
   const removeTab = useCallback((ctx: string) => taskBrowserTabs.removeTab(taskId, ctx), [taskId]);
-  /** Open a first tab from a url (e.g. the review output_url) ONLY when the task
-   *  has no tabs yet. Hydrates first so it never double-seeds over persisted tabs. */
+  // Activate a pane in whichever group hosts it (thread-attachment preview click).
+  const focusPane = useCallback((paneId: string) => {
+    const g = reconciled.groups.find((gr) => gr.paneIds.includes(paneId));
+    if (g) taskBrowserLayout.activatePane(taskId, g.id, paneId);
+  }, [taskId, reconciled.groups]);
+  /** Open a first browser tab from a url (e.g. the review output_url) ONLY when
+   *  the task has no browser tabs yet. Hydrates first so it never double-seeds. */
   const seedFromUrl = useCallback(async (url: string, title?: string) => {
     if (!url) return;
     await taskBrowserTabs.ensureLoaded(taskId);
@@ -129,12 +194,12 @@ export function useTaskBrowserGroupLayout(taskId: string): TaskBrowserGroupLayou
   }, [taskId]);
 
   return {
-    hasBrowser: live.length > 0,
     liveCount: live.length,
     parkedTabs: useMemo(() => tabsState.tabs.filter((t) => t.parked), [tabsState.tabs]),
     addBrowserTab,
     reopenTab,
     removeTab,
+    focusPane,
     seedFromUrl,
     groupLayoutProps: {
       panes,
@@ -143,6 +208,7 @@ export function useTaskBrowserGroupLayout(taskId: string): TaskBrowserGroupLayou
       rowHeights: reconciled.rowHeights,
       focusedGroupId: reconciled.focusedGroupId,
       dndScope: `task:${taskId}`,
+      nonClosablePaneIds,
       onActivatePane,
       onClosePane,
       onClosePaneImmediate: onClosePane,
