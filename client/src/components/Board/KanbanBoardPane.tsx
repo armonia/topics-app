@@ -765,14 +765,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               document.body,
             )}
           </DndContext>
-          {/* Anchored to the board AREA (not the pane root) so it stays centered
-              on the visible columns when the drawer is open beside them. */}
-          <FloatingTaskComposer
-            projectId={projectId}
-            global={mode === 'all'}
-            onCreated={refetch}
-            onError={setError}
-          />
+          {/* New-task composer, anchored to the board AREA (centered on the
+              visible columns). Hidden while a task is open: the drawer is where
+              you review and write feedback, and the floating "Descrivi un task"
+              box otherwise sits on top of that input — reappears on close. */}
+          {!selected && (
+            <FloatingTaskComposer
+              projectId={projectId}
+              global={mode === 'all'}
+              onCreated={refetch}
+              onError={setError}
+            />
+          )}
         </div>
         {selected && (
           <TaskDetail
