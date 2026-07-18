@@ -846,7 +846,7 @@ describe("blocked-by + context reuse", () => {
   it("auto model: calls the classifier and passes its pick to the fresh topic", async () => {
     const picked: string[] = [];
     const h = harness({
-      pickAutoModel: async (t) => { picked.push(t.text); return { model: "claude-opus-4-8", fuzzy: false }; },
+      pickAutoModel: async (t) => { picked.push(t.text); return { model: "claude-opus-4-8" }; },
     });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.create({ projectId: PID, text: "refactor pesante" }); // model null = auto
@@ -859,7 +859,7 @@ describe("blocked-by + context reuse", () => {
   it("auto model: an EXPLICIT model skips the classifier entirely", async () => {
     let called = false;
     const h = harness({
-      pickAutoModel: async () => { called = true; return { model: "claude-opus-4-8", fuzzy: false }; },
+      pickAutoModel: async () => { called = true; return { model: "claude-opus-4-8" }; },
     });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.create({ projectId: PID, text: "chosen", model: "claude-haiku-4-5" });
@@ -870,7 +870,7 @@ describe("blocked-by + context reuse", () => {
   });
 
   it("auto model: a null pick keeps the provider default (undefined model, dispatch not blocked)", async () => {
-    const h = harness({ pickAutoModel: async () => ({ model: null, fuzzy: false }) });
+    const h = harness({ pickAutoModel: async () => ({ model: null }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     h.svc.create({ projectId: PID, text: "auto" });
     await h.dispatcher.tick(PID);
@@ -879,8 +879,8 @@ describe("blocked-by + context reuse", () => {
     expect((h.topicsCreated[0] as any).model).toBeUndefined();
   });
 
-  it("auto model: a FUZZY pick still selects a model but never flips plan-first (opt-in only)", async () => {
-    const h = harness({ pickAutoModel: async () => ({ model: "claude-sonnet-5", fuzzy: true }) });
+  it("auto model: a vague task still selects a model but never flips plan-first (opt-in only)", async () => {
+    const h = harness({ pickAutoModel: async () => ({ model: "claude-sonnet-5" }) });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     const created = h.svc.create({ projectId: PID, text: "sistema la roba" }); // vague, model auto
     await h.dispatcher.tick(PID);
@@ -888,7 +888,7 @@ describe("blocked-by + context reuse", () => {
     const t = h.task(created.id)!;
     // The classifier's model is still applied…
     expect((h.topicsCreated[0] as any).model).toBe("claude-sonnet-5");
-    // …but a fuzzy verdict no longer forces plan-first: that's opt-in now.
+    // …and a vague task no longer forces plan-first: that's opt-in now.
     expect(t.planFirst).toBe(false);
     expect(h.turns[0].content).not.toContain("PLAN FIRST");
     const comments = h.svc.get(created.id)!.comments;
@@ -898,7 +898,7 @@ describe("blocked-by + context reuse", () => {
   it("auto model: an explicit model skips the classifier entirely (no auto plan-first)", async () => {
     // Explicit model → classifier never runs.
     let called = false;
-    const h = harness({ pickAutoModel: async () => { called = true; return { model: "x", fuzzy: true }; } });
+    const h = harness({ pickAutoModel: async () => { called = true; return { model: "x" }; } });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     const created = h.svc.create({ projectId: PID, text: "chiaro", model: "claude-haiku-4-5" });
     await h.dispatcher.tick(PID);

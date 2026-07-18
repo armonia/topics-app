@@ -69,13 +69,11 @@ export interface DispatcherDeps {
   /**
    * Choose a model for a task on "modello auto" (task.model === null), BEFORE
    * the agent spawns — a fast one-shot classifier (see task-model-picker.ts).
-   * Returns the concrete model id (null = keep the provider default) plus a
-   * `fuzzy` flag: true when the task is vague/under-specified, which the
-   * dispatcher turns into auto plan-first. Absent = host without a classifier
-   * (tests / degraded); "auto" then keeps the default and never forces plan-first.
+   * Returns the concrete model id (null = keep the provider default). Absent =
+   * host without a classifier (tests / degraded); "auto" then keeps the default.
    * MUST resolve fast and never reject (the picker swallows its own errors).
    */
-  pickAutoModel?: (task: Task) => Promise<{ model: string | null; fuzzy: boolean }>;
+  pickAutoModel?: (task: Task) => Promise<{ model: string | null }>;
   /** Auto concurrency cap for a board on `maxAgentsAuto`: live machine capacity
    *  (CPU/load). Absent ⇒ auto falls back to the board's manual `maxAgents`. */
   recommendedCap?: () => number;
