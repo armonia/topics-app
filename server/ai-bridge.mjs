@@ -94,6 +94,7 @@ function buildEnv(env) {
 }
 
 function appendToStore(session, buf) {
+  if (session.storeClosed) return null; // fd closed (session killed) — drop silently, no EBADF
   const startOffset = session.endOffset;
   try {
     fs.writeSync(session.storeFd, buf);
@@ -186,8 +187,17 @@ function handleMessage(msg, client) {
         session.alive = false;
         session.exitCode = typeof code === 'number' ? code : null;
         broadcast({ type: 'exit', id, exitCode: session.exitCode, endOffset: session.endOffset });
-        // Keep the session + store around for a late attach (Case 1: a turn that
-        // completed while the server was down). The sweep reaps it later.
+        if (session.killing) {
+          // Explicit teardown: the child is truly gone now → close fd + remove.
+          // (Closing in `kill` while the child still emitted during the
+          // SIGTERM→SIGKILL grace caused EBADF writes that DROPPED the tail of
+          // the turn's output — the "no output" dispatch failures.)
+          session.storeClosed = true;
+          try { fs.closeSync(session.storeFd); } catch { /* already closed */ }
+          try { fs.unlinkSync(session.storePath); } catch { /* already gone */ }
+          sessions.delete(id);
+        }
+        // else keep the session + store for a late attach (Case 1); the sweep reaps it.
       };
       child.on('close', (code) => onDead(code));
       child.on('error', (e) => { console.error(`[AI Bridge] child error ${id}: ${e.message}`); onDead(null); });
@@ -224,11 +234,9 @@ function handleMessage(msg, client) {
     case 'kill': {
       const s = sessions.get(msg.id);
       if (s) {
+        s.killing = true; // onDead does fd close + unlink + delete once the child truly exits
         try { s.child.kill('SIGTERM'); } catch {}
         setTimeout(() => { try { if (s.alive) s.child.kill('SIGKILL'); } catch {} }, KILL_GRACE_MS);
-        try { fs.closeSync(s.storeFd); } catch {}
-        try { fs.unlinkSync(s.storePath); } catch {}
-        sessions.delete(msg.id);
       }
       broadcast({ type: 'killed', id: msg.id });
       break;
