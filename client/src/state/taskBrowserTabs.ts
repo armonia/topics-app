@@ -222,7 +222,12 @@ function commit(taskId: string, next: TaskBrowserTabsState): void {
 export const taskBrowserTabs = {
   ensureLoaded: ensureTaskTabsLoaded,
   get: getTaskTabs,
-  addTab: (taskId: string, url: string, title?: string) => commit(taskId, addTab(getTaskTabs(taskId), taskId, url, title)),
+  /** Append a new tab; returns the minted contextId so the caller can select it. */
+  addTab: (taskId: string, url: string, title?: string): string => {
+    const next = addTab(getTaskTabs(taskId), taskId, url, title);
+    commit(taskId, next);
+    return next.activeContextId!;
+  },
   upsertTab: (taskId: string, contextId: string, url: string, title?: string) => commit(taskId, upsertTab(getTaskTabs(taskId), contextId, url, title)),
   closeTab: (taskId: string, contextId: string) => commit(taskId, closeTab(getTaskTabs(taskId), contextId)),
   setActive: (taskId: string, contextId: string | null) => commit(taskId, setActiveTab(getTaskTabs(taskId), contextId)),

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, GitCompare, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, Paperclip, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ClipboardList, ExternalLink, GitCompare, Globe, Image as ImageIcon, Link2, Loader2, Lock, Maximize2, MessageSquare, Minimize2, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -265,6 +265,23 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const selectSurface = (id: string) => {
     setActiveSurfaceId(id);
     if (!wide && containerW >= SIDEPANEL_MIN) toggleWide();
+  };
+  // Selecting a browser tab also foregrounds it in the task's tab store (the
+  // source of truth for which of the task's browsers is active). 'thread' ⟺ null.
+  const activateSurface = (id: string) => {
+    setActiveSurfaceId(id === 'thread' ? null : id);
+    if (id.startsWith('browser:')) taskBrowserTabs.setActive(taskId, id.slice('browser:'.length));
+  };
+  const handleNewBrowserTab = () => {
+    const ctx = taskBrowserTabs.addTab(taskId, '', '');
+    setActiveSurfaceId(`browser:${ctx}`);
+    if (!wide && containerW >= SIDEPANEL_MIN) toggleWide();
+  };
+  const handleCloseBrowserTab = (id: string) => {
+    const ctx = id.startsWith('browser:') ? id.slice('browser:'.length) : id;
+    taskBrowserTabs.closeTab(taskId, ctx);
+    const active = getTaskTabs(taskId).activeContextId;
+    setActiveSurfaceId(active ? `browser:${active}` : null);
   };
 
   const deliverAnswer = async (v: string, media?: string[]): Promise<boolean> => {
@@ -944,8 +961,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             <TaskTabBar
               surfaces={surfaces}
               activeId={activeSurface ? activeSurface.id : 'thread'}
-              onSelect={(id) => setActiveSurfaceId(id === 'thread' ? null : id)}
+              onSelect={activateSurface}
               includeThread
+              onNewTab={TASK_BROWSER_ENABLED ? handleNewBrowserTab : undefined}
+              onCloseTab={TASK_BROWSER_ENABLED ? handleCloseBrowserTab : undefined}
             />
           )}
           {inlineTabs && activeSurface ? (
@@ -1090,7 +1109,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             <TaskTabBar
               surfaces={surfaces}
               activeId={sideSurface.id}
-              onSelect={(id) => setActiveSurfaceId(id)}
+              onSelect={activateSurface}
+              onNewTab={TASK_BROWSER_ENABLED ? handleNewBrowserTab : undefined}
+              onCloseTab={TASK_BROWSER_ENABLED ? handleCloseBrowserTab : undefined}
               trailing={
                 <button
                   onClick={toggleWide}
@@ -1177,12 +1198,16 @@ export function SurfaceIcon({ kind }: { kind: TaskSurface['kind'] | 'thread' }) 
  * raised. Drives both the inline (narrow) body switch and the side panel (wide).
  * `trailing` hosts a per-context action (e.g. the side panel's close button).
  */
-export function TaskTabBar({ surfaces, activeId, onSelect, includeThread, trailing }: {
+export function TaskTabBar({ surfaces, activeId, onSelect, includeThread, trailing, onNewTab, onCloseTab }: {
   surfaces: TaskSurface[];
   activeId: string;
   onSelect: (id: string) => void;
   includeThread?: boolean;
   trailing?: React.ReactNode;
+  /** When set, a `+` opens a new task browser tab. */
+  onNewTab?: () => void;
+  /** When set, browser tabs get an `×` to close them (by surface id). */
+  onCloseTab?: (id: string) => void;
 }) {
   const tabs: Array<{ id: string; label: string; kind: TaskSurface['kind'] | 'thread' }> = [
     ...(includeThread ? [{ id: 'thread', label: 'Thread', kind: 'thread' as const }] : []),
@@ -1192,18 +1217,36 @@ export function TaskTabBar({ surfaces, activeId, onSelect, includeThread, traili
     <div className="flex shrink-0 items-center gap-1 border-b border-white/10 px-2 py-1">
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-topbar">
         {tabs.map((t) => (
-          <button
+          <div
             key={t.id}
-            onClick={() => onSelect(t.id)}
-            title={t.label}
-            className={`flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-xs ${
-              activeId === t.id ? 'bg-white/10 font-medium text-neutral-100' : 'text-neutral-400 hover:text-neutral-200'
-            }`}
+            className={`group flex shrink-0 items-center rounded ${activeId === t.id ? 'bg-white/10' : 'hover:bg-white/5'}`}
           >
-            <SurfaceIcon kind={t.kind} />
-            <span className="max-w-[11rem] truncate">{t.label}</span>
-          </button>
+            <button
+              onClick={() => onSelect(t.id)}
+              title={t.label}
+              className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs ${
+                activeId === t.id ? 'font-medium text-neutral-100' : 'text-neutral-400 group-hover:text-neutral-200'
+              }`}
+            >
+              <SurfaceIcon kind={t.kind} />
+              <span className="max-w-[11rem] truncate">{t.label || 'Browser'}</span>
+            </button>
+            {onCloseTab && t.kind === 'browser' && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onCloseTab(t.id); }}
+                title="Chiudi tab"
+                className="mr-1 rounded p-0.5 text-neutral-500 opacity-0 hover:bg-white/10 hover:text-neutral-200 group-hover:opacity-100"
+              ><X className="h-3 w-3" /></button>
+            )}
+          </div>
         ))}
+        {onNewTab && (
+          <button
+            onClick={onNewTab}
+            title="Nuova tab browser"
+            className="shrink-0 rounded p-1 text-neutral-500 hover:bg-white/10 hover:text-neutral-200"
+          ><Plus className="h-3.5 w-3.5" /></button>
+        )}
       </div>
       {trailing}
     </div>
