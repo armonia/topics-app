@@ -619,12 +619,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       }`}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2.5">
-        {/* Header = ONE compact row, like the card's top slot: status on the
-            left, primary dispatch state pinned right, window actions OUTSIDE the
-            shrinkable strip (shrink-0) so a narrow drawer never pushes them
-            off-edge. Priorità/progetto/modello NON stanno più qui — sono scesi
-            nella riga meta compatta sotto il titolo, così la topbar resta a una
-            riga anche da stretto ("non tutto sulla topbar"). */}
+        {/* Topbar = slim window-chrome row: the status selector on the left,
+            window actions on the right. Everything else — project eyebrow,
+            title + dispatch state, and the attribute chips — lives in the
+            content block below, laid out exactly like the Kanban card. */}
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
         <button
           ref={statusBtnRef}
@@ -652,20 +650,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </button>
           ))}
         </Menu>
-        {/* Primary STATE pinned to the right of the strip (card's top-right
-            slot): dispatch chip + agent effort, next to the window actions. */}
-        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
-          {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
-            <DispatchChip state={task.dispatchState} error={task.dispatchError} />
-          )}
-          {task && (task.agentMs > 0 || task.agentTokens > 0) && (
-            <span
-              className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-400"
-              title={`Effort dell'agent su questo task: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''}`}
-              data-testid="task-agent-effort"
-            >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
-          )}
-        </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           {task && (
@@ -726,24 +710,91 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 className="mb-1.5 flex items-center gap-1 rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
               >⤴ Task padre</button>
             )}
+            {/* Project EYEBROW — favicon + name ABOVE the title (not a pill),
+                exactly like the card's cross-project eyebrow. Clickable: opens
+                the move / open / create-project picker (portaled Menu). */}
             {task && (
-              <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                {/* Editable attributes as card-style compact chips that WRAP:
-                    priorità · progetto · modello, then blocked-by/reuse/plan.
-                    Moved off the topbar (era troppa roba su una riga); the
-                    Menus are portaled (anchored to their button ref), so they
-                    render correctly wherever the trigger sits. */}
+              <button
+                ref={projChipRef}
+                onClick={openProjMenu}
+                data-testid="task-project-chip"
+                title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
+                className="mb-1 flex min-w-0 max-w-full items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200"
+              >
+                <ProjectFavicon path={currentProject?.path ?? ''} size={12} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
+                <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+                <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
+              </button>
+            )}
+            <Menu
+              open={projMenuOpen}
+              anchorRef={projChipRef}
+              onClose={() => setProjMenuOpen(false)}
+              minWidth={230}
+              unmanagedFocus
+            >
+              <ProjectPickerBody
+                projects={projects}
+                selectedId={task?.projectId}
+                isDisabled={(p) => p.projectId === task?.projectId || !!moveBlocked}
+                onPick={doMove}
+                onCreate={doCreateProject}
+                busy={projBusy}
+                listLabel="Sposta su…"
+                headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
+              />
+              <div className="my-1 border-t border-white/10" />
+              <button
+                role="menuitem" disabled={!currentProject}
+                onClick={doOpenProject}
+                title={currentProject ? `Apri la finestra di ${currentProject.name}` : 'Percorso del progetto non risolvibile'}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+              ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
+            </Menu>
+            {/* Title row: title on the left, PRIMARY dispatch state pinned
+                top-right — the card's exact header slot. */}
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                {editingTitle ? (
+                  <textarea
+                    autoFocus value={titleDraft} rows={1} ref={autoGrow}
+                    onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
+                    onBlur={saveTitle}
+                    onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
+                    className="-mx-1.5 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-neutral-100 outline-none"
+                  />
+                ) : (
+                  <p
+                    onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
+                    title="Clicca per modificare il titolo"
+                    className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-neutral-100 hover:bg-white/5"
+                  >{task?.text}</p>
+                )}
+              </div>
+              {task && ((task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+                <DispatchChip state={task.dispatchState} error={task.dispatchError} />
+              ) : (!task.dispatchState && task.dispatchError) ? (
+                <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
+              ) : null)}
+            </div>
+            {/* Meta row — compact chips that wrap, card-style: priorità,
+                modello · ⏱ effort (UN chip, come la card), piano-prima,
+                blocked-by + reuse. Editable selectors keep their portaled Menus. */}
+            {task && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <button
                   ref={prioBtnRef}
                   onClick={() => task && setPrioMenuOpen(true)}
                   data-testid="task-priority-chip"
-                  title={task?.priorityAuto
+                  title={task.priorityAuto
                     ? "Priorità automatica: la valuta l'agent appena inquadra il task"
                     : 'Cambia la priorità del task (la coda serve prima le priorità alte)'}
-                  className="flex items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-400 hover:bg-white/10"
+                  className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] ${
+                    !task.priorityAuto && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-neutral-400 hover:bg-white/10'
+                  }`}
                 >
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${task ? PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2] : 'bg-neutral-600'}`} />
-                  {task ? (task.priorityAuto ? 'Priorità auto' : PRIORITY_LABEL[task.priority] ?? 'Media') : '…'}
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
+                  {task.priorityAuto ? 'Priorità auto' : PRIORITY_LABEL[task.priority] ?? 'Media'}
                   <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
                 </button>
                 <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
@@ -761,57 +812,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     </button>
                   ))}
                 </Menu>
-                {task && (
-                  <button
-                    ref={projChipRef}
-                    onClick={openProjMenu}
-                    data-testid="task-project-chip"
-                    title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
-                    className="flex min-w-0 max-w-[12rem] items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-white/10"
-                  >
-                    <ProjectFavicon path={currentProject?.path ?? ''} size={12} fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
-                    <span className="truncate">{projectLabel}</span>
-                    <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
-                  </button>
-                )}
-                <Menu
-                  open={projMenuOpen}
-                  anchorRef={projChipRef}
-                  onClose={() => setProjMenuOpen(false)}
-                  minWidth={230}
-                  unmanagedFocus
+                <button
+                  ref={modelBtnRef}
+                  onClick={() => setModelMenuOpen(true)}
+                  data-testid="task-model-chip"
+                  title={(task.agentMs > 0 || task.agentTokens > 0)
+                    ? `Modello ${task.model ? fmtModel(task.model) : 'Auto'} · effort ${fmtMs(task.agentMs)}${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} — clicca per cambiare modello`
+                    : "Modello dell'agent — Auto = il classificatore opus-first sceglie per task"}
+                  className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400 hover:bg-white/20"
                 >
-                  <ProjectPickerBody
-                    projects={projects}
-                    selectedId={task?.projectId}
-                    isDisabled={(p) => p.projectId === task?.projectId || !!moveBlocked}
-                    onPick={doMove}
-                    onCreate={doCreateProject}
-                    busy={projBusy}
-                    listLabel="Sposta su…"
-                    headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
-                  />
-                  <div className="my-1 border-t border-white/10" />
-                  <button
-                    role="menuitem" disabled={!currentProject}
-                    onClick={doOpenProject}
-                    title={currentProject ? `Apri la finestra di ${currentProject.name}` : 'Percorso del progetto non risolvibile'}
-                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
-                  ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
-                </Menu>
-                {task && (
-                  <button
-                    ref={modelBtnRef}
-                    onClick={() => setModelMenuOpen(true)}
-                    data-testid="task-model-chip"
-                    title="Cambia il modello dell'agent — Auto = il classificatore opus-first sceglie per task"
-                    className="flex min-w-0 items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-white/10"
-                  >
-                    <Sparkles className="h-3 w-3 shrink-0 text-neutral-500" />
-                    <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}</span>
-                    <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
-                  </button>
-                )}
+                  <Sparkles className="h-3 w-3 shrink-0 text-neutral-500" />
+                  <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
+                  <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
+                </button>
                 <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
                   <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello agent</p>
                   <button
@@ -834,6 +847,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     </button>
                   ))}
                 </Menu>
+                <button
+                  onClick={togglePlanFirst}
+                  data-testid="task-plan-first-toggle"
+                  title="L'agent consegna un piano da approvare PRIMA di implementare (utile per task fuzzy: prima un checkpoint, meno token sprecati)"
+                  aria-pressed={task.planFirst}
+                  className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
+                    task.planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-500 hover:bg-white/10'
+                  }`}
+                >piano prima</button>
                 <button
                   ref={blockerBtnRef}
                   onClick={openBlockerMenu}
@@ -881,31 +903,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     }`}
                   >Riusa il contesto dell'agent del task bloccante</button>
                 )}
-                <button
-                  onClick={togglePlanFirst}
-                  data-testid="task-plan-first-toggle"
-                  title="L'agent consegna un piano da approvare PRIMA di implementare (utile per task fuzzy: prima un checkpoint, meno token sprecati)"
-                  aria-pressed={task.planFirst}
-                  className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${
-                    task.planFirst ? 'bg-violet-500/25 text-violet-200' : 'bg-white/5 text-neutral-500 hover:bg-white/10'
-                  }`}
-                >piano prima</button>
               </div>
-            )}
-            {editingTitle ? (
-              <textarea
-                autoFocus value={titleDraft} rows={1} ref={autoGrow}
-                onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
-                onBlur={saveTitle}
-                onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
-                className="-mx-1.5 block w-[calc(100%+0.75rem)] resize-none overflow-hidden rounded bg-white/5 px-1.5 py-1 text-sm leading-5 text-neutral-100 outline-none"
-              />
-            ) : (
-              <p
-                onClick={() => { if (task) { setTitleDraft(task.text); setEditingTitle(true); } }}
-                title="Clicca per modificare il titolo"
-                className="-mx-1.5 cursor-text rounded px-1.5 py-1 text-sm leading-5 text-neutral-100 hover:bg-white/5"
-              >{task?.text}</p>
             )}
             {editingDesc ? (
               <textarea
