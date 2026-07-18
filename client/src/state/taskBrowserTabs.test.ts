@@ -10,6 +10,9 @@ import {
   addTab,
   upsertTab,
   closeTab,
+  unparkTab,
+  removeTab,
+  liveTabs,
   setActiveTab,
   reorderTabs,
   updateTab,
@@ -62,29 +65,76 @@ describe('upsertTab', () => {
   });
 });
 
-describe('closeTab', () => {
+describe('closeTab (soft-close / park)', () => {
   const base = addTab(addTab(addTab(EMPTY_TASK_TABS, TASK, 'a'), TASK, 'b'), TASK, 'c'); // seq 0,1,2 active=2
-  test('closing the active tab focuses the neighbour that slides into its slot', () => {
-    const s = closeTab(base, 'task-125aafd5-2'); // close last active → prev
-    expect(s.tabs.map((t) => t.seq)).toEqual([0, 1]);
+  test('soft-close PARKS the tab (kept as preview), does not destroy it', () => {
+    const s = closeTab(base, 'task-125aafd5-2'); // close last active → prev live
+    expect(s.tabs).toHaveLength(3); // still there
+    expect(s.tabs.find((t) => t.seq === 2)?.parked).toBe(true);
+    expect(liveTabs(s).map((t) => t.seq)).toEqual([0, 1]);
     expect(s.activeContextId).toBe('task-125aafd5-1');
   });
-  test('closing a middle active tab focuses the same index (now next)', () => {
+  test('closing a middle active tab focuses the same index among live tabs', () => {
     const mid = setActiveTab(base, 'task-125aafd5-1');
     const s = closeTab(mid, 'task-125aafd5-1');
-    expect(s.tabs.map((t) => t.seq)).toEqual([0, 2]);
-    expect(s.activeContextId).toBe('task-125aafd5-2'); // idx 1 clamps to the tab now at 1
+    expect(liveTabs(s).map((t) => t.seq)).toEqual([0, 2]);
+    expect(s.activeContextId).toBe('task-125aafd5-2'); // live idx 1 clamps to the tab now at 1
   });
   test('closing a non-active tab leaves the active one', () => {
     const s = closeTab(base, 'task-125aafd5-0');
     expect(s.activeContextId).toBe('task-125aafd5-2');
+    expect(liveTabs(s).map((t) => t.seq)).toEqual([1, 2]);
   });
-  test('closing the last tab clears active', () => {
+  test('closing the last LIVE tab clears active but keeps the parked preview', () => {
     const one = addTab(EMPTY_TASK_TABS, TASK, 'a');
-    expect(closeTab(one, 'task-125aafd5-0').activeContextId).toBeNull();
+    const s = closeTab(one, 'task-125aafd5-0');
+    expect(s.activeContextId).toBeNull();
+    expect(s.tabs).toHaveLength(1);
+    expect(liveTabs(s)).toHaveLength(0);
+  });
+  test('closing an already-parked tab is a no-op', () => {
+    const parked = closeTab(base, 'task-125aafd5-0');
+    expect(closeTab(parked, 'task-125aafd5-0')).toBe(parked);
   });
   test('unknown ctx is a no-op', () => {
     expect(closeTab(base, 'nope')).toBe(base);
+  });
+});
+
+describe('unparkTab / removeTab', () => {
+  const base = addTab(addTab(addTab(EMPTY_TASK_TABS, TASK, 'a'), TASK, 'b'), TASK, 'c');
+  test('unparkTab reopens a parked tab and activates it', () => {
+    const parked = closeTab(base, 'task-125aafd5-0'); // park seq 0
+    const s = unparkTab(parked, 'task-125aafd5-0');
+    expect(s.tabs.find((t) => t.seq === 0)?.parked).toBeFalsy();
+    expect(liveTabs(s).map((t) => t.seq)).toEqual([0, 1, 2]);
+    expect(s.activeContextId).toBe('task-125aafd5-0');
+  });
+  test('unparkTab is a no-op for a live/unknown ctx', () => {
+    expect(unparkTab(base, 'task-125aafd5-1')).toBe(base); // already live
+    expect(unparkTab(base, 'nope')).toBe(base);
+  });
+  test('removeTab hard-deletes and refocuses the live neighbour', () => {
+    const s = removeTab(base, 'task-125aafd5-2'); // was active
+    expect(s.tabs.map((t) => t.seq)).toEqual([0, 1]);
+    expect(s.activeContextId).toBe('task-125aafd5-1');
+  });
+  test('removeTab on a parked tab drops it without touching active', () => {
+    const parked = closeTab(base, 'task-125aafd5-0');
+    const s = removeTab(parked, 'task-125aafd5-0');
+    expect(s.tabs.map((t) => t.seq)).toEqual([1, 2]);
+    expect(s.activeContextId).toBe('task-125aafd5-2');
+  });
+});
+
+describe('upsertTab reopens a parked tab', () => {
+  test('an agent re-open of a parked ctx un-parks + refreshes + activates', () => {
+    const base = upsertTab(EMPTY_TASK_TABS, 'task-1-a', 'https://x.test', 'X');
+    const parked = closeTab(base, 'task-1-a');
+    expect(parked.tabs[0].parked).toBe(true);
+    const s = upsertTab(parked, 'task-1-a', 'https://x2.test', 'X2');
+    expect(s.tabs[0]).toMatchObject({ url: 'https://x2.test', title: 'X2', parked: false });
+    expect(s.activeContextId).toBe('task-1-a');
   });
 });
 
@@ -92,6 +142,10 @@ describe('setActiveTab / reorderTabs / updateTab', () => {
   const base = addTab(addTab(EMPTY_TASK_TABS, TASK, 'a'), TASK, 'b');
   test('setActiveTab ignores unknown ctx', () => {
     expect(setActiveTab(base, 'nope')).toBe(base);
+  });
+  test('setActiveTab ignores a parked ctx (reopen is via unparkTab)', () => {
+    const parked = closeTab(base, 'task-125aafd5-0');
+    expect(setActiveTab(parked, 'task-125aafd5-0')).toBe(parked);
   });
   test('reorderTabs moves a tab', () => {
     const s = reorderTabs(base, 0, 1);
@@ -105,6 +159,13 @@ describe('setActiveTab / reorderTabs / updateTab', () => {
     const s = updateTab(base, 'task-125aafd5-0', { url: 'https://a2.test', title: 'A2' });
     expect(s.tabs[0]).toMatchObject({ url: 'https://a2.test', title: 'A2' });
     expect(updateTab(s, 'task-125aafd5-0', { url: 'https://a2.test' })).toBe(s);
+  });
+  test('a user-pinned title is not overwritten by an automatic title update', () => {
+    const pinned = updateTab(base, 'task-125aafd5-0', { title: 'My name', titleSource: 'user' });
+    expect(pinned.tabs[0]).toMatchObject({ title: 'My name', titleSource: 'user' });
+    // an auto (poll) title update leaves the pinned label intact, but url still flows
+    const after = updateTab(pinned, 'task-125aafd5-0', { title: 'page title', url: 'https://x' });
+    expect(after.tabs[0]).toMatchObject({ title: 'My name', url: 'https://x' });
   });
 });
 
@@ -127,5 +188,17 @@ describe('sanitizeTaskTabs', () => {
     expect(s?.tabs[1]).toEqual({ contextId: 'task-1-4', url: '', title: '', seq: 4 });
     expect(s?.activeContextId).toBe('task-1-0'); // stale active → first tab
     expect(s?.nextSeq).toBe(5); // maxSeq + 1
+  });
+  test('round-trips parked + user titleSource, and active resolves to a LIVE tab', () => {
+    const s = sanitizeTaskTabs({
+      tabs: [
+        { contextId: 'task-1-0', url: 'a', title: 'Pinned', seq: 0, parked: true, titleSource: 'user' },
+        { contextId: 'task-1-1', url: 'b', title: 'B', seq: 1 },
+      ],
+      activeContextId: 'task-1-0', // persisted active was parked
+    });
+    expect(s?.tabs[0]).toMatchObject({ parked: true, titleSource: 'user' });
+    expect(s?.tabs[1].parked).toBeUndefined();
+    expect(s?.activeContextId).toBe('task-1-1'); // falls back to first LIVE tab
   });
 });
