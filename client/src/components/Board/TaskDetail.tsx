@@ -914,28 +914,30 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               >+ descrizione…</button>
             )}
           </div>
-          {/* Browser strip — every task tab (live + soft-closed), always here
-              under the description so a closed tab stays reopenable and every tab
-              is a one-click preview. The `+` is ALWAYS available (the user's
-              entry point to open a browser in the task, next to the agent's).
-              Live → focus in the layout; parked → reopen; × → hard-remove. */}
-          {TASK_BROWSER_ENABLED && (
+          {/* Closed-tab tray — ONLY the soft-closed browser tabs live here under
+              the description, so a closed tab stays reopenable and previewable
+              ("quando chiuso"). LIVE tabs belong solely to the real layout's tab
+              bar inside GroupLayout — duplicating them here is the "two tab
+              systems" bug. When the task has no live tab yet, this strip is also
+              the bootstrap entry point (the `+`), since GroupLayout isn't mounted
+              until the first tab exists (once it is, its own `+` owns "add"). */}
+          {TASK_BROWSER_ENABLED && (browser.parkedTabs.length > 0 || browser.liveCount === 0) && (
             <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-white/10 px-3 py-2 scrollbar-topbar" data-testid="task-browser-previews">
-              {browser.allTabs.map((t) => {
+              {browser.parkedTabs.map((t) => {
                 const label = t.title || hostLabel(t.url) || 'Nuova scheda';
                 return (
                   <div
                     key={t.contextId}
-                    className={`group/prev flex shrink-0 items-center rounded-md border text-xs ${t.parked ? 'border-white/10 bg-white/[0.02] text-neutral-500' : 'border-white/10 bg-white/5 text-neutral-200'}`}
+                    className="group/prev flex shrink-0 items-center rounded-md border border-white/10 bg-white/[0.02] text-xs text-neutral-500"
                   >
                     <button
-                      onClick={() => { if (t.parked) browser.reopenTab(t.contextId); else browser.focusTab(t.contextId); selectSurface('browser'); }}
-                      title={t.parked ? 'Riapri questa scheda' : (t.url || 'Scheda browser')}
+                      onClick={() => { browser.reopenTab(t.contextId); selectSurface('browser'); }}
+                      title="Riapri questa scheda"
                       className="flex items-center gap-1.5 px-2 py-1"
                     >
                       <Globe className="h-3 w-3 shrink-0" />
                       <span className="max-w-[10rem] truncate">{label}</span>
-                      {t.parked && <span className="text-[9px] uppercase tracking-wide text-neutral-600">chiusa</span>}
+                      <span className="text-[9px] uppercase tracking-wide text-neutral-600">chiusa</span>
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); browser.removeTab(t.contextId); }}
@@ -945,11 +947,13 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   </div>
                 );
               })}
-              <button
-                onClick={() => { browser.addBrowserTab(); selectSurface('browser'); }}
-                title="Apri una scheda browser nel task"
-                className="flex shrink-0 items-center gap-1 rounded p-1 text-[11px] text-neutral-500 hover:bg-white/10 hover:text-neutral-200"
-              ><Plus className="h-3.5 w-3.5" />{browser.allTabs.length === 0 && <span>scheda browser</span>}</button>
+              {browser.liveCount === 0 && (
+                <button
+                  onClick={() => { browser.addBrowserTab(); selectSurface('browser'); }}
+                  title="Apri una scheda browser nel task"
+                  className="flex shrink-0 items-center gap-1 rounded p-1 text-[11px] text-neutral-500 hover:bg-white/10 hover:text-neutral-200"
+                ><Plus className="h-3.5 w-3.5" />{browser.parkedTabs.length === 0 && <span>scheda browser</span>}</button>
+              )}
             </div>
           )}
           {/* Subtask tree — unlimited depth, lazy-expanded. The agent's steps
