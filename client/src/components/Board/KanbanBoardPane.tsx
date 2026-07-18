@@ -1609,18 +1609,8 @@ const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch,
             {PRIORITY_LABEL[task.priority] ?? task.priority}
           </span>
         )}
-        {/* Modello effettivo: 'auto' è solo lo stato iniziale — appena il
-            dispatcher risolve un modello concreto lo mostriamo qui, così si
-            vede con cosa ha girato l'agent (non più un generico "auto"). */}
-        {task.model && (
-          <span
-            title={`Modello: ${fmtModel(task.model)}`}
-            className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
-          >
-            <Sparkles className="h-3 w-3 text-neutral-500" />
-            {fmtModel(task.model)}
-          </span>
-        )}
+        {/* (Model shown once, inside the time/effort chip below — never as a
+            standalone chip. See the effort chip a few lines down.) */}
         {/* (Project identity moved to the eyebrow above the title — no chip here.) */}
         {blocker && blocker.status !== 'done' && (
           <span
@@ -1649,11 +1639,17 @@ const Card = memo(function Card({ task, onOpen, showProject, onError, onRefetch,
         )}
         {live && task.dispatchState === 'working' ? (
           <LiveEffortChip usage={live} />
-        ) : (task.agentMs > 0 || task.agentTokens > 0) ? (
+        ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
+          // The model always lives here, in the time/effort chip — never as a
+          // second standalone chip. Before the agent has logged any time we
+          // show just the model; once it runs we prepend it to the ⏱ effort,
+          // matching the live chip (`Opus · ⏱ 2m · 1.2k tok`).
           <span
-            title={`Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''}${task.model ? ` · modello ${fmtModel(task.model)}` : ''}`}
+            title={(task.agentMs > 0 || task.agentTokens > 0)
+              ? `Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · modello ${fmtModel(task.model)}`
+              : `Modello: ${fmtModel(task.model)}`}
             className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
-          >⏱ {fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>
+          >{fmtModel(task.model)}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
         ) : null}
         {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
         {task.assignedTopicId && onOpenTopic && (
