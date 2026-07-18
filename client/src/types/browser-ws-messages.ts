@@ -80,6 +80,24 @@ const takeControlMessageSchema = z.object({
   type: z.literal('take_control'),
 });
 
+/** Client -> server: real pane size (CSS px) + devicePixelRatio. See the
+ *  canonical server schema for the deviceScaleFactor immutability note. */
+const resizeMessageSchema = z.object({
+  type: z.literal('resize'),
+  width: z.number(),
+  height: z.number(),
+  deviceScaleFactor: z.optional(z.number()),
+});
+
+/** Server -> client: a headless-page download saved under our origin. */
+const downloadMessageSchema = z.object({
+  type: z.literal('download'),
+  filename: z.string(),
+  href: z.string(),
+  size: z.optional(z.number()),
+  state: z.enum(['started', 'completed', 'failed']),
+});
+
 export const browserWsMessageSchema = z.discriminatedUnion('type', [
   frameMessageSchema,
   inputMessageSchema,
@@ -87,6 +105,8 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   agentActiveMessageSchema,
   consoleMessageSchema,
   takeControlMessageSchema,
+  resizeMessageSchema,
+  downloadMessageSchema,
 ]);
 
 export type BrowserWsMessage = z.infer<typeof browserWsMessageSchema>;

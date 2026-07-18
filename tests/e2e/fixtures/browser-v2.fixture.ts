@@ -15,6 +15,12 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
   // broadcastAgentActive helpers. Public so tests don't need a getter.
   private wsRouteRef: WebSocketRoute | null = null;
 
+  // Number of times the client has (re)connected to /ws/browser/ — the mock's
+  // routeWebSocket handler runs once per connection. A reconnect after closeWs()
+  // increments this, which is how the reconnect test observes recovery without
+  // racing the connection-indicator class.
+  private wsConnectCount = 0;
+
   // Inbound (client -> server) messages recorded when mockBrowserWs is
   // configured with recordInbound (default true).
   private recordedInboundMessages: unknown[] = [];
@@ -49,10 +55,12 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
     const frameB64 = opts?.framePayloadBase64
       ?? '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAALCAABAAEBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/AP8An/8A/9k=';
     this.recordedInboundMessages = [];
+    this.wsConnectCount = 0;
     const recordInbound = opts?.recordInbound !== false;
 
     await this.page.routeWebSocket(/\/ws\/browser\//, async (ws) => {
       this.wsRouteRef = ws;
+      this.wsConnectCount += 1;
       if (recordInbound) {
         ws.onMessage((msg) => {
           try {
@@ -104,11 +112,33 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
     return drained;
   }
 
-  /** Force-close the active WS route (simulates server drop). */
+  /**
+   * Force-close the active WS route (simulates a transient server drop). The
+   * client auto-reconnects — routeWebSocket re-accepts the next connection — so
+   * the pane returns to live. To test the fallback-http FLOOR (no reconnect),
+   * make the WebSocket constructor throw instead (see the fallback spec).
+   */
   closeWs(): void {
     if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
     try { this.wsRouteRef.close(); } catch { /* ignore */ }
     this.wsRouteRef = null;
+  }
+
+  /** How many times the client has (re)connected to /ws/browser/ so far. */
+  getWsConnectCount(): number {
+    return this.wsConnectCount;
+  }
+
+  /** Send a synthetic download message over the active WS route. */
+  sendDownload(info: { filename: string; href: string; size?: number; state: 'started' | 'completed' | 'failed' }): void {
+    if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
+    this.wsRouteRef.send(JSON.stringify({ type: 'download', ...info }));
+  }
+
+  /** Send a synthetic console message over the active WS route. */
+  sendConsole(level: 'log' | 'warn' | 'error', text: string): void {
+    if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
+    this.wsRouteRef.send(JSON.stringify({ type: 'console', level, text }));
   }
 
   /**
