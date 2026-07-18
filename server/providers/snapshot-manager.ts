@@ -70,7 +70,8 @@ export class ProviderSnapshotManager extends EventEmitter {
 
     // Kick stale providers asynchronously — caller gets immediate (possibly stale) snapshot.
     if (stale.length > 0) {
-      void Promise.all(stale.map((n) => this.refresh(n)));
+      Promise.all(stale.map((n) => this.refresh(n)))
+        .catch((err) => console.warn(`[Snapshot] Background refresh failed:`, err));
     }
 
     return this.toSnapshot(defaultName);
