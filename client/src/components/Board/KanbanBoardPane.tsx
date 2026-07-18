@@ -580,6 +580,22 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   }, [patchLocal, refetch]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Hide the floating "Descrivi un task" composer while the human is typing in
+  // ANY other field — a card's quick-reply / "Scrivi all'agent" box (which sit
+  // low on screen, right under the composer) or the drawer thread. Tracked from
+  // document focus so it covers every feedback input without wiring each one.
+  const [typingElsewhere, setTypingElsewhere] = useState(false);
+  useEffect(() => {
+    const sync = () => {
+      const el = document.activeElement as HTMLElement | null;
+      const isField = !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
+      const inComposer = !!el?.closest('[data-testid="board-task-composer"]');
+      setTypingElsewhere(isField && !inComposer);
+    };
+    window.addEventListener('focusin', sync);
+    window.addEventListener('focusout', sync);
+    return () => { window.removeEventListener('focusin', sync); window.removeEventListener('focusout', sync); };
+  }, []);
   // Mouse: pick a card up after a 4px drag. Touch: require a 200ms press-and-hold
   // (with an 8px slop) before a drag starts, so a horizontal swipe scrolls the
   // snap carousel instead of yanking the card under the finger.
@@ -769,7 +785,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
               visible columns). Hidden while a task is open: the drawer is where
               you review and write feedback, and the floating "Descrivi un task"
               box otherwise sits on top of that input — reappears on close. */}
-          {!selected && (
+          {!selected && !typingElsewhere && (
             <FloatingTaskComposer
               projectId={projectId}
               global={mode === 'all'}
