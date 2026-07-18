@@ -28,8 +28,27 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // fresh array only when the task set actually changes, not every render.
   const itemIds = useMemo(() => tasks.map((t) => t.id), [tasks]);
 
+  // Responsive columns. On phone/tablet (<lg) the board scrolls horizontally and
+  // every column is a fixed w-72 that fits a 320px viewport with a peek of the
+  // next. The Review column (the human's approval surface) is pinned to the right
+  // edge (`sticky right-0`) so it stays reachable no matter where the horizontal
+  // scroll sits — it needs an OPAQUE backdrop (bg-surface) + a left shadow so the
+  // columns sliding under it don't bleed through the frosted-glass fill. On desktop
+  // (lg+) columns sit in normal flow and Review widens for its inline controls.
+  const isReview = status === 'review';
+  const stickyCls = isReview
+    ? 'sticky right-0 z-20 shadow-[-12px_0_20px_-12px_rgba(0,0,0,0.65)] lg:static lg:w-[32rem] lg:shadow-none'
+    : '';
+  const borderCls = isOver ? 'border-emerald-400/60' : 'border-white/10';
+  // Exactly ONE bg utility per breakpoint (stacking bg-* classes lets CSS order,
+  // not source order, pick the winner). Review stays opaque on mobile even while
+  // a card is dragged over it; the over-state shows through the border instead.
+  const bgCls = isReview
+    ? 'bg-surface lg:bg-white/5'
+    : isOver ? 'bg-emerald-400/5' : 'bg-white/5';
+
   return (
-    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex shrink-0 flex-col rounded-lg border ${status === 'review' ? 'w-80 max-h-screen sticky right-0 z-20 lg:static lg:w-[32rem] lg:max-h-none' : 'w-72'} ${isOver ? 'border-emerald-400/60 bg-emerald-400/5' : 'border-white/10 bg-white/5'}`}>
+    <div ref={setNodeRef} data-testid={`kanban-column-${status}`} className={`flex w-72 shrink-0 flex-col rounded-lg border ${stickyCls} ${borderCls} ${bgCls}`}>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-300">
           <StatusIcon status={status} />
