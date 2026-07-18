@@ -49,6 +49,23 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
   const [prioOpen, setPrioOpen] = useState(false);
   const [prio, setPrio] = useState<number | null>(null);
   const prioBtnRef = useRef<HTMLButtonElement>(null);
+  // Keyboard-aware lift (mobile): the software keyboard overlays the bottom of
+  // the layout viewport, so an `absolute bottom-6` composer ends up hidden behind
+  // it. Track visualViewport and translate the composer up by the overlapping
+  // height so the input stays visible while typing. No-op on desktop (overlap 0).
+  const [kbInset, setKbInset] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const overlap = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+      setKbInset(overlap > 80 ? overlap : 0); // ignore browser-chrome deltas
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update); };
+  }, []);
   // Server-persisted draft: a half-written task survives reload/app restart
   // and follows the user across clients. Restored once; local typing wins.
   const draftLoaded = useRef(false);
@@ -186,7 +203,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
   };
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center px-4">
+    <div
+      className="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center px-4 transition-transform duration-150 ease-out"
+      style={kbInset ? { transform: `translateY(-${kbInset}px)` } : undefined}
+    >
       <div
         ref={wrapRef}
         onFocusCapture={onFocus}
