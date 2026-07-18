@@ -11,7 +11,7 @@ import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/compos
 import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, type TaskSurface } from './constants';
-import { friendlyModelLabel, commentTime, fmtMs, fmtLive, fmtTok, autoGrow } from './format';
+import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, autoGrow } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { GroupLayout } from '../Layout/GroupLayout';
@@ -618,21 +618,20 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         wide ? 'w-[min(64rem,72%)] shadow-2xl' : 'w-96 max-w-[75%]'
       }`}
     >
-      <div className="flex shrink-0 items-start gap-2 border-b border-white/10 px-3 py-2.5">
-        {/* Chips WRAP onto multiple lines (flex-wrap) instead of clipping on a
-            single row — from narrow the strip stacks so every selector stays
-            reachable ("quando è stretto non si vedono"). The expand/close
-            buttons sit OUTSIDE this strip (shrink-0, top-anchored via
-            items-start) so a narrow drawer/pane can never push them past the
-            edge, and they stay pinned top-right however many rows the chips
-            wrap into. */}
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2.5">
+        {/* Header = ONE compact row, like the card's top slot: status on the
+            left, primary dispatch state pinned right, window actions OUTSIDE the
+            shrinkable strip (shrink-0) so a narrow drawer never pushes them
+            off-edge. Priorità/progetto/modello NON stanno più qui — sono scesi
+            nella riga meta compatta sotto il titolo, così la topbar resta a una
+            riga anche da stretto ("non tutto sulla topbar"). */}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
         <button
           ref={statusBtnRef}
           onClick={() => task && setStatusMenuOpen(true)}
           data-testid="task-status-chip"
           title="Cambia lo stato del task"
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs uppercase tracking-wide text-neutral-400 hover:bg-white/10"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-neutral-300 hover:bg-white/10"
         >
           {task ? <StatusIcon status={task.status} /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {task ? STATUS_LABEL[task.status] : 'Carico…'}
@@ -653,112 +652,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </button>
           ))}
         </Menu>
-        <button
-          ref={prioBtnRef}
-          onClick={() => task && setPrioMenuOpen(true)}
-          data-testid="task-priority-chip"
-          title={task?.priorityAuto
-            ? "Priorità automatica: la valuta l'agent appena inquadra il task"
-            : 'Cambia la priorità del task (la coda serve prima le priorità alte)'}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-neutral-400 hover:bg-white/10"
-        >
-          <span className={`h-2 w-2 shrink-0 rounded-full ${task ? PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2] : 'bg-neutral-600'}`} />
-          {task ? (task.priorityAuto ? 'Priorità auto' : PRIORITY_LABEL[task.priority] ?? 'Media') : '…'}
-          <ChevronDown className="h-3 w-3 text-neutral-600" />
-        </button>
-        <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
-          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Priorità</p>
-          {PRIORITY_ORDER.map((p) => (
-            <button
-              key={p} role="option" aria-selected={p === task?.priority}
-              disabled={busy}
-              onClick={() => changePriority(p)}
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
-            >
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
-              <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
-              {p === task?.priority && !task?.priorityAuto && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-            </button>
-          ))}
-        </Menu>
-        {task && (
-          <button
-            ref={projChipRef}
-            onClick={openProjMenu}
-            data-testid="task-project-chip"
-            title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
-            className="flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
-          >
-            <ProjectFavicon path={currentProject?.path ?? ''} size={13} fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
-            <span className="truncate">{projectLabel}</span>
-            <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
-          </button>
-        )}
-        <Menu
-          open={projMenuOpen}
-          anchorRef={projChipRef}
-          onClose={() => setProjMenuOpen(false)}
-          minWidth={230}
-          unmanagedFocus
-        >
-          <ProjectPickerBody
-            projects={projects}
-            selectedId={task?.projectId}
-            isDisabled={(p) => p.projectId === task?.projectId || !!moveBlocked}
-            onPick={doMove}
-            onCreate={doCreateProject}
-            busy={projBusy}
-            listLabel="Sposta su…"
-            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
-          />
-          <div className="my-1 border-t border-white/10" />
-          <button
-            role="menuitem" disabled={!currentProject}
-            onClick={doOpenProject}
-            title={currentProject ? `Apri la finestra di ${currentProject.name}` : 'Percorso del progetto non risolvibile'}
-            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
-          ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
-        </Menu>
-        {task && (
-          <button
-            ref={modelBtnRef}
-            onClick={() => setModelMenuOpen(true)}
-            data-testid="task-model-chip"
-            title="Cambia il modello dell'agent — Auto = il classificatore opus-first sceglie per task"
-            className="flex min-w-0 shrink items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 text-xs text-neutral-200 hover:bg-white/10"
-          >
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
-            <span className="truncate">{task.model ? friendlyModelLabel(task.model) : 'Auto'}</span>
-            <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
-          </button>
-        )}
-        <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
-          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello agent</p>
-          <button
-            role="option" aria-selected={!task?.model} disabled={busy}
-            onClick={() => changeModel(null)}
-            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
-          >
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
-            <span className="min-w-0 flex-1">Auto <span className="text-neutral-500">(opus-first)</span></span>
-            {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-          </button>
-          {models.map((m) => (
-            <button
-              key={m} role="option" aria-selected={m === task?.model} disabled={busy}
-              onClick={() => changeModel(m)}
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
-            >
-              <span className="min-w-0 flex-1">{friendlyModelLabel(m)}</span>
-              {m === task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
-            </button>
-          ))}
-        </Menu>
-        {/* Dispatch chip + agent effort flow WITH the selectors in the wrapping
-            strip (no `ml-auto`): pushing them to the far right would leave a gap
-            mid-wrap and could shove them under the action cluster when narrow.
-            Packed left, they wrap alongside the other chips. */}
-        <div className="flex shrink-0 items-center gap-1.5">
+        {/* Primary STATE pinned to the right of the strip (card's top-right
+            slot): dispatch chip + agent effort, next to the window actions. */}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
           {task?.dispatchState && DISPATCH_CHIP[task.dispatchState] && (
             <DispatchChip state={task.dispatchState} error={task.dispatchError} />
           )}
@@ -832,6 +728,112 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
             {task && (
               <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                {/* Editable attributes as card-style compact chips that WRAP:
+                    priorità · progetto · modello, then blocked-by/reuse/plan.
+                    Moved off the topbar (era troppa roba su una riga); the
+                    Menus are portaled (anchored to their button ref), so they
+                    render correctly wherever the trigger sits. */}
+                <button
+                  ref={prioBtnRef}
+                  onClick={() => task && setPrioMenuOpen(true)}
+                  data-testid="task-priority-chip"
+                  title={task?.priorityAuto
+                    ? "Priorità automatica: la valuta l'agent appena inquadra il task"
+                    : 'Cambia la priorità del task (la coda serve prima le priorità alte)'}
+                  className="flex items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-400 hover:bg-white/10"
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${task ? PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2] : 'bg-neutral-600'}`} />
+                  {task ? (task.priorityAuto ? 'Priorità auto' : PRIORITY_LABEL[task.priority] ?? 'Media') : '…'}
+                  <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
+                </button>
+                <Menu open={prioMenuOpen} anchorRef={prioBtnRef} onClose={() => setPrioMenuOpen(false)} minWidth={160} role="listbox">
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Priorità</p>
+                  {PRIORITY_ORDER.map((p) => (
+                    <button
+                      key={p} role="option" aria-selected={p === task?.priority}
+                      disabled={busy}
+                      onClick={() => changePriority(p)}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                    >
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
+                      <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
+                      {p === task?.priority && !task?.priorityAuto && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                    </button>
+                  ))}
+                </Menu>
+                {task && (
+                  <button
+                    ref={projChipRef}
+                    onClick={openProjMenu}
+                    data-testid="task-project-chip"
+                    title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
+                    className="flex min-w-0 max-w-[12rem] items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-white/10"
+                  >
+                    <ProjectFavicon path={currentProject?.path ?? ''} size={12} fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
+                    <span className="truncate">{projectLabel}</span>
+                    <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
+                  </button>
+                )}
+                <Menu
+                  open={projMenuOpen}
+                  anchorRef={projChipRef}
+                  onClose={() => setProjMenuOpen(false)}
+                  minWidth={230}
+                  unmanagedFocus
+                >
+                  <ProjectPickerBody
+                    projects={projects}
+                    selectedId={task?.projectId}
+                    isDisabled={(p) => p.projectId === task?.projectId || !!moveBlocked}
+                    onPick={doMove}
+                    onCreate={doCreateProject}
+                    busy={projBusy}
+                    listLabel="Sposta su…"
+                    headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
+                  />
+                  <div className="my-1 border-t border-white/10" />
+                  <button
+                    role="menuitem" disabled={!currentProject}
+                    onClick={doOpenProject}
+                    title={currentProject ? `Apri la finestra di ${currentProject.name}` : 'Percorso del progetto non risolvibile'}
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                  ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
+                </Menu>
+                {task && (
+                  <button
+                    ref={modelBtnRef}
+                    onClick={() => setModelMenuOpen(true)}
+                    data-testid="task-model-chip"
+                    title="Cambia il modello dell'agent — Auto = il classificatore opus-first sceglie per task"
+                    className="flex min-w-0 items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-white/10"
+                  >
+                    <Sparkles className="h-3 w-3 shrink-0 text-neutral-500" />
+                    <span className="truncate">{task.model ? fmtModel(task.model) : 'Auto'}</span>
+                    <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" />
+                  </button>
+                )}
+                <Menu open={modelMenuOpen} anchorRef={modelBtnRef} onClose={() => setModelMenuOpen(false)} minWidth={200} role="listbox">
+                  <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Modello agent</p>
+                  <button
+                    role="option" aria-selected={!task?.model} disabled={busy}
+                    onClick={() => changeModel(null)}
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
+                    <span className="min-w-0 flex-1">Auto <span className="text-neutral-500">(opus-first)</span></span>
+                    {!task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                  </button>
+                  {models.map((m) => (
+                    <button
+                      key={m} role="option" aria-selected={m === task?.model} disabled={busy}
+                      onClick={() => changeModel(m)}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                    >
+                      <span className="min-w-0 flex-1">{friendlyModelLabel(m)}</span>
+                      {m === task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
+                    </button>
+                  ))}
+                </Menu>
                 <button
                   ref={blockerBtnRef}
                   onClick={openBlockerMenu}
