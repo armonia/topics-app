@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
-import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ExternalLink, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, ExternalLink, Footprints, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
+import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
@@ -602,7 +603,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         {task.assignedTopicId && (
           <SessionSlice
             msgs={sliceBetween(comments[comments.length - 1]?.createdAt ?? null, null)}
-            label={agentBusy ? 'Ragionamento in corso' : undefined}
+            label={agentBusy ? 'Sta lavorando' : undefined}
             preview={streamPreview}
           />
         )}
@@ -1165,6 +1166,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 ))}
               </div>
             )}
+            {/* Honest, persistent mode line — the placeholder vanishes once you
+                type, so this stays to answer "what does what I write do?".
+                Review has its own Approva/Rifiuta zone above, so skip it there. */}
+            {!isAgentReview && (
+              <p className="mb-1 px-0.5 text-[10px] leading-snug text-neutral-500">
+                {agentBusy
+                  ? 'Scrivi all’agent mentre lavora — lo riceve al prossimo turno, come in Claude Code.'
+                  : 'Il tuo messaggio resta come commento sul task.'}
+              </p>
+            )}
             <div className="flex items-end gap-1.5">
               <input
                 ref={fileInputRef} type="file" multiple className="hidden"
@@ -1484,11 +1495,11 @@ export function SessionSlice({ msgs, label, preview }: {
     <div className="rounded-md border border-white/5 bg-white/[0.02]">
       <button
         onClick={() => setOpen((o) => !o)}
-        title={open ? 'Comprimi il ragionamento' : 'Mostra cosa ha fatto la sessione in questo passaggio'}
+        title={open ? 'Comprimi' : 'Mostra i passaggi che la sessione ha fatto qui'}
         className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-[11px] text-neutral-500 hover:text-neutral-300"
       >
-        <Bot className="h-3 w-3 shrink-0" />
-        <span>{label ?? 'Ragionamento'} · {msgs.length} passagg{msgs.length === 1 ? 'io' : 'i'}</span>
+        <Footprints className="h-3 w-3 shrink-0" />
+        <span>{label ?? 'Passaggi'}{msgs.length > 0 && <span className="text-neutral-600"> · {msgs.length}</span>}</span>
         <ChevronDown className={`ml-auto h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {!open && preview && (
@@ -1501,13 +1512,22 @@ export function SessionSlice({ msgs, label, preview }: {
       {open && (
         <div className="max-h-72 space-y-2 overflow-y-auto border-t border-white/5 bg-black/20 px-2.5 py-2">
           {msgs.map((m, i) => (
-            <div key={i} className="flex gap-1.5 text-xs leading-relaxed">
-              <span className={`shrink-0 font-semibold ${m.role === 'user' ? 'text-sky-400' : 'text-neutral-500'}`}>
-                {m.role === 'user' ? '›' : '⏺'}
-              </span>
-              <div className={`min-w-0 flex-1 text-neutral-300 ${COMPACT_MD_CLS}`}>
-                <ChatMarkdown components={{}}>{m.content}</ChatMarkdown>
-              </div>
+            <div key={i} className="space-y-1">
+              {/* Coherent with the real chat: assistant thinking renders through
+                  the SAME ReasoningRow the topic chat uses, then the prose. */}
+              {m.role !== 'user' && m.thinking?.trim() && (
+                <ReasoningRow content={m.thinking} />
+              )}
+              {m.content.trim() && (
+                <div className="flex gap-1.5 text-xs leading-relaxed">
+                  <span className={`shrink-0 font-semibold ${m.role === 'user' ? 'text-sky-400' : 'text-neutral-500'}`}>
+                    {m.role === 'user' ? '›' : '⏺'}
+                  </span>
+                  <div className={`min-w-0 flex-1 text-neutral-300 ${COMPACT_MD_CLS}`}>
+                    <ChatMarkdown components={{}}>{m.content}</ChatMarkdown>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
