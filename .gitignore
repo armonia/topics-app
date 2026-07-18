@@ -141,3 +141,6 @@ ui-state-backups/
 
 # graphify skill output (scratch)
 /graphify-out/
+
+# ai-bridge broker store (ephemeral NDJSON session buffers)
+ai-bridge/
