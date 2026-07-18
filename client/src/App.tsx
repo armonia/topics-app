@@ -130,9 +130,10 @@ function App() {
   // server/lib/dev-bundle-reload.ts.
   useEffect(() => initDevBundleReload(), []);
 
-  // Deep-link a board task from ?task=<projectId>~<taskId> (the drawer's "copia
-  // link"): opens the global board and jumps to the task, once, after the
-  // initial layout has mounted its event listeners.
+  // Deep-link a board task from /task/<taskId> (the drawer's "copia link"; a
+  // legacy ?task=<slug>~<taskId> link still resolves too): opens the global
+  // board and jumps to the task, once, after the initial layout has mounted its
+  // event listeners.
   useEffect(() => { openTaskFromUrl(); }, []);
 
   // Warm the ⌘K command-palette chunk on idle so its FIRST open is composited

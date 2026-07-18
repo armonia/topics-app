@@ -595,7 +595,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   useEffect(() => subscribeProvidersSnapshot((state) => {
     setClaudeModels(state.snapshot?.providers.find((p) => p.name === 'claude-code')?.models ?? []);
   }), []);
-  // Deep-link target (from ?task=… via openTaskLink): the GLOBAL board owns it
+  // Deep-link target (from /task/<id> via openTaskLink): the GLOBAL board owns it
   // (that's what the link opens). Seeded from the CURRENT URL (not a one-shot
   // boot pending) so it survives a remount and an inactive→active board tab —
   // the URL is the source of truth. Fed live by `topics:open-task` when the
@@ -856,18 +856,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     }
   }, [pendingSelect, tasks]);
 
-  // URL ⇄ drawer reflection (GLOBAL board only — `?task=` semantics point at the
-  // global board, matching buildTaskLink). Opening a drawer pushes `?task=`;
-  // closing it removes the param — so every open drawer has a copyable,
+  // URL ⇄ drawer reflection (GLOBAL board only — `/task/<id>` points at the
+  // global board, matching buildTaskLink). Opening a drawer pushes `/task/<id>`;
+  // closing it returns to '/' — so every open drawer has a copyable,
   // refresh-survivable URL and Back closes it. While a deep-link is still
   // resolving (pendingSelect set, task not yet loaded) leave the URL alone so
-  // the incoming ?task isn't wiped before the drawer opens.
+  // the incoming path isn't wiped before the drawer opens.
   useEffect(() => {
     if (!global) return;
-    if (selected) { reflectTaskOpen({ projectId: selected.projectId, taskId: selected.id }); return; }
+    if (selected) { reflectTaskOpen({ taskId: selected.id }); return; }
     if (pendingSelect) return; // deep-link mid-flight — keep the URL
     reflectTaskClose();
-  }, [global, selectedId, selected?.projectId, pendingSelect]);
+  }, [global, selectedId, pendingSelect]);
 
   // Back/forward drive the drawer from history: the value-equality guard in
   // reflect* means setting the selection here won't re-push a duplicate entry.
@@ -2182,7 +2182,7 @@ function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, o
   const copyLink = async () => {
     if (!task) return;
     try {
-      await navigator.clipboard.writeText(buildTaskLink(task.projectId, task.id));
+      await navigator.clipboard.writeText(buildTaskLink(task.id));
       setCopied(true);
       setTimeout(() => setCopied(false), 1400);
     } catch { /* clipboard blocked — nothing to surface */ }
