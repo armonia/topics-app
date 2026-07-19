@@ -501,21 +501,36 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   /**
-   * Guarantee the agent's own words are in the thread for a delivery. If a real
-   * agent comment already exists → true (nothing to do). Otherwise MIRROR the
-   * agent's last session message into a task comment — authored as the agent, so
-   * it reads as the agent speaking and the "delivered" chip logic below sees it —
-   * and broadcast the update. Returns whether the thread now carries an agent
-   * comment. This is why a turn that did real work but never called comment_task
-   * reaches the human WITH a summary, instead of a bare system note (or, worse, a
-   * `failed` park that discards the work). No-op without getLastAgentText.
+   * Guarantee the agent's own words are in the thread for THIS delivery. If the
+   * agent already left a FRESH comment (one made during the current turn) → true,
+   * nothing to do. Otherwise MIRROR the agent's last session message into a task
+   * comment — authored as the agent, so it reads as the agent speaking and the
+   * "delivered" chip logic sees it — and broadcast the update.
+   *
+   * "Fresh" is per-TURN, not per-thread: the `review_needs_summary` service gate
+   * only checks that the agent commented at SOME point, so an agent that steered
+   * back and forth can reach review again leaving only a STALE summary from an
+   * earlier turn ("altro da fare?" → …→review, no new comment). We compare against
+   * the newest `…→in_progress` status event (this turn's start) so the reviewer
+   * always sees what the agent did THIS time — not a bare status flip.
    */
   function ensureAgentSummary(task: Task): boolean {
     const topicId = task.assignedTopicId;
     if (!topicId) return false;
     try {
       const comments = deps.svc.get(task.id)?.comments ?? [];
-      if (comments.some((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment")) return true;
+      // Turn start = newest status event moving the task INTO in_progress.
+      let turnStart = 0;
+      for (const c of comments) {
+        if (c.kind === "status" && typeof c.content === "string" && c.content.endsWith("in_progress")) {
+          const ts = Date.parse(c.createdAt);
+          if (ts > turnStart) turnStart = ts;
+        }
+      }
+      const hasFresh = comments.some((c) =>
+        c.author !== "user" && c.author !== "system" && c.kind === "comment" &&
+        Date.parse(c.createdAt) >= turnStart);
+      if (hasFresh) return true;
     } catch { /* fall through to mirror */ }
     if (!deps.getLastAgentText) return false;
     try {
@@ -547,8 +562,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // agent's last word = "serve te" (decision required); anything else =
       // "delivered" (the agent believes it's done, ready to approve). Binding
       // stays for the deep-link and the resume-on-answer path either way.
-      // (No mirror needed here: the service's `review_needs_summary` gate already
-      // guarantees an agent comment exists before a self-delivery to review.)
+      // Guarantee the agent summarised THIS delivery: the review_needs_summary
+      // gate only checks for ANY past agent comment, so a steered task can reach
+      // review again with no fresh comment — mirror the last session message so
+      // the chip detection below reads real words, not a stale one.
+      ensureAgentSummary(cur);
       let chip = CHIP_NEEDS_INPUT;
       try {
         const comments = deps.svc.get(taskId)?.comments ?? [];

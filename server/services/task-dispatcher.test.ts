@@ -389,6 +389,31 @@ describe("task-dispatcher", () => {
     expect(comments.some((c) => c.content.includes("Questo NON deve comparire"))).toBe(false);
   });
 
+  it("MIRRORS on re-delivery when THIS turn left no fresh comment (stale summary from an earlier turn)", async () => {
+    // The reported bug: a steered task reaches review again ("altro da fare?" →
+    // …→review) with only a STALE agent comment from a previous turn. The review
+    // gate is satisfied (an old comment exists), but the reviewer sees no summary
+    // of what the agent did THIS time. The mirror must fire on the fresh delivery.
+    const h = harness({ getLastAgentText: () => "Fatto: chiuso il subtask #4 questo turno." });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "review", assignedTopicId: "topic-9", attempts: 1 });
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "vecchio riepilogo (turno 1)" });
+    // Force the old comment to predate the new turn (deterministic, no sleep).
+    h.db.prepare("UPDATE task_comments SET created_at = ? WHERE task_id = 't1'").run("2020-01-01T00:00:00.000Z");
+    // Human steers → reject moves it to in_progress (writes the fresh …→in_progress).
+    h.svc.reviewDecision({ taskId: "t1", by: "user", decision: "reject", comment: "procedi", projectId: PID });
+    const p = h.dispatcher.resume("t1", "procedi");
+    await flush();
+    // Agent works and self-delivers back to review WITHOUT a fresh comment.
+    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
+    h.finishTurn();
+    await p;
+    await flush();
+    expect(h.task("t1")!.status).toBe("review");
+    const comments = h.svc.get("t1")!.comments;
+    expect(comments.some((c) => c.content.includes("chiuso il subtask #4 questo turno"))).toBe(true);
+  });
+
   it("respects the concurrency cap", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 1 });
