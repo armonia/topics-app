@@ -427,7 +427,6 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // isVisible gates the screencast: only the visible pane streams frames (keeps
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const browser = useRemoteBrowser(contextId, isVisible);
-  const { imgRef } = browser;
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
@@ -833,7 +832,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         <SelectElementOverlay
           contextId={contextId}
           active={browser.selectMode}
-          imgRef={imgRef}
+          surfaceRef={browser.videoRef}
           pageScaleFactor={browser.pageScaleFactor}
           onPick={(el) => {
             // SelectElementOverlay also dispatches the chat:insert-text custom
