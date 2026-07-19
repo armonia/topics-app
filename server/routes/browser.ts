@@ -15,6 +15,7 @@ import {
   clearBrowserCaches,
 } from "../browser-tools-handler";
 import { resetMoondreamCounter } from "../integrations/moondream-client";
+import { probeFraming } from "../browser-framing";
 import type { BrowserActAction } from "../browser-tools";
 
 export function createBrowserRouter(
@@ -38,6 +39,17 @@ export function createBrowserRouter(
     // --- List browser contexts ---
     if (method === "GET" && pathname === "/api/browsers") {
       return json(browserService.listContexts());
+    }
+
+    // --- Framing probe (T2): can this URL be rendered as a native <iframe>? ---
+    // The web pane uses this to pick iframe (framable) vs the headless stream.
+    // Reads the target's X-Frame-Options / CSP frame-ancestors server-side
+    // (no CORS), cached per-URL. Errors/timeouts → framable:false (stream).
+    if (method === "GET" && pathname === "/api/browsers/framable") {
+      const target = url.searchParams.get("url");
+      if (!target) return errorResponse(400, "url required");
+      const framable = await probeFraming(target);
+      return json({ framable });
     }
 
     // --- Get context info ---

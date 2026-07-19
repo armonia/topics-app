@@ -42,6 +42,9 @@ interface RemoteBrowserState {
   pageScaleFactor: number;
   /** Downloads the headless page triggered (server-saved, surfaced as links). */
   downloads: DownloadInfo[];
+  /** T2: whether the CURRENT url allows being framed (probed server-side). The
+   *  panel renders a native <iframe> when framable AND no agent is driving. */
+  framable: boolean;
 }
 
 interface InteractionHandlers {
@@ -77,6 +80,9 @@ const FALLBACK_DELAY_MS = 2000;
 const MAX_RECONNECT_DELAY_MS = 10000;
 // Match the server's bandwidth-safe DPR ceiling (browser-service clampDsf).
 const MAX_DSF = 2;
+// Local-network URLs are always framable (and reachable) — decided client-side,
+// never via the server probe (which would resolve localhost to the SERVER).
+const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 // Watchdog: `loading` is set true on navigate/reload and is normally cleared by
 // the server's `nav`/`response` message. If that message is lost (server crash,
 // dropped WS frame, a disconnect right after the request), `loading` — and thus
@@ -128,6 +134,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     selectedElement: null,
     pageScaleFactor: 1,
     downloads: [],
+    framable: false,
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -573,6 +580,26 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       }
     };
   }, [state.connectionState, fetchInfo, fetchScreenshot]);
+
+  // T2 — framing probe: whether the CURRENT url can be rendered as a native
+  // <iframe>. Reset to false the instant the url changes (so a new page never
+  // flashes the previous page's iframe), then probe http(s) URLs server-side.
+  // localhost / non-http are decided in the panel, not here.
+  useEffect(() => {
+    const url = state.url;
+    setState(s => (s.framable ? { ...s, framable: false } : s));
+    if (!url || !/^https?:\/\//i.test(url) || LOCAL_HOST_RX.test(url)) return;
+    let cancelled = false;
+    fetch(`/api/browsers/framable?url=${encodeURIComponent(url)}`)
+      .then(r => (r.ok ? r.json() : { framable: false }))
+      .then((d: { framable?: boolean }) => {
+        if (!cancelled && mountedRef.current) {
+          setState(s => (s.url === url ? { ...s, framable: !!d.framable } : s));
+        }
+      })
+      .catch(() => { /* network error → leave framable=false (stream) */ });
+    return () => { cancelled = true; };
+  }, [state.url]);
 
   // --- Interaction handlers ---
 

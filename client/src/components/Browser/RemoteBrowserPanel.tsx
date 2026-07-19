@@ -416,16 +416,22 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
     return () => clearTimeout(id);
   }, [clickT]);
 
-  // localhost iframe fallback — early-return path with full toolbar.
-  // NOT under the Tauri shell: there the whole app is a SINGLE WKWebView, and a
-  // localhost SPA that frame-busts (`top.location = …`) would navigate the main
-  // frame away from Topics and destroy the app (WKWebView doesn't reliably honour
-  // the iframe `sandbox` top-nav restriction). Under Tauri we use the streaming
-  // path instead (a screenshot <img> driven by the server's headless browser),
-  // which can't touch the host frame. Electron uses its native pane; web keeps
-  // the live iframe (a hijack there only swaps one browser tab, not the app).
-  const isLocalhost = !isTauri && browser.url && LOCAL_HOST_RX.test(browser.url);
-  if (isLocalhost) {
+  // T2 — native <iframe> path (CodePen-style), early-return with the full
+  // toolbar. Used, in the WEB client only, when the current URL is (a) a local
+  // dev site OR (b) a remote site the server probed as framable — AND no agent
+  // is driving the pane (agents can't reach into a cross-origin iframe, so an
+  // agent flips the pane back to the screenshot stream).
+  //
+  // NOT under the Tauri shell: there the whole app is a SINGLE WKWebView, and an
+  // SPA that frame-busts (`top.location = …`) would navigate the main frame away
+  // from Topics and destroy the app (WKWebView doesn't reliably honour the iframe
+  // `sandbox` top-nav restriction). Under Tauri we use the streaming path instead
+  // (a screenshot <img> driven by the server's headless browser), which can't
+  // touch the host frame. On web a hijack only swaps this one browser tab, and
+  // the sandbox (no `allow-top-navigation`) blocks it anyway.
+  const useIframe = !isTauri && !!browser.url && !browser.agentActive &&
+    (LOCAL_HOST_RX.test(browser.url) || browser.framable);
+  if (useIframe) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         <BrowserToolbar
@@ -447,8 +453,8 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
           <iframe
             src={browser.url}
             className="w-full h-full border-0"
-            title="Local site"
-            data-testid="browser-localhost-iframe"
+            title="Web page"
+            data-testid="browser-iframe"
             // SECURITY/ISOLATION: confine the framed site to its own browsing
             // context. WITHOUT a sandbox, a localhost app (e.g. an SPA login page)
             // can frame-bust via `top.location = …` and navigate the ENTIRE host
