@@ -75,6 +75,9 @@ export interface BoardTask {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /** Screenshot della consegna (path assoluto allowlistato) — thumbnail
+   *  sulla card, servito via /api/media. */
+  previewImage: string | null;
   /** Dispatch contract: agent delivers a PLAN to review before implementing. */
   planFirst: boolean;
   /** When the current claim started — anchors the live "ci sta mettendo" ticker. */
@@ -227,6 +230,9 @@ export interface UpdateTaskBody {
   kanbanOrder?: number;
   /** http(s) URL of the reviewable output; empty string clears it. */
   outputUrl?: string;
+  /** Screenshot della consegna per la card (path assoluto allowlistato);
+   *  empty string clears it. */
+  previewImage?: string;
   /** Model the dispatched agent runs on; null clears back to "Auto". */
   model?: string | null;
   /** Gate: don't dispatch until this root task is done; null clears it. */

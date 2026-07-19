@@ -7,6 +7,7 @@ import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, STATUS_LABEL, parseQuestionBlock, isProjectlessId, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { getMediaUrl } from '../../lib/api';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt } from './format';
@@ -244,6 +245,19 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             ><ArrowUpRight className="h-3 w-3" /></button>
           )}
         </div>
+      )}
+      {/* Anteprima della consegna: screenshot (previewImage, allowlist media)
+          reso come thumbnail sopra il titolo — la review parte guardando la
+          cosa. Il click passa alla card (apre il drawer). object-top: di un
+          full-page si vede la testata, non un centro anonimo. */}
+      {task.previewImage && (
+        <img
+          src={getMediaUrl(task.previewImage)}
+          alt=""
+          loading="lazy"
+          draggable={false}
+          className="mb-1.5 max-h-36 w-full rounded border border-white/10 object-cover object-top"
+        />
       )}
       {/* Title — full width; the priority rides INLINE before the text (only
           when hand-set and non-default), so urgency reads in the same glance
