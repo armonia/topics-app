@@ -215,7 +215,9 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               <span className="min-w-0 truncate font-medium">{projectLabel}</span>
             </div>
           ) : <div className="min-w-0 flex-1" />}
-          {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
+          {/* The live chip's pulse dot already says "working": while it ticks,
+              the 'al lavoro' state chip is redundant — one chip, not two. */}
+          {(live && task.dispatchState === 'working') ? null : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
             <DispatchChip state={task.dispatchState} error={task.dispatchError} />
           ) : (!task.dispatchState && task.dispatchError) ? (
             <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
@@ -232,14 +234,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
                 ? `Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · modello ${fmtModel(task.model)}`
                 : `Modello: ${fmtModel(task.model)}`}
               className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
-            >{fmtModel(task.model)}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
+            >{fmtModel(task.model)}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)}` : ''}`}</span>
           ) : null}
           {hasOpenTab && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpenTopic!(task.assignedTopicId!); }}
-              className="flex shrink-0 items-center gap-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-200 hover:bg-white/20"
+              className="shrink-0 rounded bg-white/10 p-1 text-neutral-200 hover:bg-white/20"
               title="Apri la tab dell'agent"
-            ><ArrowUpRight className="h-3 w-3" /> apri tab</button>
+            ><ArrowUpRight className="h-3 w-3" /></button>
           )}
         </div>
       )}
@@ -473,7 +475,7 @@ export function LiveEffortChip({ usage }: { usage: LiveUsage }) {
       className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] text-sky-300 tabular-nums"
     >
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
-      {fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)} tok`}
+      {fmtModel(usage.model)} · ⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}
     </span>
   );
 }
