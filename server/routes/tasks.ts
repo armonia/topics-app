@@ -94,13 +94,24 @@ async function runGitCap(cwd: string, args: string[]): Promise<{ code: number; o
  *  megabytes into the client. */
 const DIFF_PATCH_CAP = 200_000;
 
+/** Cap on how many untracked files we fold into a task diff — a runaway worktree
+ *  (node_modules never gitignored, a build dir…) must not spawn thousands of git
+ *  processes. Beyond this we stop; the patch cap already bounds the payload. */
+const UNTRACKED_FILE_CAP = 500;
+
 /**
  * Build a unified-diff bundle for `range` (any `git diff` selector — a `a..b`
  * range for a publish, or a base sha for a worktree). Returns the per-file stat
  * (additions/deletions/status, -1 count = binary) and the raw unified patch,
  * capped. Reuses `runGitCap`; never throws.
+ *
+ * `includeUntracked` folds in files git isn't tracking yet (new deliverables an
+ * agent wrote but never committed): plain `git diff` ignores them entirely, so a
+ * task whose ONLY output is a brand-new file otherwise renders as an empty diff.
+ * They're listed as `A` and diffed against /dev/null (no index mutation). Off for
+ * publish diffs, which compare two commits and have no working-tree notion.
  */
-async function gitDiffBundle(cwd: string, range: string): Promise<{
+async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntracked?: boolean }): Promise<{
   stat: { path: string; additions: number; deletions: number; status: string }[];
   patch: string;
   truncated: boolean;
@@ -127,10 +138,39 @@ async function gitDiffBundle(cwd: string, range: string): Promise<{
       status: statusByPath.get(path) ?? "M",
     };
   });
-  const full = (await runGitCap(cwd, ["diff", range])).out;
+  let full = (await runGitCap(cwd, ["diff", range])).out;
+
+  if (gopts?.includeUntracked) {
+    // -z: NUL-separated, so paths with spaces/newlines survive intact.
+    const others = (await runGitCap(cwd, ["ls-files", "--others", "--exclude-standard", "-z"])).out;
+    const files = others.split("\0").filter(Boolean).slice(0, UNTRACKED_FILE_CAP);
+    for (const f of files) {
+      // `git diff --no-index /dev/null <f>` is a pure file compare (no index
+      // touched); exit code 1 just means "differs" — runGitCap returns .out anyway.
+      const ns = (await runGitCap(cwd, ["diff", "--no-index", "--numstat", "--", "/dev/null", f])).out;
+      const parts = (ns.split("\n").find(Boolean) ?? "").split("\t");
+      const add = parts[0] ?? "0";
+      const del = parts[1] ?? "0";
+      stat.push({
+        path: f,
+        additions: add === "-" ? -1 : Number.parseInt(add, 10) || 0,
+        deletions: del === "-" ? -1 : Number.parseInt(del, 10) || 0,
+        status: "A",
+      });
+      // Skip fetching more patch text once we're already over the cap (stat is
+      // cheap and still complete; the patch just gets flagged truncated below).
+      if (full.length <= DIFF_PATCH_CAP) {
+        const p = (await runGitCap(cwd, ["diff", "--no-index", "--", "/dev/null", f])).out;
+        if (p) full += (full && !full.endsWith("\n") ? "\n" : "") + p;
+      }
+    }
+  }
+
   const truncated = full.length > DIFF_PATCH_CAP;
   return { stat, patch: truncated ? full.slice(0, DIFF_PATCH_CAP) : full, truncated };
 }
+
+export { gitDiffBundle };
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
@@ -375,7 +415,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // this task did — committed work on its branch AND any uncommitted edits —
       // without noise from commits main gained meanwhile.
       const base = (await runGitCap(wt.absPath, ["merge-base", "main", "HEAD"])).out.trim() || "main";
-      const bundle = await gitDiffBundle(wt.absPath, base);
+      // includeUntracked: a task whose only deliverable is a brand-new (never
+      // committed) file must still show a diff, not an empty bundle.
+      const bundle = await gitDiffBundle(wt.absPath, base, { includeUntracked: true });
       return json({ branch: wt.branchName, base, ...bundle });
     }
 
