@@ -526,6 +526,12 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     browser.connectionState === 'connecting' ? 'bg-yellow-500 animate-pulse' :
     'bg-red-500';
 
+  // Hide the pill when the page itself failed (goto → ERR_CONNECTION_REFUSED →
+  // chrome-error): a pulsing green "Live" over a dead page is misleading, and the
+  // red nav-error strip already spells out the failure + Riprova. On every other
+  // state the pill stays visible (and honest).
+  const hideConnectionPill = !!browser.error;
+
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -564,14 +570,17 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         tabIndex={0}
         onKeyDown={browser.onKeyDown}
       >
-        {/* Phase 30 BROWSER-CHAT-02 — connection indicator pillola (top-right) */}
-        <div
-          className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium pointer-events-none transition-colors browser-connection-indicator ${connectionClassPill}`}
-          data-testid="browser-connection-indicator"
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${connectionDotClass}`} />
-          {connectionLabel}
-        </div>
+        {/* Phase 30 BROWSER-CHAT-02 — connection indicator pillola (top-right).
+            Hidden on the settled happy path (see hideConnectionPill). */}
+        {!hideConnectionPill && (
+          <div
+            className={`absolute top-2 right-2 z-10 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium pointer-events-none transition-colors browser-connection-indicator ${connectionClassPill}`}
+            data-testid="browser-connection-indicator"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${connectionDotClass}`} />
+            {connectionLabel}
+          </div>
+        )}
 
         {/* Engine toggle (task 54601eeb) — Native ↔ real Chromium (extensions).
             Shown only when the server advertises the capability
