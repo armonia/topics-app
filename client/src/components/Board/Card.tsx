@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowUpRight, ClipboardList, Lock, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
+import { ArrowUpRight, ClipboardList, Lock, MessageSquare, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -254,6 +254,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             title={`${task.subtaskDoneCount}/${task.subtaskCount} sottotask completati`}
             className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
           >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
+        )}
+        {task.userCommentCount > 0 && (
+          <span
+            title={`${task.userCommentCount} ${task.userCommentCount === 1 ? 'tuo messaggio' : 'tuoi messaggi'} nel thread (esclusa l'AI)`}
+            className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
+          ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
         )}
         {task.planFirst && (
           <span
