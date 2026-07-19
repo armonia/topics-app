@@ -96,9 +96,33 @@ sorgente e il viewer sono processi/browser distinti → transport reale, non un 
 - Il Chromium sorgente headless standalone **muore durante le build lunghe** → rilancialo
   DOPO il `cargo build`, prima della validazione (il bridge ha un retry-loop sul CDP).
 
-## Stage 3 — TODO: sharing
+## Stage 3 — fan-out N-viewer (stessa sessione condivisa) — FATTO e VERIFICATO (2026-07-19)
+
+Il cuore del goal Mac↔mobile: **una sola** sessione browser server-side → **una** CDP
+screencast → **un** encoder → **una** `TrackLocalStaticSample` → **N** viewer WebRTC
+concorrenti, tutti che decodificano l'H.264 live in simultanea. Ogni `POST /offer` crea
+una PeerConnection nuova con `add_track` della track condivisa; webrtc-rs fa il fan-out.
+
+`validate-fanout.mjs` (N context Playwright indipendenti sullo stesso bridge, PASS solo se
+**TUTTI** i viewer hanno `framesDecoded>15 && videoWidth>0` insieme):
+```
+N=2 → viewer1: 1280px fd=26 H264 | viewer2: 1280px fd=26 H264   ✅ PASS
+N=3 → viewer1 fd=16 | viewer2 fd=45 | viewer3 fd=45 (tutti H264) ✅ PASS
+```
+`bun validate-fanout.mjs [bridgeUrl] [viewers]` (bridge sulla pagina animata = frame continui).
+
+**Gotcha bruciato:** una **pagina statica** (es. `example.com`) emette **un solo** screencast
+frame al primo paint e poi tace (lo screencast CDP è event-driven sui cambi visivi) → un
+viewer che entra dopo non riceve mai keyframe (`fd=0`). Con la pagina animata i frame
+continui + IDR periodico sincronizzano ogni peer entro ~1s. **Implicazione di produzione:**
+serve un *keepalive re-encode* dell'ultimo frame (o keyframe-on-connect via RTCP-PLI) perché
+i late-joiner su pagine ferme decodifichino — altrimenti restano neri finché la pagina non
+cambia. Va cablato nell'integrazione (non è un limite del transport, è il trigger dei frame).
+
+## Stage 3b — TODO: Mac su context condiviso
 Il Mac usa il context server condiviso (engine "shared") invece della WKWebView nativa →
-mobile joina lo stesso `contextId`.
+mobile joina lo stesso `contextId`. (Il transport + fan-out sono provati; resta l'aggancio
+del Mac alla sorgente condivisa e il signaling su `/ws/browser/:ctx`.)
 
 ## Ordine di build (due workstream ortogonali)
 
