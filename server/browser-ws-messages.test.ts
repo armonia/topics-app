@@ -41,6 +41,32 @@ describe('browser-ws-messages: download', () => {
   });
 });
 
+describe('browser-ws-messages: set_engine (client -> server)', () => {
+  it('accepts native / chromium', () => {
+    expect(parseBrowserWsMessage({ type: 'set_engine', engine: 'native' }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'set_engine', engine: 'chromium' }).ok).toBe(true);
+  });
+
+  it('rejects an unknown engine or a missing field', () => {
+    expect(parseBrowserWsMessage({ type: 'set_engine', engine: 'firefox' }).ok).toBe(false);
+    expect(parseBrowserWsMessage({ type: 'set_engine' }).ok).toBe(false);
+  });
+});
+
+describe('browser-ws-messages: engine (server -> client)', () => {
+  it('accepts an engine with an optional extension count', () => {
+    const r = parseBrowserWsMessage({ type: 'engine', engine: 'chromium', extensions: 42 });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data).toEqual({ type: 'engine', engine: 'chromium', extensions: 42 });
+    expect(parseBrowserWsMessage({ type: 'engine', engine: 'native' }).ok).toBe(true);
+  });
+
+  it('rejects a negative / non-integer extension count', () => {
+    expect(parseBrowserWsMessage({ type: 'engine', engine: 'chromium', extensions: -1 }).ok).toBe(false);
+    expect(parseBrowserWsMessage({ type: 'engine', engine: 'chromium', extensions: 2.5 }).ok).toBe(false);
+  });
+});
+
 describe('browser-ws-messages: union still discriminates', () => {
   it('parses a frame and rejects an unknown type', () => {
     expect(parseBrowserWsMessage({ type: 'frame', data: 'abc', metadata: { timestamp: 1 } }).ok).toBe(true);

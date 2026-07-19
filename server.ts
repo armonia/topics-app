@@ -44,6 +44,8 @@ import { createBrowserService } from "./server/browser-service";
 import { clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./server/browser-ws-messages";
+import { applyEngineSwitch } from "./server/browser-engine-switch";
+import { browserEngineRegistry, chromiumExtensionsCount, CHROMIUM_ENGINE_ENABLED } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
 import { buildPresenceSnapshot } from "./server/presence";
@@ -1390,8 +1392,28 @@ const server = Bun.serve<WSData>({
             browserService.resize(ctxId, parsed.width, parsed.height, parsed.deviceScaleFactor).catch(err =>
               console.warn(`[WS][browser] resize failed for ${ctxId}:`, err.message)
             );
+          } else if (parsed.type === 'set_engine') {
+            // Engine switch (task 54601eeb) — flag-gated. When OFF, echo 'native'
+            // so a client toggle reverts. When ON, orchestrate the switch (acquire
+            // sidecar ref + hint + destroy) and broadcast the resulting engine to
+            // every viewer; they remount → the context recreates on the new engine.
+            if (!CHROMIUM_ENGINE_ENABLED) {
+              sendBrowserWsMessage(ws, { type: 'engine', engine: 'native' });
+            } else {
+              applyEngineSwitch(
+                { registry: browserEngineRegistry, service: browserService, extensionsCount: chromiumExtensionsCount },
+                ctxId,
+                parsed.engine,
+              ).then((msg) => {
+                broadcastToBrowserWs(ctxId, msg);
+              }).catch((err) => {
+                console.warn(`[WS][browser] set_engine failed for ${ctxId}:`, err?.message || err);
+                // Switch failed (e.g. no chromium installed) — the pane stayed put.
+                try { sendBrowserWsMessage(ws, { type: 'engine', engine: 'native' }); } catch { /* socket gone */ }
+              });
+            }
           }
-          // Ignore other message types from client (frame/agent_active/console/download are server -> client only).
+          // Ignore other message types from client (frame/agent_active/console/download/engine are server -> client only).
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn(`[WS][browser] Failed to parse message from ${ws.data.id}:`, msg);
