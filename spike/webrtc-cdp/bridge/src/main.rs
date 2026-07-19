@@ -1,274 +1,302 @@
-// Stage 1 — Rust CDP client that measures screencast throughput.
-// Mirrors spike/webrtc-cdp/measure-fps.mjs in Rust to prove the async CDP pipeline
-// (tokio + tungstenite) before layering webrtc-rs + H.264 encode on top.
+// Stage 2 — WebRTC-over-CDP: serve the shared headless browser as an H.264 WebRTC
+// video track to N browser peers. One CDP screencast → one encoder → one shared
+// TrackLocalStaticSample (webrtc-rs fans it out to every PeerConnection).
 //
-// Usage: webrtc-cdp-bridge [everyNthFrame] [durationMs]
+// Signaling is a tiny hand-rolled HTTP server (GET / = test page, POST /offer = SDP
+// exchange) so this stays dependency-light and self-contained for the spike.
+//
+// Usage: webrtc-cdp-bridge [signalPort] [targetUrl]  (needs Chromium CDP on :19222)
 
-use std::sync::atomic::{AtomicU64, Ordering};
+mod cdp;
+
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::Duration;
 
-use futures_util::{SinkExt, StreamExt};
-use serde_json::{json, Value};
+use anyhow::Result;
+use bytes::Bytes;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Message;
 
-const CDP_HTTP: &str = "http://127.0.0.1:19222";
+use webrtc::api::interceptor_registry::register_default_interceptors;
+use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264};
+use webrtc::api::APIBuilder;
+use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::interceptor::registry::Registry;
+use webrtc::media::Sample;
+use webrtc::peer_connection::configuration::RTCConfiguration;
+use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
+use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
+use webrtc::track::track_local::TrackLocal;
 
 #[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let every_nth: u32 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(1);
-    let duration_ms: u64 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(6000);
+async fn main() -> Result<()> {
+    let port: u16 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(19444);
+    let target_url = std::env::args().nth(2);
 
-    // Discover the browser-level CDP websocket.
-    let ver: Value = reqwest_get_json(&format!("{CDP_HTTP}/json/version")).await?;
-    let browser_ws = ver["webSocketDebuggerUrl"].as_str().ok_or("no webSocketDebuggerUrl")?;
-    eprintln!(
-        "[bridge] CDP {}  everyNthFrame={every_nth}",
-        ver["Browser"].as_str().unwrap_or("?")
-    );
+    // Shared H.264 track — webrtc-rs fans write_sample() out to every bound peer.
+    let track = Arc::new(TrackLocalStaticSample::new(
+        RTCRtpCodecCapability { mime_type: MIME_TYPE_H264.to_owned(), ..Default::default() },
+        "video".to_owned(),
+        "webrtc-cdp".to_owned(),
+    ));
 
-    let (ws, _) = connect_async(browser_ws).await?;
-    let (mut write, mut read) = ws.split();
-
-    // Outbound RPC channel — one writer task owns the sink.
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-    let writer = tokio::spawn(async move {
-        while let Some(s) = rx.recv().await {
-            if write.send(Message::Text(s)).await.is_err() {
-                break;
+    // CDP screencast → JPEG frames channel (bounded → drop-on-backpressure).
+    let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(4);
+    {
+        let target_url = target_url.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = cdp::stream_frames(target_url.clone(), 1, frame_tx.clone()).await {
+                    eprintln!("[cdp] stream ended: {e} — retrying in 1s");
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
-        }
-    });
+        });
+    }
 
-    let next_id = Arc::new(AtomicU64::new(1));
-    let send_rpc = {
-        let tx = tx.clone();
-        let next_id = next_id.clone();
-        move |method: &str, params: Value, session: Option<&str>| {
-            let id = next_id.fetch_add(1, Ordering::SeqCst);
-            let mut msg = json!({ "id": id, "method": method, "params": params });
-            if let Some(s) = session {
-                msg["sessionId"] = json!(s);
+    // Encoder runs on a dedicated OS thread: openh264's Encoder is !Send, so it
+    // must not live on the async runtime (can't be held across an .await). It feeds
+    // encoded H.264 samples to an async writer that fans them onto the track.
+    let (sample_tx, mut sample_rx) = mpsc::channel::<Vec<u8>>(8);
+    std::thread::spawn(move || encode_thread(frame_rx, sample_tx));
+    {
+        let track = track.clone();
+        tokio::spawn(async move {
+            while let Some(data) = sample_rx.recv().await {
+                let sample = Sample { data: Bytes::from(data), duration: Duration::from_millis(33), ..Default::default() };
+                if let Err(e) = track.write_sample(&sample).await {
+                    eprintln!("[enc] write_sample: {e}");
+                }
             }
-            let _ = tx.send(msg.to_string());
-            id
-        }
+        });
+    }
+
+    // WebRTC API (built once, reused per peer).
+    let api = {
+        let mut m = MediaEngine::default();
+        m.register_default_codecs()?;
+        let mut registry = Registry::new();
+        registry = register_default_interceptors(registry, &mut m)?;
+        Arc::new(APIBuilder::new().with_media_engine(m).with_interceptor_registry(registry).build())
     };
 
-    // Bring up a throwaway target + attach; wait for its sessionId from the stream.
-    send_rpc("Target.createTarget", json!({ "url": "about:blank" }), None);
-
-    let frames = Arc::new(AtomicU64::new(0));
-    let bytes = Arc::new(AtomicU64::new(0));
-    let mut first_frame: Option<Instant> = None;
-    let mut last_frame = Instant::now();
-    let mut session_id: Option<String> = None;
-    let mut target_id: Option<String> = None;
-
-    // Overall safety deadline so we never block forever if frames don't flow.
-    let hard_deadline = tokio::time::sleep(std::time::Duration::from_millis(duration_ms + 4000));
-    tokio::pin!(hard_deadline);
+    let listener = TcpListener::bind(("0.0.0.0", port)).await?;
+    let lan = local_ip().unwrap_or_else(|| "127.0.0.1".into());
+    eprintln!("[sig] http://{lan}:{port}/  (open on Mac AND phone on the same LAN)");
 
     loop {
-        let msg = tokio::select! {
-            _ = &mut hard_deadline => { eprintln!("[bridge] break: hard_deadline"); break; }
-            m = read.next() => match m {
-                Some(Ok(Message::Text(t))) => t,
-                Some(Ok(Message::Close(c))) => { eprintln!("[bridge] break: ws Close {c:?}"); break; }
-                Some(Err(e)) => { eprintln!("[bridge] break: ws Err {e}"); break; }
-                None => { eprintln!("[bridge] break: stream ended (None)"); break; }
-                Some(Ok(_)) => continue,
-            },
-        };
-        let v: Value = match serde_json::from_str(&msg) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
+        let (sock, _) = listener.accept().await?;
+        let api = api.clone();
+        let track = track.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_http(sock, api, track, port).await {
+                eprintln!("[sig] conn error: {e}");
+            }
+        });
+    }
+}
 
-        if !v["error"].is_null() {
-            eprintln!("[bridge] CDP error: {}", v["error"]);
-        }
+/// Blocking encoder loop (own OS thread): JPEG → RGB → I420 → H.264 → sample_tx.
+fn encode_thread(mut rx: mpsc::Receiver<Vec<u8>>, sample_tx: mpsc::Sender<Vec<u8>>) {
+    use openh264::encoder::Encoder;
+    use openh264::formats::{RgbSliceU8, YUVBuffer};
+    use zune_jpeg::JpegDecoder;
 
-        // Result of Target.createTarget → we have a targetId, now attach.
-        if target_id.is_none() {
-            if let Some(tid) = v["result"]["targetId"].as_str() {
-                target_id = Some(tid.to_string());
-                send_rpc(
-                    "Target.attachToTarget",
-                    json!({ "targetId": tid, "flatten": true }),
-                    None,
-                );
+    let mut encoder: Option<(Encoder, usize, usize)> = None;
+    let mut frame_no: u64 = 0;
+    // Periodic IDR so a late-joining viewer can sync within ~1s (no RTCP-PLI wiring
+    // in this spike). One shared encoder → every peer benefits from the same keyframe.
+    const IDR_EVERY: u64 = 30;
+
+    while let Some(jpeg) = rx.blocking_recv() {
+        let mut dec = JpegDecoder::new(&jpeg);
+        let rgb = match dec.decode() {
+            Ok(px) => px,
+            Err(e) => {
+                eprintln!("[enc] jpeg decode: {e}");
                 continue;
             }
+        };
+        let (w, h) = match dec.dimensions() {
+            Some((w, h)) => (w & !1, h & !1), // even dims for 4:2:0
+            None => continue,
+        };
+        if w == 0 || h == 0 {
+            continue;
         }
 
-        // attachedToTarget event carries the flattened sessionId.
-        if session_id.is_none() {
-            if let Some(sid) = v["params"]["sessionId"].as_str() {
-                if v["method"] == "Target.attachedToTarget" {
-                    let sid = sid.to_string();
-                    send_rpc("Page.enable", json!({}), Some(&sid));
-                    send_rpc(
-                        "Emulation.setDeviceMetricsOverride",
-                        json!({ "width": 1280, "height": 720, "deviceScaleFactor": 2, "mobile": false }),
-                        Some(&sid),
-                    );
-                    send_rpc(
-                        "Page.navigate",
-                        json!({ "url": animated_page() }),
-                        Some(&sid),
-                    );
-                    // Start the screencast on a timer (decoupled from the read loop,
-                    // which would otherwise block waiting for a message that never comes).
-                    let tx2 = tx.clone();
-                    let next_id2 = next_id.clone();
-                    let sid2 = sid.clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-                        let id = next_id2.fetch_add(1, Ordering::SeqCst);
-                        let msg = json!({ "id": id, "method": "Page.startScreencast", "sessionId": sid2,
-                            "params": { "format": "jpeg", "quality": 60, "maxWidth": 2560, "maxHeight": 1440, "everyNthFrame": every_nth } });
-                        let _ = tx2.send(msg.to_string());
-                    });
-                    session_id = Some(sid);
+        let need_new = match &encoder {
+            Some((_, ew, eh)) => *ew != w || *eh != h,
+            None => true,
+        };
+        if need_new {
+            // openh264 0.6: Encoder::new() auto-derives dims from the first frame.
+            match Encoder::new() {
+                Ok(enc) => {
+                    eprintln!("[enc] encoder {w}x{h}");
+                    encoder = Some((enc, w, h));
+                    frame_no = 0;
+                }
+                Err(e) => {
+                    eprintln!("[enc] create: {e}");
                     continue;
                 }
             }
         }
+        let (enc, _, _) = encoder.as_mut().unwrap();
 
-        // Screencast frames.
-        if v["method"] == "Page.screencastFrame" {
-            let now = Instant::now();
-            if first_frame.is_none() {
-                first_frame = Some(now);
+        // Force a keyframe on the first frame and every IDR_EVERY frames after.
+        if frame_no % IDR_EVERY == 0 {
+            enc.force_intra_frame();
+        }
+        frame_no += 1;
+
+        let rgb_src = RgbSliceU8::new(&rgb[..w * h * 3], (w, h));
+        let yuv = YUVBuffer::from_rgb8_source(rgb_src);
+        let data = match enc.encode(&yuv) {
+            Ok(bs) => bs.to_vec(),
+            Err(e) => {
+                eprintln!("[enc] encode: {e}");
+                continue;
             }
-            last_frame = now;
-            frames.fetch_add(1, Ordering::Relaxed);
-            if let Some(data) = v["params"]["data"].as_str() {
-                bytes.fetch_add((data.len() as f64 * 0.75) as u64, Ordering::Relaxed);
-            }
-            // ACK — screencast is ack-gated, so the next frame won't arrive until
-            // this fires. `params.sessionId` is the screencast session INTEGER
-            // (frame.params.sessionId), mandatory; route via the CDP page session.
-            if let Some(sess) = &session_id {
-                let scid = v["params"]["sessionId"].clone();
-                send_rpc("Page.screencastFrameAck", json!({ "sessionId": scid }), Some(sess));
+        };
+        if data.is_empty() {
+            continue;
+        }
+        if sample_tx.blocking_send(data).is_err() {
+            break; // writer gone
+        }
+    }
+}
+
+/// Minimal HTTP/1.1: GET / → test page, POST /offer → SDP answer.
+async fn handle_http(
+    mut sock: TcpStream,
+    api: Arc<webrtc::api::API>,
+    track: Arc<TrackLocalStaticSample>,
+    port: u16,
+) -> Result<()> {
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; 8192];
+    // Read headers (+ body for POST) — loop until we have the full Content-Length.
+    let mut header_end = None;
+    let mut content_len = 0usize;
+    loop {
+        let n = sock.read(&mut tmp).await?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&tmp[..n]);
+        if header_end.is_none() {
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                header_end = Some(pos + 4);
+                let headers = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
+                for line in headers.lines() {
+                    if let Some(v) = line.strip_prefix("content-length:") {
+                        content_len = v.trim().parse().unwrap_or(0);
+                    }
+                }
             }
         }
-
-        if let Some(ff) = first_frame {
-            if ff.elapsed().as_millis() as u64 >= duration_ms {
+        if let Some(he) = header_end {
+            if buf.len() >= he + content_len {
                 break;
             }
         }
     }
+    let he = header_end.unwrap_or(buf.len());
+    let head = String::from_utf8_lossy(&buf[..he]).to_string();
+    let body = String::from_utf8_lossy(&buf[he..he + content_len.min(buf.len() - he)]).to_string();
+    let first = head.lines().next().unwrap_or("");
 
-    // Report.
-    let f = frames.load(Ordering::Relaxed);
-    let b = bytes.load(Ordering::Relaxed);
-    let span = match first_frame {
-        Some(ff) => (last_frame - ff).as_secs_f64().max(0.001),
-        None => 1.0,
-    };
-    let fps = (f.saturating_sub(1)) as f64 / span;
-    let kb_per_frame = if f > 0 { b as f64 / f as f64 / 1024.0 } else { 0.0 };
-    let mbps = (b as f64 * 8.0) / span / 1e6;
-    println!("[bridge] frames={f} span={span:.2}s => {fps:.1} fps");
-    println!("[bridge] avg {kb_per_frame:.1} KB/frame  bitrate {mbps:.1} Mbps (JPEG, pre-H264)");
-
-    if let Some(tid) = target_id {
-        send_rpc("Target.closeTarget", json!({ "targetId": tid }), None);
+    if first.starts_with("GET / ") || first.starts_with("GET /index") {
+        let page = test_page(port);
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            page.len(),
+            page
+        );
+        sock.write_all(resp.as_bytes()).await?;
+        return Ok(());
     }
-    drop(tx);
-    let _ = writer.await;
+
+    if first.starts_with("POST /offer") {
+        let answer = negotiate(api, track, body).await?;
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/sdp\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            answer.len(),
+            answer
+        );
+        sock.write_all(resp.as_bytes()).await?;
+        return Ok(());
+    }
+
+    sock.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
     Ok(())
 }
 
-// Tiny GET-JSON without pulling reqwest: use std via a blocking helper on tokio.
-async fn reqwest_get_json(url: &str) -> Result<Value, Box<dyn std::error::Error>> {
-    let url = url.to_string();
-    let body = tokio::task::spawn_blocking(move || -> Result<String, String> {
-        let mut resp = ureq_get(&url).map_err(|e| e.to_string())?;
-        Ok(std::mem::take(&mut resp))
-    })
-    .await??;
-    Ok(serde_json::from_str(&body)?)
-}
+/// Build a PeerConnection for one viewer, attach the shared track, answer the offer.
+async fn negotiate(
+    api: Arc<webrtc::api::API>,
+    track: Arc<TrackLocalStaticSample>,
+    offer_sdp: String,
+) -> Result<String> {
+    // Host candidates only — on a LAN / same machine no STUN is needed, and pulling
+    // in a public STUN server just slows gathering (and can't help behind NAT anyway).
+    let config = RTCConfiguration::default();
+    let pc = Arc::new(api.new_peer_connection(config).await?);
+    pc.add_track(track as Arc<dyn TrackLocal + Send + Sync>).await?;
 
-// Minimal HTTP GET over std TcpStream (avoids an HTTP client dep for one call).
-// DevTools keeps the HTTP connection alive, so we honor Content-Length instead of
-// reading to EOF (which would block), with a read timeout as a safety net.
-fn ureq_get(url: &str) -> Result<String, std::io::Error> {
-    use std::io::{Read, Write};
-    use std::net::TcpStream;
-    use std::time::Duration;
-    let rest = url.strip_prefix("http://").unwrap_or(url);
-    let (host_port, path) = rest.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((rest, "/".into()));
-    let mut stream = TcpStream::connect(host_port)?;
-    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
-    write!(
-        stream,
-        "GET {path} HTTP/1.1\r\nHost: {host_port}\r\nConnection: close\r\n\r\n"
-    )?;
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 4096];
-    let mut content_len: Option<usize> = None;
-    let mut header_end: Option<usize> = None;
-    loop {
-        match stream.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) => {
-                buf.extend_from_slice(&chunk[..n]);
-                if header_end.is_none() {
-                    if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
-                        header_end = Some(pos + 4);
-                        let headers = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
-                        for line in headers.lines() {
-                            if let Some(v) = line.strip_prefix("content-length:") {
-                                content_len = v.trim().parse().ok();
-                            }
-                        }
-                    }
-                }
-                if let (Some(he), Some(cl)) = (header_end, content_len) {
-                    if buf.len() >= he + cl {
-                        break;
-                    }
-                }
-            }
-            Err(_) => break, // timeout → whatever we have
-        }
+    pc.on_peer_connection_state_change(Box::new(|s| {
+        eprintln!("[peer] state {s}");
+        Box::pin(async {})
+    }));
+
+    let offer = RTCSessionDescription::offer(offer_sdp)?;
+    pc.set_remote_description(offer).await?;
+    let answer = pc.create_answer(None).await?;
+    let mut gather = pc.gathering_complete_promise().await;
+    pc.set_local_description(answer).await?;
+    let _ = gather.recv().await; // non-trickle: wait for full ICE
+    let local = pc.local_description().await.ok_or_else(|| anyhow::anyhow!("no local desc"))?;
+    for line in local.sdp.lines().filter(|l| l.starts_with("a=candidate")) {
+        eprintln!("[peer] answer {line}");
     }
-    let raw = String::from_utf8_lossy(&buf);
-    let body = raw.split_once("\r\n\r\n").map(|(_, b)| b).unwrap_or("").to_string();
-    Ok(body)
+    Ok(local.sdp)
 }
 
-fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
-    hay.windows(needle.len()).position(|w| w == needle)
+fn test_page(_port: u16) -> String {
+    format!(
+        r#"<!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1">
+<style>html,body{{margin:0;background:#0b0f1a;color:#7aa2f7;font-family:system-ui;height:100%}}
+#v{{width:100vw;height:100vh;object-fit:contain;background:#000}}
+#s{{position:fixed;top:8px;left:8px;background:#0008;padding:4px 8px;border-radius:6px;font-size:12px}}</style></head>
+<body><div id=s>connecting…</div><video id=v autoplay playsinline muted></video>
+<script>
+const s=document.getElementById('s'),v=document.getElementById('v');
+(async()=>{{
+  const pc=new RTCPeerConnection({{iceServers:[{{urls:'stun:stun.l.google.com:19302'}}]}});
+  window.__pc=pc; // exposed for automated validation (getStats)
+  pc.addTransceiver('video',{{direction:'recvonly'}});
+  pc.ontrack=e=>{{v.srcObject=e.streams[0];s.textContent='track received';}};
+  pc.oniceconnectionstatechange=()=>s.textContent='ice: '+pc.iceConnectionState;
+  const offer=await pc.createOffer();await pc.setLocalDescription(offer);
+  await new Promise(r=>{{if(pc.iceGatheringState==='complete')return r();
+    pc.onicegatheringstatechange=()=>pc.iceGatheringState==='complete'&&r();}});
+  const resp=await fetch('/offer',{{method:'POST',headers:{{'Content-Type':'application/sdp'}},body:pc.localDescription.sdp}});
+  const answer=await resp.text();
+  await pc.setRemoteDescription({{type:'answer',sdp:answer}});
+}})().catch(e=>s.textContent='err: '+e.message);
+</script></body></html>"#
+    )
 }
 
-fn animated_page() -> String {
-    // CSS-driven animation: the compositor keeps producing frames even when
-    // requestAnimationFrame is throttled in offscreen/new-headless mode.
-    let html = "<style>body{margin:0;background:#111;overflow:hidden}\
-.b{position:absolute;top:320px;left:0;width:80px;height:80px;border-radius:50%;\
-background:hsl(0,80%,60%);animation:m 1.2s linear infinite,h 3s linear infinite}\
-@keyframes m{0%{left:0}50%{left:1160px}100%{left:0}}\
-@keyframes h{0%{filter:hue-rotate(0deg)}100%{filter:hue-rotate(360deg)}}</style>\
-<div class=b></div>";
-    format!("data:text/html,{}", urlencode(html))
-}
-
-fn urlencode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() * 2);
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            _ => out.push_str(&format!("%{:02X}", b)),
-        }
-    }
-    out
+/// Best-effort primary LAN IPv4 (for the phone URL) — no external deps.
+fn local_ip() -> Option<String> {
+    use std::net::UdpSocket;
+    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("8.8.8.8:80").ok()?;
+    sock.local_addr().ok().map(|a| a.ip().to_string())
 }
