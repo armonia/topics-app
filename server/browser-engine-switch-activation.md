@@ -1,46 +1,48 @@
-# Engine switch — attivazione (drop-in) — task 54601eeb
+# Engine switch — attivazione — task 54601eeb
 
-Le **fondamenta** sono consegnate, testate e **inerti sul server live** (il registry
-non è importato da `server.ts`, il sidecar non lancia nulla finché un pane non
-acquisisce l'engine chromium):
+Stato: **cablato end-to-end dietro flag `TOPICS_CHROMIUM_ENGINE` (default OFF)**.
+Con la flag spenta tutto è inerte: il ramo WS `set_engine` risponde `native`, la
+DELETE non rilascia ref, `/api/browsers/engines` ritorna `{enabled:false}`, il
+client non mostra il toggle → nessun Chromium parte. Si accende impostando
+`TOPICS_CHROMIUM_ENGINE=1` nell'ambiente del server (headful + Tauri).
 
-- `server/browser-chromium-sidecar.ts` — discovery cross-platform + processo
-  sidecar ref-counted/single-flight/idle-reap (DI per i test).
-- `server/browser-chromium-extensions.ts` — discovery delle estensioni Chrome/Dia
-  installate (42 reali su questo Mac).
-- `server/browser-engine-registry.ts` — mappa `contextId → engine` con
-  acquire/release; il singleton `chromiumSidecar` è cablato con
-  `loadExtensions: () => discoverInstalledExtensions().map(e => e.path)` → **Opzione 1**
-  (codice estensioni nel profilo dedicato persistente, l'utente si logga una volta).
-- Test: 69 unit verdi (sidecar 11, registry 8, extensions 5, +…), tsc server 0.
+## Cosa è FATTO (verificabile headless, testato)
 
-## Cosa resta (LIVE — richiede un Chromium reale + app Tauri per costruire E verificare)
+- **Protocollo WS** (`browser-ws-messages.ts` + mirror): varianti `set_engine`
+  (client→server) e `engine` (server→client, con `extensions` per il badge).
+- **browser-service**: ramo engine `chromium` in `createContext` — connette al
+  sidecar via `connectOverCDP` (iniettabile), riusa il **context condiviso** del
+  sidecar (dove vivono le estensioni), cattura il targetId, niente
+  storageState/last-url/cookie (il profilo persistente del sidecar è la fonte).
+  `destroyContext`/`close` chiudono la pagina + disconnettono la CDP ma **mai** il
+  context condiviso. `setEngineHint(id, engine, cdp)` consultato da `createContext`
+  → lo switch è `hint → destroy → (client remount) → getOrCreate → ricrea su engine`.
+- **Orchestrazione** (`browser-engine-switch.ts`, pura + DI): `applyEngineSwitch`
+  = `registry.setEngine` (acquire/release del ref) → `setEngineHint` → `destroyContext`
+  → messaggio `engine` da broadcastare.
+- **server.ts**: ramo `set_engine` flag-gated → `applyEngineSwitch` + broadcast a
+  tutti i viewer. **routes**: `GET /api/browsers/engines` (capability + conteggio
+  estensioni), `release()` del ref sidecar sulla `DELETE /api/browsers/:id`.
+- **client**: `useRemoteBrowser` con stato engine, `setEngine()`, handler del
+  broadcast `engine` (badge + **remount del WS** via `engineEpoch` così il server
+  ricrea il contesto sul nuovo engine), fetch della capability. Toggle
+  `Native ↔ Chromium · N estensioni` in `RemoteBrowserPanel` (solo streaming).
+- **Test**: unit — schema (15), engine service con fake CDP (4), switch puro (5),
+  registry (8), sidecar (11), extensions discovery (5); E2E — `browser-engine-switch`
+  (toggle nascosto se off; on → Nativo↔Chromium con remount). tsc client+server 0.
 
-Va fatto con l'ambiente vivo perché lo streaming di un Chromium reale (finestra
-headful, estensioni MV3) e il pane nativo WKWebView non sono costruibili/verificabili
-headless. Passi, in ordine, dietro flag `TOPICS_CHROMIUM_ENGINE` (default off):
+## Cosa RESTA (LIVE — richiede Chromium reale + verifica visiva)
 
-1. **browser-service: contesto su engine chromium.** Aggiungi a `createContext`
-   `opts.engine?: 'default'|'chromium'` + `opts.cdpEndpoint?`. Su chromium usa un
-   connettore iniettabile (default `pw.chromium.connectOverCDP(cdpEndpoint)`) invece
-   di `ensureBrowser()`; usa il context di default del browser connesso
-   (`browser.contexts()[0]`) dove vivono le estensioni; salta storageState/last-url
-   (il profilo persistente del sidecar è la fonte). Su `destroyContext` fai
-   `entry.engineBrowser.close()` (disconnette la CDP, NON killa il sidecar — il
-   registry ne possiede il lifecycle). Lo screencast/dispatchInput esistenti girano
-   invariati sul Page risultante (Playwright-astratto). *Verifica live*: aprendo un
-   pane chromium devi vedere lo screenshot del Chromium reale con le estensioni.
-2. **Route/WS set-engine.** Messaggio WS `set_engine` (client→server) o route REST →
-   `browserEngineRegistry.setEngine(ctx, engine)` → ritorna `cdpEndpoint` →
-   `destroyContext(ctx)` + `createContext(ctx, {engine, cdpEndpoint})` → broadcast
-   dell'engine corrente al client. `release(ctx)` su close pane.
-3. **Toggle client** nella `BrowserToolbar` (path WEB) + nel pane nativo Tauri:
-   bottone engine (Native ↔ Chromium) che manda `set_engine`; su switch la pane si
-   ricrea sull'engine scelto. Mostra un badge "Chromium · N estensioni".
-4. **Pane nativo Tauri / Win-Linux (subtask #2)** + **nav via delegate nativo
+1. **Accendi la flag nel server vivo** (`TOPICS_CHROMIUM_ENGINE=1`, headful) e apri
+   una web-pane: clic sul toggle → devi VEDERE lo screenshot del Chromium reale con
+   le tue estensioni caricate. Prima volta: login manuale nelle estensioni dentro
+   il pane (Opzione 1 — profilo dedicato persistente, il login resta).
+   *Non verificabile headless*: lo streaming di una finestra headful + estensioni MV3.
+2. **Pane nativo Tauri / Win-Linux (subtask #2)** + **nav via delegate nativo
    (subtask #3, elimina il poll 800ms)** — comandi Rust, richiedono la shell viva.
+   Ortogonali all'engine switch (riguardano il pane 'native' su altre piattaforme).
 
 ## Bivio già sciolto
 Estensioni = **Opzione 1** (codice + profilo persistente, login manuale dell'utente
-dentro il pane). L'Opzione 2 (profilo reale dell'utente) resta un possibile toggle
-avanzato futuro (dà i login ma confligge col browser aperto sullo stesso profilo).
+dentro il pane). L'Opzione 2 (profilo reale dell'utente) resta un toggle avanzato
+futuro (dà i login ma confligge col browser aperto sullo stesso profilo).
