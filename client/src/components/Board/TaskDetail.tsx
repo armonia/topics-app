@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
-import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, Clock, ExternalLink, Footprints, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, Clock, ExternalLink, Footprints, GitMerge, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -304,6 +304,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     if (busy) return;
     setBusy(true);
     try { await boardApi.review(projectId, taskId, decision); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
+  // Land = accept + merge the branch on main (local, no push). Explicit, separate
+  // from Approva (which only accepts the task). The merge/build runs server-side
+  // and surfaces its outcome as system comments in the thread.
+  const doLand = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await boardApi.land(projectId, taskId); setError(null); await load(); onChanged(); }
     catch (e) { showError(e); }
     finally { setBusy(false); }
   };
@@ -1139,7 +1150,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <div className="flex items-center gap-1.5">
                   <button
                     disabled={busy} onClick={() => decide('approve')}
-                    title="Accetta e completa il task"
+                    title="Accetta e completa il task. NON fa il merge — per landare il branch su main usa 'Landa su main'."
                     className="flex flex-1 items-center justify-center gap-1.5 rounded bg-emerald-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
                   >{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} Approva</button>
                   <button
@@ -1148,6 +1159,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50"
                   ><ShieldX className="h-3.5 w-3.5" /> Rifiuta</button>
                 </div>
+                {/* Explicit landing — accept + merge the branch on main (local, no
+                    push, build server-side). Separate from Approva by design: the
+                    merge no longer rides "da sotto" on an approve. */}
+                {isAgentReview && (
+                  <button
+                    disabled={busy} onClick={doLand}
+                    title="Accetta e fai il merge del branch su main (locale, nessun push online). La build gira lato server; l'esito appare nel thread."
+                    className="flex w-full items-center justify-center gap-1.5 rounded bg-sky-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                  ><GitMerge className="h-3.5 w-3.5" /> Landa su main</button>
+                )}
               </div>
             )}
             {attachments.length > 0 && (

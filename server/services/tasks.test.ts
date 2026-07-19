@@ -1,6 +1,19 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createTaskService, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
+import { createTaskService, isLandActionLabel, LAND_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
+
+describe("isLandActionLabel", () => {
+  test("matches the reserved label tolerantly (emoji/punctuation/spacing)", () => {
+    expect(isLandActionLabel(LAND_ACTION_LABEL)).toBe(true);
+    expect(isLandActionLabel("Landa su main")).toBe(true);
+    expect(isLandActionLabel("🚀 Landa su main")).toBe(true);
+    expect(isLandActionLabel("  landa   su  main. ")).toBe(true);
+    expect(isLandActionLabel("Landa su main e pubblica")).toBe(false);
+    expect(isLandActionLabel("Rifiuta")).toBe(false);
+    expect(isLandActionLabel(undefined)).toBe(false);
+    expect(isLandActionLabel("")).toBe(false);
+  });
+});
 
 // Minimal DDL — the subset of migration 001 + 026 the service touches. Kept in
 // sync with server/db/migrations/*.sql by intent; if the service starts using a

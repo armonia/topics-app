@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
 import { getTerminalSessionById } from "./terminal";
-import { AUTO_PROJECT_ID, createTaskService, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
+import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { TaskAutoMerge } from "../services/task-automerge";
@@ -135,6 +135,74 @@ async function gitDiffBundle(cwd: string, range: string): Promise<{
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
   const svc = createTaskService(db);
+
+  /**
+   * Land a task's branch on main (merge locally, reap the worktree, rebuild the
+   * client if it changed). ON-DEMAND — this used to ride on every approve, which
+   * meant approving a task also merged/built "da sotto". Now approve just accepts
+   * the task; landing is an explicit human step (a "Landa su main" quick-reply the
+   * agent offers, or the /land endpoint / button). Fire-and-forget internally: a
+   * slow/failed git op never blocks the caller; all outcomes surface as system
+   * comments. NEVER pushes (the release/publish pipeline stays the sole pusher).
+   */
+  async function landTask(projectId: string, taskId: string): Promise<void> {
+    const autoMerge = opts?.autoMerge;
+    if (!autoMerge) {
+      svc.addComment({ taskId, author: "system", content: "Landing non disponibile: merge automatico non configurato per questo host." });
+      const t = svc.get(taskId, { projectId })?.task;
+      if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+      return;
+    }
+    const task = svc.get(taskId, { projectId })?.task;
+    if (!task) return;
+    try {
+      const res = await autoMerge.tryMerge(taskId, task.text);
+      if (res.status === "merged") {
+        svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
+        if (opts?.deleteTaskWorktree) {
+          const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
+          if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
+        }
+        if (res.touchedClient) {
+          const t2 = svc.get(taskId, { projectId })?.task;
+          if (t2) broadcastToAll({ type: "task:updated", projectId, task: t2 });
+          const build = await autoMerge.buildClient(res.repoPath);
+          svc.addComment({
+            taskId, author: "system",
+            content: build.code === 0
+              ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
+              : `Build client fallita (exit ${build.code}) — lancia \`bun run build:client\` a mano.`,
+          });
+          if (build.code !== 0) console.error("[land] build:client failed for", taskId, build.stderr.slice(-2000));
+        }
+        if (res.touchedNative) {
+          svc.addComment({ taskId, author: "system", content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch)." });
+        }
+        if (res.touchedServer) {
+          svc.addComment({ taskId, author: "system", content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale)." });
+        }
+      } else if (res.status === "nothing") {
+        if (opts?.deleteTaskWorktree) {
+          const dirt = opts?.taskWorktreeDirt ? await opts.taskWorktreeDirt(taskId).catch(() => null) : [];
+          if (!dirt || dirt.length === 0) await opts.deleteTaskWorktree(taskId).catch(() => false);
+          else svc.addComment({ taskId, author: "system", content: "Worktree NON ripulito: contiene modifiche non committate — recuperale o cancellalo a mano." });
+        }
+      } else if (res.status === "conflict") {
+        svc.update({ taskId, actor: "human", by: "user", projectId, patch: { status: "in_progress" } });
+        svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });
+        dispatcher?.resume(
+          taskId,
+          'Il merge automatico del tuo branch su main è andato in conflitto. Porta main dentro il tuo branch (git merge main, oppure rebase), risolvi i conflitti, poi rimetti in review con update_task(status="review").',
+        ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
+      } else if (res.status === "skipped") {
+        svc.addComment({ taskId, author: "system", content: `Merge automatico saltato: ${res.reason}.` });
+      }
+      const updated = svc.get(taskId, { projectId })?.task;
+      if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
+    } catch (e) {
+      console.error("[land] failed for", taskId, e);
+    }
+  }
 
   /**
    * SECURITY: attachment paths are stored AND later handed to the agent as
@@ -572,6 +640,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (!decision) return json({ error: "decision must be 'approve' or 'reject'", code: "invalid_input" }, 400);
         try {
           const comment = typeof body?.comment === "string" ? body.comment : undefined;
+          // The agent offers "Landa su main" as a quick-reply at delivery; picking
+          // it arrives here as a reject-with-that-text. LANDING = accept + merge, so
+          // approve the task and run the land — never a reject. This is the ONLY
+          // place approve is coupled to a merge, and it happens because YOU chose
+          // the land option; a plain approve below is task-only, no "azioni da sotto".
+          if (isLandActionLabel(comment)) {
+            const approved = svc.reviewDecision({ taskId: bReview.taskId, by: HUMAN, decision: "approve", projectId: bReview.projectId });
+            broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: approved });
+            if (dispatcher && approved.status === "done") dispatcher.onBlockerDone(bReview.taskId);
+            void landTask(bReview.projectId, bReview.taskId);
+            return json(approved);
+          }
           const task = svc.reviewDecision({
             taskId: bReview.taskId, by: HUMAN, decision, comment,
             projectId: bReview.projectId,
@@ -585,88 +665,31 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             dispatcher.resume(bReview.taskId, comment ?? "")
               .catch((err) => console.warn(`[Tasks] resume after reject failed for ${bReview.taskId}:`, err));
           }
-          // Approve lands the task in done → its dependents are now claimable.
+          // Approve = ACCEPT the task only (→ done, dependents claimable). It no
+          // longer merges/builds/reaps "da sotto": landing is now an EXPLICIT step
+          // — the agent's "Landa su main" option above, or POST …/land.
           if (dispatcher && decision === "approve" && task.status === "done") {
             dispatcher.onBlockerDone(bReview.taskId);
-            // Opt-in auto-merge (board setting): land the task's branch on main.
-            // Fire-and-forget — a slow/failed git op must never delay or break the
-            // approve response. All outcomes surface as a system comment.
-            const autoMerge = opts?.autoMerge;
-            if (autoMerge && svc.getBoardSettings(bReview.projectId).dispatchAutoMerge) {
-              const { projectId, taskId } = bReview;
-              void (async () => {
-                try {
-                  const res = await autoMerge.tryMerge(taskId, task.text);
-                  if (res.status === "merged") {
-                    svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
-                    // Merged ⇒ the worktree has no remaining value: reap it now
-                    // (worktree + branch + row) instead of letting it pile up.
-                    if (opts?.deleteTaskWorktree) {
-                      const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
-                      if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
-                    }
-                    // Landing client sources without rebuilding leaves the served
-                    // bundle stale (the recurring "non la vedo"): rebuild now, on
-                    // the same per-repo queue, and surface the outcome.
-                    if (res.touchedClient) {
-                      const t2 = svc.get(taskId, { projectId })?.task;
-                      if (t2) broadcastToAll({ type: "task:updated", projectId, task: t2 });
-                      const build = await autoMerge.buildClient(res.repoPath);
-                      svc.addComment({
-                        taskId, author: "system",
-                        content: build.code === 0
-                          ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
-                          : `Build client fallita (exit ${build.code}) — lancia \`bun run build:client\` a mano.`,
-                      });
-                      if (build.code !== 0) console.error("[automerge] build:client failed for", taskId, build.stderr.slice(-2000));
-                    }
-                    if (res.touchedNative) {
-                      svc.addComment({
-                        taskId, author: "system",
-                        content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch).",
-                      });
-                    }
-                    // A server-code landing no longer self-restarts the process
-                    // (removed 2026-07-18). It goes live via the opt-in graceful
-                    // hot-reload watch (TOPICS_SERVER_WATCH) or a manual restart.
-                    if (res.touchedServer) {
-                      svc.addComment({
-                        taskId, author: "system",
-                        content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale).",
-                      });
-                    }
-                  } else if (res.status === "nothing") {
-                    // No commits to land — the deliverable (if any) lives in the
-                    // thread. Reap the worktree ONLY when it's clean: with real
-                    // uncommitted changes sitting there (a system-forced review
-                    // can carry those), reaping would destroy the only copy of
-                    // the agent's work.
-                    if (opts?.deleteTaskWorktree) {
-                      const dirt = opts?.taskWorktreeDirt ? await opts.taskWorktreeDirt(taskId).catch(() => null) : [];
-                      if (!dirt || dirt.length === 0) await opts.deleteTaskWorktree(taskId).catch(() => false);
-                      else svc.addComment({ taskId, author: "system", content: "Worktree NON ripulito: contiene modifiche non committate — recuperale o cancellalo a mano." });
-                    }
-                  } else if (res.status === "conflict") {
-                    // Not landed → hand it back to the task's own agent, which knows
-                    // what it changed. Move it out of done so the resume has a home.
-                    svc.update({ taskId, actor: "human", by: HUMAN, projectId, patch: { status: "in_progress" } });
-                    svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });
-                    dispatcher.resume(
-                      taskId,
-                      'Il merge automatico del tuo branch su main è andato in conflitto. Porta main dentro il tuo branch (git merge main, oppure rebase), risolvi i conflitti, poi rimetti in review con update_task(status="review").',
-                    ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
-                  } else if (res.status === "skipped") {
-                    svc.addComment({ taskId, author: "system", content: `Merge automatico saltato: ${res.reason}.` });
-                  }
-                  // 'nothing' (no commits to merge) → stay quiet.
-                  const updated = svc.get(taskId, { projectId })?.task;
-                  if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
-                } catch (e) {
-                  console.error("[automerge] post-approve wiring failed for", taskId, e);
-                }
-              })();
-            }
           }
+          return json(task);
+        } catch (e) { return fail(e); }
+      }
+
+      // POST /api/boards/:projectId/tasks/:taskId/land — explicit landing (merge
+      // the branch to main, reap the worktree, rebuild the client if it changed).
+      // Decoupled from approve: landing implies acceptance, so approve if still in
+      // review, then land. Never online — publish stays a separate human action.
+      const bLand = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/land");
+      if (bLand && method === "POST") {
+        try {
+          let task = svc.get(bLand.taskId, { projectId: bLand.projectId })?.task;
+          if (!task) return json({ error: "task not found", code: "not_found" }, 404);
+          if (task.status === "review") {
+            task = svc.reviewDecision({ taskId: bLand.taskId, by: HUMAN, decision: "approve", projectId: bLand.projectId });
+            broadcastToAll({ type: "task:updated", projectId: bLand.projectId, task });
+            if (dispatcher && task.status === "done") dispatcher.onBlockerDone(bLand.taskId);
+          }
+          void landTask(bLand.projectId, bLand.taskId);
           return json(task);
         } catch (e) { return fail(e); }
       }
