@@ -382,15 +382,20 @@ test.describe("RemoteBrowserPanel", () => {
     }
   });
 
-  // BROWSER-08: REWRITTEN — screenshot rendering asserted on the new mount path.
-  test("BROWSER-08: Screenshot renders when available", async ({
+  // BROWSER-08: the WebRTC migration removed the JPEG <img> render entirely
+  // ("zero JPEG shown"): the pane's surface is the H.264 <video> (or the native
+  // <iframe>), never a screenshot image — not even in the WS-down fallback. This
+  // asserts the modern contract: with the transport unavailable (WS closed), the
+  // pane still MOUNTS and surfaces the shared-session negotiation state, and NO
+  // dead JPEG <img> is rendered.
+  test("BROWSER-08: no JPEG <img> surface — pane mounts + shows the shared-session state", async ({
     page,
     browserProcessPage,
     request,
   }) => {
     test.info().annotations.push({ type: "spec", description: "BROWSER-02" });
 
-    // Force REST fallback so the screenshot poll path renders the image.
+    // Close the browser WS immediately → no WebRTC signaling can complete.
     await page.routeWebSocket(/\/ws\/browser\//, (ws) => {
       setTimeout(() => { try { ws.close(); } catch { /* ignore */ } }, 0);
     });
@@ -409,11 +414,12 @@ test.describe("RemoteBrowserPanel", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id, "https://example.com");
 
-      // Screenshot image should appear with alt text
-      const img = page
-        .locator('img[alt="Example"]')
-        .or(page.locator('img[alt="Browser page"]'));
-      await expect(img).toBeVisible({ timeout: 15000 });
+      // The pane mounted (toolbar URL input present) and surfaces the shared-
+      // session negotiation state, not a JPEG screenshot.
+      await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 15000 });
+      await expect(page.getByText(/Avvio sessione condivisa/)).toBeVisible({ timeout: 15000 });
+      // The removed JPEG <img> surface must never render.
+      await expect(page.locator('img[alt="Example"], img[alt="Browser page"]')).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

@@ -33,6 +33,14 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
   // when the client sends set_engine (simulates the server's engine broadcast).
   private engineReplyExtensions = 42;
 
+  // WebRTC shared-session transport (2026-07): the streaming pane renders the
+  // H.264 <video> (not a JPEG <img>) once the transport connects. When a test
+  // opts in via mockWebrtcPeer(), the mock WS answers the client's webrtc_offer
+  // and a fake RTCPeerConnection (installed in the page) drives ICE to
+  // 'connected' + fires ontrack — so [data-testid=browser-webrtc-video] becomes
+  // the visible surface deterministically, with no real sidecar/ICE/UDP.
+  private webrtcMockEnabled = false;
+
   constructor(page: Page) {
     super(page);
   }
@@ -83,6 +91,20 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
             }));
           } catch { /* ignore */ }
         }
+        // WebRTC shared-session: answer the client's offer so the fake peer
+        // (mockWebrtcPeer) drives ICE→connected on setRemoteDescription. Only
+        // when a test opted in — otherwise the real RTCPeerConnection would just
+        // reject this stub SDP (harmless) and those tests don't view the video.
+        if (this.webrtcMockEnabled && parsed && typeof parsed === 'object' && (parsed as { type?: string }).type === 'webrtc_offer') {
+          const streamId = (parsed as { stream?: string }).stream;
+          try {
+            ws.send(JSON.stringify({
+              type: 'webrtc_answer',
+              sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 H264/90000\r\n',
+              ...(streamId ? { stream: streamId } : {}),
+            }));
+          } catch { /* ignore */ }
+        }
       });
       // Send first frame within ~50ms (well under 500ms target)
       setTimeout(() => {
@@ -112,6 +134,76 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
           try { ws.close(); } catch { /* ignore */ }
         }, opts.autoCloseAfterMs);
       }
+    });
+  }
+
+  /**
+   * Opt this test into the WebRTC shared-session transport: the streaming pane's
+   * visible surface is the H.264 <video> (data-testid=browser-webrtc-video), not
+   * a JPEG <img>. Installs a fake RTCPeerConnection in the page that answers the
+   * negotiation deterministically — createOffer resolves, and on
+   * setRemoteDescription (the mock WS's webrtc_answer) it fires ontrack with a
+   * synthetic stream and drives iceConnectionState to 'connected' — so the hook
+   * flips webrtcActive=true and the <video> becomes visible. No sidecar, no real
+   * ICE/UDP, no flake. Call BEFORE goToApp() (addInitScript runs pre-page-load);
+   * pairs with mockBrowserWs() (which answers webrtc_offer once this is enabled).
+   */
+  async mockWebrtcPeer(): Promise<void> {
+    this.webrtcMockEnabled = true;
+    await this.page.addInitScript(() => {
+      const RealMediaStream = window.MediaStream;
+      class FakeRTCPeerConnection {
+        private _ice = 'new';
+        private _sig = 'stable';
+        ontrack: ((ev: unknown) => void) | null = null;
+        onicecandidate: ((ev: unknown) => void) | null = null;
+        oniceconnectionstatechange: (() => void) | null = null;
+        onconnectionstatechange: (() => void) | null = null;
+        onsignalingstatechange: (() => void) | null = null;
+        onicegatheringstatechange: (() => void) | null = null;
+        get iceConnectionState() { return this._ice; }
+        get iceGatheringState() { return this._ice === 'new' ? 'new' : 'complete'; }
+        get connectionState() { return this._ice === 'connected' ? 'connected' : this._ice === 'closed' ? 'closed' : 'connecting'; }
+        get signalingState() { return this._sig; }
+        addTransceiver() { return {}; }
+        addEventListener() { /* hook uses on* props */ }
+        removeEventListener() { /* noop */ }
+        getSenders() { return []; }
+        getReceivers() { return []; }
+        async createOffer() {
+          return { type: 'offer', sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 H264/90000\r\n' };
+        }
+        async setLocalDescription() {
+          this._sig = 'have-local-offer';
+          // Emit a host candidate then end-of-candidates (mirrors a real gather).
+          setTimeout(() => {
+            try { this.onicecandidate?.({ candidate: { candidate: 'candidate:1 1 udp 2130706431 127.0.0.1 9 typ host', sdpMid: '0', sdpMLineIndex: 0 } }); } catch { /* noop */ }
+            try { this.onicecandidate?.({ candidate: null }); } catch { /* noop */ }
+          }, 0);
+        }
+        async setRemoteDescription() {
+          this._sig = 'stable';
+          // The answer arrived → attach a synthetic track, then walk ICE to
+          // 'connected' so the hook sets webrtcActive=true and shows the <video>.
+          setTimeout(() => {
+            try { this.ontrack?.({ streams: [new RealMediaStream()], track: { kind: 'video' } }); } catch { /* noop */ }
+            this._ice = 'checking';
+            try { this.oniceconnectionstatechange?.(); } catch { /* noop */ }
+            setTimeout(() => {
+              this._ice = 'connected';
+              try { this.oniceconnectionstatechange?.(); } catch { /* noop */ }
+              try { this.onconnectionstatechange?.(); } catch { /* noop */ }
+            }, 30);
+          }, 0);
+        }
+        async addIceCandidate() { /* accept */ }
+        async getStats() { return new Map(); }
+        close() { this._ice = 'closed'; this._sig = 'closed'; }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).RTCPeerConnection = FakeRTCPeerConnection;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).webkitRTCPeerConnection = FakeRTCPeerConnection;
     });
   }
 

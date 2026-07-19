@@ -7,9 +7,11 @@ const BASE = "http://localhost:13334";
 /**
  * Mount a RemoteBrowserPanel for `topicId` by dispatching the canonical
  * `browser:open-and-navigate` CustomEvent (the same one ChatPane fires for
- * `/browser <url>` slash command). Resolves once EITHER the connection
- * indicator OR the localhost iframe is visible (the panel renders ONE of
- * the two — see RemoteBrowserPanel.tsx LOCAL_HOST_RX early return).
+ * `/browser <url>` slash command). Resolves once the toolbar URL input is
+ * present — the ONE element every render mode (WebRTC <video> stream, native
+ * <iframe>, empty state) always mounts. The old connection-indicator gate broke
+ * when the steady-'connected' "Live" pill was removed (commit b11f40ec): it's
+ * absent once streaming, so it can't anchor "the panel mounted".
  */
 async function mountBrowserPaneViaEvent(
   page: import("@playwright/test").Page,
@@ -26,9 +28,7 @@ async function mountBrowserPaneViaEvent(
     },
     { tid: topicId, u: url },
   );
-  const indicator = page.locator('[data-testid="browser-connection-indicator"]');
-  const localhost = page.locator('[data-testid="browser-iframe"]');
-  await expect(indicator.or(localhost)).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 10000 });
 }
 
 test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05)", () => {
@@ -85,7 +85,9 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
         await mountBrowserPaneViaEvent(page, topic.id);
       }
 
-      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toBeVisible({ timeout: 10000 });
+      // The panel mounted → its toolbar URL input is present (a stable anchor;
+      // the connection "Live" pill hides once streaming).
+      await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 10000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -111,7 +113,10 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       // Chat-path mount: contextId === topic.id, the id the topic-form close
       // endpoint resolves to.
       await mountBrowserPaneViaEvent(page, topic.id);
-      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toBeVisible({ timeout: 10000 });
+      // The pane's toolbar URL input anchors "the pane is present" (stable across
+      // render modes, unlike the connection pill which hides once streaming).
+      const urlInput = page.locator('[data-testid="browser-url-input"]');
+      await expect(urlInput.first()).toBeVisible({ timeout: 10000 });
 
       const res = await request.post(
         `http://localhost:13334/api/topics/${topic.id}/browser/close-pane`,
@@ -119,7 +124,8 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       );
       expect(res.ok()).toBeTruthy();
 
-      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toHaveCount(0, { timeout: 10000 });
+      // Remote close removed the pane → its toolbar (URL input) is gone.
+      await expect(urlInput).toHaveCount(0, { timeout: 10000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -156,9 +162,8 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       await input.first().press("Enter");
 
       // The CustomEvent fires synchronously; the layout reducer mounts the
-      // browser pane shortly after. Connection indicator visibility proves
-      // RemoteBrowserPanel is rendered.
-      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toBeVisible({ timeout: 10000 });
+      // browser pane shortly after. The toolbar URL input proves RemoteBrowserPanel
+      // rendered (a stable anchor — the connection pill hides once streaming).
       const urlInput = page.locator('[data-testid="browser-url-input"]');
       await expect(urlInput).toBeVisible({ timeout: 10000 });
       const urlValue = await urlInput.inputValue();
@@ -323,6 +328,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
 
   test("BROWSER-CHAT-04: Cmd+Shift+E enters select-element mode and click populates chat input [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockWebrtcPeer(); // select-element maps against the <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true,
@@ -358,20 +364,12 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
         });
       });
 
-      // Mount browser pane.
+      // Mount browser pane, then wait for the WebRTC <video> surface — the
+      // select-element overlay maps clicks against it (a synthetic stream has
+      // videoWidth=0 so mapCoordsToPage uses the 1280×720 fallback basis, no
+      // DOM patch needed).
       await mountBrowserPaneViaEvent(page, topic.id);
-
-      // Patch naturalWidth/Height so SelectElementOverlay's mapCoordsToPage
-      // accepts realistic click positions on the fixture's 1x1 frame payload.
-      await page.evaluate(() => {
-        const img = document.querySelector(
-          'img[alt="Browser page"], img[alt="Example"]',
-        ) as HTMLImageElement | null;
-        if (img) {
-          Object.defineProperty(img, "naturalWidth", { value: 1280, configurable: true });
-          Object.defineProperty(img, "naturalHeight", { value: 800, configurable: true });
-        }
-      });
+      await expect(page.locator('[data-testid="browser-webrtc-video"]')).toBeVisible({ timeout: 10000 });
 
       // Press Cmd+Shift+E (window-level listener, no need to focus the pane).
       await page.keyboard.press("Meta+Shift+E");
