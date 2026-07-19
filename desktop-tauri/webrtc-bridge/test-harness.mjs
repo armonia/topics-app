@@ -48,7 +48,8 @@ animation:m 1.4s ease-in-out infinite alternate,h 3s linear infinite}
 @keyframes m{from{left:40px;top:200px}to{left:900px;top:500px}}@keyframes h{to{filter:hue-rotate(360deg)}}</style>
 <h1>Topics · shared session (prod bridge)</h1><div class=b></div>`,
   );
-const { targetId } = await cdp("Target.createTarget", { url: animated });
+const staticPage = "data:text/html," + encodeURIComponent(`<body style="margin:0;background:#123;color:#fff;font:40px system-ui"><h1>STATIC PAGE — no animation</h1>`);
+const { targetId } = await cdp("Target.createTarget", { url: process.env.TOPICS_TEST_STATIC ? staticPage : animated });
 console.log("[harness] created target", targetId);
 
 // ---- 2. Spawn the bridge, wait for its socket -----------------------------------
