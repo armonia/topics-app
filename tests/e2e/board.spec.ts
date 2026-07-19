@@ -290,9 +290,13 @@ test.describe("Kanban board", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    // Open the drawer, quick-add a subtask.
+    // Open the drawer, quick-add a subtask. On a task with no steps yet the
+    // subtask section is hidden: the composer is revealed on demand from the
+    // ⋯ options menu (portaled — page-level locator, not drawer-scoped).
     await page.getByTestId("kanban-column-in_progress").getByText(text).click();
     const drawer = page.getByTestId("task-detail-drawer");
+    await page.getByTestId("task-options-menu").click();
+    await page.getByRole("menuitem", { name: "Aggiungi sottotask" }).click();
     const subText = `Subtask ${Date.now()}`;
     await drawer.getByPlaceholder("+ sottotask…").fill(subText);
     await drawer.getByPlaceholder("+ sottotask…").press("Enter");

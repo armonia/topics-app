@@ -1191,16 +1191,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 ))}
               </div>
             )}
-            {/* Honest, persistent mode line — the placeholder vanishes once you
-                type, so this stays to answer "what does what I write do?".
-                Review has its own Approva/Rifiuta zone above, so skip it there. */}
-            {!isAgentReview && (
-              <p className="mb-1 px-0.5 text-[10px] leading-snug text-neutral-500">
-                {agentBusy
-                  ? 'Scrivi all’agent mentre lavora — lo riceve al prossimo turno, come in Claude Code.'
-                  : 'Il tuo messaggio resta come commento sul task.'}
-              </p>
-            )}
             <div className="flex items-end gap-1.5">
               <input
                 ref={fileInputRef} type="file" multiple className="hidden"
@@ -1642,14 +1632,13 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         <button onClick={onClose} className="rounded p-0.5 text-neutral-400 hover:bg-white/10"><X className="h-3.5 w-3.5" /></button>
       </div>
 
-      <label className="flex cursor-pointer items-center justify-between gap-3">
-        <span>Avvia un agent quando un task entra in <b>Todo</b> <span className="text-neutral-500">— interruttore globale, vale per tutte le board</span></span>
+      <label
+        className="flex cursor-pointer items-center justify-between gap-3"
+        title="Interruttore globale, vale per tutte le board. Il cap di agent in parallelo si imposta dal ▾ accanto al titolo della board."
+      >
+        <span>Avvia un agent quando un task entra in <b>Todo</b></span>
         <input type="checkbox" checked={!!dispatchOn} onChange={onToggleDispatch} className="h-3.5 w-3.5 shrink-0 accent-emerald-500" />
       </label>
-
-      <p className="text-[11px] leading-snug text-neutral-500">
-        Agent in parallelo: <b className="text-neutral-300">cap globale</b> — una sola macchina, un solo limite. Impostalo dal <b>▾</b> accanto al titolo della board.
-      </p>
 
       <div className="flex items-center justify-between gap-2">
         <span>Effort</span>
