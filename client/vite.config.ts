@@ -129,14 +129,18 @@ export default defineConfig({
     // `true` wildcard, which accepted every Host header. IP-literal access
     // (e.g. a raw 100.x Tailscale addr) bypasses this check in Vite anyway.
     allowedHosts: ['localhost', '127.0.0.1', '.ts.net'],
-    proxy: {
-      '/api': { target: 'https://localhost:3330', secure: false, changeOrigin: true },
-      '/preview': { target: 'https://localhost:3330', secure: false, changeOrigin: true },
-      '/ws': {
-        target: 'https://localhost:3330',
-        ws: true,
-        secure: false,
-      },
-    },
+    // Backend the dev bundle talks to. Default :3330 (staging convention); set
+    // VITE_PROXY_TARGET to point elsewhere, e.g. the live prod server on :3333
+    // (real data) when you want the dev chip/HMR against production data without
+    // spinning a second backend (the daemon-singleton lock forbids a 2nd :3330
+    // server alongside prod from the same TOPICS_HOME).
+    proxy: (() => {
+      const target = process.env.VITE_PROXY_TARGET || 'https://localhost:3330';
+      return {
+        '/api': { target, secure: false, changeOrigin: true },
+        '/preview': { target, secure: false, changeOrigin: true },
+        '/ws': { target, ws: true, secure: false },
+      };
+    })(),
   },
 })
