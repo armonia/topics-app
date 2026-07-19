@@ -117,32 +117,36 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // drop targeting went with it.
   const { attributes, listeners, setNodeRef, isDragging, transform, transition } = useSortable({ id: task.id });
 
-  // "Serve te" context: for an agent-driven task in review, lazily load the
-  // thread and surface the LAST comment on the card — as a quick-reply with
-  // option buttons when it's a question block, as plain text otherwise. The
-  // human must never be asked Approva/Rifiuta blind: the agent's last word is
-  // always on the card (the thread stays in the drawer).
+  // Review context, lazily loaded from the task detail (one GET, two uses):
+  // for an agent-driven task the LAST comment — a quick-reply with option
+  // buttons when it's a question block, plain text otherwise (the human must
+  // never be asked Approva/Rifiuta blind); for ANY review card with steps the
+  // direct CHILDREN, expanded on the card as the delivery checklist. Subtasks
+  // never ride the board feed (rootsOnly), so the card fetches them itself.
   const [lastComment, setLastComment] = useState<TaskComment | null>(null);
+  const [children, setChildren] = useState<BoardTask[]>([]);
   const [freeText, setFreeText] = useState('');
   const [busy, setBusy] = useState(false);
   // Right-click menu (archive/select live here now — NOT as a trash icon that
   // crowds the card header). Cursor-positioned, portaled, viewport-clamped.
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const isAgentReview = task.status === 'review' && !!task.assignedTopicId;
+  const wantDetail = isAgentReview || (task.status === 'review' && task.subtaskCount > 0);
   useEffect(() => {
-    if (!isAgentReview) { setLastComment(null); return; }
+    if (!wantDetail) { setLastComment(null); setChildren([]); return; }
     let alive = true;
     boardApi.get(task.projectId, task.id)
-      .then(({ comments }) => {
+      .then(({ comments, children: kids }) => {
         if (!alive) return;
         // Status events are history rows, not the agent's word — skip them.
         const speech = comments.filter((c) => c.kind !== 'status');
-        setLastComment(speech[speech.length - 1] ?? null);
+        setLastComment(isAgentReview ? speech[speech.length - 1] ?? null : null);
+        setChildren(kids ?? []);
       })
-      .catch(() => { if (alive) setLastComment(null); });
+      .catch(() => { if (alive) { setLastComment(null); setChildren([]); } });
     return () => { alive = false; };
     // Re-check when the task changes (a re-kick bumps updatedAt).
-  }, [isAgentReview, task.projectId, task.id, task.updatedAt]);
+  }, [wantDetail, isAgentReview, task.projectId, task.id, task.updatedAt]);
   const pending = lastComment ? parseQuestionBlock(lastComment.content) : null;
 
   // Route mutations by the task's own projectId (works in the global board too).
@@ -178,6 +182,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const projectLabel = task.projectId.replace(/-[^-]+$/, '');
   const hasState = !!(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) || (!task.dispatchState && !!task.dispatchError);
   const agentBusy = ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+  // Agent cluster in the card's top-right slot: dispatch state + model/effort +
+  // "apri tab" all live up there — the body below stays pure content.
+  const hasModelChip = (!!live && task.dispatchState === 'working') || !!task.model || task.agentMs > 0 || task.agentTokens > 0;
+  const hasOpenTab = !!(task.assignedTopicId && onOpenTopic);
+  const showTopRow = (showProject && !unassigned) || hasState || hasModelChip || hasOpenTab;
+  const showPriority = !task.priorityAuto && task.priority !== 2;
+  // Review expands the subtask checklist on the card; elsewhere the count chip suffices.
+  const checklist = task.status === 'review' ? children : [];
+  const hasMetaRow = !!((blocker && blocker.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo);
 
   return (
     <div
@@ -188,15 +201,14 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       className={`group cursor-grab rounded-md border border-white/10 bg-neutral-800/60 p-2.5 text-sm text-neutral-100 shadow-sm hover:border-white/20 ${isDragging ? 'opacity-40' : ''}`}
     >
-      {/* Project eyebrow: favicon + plain project name ABOVE the title (no chip),
-          so a cross-project card reads "which project" first, then the title —
-          the name isn't competing as a pill down in the meta row. */}
-      {/* Top row: project eyebrow (cross-project) on the LEFT, PRIMARY dispatch
-          state on the RIGHT — aligned with the project, so the title below gets
-          the FULL width instead of sharing its line with the chip. On a
-          single-project board (no eyebrow) a spacer keeps the chip top-right. */}
-      {((showProject && !unassigned) || hasState) && (
-        <div className="mb-1 flex items-center gap-2">
+      {/* Top row: project eyebrow (cross-project) on the LEFT; the AGENT
+          cluster in the top-right SLOT — dispatch state, model/effort, "apri
+          tab". Everything about "who's on this and where" lives up here, so
+          the body below is pure content. flex-wrap + justify-end: on a narrow
+          card extra chips drop to a second right-aligned line instead of
+          crushing the eyebrow. */}
+      {showTopRow && (
+        <div className="mb-1 flex flex-wrap items-center justify-end gap-1.5">
           {showProject && !unassigned ? (
             <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400">
               {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
@@ -208,24 +220,37 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           ) : (!task.dispatchState && task.dispatchError) ? (
             <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-[11px] text-rose-300" title={task.dispatchError}>fermato</span>
           ) : null}
+          {live && task.dispatchState === 'working' ? (
+            <LiveEffortChip usage={live} />
+          ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
+            // The model always lives here, in the time/effort chip — never as a
+            // second standalone chip. Before the agent has logged any time we
+            // show just the model; once it runs we prepend it to the ⏱ effort,
+            // matching the live chip (`Opus · ⏱ 2m · 1.2k tok`).
+            <span
+              title={(task.agentMs > 0 || task.agentTokens > 0)
+                ? `Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · modello ${fmtModel(task.model)}`
+                : `Modello: ${fmtModel(task.model)}`}
+              className="shrink-0 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
+            >{fmtModel(task.model)}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
+          ) : null}
+          {hasOpenTab && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenTopic!(task.assignedTopicId!); }}
+              className="flex shrink-0 items-center gap-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-200 hover:bg-white/20"
+              title="Apri la tab dell'agent"
+            ><ArrowUpRight className="h-3 w-3" /> apri tab</button>
+          )}
         </div>
       )}
-      {/* Title — FULL width (the dispatch state moved up to the top row). The
-          "ultimo aggiornamento" trails the title, muted and non-wrapping. */}
+      {/* Title — full width; the priority rides INLINE before the text (only
+          when hand-set and non-default), so urgency reads in the same glance
+          as the title instead of down in a chip row. */}
       <span className="block break-words leading-snug">
-        {task.text}
-        <span
-          className="ml-1.5 whitespace-nowrap align-baseline text-[10px] font-normal text-neutral-500"
-          title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
-        >· {fmtUpdatedAt(task.updatedAt)}</span>
-      </span>
-      {/* Meta: every informational chip stays VISIBLE, zoned below the title in a
-          tidy row (attributi del task). State + archive live top-right, above. */}
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-        {!task.priorityAuto && task.priority !== 2 && (
+        {showPriority && (
           <span
             title={`Priorità: ${PRIORITY_LABEL[task.priority] ?? task.priority}`}
-            className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[11px] ${
+            className={`mr-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 align-middle text-[10px] ${
               task.priority >= 3 ? 'bg-rose-500/15 text-rose-300' : 'bg-white/10 text-neutral-400'
             }`}
           >
@@ -233,63 +258,85 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             {PRIORITY_LABEL[task.priority] ?? task.priority}
           </span>
         )}
-        {/* (Model shown once, inside the time/effort chip below — never as a
-            standalone chip. See the effort chip a few lines down.) */}
-        {/* (Project identity moved to the eyebrow above the title — no chip here.) */}
-        {blocker && blocker.status !== 'done' && (
-          <span
-            title={`In attesa di: ${blocker.text}`}
-            className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300"
-          ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">in attesa di: {blocker.text}</span></span>
-        )}
-        {task.parentTaskId && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
-            title={parentTitle ? `Sottotask di: ${parentTitle}` : 'Apri il task padre'}
-            className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
-          >⤴ {parentTitle ?? 'padre'}</button>
-        )}
-        {task.subtaskCount > 0 && (
+        {task.text}
+      </span>
+      {/* Subtasks, straight under the title. In Review the checklist EXPANDS —
+          the human is judging a delivery and the steps are the evidence: max 5
+          rows, the rest behind "Vedi tutti" (opens the drawer tree). The other
+          columns keep the compact done/total chip. */}
+      {checklist.length > 0 ? (
+        <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
+          {checklist.slice(0, 5).map((s) => (
+            <button
+              key={s.id}
+              onClick={() => onOpen(s.id)}
+              title={`${STATUS_LABEL[s.status]} — apri il sottotask`}
+              className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
+            >
+              <StatusIcon status={s.status} className="h-3 w-3" />
+              <span className={`min-w-0 flex-1 truncate text-xs ${s.status === 'done' ? 'text-neutral-500 line-through' : 'text-neutral-300'}`}>{s.text}</span>
+            </button>
+          ))}
+          {checklist.length > 5 && (
+            <button
+              onClick={() => onOpen(task.id)}
+              className="px-0.5 text-[11px] text-neutral-400 hover:text-neutral-200"
+            >+{checklist.length - 5}… Vedi tutti</button>
+          )}
+        </div>
+      ) : task.subtaskCount > 0 ? (
+        <div className="mt-1">
           <span
             title={`${task.subtaskDoneCount}/${task.subtaskCount} sottotask completati`}
             className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
           >↳ {task.subtaskDoneCount}/{task.subtaskCount}</span>
-        )}
-        {task.userCommentCount > 0 && (
-          <span
-            title={`${task.userCommentCount} ${task.userCommentCount === 1 ? 'tuo messaggio' : 'tuoi messaggi'} nel thread (esclusa l'AI)`}
-            className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
-          ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
-        )}
-        {task.planFirst && (
-          <span
-            title="L'agent consegna prima un piano da approvare"
-            className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300"
-          >piano</span>
-        )}
-        {live && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} />
-        ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
-          // The model always lives here, in the time/effort chip — never as a
-          // second standalone chip. Before the agent has logged any time we
-          // show just the model; once it runs we prepend it to the ⏱ effort,
-          // matching the live chip (`Opus · ⏱ 2m · 1.2k tok`).
-          <span
-            title={(task.agentMs > 0 || task.agentTokens > 0)
-              ? `Effort dell'agent: ${fmtMs(task.agentMs)} di lavoro${task.agentTokens ? `, ${task.agentTokens.toLocaleString('it-IT')} token` : ''}${task.agentCacheReadTokens > 0 ? ` (+${fmtTok(task.agentCacheReadTokens)} cache read)` : ''} · modello ${fmtModel(task.model)}`
-              : `Modello: ${fmtModel(task.model)}`}
-            className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-400"
-          >{fmtModel(task.model)}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
-        ) : null}
-        {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
-        {task.assignedTopicId && onOpenTopic && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpenTopic(task.assignedTopicId!); }}
-            className="flex items-center gap-0.5 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-200 hover:bg-white/20"
-            title="Apri la tab dell'agent"
-          ><ArrowUpRight className="h-3 w-3" /> apri tab</button>
-        )}
-      </div>
+        </div>
+      ) : null}
+      {/* Description preview — plain text, clamped (the full markdown lives in
+          the drawer). The update time closes the body — but on an agent review
+          card the agent's LAST COMMENT is the true tail, so the date renders
+          after that (inside the review block) instead of here. */}
+      {task.description && (
+        <p className="mt-1 line-clamp-2 break-words text-xs leading-snug text-neutral-400">{stripMarkdown(task.description)}</p>
+      )}
+      {!isAgentReview && (
+        <div
+          className="mt-1 text-[10px] text-neutral-500"
+          title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
+        >{fmtUpdatedAt(task.updatedAt)}</div>
+      )}
+      {/* Relational chips (blocker / parent / thread / plan / assignee): the
+          row renders only when at least one is present. */}
+      {hasMetaRow && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {blocker && blocker.status !== 'done' && (
+            <span
+              title={`In attesa di: ${blocker.text}`}
+              className="flex max-w-[11rem] items-center gap-1 truncate rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-300"
+            ><Lock className="h-3 w-3 shrink-0" /> <span className="truncate">in attesa di: {blocker.text}</span></span>
+          )}
+          {task.parentTaskId && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpen(task.parentTaskId!); }}
+              title={parentTitle ? `Sottotask di: ${parentTitle}` : 'Apri il task padre'}
+              className="max-w-[9rem] truncate rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300 hover:bg-violet-500/25"
+            >⤴ {parentTitle ?? 'padre'}</button>
+          )}
+          {task.userCommentCount > 0 && (
+            <span
+              title={`${task.userCommentCount} ${task.userCommentCount === 1 ? 'tuo messaggio' : 'tuoi messaggi'} nel thread (esclusa l'AI)`}
+              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
+            ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
+          )}
+          {task.planFirst && (
+            <span
+              title="L'agent consegna prima un piano da approvare"
+              className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-300"
+            >piano</span>
+          )}
+          {task.assignedTo && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300">@{task.assignedTo}</span>}
+        </div>
+      )}
       {/* Steer a WORKING agent right from the card ("anche da kanban"): the
           message is buffered and handed to the agent at the next turn. */}
       {agentBusy && (
@@ -326,6 +373,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               <ChatMarkdown components={{}}>{lastComment.content}</ChatMarkdown>
             </div>
           ) : null}
+          {/* Update time trails the agent's last word (the card body's true tail). */}
+          <div
+            className="text-[10px] text-neutral-500"
+            title={`Ultimo aggiornamento: ${new Date(task.updatedAt).toLocaleString('it-IT')}`}
+          >{fmtUpdatedAt(task.updatedAt)}</div>
           {pending && pending.options.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {pending.options.map((opt, i) => (
