@@ -44,6 +44,23 @@ export const UNASSIGNED_PROJECT_ID = "_none";
  */
 export const AUTO_PROJECT_ID = "_auto";
 
+/**
+ * Reserved quick-reply label the AGENT is prompted to offer at delivery when its
+ * work is landable. The board route matches a human's pick of exactly this option
+ * and runs the land (approve + merge to main) instead of resuming the agent —
+ * that's how "the agent proposes the next step, the human decides, the system
+ * executes" works without the merge riding on every approve. Keep in sync with
+ * the prompt in task-dispatcher.ts (both import this constant).
+ */
+export const LAND_ACTION_LABEL = "Landa su main";
+/** Normalize an option/answer for a tolerant match against LAND_ACTION_LABEL
+ *  (ignores an emoji prefix / punctuation / spacing the model may add). */
+export function isLandActionLabel(text: string | undefined | null): boolean {
+  if (!text) return false;
+  const norm = (s: string) => s.replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return norm(text) === norm(LAND_ACTION_LABEL);
+}
+
 export interface Task {
   id: string;
   projectId: string;

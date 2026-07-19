@@ -356,6 +356,10 @@ export const boardApi = {
     req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media }) }),
   review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment }) }),
+  /** Land the task's branch on main (accept if still in review, then merge locally
+   *  + rebuild). Explicit, decoupled from approve — never pushes online. */
+  land: (projectId: string, taskId: string) =>
+    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/land`, { method: 'POST', body: JSON.stringify({}) }),
   /** Move a root task (and its subtree) to another board. */
   move: (projectId: string, taskId: string, toProjectId: string) =>
     req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/move`, { method: 'POST', body: JSON.stringify({ toProjectId }) }),

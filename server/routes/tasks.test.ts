@@ -2,6 +2,7 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
+import { LAND_ACTION_LABEL } from "../services/tasks";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -541,5 +542,54 @@ describe("board settings route", () => {
 
     // Bad body = 400, no broadcast storm.
     expect((await call(router, "PATCH", "/api/all-boards/settings", { autoDispatch: "yes" }))!.status).toBe(400);
+  });
+});
+
+describe("approve decoupled from landing", () => {
+  let db: Database; let broadcasts: any[];
+  let merges: string[]; let resumed: Array<[string, string]>; let router: any;
+
+  beforeEach(() => {
+    db = freshDb(); broadcasts = []; merges = []; resumed = [];
+    const autoMerge = {
+      tryMerge: async (taskId: string) => { merges.push(taskId); return { status: "nothing" }; },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const dispatcher = {
+      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string, msg: string) => { resumed.push([id, msg]); },
+    } as any;
+    router = createTasksRouter(makeCtx(db, broadcasts), dispatcher, { autoMerge });
+  });
+
+  async function reviewTask(): Promise<string> {
+    db.run("INSERT INTO topics (id) VALUES ('top-1')");
+    const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1', status = 'review' WHERE id = ?").run(t.id);
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('c1', ?, 'claude', 'consegna', 'comment', ?)")
+      .run(t.id, new Date().toISOString());
+    return t.id;
+  }
+
+  test("approve accepts the task WITHOUT merging (no azioni da sotto)", async () => {
+    const id = await reviewTask();
+    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "approve" }))!.json();
+    expect(t.status).toBe("done");
+    expect(merges).toEqual([]); // approve no longer merges
+  });
+
+  test("picking the 'Landa su main' option approves + merges (not a reject/resume)", async () => {
+    const id = await reviewTask();
+    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: LAND_ACTION_LABEL }))!.json();
+    expect(t.status).toBe("done"); // accepted, not sent back
+    expect(merges).toEqual([id]);  // and landed
+    expect(resumed).toEqual([]);   // NOT resumed as a rejection
+  });
+
+  test("POST /land approves + merges on demand", async () => {
+    const id = await reviewTask();
+    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {}))!.json();
+    expect(t.status).toBe("done");
+    expect(merges).toEqual([id]);
   });
 });
