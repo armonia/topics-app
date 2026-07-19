@@ -9,7 +9,15 @@
  * server-side (no CORS), cached per-URL.
  *
  * `isFramable` is pure (unit-tested); `probeFraming` adds the network fetch + cache.
+ *
+ * SSRF: `probeFraming` fetches a CLIENT-supplied URL server-side, so it MUST
+ * refuse private / loopback / link-local / CGNAT targets and cloud-metadata
+ * endpoints (169.254.169.254, *.internal). A blocked target resolves to
+ * `framable:false` — the safe default (stream), which is also fine UX-wise
+ * (internal sites usually forbid framing anyway).
  */
+import { lookup } from 'dns/promises';
+import { isIP } from 'net';
 
 const FRAMING_TTL_MS = 5 * 60 * 1000; // per-URL cache (per-path: framing varies by path)
 const PROBE_TIMEOUT_MS = 3000;
@@ -48,10 +56,100 @@ export function isFramable(headers: HeaderGetter): boolean {
   return true;
 }
 
+function ipv4ToInt(ip: string): number | null {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const p of parts) {
+    const o = Number(p);
+    if (!Number.isInteger(o) || o < 0 || o > 255 || (p.length > 1 && p[0] === '0')) return null;
+    n = ((n << 8) | o) >>> 0;
+  }
+  return n >>> 0;
+}
+
+/** True if an IPv4 literal is in a private / loopback / link-local / reserved /
+ *  CGNAT / metadata range — i.e. NOT a safe public SSRF target. */
+export function isPrivateIpv4(ip: string): boolean {
+  const n = ipv4ToInt(ip);
+  if (n === null) return true; // unparseable → treat as unsafe
+  const inRange = (base: string, bits: number) => {
+    const b = ipv4ToInt(base);
+    if (b === null) return false;
+    const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+    return (n & mask) === (b & mask);
+  };
+  return (
+    inRange('0.0.0.0', 8) ||        // "this" network
+    inRange('10.0.0.0', 8) ||       // private
+    inRange('100.64.0.0', 10) ||    // CGNAT
+    inRange('127.0.0.0', 8) ||      // loopback
+    inRange('169.254.0.0', 16) ||   // link-local + cloud metadata (169.254.169.254)
+    inRange('172.16.0.0', 12) ||    // private
+    inRange('192.0.0.0', 24) ||     // IETF protocol assignments
+    inRange('192.168.0.0', 16) ||   // private
+    inRange('198.18.0.0', 15) ||    // benchmarking
+    inRange('224.0.0.0', 4) ||      // multicast
+    inRange('240.0.0.0', 4)         // reserved / broadcast
+  );
+}
+
+/** True if an IPv6 literal is loopback / ULA / link-local / v4-mapped-private. */
+export function isPrivateIpv6(ip: string): boolean {
+  const lower = ip.toLowerCase().replace(/^\[|\]$/g, '');
+  if (lower === '::1' || lower === '::') return true;
+  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return isPrivateIpv4(mapped[1]);
+  if (/^f[cd]/.test(lower)) return true;   // fc00::/7 unique-local
+  if (/^fe[89ab]/.test(lower)) return true; // fe80::/10 link-local
+  return false;
+}
+
+/**
+ * SSRF guard: is `url` safe to fetch server-side? Only http(s), and the host
+ * must NOT be (or resolve to) a private/loopback/link-local/reserved address,
+ * nor an obvious internal name. `resolver` is injectable for tests.
+ */
+export async function isSafePublicUrl(
+  url: string,
+  resolver: (host: string) => Promise<{ address: string; family: number }[]> =
+    (host) => lookup(host, { all: true }),
+): Promise<boolean> {
+  let host: string;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    host = u.hostname;
+  } catch {
+    return false;
+  }
+  const lh = host.toLowerCase().replace(/^\[|\]$/g, '');
+  if (lh === 'localhost' || lh.endsWith('.local') || lh.endsWith('.internal') || lh === 'metadata.google.internal') {
+    return false;
+  }
+  const fam = isIP(host.replace(/^\[|\]$/g, ''));
+  if (fam === 4) return !isPrivateIpv4(lh);
+  if (fam === 6) return !isPrivateIpv6(lh);
+  // Hostname → resolve; block if ANY resolved address is private (a public name
+  // that points at an internal IP is the classic SSRF bypass).
+  try {
+    const addrs = await resolver(host);
+    if (!addrs.length) return false;
+    for (const a of addrs) {
+      if (a.family === 4 && isPrivateIpv4(a.address)) return false;
+      if (a.family === 6 && isPrivateIpv6(a.address)) return false;
+    }
+    return true;
+  } catch {
+    return false; // DNS failure → unsafe
+  }
+}
+
 /**
  * Probe whether `url` can be framed. Only http(s) is framable via this path
- * (about:blank / data:/localhost are decided elsewhere). Network errors and
- * timeouts resolve to `false` (stream is the safe fallback). Cached per-URL.
+ * (about:blank / data:/localhost are decided elsewhere). SSRF-guarded: private/
+ * internal targets resolve to `false` without any fetch. Network errors and
+ * timeouts also resolve to `false` (stream is the safe fallback). Cached per-URL.
  */
 export async function probeFraming(
   url: string,
@@ -64,17 +162,37 @@ export async function probeFraming(
 
   let framable = false;
   try {
-    const res = await fetchImpl(url, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      headers: { 'User-Agent': PROBE_UA },
-    });
-    framable = isFramable(res.headers);
-    // We only needed the headers — don't download the body.
-    try { await res.body?.cancel(); } catch { /* already consumed/closed */ }
+    // Follow redirects MANUALLY, validating each hop against the SSRF guard —
+    // `redirect:'follow'` would let a public URL 3xx-bounce to an internal
+    // address, bypassing the check. Bounded hop count; timeout across all hops.
+    const deadline = AbortSignal.timeout(PROBE_TIMEOUT_MS);
+    let currentUrl = url;
+    let res: Response | null = null;
+    for (let hop = 0; hop < 5; hop++) {
+      if (!(await isSafePublicUrl(currentUrl))) { res = null; break; } // blocked hop
+      res = await fetchImpl(currentUrl, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: deadline,
+        headers: { 'User-Agent': PROBE_UA },
+      });
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get('location');
+        try { await res.body?.cancel(); } catch { /* noop */ }
+        if (!loc) break; // 3xx without Location — nothing to follow
+        currentUrl = new URL(loc, currentUrl).toString();
+        res = null;
+        continue;
+      }
+      break; // non-redirect response → use its headers
+    }
+    if (res) {
+      framable = isFramable(res.headers);
+      // We only needed the headers — don't download the body.
+      try { await res.body?.cancel(); } catch { /* already consumed/closed */ }
+    }
   } catch {
-    framable = false; // refused / DNS / timeout → stream is safe
+    framable = false; // refused / DNS / timeout / blocked → stream is safe
   }
   cache.set(url, { framable, expiresAt: now + FRAMING_TTL_MS });
   return framable;
