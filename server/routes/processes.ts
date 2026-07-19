@@ -520,6 +520,40 @@ function broadcastScriptsUpdate(ctx: AppContext) {
   ctx.broadcastToAll({ type: 'scripts:updated', scripts: getScriptsSnapshot() });
 }
 
+// ── Review-ready preview servers ─────────────────────────────────────────────
+// The preview-manager boots one dev server per task from its worktree at
+// review-time. Surface it in the Processes panel (Stop button + port link) so a
+// human can see/kill it. Registered as a `script` entry (not `detected`, which
+// the detector reconcile would reap) keyed by task, so teardown removes exactly
+// one. Ports fill in via the lsof-by-pid path on the HTTP serialize.
+const previewProcessKey = (taskId: string) => `preview:${taskId.slice(0, 8)}`;
+
+export function registerPreviewProcess(entry: { taskId: string; port: number; pid: number | null; command: string; cwd: string }): void {
+  const processId = previewProcessKey(entry.taskId);
+  runningScripts.set(processId, {
+    processId,
+    scriptName: `preview :${entry.port}`,
+    command: entry.command,
+    projectPath: entry.cwd,
+    status: "running",
+    pid: entry.pid,
+    startedAt: new Date().toISOString(),
+    output: [`[anteprima task ${entry.taskId.slice(0, 8)} — http://localhost:${entry.port}]`],
+    outputBytes: 0,
+    proc: null,
+    source: "script",
+  });
+  saveState();
+  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+}
+
+export function unregisterPreviewProcess(taskId: string): void {
+  if (runningScripts.delete(previewProcessKey(taskId))) {
+    saveState();
+    if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  }
+}
+
 // ── Auto-detection of servers started inside Claude PTY sessions ──────────────
 // Claude often starts a dev server with a bare shell command (`bun run dev`)
 // instead of the run_script MCP tool. That process is a descendant of the

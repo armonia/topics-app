@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
-import { ArrowUpRight, Bot, Check, ChevronDown, ChevronRight, Clock, ExternalLink, Footprints, GitMerge, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, ExternalLink, Footprints, GitMerge, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -1555,6 +1555,22 @@ export function SessionSlice({ msgs, label, preview }: {
 }
 
 export function CommentBubble({ comment, onPreview }: { comment: TaskComment; onPreview?: (path: string) => void }) {
+  // Machine-authored review evidence (live-preview screenshot from the verifier).
+  // Distinct from human/agent speech: it never woke the agent, it just informs.
+  if (comment.kind === 'review-note') {
+    return (
+      <div className="pr-8">
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1.5">
+          <p className="mb-0.5 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-400/80">
+            <Camera size={11} /> Anteprima
+          </p>
+          <div className="text-sm text-neutral-200"><CommentBody content={comment.content} /></div>
+          <MediaStrip media={comment.media} onPreview={onPreview} />
+          <p className="mt-0.5 text-[9px] text-neutral-600">{commentTime(comment.createdAt)}</p>
+        </div>
+      </div>
+    );
+  }
   if (comment.author !== 'user') {
     const system = comment.author === 'system';
     return (
