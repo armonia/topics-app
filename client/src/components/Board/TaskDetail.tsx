@@ -1039,6 +1039,19 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-600 hover:text-neutral-400"
               >+ descrizione…</button>
             )}
+            {/* Anteprima della consegna anche nel drawer (non solo sulla card):
+                intera, object-contain — il reviewer deve poter vedere TUTTO lo
+                screenshot. Click → apre l'immagine piena fuori dal drawer. */}
+            {task?.previewImage && (
+              <img
+                src={getMediaUrl(task.previewImage)}
+                alt="Anteprima della consegna"
+                loading="lazy"
+                title="Apri lo screenshot a grandezza piena"
+                onClick={() => openExternalOnce(getMediaUrl(task.previewImage!))}
+                className="mt-2 max-h-[50vh] w-full cursor-zoom-in rounded border border-white/10 bg-black/20 object-contain"
+              />
+            )}
           </div>
           {/* Closed-tab tray — ONLY the soft-closed browser tabs live here under
               the description so a closed tab stays reopenable and previewable
