@@ -1,4 +1,6 @@
 import os from "os";
+import { existsSync } from "fs";
+import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { getListeningPorts, getTopCpuProcesses } from "./processes";
 import { getProvider } from "../providers";
@@ -210,6 +212,11 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
           memoryMB: Math.round(memUsage.rss / 1024 / 1024),
           heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
           heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+          // Dev bundle hot-delivery is ON (topics-dev.json in STATE_DIR): open
+          // windows self-reload on each rebuild. Drives the quiet "auto-update"
+          // status-bar badge — works in the prod-minified bundle (unlike the
+          // Vite-only `import.meta.env.DEV` badge). See startDevBundleReload.
+          devReload: existsSync(join(ctx.STATE_DIR, "topics-dev.json")),
         },
         cpu: {
           cores,

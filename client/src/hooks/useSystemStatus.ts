@@ -17,6 +17,9 @@ export interface SystemStatus {
     memoryMB: number;
     heapUsedMB: number;
     heapTotalMB: number;
+    /** Dev bundle hot-delivery active (topics-dev.json present): windows
+     *  self-reload on each rebuild. Drives the quiet "auto-update" badge. */
+    devReload?: boolean;
   };
   cpu?: {
     cores: number;

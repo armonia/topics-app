@@ -389,6 +389,20 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
               dev
             </span>
           )}
+          {/* Quiet "auto-update" badge: the server has dev bundle hot-delivery ON
+              (topics-dev.json) so windows self-reload on each rebuild — no popup.
+              Driven by server status, so it shows in the PROD-minified desktop
+              bundle too (unlike the Vite-only `dev` badge above). Hidden when
+              isDev (the amber `dev` already implies live reload). */}
+          {!isDev && status?.server?.devReload && (
+            <span
+              className="flex items-center gap-0.5 px-1 rounded bg-emerald-500/15 text-emerald-500 font-medium text-[10px] leading-tight"
+              title="Auto-aggiornamento attivo: le finestre si ricaricano da sole ai nuovi build, senza popup. (Spegni rimuovendo topics-dev.json dallo STATE_DIR e riavviando il server.)"
+            >
+              <RefreshCw size={9} />
+              auto
+            </span>
+          )}
           {/* Relative "X fa" = last local update. Shown in dev (HMR-tracked) and
               for a recent local build (the desktop app runs the built bundle even
               while developing). Hidden on a stale shipped release. */}
