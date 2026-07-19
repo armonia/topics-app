@@ -431,6 +431,13 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
   // the sandbox (no `allow-top-navigation`) blocks it anyway.
   const useIframe = !isTauri && !!browser.url && !browser.agentActive &&
     (LOCAL_HOST_RX.test(browser.url) || browser.framable);
+  // Task 052f53ef — while a native <iframe> is showing, the server-side headless
+  // Chromium has no viewer: pause its screencast (keeps the WS open for
+  // agent_active). Resume the instant we fall back to the stream.
+  const setStreamActive = browser.setStreamActive;
+  useEffect(() => {
+    setStreamActive(!useIframe);
+  }, [useIframe, setStreamActive]);
   if (useIframe) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

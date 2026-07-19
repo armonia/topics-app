@@ -78,6 +78,8 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   setSelectedElement: (el: SelectedElementInfo | null) => void;
   /** Engine switch: request this pane run on the given engine (server-gated). */
   setEngine: (engine: 'native' | 'chromium') => void;
+  /** Task 052f53ef: pause/resume the server screencast (iframe-mode ⇒ false). */
+  setStreamActive: (active: boolean) => void;
 }
 
 const IDLE_INTERVAL = 2000;
@@ -182,6 +184,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // the engine changes so the server recreates the context on the new engine.
   const engineRef = useRef<'native' | 'chromium'>('native');
   const [engineEpoch, setEngineEpoch] = useState(0);
+  // Task 052f53ef: desired server-stream state. The panel flips it to false while
+  // it renders a native <iframe> so the headless Chromium stops rendering; the WS
+  // stays open. Re-asserted on every (re)connect (the server defaults to active).
+  const streamActiveRef = useRef(true);
   // See NAV_LOADING_TIMEOUT_MS — force-clears a stuck `loading` if the nav
   // completion signal never arrives.
   const loadingWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -399,6 +405,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       if (el) {
         const r = el.getBoundingClientRect();
         sendResize(Math.round(r.width), Math.round(r.height));
+      }
+      // Task 052f53ef: the server defaults a fresh connection to streaming — if
+      // the pane is currently in iframe-mode, re-assert the pause so a reconnect
+      // (or the initial open) doesn't silently resume the headless render.
+      if (!streamActiveRef.current) {
+        try { ws.send(JSON.stringify({ type: 'set_stream', active: false } satisfies BrowserWsMessage)); } catch { /* dropped */ }
       }
     };
 
@@ -807,6 +819,20 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     setState(s => ({ ...s, selectedElement: el, selectMode: false }));
   }, []);
 
+  // Task 052f53ef: pause/resume the server-side screencast for this pane. Called
+  // by the panel when it switches to/from native iframe-mode. Idempotent; the
+  // desired state is stored in a ref so onopen can re-assert it after a reconnect.
+  const setStreamActive = useCallback((active: boolean) => {
+    if (streamActiveRef.current === active) return;
+    streamActiveRef.current = active;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        const msg: BrowserWsMessage = { type: 'set_stream', active };
+        wsRef.current.send(JSON.stringify(msg));
+      } catch { /* socket gone — re-asserted on next onopen */ }
+    }
+  }, []);
+
   // Engine switch (task 54601eeb): ask the server to move this pane to `engine`.
   // Server-orchestrated over the WS — the reply is an `engine` broadcast that
   // flips state + remounts. Streaming-mode only (no WS ⇒ silent no-op).
@@ -845,5 +871,6 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     exitSelectMode,
     setSelectedElement,
     setEngine,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine]);
+    setStreamActive,
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive]);
 }

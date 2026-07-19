@@ -24,6 +24,12 @@ export interface WSData {
   browserContextId?: string;
   /** Phase 30 BROWSER-CHAT-02 — per-WS cleanup for screencast + CDP session. Called from websocket.close. */
   _browserCleanup?: () => Promise<void>;
+  /** Task 052f53ef — pause/resume THIS viewer's screencast without dropping the
+   *  WS. The web pane calls set_stream(false) when it renders a native <iframe>
+   *  (no need for server frames) so the headless Chromium stops rendering, and
+   *  set_stream(true) when it switches back to the stream (agent attaches / frame
+   *  not framable). Keeps the WS open so agent_active still reaches the pane. */
+  _browserSetStream?: (active: boolean) => void;
   /** Cross-window presence (WS-ephemeral, never persisted). Populated from the
    *  `hello` / `presence:announce` frames so the server can broadcast a full
    *  list of open windows + the topics each holds. `windowId` is the client's
