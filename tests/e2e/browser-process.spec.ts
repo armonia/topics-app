@@ -40,7 +40,7 @@ async function mountBrowserPaneViaEvent(
     { tid: topicId, u: url },
   );
   const indicator = page.locator('[data-testid="browser-connection-indicator"]');
-  const localhost = page.locator('[data-testid="browser-localhost-iframe"]');
+  const localhost = page.locator('[data-testid="browser-iframe"]');
   await expect(indicator.or(localhost)).toBeVisible({ timeout: 10000 });
 }
 

@@ -27,7 +27,7 @@ async function mountBrowserPaneViaEvent(
     { tid: topicId, u: url },
   );
   const indicator = page.locator('[data-testid="browser-connection-indicator"]');
-  const localhost = page.locator('[data-testid="browser-localhost-iframe"]');
+  const localhost = page.locator('[data-testid="browser-iframe"]');
   await expect(indicator.or(localhost)).toBeVisible({ timeout: 10000 });
 }
 
@@ -439,7 +439,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       // window.location.hostname so the iframe loads same-origin.
       await mountBrowserPaneViaEvent(page, topic.id, "http://localhost:3333");
 
-      const iframe = page.locator('[data-testid="browser-localhost-iframe"]');
+      const iframe = page.locator('[data-testid="browser-iframe"]');
       await expect(iframe).toBeVisible({ timeout: 10000 });
       // Verify it IS an iframe element (not an img).
       const tag = await iframe.evaluate((el) => el.tagName);
