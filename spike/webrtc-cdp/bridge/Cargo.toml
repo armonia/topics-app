@@ -1,0 +1,29 @@
+[package]
+name = "webrtc-cdp-bridge"
+version = "0.1.0"
+edition = "2021"
+
+# Spike sidecar — shares ONE headless-Chromium context (CDP :19222) to N peers over
+# WebRTC instead of JPEG-over-WebSocket. Consumes CDP screencast frames, (later)
+# re-encodes to H.264 via VideoToolbox, serves a WebRTC video track + DataChannel
+# input. Template: desktop-tauri/pty-bridge/ (separate crate, Tauri externalBin).
+#
+# Stage 1 (this file): Rust CDP client — connect, create target, screencast, count fps.
+# Proves the CDP-in-Rust pipeline before layering webrtc-rs + encoder.
+
+[[bin]]
+name = "webrtc-cdp-bridge"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+codegen-units = 1
