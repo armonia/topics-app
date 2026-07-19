@@ -30,6 +30,10 @@ export interface WSData {
    *  set_stream(true) when it switches back to the stream (agent attaches / frame
    *  not framable). Keeps the WS open so agent_active still reaches the pane. */
   _browserSetStream?: (active: boolean) => void;
+  /** WebRTC shared-session transport — the set of webrtc-bridge peer ids this WS
+   *  opened (one per RTCPeerConnection). Used on close to tell the sidecar to tear
+   *  each peer down. Absent until the pane sends its first `webrtc_offer`. */
+  _webrtcPeers?: Set<string>;
   /** Cross-window presence (WS-ephemeral, never persisted). Populated from the
    *  `hello` / `presence:announce` frames so the server can broadcast a full
    *  list of open windows + the topics each holds. `windowId` is the client's

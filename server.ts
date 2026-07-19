@@ -41,6 +41,7 @@ import { createDetachedTopic } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
 import { homedir } from "os";
 import { createBrowserService } from "./server/browser-service";
+import { createWebrtcBridge } from "./server/webrtc-bridge";
 import { clearBrowserCaches } from "./server/browser-tools-handler";
 import { resetMoondreamCounter } from "./server/integrations/moondream-client";
 import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } from "./server/browser-ws-messages";
@@ -302,6 +303,10 @@ rebuildSummary();
 // so the latter can register its sessions with it. See
 // openspec/changes/claude-session-tracker.
 const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll, ptyIdleMs: getClaudeSessionPtyIdleMs });
+
+// Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
+// offer; no-op when its binary is missing → clients fall back to the JPEG stream).
+const webrtcBridge = createWebrtcBridge();
 
 // Create route handlers
 const topicsRouter = createTopicsRouter(ctx, browserService);
@@ -1441,6 +1446,31 @@ const server = Bun.serve<WSData>({
             // Task 052f53ef — pause/resume this viewer's screencast when the pane
             // enters/leaves native iframe-mode (kills the wasted headless render).
             ws.data._browserSetStream?.(parsed.active);
+          } else if (parsed.type === 'webrtc_offer') {
+            // Shared-session WebRTC transport — relay the viewer's offer to the Rust
+            // sidecar, which attaches to THIS pane's CDP target and streams it as an
+            // H.264 track. If the sidecar is unavailable the client gets no answer and
+            // transparently keeps its JPEG stream (no regression).
+            if (webrtcBridge.available()) {
+              const streamId = parsed.stream ?? 'default';
+              const peerId = `${ws.data.id}:${streamId}`;
+              (ws.data._webrtcPeers ??= new Set()).add(peerId);
+              browserService.getTargetId(ctxId).then((targetId) => {
+                if (!targetId) {
+                  console.warn(`[WS][browser] webrtc: no CDP target for ${ctxId} (pane not streaming?)`);
+                  return; // client falls back after its answer timeout
+                }
+                webrtcBridge.offer(peerId, targetId, parsed.sdp, {
+                  onAnswer: (sdp) => { try { sendBrowserWsMessage(ws, { type: 'webrtc_answer', sdp, stream: streamId }); } catch { /* socket gone */ } },
+                  onIce: (candidate, sdpMid, sdpMLineIndex) => { try { sendBrowserWsMessage(ws, { type: 'webrtc_ice', candidate, sdpMid, sdpMLineIndex, stream: streamId }); } catch { /* socket gone */ } },
+                  onError: (m) => console.warn(`[WS][browser] webrtc offer failed for ${ctxId}: ${m}`),
+                });
+              }).catch((err) => console.warn(`[WS][browser] webrtc getTargetId failed for ${ctxId}:`, err?.message || err));
+            }
+          } else if (parsed.type === 'webrtc_ice') {
+            // Trickle ICE from the viewer → sidecar (belt-and-suspenders on LAN).
+            const streamId = parsed.stream ?? 'default';
+            webrtcBridge.ice(`${ws.data.id}:${streamId}`, parsed.candidate, parsed.sdpMid ?? null, parsed.sdpMLineIndex ?? null);
           }
           // Ignore other message types from client (frame/agent_active/console/download/engine are server -> client only).
         } catch (err) {
@@ -1535,6 +1565,11 @@ const server = Bun.serve<WSData>({
         // owner-scoped so a late `close` from an OLD socket can't kill a fresh
         // re-registration made by the pane's reconnect (see unregister()).
         nativeDelegateRegistry.unregister(ws.data.browserContextId, ws);
+        // Tear down any WebRTC peers this pane opened on the sidecar.
+        if (ws.data._webrtcPeers) {
+          for (const peerId of ws.data._webrtcPeers) webrtcBridge.close(peerId);
+          ws.data._webrtcPeers.clear();
+        }
         ws.data._browserCleanup?.().catch(err =>
           console.warn(`[WS][browser] cleanup failed:`, err.message)
         );
@@ -1708,6 +1743,7 @@ async function gracefulShutdown(signal: string) {
   journalCollector.stop();     // clears the journal collection interval
   stopUiStateBackup();
   disconnectBridge(); // Disconnect from bridge — bridge daemon stays alive, PTY sessions persist
+  await webrtcBridge.shutdown();
   await browserService.close();
   // Stop all AI providers BEFORE closing the DB. claude-code's stop() sends
   // SIGTERM to the spawned `claude` CLI children so they flush session state
