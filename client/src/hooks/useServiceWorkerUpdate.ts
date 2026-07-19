@@ -25,17 +25,45 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 
+// When a waiting SW was first observed, persisted so the "X hours in waiting"
+// clock survives page reloads (the SW stays in `waiting` across reloads until
+// something calls skipWaiting). Cleared once no SW is waiting anymore.
+const WAITING_SINCE_KEY = 'topics:sw-waiting-since';
+
+function readWaitingSince(): number | null {
+  const v = Number(localStorage.getItem(WAITING_SINCE_KEY));
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
 export function useServiceWorkerUpdate() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
+  // Epoch ms when the current update first entered `waiting`, or null.
+  const [waitingSince, setWaitingSince] = useState<number | null>(() => readWaitingSince());
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
+
+    // Stamp/clear the waiting clock: the FIRST time we see a waiting SW we
+    // record the moment (unless a persisted stamp already survives a reload);
+    // when nothing is waiting we forget it.
+    const markWaiting = (waiting: boolean) => {
+      if (waiting) {
+        const existing = readWaitingSince();
+        const since = existing ?? Date.now();
+        if (!existing) localStorage.setItem(WAITING_SINCE_KEY, String(since));
+        setWaitingSince(since);
+      } else {
+        localStorage.removeItem(WAITING_SINCE_KEY);
+        setWaitingSince(null);
+      }
+    };
 
     const handleUpdate = (reg: ServiceWorkerRegistration) => {
       setRegistration(reg);
       if (reg.waiting) {
         setUpdateAvailable(true);
+        markWaiting(true);
         return;
       }
       reg.addEventListener('updatefound', () => {
@@ -44,6 +72,7 @@ export function useServiceWorkerUpdate() {
         newSW.addEventListener('statechange', () => {
           if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
             setUpdateAvailable(true);
+            markWaiting(true);
           }
         });
       });
@@ -63,8 +92,11 @@ export function useServiceWorkerUpdate() {
   const applyUpdate = useCallback(() => {
     if (registration?.waiting) {
       registration.waiting.postMessage('SKIP_WAITING');
+      // The clock is spent — the update is being applied.
+      localStorage.removeItem(WAITING_SINCE_KEY);
+      setWaitingSince(null);
     }
   }, [registration]);
 
-  return { updateAvailable, applyUpdate };
+  return { updateAvailable, applyUpdate, waitingSince };
 }
