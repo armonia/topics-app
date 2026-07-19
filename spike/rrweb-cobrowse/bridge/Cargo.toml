@@ -1,0 +1,36 @@
+[package]
+name = "cobrowse-bridge"
+version = "0.1.0"
+edition = "2021"
+
+# Co-browse session broker — the REUSABLE multiplexer under both co-op and
+# multi-session. One process fans a session's opaque payload stream (rrweb DOM
+# events) from its SOURCE to N subscribers, and relays CONTROLLER input back to
+# the source. Keyed by session id → many independent sessions; peers carry a role
+# (source / presenter / controller / viewer) → co-op governance.
+#
+# Deliberately std-only (zero deps → compiles in seconds, no registry fetch): the
+# broker never parses the payloads, it only routes them by (session, role). That
+# keeps it transport/format-agnostic — the same core carries rrweb events today and
+# co-op cursors/presence/pixel-island signaling later.
+#
+# Wire protocol: line-delimited over a Unix socket, same externalBin/TOPICS_*_BIN
+# convention as pty-bridge / webrtc-bridge.
+#   peer → broker (first line):  HELLO <session> <source|presenter|controller|viewer>
+#   peer → broker (then):        <opaque NDJSON payload line>
+#   broker → viewers:            PRESENCE <viewerCount>
+#
+# Routing:
+#   from source                → broadcast payload to all non-source peers in session
+#   from presenter/controller  → forward payload to the session's source (input relay)
+#   from viewer                → dropped (co-op input gate)
+#
+# Usage: cobrowse-bridge --socket /tmp/topics-cobrowse-<hash>.sock
+
+[[bin]]
+name = "cobrowse-bridge"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
