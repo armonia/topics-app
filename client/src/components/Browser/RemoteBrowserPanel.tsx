@@ -342,7 +342,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   );
 }
 
-function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true }: RemoteBrowserPanelProps) {
+function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true }: RemoteBrowserPanelProps) {
   // isVisible gates the screencast: only the visible pane streams frames (keeps
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const browser = useRemoteBrowser(contextId, isVisible);
@@ -363,6 +363,29 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
     const t = setTimeout(() => focusUrlBarRef.current?.(), 50);
     return () => clearTimeout(t);
   }, [isVisible, browser.url]);
+
+  // Seed a blank server context with the pane's persisted URL (initialUrl). A
+  // browser pane's page can live entirely on ANOTHER client — most notably the
+  // Mac's NATIVE WKWebView pane (Tauri path), which never touches this server
+  // context. Without this, a web/mobile client connecting to that context finds
+  // it blank and sits at "Browser ready" instead of showing the page. The Tauri
+  // path already navigates to initialUrl on mount (useTauriBrowser); this is its
+  // streaming-path counterpart. Fire once, and only when the server context is
+  // genuinely blank — never clobber a context already on a live page.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !browser.connected) return;
+    if (!initialUrl || !/^https?:\/\//i.test(initialUrl)) return;
+    // Let fetchInfo() (fired in ws.onopen) report the context's real url first,
+    // so a context that already holds a page is left untouched.
+    const t = setTimeout(() => {
+      if (seededRef.current) return;
+      seededRef.current = true;
+      const blank = !browser.url || browser.url === 'about:blank';
+      if (blank) browser.navigate(initialUrl);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [browser.connected, browser.url, initialUrl, browser.navigate]);
 
   // React to external navigateUrl prop
   useEffect(() => {
