@@ -157,3 +157,38 @@ test("dispose reaps immediately regardless of refCount", async () => {
   expect(f.events).toContain("kill");
   expect(sidecar.status()).toMatchObject({ running: false, refCount: 0 });
 });
+
+test("loadExtensions thunk is evaluated at LAUNCH (not construction) and passed to the launcher", async () => {
+  let thunkCalls = 0;
+  let captured: string[] | null = null;
+  const launcher: SidecarLauncher = {
+    async launch({ port, loadExtensions }) {
+      captured = loadExtensions;
+      return { cdpEndpoint: `ws://127.0.0.1:${port}/x`, kill: () => {} };
+    },
+  };
+  const sidecar = createChromiumSidecar({
+    discover: () => [eng("chrome")],
+    launcher,
+    loadExtensions: () => { thunkCalls++; return ["/ext/a", "/ext/b"]; },
+  });
+  expect(thunkCalls).toBe(0); // NOT evaluated at construction
+  await sidecar.acquire();
+  expect(thunkCalls).toBe(1); // evaluated once, at launch
+  expect(captured).toEqual(["/ext/a", "/ext/b"]);
+  sidecar.dispose();
+});
+
+test("a static loadExtensions array still works (back-compat)", async () => {
+  let captured: string[] | null = null;
+  const launcher: SidecarLauncher = {
+    async launch({ port, loadExtensions }) {
+      captured = loadExtensions;
+      return { cdpEndpoint: `ws://127.0.0.1:${port}/x`, kill: () => {} };
+    },
+  };
+  const sidecar = createChromiumSidecar({ discover: () => [eng("chrome")], launcher, loadExtensions: ["/only/one"] });
+  await sidecar.acquire();
+  expect(captured).toEqual(["/only/one"]);
+  sidecar.dispose();
+});
