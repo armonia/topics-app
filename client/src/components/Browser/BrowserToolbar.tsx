@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLeft, MoreHorizontal } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RotateCw, ExternalLink, Clock, Code2, CornerUpLeft, MoreHorizontal, MonitorSmartphone } from 'lucide-react';
 import { AgentActivityPill } from './AgentActivityPill';
 import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
@@ -70,6 +70,14 @@ interface BrowserToolbarProps {
   /** Back/forward history (Chrome-style right-click / long-press menu). */
   getNavEntries?: () => Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
   onGoToNavIndex?: (index: number) => void;
+  /** SHARED-SESSION toggle (Tauri only). When defined, renders a monitor/phone
+   *  button that flips this pane between the native WKWebView (private to this
+   *  Mac) and the server-side streamed session that a phone/web viewer of the
+   *  same pane sees LIVE. Undefined on the web (there the pane is always the
+   *  shared server session — no native alternative to toggle to). `shared`
+   *  is the current state (true = streaming the shared session). */
+  shared?: boolean;
+  onToggleShare?: () => void;
 }
 
 export function BrowserToolbar({
@@ -98,6 +106,8 @@ export function BrowserToolbar({
   onClearConsole,
   getNavEntries,
   onGoToNavIndex,
+  shared,
+  onToggleShare,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -364,6 +374,28 @@ export function BrowserToolbar({
         <DeviceSwitcher mode={deviceMode} onSet={onSetDevice} />
       )}
       {onZoom && <ZoomControl zoom={zoom} onZoom={onZoom} />}
+
+      {/* Shared-session toggle (Tauri only) — native WKWebView ↔ streamed server
+          session a phone/web viewer sees live. Kept inline at every width: it's a
+          primary action for "watch/drive this on my phone too". */}
+      {onToggleShare && (
+        <button
+          type="button"
+          onClick={onToggleShare}
+          className={`w-6 h-6 flex items-center justify-center rounded transition-colors shrink-0 ${
+            shared
+              ? 'text-green-600 dark:text-green-400 bg-green-500/15 hover:bg-green-500/25'
+              : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'
+          }`}
+          title={shared
+            ? 'Sessione condivisa attiva — telefono e web vedono e guidano QUESTA pagina. Clicca per tornare al browser nativo (privato di questo Mac).'
+            : 'Condividi sessione — passa alla sessione server-side così puoi vederla/guidarla anche dal telefono (stesso login, stesso cursore).'}
+          data-testid="browser-share-toggle"
+          aria-pressed={!!shared}
+        >
+          <MonitorSmartphone size={14} />
+        </button>
+      )}
 
       {compact ? (
         /* Narrow pane — only the SECONDARY actions (history / DevTools / open

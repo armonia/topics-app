@@ -51,6 +51,30 @@ interface RemoteBrowserPanelProps {
    *  A native-pane click never reaches React, so without this the pane can't
    *  activate its own tab. The render site wires it to activate this pane. */
   onSelfFocus?: () => void;
+  /** SHARED-SESSION state + toggle (Tauri only). When the pane is `shared`, the
+   *  Mac drops its private native WKWebView and renders the SAME server-side
+   *  streamed session a phone/web viewer of this pane sees — same page, same
+   *  login, same cursor. `onToggleShare` is undefined on the web (there the pane
+   *  is always the shared server session). Threaded into the toolbar. */
+  shared?: boolean;
+  onToggleShare?: () => void;
+}
+
+/** localStorage key for a pane's shared-session preference. It's a per-DEVICE
+ *  choice ("this Mac, join the shared server session for ctx X") — the phone/web
+ *  side always streams the server session regardless — so it lives client-side,
+ *  keyed by contextId, and survives an app reload without touching synced layout. */
+function sharedStorageKey(contextId: string): string {
+  return `topics.browser.shared.${contextId}`;
+}
+function readSharedPref(contextId: string): boolean {
+  try { return localStorage.getItem(sharedStorageKey(contextId)) === '1'; } catch { return false; }
+}
+function writeSharedPref(contextId: string, shared: boolean): void {
+  try {
+    if (shared) localStorage.setItem(sharedStorageKey(contextId), '1');
+    else localStorage.removeItem(sharedStorageKey(contextId));
+  } catch { /* private mode / no storage — in-memory state still drives the switch */ }
 }
 
 // Phase 30 BROWSER-CHAT-04 — local-network URLs (localhost, 127.0.0.1, *.local)
@@ -88,12 +112,34 @@ function isSeedableUrl(raw: string | undefined): raw is string {
 }
 
 export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
+  // SHARED-SESSION switch (Tauri only). Default OFF → the fast, private native
+  // WKWebView. When ON, the Mac joins the SAME server-side streamed session a
+  // phone/web viewer of this pane sees (same page/login/cursor). The choice is
+  // per-device + persisted (localStorage), so a reload keeps the pane shared
+  // instead of silently reverting to native and diverging from the phone again.
+  const [shared, setShared] = useState(() => isTauri && readSharedPref(contextId));
+  // Re-read when the pane is reused for a different context id — the "adjust
+  // state during render on prop change" pattern (no effect, no cascading render).
+  const [sharedCtx, setSharedCtx] = useState(contextId);
+  if (sharedCtx !== contextId) {
+    setSharedCtx(contextId);
+    setShared(isTauri && readSharedPref(contextId));
+  }
+  const onToggleShare = useCallback(() => {
+    setShared((prev) => {
+      const next = !prev;
+      writeSharedPref(contextId, next);
+      return next;
+    });
+  }, [contextId]);
+
   // ============ Tauri NATIVE path — real child WKWebView (multi-webview). ============
   // Like Electron's WebContentsView but via Window::add_child (browser_* commands).
-  // Reuses NativeBrowserPlaceholder for the layout-slot → setBounds geometry. This is
-  // the ONLY Tauri path: the native pane is agent-drivable (observe/act/extract/vision
-  // delegated over /ws/browser), so there's no reason to fall back to streaming here.
-  if (isTauri) {
+  // Reuses NativeBrowserPlaceholder for the layout-slot → setBounds geometry. The
+  // native pane is agent-drivable (observe/act/extract/vision delegated over
+  // /ws/browser) and private to this Mac; the user opts INTO the shared streamed
+  // session with the toolbar toggle (`shared`), which falls through to streaming.
+  if (isTauri && !shared) {
     return (
       <TauriBrowserPanelInner
         contextId={contextId}
@@ -106,15 +152,18 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
         onFocusPanel={onFocusPanel}
         topics={topics}
         onSelfFocus={onSelfFocus}
+        shared={false}
+        onToggleShare={onToggleShare}
       />
     );
   }
 
-  // ============ Streaming code path — WEB only. ============
-  // The browser in a plain web client (no native shell) is an interactive screenshot
-  // <img> driven by the server's headless browser over /ws/browser. Electron and Tauri
-  // both took their native paths above; only the web client falls through here. To keep
-  // memory in check, only the VISIBLE pane streams (isVisible → useRemoteBrowser).
+  // ============ Streaming code path. ============
+  // The shared server-side session: an interactive screenshot/WebRTC surface driven
+  // by the server's headless browser over /ws/browser, fanned out to every viewer of
+  // this contextId (Mac + phone = the SAME live session). Reached by the web client
+  // (no native shell) AND by a Tauri pane the user flipped to `shared`. Only the
+  // VISIBLE pane streams (isVisible → useRemoteBrowser) to keep memory in check.
   return (
     <RemoteBrowserPanelStreaming
       contextId={contextId}
@@ -126,6 +175,8 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
       onFocusPanel={onFocusPanel}
       topics={topics}
       isVisible={isVisible}
+      shared={shared}
+      onToggleShare={isTauri ? onToggleShare : undefined}
     />
   );
 }
@@ -172,7 +223,7 @@ function useBackToSpawner(
  * bridges now; BrowserToolbar still self-hides any control whose handler is
  * absent, so there are never dead buttons.
  */
-function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
+function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, onToggleShare }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
@@ -305,6 +356,8 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         consoleEntries={browser.consoleEntries}
         consoleSummary={browser.consoleSummary}
         onClearConsole={browser.clearConsole}
+        shared={shared}
+        onToggleShare={onToggleShare}
       />
       {findOpen && (
         <div className="flex items-center gap-1.5 px-3 h-9 border-b border-app-border bg-app-bg flex-shrink-0">
@@ -370,7 +423,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   );
 }
 
-function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true }: RemoteBrowserPanelProps) {
+function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true, shared, onToggleShare }: RemoteBrowserPanelProps) {
   // isVisible gates the screencast: only the visible pane streams frames (keeps
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const browser = useRemoteBrowser(contextId, isVisible);
@@ -512,6 +565,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           spawnerLabel={backToSpawner?.spawnerLabel}
           agentActive={browser.agentActive}
           agentAction={browser.agentAction}
+          shared={shared}
+          onToggleShare={onToggleShare}
         />
         <div className="flex-1 min-h-0 overflow-hidden bg-surface relative">
           <iframe
@@ -593,6 +648,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         spawnerLabel={backToSpawner?.spawnerLabel}
         agentActive={browser.agentActive}
         agentAction={browser.agentAction}
+        shared={shared}
+        onToggleShare={onToggleShare}
       />
 
       {/* Content — screenshot viewer. containerRef wires a debounced
