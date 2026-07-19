@@ -445,4 +445,51 @@ test.describe("Project Tabs", () => {
     // The badge CSS classes (bg-amber-100 for git, bg-emerald-100 for processes)
     // only render when the project has modified files or running processes.
   });
+
+  // Regression: a project must NOT split on a phone. Open on desktop (proven
+  // flow), let a browser pane auto-split into its own cell, then shrink to a
+  // phone viewport — GroupLayout must flatten every group into ONE tab strip
+  // (no SplitTree, so zero `data-group-cell`) with the panes as tabs.
+  test("PROJECT-TABS-MOBILE-01: project flattens to a single tab strip on a phone", async ({
+    page,
+  }) => {
+    test.info().annotations.push({
+      type: "spec",
+      description: "PROJECT-TABS-MOBILE-01",
+    });
+    await goToApp(page);
+    await openTestProject(page);
+
+    const firstBar = page.locator('[data-testid="panel-tab-bar"]').first();
+    await expect(firstBar).toBeVisible({ timeout: 10000 });
+
+    // Add a Browser pane — on desktop this auto-splits out into its own cell.
+    const addPaneBtn = page.getByTitle("Add pane").first();
+    await expect(addPaneBtn).toBeVisible({ timeout: 5000 });
+    await addPaneBtn.click();
+    const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
+    await expect(addMenu).toBeVisible({ timeout: 5000 });
+    await addMenu.locator("button", { hasText: /Browser/i }).first().click();
+
+    // Two panes now exist (chat + browser) regardless of split state.
+    await expect
+      .poll(async () =>
+        page
+          .locator('[data-testid="panel-tab-bar"] [draggable="true"]')
+          .count()
+      , { timeout: 10000 })
+      .toBeGreaterThanOrEqual(2);
+
+    // Shrink to a phone — the resize listener flips GroupLayout to mobile.
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    // SplitTree never renders on mobile → no group cells, and exactly one
+    // flattened tab strip carrying BOTH panes.
+    await expect(page.locator("[data-group-cell]")).toHaveCount(0, {
+      timeout: 5000,
+    });
+    const bars = page.locator('[data-testid="panel-tab-bar"]');
+    await expect(bars).toHaveCount(1);
+    await expect(bars.first().locator('[draggable="true"]')).toHaveCount(2);
+  });
 });
