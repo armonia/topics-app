@@ -1,7 +1,7 @@
 {
   "name": "topics-app",
-  "version": "2.1.117",
-  "description": "Companion app for OpenClaw — organize AI conversations into focused topics with project context",
+  "version": "2.1.118",
+  "description": "Companion app for OpenClaw \u2014 organize AI conversations into focused topics with project context",
   "author": "Armonia",
   "license": "MIT",
   "repository": {
