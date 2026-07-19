@@ -839,6 +839,19 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     return () => { cancelled = true; };
   }, []);
 
+  // Drive the WebRTC transport off having a real URL + a live WS — NOT off the first
+  // JPEG frame. Frame-triggering was fragile (a pane whose screencast delivered no
+  // frame sat forever on "Avvio sessione condivisa…" without ever negotiating). The
+  // page having navigated means the pane's CDP target exists → negotiate now. Guarded
+  // internally (a live/negotiating PC makes this a no-op), so repeated renders are safe.
+  useEffect(() => {
+    if (!WEBRTC_ENABLED) return;
+    if (state.connectionState !== 'connected') return;
+    if (!state.url || state.url === 'about:blank') return;
+    if (state.webrtcActive || state.webrtcError) return;
+    webrtcStartRef.current();
+  }, [state.url, state.connectionState, state.webrtcActive, state.webrtcError]);
+
   // --- Interaction handlers ---
 
   const navigate = useCallback((url: string) => {
