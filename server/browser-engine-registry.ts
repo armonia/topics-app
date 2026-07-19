@@ -21,6 +21,7 @@
  */
 
 import { createChromiumSidecar, type SidecarHandle } from "./browser-chromium-sidecar";
+import { discoverInstalledExtensions } from "./browser-chromium-extensions";
 
 export type BrowserEngine = "native" | "chromium";
 
@@ -126,5 +127,11 @@ export function createBrowserEngineRegistry(deps: {
  * acquires it. Tests build their own via createChromiumSidecar / the injectable
  * sidecar. Live WS/route wiring + CDP screencast are the remaining LIVE pieces.
  */
-export const chromiumSidecar = createChromiumSidecar();
+// Option 1 (decision 2026-07-19): the sidecar loads the user's ALREADY-installed
+// Chrome-family extensions (code) into its dedicated, PERSISTENT profile — the
+// user logs into them once inside the pane and the login sticks. Discovery is a
+// thunk → runs only when the first chromium pane actually launches, not at import.
+export const chromiumSidecar = createChromiumSidecar({
+  loadExtensions: () => discoverInstalledExtensions().map((e) => e.path),
+});
 export const browserEngineRegistry = createBrowserEngineRegistry({ sidecar: chromiumSidecar });

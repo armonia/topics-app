@@ -166,8 +166,10 @@ export interface ChromiumSidecarOptions {
   /** CDP remote-debugging port. Default 19333 (distinct from the agent 19222). */
   port?: number;
   userDataDir?: string;
-  /** Unpacked extension dirs to load into the sidecar (the user's ported set). */
-  loadExtensions?: string[];
+  /** Unpacked extension dirs to load into the sidecar (the user's ported set).
+   *  May be a thunk, evaluated at LAUNCH time (not construction) — so a costly
+   *  on-disk discovery only runs when a chromium pane is actually opened. */
+  loadExtensions?: string[] | (() => string[]);
   /** Delay before reaping the process after the last release. Default 8000ms. */
   idleGraceMs?: number;
   /** Injectable timers for deterministic tests. */
@@ -186,7 +188,9 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
   const port = opts.port ?? 19333;
   const userDataDir =
     opts.userDataDir ?? join(homedir(), ".openclaw", "chromium-sidecar");
-  const loadExtensions = opts.loadExtensions ?? [];
+  const loadExtensionsOpt = opts.loadExtensions ?? [];
+  const resolveLoadExtensions = (): string[] =>
+    typeof loadExtensionsOpt === "function" ? loadExtensionsOpt() : loadExtensionsOpt;
   const idleGraceMs = opts.idleGraceMs ?? 8000;
   const setTimeoutFn = (opts.setTimeoutFn ?? setTimeout) as (
     fn: () => void,
@@ -220,7 +224,7 @@ export function createChromiumSidecar(opts: ChromiumSidecarOptions = {}) {
           "No Chromium-family browser found. Install Chrome, Edge, Brave, or Chromium to use the Chromium engine.",
         );
       }
-      const started = await launcher.launch({ engine, port, userDataDir, loadExtensions });
+      const started = await launcher.launch({ engine, port, userDataDir, loadExtensions: resolveLoadExtensions() });
       handle = { cdpEndpoint: started.cdpEndpoint, engine };
       kill = started.kill;
       return handle;
