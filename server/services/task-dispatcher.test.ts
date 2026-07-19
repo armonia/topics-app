@@ -340,10 +340,11 @@ describe("task-dispatcher", () => {
     expect(t.assignedTopicId).not.toBeNull();   // binding kept: a reject resumes it
   });
 
-  it("MIRRORS the agent's final message as a comment when it worked but never called comment_task", async () => {
-    // The exact gap the human hit: the agent did the work and summarised in its
-    // LAST message, but never called comment_task. Without the mirror this task
-    // would park as `failed` and the summary would be lost.
+  it("RECOVERS the agent's last words into the SYSTEM note when a worked turn dies before review", async () => {
+    // The agent worked and summarised in its LAST session message but ran out of
+    // turns before reaching review. Its turn is over — it can't comment itself —
+    // so its words are recovered into the SYSTEM delivery note (honest, never a
+    // faked agent comment) and the task is handed to review instead of parked.
     const h = harness({ getLastAgentText: () => "Ho implementato login e i test. Guarda /demo." });
     h.svc.updateBoardSettings(PID, { autoDispatch: true }); // default cap 2
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -352,11 +353,12 @@ describe("task-dispatcher", () => {
     h.finishTurn(); await flush(); // attempt 1 → last-chance continuation
     h.finishTurn(); await flush(); // attempt 2 at cap → exhausted
     const t = h.task("t1")!;
-    expect(t.status).toBe("review");             // delivered WITH its summary, not failed
+    expect(t.status).toBe("review");             // handed to the human, not failed
     expect(t.assignedTopicId).not.toBeNull();
     const comments = h.svc.get("t1")!.comments;
-    // The agent's own words are in the thread, authored as the agent (not system/user).
-    expect(comments.some((c) => c.author !== "user" && c.author !== "system" && c.content.includes("Ho implementato login"))).toBe(true);
+    // Recovered into the SYSTEM note — never faked as an agent comment.
+    expect(comments.some((c) => c.author === "system" && c.content.includes("Ho implementato login"))).toBe(true);
+    expect(comments.some((c) => c.author !== "user" && c.author !== "system" && c.content.includes("Ho implementato login"))).toBe(false);
   });
 
   it("still parks when the agent produced NOTHING (no comment AND no final message)", async () => {
@@ -372,9 +374,9 @@ describe("task-dispatcher", () => {
     expect(t.dispatchState).toBe("failed"); // genuinely empty → failure, not review
   });
 
-  it("does NOT mirror when the agent already left a real comment (no duplicate)", async () => {
-    // The mirror is a fallback, not an always-on echo: an agent that DID call
-    // comment_task must not get its final message posted a second time.
+  it("does NOT recover into the note when the agent already left a fresh comment", async () => {
+    // Recovery is a fallback for the system-delivery path only: an agent that DID
+    // leave a fresh comment must not get its last session message duplicated.
     const h = harness({ getLastAgentText: () => "Questo NON deve comparire." });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -387,31 +389,6 @@ describe("task-dispatcher", () => {
     expect(t.status).toBe("review");
     const comments = h.svc.get("t1")!.comments;
     expect(comments.some((c) => c.content.includes("Questo NON deve comparire"))).toBe(false);
-  });
-
-  it("MIRRORS on re-delivery when THIS turn left no fresh comment (stale summary from an earlier turn)", async () => {
-    // The reported bug: a steered task reaches review again ("altro da fare?" →
-    // …→review) with only a STALE agent comment from a previous turn. The review
-    // gate is satisfied (an old comment exists), but the reviewer sees no summary
-    // of what the agent did THIS time. The mirror must fire on the fresh delivery.
-    const h = harness({ getLastAgentText: () => "Fatto: chiuso il subtask #4 questo turno." });
-    h.svc.updateBoardSettings(PID, { autoDispatch: true });
-    seedTask(h.db, { id: "t1", status: "review", assignedTopicId: "topic-9", attempts: 1 });
-    h.svc.addComment({ taskId: "t1", author: "claude", content: "vecchio riepilogo (turno 1)" });
-    // Force the old comment to predate the new turn (deterministic, no sleep).
-    h.db.prepare("UPDATE task_comments SET created_at = ? WHERE task_id = 't1'").run("2020-01-01T00:00:00.000Z");
-    // Human steers → reject moves it to in_progress (writes the fresh …→in_progress).
-    h.svc.reviewDecision({ taskId: "t1", by: "user", decision: "reject", comment: "procedi", projectId: PID });
-    const p = h.dispatcher.resume("t1", "procedi");
-    await flush();
-    // Agent works and self-delivers back to review WITHOUT a fresh comment.
-    h.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review" } });
-    h.finishTurn();
-    await p;
-    await flush();
-    expect(h.task("t1")!.status).toBe("review");
-    const comments = h.svc.get("t1")!.comments;
-    expect(comments.some((c) => c.content.includes("chiuso il subtask #4 questo turno"))).toBe(true);
   });
 
   it("respects the concurrency cap", async () => {

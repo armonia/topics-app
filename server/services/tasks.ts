@@ -695,19 +695,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
         // Agent entering review → open a pending review approval for the human.
         if (patch.status === "review" && actor === "agent" && current !== "review") {
-          // A delivery must never be mute: the review card surfaces the agent's
-          // last word (KANBAN-04 "mai alla cieca"), so a thread with zero agent
-          // comments would leave the human staring at bare Approva/Rifiuta.
-          // Coach a retry instead — same pattern as comment_too_long.
-          // kind='comment' only: a status event authored by the agent (its own
-          // step flips) must not satisfy the "say something" gate.
-          const own = (db.prepare(
-            "SELECT COUNT(*) AS c FROM task_comments WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'",
-          ).get(taskId) as any).c as number;
-          if (own === 0) {
+          // A delivery must never be mute — AND the summary must be about THIS
+          // turn, not a stale one from an earlier exchange. Checking "any agent
+          // comment ever" let a steered task ("altro da fare?" → review) hand back
+          // a mute delivery: an old comment satisfied the gate while the current
+          // turn said nothing. So require a comment made AFTER this turn started
+          // (the newest `…→in_progress` status event). Coach a retry — same
+          // pattern as comment_too_long. kind='comment' only: an agent-authored
+          // status flip must not satisfy the gate.
+          const turnStart = (db.prepare(
+            "SELECT MAX(created_at) AS ts FROM task_comments WHERE task_id = ? AND kind = 'status' AND content LIKE '%in\\_progress' ESCAPE '\\'",
+          ).get(taskId) as any).ts as string | null;
+          const fresh = (db.prepare(
+            `SELECT COUNT(*) AS c FROM task_comments
+              WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment'
+                AND (? IS NULL OR created_at >= ?)`,
+          ).get(taskId, turnStart, turnStart) as any).c as number;
+          if (fresh === 0) {
             throw new TaskServiceError(
               "review_needs_summary",
-              "post a short delivery summary first — comment_task with 1-2 sentences (what was done, where to look) — THEN set status='review'",
+              "post a delivery summary for THIS turn first — comment_task with 1-2 sentences (what you did now, where to look; even \"nothing new\" with the reason) — THEN set status='review'",
             );
           }
           db.prepare(
