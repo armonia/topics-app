@@ -2,7 +2,7 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
-import { LAND_ACTION_LABEL } from "../services/tasks";
+import { LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -591,5 +591,16 @@ describe("approve decoupled from landing", () => {
     const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/land`, {}))!.json();
     expect(t.status).toBe("done");
     expect(merges).toEqual([id]);
+  });
+
+  test("picking 'Landa e pubblica' approves + lands (routes to land+publish, not a reject)", async () => {
+    const id = await reviewTask();
+    const t = await (await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, { decision: "reject", comment: PUBLISH_ACTION_LABEL }))!.json();
+    // Deterministic routing: the publish label is accepted + landed, and does NOT
+    // resume the agent (the publish PUSH itself runs in the fire-and-forget chain
+    // — no git in this harness — but the interception routes correctly).
+    expect(t.status).toBe("done"); // accepted
+    expect(merges).toEqual([id]);  // land ran first (merges.push is synchronous)
+    expect(resumed).toEqual([]);   // NOT resumed as a rejection
   });
 });

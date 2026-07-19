@@ -53,12 +53,19 @@ export const AUTO_PROJECT_ID = "_auto";
  * the prompt in task-dispatcher.ts (both import this constant).
  */
 export const LAND_ACTION_LABEL = "Landa su main";
-/** Normalize an option/answer for a tolerant match against LAND_ACTION_LABEL
- *  (ignores an emoji prefix / punctuation / spacing the model may add). */
+/**
+ * Reserved option for "go online": land (merge to main) AND publish (push →
+ * deploy CI). The agent may offer it at delivery too; picking it runs the whole
+ * chain server-side. "Andare online" stays a human pick — the agent never pushes.
+ */
+export const PUBLISH_ACTION_LABEL = "Landa e pubblica";
+const normLabel = (s: string) => s.replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
+/** Tolerant match (ignores emoji/punctuation/spacing the model may add). */
 export function isLandActionLabel(text: string | undefined | null): boolean {
-  if (!text) return false;
-  const norm = (s: string) => s.replace(/[^\p{L}\s]/gu, " ").replace(/\s+/g, " ").trim().toLowerCase();
-  return norm(text) === norm(LAND_ACTION_LABEL);
+  return !!text && normLabel(text) === normLabel(LAND_ACTION_LABEL);
+}
+export function isPublishActionLabel(text: string | undefined | null): boolean {
+  return !!text && normLabel(text) === normLabel(PUBLISH_ACTION_LABEL);
 }
 
 export interface Task {
