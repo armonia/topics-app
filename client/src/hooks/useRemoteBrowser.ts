@@ -472,6 +472,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             }));
             break;
           case 'download':
+            // Defense-in-depth: only ever render a link into our own served
+            // downloads dir — never a javascript:/data:/external href, even if
+            // the message were spoofed. Anything else is dropped.
+            if (!msg.href.startsWith('/media/browser/downloads/')) break;
             // Surface the server-saved download as a clickable link (the web
             // pane has no native shelf). Dedup by href: update its state, or
             // append; keep the strip bounded to the most recent few.
