@@ -680,17 +680,28 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           />
         )}
 
-        {browser.screenshotSrc && !(browser.connected && (!browser.url || browser.url === 'about:blank')) ? (
-          <img
-            ref={imgRef}
-            src={browser.screenshotSrc}
-            alt={browser.title || 'Browser page'}
-            className="w-full h-full object-contain cursor-default select-none"
-            onClick={browser.onClick}
-            onWheel={browser.onWheel}
-            draggable={false}
-          />
-        ) : browser.connected && (!browser.url || browser.url === 'about:blank') ? (
+        {/* No JPEG rendering — the visible surface is the WebRTC <video> above (when
+            active) or a native <iframe> (framable URLs). Underneath: an error+Riprova
+            if WebRTC couldn't be established, the empty-URL prompt, or a spinner while
+            the shared session negotiates. */}
+        {browser.webrtcError ? (
+          <div className="flex items-center justify-center h-full" data-testid="browser-webrtc-error">
+            <div className="text-center max-w-xs px-4">
+              <AlertTriangle size={30} className="mx-auto mb-3 text-red-500" />
+              <p className="text-[13px] text-app-text-muted mb-1">Sessione video non disponibile</p>
+              <p className="text-[11px] text-app-text-faint mb-3">Il transport WebRTC non si è connesso.</p>
+              <button
+                type="button"
+                onClick={browser.retryWebrtc}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+                data-testid="browser-webrtc-retry"
+              >
+                <RotateCw size={12} />
+                Riprova
+              </button>
+            </div>
+          </div>
+        ) : (!browser.url || browser.url === 'about:blank') ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Globe size={36} className="mx-auto mb-3 text-app-spinner" />
@@ -698,26 +709,18 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
               <p className="text-[11px] text-app-text-faint">Enter a URL above to navigate</p>
             </div>
           </div>
-        ) : browser.connected || browser.loading ? (
+        ) : browser.webrtcActive ? null : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
-              <p className="text-[12px] text-app-text-muted">Starting browser...</p>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <Globe size={36} className="mx-auto mb-3 text-app-spinner" />
-              <p className="text-[13px] text-app-text-muted mb-1">No browser session</p>
-              <p className="text-[11px] text-app-text-faint">Enter a URL above to start</p>
+              <p className="text-[12px] text-app-text-muted">Avvio sessione condivisa…</p>
             </div>
           </div>
         )}
 
-        {/* Loading overlay during navigation */}
-        {browser.loading && browser.screenshotSrc && (
-          <div className="absolute inset-0 bg-black/10 flex items-center justify-center pointer-events-none">
+        {/* Loading overlay during navigation (over the live video). */}
+        {browser.loading && browser.webrtcActive && (
+          <div className="absolute inset-0 bg-black/10 flex items-center justify-center pointer-events-none z-[2]">
             <Loader2 size={20} className="text-white/80 animate-spin" />
           </div>
         )}

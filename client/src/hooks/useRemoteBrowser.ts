@@ -59,6 +59,9 @@ interface RemoteBrowserState {
   /** The <video> is mounted (negotiation started) — kept true through negotiation so
    *  ontrack can attach the stream BEFORE ICE connects. Visible only when active. */
   webrtcMounted: boolean;
+  /** WebRTC could not be established after all retries (sidecar missing / ICE failed).
+   *  The pane surfaces an error + Riprova instead of a JPEG fallback. */
+  webrtcError: boolean;
 }
 
 interface InteractionHandlers {
@@ -88,6 +91,8 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   setEngine: (engine: 'native' | 'chromium') => void;
   /** Task 052f53ef: pause/resume the server screencast (iframe-mode ⇒ false). */
   setStreamActive: (active: boolean) => void;
+  /** Retry the WebRTC transport after a `webrtcError` (the pane's Riprova button). */
+  retryWebrtc: () => void;
 }
 
 const IDLE_INTERVAL = 2000;
@@ -115,18 +120,22 @@ const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)
 // ever fires when something is actually wrong.
 const NAV_LOADING_TIMEOUT_MS = 60000;
 
-// Shared-session WebRTC transport — OPT-IN. When on, the streaming pane negotiates
-// an H.264 WebRTC track (served by the Rust webrtc-bridge attached to this pane's CDP
-// target) and renders it in a <video>, pausing the JPEG screencast. Any failure falls
-// back to JPEG seamlessly. Default OFF so it never changes the live app until switched
-// on deliberately: localStorage `topics.browser.webrtc = '1'` or build-time
-// VITE_BROWSER_WEBRTC=1.
+// Shared-session WebRTC transport — the streaming pane's transport. It negotiates an
+// H.264 WebRTC track (served by the Rust webrtc-bridge attached to this pane's CDP
+// target) and renders it in a <video>. This is THE transport for non-framable pages
+// (framable URLs still use a native <iframe>); there is no JPEG rendering. Default ON;
+// opt-OUT escape hatch only: localStorage `topics.browser.webrtc = '0'` or build-time
+// VITE_BROWSER_WEBRTC=0 (kill switch for debugging).
 const WEBRTC_ENABLED: boolean = (() => {
   try {
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('topics.browser.webrtc') === '1') return true;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('topics.browser.webrtc') === '0') return false;
   } catch { /* SSR / storage blocked */ }
-  return import.meta.env?.VITE_BROWSER_WEBRTC === '1';
+  return import.meta.env?.VITE_BROWSER_WEBRTC !== '0';
 })();
+// How many times to renegotiate before surfacing an error+retry (the pane's CDP target
+// may not exist yet on the first attempts — the sidecar/context is created lazily).
+const WEBRTC_MAX_ATTEMPTS = 4;
+const WEBRTC_RETRY_DELAY_MS = 1500;
 
 const SPECIAL_KEYS = new Set([
   'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
@@ -173,6 +182,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     engineExtensions: 0,
     webrtcActive: false,
     webrtcMounted: false,
+    webrtcError: false,
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -181,9 +191,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // that falls back to JPEG if the PC never connects.
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
-  const webrtcTriedRef = useRef(false);
   const webrtcActiveRef = useRef(false);
   const webrtcWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Renegotiation attempts + retry timer (the CDP target may not exist on the first
+  // tries — the sidecar/context is created lazily). Exhausted → webrtcError.
+  const webrtcAttemptRef = useRef(0);
+  const webrtcRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const webrtcStartRef = useRef<() => void>(() => {});
   // Newest frame delivered so far. Frames after the first are direct
   // `img.src` writes (no setState), so state.screenshotSrc goes stale by
   // design — this ref lets a remounted <img> re-assert the newest frame
@@ -409,8 +423,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       if (!mountedRef.current || wsRef.current !== ws) return;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       updateConnectionState('connected');
-      // Fresh connection → allow one WebRTC (re)negotiation attempt on its first frame.
-      webrtcTriedRef.current = false;
+      // Fresh connection → reset the WebRTC retry budget + clear any prior error so
+      // the transport renegotiates (driven by the first frame proving a live target).
+      webrtcAttemptRef.current = 0;
+      if (webrtcRetryTimerRef.current) { clearTimeout(webrtcRetryTimerRef.current); webrtcRetryTimerRef.current = null; }
+      setState(s => (s.webrtcError ? { ...s, webrtcError: false } : s));
       // NOTE: reconnectAttempt is NOT reset here — only a real FRAME (stable
       // connection) resets the backoff. A flapping server (open→close→open→…
       // with no frame) must let the backoff GROW so its reconnects move away
@@ -472,9 +489,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             reconnectAttempt = 0;
             if (fallbackTimerRef.current) { clearTimeout(fallbackTimerRef.current); fallbackTimerRef.current = null; }
             if (connectionStateRef.current !== 'connected') updateConnectionState('connected');
-            // A frame proves this pane has a live CDP target → safe to negotiate the
-            // WebRTC shared-session transport (opt-in; guarded once per connection).
-            if (WEBRTC_ENABLED && !webrtcTriedRef.current) startWebrtc();
+            // A frame proves this pane has a live CDP target → negotiate the WebRTC
+            // transport (the JPEG frame is an internal bootstrap signal, never rendered;
+            // once WebRTC connects we stop the screencast). Guarded internally.
+            if (WEBRTC_ENABLED && !pcRef.current && !webrtcActiveRef.current) startWebrtc();
             // Hidden pane: drop the frame (keep the last one painted) to skip the
             // base64 decode + img repaint. See the isVisible param docs above.
             if (!isVisibleRef.current) break;
@@ -602,7 +620,6 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       if (!mountedRef.current || wsRef.current !== ws) return;
       updateConnectionState('disconnected');
       // The WebRTC signaling rode this WS — drop the PC so a reconnect renegotiates.
-      webrtcTriedRef.current = false;
       teardownWebrtc();
       // (a) Floor: after a 2s grace, degrade to HTTP polling so the pane stays
       // usable even if the WS can't be restored. Only arm once.
@@ -623,12 +640,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
     }; // end connect()
 
-    // --- WebRTC shared-session transport (opt-in via WEBRTC_ENABLED) ---
+    // --- WebRTC shared-session transport (THE streaming transport) ---
     // Negotiated over THIS WS: the pane offers a recvonly video PC; the server relays
-    // to the Rust webrtc-bridge, which attaches to this pane's CDP target and answers
-    // with an H.264 track. On connect we pause the JPEG screencast; ANY failure/timeout
-    // tears the PC down and the JPEG stream resumes seamlessly (no regression).
-    const teardownWebrtc = () => {
+    // to the Rust webrtc-bridge, which attaches to this pane's CDP target (the SAME
+    // page mobile+Mac share) and answers with an H.264 track. No JPEG rendering — a
+    // non-framable page IS this <video>. On a failed negotiation we retry a few times
+    // (the target may not exist yet), then surface an error + Riprova.
+    const closePc = () => {
       if (webrtcWatchdogRef.current) { clearTimeout(webrtcWatchdogRef.current); webrtcWatchdogRef.current = null; }
       const pc = pcRef.current;
       pcRef.current = null;
@@ -636,26 +654,46 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       const v = videoRef.current;
       if (v) { try { v.srcObject = null; } catch { /* detached */ } }
       webrtcActiveRef.current = false;
-      setState(s => (s.webrtcActive || s.webrtcMounted ? { ...s, webrtcActive: false, webrtcMounted: false } : s));
-      // Resume the JPEG screencast WebRTC had superseded (safe even if never paused).
-      if (streamActiveRef.current === false) {
-        streamActiveRef.current = true;
-        try { wsRef.current?.send(JSON.stringify({ type: 'set_stream', active: true } satisfies BrowserWsMessage)); } catch { /* re-asserted on reconnect */ }
+    };
+
+    // Full teardown (unmount / WS close): drop the PC and clear all WebRTC UI state.
+    // Re-enable the JPEG bootstrap signal so a reconnect re-drives negotiation off the
+    // first frame, and reset the retry budget.
+    const teardownWebrtc = () => {
+      if (webrtcRetryTimerRef.current) { clearTimeout(webrtcRetryTimerRef.current); webrtcRetryTimerRef.current = null; }
+      closePc();
+      webrtcAttemptRef.current = 0;
+      streamActiveRef.current = true;
+      setState(s => (s.webrtcActive || s.webrtcMounted || s.webrtcError
+        ? { ...s, webrtcActive: false, webrtcMounted: false, webrtcError: false }
+        : s));
+    };
+
+    // A negotiation attempt failed to connect: retry (target may not exist yet) or,
+    // once attempts are exhausted, surface the error+retry (never a JPEG fallback).
+    const failWebrtc = () => {
+      closePc();
+      setState(s => (s.webrtcActive ? { ...s, webrtcActive: false } : s));
+      if (webrtcAttemptRef.current < WEBRTC_MAX_ATTEMPTS) {
+        if (webrtcRetryTimerRef.current) clearTimeout(webrtcRetryTimerRef.current);
+        webrtcRetryTimerRef.current = setTimeout(() => { webrtcRetryTimerRef.current = null; startWebrtc(); }, WEBRTC_RETRY_DELAY_MS);
+      } else {
+        setState(s => ({ ...s, webrtcMounted: false, webrtcError: true }));
       }
     };
 
     const startWebrtc = () => {
-      if (!WEBRTC_ENABLED || webrtcTriedRef.current || pcRef.current) return;
+      if (!WEBRTC_ENABLED || pcRef.current || webrtcActiveRef.current) return;
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      if (typeof RTCPeerConnection === 'undefined') return;
-      webrtcTriedRef.current = true;
+      if (typeof RTCPeerConnection === 'undefined') { setState(s => ({ ...s, webrtcError: true })); return; }
+      webrtcAttemptRef.current += 1;
       let pc: RTCPeerConnection;
-      try { pc = new RTCPeerConnection(); } catch { return; }
+      try { pc = new RTCPeerConnection(); } catch { failWebrtc(); return; }
       pcRef.current = pc;
       // Mount the <video> now so ontrack (fires before ICE connects) can attach the
-      // stream; it stays hidden until webrtcActive so the JPEG shows during negotiation.
-      setState(s => (s.webrtcMounted ? s : { ...s, webrtcMounted: true }));
+      // stream; visible only once webrtcActive (spinner shows during negotiation).
+      setState(s => (s.webrtcMounted && !s.webrtcError ? s : { ...s, webrtcMounted: true, webrtcError: false }));
       pc.addTransceiver('video', { direction: 'recvonly' });
       pc.ontrack = (ev) => { const v = videoRef.current; if (v && ev.streams[0]) v.srcObject = ev.streams[0]; };
       pc.onicecandidate = (ev) => {
@@ -673,15 +711,16 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         const st = pc.iceConnectionState;
         if (st === 'connected' || st === 'completed') {
           if (webrtcWatchdogRef.current) { clearTimeout(webrtcWatchdogRef.current); webrtcWatchdogRef.current = null; }
+          webrtcAttemptRef.current = 0; // stable connection — reset the retry budget
           if (!webrtcActiveRef.current) {
             webrtcActiveRef.current = true;
-            setState(s => (s.webrtcActive ? s : { ...s, webrtcActive: true }));
-            // WebRTC carries the video now → pause the redundant JPEG screencast.
+            setState(s => (s.webrtcActive ? s : { ...s, webrtcActive: true, webrtcError: false }));
+            // WebRTC carries the video now → stop the (unrendered) JPEG screencast.
             streamActiveRef.current = false;
             try { ws.send(JSON.stringify({ type: 'set_stream', active: false } satisfies BrowserWsMessage)); } catch { /* dropped */ }
           }
         } else if (st === 'failed' || st === 'closed') {
-          teardownWebrtc();
+          failWebrtc();
         }
       };
       pc.createOffer()
@@ -690,12 +729,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
           if (pcRef.current !== pc || ws.readyState !== WebSocket.OPEN) return;
           ws.send(JSON.stringify({ type: 'webrtc_offer', sdp: offer.sdp || '' } satisfies BrowserWsMessage));
         })
-        .catch(() => teardownWebrtc());
-      // Fallback watchdog: no connection in time → drop WebRTC, JPEG stream stays.
+        .catch(() => failWebrtc());
+      // Watchdog: no connection in time (e.g. no answer — target didn't exist) → retry.
       webrtcWatchdogRef.current = setTimeout(() => {
-        if (pcRef.current === pc && !webrtcActiveRef.current) teardownWebrtc();
+        if (pcRef.current === pc && !webrtcActiveRef.current) failWebrtc();
       }, 6000);
     };
+    webrtcStartRef.current = startWebrtc;
 
     connect();
 
@@ -968,6 +1008,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     }
   }, []);
 
+  // WebRTC error → Riprova: reset the retry budget, clear the error, renegotiate.
+  const retryWebrtc = useCallback(() => {
+    webrtcAttemptRef.current = 0;
+    setState(s => (s.webrtcError ? { ...s, webrtcError: false } : s));
+    webrtcStartRef.current();
+  }, []);
+
   // Engine switch (task 54601eeb): ask the server to move this pane to `engine`.
   // Server-orchestrated over the WS — the reply is an `engine` broadcast that
   // flips state + remounts. Streaming-mode only (no WS ⇒ silent no-op).
@@ -1008,5 +1055,6 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     setSelectedElement,
     setEngine,
     setStreamActive,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive]);
+    retryWebrtc,
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, retryWebrtc]);
 }
