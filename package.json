@@ -20,6 +20,7 @@
     "dev:server": "bun --watch run server.ts",
     "dev:client": "cd client && bun run dev",
     "build:client": "cd client && bun run build",
+    "build:client:watch": "cd client && bun run build:watch",
     "build:cli": "bun build cli/topics.ts --compile --outfile dist/topics",
     "test:cli": "bun test tests/integration/cli-topics.test.ts",
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
