@@ -136,6 +136,12 @@ const WEBRTC_ENABLED: boolean = (() => {
 // may not exist yet on the first attempts — the sidecar/context is created lazily).
 const WEBRTC_MAX_ATTEMPTS = 4;
 const WEBRTC_RETRY_DELAY_MS = 1500;
+// Watchdog budgets. The short one covers "no answer at all" (target/sidecar not ready →
+// retry fast). Once ICE reaches 'checking' it's re-armed with the longer connect budget:
+// a cold LAN path (fresh sidecar spawn + CDP target creation + candidate pairing) can
+// take several seconds, and tearing the pc down mid-'checking' causes retry churn.
+const WEBRTC_NO_ANSWER_TIMEOUT_MS = 6000;
+const WEBRTC_CONNECT_TIMEOUT_MS = 15000;
 
 const SPECIAL_KEYS = new Set([
   'Enter', 'Tab', 'Escape', 'Backspace', 'Delete',
@@ -669,6 +675,15 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
         : s));
     };
 
+    // Arm the negotiation watchdog for `pc`. Fires failWebrtc only if this pc is still
+    // the active one and hasn't connected — cancelled/re-armed as ICE progresses.
+    const armWebrtcWatchdog = (pc: RTCPeerConnection, ms: number) => {
+      if (webrtcWatchdogRef.current) clearTimeout(webrtcWatchdogRef.current);
+      webrtcWatchdogRef.current = setTimeout(() => {
+        if (pcRef.current === pc && !webrtcActiveRef.current) failWebrtc();
+      }, ms);
+    };
+
     // A negotiation attempt failed to connect: retry (target may not exist yet) or,
     // once attempts are exhausted, surface the error+retry (never a JPEG fallback).
     const failWebrtc = () => {
@@ -719,6 +734,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             streamActiveRef.current = false;
             try { ws.send(JSON.stringify({ type: 'set_stream', active: false } satisfies BrowserWsMessage)); } catch { /* dropped */ }
           }
+        } else if (st === 'checking') {
+          // Answer received, ICE is actively pairing candidates. On a cold LAN path
+          // (fresh sidecar + target creation + mDNS) this can exceed the short
+          // no-answer deadline — re-arm the watchdog with a longer connect budget so
+          // we don't tear down a pc that's mid-negotiation and churn forever.
+          armWebrtcWatchdog(pc, WEBRTC_CONNECT_TIMEOUT_MS);
         } else if (st === 'failed' || st === 'closed') {
           failWebrtc();
         }
@@ -730,10 +751,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
           ws.send(JSON.stringify({ type: 'webrtc_offer', sdp: offer.sdp || '' } satisfies BrowserWsMessage));
         })
         .catch(() => failWebrtc());
-      // Watchdog: no connection in time (e.g. no answer — target didn't exist) → retry.
-      webrtcWatchdogRef.current = setTimeout(() => {
-        if (pcRef.current === pc && !webrtcActiveRef.current) failWebrtc();
-      }, 6000);
+      // No-answer watchdog: if ICE never even reaches 'checking' the target didn't
+      // exist yet (or the sidecar was down) → retry fast. Once ICE reaches 'checking'
+      // this is re-armed with the longer WEBRTC_CONNECT_TIMEOUT_MS budget.
+      armWebrtcWatchdog(pc, WEBRTC_NO_ANSWER_TIMEOUT_MS);
     };
     webrtcStartRef.current = startWebrtc;
 

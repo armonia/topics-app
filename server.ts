@@ -1455,17 +1455,29 @@ const server = Bun.serve<WSData>({
               const streamId = parsed.stream ?? 'default';
               const peerId = `${ws.data.id}:${streamId}`;
               (ws.data._webrtcPeers ??= new Set()).add(peerId);
-              browserService.getTargetId(ctxId).then((targetId) => {
-                if (!targetId) {
-                  console.warn(`[WS][browser] webrtc: no CDP target for ${ctxId} (pane not streaming?)`);
-                  return; // client falls back after its answer timeout
+              const offeredSdp = parsed.sdp;
+              // The pane's CDP target is created asynchronously from the `nav` that
+              // precedes the offer; the first offer can arrive before it exists. Poll
+              // briefly (rather than dropping the offer and forcing the client through
+              // its multi-second retry watchdog) so a fresh pane connects on the first try.
+              (async () => {
+                let targetId: string | null = null;
+                for (let i = 0; i < 12; i++) {
+                  targetId = await browserService.getTargetId(ctxId);
+                  if (targetId) break;
+                  if (!ws.data._webrtcPeers?.has(peerId)) return; // peer torn down while waiting
+                  await new Promise((r) => setTimeout(r, 250));
                 }
-                webrtcBridge.offer(peerId, targetId, parsed.sdp, {
+                if (!targetId) {
+                  console.warn(`[WS][browser] webrtc: no CDP target for ${ctxId} after wait (pane not streaming?)`);
+                  return; // client retries with a fresh offer
+                }
+                webrtcBridge.offer(peerId, targetId, offeredSdp, {
                   onAnswer: (sdp) => { try { sendBrowserWsMessage(ws, { type: 'webrtc_answer', sdp, stream: streamId }); } catch { /* socket gone */ } },
                   onIce: (candidate, sdpMid, sdpMLineIndex) => { try { sendBrowserWsMessage(ws, { type: 'webrtc_ice', candidate, sdpMid, sdpMLineIndex, stream: streamId }); } catch { /* socket gone */ } },
                   onError: (m) => console.warn(`[WS][browser] webrtc offer failed for ${ctxId}: ${m}`),
                 });
-              }).catch((err) => console.warn(`[WS][browser] webrtc getTargetId failed for ${ctxId}:`, err?.message || err));
+              })().catch((err) => console.warn(`[WS][browser] webrtc getTargetId failed for ${ctxId}:`, err?.message || err));
             }
           } else if (parsed.type === 'webrtc_ice') {
             // Trickle ICE from the viewer → sidecar (belt-and-suspenders on LAN).

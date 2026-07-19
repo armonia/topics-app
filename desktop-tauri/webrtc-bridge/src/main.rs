@@ -72,13 +72,20 @@ impl Hub {
         m.register_default_codecs()?;
         let mut registry = Registry::new();
         registry = register_default_interceptors(registry, &mut m)?;
-        // Real browser clients (Chrome/Safari, incl. mobile) obfuscate their host
-        // candidate as an `.local` mDNS name for privacy. QueryAndGather makes the
-        // bridge both resolve the peer's mDNS candidate AND advertise its own, so ICE
-        // completes on a LAN without any client-side flag. (Default QueryOnly resolves
-        // but doesn't gather, and proved insufficient here.)
+        // mDNS mode = Disabled (server-side sidecar). Two reasons:
+        //  1. Correctness/liveness: webrtc-rs binds an mDNS multicast socket (UDP 5353)
+        //     per PeerConnection when mDNS is on. The SECOND concurrent/sequential peer
+        //     then fails to bind and its `gathering_complete_promise()` never resolves —
+        //     negotiate() hangs forever, no answer, and the bridge looks wedged (this was
+        //     the "every other connection times out" bug). Disabled binds nothing shared,
+        //     so N peers negotiate independently.
+        //  2. Reachability: as a server on the LAN/localhost we advertise our REAL host
+        //     IP candidates (not obfuscated `.local`). A viewer connects straight to that
+        //     routable address; even when the viewer offers only privacy `.local`
+        //     candidates we can't resolve, its STUN binding request reaches us and we
+        //     learn its address peer-reflexively. No STUN/TURN needed on a LAN.
         let mut se = SettingEngine::default();
-        se.set_ice_multicast_dns_mode(MulticastDnsMode::QueryAndGather);
+        se.set_ice_multicast_dns_mode(MulticastDnsMode::Disabled);
         let api = APIBuilder::new()
             .with_media_engine(m)
             .with_interceptor_registry(registry)
@@ -224,7 +231,14 @@ impl Hub {
         if let Some(entry) = entry {
             let _ = entry.pc.close().await;
             // Was this the last peer on its target? Tear the pipeline down if so.
-            if let Some(ts) = self.targets.lock().unwrap().get(&entry.target).cloned() {
+            // IMPORTANT: bind the clone to a `let` so the targets MutexGuard is dropped
+            // HERE — `if let Some(ts) = self.targets.lock()...cloned() { … }` would hold
+            // the guard for the whole block, and drop_target() re-locks targets. A
+            // std::sync::Mutex is NOT reentrant, so that self-deadlocks the targets map:
+            // the first peer to disconnect would then wedge every subsequent negotiation
+            // (get_or_create_target blocks on lock() forever) until the sidecar is killed.
+            let ts = self.targets.lock().unwrap().get(&entry.target).cloned();
+            if let Some(ts) = ts {
                 if ts.peers.fetch_sub(1, Ordering::SeqCst) <= 1 {
                     self.drop_target(&entry.target);
                 }

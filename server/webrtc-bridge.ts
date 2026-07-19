@@ -84,7 +84,10 @@ export function createWebrtcBridge(): WebrtcBridge {
     for (const line of outQueue.splice(0)) sock.write(line);
   }
 
+  let lastActivityAt = 0; // ms of the last inbound line — wedge detector for the watchdog
+
   function onLine(line: string) {
+    lastActivityAt = Date.now();
     line = line.trim();
     if (!line) return;
     let msg: any;
@@ -161,10 +164,19 @@ export function createWebrtcBridge(): WebrtcBridge {
     connecting = true;
     try {
       if (await tryConnect()) return true;
-      // No sidecar yet — spawn it, then poll for its socket.
-      if (!child || child.killed) {
+      // Nothing is answering the socket → the sidecar is dead (crashed, OOM-killed,
+      // or orphaned by a previous server that exited). Respawn it. The old `child`
+      // handle may still be non-null with `.killed` false (external death doesn't set
+      // it), so we must NOT gate on `!child || child.killed` — that leaves the bridge
+      // permanently down until a full server restart. Detect real liveness via the
+      // exit/signal codes and always (re)spawn when there's no live process.
+      const dead = !child || child.exitCode !== null || child.signalCode !== null;
+      if (dead) {
+        try { child?.kill("SIGKILL"); } catch { /* already gone */ }
+        // The sidecar removes a stale socket file before binding (main.rs), so no unlink here.
         child = spawn(bin, ["--socket", SOCK], { detached: true, stdio: ["ignore", "ignore", "inherit"] });
         child.on("exit", () => { child = null; });
+        child.on("error", () => { child = null; });
         child.unref();
       }
       for (let i = 0; i < 40; i++) {
@@ -177,15 +189,49 @@ export function createWebrtcBridge(): WebrtcBridge {
     }
   }
 
+  /** Force a full reconnect: tear the socket + kill the sidecar so the next offer
+   *  respawns a fresh one. Used when the sidecar is alive but wedged (accepts the
+   *  socket but stops answering) — the watchdog below trips this. */
+  function resetBridge() {
+    try { sock?.destroy(); } catch { /* ignore */ }
+    sock = null;
+    ready = false;
+    try { child?.kill("SIGKILL"); } catch { /* ignore */ }
+    child = null;
+  }
+
   return {
     available() {
       return !!bin;
     },
     offer(peerId, targetId, sdp, handlers) {
-      peers.set(peerId, handlers);
+      // Watchdog: the sidecar answers within ~1s of a healthy offer. If nothing comes
+      // back in ANSWER_TIMEOUT_MS this peer is stuck — fail it, and if the socket has
+      // been silent overall (wedged sidecar, not just a bad target) force a reconnect
+      // so the next offer gets a fresh sidecar. Without this a wedged sidecar (alive,
+      // accepts the socket, never answers) keeps every viewer at ice=new forever.
+      const ANSWER_TIMEOUT_MS = 9000;
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        if (peers.get(peerId) === wrapped) peers.delete(peerId);
+        handlers.onError("webrtc bridge timeout");
+        // Force a reconnect only when NOBODY else is on the bridge (safe for fan-out —
+        // never kill the sidecar while other panes are mid-negotiation) and the socket
+        // has gone globally silent (a wedged sidecar, not just this one bad target).
+        if (peers.size === 0 && Date.now() - lastActivityAt >= ANSWER_TIMEOUT_MS) resetBridge();
+      }, ANSWER_TIMEOUT_MS);
+      const wrapped: PeerHandlers = {
+        onAnswer: (s) => { if (!settled) { settled = true; clearTimeout(timer); } handlers.onAnswer(s); },
+        onIce: handlers.onIce,
+        onError: (m) => { if (!settled) { settled = true; clearTimeout(timer); } handlers.onError(m); },
+      };
+      peers.set(peerId, wrapped);
       void ensure().then((ok) => {
         if (!ok) {
-          peers.delete(peerId);
+          if (!settled) { settled = true; clearTimeout(timer); }
+          if (peers.get(peerId) === wrapped) peers.delete(peerId);
           handlers.onError("webrtc bridge unavailable");
           return;
         }
