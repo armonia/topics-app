@@ -39,9 +39,9 @@ async function mountBrowserPaneViaEvent(
     },
     { tid: topicId, u: url },
   );
-  const indicator = page.locator('[data-testid="browser-connection-indicator"]');
-  const localhost = page.locator('[data-testid="browser-iframe"]');
-  await expect(indicator.or(localhost)).toBeVisible({ timeout: 10000 });
+  // Gate on the toolbar URL input (present in both stream + iframe render paths).
+  // The connection-indicator pill hides in the steady 'connected' state now.
+  await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 10000 });
 }
 
 // ── ScriptRunner Tests (PROCESS-01..05: PASS, unchanged from phase 27) ──

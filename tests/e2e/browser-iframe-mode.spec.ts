@@ -83,8 +83,9 @@ test.describe("T2 iframe render mode", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id, "https://example.com");
 
-      // Streaming path renders (connection indicator + screenshot), no iframe.
-      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toBeVisible({ timeout: 10000 });
+      // Streaming path renders (screenshot img), no iframe. (The connection
+      // pill hides in the steady 'connected' state, so we assert on the frame.)
+      await expect(page.locator('img[alt="Example"]').first()).toBeVisible({ timeout: 10000 });
       await expect(page.locator('[data-testid="browser-iframe"]')).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
@@ -112,7 +113,9 @@ test.describe("T2 iframe render mode", () => {
       // (agents can't reach into a cross-origin iframe).
       browserProcessPageV2.broadcastAgentActive(true);
       await expect(iframe).toHaveCount(0, { timeout: 8000 });
-      await expect(page.locator('[data-testid="browser-connection-indicator"]')).toBeVisible({ timeout: 5000 });
+      // Streamed headless is now the render — assert on the screenshot frame
+      // (the connection pill hides in the steady 'connected' state).
+      await expect(page.locator('img[alt="Example"]').first()).toBeVisible({ timeout: 5000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
