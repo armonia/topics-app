@@ -47,12 +47,15 @@ NDJSON) and runs N Playwright viewers, asserting ALL decode H.264 simultaneously
   change-driven) → the encoder **keepalive re-encodes the last frame** every ~700ms so a
   peer that joins after that single frame still decodes.
 - **ICE / mDNS**: real browsers obfuscate their host candidate as an `.local` mDNS name.
-  The bridge runs `MulticastDnsMode::QueryAndGather` to resolve it — works on a real LAN.
-  A public STUN server just stalls gathering on a LAN (kept host-only,
+  The bridge runs `MulticastDnsMode::QueryAndGather` to resolve it — **verified: a viewer
+  running an mDNS responder connects `ice=connected` and decodes H.264 on this Mac**
+  (`TOPICS_TEST_MDNS=1` → the harness launches the viewer in new-headless, which runs the
+  responder; `fd=106`). Real clients (Chrome/Safari/WKWebView) all run one, so Mac↔mobile
+  on a LAN resolves. A public STUN just stalls gathering on a LAN (kept host-only,
   `RTCConfiguration::default()`); crossing a NAT would need TURN (Coturn).
-  **Test caveat:** headless single-host mDNS multicast is unreliable, so the harness (and
-  E2E) launch the Playwright viewer with `--disable-features=WebRtcHideLocalIpsWithMdns`
-  to offer raw host candidates; set `TOPICS_TEST_MDNS=1` to exercise the mDNS path.
+  **Test caveat:** `chrome-headless-shell` / old-headless do NOT run the mDNS responder, so
+  the default harness path launches the viewer with `--disable-features=WebRtcHideLocalIpsWithMdns`
+  (raw host candidates) for a deterministic localhost check.
 - **Attach, don't create**: `cdp.rs` attaches a flat CDP session to the pane's existing
   `targetId` and screencasts it as-is (no navigate / no device-metrics override) — that's
   what makes it the SAME session, sharing the page with the JPEG viewers.

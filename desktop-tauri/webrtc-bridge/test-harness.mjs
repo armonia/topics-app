@@ -95,8 +95,16 @@ Bun.serve({
 // localhost). Set TOPICS_TEST_MDNS=1 to keep Chrome's `.local` mDNS obfuscation and
 // exercise the bridge's own mDNS resolution (the real mobile-client path).
 const viewerArgs = ["--no-sandbox", "--disable-dev-shm-usage"];
-if (!process.env.TOPICS_TEST_MDNS) viewerArgs.push("--disable-features=WebRtcHideLocalIpsWithMdns");
-const browser = await chromium.launch({ headless: true, args: viewerArgs });
+let headless = true;
+if (process.env.TOPICS_TEST_MDNS) {
+  // Exercise the real mDNS path. new-headless (unlike headless-shell) runs Chrome's
+  // mDNS responder so `.local` candidates can be resolved by the bridge.
+  viewerArgs.push("--headless=new");
+  headless = false;
+} else {
+  viewerArgs.push("--disable-features=WebRtcHideLocalIpsWithMdns");
+}
+const browser = await chromium.launch({ headless, args: viewerArgs });
 const pages = [];
 for (let i = 0; i < N; i++) {
   const ctx = await browser.newContext();
