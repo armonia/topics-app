@@ -5524,7 +5524,18 @@ pub fn run() {
             use tauri::Manager;
             match event.id().0.as_str() {
                 "reload" | "force-reload" => {
-                    if let Some(win) = app.get_webview_window("main") {
+                    // Ricarica la finestra FOCUSSATA, non sempre "main": con le
+                    // finestre progetto aperte il vecchio target fisso lasciava
+                    // quelle col bundle stantìo per sempre ("Cmd+R non va").
+                    // Stesso pattern di reset-split-layout qui sotto.
+                    let label = app
+                        .get_focused_window()
+                        .map(|w| w.label().to_string())
+                        .unwrap_or_else(|| "main".to_string());
+                    if let Some(win) = app
+                        .get_webview_window(&label)
+                        .or_else(|| app.get_webview_window("main"))
+                    {
                         let _ = win.eval("window.location.reload()");
                     }
                 }
