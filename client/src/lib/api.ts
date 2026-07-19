@@ -19,6 +19,7 @@ import type {
   Project,
   Worktree,
 } from '../types';
+import { serverHttpBase } from './shell/net';
 
 // Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
 // UI is served locally (tauri://localhost), so a global fetch shim rewrites these
@@ -311,9 +312,14 @@ export const uploadApi = {
 
 // Media API
 export function getMediaUrl(path: string): string {
+  // Absolute verso il data server: gli <img src> NON passano dal fetch shim
+  // (riscrive solo fetch()), quindi sotto Tauri un URL relativo si risolve
+  // contro tauri://localhost → 404 dell'asset protocol → immagine rotta "?".
+  // serverHttpBase() = '' sul web (comportamento invariato), proxy loopback
+  // sul desktop.
   // /uploads/ paths are served directly by the Topics server
-  if (path.startsWith('/uploads/')) return path;
-  return `${API_BASE}/media?path=${encodeURIComponent(path)}`;
+  if (path.startsWith('/uploads/')) return `${serverHttpBase()}${path}`;
+  return `${serverHttpBase()}${API_BASE}/media?path=${encodeURIComponent(path)}`;
 }
 
 // Files API
