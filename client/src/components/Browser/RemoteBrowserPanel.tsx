@@ -1,5 +1,5 @@
 import { BrowserToolbar } from './BrowserToolbar';
-import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download } from 'lucide-react';
+import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download, Puzzle } from 'lucide-react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
@@ -542,6 +542,29 @@ function RemoteBrowserPanelStreaming({ contextId, navigateUrl, onUrlChange, onTi
           <span className={`w-1.5 h-1.5 rounded-full ${connectionDotClass}`} />
           {connectionLabel}
         </div>
+
+        {/* Engine toggle (task 54601eeb) — Native ↔ real Chromium (extensions).
+            Shown only when the server advertises the capability
+            (TOPICS_CHROMIUM_ENGINE on + a Chromium installed). Streaming-only:
+            an iframe pane has no server-side engine. */}
+        {browser.engineToggleAvailable && (
+          <button
+            type="button"
+            data-testid="browser-engine-toggle"
+            onClick={() => browser.setEngine(browser.engine === 'chromium' ? 'native' : 'chromium')}
+            className={`absolute top-2 left-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+              browser.engine === 'chromium'
+                ? 'bg-primary/15 border-primary/40 text-primary hover:bg-primary/25'
+                : 'bg-surface/90 border-border text-muted hover:bg-surface hover:text-text'
+            }`}
+            title={browser.engine === 'chromium'
+              ? `Chromium reale · ${browser.engineExtensions} estensioni — clicca per tornare al motore nativo`
+              : 'Motore nativo — clicca per usare il tuo Chromium reale (con le estensioni)'}
+          >
+            <Puzzle size={12} className="flex-shrink-0" />
+            {browser.engine === 'chromium' ? `Chromium · ${browser.engineExtensions}` : 'Nativo'}
+          </button>
+        )}
 
         {/* Navigation error strip (BRW-REL-02) — a failed goto/launch used to
             be invisible (pane stayed on the previous page / infinite

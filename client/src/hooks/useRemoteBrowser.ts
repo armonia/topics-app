@@ -45,6 +45,14 @@ interface RemoteBrowserState {
   /** T2: whether the CURRENT url allows being framed (probed server-side). The
    *  panel renders a native <iframe> when framable AND no agent is driving. */
   framable: boolean;
+  /** Engine switch (task 54601eeb): the engine THIS pane runs on. 'native' = the
+   *  headless-Chromium stream; 'chromium' = the user's real Chromium (extensions). */
+  engine: 'native' | 'chromium';
+  /** Whether the Native↔Chromium toggle should be offered (server capability:
+   *  TOPICS_CHROMIUM_ENGINE on AND a real Chromium installed). */
+  engineToggleAvailable: boolean;
+  /** Extensions loaded in the chromium sidecar profile — the toolbar badge. */
+  engineExtensions: number;
 }
 
 interface InteractionHandlers {
@@ -68,6 +76,8 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   enterSelectMode: () => void;
   exitSelectMode: () => void;
   setSelectedElement: (el: SelectedElementInfo | null) => void;
+  /** Engine switch: request this pane run on the given engine (server-gated). */
+  setEngine: (engine: 'native' | 'chromium') => void;
 }
 
 const IDLE_INTERVAL = 2000;
@@ -135,6 +145,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     pageScaleFactor: 1,
     downloads: [],
     framable: false,
+    engine: 'native',
+    engineToggleAvailable: false,
+    engineExtensions: 0,
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -164,6 +177,11 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   const connectionStateRef = useRef<ConnectionState>('connecting');
   const typeBufRef = useRef<string>('');
   const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Engine switch (task 54601eeb): mirror of state.engine for the ws.onmessage
+  // closure (avoids a stale capture), + an epoch that forces a WS remount when
+  // the engine changes so the server recreates the context on the new engine.
+  const engineRef = useRef<'native' | 'chromium'>('native');
+  const [engineEpoch, setEngineEpoch] = useState(0);
   // See NAV_LOADING_TIMEOUT_MS — force-clears a stuck `loading` if the nav
   // completion signal never arrives.
   const loadingWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -487,6 +505,17 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
               return { ...s, downloads: next.slice(-8) };
             });
             break;
+          case 'engine': {
+            // Engine switch broadcast (task 54601eeb). Update the badge/engine,
+            // and — only when the engine actually CHANGED — bump the epoch to
+            // remount the WS: the server already destroyed the context, so the
+            // reconnect recreates it (via the engine hint) on the new engine.
+            const prevEngine = engineRef.current;
+            engineRef.current = msg.engine;
+            setState(s => ({ ...s, engine: msg.engine, engineExtensions: msg.extensions ?? s.engineExtensions }));
+            if (prevEngine !== msg.engine) setEngineEpoch(e => e + 1);
+            break;
+          }
           default:
             break;
         }
@@ -553,7 +582,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
       clearLoadingWatchdog();
     };
-  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize]);
+    // engineEpoch: a change (engine switch) tears down + reopens the WS so the
+    // server recreates the context on the newly-selected engine.
+  }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize, engineEpoch]);
 
   // HTTP polling effect — runs ONLY when the WS dropped to fallback-http.
   // Mirrors the legacy polling loop but gated on connectionState.
@@ -604,6 +635,22 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       .catch(() => { /* network error → leave framable=false (stream) */ });
     return () => { cancelled = true; };
   }, [state.url]);
+
+  // Engine capability (task 54601eeb): does the server offer the Native↔Chromium
+  // toggle (TOPICS_CHROMIUM_ENGINE on AND a real Chromium installed), and how many
+  // extensions would load? Fetched once — the toggle stays hidden unless enabled.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/browsers/engines')
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { enabled?: boolean; chromium?: { available?: boolean; extensions?: number } } | null) => {
+        if (cancelled) return;
+        const available = !!(d?.enabled && d.chromium?.available);
+        setState(s => ({ ...s, engineToggleAvailable: available, engineExtensions: d?.chromium?.extensions ?? s.engineExtensions }));
+      })
+      .catch(() => { /* no capability endpoint → toggle stays hidden */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // --- Interaction handlers ---
 
@@ -760,6 +807,18 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     setState(s => ({ ...s, selectedElement: el, selectMode: false }));
   }, []);
 
+  // Engine switch (task 54601eeb): ask the server to move this pane to `engine`.
+  // Server-orchestrated over the WS — the reply is an `engine` broadcast that
+  // flips state + remounts. Streaming-mode only (no WS ⇒ silent no-op).
+  const setEngine = useCallback((engine: 'native' | 'chromium') => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        const msg: BrowserWsMessage = { type: 'set_engine', engine };
+        wsRef.current.send(JSON.stringify(msg));
+      } catch { /* socket gone — no-op */ }
+    }
+  }, []);
+
   // After every commit: if the <img> (re)mounted it carries the stale
   // state.screenshotSrc — re-assert the newest direct-written frame. A cheap
   // string compare on the (now rare) panel renders, a write only on remount.
@@ -785,5 +844,6 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     enterSelectMode,
     exitSelectMode,
     setSelectedElement,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement]);
+    setEngine,
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine]);
 }

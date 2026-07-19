@@ -29,6 +29,10 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
   // duplicate installs across multiple test calls).
   private moondreamInterceptInstalled = false;
 
+  // Engine switch (task 54601eeb): the extension count the mock WS echoes back
+  // when the client sends set_engine (simulates the server's engine broadcast).
+  private engineReplyExtensions = 42;
+
   constructor(page: Page) {
     super(page);
   }
@@ -61,16 +65,25 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
     await this.page.routeWebSocket(/\/ws\/browser\//, async (ws) => {
       this.wsRouteRef = ws;
       this.wsConnectCount += 1;
-      if (recordInbound) {
-        ws.onMessage((msg) => {
+      ws.onMessage((msg) => {
+        let parsed: unknown = null;
+        try { parsed = JSON.parse(String(msg)); } catch { /* non-JSON */ }
+        if (recordInbound) {
+          this.recordedInboundMessages.push(parsed ?? String(msg));
+        }
+        // Engine switch: mirror the server — a set_engine request is answered
+        // with an engine broadcast (which flips the client badge + remounts).
+        if (parsed && typeof parsed === 'object' && (parsed as { type?: string }).type === 'set_engine') {
+          const engine = (parsed as { engine?: string }).engine === 'chromium' ? 'chromium' : 'native';
           try {
-            const parsed = JSON.parse(String(msg));
-            this.recordedInboundMessages.push(parsed);
-          } catch {
-            this.recordedInboundMessages.push(String(msg));
-          }
-        });
-      }
+            ws.send(JSON.stringify({
+              type: 'engine',
+              engine,
+              ...(engine === 'chromium' ? { extensions: this.engineReplyExtensions } : {}),
+            }));
+          } catch { /* ignore */ }
+        }
+      });
       // Send first frame within ~50ms (well under 500ms target)
       setTimeout(() => {
         try {
@@ -139,6 +152,32 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
   sendConsole(level: 'log' | 'warn' | 'error', text: string): void {
     if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
     this.wsRouteRef.send(JSON.stringify({ type: 'console', level, text }));
+  }
+
+  /**
+   * Engine switch (task 54601eeb): mock GET /api/browsers/engines — the
+   * capability the client reads to decide whether to show the Native↔Chromium
+   * toggle. Also sets the extension count the WS echoes on set_engine.
+   */
+  async mockEngines(info: { enabled: boolean; available?: boolean; engine?: string; extensions?: number }): Promise<void> {
+    if (typeof info.extensions === 'number') this.engineReplyExtensions = info.extensions;
+    await this.page.route(/\/api\/browsers\/engines$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          info.enabled
+            ? { enabled: true, chromium: { available: info.available !== false, engine: info.engine ?? 'Google Chrome', extensions: info.extensions ?? 42 } }
+            : { enabled: false },
+        ),
+      });
+    });
+  }
+
+  /** Send a synthetic engine broadcast over the active WS route. */
+  sendEngine(engine: 'native' | 'chromium', extensions?: number): void {
+    if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
+    this.wsRouteRef.send(JSON.stringify({ type: 'engine', engine, ...(typeof extensions === 'number' ? { extensions } : {}) }));
   }
 
   /**
