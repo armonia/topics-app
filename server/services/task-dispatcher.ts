@@ -501,25 +501,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   /**
-   * Guarantee the agent's own words are in the thread for THIS delivery. If the
-   * agent already left a FRESH comment (one made during the current turn) → true,
-   * nothing to do. Otherwise MIRROR the agent's last session message into a task
-   * comment — authored as the agent, so it reads as the agent speaking and the
-   * "delivered" chip logic sees it — and broadcast the update.
-   *
-   * "Fresh" is per-TURN, not per-thread: the `review_needs_summary` service gate
-   * only checks that the agent commented at SOME point, so an agent that steered
-   * back and forth can reach review again leaving only a STALE summary from an
-   * earlier turn ("altro da fare?" → …→review, no new comment). We compare against
-   * the newest `…→in_progress` status event (this turn's start) so the reviewer
-   * always sees what the agent did THIS time — not a bare status flip.
+   * Did the agent leave a summary comment for THIS turn — one made after the
+   * newest `…→in_progress` status event (the turn's start)? A stale comment from
+   * an earlier exchange does NOT count: the reviewer needs to know what the agent
+   * did this time. On self-delivery the `review_needs_summary` service gate now
+   * enforces exactly this, so the agent writes its OWN comment; this check is the
+   * dispatcher's read of the same fact for the system-delivery fallback below.
    */
-  function ensureAgentSummary(task: Task): boolean {
-    const topicId = task.assignedTopicId;
-    if (!topicId) return false;
+  function hasFreshAgentComment(task: Task): boolean {
     try {
       const comments = deps.svc.get(task.id)?.comments ?? [];
-      // Turn start = newest status event moving the task INTO in_progress.
       let turnStart = 0;
       for (const c of comments) {
         if (c.kind === "status" && typeof c.content === "string" && c.content.endsWith("in_progress")) {
@@ -527,22 +518,23 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           if (ts > turnStart) turnStart = ts;
         }
       }
-      const hasFresh = comments.some((c) =>
+      return comments.some((c) =>
         c.author !== "user" && c.author !== "system" && c.kind === "comment" &&
         Date.parse(c.createdAt) >= turnStart);
-      if (hasFresh) return true;
-    } catch { /* fall through to mirror */ }
-    if (!deps.getLastAgentText) return false;
-    try {
-      const finalText = deps.getLastAgentText("topic:" + topicId.slice(0, 8))?.trim();
-      if (!finalText) return false;
-      // Same author real agent comments get (topic name = task text slice), so the
-      // mirror groups with them and the chip detection reads it as the agent.
-      const author = task.text.slice(0, 60).trim() || "claude";
-      deps.svc.addComment({ taskId: task.id, author, content: finalText });
-      try { deps.broadcast({ type: "task:updated", projectId: task.projectId, task: deps.svc.get(task.id)?.task }); } catch { /* best-effort */ }
-      return true;
-    } catch (err) { log(`mirror final agent message failed for ${task.id}`, err); return false; }
+    } catch { return false; }
+  }
+
+  /**
+   * The agent's last session prose (trimmed), for the SYSTEM-delivery fallback:
+   * when a worked turn died before ever reaching review, the agent's turn is over
+   * and it can't comment — we surface its last words inside the system note
+   * (honest attribution), NEVER as a faked agent comment. null when unavailable.
+   */
+  function recoverAgentWords(task: Task): string | null {
+    const topicId = task.assignedTopicId;
+    if (!topicId || !deps.getLastAgentText) return null;
+    try { return deps.getLastAgentText("topic:" + topicId.slice(0, 8))?.trim() || null; }
+    catch { return null; }
   }
 
   function onTurnEnd(taskId: string, turnMs?: number): void {
@@ -562,11 +554,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // agent's last word = "serve te" (decision required); anything else =
       // "delivered" (the agent believes it's done, ready to approve). Binding
       // stays for the deep-link and the resume-on-answer path either way.
-      // Guarantee the agent summarised THIS delivery: the review_needs_summary
-      // gate only checks for ANY past agent comment, so a steered task can reach
-      // review again with no fresh comment — mirror the last session message so
-      // the chip detection below reads real words, not a stale one.
-      ensureAgentSummary(cur);
+      // (The agent already summarised THIS turn: the review_needs_summary gate
+      // rejects a self-delivery without a fresh comment, so the thread is never
+      // mute here and the chip detection below reads real, current words.)
       let chip = CHIP_NEEDS_INPUT;
       try {
         const comments = deps.svc.get(taskId)?.comments ?? [];
@@ -609,21 +599,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           return;
         }
       }
-      // Retry budget exhausted. Distinguish "did work but forgot to deliver"
-      // from a genuine no-output failure. ensureAgentSummary makes this robust:
-      // an agent comment already there → true; else it MIRRORS the agent's last
-      // session message as its comment (so a turn that worked but never called
-      // comment_task still delivers WITH a summary, not a `failed` park). Only a
-      // task that produced literally nothing (no comment, no final message) fails.
-      const agentSpoke = ensureAgentSummary(cur);
-      if (cur.assignedTopicId && agentSpoke) {
+      // Retry budget exhausted, and the turn never reached review on its own.
+      // Distinguish "did work but ran out of turns" from a genuine no-output
+      // failure: a FRESH agent comment, or (failing that) the agent's last session
+      // words, means it worked → hand it to the human in review with those words
+      // RECOVERED into the system note (honest — the agent's turn is over, it can't
+      // comment itself here; we never fake an agent comment). Only a task that
+      // produced literally nothing (no fresh comment AND no session words) fails.
+      const fresh = hasFreshAgentComment(cur);
+      const recovered = fresh ? null : recoverAgentWords(cur);
+      if (cur.assignedTopicId && (fresh || recovered)) {
+        const base =
+          `L'agent ha lavorato ${cur.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
+          "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
+        const reason = recovered
+          ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
+          : base;
         try {
-          emit(deps.svc.deliverToReviewBySystem({
-            taskId,
-            reason:
-              `L'agent ha lavorato ${cur.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
-              "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).",
-          }));
+          emit(deps.svc.deliverToReviewBySystem({ taskId, reason }));
         } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
         return;
       }
@@ -645,7 +638,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       humanMessage.trim() || "(nessun testo, prosegui col tuo giudizio)",
       "",
       `Prima di riprendere fai get_task(task_id="${task.id}"): l'umano può aver aggiunto step o commenti sugli step mentre eri fermo. Step aperti = lavoro tuo (chiudili con status="done").`,
-      `Prosegui il lavoro. Quando è di nuovo pronto per la revisione: update_task(task_id="${task.id}", status="review").`,
+      // Same delivery contract as the kickoff — the resume envelope MUST repeat it,
+      // or the agent (with only this message in front of it) forgets to summarise
+      // and hands back a mute review. This is the "altro da fare?" → review-without-
+      // comment gap. Even "niente di nuovo" is a valid summary.
+      `Prosegui il lavoro. Alla consegna, PRIMA di mettere in review scrivi SEMPRE un commento di sintesi di QUESTO turno con comment_task (1-2 frasi: cosa hai fatto ora, dove guardare — oppure "niente di nuovo" col perché). POI update_task(task_id="${task.id}", status="review"). Senza un commento di questo turno il server rifiuta la review.`,
     ].join("\n");
   }
 

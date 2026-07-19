@@ -223,6 +223,26 @@ describe("review gate (KANBAN-05)", () => {
       .toThrow(/summary/);
   });
 
+  test("mute-delivery gate is PER-TURN: a stale summary from an earlier turn does not unlock a new delivery", () => {
+    // The reported bug: a steered task ("altro da fare?" → review) handed back a
+    // mute delivery because an OLD agent comment satisfied the gate. The gate must
+    // require a comment made during THIS turn (after the newest …→in_progress).
+    const t = s.create({ projectId: PID, text: "work" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "in_progress" } });
+    s.addComment({ taskId: t.id, author: "claude", content: "riepilogo turno 1" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }); // ok: fresh
+    // Age the turn-1 summary so it clearly predates the next turn (deterministic).
+    db.prepare("UPDATE task_comments SET created_at = ? WHERE task_id = ? AND kind = 'comment'").run("2020-01-01T00:00:00.000Z", t.id);
+    // Turn 2 starts: a NEW …→in_progress event, newer than the stale summary.
+    s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "in_progress" } });
+    // Mute re-delivery is rejected — the old summary no longer counts.
+    expect(() => s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }))
+      .toThrow(/summary/);
+    // A fresh summary for THIS turn unlocks it.
+    s.addComment({ taskId: t.id, author: "claude", content: "riepilogo turno 2" });
+    expect(s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } }).status).toBe("review");
+  });
+
   test("status history: update, claim and reviewDecision log who moved it and when", () => {
     const t = s.create({ projectId: PID, text: "work", status: "backlog" });
     s.update({ taskId: t.id, actor: "human", by: "user", patch: { status: "todo" } });
