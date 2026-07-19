@@ -95,6 +95,16 @@ export function GroupLayout({
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Mobile (<768px): the SplitTree has no mobile mode and would cram two groups
+  // side-by-side. On a phone we FLATTEN every group's panes into a single tab
+  // strip and show one pane at a time (see the mobile branch in the return).
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const h = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
+
   // Track drag-ghost DOM nodes so they can be drained on unmount. The rAF that
   // removes a ghost can be throttled indefinitely on a backgrounded tab, so a
   // ghost appended to document.body would otherwise accumulate across drags.
@@ -953,6 +963,108 @@ export function GroupLayout({
     );
   };
 
+  // ── Mobile flatten (<768px). A phone shows ONE pane at a time; every pane
+  // across every group becomes a tab in a single strip, and only the active
+  // pane renders. Bypasses the SplitTree entirely (no split on a narrow
+  // screen). The underlying group/row model and its sync are left untouched —
+  // we only flatten at RENDER, so desktop behaviour is unchanged.
+  const renderMobile = (): React.ReactNode => {
+    const seen = new Set<string>();
+    const flatPanes: Pane[] = [];
+    for (const g of groups) {
+      for (const id of g.paneIds) {
+        const p = paneMap.get(id);
+        if (p && !seen.has(p.id)) { seen.add(p.id); flatPanes.push(p); }
+      }
+    }
+    const groupIdOfPane = (pid: string): string | undefined =>
+      groups.find((g) => g.paneIds.includes(pid))?.id;
+    const focusedGroup = (focusedGroupId ? groupMap.get(focusedGroupId) : undefined) ?? groups[0];
+    const fgid = focusedGroup?.id ?? '';
+    const activePaneId =
+      focusedGroup?.activePaneId && flatPanes.some((p) => p.id === focusedGroup.activePaneId)
+        ? focusedGroup.activePaneId
+        : (flatPanes[0]?.id ?? null);
+
+    if (flatPanes.length === 0) {
+      return (
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+          <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+            <div className="flex-1 flex items-center min-w-0 overflow-hidden">
+              <PaneTabBar
+                panes={[]}
+                activePaneId={null}
+                onActivate={() => {}}
+                onClose={() => {}}
+                onAddPane={(type, subType) => (onAddPaneWhenEmpty ?? (() => {}))(type, subType)}
+                availableTypes={availableTypesForGroup('chat', '')}
+                dndScope={dndScope}
+                onNewChat={onNewChatInGroup ? () => onNewChatInGroup('') : undefined}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const notifications = new Map<string, number>();
+    for (const p of flatPanes) {
+      const c = getBadgeCount(p.id, p.topicId, p.id === activePaneId);
+      if (c > 0) notifications.set(p.id, c);
+    }
+
+    return (
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+        <div className="chrome-glass flex items-center h-10 border-b border-app-border flex-shrink-0 overflow-hidden min-w-0">
+          <div className="flex-1 flex items-center min-w-0 overflow-hidden">
+            <PaneTabBar
+              panes={flatPanes}
+              activePaneId={activePaneId}
+              groupIsFocused
+              groupIsAppFocused={isAppFocused}
+              onActivate={(paneId) => { clearPane(paneId); const gid = groupIdOfPane(paneId); if (gid) onActivatePane(gid, paneId); }}
+              onClose={(paneId) => { const gid = groupIdOfPane(paneId); if (gid) onClosePane(gid, paneId); }}
+              onCloseImmediate={onClosePaneImmediate ? (paneId) => { const gid = groupIdOfPane(paneId); if (gid) onClosePaneImmediate(gid, paneId); } : undefined}
+              onAddPane={(type, subType) => onAddPaneToGroup(fgid, type, subType)}
+              availableTypes={availableTypesForGroup(focusedGroup?.type ?? 'chat', fgid)}
+              groupType={focusedGroup?.type}
+              groupId={fgid}
+              dndScope={dndScope}
+              onNewChat={onNewChatInGroup ? () => onNewChatInGroup(fgid) : undefined}
+              contextPercent={contextPercent}
+              onContextRingClick={onContextRingClick}
+              onStopStreaming={onStopStreaming}
+              onSettings={onSettings}
+              onPopOut={onPopOut}
+              onRenameChat={onRenameChat}
+              onRenameBrowser={onRenameBrowser}
+              onPinPane={onPinPane ? (paneId) => { const gid = groupIdOfPane(paneId); if (gid) onPinPane(gid, paneId); } : undefined}
+              tabNotifications={notifications}
+              nonClosablePaneIds={nonClosablePaneIds}
+            />
+          </div>
+        </div>
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative">
+          {flatPanes
+            .filter((p) => visitedKeys.has(stableKeyOf(p)) || p.id === activePaneId)
+            .map((pane) => {
+              const isPaneActive = pane.id === activePaneId;
+              return (
+                <div
+                  key={stableKeyOf(pane)}
+                  className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
+                  style={{ display: isPaneActive ? 'flex' : 'none' }}
+                  aria-hidden={!isPaneActive}
+                >
+                  {renderPane(pane, isPaneActive, isPaneActive)}
+                </div>
+              );
+            })}
+        </div>
+      </div>
+    );
+  };
+
   // The full-width drop strips (split "in basso/in alto a TUTTE le tab") only
   // make sense when there's more than one column somewhere — with a single
   // column a per-cell vertical split already spans the full width, so the
@@ -1006,15 +1118,17 @@ export function GroupLayout({
           );
         });
       })()}
-      {treeRoot && (
-        <SplitTree
-          node={treeRoot}
-          renderLeaf={renderTreeLeaf}
-          onResize={handleTreeResize}
-          onEqualize={handleTreeEqualize}
-          gutter={1}
-        />
-      )}
+      {isMobile
+        ? renderMobile()
+        : treeRoot && (
+          <SplitTree
+            node={treeRoot}
+            renderLeaf={renderTreeLeaf}
+            onResize={handleTreeResize}
+            onEqualize={handleTreeEqualize}
+            gutter={1}
+          />
+        )}
     </div>
   );
 }

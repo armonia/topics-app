@@ -670,6 +670,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     if (!pendingBrowserSplit) return;
     const { paneId } = pendingBrowserSplit;
     if (!panes.some(p => p.id === paneId)) return; // not committed yet — wait
+    // Mobile (<768px): never split. A phone shows one pane at a time (GroupLayout
+    // flattens groups into a single tab strip), and splitting here would ALSO
+    // restructure the SYNCED layout — the desktop would suddenly show a split it
+    // never asked for. Leave the browser as a tab in its host group.
+    if (window.innerWidth < 768) { setPendingBrowserSplit(null); return; }
     const hostGroup = groups.find(g => g.paneIds.includes(paneId));
     if (!hostGroup) return;
     // Already in its own cell (sibling closed / prior split) → nothing to do.
