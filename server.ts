@@ -1055,6 +1055,22 @@ const server = Bun.serve<WSData>({
       if (resolvedFile === resolvedBase || resolvedFile.startsWith(resolvedBase + sep)) {
         const file = Bun.file(filePath);
         if (await file.exists()) {
+          // Browser-pane DOWNLOADS are UNTRUSTED content (whatever a headless
+          // page downloaded) served same-origin. Force an attachment + no sniff
+          // + CSP sandbox so an .html/.svg payload can NEVER inline-render as
+          // stored XSS on the app origin — the link only ever downloads the file.
+          if (pathname.startsWith("/media/browser/downloads/")) {
+            const name = (pathname.split("/").pop() || "download").replace(/["\\\r\n]/g, "_");
+            return new Response(file, {
+              headers: {
+                "Content-Type": "application/octet-stream",
+                "Content-Disposition": `attachment; filename="${name}"`,
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "sandbox",
+                "Cache-Control": "private, no-store",
+              },
+            });
+          }
           return new Response(file, { headers: { "Content-Type": getMimeType(filePath), "Cache-Control": "public, max-age=86400" } });
         }
       }
