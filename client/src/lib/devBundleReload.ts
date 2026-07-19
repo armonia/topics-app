@@ -32,11 +32,31 @@ const ATTEMPTS_KEY = 'topics:bundle-reload-attempts';
 const MAX_RELOAD_ATTEMPTS = 3;
 const BUST_PARAM = 'bundle-bust';
 
+/**
+ * DOM event fired when the auto-reload gives up (rev still stale after the cap).
+ * Before, the window just disarmed in silence — you'd sit on an old bundle with
+ * no signal. A listener (BundleStuckBanner) surfaces a "new bundle available,
+ * reload" banner so the dead-end is visible and the user can force it manually.
+ */
+export const BUNDLE_STUCK_EVENT = 'topics:bundle-reload-stuck';
+
+/** Manual escape hatch for the banner: clear the cap and force one fresh, cache-
+ *  busted navigation. Exported so the banner drives the exact same path. */
+export function retryBundleReload(): void {
+  sessionStorage.removeItem(ATTEMPTS_KEY);
+  const url = new URL(window.location.href);
+  url.searchParams.set(BUST_PARAM, String(Date.now()));
+  window.location.replace(url.toString());
+}
+
 function forceFreshReload(): void {
   const n = Number(sessionStorage.getItem(ATTEMPTS_KEY) ?? '0') + 1;
   sessionStorage.setItem(ATTEMPTS_KEY, String(n));
   if (n > MAX_RELOAD_ATTEMPTS) {
     console.warn(`[bundle] rev ancora stantìa dopo ${n - 1} reload — mi fermo (cache WKWebView da svuotare: ~/Library/Caches/io.armonia.topics.tauri + riavvio app)`);
+    // Don't die in silence: tell the UI a fresh bundle is stuck behind the cache
+    // so it can show a banner instead of leaving a permanently-stale window.
+    window.dispatchEvent(new CustomEvent(BUNDLE_STUCK_EVENT));
     return;
   }
   const url = new URL(window.location.href);
