@@ -7,7 +7,10 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 export interface SelectElementOverlayProps {
   contextId: string;
   active: boolean;
-  imgRef: React.RefObject<HTMLImageElement | null>;
+  /** The displayed streaming surface to map clicks against. Since the WebRTC
+   *  migration this is the <video> (the JPEG <img> was removed); a plain <img>
+   *  is still accepted for any legacy caller. Same letterbox/aspect math. */
+  surfaceRef: React.RefObject<HTMLImageElement | HTMLVideoElement | null>;
   pageScaleFactor: number;
   onPick: (element: {
     path: string;
@@ -18,10 +21,18 @@ export interface SelectElementOverlayProps {
   onCancel: () => void;
 }
 
+/** Intrinsic frame size of the display surface — <img> (naturalWidth) or the
+ *  WebRTC <video> (videoWidth). Falls back to the 1280×720 viewport basis. */
+function surfaceIntrinsic(el: HTMLImageElement | HTMLVideoElement): { w: number; h: number } {
+  const img = el as HTMLImageElement;
+  const vid = el as HTMLVideoElement;
+  return { w: img.naturalWidth || vid.videoWidth || 1280, h: img.naturalHeight || vid.videoHeight || 720 };
+}
+
 export function SelectElementOverlay({
   contextId,
   active,
-  imgRef,
+  surfaceRef,
   pageScaleFactor,
   onPick,
   onCancel,
@@ -32,11 +43,10 @@ export function SelectElementOverlay({
   // Map screenshot client coords -> page coords (devicePixelRatio scaled).
   const mapCoordsToPage = useCallback(
     (clientX: number, clientY: number): { x: number; y: number } | null => {
-      const img = imgRef.current;
+      const img = surfaceRef.current;
       if (!img) return null;
       const rect = img.getBoundingClientRect();
-      const naturalW = img.naturalWidth || 1280;
-      const naturalH = img.naturalHeight || 720;
+      const { w: naturalW, h: naturalH } = surfaceIntrinsic(img);
       const imgAspect = naturalW / naturalH;
       const containerAspect = rect.width / rect.height;
       let displayW: number;
@@ -63,17 +73,16 @@ export function SelectElementOverlay({
         y: Math.round(((localY / displayH) * naturalH) / scale),
       };
     },
-    [imgRef, pageScaleFactor],
+    [surfaceRef, pageScaleFactor],
   );
 
   // Map page bbox -> overlay client coords (inverse of mapCoordsToPage on bbox).
   const pageBboxToClient = useCallback(
     (bbox: { x: number; y: number; w: number; h: number }) => {
-      const img = imgRef.current;
+      const img = surfaceRef.current;
       if (!img) return null;
       const rect = img.getBoundingClientRect();
-      const naturalW = img.naturalWidth || 1280;
-      const naturalH = img.naturalHeight || 720;
+      const { w: naturalW, h: naturalH } = surfaceIntrinsic(img);
       const imgAspect = naturalW / naturalH;
       const containerAspect = rect.width / rect.height;
       let displayW: number;
@@ -99,7 +108,7 @@ export function SelectElementOverlay({
         h: (bbox.h * scale * displayH) / naturalH,
       };
     },
-    [imgRef, pageScaleFactor],
+    [surfaceRef, pageScaleFactor],
   );
 
   // Debounced inspect on mousemove (max 1 fetch per 100ms) so the user gets
