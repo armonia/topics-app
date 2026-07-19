@@ -120,6 +120,29 @@ const setStreamMessageSchema = z.object({
   active: z.boolean(),
 });
 
+/** Client -> server (webrtc shared-session transport): viewer SDP offer. */
+const webrtcOfferMessageSchema = z.object({
+  type: z.literal('webrtc_offer'),
+  sdp: z.string(),
+  stream: z.optional(z.string()),
+});
+
+/** Server -> client: sidecar SDP answer for a prior webrtc_offer. */
+const webrtcAnswerMessageSchema = z.object({
+  type: z.literal('webrtc_answer'),
+  sdp: z.string(),
+  stream: z.optional(z.string()),
+});
+
+/** Both directions: a trickle ICE candidate (belt-and-suspenders on LAN). */
+const webrtcIceMessageSchema = z.object({
+  type: z.literal('webrtc_ice'),
+  candidate: z.string(),
+  sdpMid: z.optional(z.nullable(z.string())),
+  sdpMLineIndex: z.optional(z.nullable(z.number())),
+  stream: z.optional(z.string()),
+});
+
 export const browserWsMessageSchema = z.discriminatedUnion('type', [
   frameMessageSchema,
   inputMessageSchema,
@@ -132,6 +155,9 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   setEngineMessageSchema,
   engineMessageSchema,
   setStreamMessageSchema,
+  webrtcOfferMessageSchema,
+  webrtcAnswerMessageSchema,
+  webrtcIceMessageSchema,
 ]);
 
 export type BrowserWsMessage = z.infer<typeof browserWsMessageSchema>;
