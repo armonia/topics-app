@@ -30,6 +30,17 @@ del JPEG-over-WS misurato nello spike WebRTC (`spike/webrtc-cdp`, 4.8 Mbps @ eve
 **~500× meno banda**, rendering **nativo** (non un filmato), stesso stato live (il contatore
 che muta ogni 500ms si ricostruisce fedele sul follower). Screenshot in `shots/`.
 
+### Broker live — PROVATO end-to-end (2026-07-20)
+
+`bun spike/rrweb-cobrowse/live-check.mjs` — pilota `server.mjs` (non la sola fattibilità
+rrweb): un `controller` + un `viewer` sulla stessa sessione + un `viewer` su una sessione
+diversa. **7/7 verde**: il late-joiner fa **bootstrap** (meta+full → ricostruzione nativa),
+la **presence** arriva, il **gate co-op** regge (input del viewer **droppato**, input del
+controller **relayato → CDP** → la sorgente muta), la mutazione **fa fan-out** all'altro
+viewer, e l'**isolamento multi-sessione** tiene. Segnale univoco: `#go` appende `manuale:`
+(l'auto-feed usa `evento auto`), quindi ogni `manuale:` nello stream è un click che ha
+davvero raggiunto la pagina sorgente.
+
 ### Dove il DOM non basta (isole → pixel)
 `<canvas>` / `<video>` / WebGL / DRM non si trasmettono via DOM: per **quelle regioni** si
 strema il pixel (→ il **Rust `webrtc-bridge`** che già esiste), compositato sopra il DOM.
