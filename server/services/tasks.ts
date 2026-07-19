@@ -137,8 +137,12 @@ export interface TaskComment {
    * by the service at every status write (content "from→to", author = who
    * moved it) — the thread doubles as the status history. Status events never
    * count as "the agent's last word" (review gate, delivered/needs_input chip).
+   * 'review-note' = machine-authored review evidence (e.g. the verifier's live
+   * preview screenshot). Like 'status', it is NOT "the agent's last word" and,
+   * crucially, it never travels the human POST /comments path — so it never
+   * triggers reject+resume: it informs the reviewer without waking the agent.
    */
-  kind: "comment" | "status";
+  kind: "comment" | "status" | "review-note";
 }
 
 export interface CreateTaskInput {
@@ -323,7 +327,7 @@ export interface TaskService {
    * well-formed block — an LLM caller passes structured options and never
    * reproduces markdown syntax by hand.
    */
-  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[] }): TaskComment;
+  addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" }): TaskComment;
   /** Human-only review decision on a task sitting in `review`. */
   reviewDecision(args: { taskId: string; by: string; decision: "approve" | "reject"; comment?: string; projectId?: string }): Task;
   /**
@@ -576,7 +580,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     if (r.mentions) { try { mentions = JSON.parse(r.mentions); } catch { mentions = []; } }
     let media: string[] = [];
     if (r.media) { try { media = JSON.parse(r.media); } catch { media = []; } }
-    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind: r.kind === "status" ? "status" : "comment" };
+    const kind: TaskComment["kind"] = r.kind === "status" ? "status" : r.kind === "review-note" ? "review-note" : "comment";
+    return { id: r.id, taskId: r.task_id, author: r.author, content: r.content, mentions, media, createdAt: r.created_at, kind };
   }
 
   /**
@@ -819,7 +824,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    addComment({ taskId, author, content, mentions, media, projectId, questionOptions }): TaskComment {
+    addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind }): TaskComment {
+      const commentKind: "comment" | "review-note" = kind === "review-note" ? "review-note" : "comment";
       let body = (content ?? "").trim();
       // Attachments-only comments are legal (a screenshot IS the message).
       if (!body && (!media || media.length === 0)) throw new TaskServiceError("invalid_input", "comment content is required");
@@ -854,8 +860,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const id = uuid();
       const ts = now();
       db.prepare(
-        "INSERT INTO task_comments (id, task_id, author, content, mentions, media, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ).run(id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, files.length ? JSON.stringify(files) : null, ts);
+        "INSERT INTO task_comments (id, task_id, author, content, mentions, media, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, taskId, author, body, mentions && mentions.length ? JSON.stringify(mentions) : null, files.length ? JSON.stringify(files) : null, commentKind, ts);
       // The thread is part of the task: touch updated_at so live clients (open
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.

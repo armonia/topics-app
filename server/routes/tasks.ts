@@ -66,6 +66,12 @@ export interface TasksRouterOpts {
    * keeping it is how 30+ stale worktrees accumulated.
    */
   deleteTaskWorktree?: (taskId: string) => Promise<boolean>;
+  /**
+   * Tear down the task's live preview server (booted at review-time by the
+   * preview manager). Called on land, approve→done and archive so a merged/closed
+   * task frees its pool port. Idempotent; absent ⇒ no preview to reap.
+   */
+  teardownPreview?: (taskId: string) => Promise<void>;
 }
 
 /**
@@ -155,6 +161,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     const task = svc.get(taskId, { projectId })?.task;
     if (!task) return;
+    // Landing ends the task's review life — reap its preview server (idempotent).
+    try { await opts?.teardownPreview?.(taskId); } catch { /* best-effort */ }
     try {
       const res = await autoMerge.tryMerge(taskId, task.text);
       if (res.status === "merged") {
@@ -703,6 +711,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // — the agent's "Landa su main" option above, or POST …/land.
           if (dispatcher && decision === "approve" && task.status === "done") {
             dispatcher.onBlockerDone(bReview.taskId);
+            // Accepted (not landed): the preview server is no longer needed.
+            void opts?.teardownPreview?.(bReview.taskId).catch(() => {});
           }
           return json(task);
         } catch (e) { return fail(e); }
@@ -827,6 +837,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (method === "DELETE") {
           try {
             const task = svc.archive({ taskId, projectId });
+            void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
             broadcastToAll({ type: "task:deleted", projectId, taskId });
             return json({ ok: true, task });
           } catch (e) { return fail(e); }
