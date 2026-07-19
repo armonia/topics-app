@@ -167,7 +167,23 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   // shell bridge and shown in the popover — never conflated here: overriding the
   // chip with the shell version made a freshly hot-deployed client read as the
   // OLD shell number, so a landed deploy looked like a no-op.
-  const appVersion = BUILD_APP_VERSION;
+  // The BAKED __APP_VERSION__ is frozen at `vite build --watch` start, so after
+  // a version bump the chip lies until the build-watch is kickstarted. Prefer
+  // the runtime value from /api/version (the server re-reads package.json fresh)
+  // and fall back to the baked one when the endpoint is unreachable (standalone
+  // build with no live server). Truthful the moment the version is bumped.
+  const [runtimeVersion, setRuntimeVersion] = useState('');
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/version', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { version?: string } | null) => {
+        if (alive && d?.version) setRuntimeVersion(d.version);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const appVersion = runtimeVersion || BUILD_APP_VERSION;
   const [shellVersion, setShellVersion] = useState('');
   useEffect(() => {
     if (!isDesktop) return;
