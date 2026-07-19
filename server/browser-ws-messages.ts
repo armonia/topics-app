@@ -4,9 +4,9 @@
  * mirrored Zod schemas (this file is the canonical source).
  *
  * Direction conventions:
- *   - frame, agent_active, console, download, engine:              server -> client only
- *   - input, take_control, resize, set_engine, set_stream:         client -> server only
- *   - nav:                                                         both directions (request from either side, response broadcast)
+ *   - frame, agent_active, console, download, engine, webrtc_answer: server -> client only
+ *   - input, take_control, resize, set_engine, set_stream, webrtc_offer: client -> server only
+ *   - nav, webrtc_ice:                                            both directions (request from either side, response broadcast)
  *
  * KEEP IN SYNC: client/src/types/browser-ws-messages.ts mirrors this file.
  * The composite tsconfig boundary forbids cross-import via TS6307, so the
@@ -149,6 +149,36 @@ const setStreamMessageSchema = z.object({
   active: z.boolean(),
 });
 
+/** Client -> server (webrtc shared-session transport): the viewer's SDP offer.
+ *  The pane opens an RTCPeerConnection (recvonly video), and this carries the
+ *  offer to the Rust webrtc-bridge sidecar, which attaches to THIS pane's CDP
+ *  target and streams it as an H.264 track. `stream` correlates offer/answer/ice
+ *  across the (potentially many) peers on one WS. Additive: servers without the
+ *  bridge never answer, and the client falls back to the JPEG stream. */
+const webrtcOfferMessageSchema = z.object({
+  type: z.literal('webrtc_offer'),
+  sdp: z.string(),
+  stream: z.string().optional(),
+});
+
+/** Server -> client: the sidecar's SDP answer for a prior webrtc_offer. */
+const webrtcAnswerMessageSchema = z.object({
+  type: z.literal('webrtc_answer'),
+  sdp: z.string(),
+  stream: z.string().optional(),
+});
+
+/** Both directions: a trickle ICE candidate. On a LAN the host candidates ride
+ *  inside the (non-trickle) offer/answer already, so this is belt-and-suspenders
+ *  for slower gathering / cross-subnet; unknown to older clients (dropped at parse). */
+const webrtcIceMessageSchema = z.object({
+  type: z.literal('webrtc_ice'),
+  candidate: z.string(),
+  sdpMid: z.string().nullable().optional(),
+  sdpMLineIndex: z.number().nullable().optional(),
+  stream: z.string().optional(),
+});
+
 // ----- Top-level discriminated union ----------------------------------------
 
 export const browserWsMessageSchema = z.discriminatedUnion('type', [
@@ -163,6 +193,9 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   setEngineMessageSchema,
   engineMessageSchema,
   setStreamMessageSchema,
+  webrtcOfferMessageSchema,
+  webrtcAnswerMessageSchema,
+  webrtcIceMessageSchema,
 ]);
 
 export type BrowserWsMessage = z.infer<typeof browserWsMessageSchema>;
