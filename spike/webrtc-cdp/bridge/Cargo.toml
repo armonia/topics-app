@@ -4,16 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 # Spike sidecar — shares ONE headless-Chromium context (CDP :19222) to N peers over
-# WebRTC instead of JPEG-over-WebSocket. Consumes CDP screencast frames, (later)
-# re-encodes to H.264 via VideoToolbox, serves a WebRTC video track + DataChannel
-# input. Template: desktop-tauri/pty-bridge/ (separate crate, Tauri externalBin).
+# WebRTC instead of JPEG-over-WebSocket. Consumes CDP screencast frames, re-encodes to
+# H.264, serves a WebRTC video track (+ DataChannel input, later). Template:
+# desktop-tauri/pty-bridge/ (separate crate, Tauri externalBin).
 #
-# Stage 1 (this file): Rust CDP client — connect, create target, screencast, count fps.
-# Proves the CDP-in-Rust pipeline before layering webrtc-rs + encoder.
+# Stage 1 (DONE): Rust CDP client — screencast ack-gated @ 60fps. See cdp.rs.
+# Stage 2 (this): webrtc-rs H.264 track fed by CDP frames → browser <video>.
 
 [[bin]]
 name = "webrtc-cdp-bridge"
 path = "src/main.rs"
+
+[[bin]]
+name = "measure-fps"
+path = "src/bin/measure_fps.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
@@ -21,9 +25,14 @@ tokio-tungstenite = "0.24"
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
+bytes = "1"
+zune-jpeg = "0.4"
+openh264 = "0.6"
+webrtc = "0.11"
+anyhow = "1"
 
 [profile.release]
 opt-level = 3
 lto = true
-strip = true
 codegen-units = 1

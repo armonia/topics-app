@@ -64,10 +64,37 @@ regge il full-rate.
 - Frame continui: usa **animazioni CSS** (compositor) non `requestAnimationFrame` (throttlato
   offscreen in `--headless=new`).
 
-## Stage 2 — TODO: transport WebRTC
-webrtc-rs `TrackLocalStaticSample` alimentata da JPEG→(decode)→H.264 (openh264 SW per lo
-spike, poi VideoToolbox HW) + DataChannel input → CDP `Input.dispatch*`. Signaling SDP/ICE
-sulle nuove varianti `webrtc-offer|answer|ice` di `/ws/browser/:ctx`.
+## Stage 2 — transport WebRTC H.264 — FATTO e VERIFICATO END-TO-END (2026-07-19)
+
+`main.rs` + `cdp.rs`: una CDP screencast → un encoder → **una** `TrackLocalStaticSample`
+condivisa (webrtc-rs la fa a fan-out su N peer). Pipeline: CDP JPEG → decode (`zune-jpeg`)
+→ I420 (`openh264` RgbSliceU8→YUVBuffer) → **H.264 openh264** → track → RTP/WebRTC. Signaling
+= HTTP minimale fatto a mano (`GET /` = pagina `<video>` di test, `POST /offer` = SDP answer).
+
+Validazione headless (`validate.mjs`, viewer Playwright che legge `getStats`):
+```
+ice=connected  video=756x412  framesDecoded=17  codec=video/H264  ✅ PASS
+```
+Prova visiva: `evidence-video.png` = il `<video>` del viewer mostra la pagina renderizzata
+nel Chromium sorgente (titolo + cerchio animato), arrivata via H.264/WebRTC. La pagina
+sorgente e il viewer sono processi/browser distinti → transport reale, non un iframe.
+
+`cargo run --release -- [signalPort] [targetUrl]` (serve Chromium CDP su :19222).
+`bun validate.mjs [url]` valida end-to-end.
+
+**Gotcha bruciati (nel codice):**
+- **ICE resta in `checking` con lo STUN pubblico** → in LAN/localhost bastano i candidate
+  **host**: `RTCConfiguration::default()` (niente STUN) → `connected` subito. Lo STUN serve
+  solo oltre-LAN (e lì serve TURN, non basta STUN).
+- **`framesDecoded=0` ma i byte scorrono** = manca la keyframe per il viewer che entra dopo
+  l'IDR iniziale. Fix: `encoder.force_intra_frame()` **periodico** (ogni ~30 frame ≈1s) — un
+  solo encoder condiviso, ogni peer si sincronizza entro 1s. (Il "vero" fix di produzione è
+  cablare RTCP-PLI → force_intra on-demand.)
+- **`openh264::Encoder` è `!Send`** → NON può stare sul runtime async (niente `.await` mentre
+  lo tieni). Vive su un **thread OS dedicato**; manda i sample H.264 a un task async che li
+  scrive sulla track.
+- Il Chromium sorgente headless standalone **muore durante le build lunghe** → rilancialo
+  DOPO il `cargo build`, prima della validazione (il bridge ha un retry-loop sul CDP).
 
 ## Stage 3 — TODO: sharing
 Il Mac usa il context server condiviso (engine "shared") invece della WKWebView nativa →
