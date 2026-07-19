@@ -92,6 +92,9 @@ export interface Task {
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
   outputUrl: string | null;
+  /** Screenshot della consegna (path assoluto allowlistato, servito da
+   *  /api/media) — thumbnail sulla card Kanban. */
+  previewImage: string | null;
   /** Dispatch contract: deliver a PLAN to review before implementing. */
   planFirst: boolean;
   /** When the current claim started (dispatcher CAS) — the live "ci sta
@@ -174,6 +177,9 @@ export interface UpdateTaskPatch {
   kanbanOrder?: number;
   /** http(s) URL of the reviewable output; empty string / null clears it. */
   outputUrl?: string | null;
+  /** Screenshot per la card (path assoluto); empty string / null clears it.
+   *  Il gate sull'allowlist media sta nel layer route (come i media commenti). */
+  previewImage?: string | null;
   /** Model override for the agent topic; null clears (= auto). */
   model?: string | null;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */
@@ -483,6 +489,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchError: r.dispatch_error ?? null,
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
+      previewImage: r.preview_image ?? null,
       planFirst: !!r.plan_first,
       inProgressAt: r.in_progress_at ?? null,
       agentMs: r.agent_ms ?? 0,
@@ -770,6 +777,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           throw new TaskServiceError("invalid_input", "output_url must be an http(s) URL");
         }
         put("output_url", url || null);
+      }
+      if (patch.previewImage !== undefined) {
+        const p = (patch.previewImage ?? "").trim();
+        // Path assoluto su disco, mai un URL: il client lo rende via
+        // /api/media (allowlist-gated). Empty clears.
+        if (p && !p.startsWith("/")) {
+          throw new TaskServiceError("invalid_input", "preview_image must be an absolute file path");
+        }
+        put("preview_image", p || null);
       }
       if (patch.model !== undefined) {
         const m = (patch.model ?? "").trim();

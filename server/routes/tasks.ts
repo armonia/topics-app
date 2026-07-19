@@ -798,6 +798,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 description: body?.description !== undefined ? body.description : undefined,
                 kanbanOrder: typeof body?.kanbanOrder === "number" ? body.kanbanOrder : undefined,
                 outputUrl: typeof body?.outputUrl === "string" ? body.outputUrl : undefined,
+                // Card preview: stesso fence dei media commenti — un path fuori
+                // allowlist è scartato QUI (la patch non arriva al service).
+                previewImage: typeof body?.previewImage === "string"
+                  ? (body.previewImage.trim() === "" ? "" : (filterMedia([body.previewImage])?.length ? body.previewImage : undefined))
+                  : undefined,
                 model: body?.model !== undefined ? (typeof body.model === "string" ? body.model : null) : undefined,
                 blockedByTaskId: body?.blockedByTaskId !== undefined
                   ? (typeof body.blockedByTaskId === "string" && body.blockedByTaskId ? body.blockedByTaskId : null)
