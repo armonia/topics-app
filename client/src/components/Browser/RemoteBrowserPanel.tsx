@@ -59,6 +59,34 @@ interface RemoteBrowserPanelProps {
 // error in this mode (acknowledged constraint).
 const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 
+/**
+ * Whether a persisted pane url is safe to auto-seed into a blank server-side
+ * browser context (streaming path). A pane's url can point at a host reachable
+ * ONLY from the machine that owns the native pane — a bare hostname ("macbook"),
+ * a *.local name, loopback, or a private-LAN IP. Seeding those hangs the headless
+ * goto → ERR_CONNECTION_REFUSED, worse than an honest blank pane. Only public
+ * http(s) hosts (a registrable dotted name or a public IP) are seedable.
+ */
+function isSeedableUrl(raw: string | undefined): raw is string {
+  if (!raw || !/^https?:\/\//i.test(raw)) return false;
+  let host: string;
+  try { host = new URL(raw).hostname; } catch { return false; }
+  if (!host) return false;
+  const lower = host.toLowerCase();
+  if (lower === 'localhost' || lower === '0.0.0.0' || lower === '::1') return false;
+  if (lower.endsWith('.local') || lower.endsWith('.localhost')) return false;
+  // Bare single-label hostname (no dot) → not publicly resolvable (e.g. "macbook").
+  const isIPv6 = host.includes(':');
+  if (!isIPv6 && !host.includes('.')) return false;
+  // Private / link-local IPv4 ranges.
+  if (/^127\./.test(host)) return false;
+  if (/^10\./.test(host)) return false;
+  if (/^192\.168\./.test(host)) return false;
+  if (/^169\.254\./.test(host)) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+  return true;
+}
+
 export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
   // ============ Tauri NATIVE path — real child WKWebView (multi-webview). ============
   // Like Electron's WebContentsView but via Window::add_child (browser_* commands).
@@ -375,14 +403,20 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   const seededRef = useRef(false);
   useEffect(() => {
     if (seededRef.current || !browser.connected) return;
-    if (!initialUrl || !/^https?:\/\//i.test(initialUrl)) return;
+    // Only seed PUBLICLY-reachable urls. A pane's persisted url can point at a
+    // host only reachable from the machine that owns the native pane (the Mac):
+    // a bare hostname ("macbook"), a .local name, loopback, or a private-LAN IP.
+    // Seeding those makes the server-side headless hang on the goto (30s) then
+    // ERR_CONNECTION_REFUSED — worse than the honest blank "Browser ready". So
+    // skip them; public sites (e.g. google.com) still seed.
+    if (!isSeedableUrl(initialUrl)) return;
     // Let fetchInfo() (fired in ws.onopen) report the context's real url first,
     // so a context that already holds a page is left untouched.
     const t = setTimeout(() => {
       if (seededRef.current) return;
       seededRef.current = true;
       const blank = !browser.url || browser.url === 'about:blank';
-      if (blank) browser.navigate(initialUrl);
+      if (blank) browser.navigate(initialUrl!);
     }, 400);
     return () => clearTimeout(t);
   }, [browser.connected, browser.url, initialUrl, browser.navigate]);
@@ -526,11 +560,11 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     browser.connectionState === 'connecting' ? 'bg-yellow-500 animate-pulse' :
     'bg-red-500';
 
-  // Hide the pill when the page itself failed (goto → ERR_CONNECTION_REFUSED →
-  // chrome-error): a pulsing green "Live" over a dead page is misleading, and the
-  // red nav-error strip already spells out the failure + Riprova. On every other
-  // state the pill stays visible (and honest).
-  const hideConnectionPill = !!browser.error;
+  // Hide the pill in the steady 'connected' state — the pulsing green "Live" over
+  // a working (or errored, where the red nav strip already speaks) page is noise.
+  // It stays visible for the states that carry information: connecting, polling
+  // (fallback-http), and disconnected.
+  const hideConnectionPill = browser.connectionState === 'connected';
 
 
   return (

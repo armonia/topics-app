@@ -40,7 +40,10 @@ async function mountBrowserPane(
     },
     { tid: topicId, u: url },
   );
-  await expect(page.locator('[data-testid="browser-connection-indicator"]')).toBeVisible({
+  // Gate on the toolbar URL input — always present once the panel mounts. The
+  // connection-indicator pill is no longer a stable gate: it hides in the steady
+  // 'connected' state (the "Live" chip is noise), so it's absent once streaming.
+  await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({
     timeout: 10000,
   });
 }
