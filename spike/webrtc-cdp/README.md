@@ -40,6 +40,39 @@ auto-imposti (`everyNthFrame:2` + throttle client), non un limite CDP. Retina
 → viabile su wifi/Tailscale verso mobile. La JPEG-over-WS a 4.8 Mbps non scala su
 rete mobile; H.264 sì.
 
+## Stage 1 — client CDP in Rust — FATTO e VERIFICATO (2026-07-19)
+
+`bridge/` (crate `webrtc-cdp-bridge`, template pty-bridge): tokio + tokio-tungstenite.
+Connette al CDP browser-ws, crea target usa-e-getta, attacca (flatten), `Page.enable` +
+`setDeviceMetricsOverride` retina, naviga una pagina CSS-animata, avvia lo screencast e
+consuma i frame **ack-gated**.
+
+`cargo run --release -- [everyNthFrame] [durationMs]` (serve un Chromium su :19222).
+**Esito: 60.2 fps (380 frame in 6.3s), 2.7 KB/frame, 1.3 Mbps** contro un Chromium
+headless standalone — pari a Bun sulla stessa sorgente. La pipeline async CDP-in-Rust
+regge il full-rate.
+
+**Gotcha bruciati (documentati nel codice):**
+- `Page.screencastFrameAck` **richiede** `params.sessionId` = l'**intero** della sessione
+  screencast (dentro il frame), NON il sessionId CDP. Lo screencast è ack-gated: senza ack
+  corretto Chrome sputa ~3 frame bufferizzati e si ferma. Il gate `.as_str()` su un intero
+  dà None → ack mai inviato (il bug che dava "3 frame").
+- `startScreencast` va lanciato **su un timer separato**, non dentro il read-loop (che
+  bloccherebbe su `read.next()` aspettando un messaggio che non arriva).
+- Il GET HTTP a `/json/version`: DevTools tiene la connessione keep-alive → `read_to_string`
+  si appende; leggere per `Content-Length` con read-timeout.
+- Frame continui: usa **animazioni CSS** (compositor) non `requestAnimationFrame` (throttlato
+  offscreen in `--headless=new`).
+
+## Stage 2 — TODO: transport WebRTC
+webrtc-rs `TrackLocalStaticSample` alimentata da JPEG→(decode)→H.264 (openh264 SW per lo
+spike, poi VideoToolbox HW) + DataChannel input → CDP `Input.dispatch*`. Signaling SDP/ICE
+sulle nuove varianti `webrtc-offer|answer|ice` di `/ws/browser/:ctx`.
+
+## Stage 3 — TODO: sharing
+Il Mac usa il context server condiviso (engine "shared") invece della WKWebView nativa →
+mobile joina lo stesso `contextId`.
+
 ## Ordine di build (due workstream ortogonali)
 
 1. **Sharing** (abilita "stessa sessione"): il Mac usa il **context server condiviso**
