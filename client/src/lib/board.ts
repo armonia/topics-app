@@ -88,6 +88,9 @@ export interface BoardTask {
   /** Direct-children counters (board badges: "↳ done/total"). */
   subtaskCount: number;
   subtaskDoneCount: number;
+  /** Human interactions in the thread: 'user' comments (kind='comment') — the
+   *  AI/agent, system notes and status events are excluded. Shown on the card. */
+  userCommentCount: number;
   /** Model the dispatched agent runs on; null = provider default ("Auto"). */
   model: string | null;
   /** Root task this one is gated on — the dispatcher won't start it until that task is done. */

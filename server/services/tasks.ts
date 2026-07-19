@@ -90,6 +90,10 @@ export interface Task {
   /** Direct-children counters (filled by list/get for board badges). */
   subtaskCount: number;
   subtaskDoneCount: number;
+  /** Human interactions in the thread: comments authored by 'user' (kind
+   *  'comment') — excludes the AI/agent, system notes and status events. Filled
+   *  by list/get; the card shows it as a "quanti messaggi ho mandato" count. */
+  userCommentCount: number;
 }
 
 export interface TaskComment {
@@ -466,10 +470,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       reuseBlockerContext: !!r.reuse_blocker_context,
       subtaskCount: 0,
       subtaskDoneCount: 0,
+      userCommentCount: 0,
     };
   }
 
-  /** Fill direct-children counters onto already-built tasks (board badges). */
+  /** Fill board-badge counters onto already-built tasks: direct-children
+   *  progress AND the human interaction count (user 'comment' messages). */
   function withSubtaskCounts(tasks: Task[]): Task[] {
     if (tasks.length === 0) return tasks;
     const byParent = new Map<string, { total: number; done: number }>();
@@ -481,9 +487,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         GROUP BY parent_task_id`,
     ).all() as Array<{ pid: string; total: number; done: number }>;
     for (const r of rows) byParent.set(r.pid, { total: r.total, done: r.done ?? 0 });
+    // Human message count per task: comments the user sent (kind='comment'),
+    // excluding the AI/agent, system notes and auto status events.
+    const byTask = new Map<string, number>();
+    const mrows = db.prepare(
+      `SELECT task_id AS tid, COUNT(*) AS n
+         FROM task_comments
+        WHERE author = 'user' AND kind = 'comment'
+        GROUP BY task_id`,
+    ).all() as Array<{ tid: string; n: number }>;
+    for (const r of mrows) byTask.set(r.tid, r.n);
     for (const t of tasks) {
       const c = byParent.get(t.id);
       if (c) { t.subtaskCount = c.total; t.subtaskDoneCount = c.done; }
+      t.userCommentCount = byTask.get(t.id) ?? 0;
     }
     return tasks;
   }
