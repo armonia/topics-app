@@ -1,17 +1,21 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createTaskService, isLandActionLabel, LAND_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
+import { createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, TaskServiceError, type TaskService } from "./tasks";
 
-describe("isLandActionLabel", () => {
-  test("matches the reserved label tolerantly (emoji/punctuation/spacing)", () => {
+describe("reserved action labels", () => {
+  test("isLandActionLabel matches its label tolerantly, and NOT the publish one", () => {
     expect(isLandActionLabel(LAND_ACTION_LABEL)).toBe(true);
-    expect(isLandActionLabel("Landa su main")).toBe(true);
     expect(isLandActionLabel("🚀 Landa su main")).toBe(true);
     expect(isLandActionLabel("  landa   su  main. ")).toBe(true);
-    expect(isLandActionLabel("Landa su main e pubblica")).toBe(false);
+    expect(isLandActionLabel(PUBLISH_ACTION_LABEL)).toBe(false); // distinct action
     expect(isLandActionLabel("Rifiuta")).toBe(false);
     expect(isLandActionLabel(undefined)).toBe(false);
-    expect(isLandActionLabel("")).toBe(false);
+  });
+  test("isPublishActionLabel matches its label tolerantly, and NOT the land one", () => {
+    expect(isPublishActionLabel(PUBLISH_ACTION_LABEL)).toBe(true);
+    expect(isPublishActionLabel("🚀 Landa e pubblica")).toBe(true);
+    expect(isPublishActionLabel(LAND_ACTION_LABEL)).toBe(false); // land only, no push
+    expect(isPublishActionLabel("")).toBe(false);
   });
 });
 

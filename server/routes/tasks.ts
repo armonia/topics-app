@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
 import { getTerminalSessionById } from "./terminal";
-import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
+import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { TaskAutoMerge } from "../services/task-automerge";
@@ -204,6 +204,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
   }
 
+  /** Push a project's current branch to origin (triggers deploy CI where set up).
+   *  Shared by the /publish endpoint and the agent-proposed "Landa e pubblica"
+   *  option. Never resolves an unknown project — returns {ok:false}. */
+  async function publishProject(projectId: string): Promise<{ ok: boolean; branch?: string; output?: string; error?: string }> {
+    let dirs: string[] = [];
+    try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+    const path = dirs.find((d) => projectIdForPath(d) === projectId);
+    if (!path) return { ok: false, error: "progetto non trovato" };
+    const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
+    if (!branch) return { ok: false, error: "HEAD staccato — niente da pubblicare" };
+    const push = await runGitCap(path, ["push", "origin", branch]);
+    if (push.code !== 0) return { ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" };
+    return { ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) };
+  }
+
   /**
    * SECURITY: attachment paths are stored AND later handed to the agent as
    * "read these files" — so they must pass the same allowlist that gates
@@ -315,17 +330,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // (the board UI gates it behind a confirm).
     const bPublish = matchRoute(pathname, "/api/boards/:projectId/publish");
     if (bPublish && method === "POST") {
-      let dirs: string[] = [];
-      try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
-      const path = dirs.find((d) => projectIdForPath(d) === bPublish.projectId);
-      if (!path) return json({ error: "progetto non trovato", code: "not_found" }, 404);
-      const branch = (await runGitCap(path, ["symbolic-ref", "--short", "HEAD"])).out.trim();
-      if (!branch) return json({ error: "HEAD staccato — niente da pubblicare", code: "invalid_input" }, 400);
-      const push = await runGitCap(path, ["push", "origin", branch]);
-      if (push.code !== 0) {
-        return json({ ok: false, branch, error: (push.err || push.out).trim().slice(-400) || "git push fallito" }, 502);
+      const res = await publishProject(bPublish.projectId);
+      if (!res.ok) {
+        const code = res.error === "progetto non trovato" ? 404 : res.branch ? 502 : 400;
+        return json({ ...res, code: res.branch ? undefined : "invalid_input" }, code);
       }
-      return json({ ok: true, branch, output: (push.err + "\n" + push.out).trim().slice(-400) });
+      return json(res);
     }
 
     // GET /api/boards/:projectId/publish-diff — the unified diff of the commits a
@@ -640,6 +650,29 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         if (!decision) return json({ error: "decision must be 'approve' or 'reject'", code: "invalid_input" }, 400);
         try {
           const comment = typeof body?.comment === "string" ? body.comment : undefined;
+          // "Landa e pubblica" = go online: accept + merge to main + push (deploy CI).
+          // The agent may offer it at delivery; picking it runs the whole chain.
+          // Publishing is a human PICK (this click), executed server-side — the agent
+          // never pushes. Check BEFORE the land label (this is the superset action).
+          if (isPublishActionLabel(comment)) {
+            const approved = svc.reviewDecision({ taskId: bReview.taskId, by: HUMAN, decision: "approve", projectId: bReview.projectId });
+            broadcastToAll({ type: "task:updated", projectId: bReview.projectId, task: approved });
+            if (dispatcher && approved.status === "done") dispatcher.onBlockerDone(bReview.taskId);
+            const { projectId, taskId } = bReview;
+            void (async () => {
+              await landTask(projectId, taskId);
+              const pub = await publishProject(projectId);
+              svc.addComment({
+                taskId, author: "system",
+                content: pub.ok
+                  ? `Pubblicato: push di \`${pub.branch}\` su origin (deploy CI dove configurato).`
+                  : `Pubblicazione FALLITA: ${pub.error}. Il merge locale (se avvenuto) resta — ripeti la pubblicazione col bottone Pubblica.`,
+              });
+              const t = svc.get(taskId, { projectId })?.task;
+              if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+            })();
+            return json(approved);
+          }
           // The agent offers "Landa su main" as a quick-reply at delivery; picking
           // it arrives here as a reject-with-that-text. LANDING = accept + merge, so
           // approve the task and run the land — never a reject. This is the ONLY
