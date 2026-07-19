@@ -20,10 +20,17 @@
  * launching a browser.
  */
 
-import { createChromiumSidecar, type SidecarHandle } from "./browser-chromium-sidecar";
+import { createChromiumSidecar, discoverChromiumEngines, type SidecarHandle } from "./browser-chromium-sidecar";
 import { discoverInstalledExtensions } from "./browser-chromium-extensions";
 
 export type BrowserEngine = "native" | "chromium";
+
+/** Master flag for the whole chromium-engine feature (task 54601eeb). OFF by
+ *  default: the WS set_engine branch is a no-op, the DELETE route skips
+ *  release(), and the /api/browsers/engines capability reports disabled — so
+ *  the sidecar never launches and the client never shows the toggle. Flip with
+ *  TOPICS_CHROMIUM_ENGINE=1 in the live (headful + Tauri) environment. */
+export const CHROMIUM_ENGINE_ENABLED = process.env.TOPICS_CHROMIUM_ENGINE === "1";
 
 /** The subset of the chromium sidecar this registry needs (injectable for tests). */
 export interface EngineSidecar {
@@ -135,3 +142,34 @@ export const chromiumSidecar = createChromiumSidecar({
   loadExtensions: () => discoverInstalledExtensions().map((e) => e.path),
 });
 export const browserEngineRegistry = createBrowserEngineRegistry({ sidecar: chromiumSidecar });
+
+/** Capability descriptor for GET /api/browsers/engines — tells the client
+ *  whether to show the engine toggle, which real Chromium backs it, and how many
+ *  of the user's extensions will load (the toolbar badge). Both disk walks
+ *  (installed browsers + extensions) are memoized once per process. */
+export interface ChromiumEngineInfo {
+  enabled: boolean;
+  chromium?: { available: boolean; engine: string | null; extensions: number };
+}
+
+let cachedEngineInfo: ChromiumEngineInfo | null = null;
+export function chromiumEngineInfo(): ChromiumEngineInfo {
+  if (!CHROMIUM_ENGINE_ENABLED) return { enabled: false };
+  if (!cachedEngineInfo) {
+    const engines = discoverChromiumEngines();
+    cachedEngineInfo = {
+      enabled: true,
+      chromium: {
+        available: engines.length > 0,
+        engine: engines[0]?.name ?? null,
+        extensions: discoverInstalledExtensions().length,
+      },
+    };
+  }
+  return cachedEngineInfo;
+}
+
+/** Extension count for the engine WS broadcast badge (0 when disabled). */
+export function chromiumExtensionsCount(): number {
+  return chromiumEngineInfo().chromium?.extensions ?? 0;
+}

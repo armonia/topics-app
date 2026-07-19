@@ -98,6 +98,21 @@ const downloadMessageSchema = z.object({
   state: z.enum(['started', 'completed', 'failed']),
 });
 
+/** Client -> server: request this pane run on a different engine (native ↔
+ *  chromium). Ignored by servers without the TOPICS_CHROMIUM_ENGINE flag. */
+const setEngineMessageSchema = z.object({
+  type: z.literal('set_engine'),
+  engine: z.enum(['native', 'chromium']),
+});
+
+/** Server -> client: the engine this pane now runs on (+ extension count for the
+ *  toolbar badge). Mirrors the canonical server schema. */
+const engineMessageSchema = z.object({
+  type: z.literal('engine'),
+  engine: z.enum(['native', 'chromium']),
+  extensions: z.optional(z.number()),
+});
+
 export const browserWsMessageSchema = z.discriminatedUnion('type', [
   frameMessageSchema,
   inputMessageSchema,
@@ -107,6 +122,8 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   takeControlMessageSchema,
   resizeMessageSchema,
   downloadMessageSchema,
+  setEngineMessageSchema,
+  engineMessageSchema,
 ]);
 
 export type BrowserWsMessage = z.infer<typeof browserWsMessageSchema>;

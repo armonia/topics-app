@@ -17,6 +17,7 @@ import {
 import { resetMoondreamCounter } from "../integrations/moondream-client";
 import { probeFraming } from "../browser-framing";
 import type { BrowserActAction } from "../browser-tools";
+import { browserEngineRegistry, chromiumEngineInfo, CHROMIUM_ENGINE_ENABLED } from "../browser-engine-registry";
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -39,6 +40,14 @@ export function createBrowserRouter(
     // --- List browser contexts ---
     if (method === "GET" && pathname === "/api/browsers") {
       return json(browserService.listContexts());
+    }
+
+    // --- Engine capability (engine switch, task 54601eeb) ---
+    // Tells the web pane whether to show the Native↔Chromium toggle, which real
+    // Chromium backs it, and how many of the user's extensions load (badge).
+    // Reports { enabled:false } unless TOPICS_CHROMIUM_ENGINE=1 → inert by default.
+    if (method === "GET" && pathname === "/api/browsers/engines") {
+      return json(chromiumEngineInfo());
     }
 
     // --- Framing probe (T2): can this URL be rendered as a native <iframe>? ---
@@ -437,6 +446,14 @@ export function createBrowserRouter(
     const deleteMatch = matchRoute(pathname, "/api/browsers/:id");
     if (method === "DELETE" && deleteMatch) {
       await browserService.destroyContext(deleteMatch.id);
+      // Engine switch (task 54601eeb): a genuine pane close (NOT an engine-switch
+      // destroy+recreate) must release the sidecar ref this pane held + clear its
+      // engine hint, so the ref-counted Chromium reaps once no chromium pane
+      // remains. Idempotent + safe for native/unknown contexts.
+      if (CHROMIUM_ENGINE_ENABLED) {
+        browserEngineRegistry.release(deleteMatch.id);
+        browserService.setEngineHint(deleteMatch.id, "default");
+      }
       broadcast({ type: "browser-deleted", id: deleteMatch.id });
       return json({ ok: true });
     }

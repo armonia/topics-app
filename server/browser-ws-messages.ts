@@ -4,9 +4,9 @@
  * mirrored Zod schemas (this file is the canonical source).
  *
  * Direction conventions:
- *   - frame, agent_active, console, download:  server -> client only
- *   - input, take_control, resize:             client -> server only
- *   - nav:                                     both directions (request from either side, response broadcast)
+ *   - frame, agent_active, console, download, engine:  server -> client only
+ *   - input, take_control, resize, set_engine:         client -> server only
+ *   - nav:                                             both directions (request from either side, response broadcast)
  *
  * KEEP IN SYNC: client/src/types/browser-ws-messages.ts mirrors this file.
  * The composite tsconfig boundary forbids cross-import via TS6307, so the
@@ -118,6 +118,27 @@ const downloadMessageSchema = z.object({
   state: z.enum(['started', 'completed', 'failed']),
 });
 
+/** Client -> server (engine switch, task 54601eeb): request that this pane run on
+ *  a different browser ENGINE. 'native' = the default headless-Chromium stream (or
+ *  the OS WebView on Tauri); 'chromium' = a real, user-installed Chromium-family
+ *  browser driven over CDP so the user's extensions load. Gated server-side by the
+ *  TOPICS_CHROMIUM_ENGINE flag — ignored (no engine broadcast) when disabled, so
+ *  older/uncapable servers simply never switch. */
+const setEngineMessageSchema = z.object({
+  type: z.literal('set_engine'),
+  engine: z.enum(['native', 'chromium']),
+});
+
+/** Server -> client: the engine this pane is now running on, broadcast after a
+ *  switch (or on first advertise). `extensions` is the count loaded into the
+ *  chromium sidecar profile, for the toolbar badge ("Chromium · N estensioni").
+ *  Additive: clients that predate the switch drop this variant at parse. */
+const engineMessageSchema = z.object({
+  type: z.literal('engine'),
+  engine: z.enum(['native', 'chromium']),
+  extensions: z.number().int().nonnegative().optional(),
+});
+
 // ----- Top-level discriminated union ----------------------------------------
 
 export const browserWsMessageSchema = z.discriminatedUnion('type', [
@@ -129,6 +150,8 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   takeControlMessageSchema,
   resizeMessageSchema,
   downloadMessageSchema,
+  setEngineMessageSchema,
+  engineMessageSchema,
 ]);
 
 export type BrowserWsMessage = z.infer<typeof browserWsMessageSchema>;

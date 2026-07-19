@@ -27,6 +27,15 @@ interface BrowserContextEntry {
    *  newContext() — immutable for the context lifetime). Drives the screencast
    *  frame-dimension multiplier so retina panes render sharp. Defaults to 1. */
   deviceScaleFactor?: number;
+  /** Which ENGINE backs this context (task 54601eeb). 'default' (the usual
+   *  server-owned headless Chromium) or 'chromium' (a real user-installed
+   *  Chromium driven over CDP, where the user's extensions live). Absent = default. */
+  engine?: "default" | "chromium";
+  /** For the chromium engine only: the playwright Browser obtained via
+   *  connectOverCDP. Closing it DISCONNECTS the CDP client (the sidecar process
+   *  keeps running — its lifetime is owned by the engine registry's ref count),
+   *  so destroyContext must close THIS + the page, never the shared context. */
+  engineBrowser?: Browser;
 }
 
 interface BrowserServiceOptions {
@@ -54,6 +63,11 @@ interface BrowserServiceOptions {
    *  watching a given contextId. Wired by server.ts via browserWsClients
    *  registry. No-op if absent. */
   broadcastToBrowserWs?: (contextId: string, msg: BrowserWsMessage) => void;
+  /** Engine switch (task 54601eeb): how a 'chromium'-engine context connects to
+   *  the real Chromium sidecar over CDP. Injectable so the engine branch is
+   *  unit-tested without a live browser. Defaults to
+   *  playwright chromium.connectOverCDP(endpoint). */
+  connectOverCDP?: (endpoint: string) => Promise<Browser>;
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
@@ -75,8 +89,13 @@ export interface BrowserService {
   close(): Promise<void>;
   /** Get the CDP target ID for a context's page (used for OpenClaw browser tool routing) */
   getTargetId(id: string): Promise<string | null>;
-  createContext(id: string, opts?: { viewport?: { width: number; height: number }; persistCookies?: boolean; deviceScaleFactor?: number }): Promise<void>;
+  createContext(id: string, opts?: { viewport?: { width: number; height: number }; persistCookies?: boolean; deviceScaleFactor?: number; engine?: "default" | "chromium"; cdpEndpoint?: string }): Promise<void>;
   destroyContext(id: string): Promise<void>;
+  /** Engine switch (task 54601eeb): remember the engine a context must be
+   *  (re)created on. Consulted by createContext — so a switch is: setEngineHint →
+   *  destroyContext → (client remounts) → getOrCreate → createContext picks it up.
+   *  engine 'default' clears the hint. */
+  setEngineHint(id: string, engine: "default" | "chromium", cdpEndpoint?: string): void;
   getOrCreate(id: string): Promise<BrowserContextEntry>;
   /** `error` present when goto failed (refused connection, DNS, timeout…):
    *  the page then still reports the PREVIOUS url/title, so callers must
@@ -206,6 +225,16 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // deviceScaleFactor is immutable per Playwright context → for an already-live
   // context a new DPR only applies after a reap+recreate (first-DPR-wins).
   const pendingViewportHints = new Map<string, { width: number; height: number; deviceScaleFactor: number }>();
+  // Engine switch (task 54601eeb): the engine a context must be (re)created on.
+  // createContext consults this BEFORE launching the headless Chromium, so a
+  // 'chromium' pane connects to the sidecar over CDP instead. Symmetric with
+  // pendingViewportHints: set by setEngineHint, cleared on switch-to-default and
+  // on destroyContext. Absent entry ⇒ the default headless engine.
+  const pendingEngineHints = new Map<string, { engine: "default" | "chromium"; cdpEndpoint?: string }>();
+  // How a chromium-engine context reaches the real Chromium (injectable for tests).
+  const connectOverCDP =
+    opts.connectOverCDP ??
+    (async (endpoint: string) => (await import("playwright-core")).chromium.connectOverCDP(endpoint));
   /** Clamp DPR to a bandwidth-safe range: 2× covers virtually all retina Macs;
    *  3× would quadruple+ frame bytes and trip the backpressure drop. */
   const clampDsf = (dsf: number | undefined): number => {
@@ -512,7 +541,14 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       for (const [_id, entry] of contexts) {
         entry.autoSaveCleanup?.();
-        try { await entry.context.close(); } catch {}
+        // Chromium engine: disconnect the CDP client — NEVER close the shared
+        // sidecar context (that would kill the user's other sidecar tabs).
+        if (entry.engine === "chromium") {
+          try { await entry.page.close(); } catch {}
+          try { await entry.engineBrowser?.close(); } catch {}
+        } else {
+          try { await entry.context.close(); } catch {}
+        }
       }
       contexts.clear();
       targetIds.clear();
@@ -528,6 +564,64 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       if (contexts.size >= maxContexts) {
         throw new Error(`Max contexts (${maxContexts}) reached`);
       }
+
+      // Engine switch (task 54601eeb): a 'chromium' pane connects to the real
+      // user-installed Chromium (sidecar) over CDP instead of launching our own
+      // headless one. The engine hint (set by the switch) wins over the call opt,
+      // so a getOrCreate-triggered recreate after a switch lands on chromium.
+      const engineHint = pendingEngineHints.get(id);
+      const engine = engineHint?.engine ?? opts?.engine ?? "default";
+      const cdpEndpoint = engineHint?.cdpEndpoint ?? opts?.cdpEndpoint;
+      if (engine === "chromium") {
+        if (!cdpEndpoint) throw new Error(`chromium engine for ${id} requires a cdpEndpoint`);
+        const engineBrowser = await connectOverCDP(cdpEndpoint);
+        // The extensions live in the sidecar's persistent default context — use it
+        // (don't newContext, which would be a fresh incognito profile with none).
+        const context = engineBrowser.contexts()[0] ?? (await engineBrowser.newContext());
+        try {
+          const page = await context.newPage();
+          // Capture the CDP targetId (agent routing) — same as the default path.
+          try {
+            const session = await context.newCDPSession(page);
+            try {
+              const info = (await session.send("Target.getTargetInfo")) as { targetInfo: { targetId: string } };
+              if (info?.targetInfo?.targetId) targetIds.set(id, info.targetInfo.targetId);
+            } finally {
+              await session.detach().catch(() => {});
+            }
+          } catch (err: any) {
+            console.warn(`[BrowserService] chromium targetId capture failed for ${id}:`, err.message);
+          }
+          const entry: BrowserContextEntry = {
+            context,
+            page,
+            createdAt: new Date().toISOString(),
+            lastActivity: Date.now(),
+            url: "about:blank",
+            title: "",
+            consoleMessages: [],
+            // deviceScaleFactor is the real Chromium's own — not forced.
+            engine: "chromium",
+            engineBrowser,
+          };
+          contexts.set(id, entry);
+          lastActivityAt = entry.lastActivity;
+          await setupPage(entry, id);
+          // No storageState / last-url restore / cookie load / autosave: the
+          // sidecar owns a persistent on-disk profile (Option 1), so per-context
+          // state serialization would fight it. The pane navigates fresh.
+          console.log(`[BrowserService] Chromium-engine context created: ${id} (via ${cdpEndpoint})`);
+          return;
+        } catch (err) {
+          contexts.delete(id);
+          targetIds.delete(id);
+          agentActionHints.delete(id);
+          // Disconnect the CDP client (never kill the sidecar — the registry owns it).
+          try { await engineBrowser.close(); } catch {}
+          throw err;
+        }
+      }
+
       const b = await ensureBrowser();
       // Prefer the client's latest resize hint (real pane size + DPR) over the
       // caller viewport/default, so the FIRST-open render already matches the
@@ -665,6 +759,24 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // CDP frames target a context that's about to be torn down.
       await service.stopScreencast(id).catch(() => {});
       entry.autoSaveCleanup?.();
+      if (entry.engine === "chromium") {
+        // Chromium engine: the sidecar owns the persistent profile (no per-context
+        // state to flush) and the default context is SHARED with the sidecar's
+        // other tabs — closing it would nuke them. Close only this pane's page,
+        // then disconnect the CDP client. The sidecar process itself lives on;
+        // its lifetime is the engine registry's ref count, released elsewhere.
+        try { await entry.page.close(); } catch {}
+        try { await entry.engineBrowser?.close(); } catch {}
+        contexts.delete(id);
+        targetIds.delete(id);
+        agentActionHints.delete(id);
+        pendingViewportHints.delete(id);
+        try { opts.onDestroy?.(id); } catch (err: any) {
+          console.warn(`[BrowserService] onDestroy callback failed for ${id}:`, err.message);
+        }
+        console.log(`[BrowserService] Chromium-engine context destroyed: ${id} (remaining: ${contexts.size})`);
+        return;
+      }
       // Final flush before close (best effort).
       try {
         const finalState = await entry.context.storageState();
@@ -692,6 +804,14 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         console.warn(`[BrowserService] onDestroy callback failed for ${id}:`, err.message);
       }
       console.log(`[BrowserService] Context destroyed: ${id} (remaining: ${contexts.size})`);
+    },
+
+    setEngineHint(id, engine, cdpEndpoint) {
+      if (engine === "default") {
+        pendingEngineHints.delete(id);
+      } else {
+        pendingEngineHints.set(id, { engine, cdpEndpoint });
+      }
     },
 
     async getOrCreate(id) {
