@@ -7,6 +7,7 @@ import { openTaskInApp } from './lib/openTaskLink';
 import { useClaudeEventNotifications } from './hooks/useClaudeEventNotifications';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
+import { ReloadNudges } from './components/ReloadNudges';
 import type { SidebarTab } from './types';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
@@ -1371,6 +1372,10 @@ function App() {
 
       {/* Phase E · UpdaterToast (rendered at root, listens to electron-updater) */}
       <UpdaterToast />
+
+      {/* Reload nudges: bundle-stuck banner + SW-waiting apply prompt (both
+          used to fail silently). */}
+      <ReloadNudges />
 
       {/* Root-level fallback outlet for global notifications (e.g. agent
           completion). When a scoped outlet (ProjectWindow's) is mounted,

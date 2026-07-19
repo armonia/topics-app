@@ -1,5 +1,5 @@
 import os from "os";
-import { existsSync } from "fs";
+import { existsSync, statSync, readFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { getListeningPorts, getTopCpuProcesses } from "./processes";
@@ -7,6 +7,26 @@ import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
 
 const SERVER_START_TIME = Date.now();
+
+// Live app version, read FRESH from the root package.json (mtime-cached so we
+// don't re-parse on every poll). The client's baked `__APP_VERSION__` is
+// frozen at `vite build --watch` start — after a version bump it lies until the
+// build-watch is kickstarted. This endpoint is the runtime source of truth: the
+// server process re-reads the file whenever it changes on disk, so the version
+// chip reflects the current package.json the moment it's bumped.
+const PKG_PATH = join(import.meta.dir, "..", "..", "package.json");
+let _pkgCache: { mtimeMs: number; version: string } | null = null;
+function readAppVersion(): string {
+  try {
+    const mtimeMs = statSync(PKG_PATH).mtimeMs;
+    if (_pkgCache && _pkgCache.mtimeMs === mtimeMs) return _pkgCache.version;
+    const version = (JSON.parse(readFileSync(PKG_PATH, "utf8")).version as string) || "0.0.0";
+    _pkgCache = { mtimeMs, version };
+    return version;
+  } catch {
+    return _pkgCache?.version ?? "0.0.0";
+  }
+}
 
 type GatewayStatus = "online" | "offline" | "timeout" | "connection_refused" | "server_error" | "auth_error";
 
@@ -162,6 +182,16 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
       } catch (err: any) {
         return json({ ok: false, error: err.message }, 500);
       }
+    }
+
+    // Runtime app version — read fresh from package.json (mtime-cached). The
+    // version chip fetches this so a post-bump build no longer needs the
+    // build-watch kickstart to stop showing the old number. no-store so no
+    // layer (WKWebView HTTP cache included) serves a stale version.
+    if (method === "GET" && pathname === "/api/version") {
+      return new Response(JSON.stringify({ version: readAppVersion() }), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
     }
 
     if (method === "GET" && pathname === "/api/system/status") {
