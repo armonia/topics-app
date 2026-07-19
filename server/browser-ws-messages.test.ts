@@ -67,6 +67,17 @@ describe('browser-ws-messages: engine (server -> client)', () => {
   });
 });
 
+describe('browser-ws-messages: set_stream (client -> server)', () => {
+  it('accepts active true/false', () => {
+    expect(parseBrowserWsMessage({ type: 'set_stream', active: false }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'set_stream', active: true }).ok).toBe(true);
+  });
+  it('rejects a missing / non-boolean active', () => {
+    expect(parseBrowserWsMessage({ type: 'set_stream' }).ok).toBe(false);
+    expect(parseBrowserWsMessage({ type: 'set_stream', active: 'yes' }).ok).toBe(false);
+  });
+});
+
 describe('browser-ws-messages: union still discriminates', () => {
   it('parses a frame and rejects an unknown type', () => {
     expect(parseBrowserWsMessage({ type: 'frame', data: 'abc', metadata: { timestamp: 1 } }).ok).toBe(true);

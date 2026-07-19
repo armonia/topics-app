@@ -113,6 +113,13 @@ const engineMessageSchema = z.object({
   extensions: z.optional(z.number()),
 });
 
+/** Client -> server (task 052f53ef): pause/resume this viewer's screencast while
+ *  the WS stays open (sent when the pane switches to/from native iframe mode). */
+const setStreamMessageSchema = z.object({
+  type: z.literal('set_stream'),
+  active: z.boolean(),
+});
+
 export const browserWsMessageSchema = z.discriminatedUnion('type', [
   frameMessageSchema,
   inputMessageSchema,
@@ -124,6 +131,7 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   downloadMessageSchema,
   setEngineMessageSchema,
   engineMessageSchema,
+  setStreamMessageSchema,
 ]);
 
 export type BrowserWsMessage = z.infer<typeof browserWsMessageSchema>;

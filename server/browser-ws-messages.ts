@@ -4,9 +4,9 @@
  * mirrored Zod schemas (this file is the canonical source).
  *
  * Direction conventions:
- *   - frame, agent_active, console, download, engine:  server -> client only
- *   - input, take_control, resize, set_engine:         client -> server only
- *   - nav:                                             both directions (request from either side, response broadcast)
+ *   - frame, agent_active, console, download, engine:              server -> client only
+ *   - input, take_control, resize, set_engine, set_stream:         client -> server only
+ *   - nav:                                                         both directions (request from either side, response broadcast)
  *
  * KEEP IN SYNC: client/src/types/browser-ws-messages.ts mirrors this file.
  * The composite tsconfig boundary forbids cross-import via TS6307, so the
@@ -139,6 +139,16 @@ const engineMessageSchema = z.object({
   extensions: z.number().int().nonnegative().optional(),
 });
 
+/** Client -> server (task 052f53ef): pause/resume THIS viewer's server-side
+ *  screencast without dropping the WS. The pane sends active:false when it
+ *  renders a native <iframe> (T2) — the headless Chromium then stops rendering
+ *  frames nobody watches — and active:true when it switches back to the stream.
+ *  The WS stays open either way so agent_active still reaches the pane. */
+const setStreamMessageSchema = z.object({
+  type: z.literal('set_stream'),
+  active: z.boolean(),
+});
+
 // ----- Top-level discriminated union ----------------------------------------
 
 export const browserWsMessageSchema = z.discriminatedUnion('type', [
@@ -152,6 +162,7 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   downloadMessageSchema,
   setEngineMessageSchema,
   engineMessageSchema,
+  setStreamMessageSchema,
 ]);
 
 export type BrowserWsMessage = z.infer<typeof browserWsMessageSchema>;

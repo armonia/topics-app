@@ -117,4 +117,37 @@ test.describe("T2 iframe render mode", () => {
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
+
+  test("iframe-mode pauses the server screencast (set_stream false), agent-attach resumes it [052f53ef]", async ({ page, browserProcessPageV2, request }) => {
+    await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockBrowserContexts([]);
+    await browserProcessPageV2.mockRemoteBrowserPane({
+      connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
+    });
+    await mockFramable(page, true);
+
+    const topic = await createTopic(request, `E2E-IframePause-${Date.now()}`);
+    try {
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await mountBrowserPane(page, topic.id, "https://example.com");
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const seen: any[] = [];
+      const pollStreams = () => {
+        seen.push(...browserProcessPageV2.drainInputMessages());
+        return seen.filter((m) => m?.type === "set_stream");
+      };
+
+      // Entering iframe-mode pauses the headless stream (no viewer for it).
+      await expect(page.locator('[data-testid="browser-iframe"]')).toBeVisible({ timeout: 10000 });
+      await expect.poll(() => pollStreams().some((m) => m.active === false), { timeout: 8000 }).toBe(true);
+
+      // Agent attaches → back to the stream → resume the screencast.
+      browserProcessPageV2.broadcastAgentActive(true);
+      await expect.poll(() => pollStreams().some((m) => m.active === true), { timeout: 8000 }).toBe(true);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
 });

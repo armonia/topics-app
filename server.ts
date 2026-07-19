@@ -1226,15 +1226,40 @@ const server = Bun.serve<WSData>({
         const SCREENCAST_START_GRACE_MS = 250;
         let screencastCancelled = false;
         let screencastStart: Promise<void> | null = null;
-        const screencastTimer = setTimeout(() => {
-          if (screencastCancelled) return;
+        // Task 052f53ef — the desired stream state for THIS viewer. The web pane
+        // flips it to false while it shows a native <iframe> (T2) so the headless
+        // Chromium stops rendering frames nobody watches, and back to true when it
+        // returns to the stream. Distinct from screencastCancelled (WS teardown).
+        let streamActive = true;
+        const startScreencastForViewer = () => {
           screencastStart = browserService.startScreencast(ctxId, onFrame).catch(err => {
             console.warn(`[WS][browser] startScreencast failed for ${ctxId}:`, err.message);
             try {
               ws.send(JSON.stringify({ type: 'error', message: `Screencast start failed: ${err.message}` }));
             } catch {}
           });
+        };
+        const screencastTimer = setTimeout(() => {
+          // Skip the deferred start if a native executor cancelled it OR the pane
+          // already paused the stream (iframe-mode) during the grace window.
+          if (screencastCancelled || !streamActive) return;
+          startScreencastForViewer();
         }, SCREENCAST_START_GRACE_MS);
+        ws.data._browserSetStream = (active: boolean) => {
+          if (screencastCancelled || active === streamActive) return;
+          streamActive = active;
+          if (active) {
+            // Resume: re-attach this viewer to the (shared) screencast.
+            startScreencastForViewer();
+          } else {
+            // Pause: detach this viewer. When it was the last viewer the shared
+            // CDP session tears down and the headless page stops rendering; the
+            // context stays alive (WS open) so agent_active still reaches the pane.
+            browserService.stopScreencast(ctxId, onFrame).catch(err =>
+              console.warn(`[WS][browser] pause stopScreencast failed for ${ctxId}:`, err.message)
+            );
+          }
+        };
         ws.data._browserCleanup = async () => {
           screencastCancelled = true;
           clearTimeout(screencastTimer);
@@ -1412,6 +1437,10 @@ const server = Bun.serve<WSData>({
                 try { sendBrowserWsMessage(ws, { type: 'engine', engine: 'native' }); } catch { /* socket gone */ }
               });
             }
+          } else if (parsed.type === 'set_stream') {
+            // Task 052f53ef — pause/resume this viewer's screencast when the pane
+            // enters/leaves native iframe-mode (kills the wasted headless render).
+            ws.data._browserSetStream?.(parsed.active);
           }
           // Ignore other message types from client (frame/agent_active/console/download/engine are server -> client only).
         } catch (err) {
