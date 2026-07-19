@@ -662,6 +662,24 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           </div>
         )}
 
+        {/* WebRTC shared-session <video> (opt-in). Mounted through negotiation so
+            ontrack can attach the stream before ICE connects; overlaid + interactive
+            only once active, otherwise the JPEG <img> below stays visible. */}
+        {browser.webrtcMounted && (
+          <video
+            ref={browser.videoRef}
+            autoPlay
+            playsInline
+            muted
+            data-testid="browser-webrtc-video"
+            className={`absolute inset-0 w-full h-full object-contain bg-black transition-opacity ${
+              browser.webrtcActive ? 'opacity-100 z-[1] cursor-default select-none' : 'opacity-0 pointer-events-none'
+            }`}
+            onClick={browser.onClick}
+            onWheel={browser.onWheel}
+          />
+        )}
+
         {browser.screenshotSrc && !(browser.connected && (!browser.url || browser.url === 'about:blank')) ? (
           <img
             ref={imgRef}

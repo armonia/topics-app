@@ -21,14 +21,24 @@ export interface CoordMeta {
   deviceScaleFactor?: number;
 }
 
+/** Intrinsic frame size of the display element — `<img>` (naturalWidth) or the
+ *  WebRTC `<video>` (videoWidth). Same letterbox/aspect math applies to both. */
+function intrinsicSize(el: HTMLImageElement | HTMLVideoElement): { w: number; h: number } {
+  const img = el as HTMLImageElement;
+  const vid = el as HTMLVideoElement;
+  return {
+    w: img.naturalWidth || vid.videoWidth || VIEWPORT_WIDTH,
+    h: img.naturalHeight || vid.videoHeight || VIEWPORT_HEIGHT,
+  };
+}
+
 export function mapCoordinates(
-  e: React.MouseEvent<HTMLImageElement>,
-  img: HTMLImageElement,
+  e: React.MouseEvent<HTMLImageElement | HTMLVideoElement>,
+  el: HTMLImageElement | HTMLVideoElement,
   meta: CoordMeta = {},
 ): { x: number; y: number } | null {
-  const rect = img.getBoundingClientRect();
-  const naturalW = img.naturalWidth || VIEWPORT_WIDTH;
-  const naturalH = img.naturalHeight || VIEWPORT_HEIGHT;
+  const rect = el.getBoundingClientRect();
+  const { w: naturalW, h: naturalH } = intrinsicSize(el);
   // Letterbox math uses the ACTUAL image pixels (naturalW/H) — at HiDPI the
   // frame is deviceW×dsf but its aspect ratio is unchanged, so this is correct.
   const imgAspect = naturalW / naturalH;
