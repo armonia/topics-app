@@ -1,0 +1,85 @@
+import { test, expect } from "@playwright/test";
+import { goToApp } from "./helpers";
+
+/**
+ * Shared browser session — "condivisi nello stato tra Mac app e PWA".
+ *
+ * The Mac app pane (with "Condividi sessione" ON) and a PWA/web pane viewing the
+ * same topic are, at the protocol level, TWO identical streaming viewers of ONE
+ * server-side context on /ws/browser/<ctx>. The server fans the single headless
+ * page out to every viewer (browserWsClients set) AND — the state half — rebroadcasts
+ * navigation to ALL of them: browser-service's page.on('load') → broadcastToBrowserWs
+ * a `nav`/url message, so every viewer's URL bar tracks the shared page.
+ *
+ * This drives the REAL test server (no WS mock, no internal stubbing — CLAUDE.md
+ * "no mocking internals"): two live WebSocket viewers of the same context, one
+ * navigates, the other must receive the nav broadcast. Deterministic — it rides
+ * the WS control channel (the state fan-out), not the WebRTC video transport, so
+ * it needs no sidecar/ICE. Navigates to a SERVER-LOCAL url so it never depends on
+ * outbound internet in CI.
+ */
+test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
+  test("a second viewer of the same context receives the navigation state broadcast", async ({ page, baseURL }) => {
+    await goToApp(page);
+
+    const ctx = `e2e-shared-${Date.now()}`;
+    // A server-local URL: the test server serves its own root, so the headless
+    // page's `load` fires (→ nav broadcast) with zero external network.
+    const navUrl = `${baseURL ?? "http://localhost:13334"}/`;
+
+    const result = await page.evaluate(
+      async ({ ctx, navUrl }) => {
+        const wsBase = location.origin.replace(/^http/, "ws");
+        const open = (): { ws: WebSocket; navs: { phase?: string; url?: string }[]; opened: Promise<void> } => {
+          const ws = new WebSocket(`${wsBase}/ws/browser/${encodeURIComponent(ctx)}`);
+          const navs: { phase?: string; url?: string }[] = [];
+          ws.addEventListener("message", (ev) => {
+            let m: { type?: string; phase?: string; url?: string };
+            try { m = JSON.parse((ev as MessageEvent).data); } catch { return; }
+            if (m.type === "nav") navs.push({ phase: m.phase, url: m.url });
+          });
+          const opened = new Promise<void>((res, rej) => {
+            ws.addEventListener("open", () => res());
+            ws.addEventListener("error", () => rej(new Error("ws error")));
+          });
+          return { ws, navs, opened };
+        };
+
+        // Viewer A (Mac-sim) and Viewer B (PWA-sim) — same context, both live
+        // BEFORE the navigation so B is subscribed when the broadcast fires.
+        const A = open();
+        const B = open();
+        await Promise.all([A.opened, B.opened]);
+
+        // A navigates the shared page. The server navigates the ONE headless page
+        // and, on its `load`, rebroadcasts the nav/url to every viewer (A and B).
+        A.ws.send(JSON.stringify({ type: "nav", url: navUrl, phase: "request" }));
+
+        // Poll up to ~12s for B to receive a nav broadcast carrying the new url.
+        const deadline = Date.now() + 12000;
+        const target = new URL(navUrl).href;
+        const sawOn = (navs: { phase?: string; url?: string }[]) =>
+          navs.some((n) => n.phase === "response" && !!n.url && new URL(n.url).href === target);
+        while (Date.now() < deadline) {
+          if (sawOn(B.navs)) break;
+          await new Promise((r) => setTimeout(r, 200));
+        }
+
+        const out = {
+          bReceivedState: sawOn(B.navs),
+          aReceivedState: sawOn(A.navs),
+          bNavCount: B.navs.length,
+        };
+        try { A.ws.close(); B.ws.close(); } catch { /* ignore */ }
+        return out;
+      },
+      { ctx, navUrl },
+    );
+
+    // The core guarantee: viewer B (the "other device") saw the navigation state
+    // even though viewer A drove it — the pane state is genuinely shared.
+    expect(result.bReceivedState).toBe(true);
+    // And the driving viewer sees it too (its own nav response + the broadcast).
+    expect(result.aReceivedState).toBe(true);
+  });
+});

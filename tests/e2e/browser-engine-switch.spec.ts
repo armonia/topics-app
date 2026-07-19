@@ -38,6 +38,7 @@ test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", 
 
   test("toggle is HIDDEN when the server reports the capability disabled", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockWebrtcPeer(); // streaming surface = WebRTC <video>
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
@@ -51,9 +52,8 @@ test.describe("Engine switch (54601eeb) — web pane Native↔Chromium toggle", 
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
-      // The streaming img proves the pane is up; the toggle must still be absent.
-      const img = page.locator('img[alt="Browser page"]').or(page.locator('img[alt="Example"]'));
-      await expect(img.first()).toBeVisible({ timeout: 10000 });
+      // The streaming <video> proves the pane is up; the toggle must still be absent.
+      await expect(page.locator('[data-testid="browser-webrtc-video"]')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('[data-testid="browser-engine-toggle"]')).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});

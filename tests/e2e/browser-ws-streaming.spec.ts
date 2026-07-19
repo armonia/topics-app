@@ -127,6 +127,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
 
   test("input latency p95 < 150ms (20 click samples) [BROWSER-CHAT-02 / @plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 30 }); // tighter window
+    await browserProcessPageV2.mockWebrtcPeer(); // clickable surface = WebRTC <video>
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true,
@@ -179,26 +180,13 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
 
-      const screenshotImg = page
-        .locator('img[alt="Browser page"]')
-        .or(page.locator('img[alt="Example"]'));
+      // The clickable surface is now the WebRTC <video>. A synthetic stream has
+      // videoWidth=0, so mapCoordinates falls back to the 1280×720 viewport basis
+      // (browserCoords.intrinsicSize) — clicks map cleanly with no DOM patch. The
+      // input→frame round trip still rides the mocked WS (the mock keeps pushing
+      // frames), so the p95 latency contract is unchanged, just measured on <video>.
+      const screenshotImg = page.locator('[data-testid="browser-webrtc-video"]');
       await screenshotImg.first().waitFor({ state: "visible", timeout: 10000 });
-
-      // The fixture serves a 1x1 JPEG so naturalWidth/Height = 1. mapCoordinates
-      // returns null for any click outside that 1x1 effective display area
-      // (after object-contain centering). Patch naturalWidth/Height to a
-      // realistic viewport so coords map cleanly. Pure DOM tweak — does not
-      // affect the bytes the WS sends, just allows the click handler to
-      // accept a wider range of (clientX, clientY) positions.
-      await page.evaluate(() => {
-        const img = document.querySelector(
-          'img[alt="Browser page"], img[alt="Example"]',
-        ) as HTMLImageElement | null;
-        if (img) {
-          Object.defineProperty(img, "naturalWidth", { value: 1280, configurable: true });
-          Object.defineProperty(img, "naturalHeight", { value: 800, configurable: true });
-        }
-      });
 
       // W6 FIX: rAF-based sample spacing (NOT waitForTimeout). Double rAF
       // guarantees a frame interval between clicks, event-driven.
@@ -206,7 +194,12 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       const box = await screenshotImg.first().boundingBox();
       const cx = (box?.width ?? 200) / 2;
       const cy = (box?.height ?? 200) / 2;
-      for (let i = 0; i < PERF.input_latency_sample_size_min; i++) {
+      // Click a small MARGIN over the minimum: a click whose input rides the WS
+      // just after a frame won't pair with the very next frame, so a strict
+      // 1-click-1-sample loop can land one short (flake). Over-sampling collects
+      // >= the minimum reliably without weakening the p95 bound below.
+      const clickCount = PERF.input_latency_sample_size_min + 6;
+      for (let i = 0; i < clickCount; i++) {
         // Click around center; small jitter keeps each click distinct.
         await screenshotImg.first().click({
           position: { x: cx + (i % 5) - 2, y: cy + (i % 7) - 3 },
@@ -310,8 +303,9 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
     }
   });
 
-  test("auto-reconnect: a transient WS drop re-opens the socket, screenshot never blanks [native-grade]", async ({ page, browserProcessPageV2, request }) => {
+  test("auto-reconnect: a transient WS drop re-opens the socket, the shared session recovers [native-grade]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockWebrtcPeer(); // shared-session <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
@@ -323,33 +317,34 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
 
-      // The screenshot rendering proves the WS is streaming (connected).
-      const img = page.locator('img[alt="Browser page"]').or(page.locator('img[alt="Example"]'));
-      await expect(img.first()).toBeVisible({ timeout: 10000 });
-      expect(await img.first().getAttribute("src")).toBeTruthy();
+      // The live <video> proves the WS + WebRTC transport is up (connected).
+      const video = page.locator('[data-testid="browser-webrtc-video"]');
+      await expect(video).toBeVisible({ timeout: 10000 });
       const connectsBefore = browserProcessPageV2.getWsConnectCount();
 
-      // Transient drop: the client must auto-reconnect (open a NEW socket) rather
-      // than be stranded in polling. Observed via the mock's connection count so
-      // we don't race the connection-indicator class transitions.
+      // Transient drop: the WebRTC signaling rode this WS, so the pane tears the
+      // <video> down — but the client must auto-reconnect (open a NEW socket)
+      // rather than be stranded in polling. Observed via the mock's connection
+      // count so we don't race the connection-indicator class transitions.
       browserProcessPageV2.closeWs();
       await expect
         .poll(() => browserProcessPageV2.getWsConnectCount(), { timeout: 8000 })
         .toBeGreaterThan(connectsBefore);
-      // The last frame is retained across the blip — no blank on reveal.
-      expect(await img.first().getAttribute("src")).toBeTruthy();
+      // Recovery: the reconnect renegotiates the transport → the <video> returns
+      // (no permanent degradation to polling / a dead pane after the blip).
+      await expect(video).toBeVisible({ timeout: 10000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
 
-  test("fallback-http: WS unavailable → degrades to REST polling (screenshot via snapshot) [BROWSER-CHAT-02 / @plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("WS unavailable → connection state degrades to fallback-http, never stuck 'connecting' [BROWSER-CHAT-02 / @plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
     });
     // Make the browser WS constructor throw so no socket can open — the client
-    // then can't reconnect and degrades to the fallback-http polling FLOOR.
+    // then can't reconnect and degrades to the fallback-http FLOOR.
     await page.addInitScript(() => {
       const orig = window.WebSocket;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -369,14 +364,15 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
 
       const indicator = page.locator('[data-testid="browser-connection-indicator"]');
       await expect(indicator).toBeVisible({ timeout: 10000 });
-      // No WS → straight to fallback-http (polling), never stuck "connecting".
+      // No WS → the state machine must move to fallback-http (the "Polling"
+      // pill), never hang in 'connecting'. The visible surface is now the WebRTC
+      // <video>, which needs the WS to signal — with no WS there's no JPEG
+      // fallback render anymore (design: "zero JPEG shown"), so we assert on the
+      // connection STATE the machine reports, not a screenshot.
       await expect(indicator).toHaveClass(/connection-fallback/, {
         timeout: PERF.fallback_http_grace_ms_ceiling,
       });
-      // Screenshot still renders via REST snapshot polling — no blank.
-      const img = page.locator('img[alt="Browser page"]').or(page.locator('img[alt="Example"]'));
-      await expect(img.first()).toBeVisible({ timeout: 5000 });
-      expect(await img.first().getAttribute("src")).toBeTruthy();
+      await expect(indicator).not.toHaveClass(/connection-connecting/);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
@@ -421,6 +417,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
 
   test("download strip: a headless-page download surfaces as a clickable link [native-grade]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockWebrtcPeer(); // shared-session <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
@@ -431,10 +428,9 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
-      // The screenshot rendering proves the WS is streaming (connected), so a
+      // The live <video> proves the WS is streaming (connected), so a
       // sendDownload will reach the client. Avoids racing the indicator class.
-      const img = page.locator('img[alt="Browser page"]').or(page.locator('img[alt="Example"]'));
-      await expect(img.first()).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-testid="browser-webrtc-video"]')).toBeVisible({ timeout: 10000 });
 
       browserProcessPageV2.sendDownload({
         filename: "report.pdf",

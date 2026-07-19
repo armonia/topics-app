@@ -71,6 +71,7 @@ test.describe("T2 iframe render mode", () => {
 
   test("non-framable URL → screenshot stream (no iframe) [T2]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockWebrtcPeer(); // stream surface = WebRTC <video>
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
@@ -83,9 +84,10 @@ test.describe("T2 iframe render mode", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id, "https://example.com");
 
-      // Streaming path renders (screenshot img), no iframe. (The connection
-      // pill hides in the steady 'connected' state, so we assert on the frame.)
-      await expect(page.locator('img[alt="Example"]').first()).toBeVisible({ timeout: 10000 });
+      // Streaming path renders the shared-session <video> (H.264 WebRTC), not a
+      // JPEG <img> and not an iframe. The video becomes the visible surface once
+      // the transport negotiates (mockWebrtcPeer drives it to connected).
+      await expect(page.locator('[data-testid="browser-webrtc-video"]')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('[data-testid="browser-iframe"]')).toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
@@ -94,6 +96,7 @@ test.describe("T2 iframe render mode", () => {
 
   test("agent attaches → iframe flips to the stream so the agent can drive [T2]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockWebrtcPeer(); // stream surface = WebRTC <video>
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true, url: "https://example.com", title: "Example", hasScreenshot: true,
@@ -113,9 +116,9 @@ test.describe("T2 iframe render mode", () => {
       // (agents can't reach into a cross-origin iframe).
       browserProcessPageV2.broadcastAgentActive(true);
       await expect(iframe).toHaveCount(0, { timeout: 8000 });
-      // Streamed headless is now the render — assert on the screenshot frame
-      // (the connection pill hides in the steady 'connected' state).
-      await expect(page.locator('img[alt="Example"]').first()).toBeVisible({ timeout: 5000 });
+      // Streamed headless is now the render — the shared-session <video> surface
+      // mounts (the agent drives the same server-side page the viewers watch).
+      await expect(page.locator('[data-testid="browser-webrtc-video"]')).toBeVisible({ timeout: 5000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
