@@ -14,7 +14,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::Sender;
 
@@ -26,12 +26,16 @@ pub fn encode_thread(rx: Receiver<Vec<u8>>, sample_tx: Sender<Vec<u8>>, need_key
     use zune_jpeg::JpegDecoder;
 
     // Re-encode the last frame if no new one arrives within this window (static pages).
-    const KEEPALIVE: Duration = Duration::from_millis(700);
-    const IDR_EVERY: u64 = 60; // periodic keyframe fallback (~1–2s depending on fps)
+    const KEEPALIVE: Duration = Duration::from_millis(500);
+    // Periodic keyframe on a WALL-CLOCK timer (NOT a frame count): a late-joining peer
+    // must get an IDR within ~1s regardless of the source frame rate. Frame-count IDR
+    // starves static pages — at the ~2fps keepalive rate a 60-frame gap is ~30s, so a
+    // viewer that connects a few seconds in never decodes (framesDecoded stuck at 0).
+    const KEYFRAME_EVERY: Duration = Duration::from_millis(1000);
 
     let mut encoder: Option<(Encoder, usize, usize)> = None;
     let mut last: Option<(Vec<u8>, usize, usize)> = None; // last decoded RGB + dims
-    let mut frame_no: u64 = 0;
+    let mut last_key = Instant::now() - Duration::from_secs(10); // force on first frame
 
     loop {
         // Get the next JPEG, or on timeout fall back to re-encoding the last RGB frame.
@@ -74,7 +78,6 @@ pub fn encode_thread(rx: Receiver<Vec<u8>>, sample_tx: Sender<Vec<u8>>, need_key
                 Ok(enc) => {
                     eprintln!("[enc] encoder {w}x{h}");
                     encoder = Some((enc, w, h));
-                    frame_no = 0;
                     need_keyframe.store(true, Ordering::Relaxed);
                 }
                 Err(e) => {
@@ -85,10 +88,10 @@ pub fn encode_thread(rx: Receiver<Vec<u8>>, sample_tx: Sender<Vec<u8>>, need_key
         }
         let (enc, _, _) = encoder.as_mut().unwrap();
 
-        if need_keyframe.swap(false, Ordering::Relaxed) || frame_no % IDR_EVERY == 0 {
+        if need_keyframe.swap(false, Ordering::Relaxed) || last_key.elapsed() >= KEYFRAME_EVERY {
             enc.force_intra_frame();
+            last_key = Instant::now();
         }
-        frame_no += 1;
 
         let rgb_src = RgbSliceU8::new(&rgb, (w, h));
         let yuv = YUVBuffer::from_rgb8_source(rgb_src);
