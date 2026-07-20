@@ -207,7 +207,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     webrtcActive: false,
     webrtcMounted: false,
     webrtcError: false,
-    renderMode: 'video',
+    // Option A: DOM is the DEFAULT surface — the real browser rebuilt natively,
+    // cross-device-sharp, no video. On connect the pane asks the server for 'dom'
+    // (ws.onopen); the server confirms via `render_mode` or forces 'video' back
+    // when it can't snapshot the page (canvas/WebGL/injection blocked), and only
+    // THEN does the WebRTC pixel transport negotiate.
+    renderMode: 'dom',
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -228,7 +233,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   const webrtcTeardownRef = useRef<() => void>(() => {});
   // T1 DOM co-browse: mirror of renderMode for the long-lived onmessage closure,
   // and the live rrweb-event sink (registered by the DomCoBrowse view's Replayer).
-  const renderModeRef = useRef<'video' | 'dom'>('video');
+  const renderModeRef = useRef<'video' | 'dom'>('dom');
   const domSinkRef = useRef<((event: unknown) => void) | null>(null);
   // Buffer events that arrive before the DomCoBrowse view registers its sink (the
   // bootstrap burst can land in the same tick the pane mounts). Flushed on register.
@@ -497,6 +502,15 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       if (!streamActiveRef.current) {
         try { ws.send(JSON.stringify({ type: 'set_stream', active: false } satisfies BrowserWsMessage)); } catch { /* dropped */ }
       }
+      // Option A: DOM is the default surface, so RE-ASSERT it on every (re)connect —
+      // the server defaults a fresh connection to the pixel stream. This makes the
+      // server enable DOM mode, pause this viewer's screencast, and re-send the
+      // rrweb bootstrap (a reconnecting DOM viewer needs a fresh FullSnapshot). If
+      // the page can't be snapshotted the server replies `render_mode:'video'` and
+      // the video effect then negotiates WebRTC — no code path here for that.
+      if (renderModeRef.current === 'dom') {
+        try { ws.send(JSON.stringify({ type: 'set_render', mode: 'dom' } satisfies BrowserWsMessage)); } catch { /* dropped */ }
+      }
     };
 
     ws.onmessage = (event) => {
@@ -526,8 +540,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             if (connectionStateRef.current !== 'connected') updateConnectionState('connected');
             // A frame proves this pane has a live CDP target → negotiate the WebRTC
             // transport (the JPEG frame is an internal bootstrap signal, never rendered;
-            // once WebRTC connects we stop the screencast). Guarded internally.
-            if (WEBRTC_ENABLED && !pcRef.current && !webrtcActiveRef.current) startWebrtc();
+            // once WebRTC connects we stop the screencast). Guarded internally. Only in
+            // 'video' mode: DOM is the default surface (Option A) and needs no pixels.
+            if (WEBRTC_ENABLED && renderModeRef.current === 'video' && !pcRef.current && !webrtcActiveRef.current) startWebrtc();
             // Hidden pane: drop the frame (keep the last one painted) to skip the
             // base64 decode + img repaint. See the isVisible param docs above.
             if (!isVisibleRef.current) break;
@@ -911,11 +926,17 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // internally (a live/negotiating PC makes this a no-op), so repeated renders are safe.
   useEffect(() => {
     if (!WEBRTC_ENABLED) return;
+    // Option A: only the pixel-stream ('video') surface needs WebRTC. DOM is the
+    // default and carries tiny rrweb events, not pixels — negotiating WebRTC there
+    // would spin the headless screencast (and the orphan-peer retry noise) for
+    // nothing. When the server forces 'video' (DOM unsupported), renderMode flips
+    // and this effect re-runs → WebRTC negotiates then.
+    if (state.renderMode !== 'video') return;
     if (state.connectionState !== 'connected') return;
     if (!state.url || state.url === 'about:blank') return;
     if (state.webrtcActive || state.webrtcError) return;
     webrtcStartRef.current();
-  }, [state.url, state.connectionState, state.webrtcActive, state.webrtcError]);
+  }, [state.renderMode, state.url, state.connectionState, state.webrtcActive, state.webrtcError]);
 
   // --- Interaction handlers ---
 

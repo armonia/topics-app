@@ -73,12 +73,18 @@ function sharedStorageKey(contextId: string): string {
   return `topics.browser.shared.${contextId}`;
 }
 function readSharedPref(contextId: string): boolean {
-  try { return localStorage.getItem(sharedStorageKey(contextId)) === '1'; } catch { return false; }
+  // Shared is the DEFAULT (Option A): the pane joins the server session so the
+  // phone/web see the SAME live page — and it's the same browser agents drive, so
+  // everything converges with zero handoff. Only an explicit '0' opts this Mac OUT
+  // into the private native WKWebView. Legacy '1' (an early opt-IN) stays shared.
+  // Absent / unreadable storage → shared.
+  try { return localStorage.getItem(sharedStorageKey(contextId)) !== '0'; } catch { return true; }
 }
 function writeSharedPref(contextId: string, shared: boolean): void {
   try {
-    if (shared) localStorage.setItem(sharedStorageKey(contextId), '1');
-    else localStorage.removeItem(sharedStorageKey(contextId));
+    // Shared is the default → clear the key; store '0' only for the local opt-out.
+    if (shared) localStorage.removeItem(sharedStorageKey(contextId));
+    else localStorage.setItem(sharedStorageKey(contextId), '0');
   } catch { /* private mode / no storage — in-memory state still drives the switch */ }
 }
 
@@ -117,11 +123,11 @@ function isSeedableUrl(raw: string | undefined): raw is string {
 }
 
 export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
-  // SHARED-SESSION switch (Tauri only). Default OFF → the fast, private native
-  // WKWebView. When ON, the Mac joins the SAME server-side streamed session a
-  // phone/web viewer of this pane sees (same page/login/cursor). The choice is
-  // per-device + persisted (localStorage), so a reload keeps the pane shared
-  // instead of silently reverting to native and diverging from the phone again.
+  // SHARED-SESSION switch (Tauri only). Default ON (Option A): the pane joins the
+  // SAME server-side session the phone/web see (same page/login/cursor) — the same
+  // browser agents drive, so Mac + phone + agent converge with zero handoff. The
+  // toggle opts this Mac OUT into the fast, private native WKWebView. The choice is
+  // per-device + persisted (localStorage), so a reload keeps it.
   const [shared, setShared] = useState(() => isTauri && readSharedPref(contextId));
   // Re-read when the pane is reused for a different context id — the "adjust
   // state during render on prop change" pattern (no effect, no cascading render).
@@ -720,8 +726,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         )}
 
         {/* T1 DOM co-browse toggle — DOM (native rrweb reconstruction) ↔ video (the
-            pixel stream). Shown once the pane is on a real page. Default video; DOM
-            is the cross-device-robust path (fixes the blank/error on other devices). */}
+            pixel stream). Shown once the pane is on a real page. DOM is the DEFAULT
+            (Option A): the real browser, native + cross-device-sharp, no video. Video
+            is the manual/auto fallback for canvas/WebGL/media the DOM can't rebuild. */}
         {!!browser.url && browser.url !== 'about:blank' && (
           <button
             type="button"
@@ -783,8 +790,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         )}
 
         {/* T1 DOM co-browse — native rrweb reconstruction, overlaid above the (now
-            paused) pixel surface. Real browser, cross-device-sharp, not a video. */}
-        {browser.renderMode === 'dom' && (
+            paused) pixel surface. Real browser, cross-device-sharp, not a video.
+            Gated on a real page: a blank pane shows the "enter a URL" prompt below,
+            not an opaque white overlay. This is the DEFAULT surface now (Option A). */}
+        {browser.renderMode === 'dom' && !!browser.url && browser.url !== 'about:blank' && (
           <Suspense
             fallback={
               <div className="absolute inset-0 z-[5] flex items-center justify-center bg-white">

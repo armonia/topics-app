@@ -46,6 +46,12 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
   // mockDomCoBrowse(); when set, the mock answers with render_mode + the burst.
   private domCobrowseEvents: unknown[] | null = null;
 
+  // Option A: simulate a page the server can't DOM-snapshot (canvas/WebGL, or an
+  // rrweb bootstrap that yields no FullSnapshot). When set, the mock forces
+  // render_mode:'video' for ANY set_render:'dom' — mirroring the real server — so
+  // the pane must gracefully fall back to the pixel (WebRTC) surface.
+  private domUnsupported = false;
+
   constructor(page: Page) {
     super(page);
   }
@@ -110,15 +116,20 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
             }));
           } catch { /* ignore */ }
         }
-        // T1 DOM co-browse: mirror the server — a set_render:'dom' request is
-        // answered with render_mode:'dom' + the rrweb bootstrap burst so the pane
-        // reconstructs the DOM; set_render:'video' just acks the mode.
-        if (this.domCobrowseEvents && parsed && typeof parsed === 'object' && (parsed as { type?: string }).type === 'set_render') {
-          const mode = (parsed as { mode?: string }).mode === 'dom' ? 'dom' : 'video';
+        // DOM co-browse — mirror the server, which ALWAYS answers set_render. Option
+        // A makes the client default to 'dom', so this must reply even for tests that
+        // never opted into DOM: 'dom'+bootstrap only when the test provided rrweb
+        // events (and didn't force unsupported), otherwise render_mode:'video' — the
+        // server's "can't snapshot this page" path. That forced 'video' is what every
+        // pixel/WebRTC test relies on to reach the <video> surface under the new default.
+        if (parsed && typeof parsed === 'object' && (parsed as { type?: string }).type === 'set_render') {
+          const requested = (parsed as { mode?: string }).mode === 'dom' ? 'dom' : 'video';
+          const canDom = requested === 'dom' && !!this.domCobrowseEvents && !this.domUnsupported;
+          const mode = canDom ? 'dom' : 'video';
           try {
             ws.send(JSON.stringify({ type: 'render_mode', mode }));
-            if (mode === 'dom') {
-              for (const event of this.domCobrowseEvents) {
+            if (canDom) {
+              for (const event of this.domCobrowseEvents!) {
                 ws.send(JSON.stringify({ type: 'dom_event', event }));
               }
             }
@@ -234,6 +245,16 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
    */
   mockDomCoBrowse(events: unknown[]): void {
     this.domCobrowseEvents = events;
+  }
+
+  /**
+   * Option A: opt this test into a page the server can't DOM-snapshot. The mock WS
+   * then forces render_mode:'video' for any set_render:'dom' (no bootstrap), so the
+   * pane — which defaults to DOM — must gracefully fall back to the pixel surface.
+   * Pair with mockWebrtcPeer() to assert the video actually takes over.
+   */
+  mockDomUnsupported(): void {
+    this.domUnsupported = true;
   }
 
   /**
