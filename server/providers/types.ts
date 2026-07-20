@@ -359,7 +359,24 @@ export interface AIProvider {
 
   // --- Session Management (optional) ---
 
-  abort?(sessionKey: string, runId?: string): Promise<void>;
+  /**
+   * Cancel the in-flight turn for a session. `reason` distinguishes a human
+   * stop ("user", default) from the stream watchdog giving up ("watchdog") so
+   * the provider can label the resulting process exit honestly — a watchdog
+   * abort must NOT read as "user stop" in logs/UI.
+   */
+  abort?(sessionKey: string, runId?: string, reason?: "user" | "watchdog"): Promise<void>;
+
+  /**
+   * True when the provider's child process for this session is currently
+   * alive. The stream watchdog consults this before finalizing a silent
+   * stream as timed out: a live child that emits nothing is NOT dead — e.g.
+   * the Claude CLI is mute for the whole duration of an auto-compact
+   * (observed 3+ minutes) and only the hard cap should bound that. Providers
+   * without a per-session child leave this undefined (watchdog behavior
+   * unchanged).
+   */
+  isTurnProcessAlive?(sessionKey: string): boolean;
 
   /**
    * Signal that a session's persisted config changed (e.g. the per-topic

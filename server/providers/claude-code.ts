@@ -634,6 +634,12 @@ export function renderReplayPrologue(turns: ReplayTurn[]): string {
 const USE_AI_BRIDGE = process.env.TOPICS_AI_BRIDGE === "1"
   || (process.env.TOPICS_AI_BRIDGE !== "0" && process.platform !== "win32");
 
+/** Whether chat children run in the detached ai-bridge daemon (broker mode).
+ *  Exported for the server's boot sweep that re-adopts surviving chat turns. */
+export function aiBridgeEnabled(): boolean {
+  return USE_AI_BRIDGE;
+}
+
 /**
  * The stdin/signal/kill surface of a session — the ONLY child-coupled operations
  * left after the pool state (streamHandler, pending promises, tool state, timers)
@@ -696,6 +702,10 @@ interface PersistentProcess {
    *  the CLI exits code 0 on SIGINT, and without this flag onSessionClosed
    *  surfaced it as "⚠️ Process exited with code 0". */
   aborting?: boolean;
+  /** Who asked for the abort — "user" (default) or "watchdog" (stream
+   *  timeout). Only affects the exit log label so a watchdog kill is never
+   *  misread as the human pressing stop. */
+  abortReason?: "user" | "watchdog";
   /** Set when a `--resume` failed because the session is gone (we've already
    *  forgotten it, next spawn is fresh). The turn can't finish, but it's a
    *  recoverable reset — onSessionClosed surfaces a clear "resend" note instead
@@ -841,8 +851,22 @@ export class ClaudeCodeProvider implements AIProvider {
   stop(): void {
     this.started = false;
     for (const [key, pp] of this.processes) {
-      console.log(`[claude-code] Shutdown: killing process for ${key}`);
-      this.killProcess(pp);
+      if (USE_AI_BRIDGE && pp.alive) {
+        // The child lives in the DETACHED ai-bridge daemon and must SURVIVE a
+        // graceful shutdown/hot-reload (mirror of disconnectBridge() for PTY
+        // sessions). Killing it here — the pre-broker behavior — was exactly
+        // what murdered every in-flight chat turn on each start-prod
+        // hot-reload. Drop only our attachment: the next server process
+        // re-adopts an in-flight turn via reattach() (boot sweep in
+        // server.ts), and an idle child is resumed by the next sendChat's
+        // idempotent broker spawn.
+        console.log(`[claude-code] Shutdown: detaching broker session for ${key} (child stays alive)`);
+        this.cleanupTimers(pp);
+        try { getAiBridgeClient().detach(key); } catch { /* daemon gone — nothing to detach */ }
+      } else {
+        console.log(`[claude-code] Shutdown: killing process for ${key}`);
+        this.killProcess(pp);
+      }
     }
     this.processes.clear();
     this.queues.clear();
@@ -1131,13 +1155,15 @@ export class ClaudeCodeProvider implements AIProvider {
 
   // --- Abort ---
 
-  async abort(sessionKey: string, _runId?: string): Promise<void> {
+  async abort(sessionKey: string, _runId?: string, reason: "user" | "watchdog" = "user"): Promise<void> {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
 
     // Mark BEFORE signalling: the CLI exits (code 0) on SIGINT, so the exit
-    // event that follows must be read as a clean user-stop, not a crash.
+    // event that follows must be read as a clean stop, not a crash. The
+    // reason keeps the exit log honest ("watchdog stop" vs "user stop").
     pp.aborting = true;
+    pp.abortReason = reason;
 
     // SIGINT cancels the current turn without killing the process
     try {
@@ -1471,6 +1497,14 @@ export class ClaudeCodeProvider implements AIProvider {
     return pp;
   }
 
+  /** Watchdog liveness probe (see Provider.isTurnProcessAlive): true while the
+   *  session's child is running — direct or broker mode. A live-but-mute child
+   *  (auto-compact) must not be finalized as a timeout. */
+  isTurnProcessAlive(sessionKey: string): boolean {
+    const pp = this.processes.get(sessionKey);
+    return !!pp && pp.alive;
+  }
+
   /** True if a still-running broker session exists for `sessionKey`. The signal
    *  the dispatcher uses to REATTACH (non-lossy) vs RESUME-from-scratch. */
   async hasLiveSession(sessionKey: string): Promise<boolean> {
@@ -1589,7 +1623,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // respawns fresh and resends. A user stop (aborting) or a clean exit (code 0)
     // is ABORTED. Only a genuine non-zero exit is PROCESS_DIED.
     const graceful = pp.aborting === true || code === 0;
-    const kind = pp.recovering ? " (session reset)" : pp.aborting ? " (user stop)" : "";
+    const kind = pp.recovering ? " (session reset)"
+      : pp.aborting ? (pp.abortReason === "watchdog" ? " (watchdog stop)" : " (user stop)")
+      : "";
     console.log(`[claude-code] Process exited with code ${code}${kind}`);
     if (pp.pendingReject) {
       const reject = pp.pendingReject;

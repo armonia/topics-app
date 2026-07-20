@@ -112,7 +112,37 @@ describe("abort() marks the process as aborting", () => {
     (provider as any).processes.set("sess-x", pp);
     await provider.abort("sess-x");
     expect(pp.aborting).toBe(true);
+    expect((pp as any).abortReason).toBe("user"); // default: a human stop
     expect(signals).toEqual(["SIGINT"]);
+  });
+
+  test("watchdog abort carries the reason so the exit is never logged as a user stop", async () => {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const pp = fakePP({
+      alive: true,
+      streamHandler: spyHandler(),
+      pendingInputs: new Map(),
+      io: { signal: () => {} },
+    });
+    (provider as any).processes.set("sess-w", pp);
+    await provider.abort("sess-w", undefined, "watchdog");
+    expect(pp.aborting).toBe(true);
+    expect((pp as any).abortReason).toBe("watchdog");
+  });
+});
+
+describe("isTurnProcessAlive — the stream watchdog's liveness probe", () => {
+  const provider = new ClaudeCodeProvider({ type: "claude-code" });
+
+  test("true for a live pooled process (e.g. mute during auto-compact)", () => {
+    (provider as any).processes.set("sess-alive", fakePP({ alive: true }));
+    expect(provider.isTurnProcessAlive("sess-alive")).toBe(true);
+  });
+
+  test("false for a dead process and for an unknown session", () => {
+    (provider as any).processes.set("sess-dead", fakePP({ alive: false }));
+    expect(provider.isTurnProcessAlive("sess-dead")).toBe(false);
+    expect(provider.isTurnProcessAlive("sess-unknown")).toBe(false);
   });
 });
 
