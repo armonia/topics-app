@@ -139,7 +139,12 @@ const RRWEB_RECORD_START = `(function(){
         // Never stream password field contents in clear (explicit, not just rrweb's
         // default). Other inputs stay visible — a co-browse of a form is the point.
         maskInputOptions: { password: true },
-        sampling: { mousemove: 50, scroll: 100, media: 400, input: 'last' },
+        // input: 'all' — echo EVERY keystroke to the mirror live. rrweb's 'last'
+        // only records the final value once the input settles, so a co-browse
+        // user typed and saw NOTHING until blur ("scrivo e non appare"). Typing
+        // is human-rate (trivial volume vs the throttled mousemove/scroll), so
+        // 'all' is the right call for a real, native-feeling text input.
+        sampling: { mousemove: 50, scroll: 100, media: 400, input: 'all' },
       });
       window.__rrwebStarted = true;
     } catch(e){ emit({ kind:'error', error:String(e&&e.message||e) }); }
