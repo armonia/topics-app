@@ -1685,14 +1685,20 @@ const dispatchTimer = setInterval(() => {
 // Chat reload-resilience: adopt broker-surviving CHAT turns after a restart.
 // A graceful shutdown/hot-reload DETACHES chat children into the ai-bridge
 // daemon instead of killing them (claude-code stop()); this sweep re-adopts
-// any that are still alive so the in-flight turn streams on as if nothing
-// happened. The dispatcher's reconcile above already REATTACHes the turns of
-// in_progress board tasks — those sessionKeys are skipped here so two
+// any that were MID-TURN (a partial assistant message exists) so the turn
+// streams on as if nothing happened. Everything else alive in the daemon is
+// REAPED: an idle child costs RAM forever and loses nothing when killed —
+// the next sendChat respawns it with --resume on the same claude_session_id.
+// Without the reap, detach-on-shutdown would leak one orphan child per chat
+// per lifetime (observed: dispatch children from July 18-19 still alive).
+// The dispatcher's reconcile above already REATTACHes the turns of
+// in_progress board tasks — those sessionKeys are left strictly alone so two
 // handlers never race over one child.
 async function reattachSurvivingChatTurns(): Promise<void> {
   if (!aiBridgeEnabled()) return;
-  let sessions: Awaited<ReturnType<ReturnType<typeof getAiBridgeClient>["list"]>>;
-  try { sessions = await getAiBridgeClient().list(); } catch { return; } // no daemon → nothing survived
+  const client = getAiBridgeClient();
+  let sessions: Awaited<ReturnType<typeof client.list>>;
+  try { sessions = await client.list(); } catch { return; } // no daemon → nothing survived
   const live = sessions.filter((s) => s.alive && s.id.startsWith("topic:"));
   if (live.length === 0) return;
   const dispatcherClaimed = new Set<string>();
@@ -1702,14 +1708,31 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     ).all() as Array<{ t: string }>;
     for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
   } catch (err) {
-    console.warn("[chat-reattach] dispatcher claim query failed (adopting everything):", err);
+    console.warn("[chat-reattach] dispatcher claim query failed (skipping reap for safety):", err);
+    return;
   }
+  const midTurn = (sessionKey: string): boolean => {
+    try {
+      return !!ctx.db.query("SELECT 1 FROM messages WHERE session_key = ? AND partial = 1 LIMIT 1").get(sessionKey);
+    } catch { return false; }
+  };
   for (const s of live) {
-    if (dispatcherClaimed.has(s.id)) continue;
-    if (!ctx.getTopicBySessionKey(s.id)) continue; // orphan broker session (topic deleted)
-    console.log(`[chat-reattach] adopting surviving broker turn for ${s.id}`);
-    runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 }).catch((err) =>
-      console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err));
+    if (dispatcherClaimed.has(s.id)) continue; // the dispatcher's reconcile owns it
+    const topic = ctx.getTopicBySessionKey(s.id);
+    if (topic && !topic.archived && midTurn(s.id)) {
+      console.log(`[chat-reattach] adopting surviving mid-turn broker session ${s.id}`);
+      runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 }).catch((err) =>
+        console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err));
+      continue;
+    }
+    // Idle / archived / deleted-topic session: reap. Guard against a send
+    // that raced in during boot and already owns the child.
+    try {
+      const prov = getProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
+      if (prov?.isTurnProcessAlive?.(s.id)) continue; // adopted by a live turn — hands off
+    } catch { /* provider not up yet — reap anyway, a turn can't be running */ }
+    console.log(`[chat-reattach] reaping idle broker session ${s.id} (${topic ? (topic.archived ? "archived topic" : "no in-flight turn") : "topic gone"})`);
+    try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
   }
 }
 reattachSurvivingChatTurns().catch((err) => console.error("[chat-reattach] boot sweep failed", err));
