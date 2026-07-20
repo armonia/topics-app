@@ -193,7 +193,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // Piano + media as panes → the app's real PaneTabBar). `wide` is now a pure
   // width preference (more room for the native tiling), no side-panel fold.
   const rootRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const threadScrollRef = useRef<HTMLDivElement>(null);
   // Observe the drawer's own rendered width → drives `twoCol` (see above) so a
   // resize (window, sidebar toggle, expand/collapse) re-decides one vs two
   // columns from the real available space, not a proxy media query.
@@ -258,7 +258,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       window.removeEventListener('focus', onWake);
     };
   }, [load]);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [comments.length]);
+  // Scroll the THREAD'S OWN container directly (never element.scrollIntoView():
+  // on a fresh mobile mount the thread pane can still be 0-height when this
+  // fires, so the browser's ancestor-walk lands on the drawer's shared
+  // overflow-hidden parent instead — permanently scrolling the whole drawer
+  // (header + close button) out of view, with no scrollbar to recover it).
+  useEffect(() => {
+    const el = threadScrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }, [comments.length]);
 
   // A human comment on an agent-delivered review IS the answer — same
   // semantics as the card's quick-reply: reject carries the text and resumes
@@ -653,7 +661,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const renderThread = useCallback((): React.ReactNode => {
     if (!task) return null;
     return (
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+      <div ref={threadScrollRef} className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {comments.length === 0 && !task.assignedTopicId && <p className="text-xs text-neutral-500">Nessun commento.</p>}
         {comments.map((c, i) => (
           <div key={c.id} className="space-y-2">
@@ -692,10 +700,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             </div>
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/bottomRef are stable enough; the meaningful inputs are listed
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stopAgent/threadScrollRef are stable enough; the meaningful inputs are listed
   }, [task, comments, sliceBetween, agentBusy, streamPreview, busy]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
@@ -882,7 +889,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             title={wide ? 'Riduci il drawer (vedi la board)' : 'Allarga il drawer (più spazio per il tiling)'}
             className="hidden rounded p-1.5 text-neutral-400 hover:bg-white/10 lg:block"
           >{wide ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</button>
-          <button onClick={onClose} className="rounded p-1.5 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} data-testid="task-detail-close" className="rounded p-1.5 text-neutral-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
       </div>
       {error && (
