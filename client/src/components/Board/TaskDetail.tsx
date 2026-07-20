@@ -11,6 +11,7 @@ import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
+import { PreviewMedia } from './PreviewMedia';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
@@ -1072,16 +1073,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               >+ descrizione…</button>
             )}
             {/* Anteprima della consegna anche nel drawer (non solo sulla card):
-                intera, object-contain — il reviewer deve poter vedere TUTTO lo
-                screenshot. Click → apre l'immagine piena fuori dal drawer. */}
+                intera, object-contain — il reviewer deve poter vedere TUTTA
+                l'evidenza. Immagine → click per aprirla piena; video (clip di
+                review comportamentale) → controlli inline. */}
             {task?.previewImage && (
-              <img
-                src={getMediaUrl(task.previewImage)}
-                alt="Anteprima della consegna"
-                loading="lazy"
-                title="Apri lo screenshot a grandezza piena"
-                onClick={() => openExternalOnce(getMediaUrl(task.previewImage!))}
-                className="mt-2 max-h-[50vh] w-full cursor-zoom-in rounded border border-white/10 bg-black/20 object-contain"
+              <PreviewMedia
+                path={task.previewImage}
+                variant="drawer"
+                className="mt-2 max-h-[50vh] w-full rounded border border-white/10 bg-black/20 object-contain"
               />
             )}
           </div>
