@@ -114,6 +114,9 @@ const RRWEB_RECORD_START = `(function(){
       window.__rrwebStop = window.rrweb.record({
         emit: function(event){ emit({ kind:'event', event:event }); },
         inlineStylesheet: true, inlineImages: false, collectFonts: false, recordCanvas: false,
+        // Never stream password field contents in clear (explicit, not just rrweb's
+        // default). Other inputs stay visible — a co-browse of a form is the point.
+        maskInputOptions: { password: true },
         sampling: { mousemove: 50, scroll: 100, media: 400, input: 'last' },
       });
       window.__rrwebStarted = true;
