@@ -486,6 +486,25 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     }
   }, [navigateUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cross-device robustness: when the WebRTC video transport can't establish
+  // (the "esce bianco" / "Sessione video non disponibile" dead-end other devices
+  // hit), automatically fall back to DOM co-browse — the real browser rebuilt
+  // natively — instead of stranding the user on an error. One-shot per URL:
+  //   • re-armed on navigation, so each page gets one automatic attempt;
+  //   • a page where DOM is unsupported makes the server force 'video' back — the
+  //     guard then lets it settle on the error box's manual controls (no loop);
+  //   • a MANUAL switch back to video after an auto-fallback is respected (we
+  //     don't yank the user back into DOM).
+  const autoDomForUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!browser.webrtcError || browser.renderMode !== 'video') return;
+    const url = browser.url;
+    if (!url || url === 'about:blank') return;
+    if (autoDomForUrlRef.current === url) return; // already auto-tried this page
+    autoDomForUrlRef.current = url;
+    browser.setRenderMode('dom');
+  }, [browser.webrtcError, browser.renderMode, browser.url, browser.setRenderMode]);
+
   // Notify parent of URL changes + record in per-topic history.
   useEffect(() => {
     if (browser.url) {
