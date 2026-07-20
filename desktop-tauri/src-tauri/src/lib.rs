@@ -4498,6 +4498,42 @@ fn install_shortcut_forwarder(app: &tauri::AppHandle) {
                 _ => return event, // not an app window we manage
             };
 
+            // ⌘R / ⌘⇧R = reload the app — the ONE chord that must win over EVERY
+            // focus context. A focused child WKWebView (browser pane) or an xterm
+            // terminal eats the menu accelerator's key-equivalent, so ⌘R never
+            // reloaded unless the main chrome itself held focus ("premo reload e
+            // non succede nulla"). The NSEvent monitor sees the key first — so we
+            // handle it HERE, BEFORE the inside-UI gate below, and reload the
+            // event window's own UI webview directly, then swallow the original
+            // so neither the pane nor the terminal also acts on it. `location.
+            // reload()` re-fetches index.html + bundle = the app reload the user
+            // expects. (Only ⌘R without Ctrl — leaves ⌃R and page shortcuts alone.)
+            {
+                let flags_r: u64 = msg_send![event, modifierFlags];
+                let cmd_r = flags_r & (1 << 20) != 0;
+                let ctrl_r = flags_r & (1 << 18) != 0;
+                let chars_r_id: id = msg_send![event, charactersIgnoringModifiers];
+                let chars_r = ns_string_to_rust(chars_r_id).to_lowercase();
+                if cmd_r && !ctrl_r && chars_r == "r" {
+                    let mut done = false;
+                    for (label, w) in app.webview_windows() {
+                        if w.ns_window().map(|p| p as usize).ok() == Some(ev_window_ptr) {
+                            if let Some(wv) = app.get_webview(&label) {
+                                let _ = wv.eval("window.location.reload()");
+                                done = true;
+                            }
+                            break;
+                        }
+                    }
+                    if !done {
+                        if let Some(mw) = app.get_webview("main") {
+                            let _ = mw.eval("window.location.reload()");
+                        }
+                    }
+                    return nil; // swallow — the pane/terminal must not also see ⌘R
+                }
+            }
+
             // If the first responder is inside THIS window's own UI webview, the
             // renderer's keydown path handles the chord — never double-fire.
             // Only a child browser PANE (main window only in v1) reaches the
