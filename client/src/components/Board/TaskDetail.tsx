@@ -93,6 +93,14 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const [children, setChildren] = useState<BoardTask[]>([]);
   const [draft, setDraft] = useState('');
   const commentRef = useRef<HTMLTextAreaElement | null>(null);
+  // Auto-grow del composer (stesso idioma di ChatPane): height segue il
+  // contenuto fino a 140px, poi scrolla. L'effect su `draft` copre digitazione,
+  // restore del draft salvato e clear post-invio con un punto solo.
+  const resizeComment = useCallback(() => {
+    const ta = commentRef.current; if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+  }, []);
   const commentCursorKey = `board:task:${taskId}`;
   const saveCommentCursor = () => { const ta = commentRef.current; if (ta) writeCursor(commentCursorKey, ta.selectionStart, ta.selectionEnd); };
   // Per-task server draft (bounded map in ui-state): restore once per task,
@@ -114,6 +122,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   useEffect(() => {
     if (taskDraftLoaded.current) boardDrafts.putTaskDraft(taskId, draft);
   }, [draft, taskId]);
+  // Auto-grow su OGNI mutazione del draft (digitazione, restore, clear) — non
+  // solo su onChange: il restore del draft salvato arriva via setDraft.
+  useEffect(() => { resizeComment(); }, [draft, resizeComment]);
   const [subDraft, setSubDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
@@ -357,10 +368,20 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 
   // Approve/reject from the detail itself — the review surface must not force a
   // round-trip back to the card. Same endpoint, same semantics.
+  // The note typed in the composer RIDES the decision: on reject it becomes
+  // the steering feedback for the resumed agent (same semantics as Send), on
+  // approve it lands in the thread as the closing note. Losing the typed text
+  // on Rifiuta was the old behavior — never again. Attachments stay staged
+  // (media is not a review-decision field): send those with the composer.
   const decide = async (decision: 'approve' | 'reject') => {
     if (busy) return;
     setBusy(true);
-    try { await boardApi.review(projectId, taskId, decision); setError(null); await load(); onChanged(); }
+    const note = draft.trim() || undefined;
+    try {
+      await boardApi.review(projectId, taskId, decision, note);
+      if (note) setDraft('');
+      setError(null); await load(); onChanged();
+    }
     catch (e) { showError(e); }
     finally { setBusy(false); }
   };
@@ -1260,14 +1281,18 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <div className="flex items-center gap-1.5">
                   <button
                     disabled={busy} onClick={() => decide('approve')}
-                    title="Accetta e completa il task. NON fa il merge — per landare il branch su main usa 'Landa su main'."
+                    title={draft.trim()
+                      ? "Accetta e completa il task — la nota scritta sotto finisce nel thread. NON fa il merge: per landare usa 'Landa su main'."
+                      : "Accetta e completa il task. NON fa il merge — per landare il branch su main usa 'Landa su main'."}
                     className="flex flex-1 items-center justify-center gap-1.5 rounded bg-emerald-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
                   >{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} Approva</button>
                   <button
                     disabled={busy} onClick={() => decide('reject')}
-                    title={isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni)" : 'Rifiuta'}
+                    title={draft.trim()
+                      ? (isAgentReview ? "Rifiuta — l'agent riparte con la nota scritta sotto come indicazione" : 'Rifiuta con la nota scritta sotto')
+                      : (isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni — scrivi nel campo sotto per dargliene)" : 'Rifiuta')}
                     className="flex items-center gap-1.5 rounded bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50"
-                  ><ShieldX className="h-3.5 w-3.5" /> Rifiuta</button>
+                  ><ShieldX className="h-3.5 w-3.5" /> {draft.trim() ? 'Rifiuta con nota' : 'Rifiuta'}</button>
                 </div>
                 {/* Explicit landing — accept + merge the branch on main (local, no
                     push, build server-side). Separate from Approva by design: the
@@ -1313,7 +1338,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               >{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
               <textarea
                 ref={commentRef}
-                value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
+                value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); resizeComment(); }} rows={1}
                 onSelect={saveCommentCursor} onKeyUp={saveCommentCursor} onClick={saveCommentCursor}
                 onFocus={() => markActiveComposer(commentCursorKey)}
                 placeholder={isAgentReview ? 'Rispondi all\'agent…' : agentBusy ? 'Scrivi all\'agent mentre lavora — lo riceve al prossimo turno…' : 'Commenta…'}

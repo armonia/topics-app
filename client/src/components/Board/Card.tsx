@@ -420,13 +420,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               className="flex items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" /></button>
             <button
-              disabled={busy} onClick={() => review('approve')}
-              title="Accetta e completa il task"
+              disabled={busy} onClick={() => review('approve', freeText.trim() || undefined)}
+              title={freeText.trim() ? 'Accetta e completa il task — il testo scritto finisce nel thread' : 'Accetta e completa il task'}
               className="flex items-center gap-1 rounded-md bg-emerald-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50"
             ><ShieldCheck className="h-3.5 w-3.5" /></button>
             <button
-              disabled={busy} onClick={() => review('reject')}
-              title="Rifiuta (l'agent riparte senza indicazioni)"
+              disabled={busy} onClick={() => review('reject', freeText.trim() || undefined)}
+              title={freeText.trim() ? "Rifiuta — l'agent riparte col testo scritto come indicazione" : "Rifiuta (l'agent riparte senza indicazioni — scrivi nel campo per dargliene)"}
               className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50"
             ><ShieldX className="h-3.5 w-3.5" /></button>
           </div>
