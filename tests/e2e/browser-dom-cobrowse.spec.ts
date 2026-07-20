@@ -86,4 +86,43 @@ test.describe("T1 DOM co-browse", () => {
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
+
+  test("auto-falls back to DOM when the WebRTC video transport fails [T1]", async ({ page, browserProcessPageV2, request }) => {
+    // Force the video transport to fail at once: with no RTCPeerConnection the hook
+    // flags webrtcError immediately (no 4×6s retry wait). The panel must then RESOLVE
+    // it on its own by switching to DOM co-browse — the real browser rebuilt natively
+    // — instead of stranding the user on the "Sessione video non disponibile" box.
+    await page.addInitScript(() => {
+      // @ts-expect-error — null out the constructor so `typeof RTCPeerConnection` is 'undefined'
+      window.RTCPeerConnection = undefined;
+      // @ts-expect-error — webkit alias too
+      window.webkitRTCPeerConnection = undefined;
+    });
+    await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 10 });
+    await browserProcessPageV2.mockBrowserContexts([]);
+    await browserProcessPageV2.mockRemoteBrowserPane({
+      connected: true,
+      url: "https://example.com",
+      title: "Example",
+      hasScreenshot: true,
+    });
+    browserProcessPageV2.mockDomCoBrowse(RRWEB_EVENTS);
+
+    const topic = await createTopic(request, `E2E-DOMCB-AUTO-${Date.now()}`);
+    try {
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await mountBrowserPane(page, topic.id);
+
+      // No manual toggle click: the DOM co-browse must mount by itself once WebRTC errors.
+      const dom = page.locator('[data-testid="browser-dom-cobrowse"]').first();
+      await expect(dom).toBeVisible({ timeout: 10000 });
+      const reconstructed = dom.frameLocator("iframe").locator("#hi");
+      await expect(reconstructed).toHaveText("DOM COBROWSE OK", { timeout: 8000 });
+      // The toolbar toggle reflects the auto-switched mode.
+      await expect(page.locator('[data-testid="browser-render-toggle"]').first()).toContainText("DOM");
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
 });
