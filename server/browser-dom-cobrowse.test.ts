@@ -96,6 +96,93 @@ describe('browser-service: DOM co-browse (real browser)', () => {
     }
   }, 45000);
 
+  it('first-touch race: concurrent getOrCreate + enableDomMode share ONE context', async () => {
+    // The live pane's WS-open fires screencast-bootstrap (getOrCreate) and the
+    // client's set_render:'dom' (enableDomMode → getOrCreate) CONCURRENTLY on a
+    // context that doesn't exist yet. Without single-flight createContext each
+    // racer built its own Playwright context; the loser leaked as an orphan page
+    // carrying the rrweb recorder + 'load' re-arm — so navigation happened on
+    // the winner while the mirror followed the orphan: blank forever.
+    const emitted: { msg: BrowserWsMessage }[] = [];
+    const svc = await createBrowserService({
+      broadcastToBrowserWs: (_id, msg) => emitted.push({ msg }),
+    });
+    const RACE_MARKER = 'CIAO DOPO LA RACE';
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response(
+        `<!doctype html><html><head><title>RACE</title></head><body><h1>${RACE_MARKER}</h1></body></html>`,
+        { headers: { 'content-type': 'text/html' } },
+      ),
+    });
+    const id = `dom-cb-race-${Date.now()}`;
+    try {
+      const [boot] = await Promise.all([
+        svc.enableDomMode(id),
+        svc.getOrCreate(id),
+      ]);
+      expect(boot).not.toBeNull();
+      await svc.navigate(id, `http://127.0.0.1:${server.port}/`);
+      let freshFull = false;
+      for (let i = 0; i < 60 && !freshFull; i++) {
+        freshFull = emitted.some(
+          (e) => e.msg.type === 'dom_event'
+            && (e.msg as { event?: { type?: number } }).event?.type === 2
+            && JSON.stringify(e.msg).includes(RACE_MARKER),
+        );
+        if (!freshFull) await new Promise((r) => setTimeout(r, 250));
+      }
+      expect(freshFull).toBe(true);
+    } finally {
+      server.stop(true);
+      await svc.close();
+    }
+  }, 45000);
+
+  it('re-arms after a navigation: enable on blank, navigate, fresh FullSnapshot broadcasts', async () => {
+    // The real pane's sequence: the client asserts set_render:'dom' on WS-open,
+    // BEFORE its nav lands — so enableDomMode runs against about:blank and the
+    // real page's snapshot must come from the page.on('load') re-arm. That path
+    // crosses a process swap (about:blank → http origin), which can invalidate
+    // the cached recorder CDP session — the live repro was a mirror stuck on the
+    // blank snapshot forever ("DOM surface visible, body empty").
+    const emitted: { id: string; msg: BrowserWsMessage }[] = [];
+    const svc = await createBrowserService({
+      broadcastToBrowserWs: (id, msg) => emitted.push({ id, msg }),
+    });
+    const NAV_MARKER = 'CIAO DOPO NAV';
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response(
+        `<!doctype html><html><head><title>NAV</title></head><body><h1>${NAV_MARKER}</h1></body></html>`,
+        { headers: { 'content-type': 'text/html' } },
+      ),
+    });
+    const id = `dom-cb-navafter-${Date.now()}`;
+    try {
+      await svc.createContext(id);
+      // Enable on the pristine blank page (the WS-open re-assert timing).
+      const bootstrap = await svc.enableDomMode(id);
+      expect(bootstrap).not.toBeNull();
+      expect(JSON.stringify(bootstrap)).not.toContain(NAV_MARKER);
+      // Now the nav lands — the 'load' re-arm must record the REAL page.
+      await svc.navigate(id, `http://127.0.0.1:${server.port}/`);
+      let freshFull = false;
+      for (let i = 0; i < 60 && !freshFull; i++) {
+        freshFull = emitted.some(
+          (e) => e.msg.type === 'dom_event'
+            && (e.msg as { event?: { type?: number } }).event?.type === 2
+            && JSON.stringify(e.msg).includes(NAV_MARKER),
+        );
+        if (!freshFull) await new Promise((r) => setTimeout(r, 250));
+      }
+      expect(freshFull).toBe(true);
+    } finally {
+      server.stop(true);
+      await svc.close();
+    }
+  }, 45000);
+
   it('bootstraps a FullSnapshot even when the page CSP forbids inline scripts', async () => {
     const svc = await createBrowserService({ broadcastToBrowserWs: () => {} });
     const server = Bun.serve({

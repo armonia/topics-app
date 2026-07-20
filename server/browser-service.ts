@@ -318,6 +318,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // pendingViewportHints: set by setEngineHint, cleared on switch-to-default and
   // on destroyContext. Absent entry ⇒ the default headless engine.
   const pendingEngineHints = new Map<string, { engine: "default" | "chromium"; cdpEndpoint?: string }>();
+  // Single-flight guard for createContext: on a fresh pane the WS-open handler
+  // (screencast bootstrap), set_render and nav all hit getOrCreate CONCURRENTLY.
+  // Without this, each racer built a full Playwright context for the same id and
+  // the last `contexts.set` won — the losers leaked as ORPHAN live pages. With
+  // DOM co-browse the damage was visible: recorder, __rrwebEmit binding and the
+  // 'load' re-arm all lived on an orphan stuck on about:blank, so every viewer
+  // mirrored a blank page forever (live repro 2026-07-20: double "Context
+  // created" lines per id with two targetIds).
+  const pendingCreates = new Map<string, Promise<void>>();
   // How a chromium-engine context reaches the real Chromium (injectable for tests).
   const connectOverCDP =
     opts.connectOverCDP ??
@@ -625,7 +634,11 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       });
       // Re-arm the recorder after each navigation, but ONLY while a viewer wants it.
       entry.page.on('load', () => {
-        if (entry.domEmit) startRecordingNow(entry).catch(() => { /* transient page */ });
+        if (entry.domEmit) startRecordingNow(entry).catch((err: unknown) => {
+          // A dead re-arm strands every DOM viewer on the previous page's mirror
+          // — never swallow it silently.
+          console.warn(`[BrowserService] rrweb re-arm failed for ${id}:`, (err as Error)?.message);
+        });
       });
       entry.domInjected = true;
       return true;
@@ -720,6 +733,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     },
 
     async createContext(id, opts) {
+      // Coalesce concurrent creates for the same id (see pendingCreates above).
+      // The first caller's opts win — correct for the same-id race, where every
+      // racer wants "the context for this pane", not a specific configuration.
+      const inflight = pendingCreates.get(id);
+      if (inflight) return inflight;
+      const create = (async () => {
       if (contexts.has(id)) return;
       if (contexts.size >= maxContexts) {
         throw new Error(`Max contexts (${maxContexts}) reached`);
@@ -910,6 +929,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         await context.close().catch(() => {});
         throw err;
       }
+      })();
+      const tracked = create.finally(() => pendingCreates.delete(id));
+      pendingCreates.set(id, tracked);
+      return tracked;
     },
 
     async destroyContext(id) {
