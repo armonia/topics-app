@@ -759,6 +759,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           /** Single entry point called by every provider event handler. */
           const resetStreamTimer = () => {
             if (streamState === "finalized") return;
+            // Any provider event proves the stream is alive — bump the
+            // in-memory registry so the StaleStream sweeper (3-min
+            // lastActivity cutoff) doesn't finalize a healthy tool-heavy
+            // turn: lastActivity was only ever bumped by TEXT deltas, so a
+            // turn grinding through tools for minutes with no prose got its
+            // partial flag force-cleared and the UI spinner killed mid-run.
+            updateStreamContent(sessionKey, fullContent, fullThinking);
             if (streamState === "soft-timed-out") recoverFromSoftTimeout();
             armSoftTimer();
           };
