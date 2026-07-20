@@ -389,6 +389,33 @@ test.describe("Kanban board", () => {
     await expect(drawer).not.toBeVisible({ timeout: 5000 });
   });
 
+  test("BOARD-14: cold /task/<id> deep-link opens the drawer even with another pane focused (boot race)", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-07" });
+    // Reproduce the boot focus race: a previously-focused NON-board pane in the
+    // pane store. On cold load the ui-state hydrate restores it and, before the
+    // fix, stole the board activation the deep-link asked for — the drawer never
+    // opened. Seed the pane FIRST so the hydrate has something to restore.
+    await resetPaneStore(page.request, []).catch(() => {});
+    await seedProjectPane(page.request, PROJECT_PATH);
+
+    const text = `Deeplink boot task ${Date.now()}`;
+    const task = await apiCreateTask(page.request, { text, status: "in_progress" });
+
+    // COLD navigation straight to the deep-link (no openProjectBoard helper):
+    // this is exactly what pasting the "copia link" URL does.
+    await page.goto(`/task/${task.id}`);
+
+    // The board must activate AND its drawer open on its own — the whole point
+    // of the deep-link. Generous timeout: it must survive the boot hydrate storm.
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 15000 });
+    await expect(drawer.getByText(text)).toBeVisible({ timeout: 10000 });
+    // The global board is the active surface (columns rendered).
+    await expect(page.getByTestId("kanban-column-in_progress")).toBeVisible();
+    // The URL still carries the target (source of truth, refresh-survivable).
+    expect(new URL(page.url()).pathname).toBe(`/task/${task.id}`);
+  });
+
   test("BOARD-07: Board generale opens from the standalone + menu and crosses projects", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-06" });
     // Seed tasks on TWO boards: the project one + a second ad-hoc board.

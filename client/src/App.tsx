@@ -30,7 +30,7 @@ import { wireTauriDragRegions } from './lib/shell/window';
 import { initDevBundleReload } from './lib/devBundleReload';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
-import { openTaskFromUrl } from './lib/openTaskLink';
+import { openTaskFromUrl, currentTaskTarget } from './lib/openTaskLink';
 import { useDismissable } from './hooks/useDismissable';
 import { POPOVER_SURFACE, POPOVER_PANEL, Z_POPOVER } from './lib/popoverStyles';
 
@@ -56,6 +56,7 @@ import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
 import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
+import { usePaneStore } from './state/pane/store';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { useAgentActivityCounts } from './state/signals';
@@ -142,9 +143,49 @@ function App() {
 
   // Deep-link a board task from /task/<taskId> (the drawer's "copia link"; a
   // legacy ?task=<slug>~<taskId> link still resolves too): opens the global
-  // board and jumps to the task, once, after the initial layout has mounted its
-  // event listeners.
-  useEffect(() => { openTaskFromUrl(); }, []);
+  // board and jumps to the task.
+  //
+  // The single mount-time fire RACES the boot pane-store hydrate: the first
+  // `ui-state:init` re-runs the focus reconciliation and restores the
+  // previously-focused pane, stealing the board activation before its drawer
+  // opens (repro: open /task/<id> cold → the last project pane shows, no
+  // drawer). So we RE-ASSERT the deep-link on each pane-store hydrate during a
+  // short boot window, riding the same (proven-working) open path once the
+  // store is stable. Bounded and safe: it stops the instant the drawer opens
+  // (`topics:task-opened`), only re-fires while the URL still carries the
+  // target, and self-cancels after the boot window so it can never yank focus
+  // from a user who has since navigated elsewhere.
+  useEffect(() => {
+    if (!currentTaskTarget()) return;
+    openTaskFromUrl();
+    let done = false;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
+      if (done) return;
+      done = true;
+      unsub();
+      clearTimeout(settleTimer);
+      clearTimeout(deadline);
+      window.removeEventListener('topics:task-opened', stop);
+    };
+    // DEBOUNCED re-assert: a hydrate wave re-runs the focus reconciliation, so
+    // we wait for it to go QUIET (no new seq for 400ms) and then re-assert ONCE
+    // — matching the stable post-boot open path. Re-asserting on every wave
+    // instead flaps the drawer; firing only after the storm settles does not.
+    const scheduleReassert = () => {
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        const target = currentTaskTarget();
+        if (!done && target) openTaskInApp(target);
+      }, 400);
+    };
+    const unsub = usePaneStore.subscribe((s) => s.lastSeq, scheduleReassert);
+    // Drawer opened → the deep-link is fulfilled, stand down.
+    window.addEventListener('topics:task-opened', stop);
+    // Boot window only — never yank focus long after load.
+    const deadline = setTimeout(stop, 8000);
+    return stop;
+  }, []);
 
   // Warm the ⌘K command-palette chunk on idle so its FIRST open is composited
   // from an already-parsed module (no fetch+eval on the opening frame). Idle-
