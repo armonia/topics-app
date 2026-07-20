@@ -150,16 +150,33 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // full-screen single column, so `wide` (which can persist from a desktop
   // session) must NOT trigger the side-by-side split there.
   const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
+  // "Roomy" desktop: wide enough that an expanded 72%/64rem side-panel still
+  // leaves comfortable room for two columns AND a strip of board. Below it, an
+  // expanded drawer goes FULL-SCREEN instead of squishing (see shell classes).
+  const [roomy, setRoomy] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1250px)').matches);
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
-    const on = () => setIsDesktop(mq.matches);
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
+    const mqD = window.matchMedia('(min-width: 1024px)');
+    const mqR = window.matchMedia('(min-width: 1250px)');
+    const on = () => { setIsDesktop(mqD.matches); setRoomy(mqR.matches); };
+    mqD.addEventListener('change', on);
+    mqR.addEventListener('change', on);
+    return () => { mqD.removeEventListener('change', on); mqR.removeEventListener('change', on); };
   }, []);
-  // Two-column review layout: controls (info + subtasks) on the LEFT, the
-  // conversation/workspace + composer on the RIGHT — only when expanded on
-  // desktop. Same section grouping stacks correctly in the single column.
-  const twoCol = wide && isDesktop;
+  // Measured drawer width — the REAL constraint for a two-column layout (the
+  // shell is 72% / a fixed strip / full-screen depending on state, so a window
+  // media query can't tell us). Initialised to the window width so the first
+  // paint already matches the eventual regime (every wide+desktop regime is
+  // ≥ 820), avoiding a one-frame single→two-column flash.
+  const [shellW, setShellW] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1280));
+  // Two columns only when expanded on desktop AND the drawer is actually wide
+  // enough (rail + a usable workspace) — otherwise a single stacked column, so
+  // nothing is ever squished or cut.
+  const twoCol = wide && isDesktop && shellW >= 820;
+  // Shell placement: desktop in-flow side panel (board stays visible) vs
+  // full-screen overlay. Expanded-but-not-roomy → full-screen so the two
+  // columns fit without cutting; narrow or roomy-wide → side panel; mobile
+  // (<lg) → always overlay.
+  const desktopSidePanel = isDesktop && !(wide && !roomy);
   // Collapsible description + subtask sections (sticky per client): the drawer
   // header can grow tall, and both are secondary to the thread/body — collapsing
   // them reclaims vertical room for the chat.
@@ -177,6 +194,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // width preference (more room for the native tiling), no side-panel fold.
   const rootRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Observe the drawer's own rendered width → drives `twoCol` (see above) so a
+  // resize (window, sidebar toggle, expand/collapse) re-decides one vs two
+  // columns from the real available space, not a proxy media query.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => setShellW(entries[0]?.contentRect.width ?? 0));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Swipe-to-close (mobile full-screen overlay only). Track the first touch and
   // lock onto a horizontal drag (dominant X vs Y) so a vertical scroll inside the
@@ -728,14 +755,20 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       onTouchEnd={onSwipeEnd}
       onTouchCancel={onSwipeEnd}
       style={dragX ? { transform: `translateX(${dragX}px)` } : undefined}
-      // Mobile (<lg): a FULL-SCREEN overlay (`absolute inset-0`) that sits ABOVE
-      // the board's own topbar (z-40) with swipe-right-to-close — no compact
-      // side strip on a phone. Desktop (lg+): a layout SIBLING (relative, in-flow,
-      // shrink-0) so the columns viewport shrinks beside it and the board stays
-      // scrollable; wide just grows the review surface (72%/64rem caps keep a
-      // strip of board visible).
-      className={`glass-surface flex flex-col border-white/10 ${swiping ? '' : 'transition-transform duration-200'} absolute inset-0 z-40 w-full lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
-        wide ? 'lg:w-[min(64rem,72%)] lg:shadow-2xl' : 'lg:w-96 lg:max-w-[75%]'
+      // Two shells, chosen in JS (not pure CSS breakpoints) because the
+      // full-screen decision depends on state × window, not one breakpoint:
+      //  • Side panel (desktopSidePanel): in-flow SIBLING (relative, shrink-0)
+      //    so the columns viewport shrinks beside it and the board stays
+      //    visible. Narrow = compact strip; roomy-wide = 72%/64rem (board strip
+      //    still shows).
+      //  • Full-screen overlay (`absolute inset-0` z-40): mobile always, AND an
+      //    expanded drawer on a mid-width desktop (1024–1250) where 72% would be
+      //    too narrow for two columns — take the whole board area instead of
+      //    squishing. Swipe-right-to-close applies on mobile only.
+      className={`glass-surface flex flex-col border-white/10 ${swiping ? '' : 'transition-transform duration-200'} ${
+        desktopSidePanel
+          ? `relative z-auto shrink-0 border-l ${wide ? 'w-[min(64rem,72%)] shadow-2xl' : 'w-96 max-w-[75%]'}`
+          : 'absolute inset-0 z-40 w-full'
       }`}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2.5">
@@ -875,7 +908,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {/* LEFT column (controls): info + subtasks. In two-column a fixed
               scrollable rail; `display:contents` otherwise → the children stack
               in the single column exactly as before (zero layout change). */}
-          <div className={twoCol ? 'flex w-[22rem] shrink-0 flex-col overflow-y-auto border-r border-white/10' : 'contents'}>
+          <div className={twoCol ? 'flex w-80 shrink-0 flex-col overflow-y-auto border-r border-white/10' : 'contents'}>
           {/* Info block (eyebrow, title, chips, description, preview) — in the
               single column it's bounded + scrollable so a big preview / long
               description never squishes the workspace; in the rail it's natural
@@ -1174,7 +1207,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           {/* RIGHT column: conversation/workspace + composer. In two-column the
               flex-1 pane beside the controls rail; `display:contents` otherwise
               so it stacks in the single column exactly as before. */}
-          <div className={twoCol ? 'flex min-h-0 flex-1 flex-col' : 'contents'}>
+          <div className={twoCol ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'contents'}>
           {/* "Modifiche" (worktree diff) lives HERE — above the body, OUT of the
               chat composer area ("sopra la chat era fastidioso"). It renders
               NOTHING when there's no worktree / an empty diff (owns its own
