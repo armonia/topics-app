@@ -255,11 +255,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           cosa. Il click passa alla card (apre il drawer). object-top: di un
           full-page si vede la testata, non un centro anonimo. */}
       {task.previewImage && (
-        <PreviewMedia
-          path={task.previewImage}
-          variant="card"
-          className="mb-1.5 max-h-36 w-full rounded border border-white/10 object-cover object-top"
-        />
+        <PreviewMedia path={task.previewImage} variant="card" />
       )}
       {/* Title — full width; the priority rides INLINE before the text (only
           when hand-set and non-default), so urgency reads in the same glance
