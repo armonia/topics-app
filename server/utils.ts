@@ -1312,6 +1312,8 @@ export function createAppContext(baseDir: string): AppContext {
     "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",
     "audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "audio/webm",
+    // Review clips (Playwright / spec-flow recordings) as first-class evidence.
+    "video/webm", "video/mp4", "video/quicktime",
   ]);
 
   // --- Branching helpers ---

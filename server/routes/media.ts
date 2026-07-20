@@ -29,7 +29,32 @@ export function createMediaRouter(ctx: AppContext): RouteHandler {
       if (!existsSync(resolved)) return new Response("Not Found", { status: 404 });
       const file = Bun.file(resolved);
       const contentType = getMimeType(resolved);
-      return new Response(file, { headers: { "Content-Type": contentType, "Cache-Control": "public, max-age=3600" } });
+      // Range support — required for <video> seeking (review clips). Bun does
+      // NOT auto-slice a manually-built Response (verified: a Range request got
+      // a full 200), so serve 206 ourselves when a Range header is present; a
+      // full 200 with Accept-Ranges otherwise. Harmless for images.
+      const size = file.size;
+      const range = req.headers.get("range");
+      const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
+      if (m) {
+        let start = m[1] ? parseInt(m[1], 10) : 0;
+        let end = m[2] ? parseInt(m[2], 10) : size - 1;
+        if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
+          return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}`, "Accept-Ranges": "bytes" } });
+        }
+        end = Math.min(end, size - 1);
+        return new Response(file.slice(start, end + 1), {
+          status: 206,
+          headers: {
+            "Content-Type": contentType,
+            "Content-Range": `bytes ${start}-${end}/${size}`,
+            "Content-Length": String(end - start + 1),
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600",
+          },
+        });
+      }
+      return new Response(file, { headers: { "Content-Type": contentType, "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=3600" } });
     }
 
     // --- Base64 image upload ---
