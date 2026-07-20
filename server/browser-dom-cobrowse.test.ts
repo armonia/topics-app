@@ -15,6 +15,15 @@ import { describe, it, expect } from 'bun:test';
 import { createBrowserService } from './browser-service';
 import type { BrowserWsMessage } from './browser-ws-messages';
 
+// A real page whose Content-Security-Policy refuses inline <script> — like GitHub,
+// Google, and most of the modern web. rrweb MUST still record here: injecting via a
+// <script> tag (addScriptTag) is blocked by this CSP, so the injection has to run as
+// the debugger (CDP-exempt) instead. This is the regression behind "metto DOM ma
+// esce sempre video" — under CSP the recorder never started, so no events flowed.
+const CSP_MARKER = 'CIAO SOTTO CSP';
+const CSP_HTML = `<!doctype html><html><head><title>CSP</title></head>
+<body><h1 id="hi">${CSP_MARKER}</h1></body></html>`;
+
 const BUILD_PAGE = `
   document.title = 'DOMCB';
   document.body.innerHTML = '<h1 id="hi">CIAO DOM COBROWSE</h1><ul id="feed"></ul>';
@@ -59,6 +68,40 @@ describe('browser-service: DOM co-browse (real browser)', () => {
       await new Promise((r) => setTimeout(r, 800));
       expect(domEventCount()).toBe(before);
     } finally {
+      await svc.close();
+    }
+  }, 45000);
+
+  it('bootstraps a FullSnapshot even when the page CSP forbids inline scripts', async () => {
+    const svc = await createBrowserService({ broadcastToBrowserWs: () => {} });
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(CSP_HTML, {
+          headers: {
+            'content-type': 'text/html',
+            // Blocks any injected inline <script> (no 'unsafe-inline'): the exact
+            // condition that silenced rrweb on real sites.
+            'content-security-policy': "default-src 'self'; script-src 'self'; object-src 'none'",
+          },
+        }),
+    });
+    // Unique id per run: createContext restores a persisted last-url, and a fixed
+    // id would point at a PRIOR run's now-dead ephemeral port, whose failed restore
+    // navigation races (and interrupts) ours.
+    const id = `dom-cb-csp-${Date.now()}`;
+    try {
+      await svc.createContext(id);
+      const nav = await svc.navigate(id, `http://127.0.0.1:${server.port}/`);
+      expect(nav.error).toBeUndefined();
+
+      const bootstrap = await svc.enableDomMode(id);
+      expect(bootstrap).not.toBeNull();
+      const types = (bootstrap ?? []).map((e) => (e as { type?: number })?.type);
+      expect(types).toContain(2); // FullSnapshot — rrweb actually ran under CSP
+      expect(JSON.stringify(bootstrap)).toContain(CSP_MARKER);
+    } finally {
+      server.stop(true);
       await svc.close();
     }
   }, 45000);
