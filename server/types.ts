@@ -30,6 +30,11 @@ export interface WSData {
    *  set_stream(true) when it switches back to the stream (agent attaches / frame
    *  not framable). Keeps the WS open so agent_active still reaches the pane. */
   _browserSetStream?: (active: boolean) => void;
+  /** T1 DOM co-browse — true while THIS viewer renders the pane as a native rrweb
+   *  DOM reconstruction (set_render:'dom') instead of the pixel stream. Used to
+   *  ref-count DOM viewers per context so `dom_event` emission stops once the last
+   *  one leaves (on close or set_render:'video'). Absent = video (the default). */
+  _domRender?: boolean;
   /** WebRTC shared-session transport — the set of webrtc-bridge peer ids this WS
    *  opened (one per RTCPeerConnection). Used on close to tell the sidecar to tear
    *  each peer down. Absent until the pane sends its first `webrtc_offer`. */

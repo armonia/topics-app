@@ -1446,6 +1446,38 @@ const server = Bun.serve<WSData>({
             // Task 052f53ef — pause/resume this viewer's screencast when the pane
             // enters/leaves native iframe-mode (kills the wasted headless render).
             ws.data._browserSetStream?.(parsed.active);
+          } else if (parsed.type === 'set_render') {
+            // T1 DOM co-browse — switch THIS viewer between the pixel stream
+            // ('video', default) and a native rrweb DOM reconstruction ('dom').
+            // DOM mode injects rrweb into the SHARED headless page, streams tiny
+            // DOM events, and pauses this viewer's wasted screencast; input keeps
+            // flowing over the existing `input` messages (same page-CSS coords).
+            if (parsed.mode === 'dom') {
+              browserService.enableDomMode(ctxId).then((bootstrap) => {
+                if (!bootstrap) {
+                  // Unsupported (no page / injection failed) — force back to video.
+                  sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' });
+                  return;
+                }
+                ws.data._domRender = true;
+                sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'dom' });
+                // Bootstrap this viewer so it reconstructs without a reload.
+                for (const event of bootstrap) sendBrowserWsMessage(ws, { type: 'dom_event', event });
+                // Stop paying for JPEG frames this viewer no longer renders.
+                ws.data._browserSetStream?.(false);
+              }).catch((err) => {
+                console.warn(`[WS][browser] enableDomMode failed for ${ctxId}:`, err?.message || err);
+                try { sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' }); } catch { /* socket gone */ }
+              });
+            } else {
+              // Back to pixels: resume screencast, ack, and stop DOM emission once
+              // NO viewer of this context is in DOM mode anymore.
+              ws.data._domRender = false;
+              ws.data._browserSetStream?.(true);
+              sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' });
+              const anyDom = [...(browserWsClients.get(ctxId) ?? [])].some((w) => w.data._domRender);
+              if (!anyDom) browserService.setDomEmit(ctxId, false);
+            }
           } else if (parsed.type === 'webrtc_offer') {
             // Shared-session WebRTC transport — relay the viewer's offer to the Rust
             // sidecar, which attaches to THIS pane's CDP target and streams it as an
@@ -1571,6 +1603,12 @@ const server = Bun.serve<WSData>({
         if (bset) {
           bset.delete(ws);
           if (bset.size === 0) browserWsClients.delete(ws.data.browserContextId);
+        }
+        // T1 DOM co-browse — if this was the last DOM-mode viewer, stop emission
+        // (the page keeps recording cheaply; no wasted `dom_event` fan-out).
+        if (ws.data._domRender) {
+          const anyDom = [...(bset ?? [])].some((w) => w.data._domRender);
+          if (!anyDom) browserService.setDomEmit(ws.data.browserContextId, false);
         }
         // Drop any native-executor registration for this pane + fail its in-flight
         // ops (Tauri delegation) — no-op if this context never registered, and

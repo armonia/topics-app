@@ -36,6 +36,17 @@ interface BrowserContextEntry {
    *  keeps running — its lifetime is owned by the engine registry's ref count),
    *  so destroyContext must close THIS + the page, never the shared context. */
   engineBrowser?: Browser;
+  /** T1 DOM co-browse (opt-in). Set once rrweb has been injected into this
+   *  context's page (bundle addInitScript + exposed __rrwebEmit binding). */
+  domInjected?: boolean;
+  /** Whether captured rrweb events are being broadcast right now. Gated so the
+   *  page keeps recording (cheap) but no `dom_event` traffic is sent once every
+   *  viewer has switched back to the video stream. */
+  domEmit?: boolean;
+  /** Bootstrap buffer for late-joiners: last Meta (type 4) + FullSnapshot
+   *  (type 2) + incrementals since that snapshot (capped). A new DOM-mode viewer
+   *  is replayed [meta, full, ...inc] so it can reconstruct without a reload. */
+  dom?: { meta: unknown | null; full: unknown | null; inc: unknown[] };
 }
 
 interface BrowserServiceOptions {
@@ -71,6 +82,44 @@ interface BrowserServiceOptions {
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
+/** Cap on buffered incrementals kept for late-join bootstrap (a Meta+FullSnapshot
+ *  resets this). ~4000 covers minutes of a busy page; older ones drop off. */
+const MAX_DOM_INCREMENTALS = 4000;
+
+// ── T1 DOM co-browse: rrweb record injection (opt-in, default OFF) ────────────
+// The record UMD is vendored (server/assets/rrweb.min.js) at the SAME version as
+// the client's Replayer dependency, so capture and replay can never drift.
+// Injected into a page ONLY when a viewer requests DOM render mode — the default
+// JPEG/WebRTC pixel path is left completely untouched. Captured events (tiny JSON)
+// fan out over /ws/browser/:contextId as `dom_event`; each device reconstructs the
+// DOM in its own native engine (the real browser, not a video).
+let RRWEB_RECORD_BUNDLE = '';
+try {
+  RRWEB_RECORD_BUNDLE =
+    readFileSync(join(import.meta.dir, 'assets', 'rrweb.min.js'), 'utf8') +
+    '\n;window.rrweb=window.rrweb||rrweb;';
+} catch (err) {
+  console.warn('[BrowserService] rrweb record bundle missing — DOM co-browse disabled:', (err as Error)?.message);
+}
+// Runs in the page AFTER the bundle. Starts the recorder once (guarded across
+// re-injection on navigation) and pipes each event to the host via __rrwebEmit.
+const RRWEB_RECORD_START = `(function(){
+  if (window.__rrwebStarted) return;
+  if (!window.rrweb || !window.rrweb.record) return;
+  window.__rrwebStarted = true;
+  function emit(p){ try { window.__rrwebEmit && window.__rrwebEmit(JSON.stringify(p)); } catch(_){} }
+  function start(){
+    try {
+      window.rrweb.record({
+        emit: function(event){ emit({ kind:'event', event:event }); },
+        inlineStylesheet: true, inlineImages: false, collectFonts: false, recordCanvas: false,
+        sampling: { mousemove: 50, scroll: 100, media: 400, input: 'last' },
+      });
+    } catch(e){ emit({ kind:'error', error:String(e&&e.message||e) }); }
+  }
+  if (document.readyState === 'complete') start();
+  else window.addEventListener('load', function(){ start(); }, { once:true });
+})();`;
 
 export interface AccessibilityNode {
   role: string;
@@ -140,6 +189,15 @@ export interface BrowserService {
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' }
   ): Promise<void>;
+  /** T1 DOM co-browse: inject rrweb into this context's page (idempotent) and
+   *  start broadcasting `dom_event`s to its viewers. Resolves with the bootstrap
+   *  burst [meta, full, ...incrementals] for the requesting viewer, or null when
+   *  DOM mode can't be enabled (no page / injection failed) — the caller then
+   *  forces the pane back to the video stream. */
+  enableDomMode(id: string): Promise<unknown[] | null>;
+  /** T1 DOM co-browse: gate whether captured events are broadcast. The page keeps
+   *  recording (cheap) but `dom_event` traffic stops once no viewer is in DOM mode. */
+  setDomEmit(id: string, on: boolean): void;
   /** Phase 30 BROWSER-CHAT-03 — broadcast `{ type: 'agent_active', active, action? }`
    *  over the /ws/browser/:contextId bridge. No-op when no broadcast callback was
    *  wired. On `active=true` it attaches the human-readable action label set by the
@@ -473,6 +531,44 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         opts.broadcastToBrowserWs?.(id, { type: "nav", url: entry.url, phase: "response" });
       }
     });
+  }
+
+  // T1 DOM co-browse: inject rrweb into a context's page ONCE and pipe its events
+  // into the entry's bootstrap buffer + (when domEmit) the /ws/browser fan-out.
+  // Idempotent via entry.domInjected. addInitScript covers FUTURE navigations;
+  // addScriptTag records the CURRENT page immediately (evaluate() would scope the
+  // bundle's top-level `var rrweb` locally — a script tag makes it a real global).
+  async function injectRrweb(entry: BrowserContextEntry, id: string): Promise<boolean> {
+    if (entry.domInjected) return true;
+    if (!RRWEB_RECORD_BUNDLE) return false; // vendored bundle missing
+    const page = entry.page;
+    entry.dom = { meta: null, full: null, inc: [] };
+    try {
+      // Host binding: every rrweb event lands here. Buffer for late-join bootstrap,
+      // and broadcast live when at least one viewer is in DOM mode.
+      await page.exposeFunction('__rrwebEmit', (json: string) => {
+        let m: { kind?: string; event?: { type?: number } };
+        try { m = JSON.parse(json); } catch { return; }
+        if (m.kind !== 'event' || !m.event) return;
+        const e = m.event;
+        const buf = entry.dom!;
+        if (e.type === 4) buf.meta = e;              // Meta
+        else if (e.type === 2) { buf.full = e; buf.inc = []; } // FullSnapshot → reset prefix
+        else { buf.inc.push(e); if (buf.inc.length > MAX_DOM_INCREMENTALS) buf.inc.shift(); }
+        if (entry.domEmit) opts.broadcastToBrowserWs?.(id, { type: 'dom_event', event: e });
+      });
+      // Future navigations: bundle + start run before page scripts.
+      await page.addInitScript(RRWEB_RECORD_BUNDLE);
+      await page.addInitScript(RRWEB_RECORD_START);
+      // Current page: inject now so recording starts without waiting for a reload.
+      await page.addScriptTag({ content: RRWEB_RECORD_BUNDLE });
+      await page.addScriptTag({ content: RRWEB_RECORD_START });
+      entry.domInjected = true;
+      return true;
+    } catch (err) {
+      console.warn(`[BrowserService] rrweb injection failed for ${id}:`, (err as Error)?.message);
+      return false;
+    }
   }
 
   // Reap inactive contexts, then the idle Chromium itself. Started from
@@ -1263,6 +1359,30 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       // getOrCreate already touched activity; the action is a real interaction
       // so the entry's lastActivity stays fresh.
+    },
+
+    // T1 DOM co-browse — enable DOM render mode for a context. Injects rrweb
+    // (idempotent), starts broadcasting, and returns the bootstrap burst for the
+    // requesting viewer. Waits briefly for the FullSnapshot so a fresh enable
+    // doesn't hand back an empty bootstrap (recording emits it a tick after the
+    // script tag runs, via the exposed binding's async round-trip).
+    async enableDomMode(id) {
+      const entry = await service.getOrCreate(id);
+      const ok = await injectRrweb(entry, id);
+      if (!ok) return null;
+      entry.domEmit = true;
+      // Wait up to ~2s for the FullSnapshot (type 2) to land in the buffer.
+      for (let i = 0; i < 40 && !entry.dom?.full; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const buf = entry.dom;
+      if (!buf) return [];
+      return [buf.meta, buf.full, ...buf.inc].filter((e) => e != null);
+    },
+
+    setDomEmit(id, on) {
+      const entry = contexts.get(id);
+      if (entry) entry.domEmit = on;
     },
 
     // Phase 30 BROWSER-CHAT-03 — agent_active broadcast over /ws/browser/:contextId.
