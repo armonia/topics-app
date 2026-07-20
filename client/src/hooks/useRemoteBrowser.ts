@@ -123,9 +123,6 @@ const FALLBACK_DELAY_MS = 2000;
 const MAX_RECONNECT_DELAY_MS = 10000;
 // Match the server's bandwidth-safe DPR ceiling (browser-service clampDsf).
 const MAX_DSF = 2;
-// Local-network URLs are always framable (and reachable) — decided client-side,
-// never via the server probe (which would resolve localhost to the SERVER).
-const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 // Watchdog: `loading` is set true on navigate/reload and is normally cleared by
 // the server's `nav`/`response` message. If that message is lost (server crash,
 // dropped WS frame, a disconnect right after the request), `loading` — and thus
@@ -886,11 +883,14 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // T2 — framing probe: whether the CURRENT url can be rendered as a native
   // <iframe>. Reset to false the instant the url changes (so a new page never
   // flashes the previous page's iframe), then probe http(s) URLs server-side.
-  // localhost / non-http are decided in the panel, not here.
+  // localhost IS probed too: a local dev app can send X-Frame-Options /
+  // frame-ancestors (e.g. Quadra on :3100 → SAMEORIGIN) that make the iframe
+  // load blank — the old "localhost is always framable" assumption produced a
+  // dead white pane. Non-framable → the DOM co-browse surface renders it instead.
   useEffect(() => {
     const url = state.url;
     setState(s => (s.framable ? { ...s, framable: false } : s));
-    if (!url || !/^https?:\/\//i.test(url) || LOCAL_HOST_RX.test(url)) return;
+    if (!url || !/^https?:\/\//i.test(url)) return;
     let cancelled = false;
     fetch(`/api/browsers/framable?url=${encodeURIComponent(url)}`)
       .then(r => (r.ok ? r.json() : { framable: false }))

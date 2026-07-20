@@ -88,11 +88,6 @@ function writeSharedPref(contextId: string, shared: boolean): void {
   } catch { /* private mode / no storage — in-memory state still drives the switch */ }
 }
 
-// Phase 30 BROWSER-CHAT-04 — local-network URLs (localhost, 127.0.0.1, *.local)
-// render via <iframe>. Zero Playwright overhead, full DevTools, and the user
-// already has the page on their machine. Agent tools refuse with structured
-// error in this mode (acknowledged constraint).
-const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 
 /**
  * Whether a persisted pane url is safe to auto-seed into a blank server-side
@@ -556,10 +551,16 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   }, [clickT]);
 
   // T2 — native <iframe> path (CodePen-style), early-return with the full
-  // toolbar. Used, in the WEB client only, when the current URL is (a) a local
-  // dev site OR (b) a remote site the server probed as framable — AND no agent
-  // is driving the pane (agents can't reach into a cross-origin iframe, so an
-  // agent flips the pane back to the screenshot stream).
+  // toolbar. Used, in the WEB client only, when the server probed the current URL
+  // as framable — AND no agent is driving the pane (agents can't reach into a
+  // cross-origin iframe, so an agent flips the pane back to the streamed surface).
+  //
+  // localhost is NOT force-framed anymore: a local dev app that sends
+  // X-Frame-Options / frame-ancestors (e.g. Quadra on :3100 → SAMEORIGIN) loads
+  // BLANK in the iframe, which read as "il browser non fa nulla, resta bianco".
+  // Now localhost goes through the same framability probe; non-framable local
+  // apps fall to the DOM co-browse surface (the server renders them and mirrors
+  // the real DOM — works past the framing block AND cross-device).
   //
   // NOT under the Tauri shell: there the whole app is a SINGLE WKWebView, and an
   // SPA that frame-busts (`top.location = …`) would navigate the main frame away
@@ -568,8 +569,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // (a screenshot <img> driven by the server's headless browser), which can't
   // touch the host frame. On web a hijack only swaps this one browser tab, and
   // the sandbox (no `allow-top-navigation`) blocks it anyway.
-  const useIframe = !isTauri && !!browser.url && !browser.agentActive &&
-    (LOCAL_HOST_RX.test(browser.url) || browser.framable);
+  const useIframe = !isTauri && !!browser.url && !browser.agentActive && browser.framable;
   // Task 052f53ef — while a native <iframe> is showing, the server-side headless
   // Chromium has no viewer: pause its screencast (keeps the WS open for
   // agent_active). Resume the instant we fall back to the stream.
