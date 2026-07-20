@@ -230,6 +230,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // and the live rrweb-event sink (registered by the DomCoBrowse view's Replayer).
   const renderModeRef = useRef<'video' | 'dom'>('video');
   const domSinkRef = useRef<((event: unknown) => void) | null>(null);
+  // Buffer events that arrive before the DomCoBrowse view registers its sink (the
+  // bootstrap burst can land in the same tick the pane mounts). Flushed on register.
+  const domEventBufferRef = useRef<unknown[]>([]);
   // Newest frame delivered so far. Frames after the first are direct
   // `img.src` writes (no setState), so state.screenshotSrc goes stale by
   // design — this ref lets a remounted <img> re-assert the newest frame
@@ -644,8 +647,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
           }
           case 'dom_event':
             // One rrweb event (Meta/FullSnapshot/Incremental) → the DomCoBrowse
-            // Replayer, when mounted. Dropped when nothing is subscribed (video mode).
-            domSinkRef.current?.(msg.event);
+            // Replayer. Buffered if the view hasn't registered its sink yet (the
+            // bootstrap burst can beat the mount); flushed on registerDomSink.
+            if (domSinkRef.current) domSinkRef.current(msg.event);
+            else domEventBufferRef.current.push(msg.event);
             break;
           default:
             break;
@@ -1109,6 +1114,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // Replayer). Returns an unsubscribe that only clears if still the current sink.
   const registerDomSink = useCallback((cb: (event: unknown) => void) => {
     domSinkRef.current = cb;
+    // Flush anything buffered before the view mounted (bootstrap burst).
+    if (domEventBufferRef.current.length) {
+      const queued = domEventBufferRef.current;
+      domEventBufferRef.current = [];
+      for (const e of queued) cb(e);
+    }
     return () => { if (domSinkRef.current === cb) domSinkRef.current = null; };
   }, []);
 

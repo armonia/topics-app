@@ -41,6 +41,11 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
   // the visible surface deterministically, with no real sidecar/ICE/UDP.
   private webrtcMockEnabled = false;
 
+  // T1 DOM co-browse: rrweb events the mock WS replays when the client requests
+  // DOM render mode (set_render:'dom'). Null until a test opts in via
+  // mockDomCoBrowse(); when set, the mock answers with render_mode + the burst.
+  private domCobrowseEvents: unknown[] | null = null;
+
   constructor(page: Page) {
     super(page);
   }
@@ -103,6 +108,20 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
               sdp: 'v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 H264/90000\r\n',
               ...(streamId ? { stream: streamId } : {}),
             }));
+          } catch { /* ignore */ }
+        }
+        // T1 DOM co-browse: mirror the server — a set_render:'dom' request is
+        // answered with render_mode:'dom' + the rrweb bootstrap burst so the pane
+        // reconstructs the DOM; set_render:'video' just acks the mode.
+        if (this.domCobrowseEvents && parsed && typeof parsed === 'object' && (parsed as { type?: string }).type === 'set_render') {
+          const mode = (parsed as { mode?: string }).mode === 'dom' ? 'dom' : 'video';
+          try {
+            ws.send(JSON.stringify({ type: 'render_mode', mode }));
+            if (mode === 'dom') {
+              for (const event of this.domCobrowseEvents) {
+                ws.send(JSON.stringify({ type: 'dom_event', event }));
+              }
+            }
           } catch { /* ignore */ }
         }
       });
@@ -205,6 +224,16 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).webkitRTCPeerConnection = FakeRTCPeerConnection;
     });
+  }
+
+  /**
+   * T1 DOM co-browse: opt this test into the DOM render path. The mock WS then
+   * answers a client set_render:'dom' with render_mode:'dom' + the given rrweb
+   * event burst (a real Meta+FullSnapshot(+incrementals) captured offline), so the
+   * pane's rrweb Replayer reconstructs the page. Call after mockBrowserWs().
+   */
+  mockDomCoBrowse(events: unknown[]): void {
+    this.domCobrowseEvents = events;
   }
 
   /**
