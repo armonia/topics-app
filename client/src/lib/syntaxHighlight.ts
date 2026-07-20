@@ -57,6 +57,26 @@ const LANG_ALIASES: Record<string, string> = {
 // re-render would jank the pane, and such payloads are dumps, not code to read.
 const MAX_HIGHLIGHT_CHARS = 50_000;
 
+/** Extensionless filenames that still have a known language. */
+const SPECIAL_FILENAMES: Record<string, string> = {
+  dockerfile: 'dockerfile',
+  makefile: 'makefile',
+};
+
+/**
+ * Fence language for a file path, from its extension (CHAT-TOOL-04 — tool
+ * card bodies reuse the same highlighter as markdown code fences). Returns
+ * the raw lowercase extension: `highlightCode` already resolves aliases
+ * (ts→typescript, py→python, …) and returns null for anything unregistered,
+ * so unknown extensions degrade to the plain render for free.
+ */
+export function langFromPath(path: string): string {
+  const base = path.split('/').pop() ?? path;
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return SPECIAL_FILENAMES[base.toLowerCase()] ?? '';
+  return base.slice(dot + 1).toLowerCase();
+}
+
 /**
  * Highlighted HTML for `code`, or null when the block must stay plain
  * (unknown language, oversize, tokenizer failure, or tokenizers still

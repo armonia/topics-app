@@ -903,7 +903,7 @@ export function createAppContext(baseDir: string): AppContext {
     return msg;
   }
 
-  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string): StoredMessage | null {
+  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>): StoredMessage | null {
     const row = stmts.getLastMessage.get(sessionKey) as any;
     if (!row) return null;
     const msg = rowToMessage(row);
@@ -912,6 +912,9 @@ export function createAppContext(baseDir: string): AppContext {
       tc.result = result;
       tc.error = error;
       tc.status = error ? 'error' : 'success';
+      // Terminal-time extras (endedAt timestamp, etc.) ride the same write
+      // instead of paying a second parse→serialize cycle per tool.
+      if (extra) Object.assign(tc, extra);
       stmts.updateMessage.run({
         $id: msg.id,
         $content: msg.content,

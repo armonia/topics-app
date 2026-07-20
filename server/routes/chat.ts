@@ -843,19 +843,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               : reason === 'error'
               ? (errorMsg || 'Stream ended with error')
               : undefined;
+            const finalizeEndedAt = Date.now();
             for (const tcId of trackedToolCallIds) {
               if (finalizeStatus === 'error') {
                 // updateToolCallResult sets status='error' when error is provided.
-                updateToolCallResult(sessionKey, tcId, '', finalizeError);
-                updateBlockTool(tcId, { status: 'error', error: finalizeError });
-                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'error', result: '', error: finalizeError });
+                updateToolCallResult(sessionKey, tcId, '', finalizeError, { endedAt: finalizeEndedAt });
+                updateBlockTool(tcId, { status: 'error', error: finalizeError, endedAt: finalizeEndedAt });
+                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'error', result: '', error: finalizeError, endedAt: finalizeEndedAt });
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'error', error: finalizeError } } }] }));
               } else {
                 // Fire-and-forget success. Empty result so the UI shows just
                 // the green ✓ without a literal "success" body.
-                updateToolCallResult(sessionKey, tcId, '');
-                updateBlockTool(tcId, { status: 'success' });
-                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success' });
+                updateToolCallResult(sessionKey, tcId, '', undefined, { endedAt: finalizeEndedAt });
+                updateBlockTool(tcId, { status: 'success', endedAt: finalizeEndedAt });
+                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success', endedAt: finalizeEndedAt });
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'success' } } }] }));
               }
             }
@@ -1030,6 +1031,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 id: toolCallId, name, args: args || {},
                 status: 'running', contentOffset: fullContent.length,
                 detail,
+                // Real-usage window opens NOW. With partial-message streaming
+                // (claude-code) this is when the model starts WRITING the
+                // input — the UI's duration covers generation + execution.
+                startedAt: Date.now(),
               };
               trackedToolCallIds.push(toolCallId);
               addToolCallToLastMessage(sessionKey, toolCall);
@@ -1059,9 +1064,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     // Mirror the onToolResult flow inline so the UI / SSE / persisted
                     // state updates happen consistently. Same surface as the existing
                     // onToolResult callback below.
-                    updateToolCallResult(sessionKey, toolCallId, resultStr);
-                    updateBlockTool(toolCallId, { status: 'success', result: resultStr });
-                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr });
+                    const browserEndedAt = Date.now();
+                    updateToolCallResult(sessionKey, toolCallId, resultStr, undefined, { endedAt: browserEndedAt });
+                    updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt });
+                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt });
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
                     const idx = trackedToolCallIds.indexOf(toolCallId);
                     if (idx >= 0) trackedToolCallIds.splice(idx, 1);
@@ -1094,9 +1100,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const msg = err instanceof Error ? err.message : String(err);
                     console.warn(`[browser-tool-dispatcher] ${name} failed: ${msg}`);
                     const errResult = JSON.stringify({ error: msg });
-                    updateToolCallResult(sessionKey, toolCallId, errResult);
-                    updateBlockTool(toolCallId, { status: 'error', result: errResult });
-                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult });
+                    const browserErrEndedAt = Date.now();
+                    updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: browserErrEndedAt });
+                    updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: browserErrEndedAt });
+                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: browserErrEndedAt });
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
                     const idx = trackedToolCallIds.indexOf(toolCallId);
                     if (idx >= 0) trackedToolCallIds.splice(idx, 1);
@@ -1114,9 +1121,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (isControlTool(name) && matchedTopic) {
                 dispatchControlToolCall(name, args || {}, matchedTopic, controlDispatchDeps)
                   .then((confirmation) => {
-                    updateToolCallResult(sessionKey, toolCallId, confirmation);
-                    updateBlockTool(toolCallId, { status: 'success', result: confirmation });
-                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation });
+                    const controlEndedAt = Date.now();
+                    updateToolCallResult(sessionKey, toolCallId, confirmation, undefined, { endedAt: controlEndedAt });
+                    updateBlockTool(toolCallId, { status: 'success', result: confirmation, endedAt: controlEndedAt });
+                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation, endedAt: controlEndedAt });
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: confirmation } } }] }));
                     const idx = trackedToolCallIds.indexOf(toolCallId);
                     if (idx >= 0) trackedToolCallIds.splice(idx, 1);
@@ -1125,9 +1133,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const msg = err instanceof ControlToolError ? err.message : (err instanceof Error ? err.message : String(err));
                     console.warn(`[control-tool] ${name} failed: ${msg}`);
                     const errResult = JSON.stringify({ error: msg });
-                    updateToolCallResult(sessionKey, toolCallId, errResult);
-                    updateBlockTool(toolCallId, { status: 'error', result: errResult });
-                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult });
+                    const controlErrEndedAt = Date.now();
+                    updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: controlErrEndedAt });
+                    updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: controlErrEndedAt });
+                    broadcastToAll({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: controlErrEndedAt });
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
                     const idx = trackedToolCallIds.indexOf(toolCallId);
                     if (idx >= 0) trackedToolCallIds.splice(idx, 1);
@@ -1152,6 +1161,28 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               resetStreamTimer();
               // Broadcast partial result to clients
               broadcastToAll({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult: _partialResult });
+            },
+
+            onToolArgsUpdate: (toolCallId: string, args: Record<string, unknown>) => {
+              resetStreamTimer();
+              // The tool was announced EARLY (input still streaming, args {})
+              // and its input is now complete. Upsert the full args + a fresh
+              // derived detail onto the same ToolCall — persisted row, blocks
+              // timeline, and clients (stream:tool_call merges by id in
+              // useChat's addToolCallToLastMessage).
+              let merged: ToolCall | undefined;
+              for (let i = blocks.length - 1; i >= 0; i--) {
+                const b = blocks[i];
+                if (b.kind === "tool" && b.toolCall.id === toolCallId) {
+                  merged = { ...b.toolCall, args, detail: deriveToolDetail(b.toolCall.name, args) };
+                  break;
+                }
+              }
+              if (!merged) return; // never announced (shouldn't happen)
+              updateToolCallFields(sessionKey, toolCallId, { args, detail: merged.detail });
+              updateBlockTool(toolCallId, { args, detail: merged.detail });
+              broadcastToAll({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall: merged });
+              writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name: merged.name, arguments: JSON.stringify(args) }, contentOffset: merged.contentOffset }] } }] }));
             },
 
             onUserInputRequired: (toolCallId, _toolName, schema) => {
@@ -1228,19 +1259,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 }
               }
 
+              const endedAt = Date.now();
               if (isError) {
                 // Pass result as the error so updateToolCallResult sets status='error'
                 // and the row renders red ✗ + error body. The Claude SDK puts the
                 // failure message inside `tool_result.content` so `result` IS the
                 // error text — passing it as both result and error is intentional.
-                updateToolCallResult(sessionKey, toolCallId, result, result);
-                updateBlockTool(toolCallId, { status: 'error', result, error: result, ...(detail ? { detail } : {}) });
-                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result, error: result, detail });
+                updateToolCallResult(sessionKey, toolCallId, result, result, { endedAt });
+                updateBlockTool(toolCallId, { status: 'error', result, error: result, endedAt, ...(detail ? { detail } : {}) });
+                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result, error: result, detail, endedAt });
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result, error: result } } }] }));
               } else {
-                updateToolCallResult(sessionKey, toolCallId, result);
-                updateBlockTool(toolCallId, { status: 'success', result, ...(detail ? { detail } : {}) });
-                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail });
+                updateToolCallResult(sessionKey, toolCallId, result, undefined, { endedAt });
+                updateBlockTool(toolCallId, { status: 'success', result, endedAt, ...(detail ? { detail } : {}) });
+                broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail, endedAt });
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
               }
               // Remove from tracked list (it's already finalized)

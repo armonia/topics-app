@@ -102,6 +102,15 @@ export interface ToolCall {
   error?: string;
   contentOffset?: number;
   /**
+   * Wall-clock bounds of the tool's real usage window (epoch ms), stamped by
+   * the route handler: `startedAt` at announce (which, with partial-message
+   * streaming, is when the model STARTS writing the input — not when the
+   * input is complete), `endedAt` when the result lands. UI shows
+   * `endedAt - startedAt` as the call's duration.
+   */
+  startedAt?: number;
+  endedAt?: number;
+  /**
    * Optional typed detail built at the provider boundary. Renderers branch on
    * `detail.type` for per-tool UI. When absent, fall back to generic rendering
    * via `args` + `result`. Sub-agents (Task) accumulate child activity in
@@ -407,7 +416,7 @@ export interface AppContext {
   appendToLastMessage: (sessionKey: string, contentDelta: string, thinkingDelta?: string) => StoredMessage | null;
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;
   addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall) => StoredMessage | null;
-  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string) => StoredMessage | null;
+  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>) => StoredMessage | null;
   /**
    * Patch arbitrary fields on a single ToolCall of the last assistant
    * message. Used by the user-input flow (status='waiting_for_input',

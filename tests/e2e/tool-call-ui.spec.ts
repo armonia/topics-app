@@ -182,3 +182,151 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
     }
   });
 });
+
+/**
+ * chat-tool-experience — CHAT-TOOL-02 (grouping) + CHAT-TOOL-04 (highlighting).
+ *
+ * Runs of ≥3 consecutive settled tool calls collapse into ONE summary row
+ * with per-tool counts + wall-clock duration; click expands the classic
+ * per-call rows. waiting_for_input / sub-agent rows never aggregate. Tool
+ * card bodies highlight code through the same hljs facade as markdown fences.
+ */
+test.describe.serial("Tool grouping + highlighting (chat-tool-experience)", () => {
+  test("CHAT-TOOL-02: run of 5 settled calls collapses into a summary row with counts, errors and duration", async ({ page, request }) => {
+    const fresh = await createTopic(request, "Tool Group " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    const base = Date.now() - 120_000;
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "do five things",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk,
+        role: "assistant",
+        parentId: u.id,
+        content: "All five done.",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+        toolCalls: [
+          { id: "g-r1", name: "Read", args: { file_path: "/a.ts" }, status: "success", result: "aaa", startedAt: base, endedAt: base + 2_000 },
+          { id: "g-r2", name: "Read", args: { file_path: "/b.ts" }, status: "success", result: "bbb", startedAt: base + 2_500, endedAt: base + 5_000 },
+          { id: "g-r3", name: "Read", args: { file_path: "/c.ts" }, status: "success", result: "ccc", startedAt: base + 6_000, endedAt: base + 9_000 },
+          { id: "g-b1", name: "Bash", args: { command: "bun test" }, status: "error", error: "exit 1", startedAt: base + 10_000, endedAt: base + 30_000 },
+          { id: "g-e1", name: "Edit", args: { file_path: "/a.ts" }, status: "success", startedAt: base + 31_000, endedAt: base + 41_000 },
+        ],
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      // ONE summary row instead of five per-call rows.
+      const group = page.locator('[data-testid="tool-group-row"]');
+      await expect(group).toBeVisible({ timeout: 10_000 });
+      await expect(group).toContainText("5 azioni");
+      await expect(group).toContainText("Read ×3");
+      // Wall-clock span: first startedAt → last endedAt = 41s.
+      await expect(group).toContainText("41s");
+      // Highlights line: WHAT was touched — file basenames + the command.
+      const highlights = group.locator('[data-testid="tool-group-highlights"]');
+      await expect(highlights).toContainText("a.ts");
+      await expect(highlights).toContainText("bun test");
+      // The errored call stays IN the aggregate but its count is surfaced
+      // on the collapsed summary (red ✗ badge).
+      await expect(group.locator('[data-testid="tool-group-errors"]')).toContainText("1");
+      // Per-call rows are NOT mounted while collapsed.
+      await expect(page.locator('[data-testid="tool-call-row-g-r1"]')).toHaveCount(0);
+
+      // Click → the classic per-call rows, in order.
+      await group.locator('[data-testid="tool-group-summary"]').click();
+      for (const id of ["g-r1", "g-r2", "g-r3", "g-b1", "g-e1"]) {
+        await expect(page.locator(`[data-testid="tool-call-row-${id}"]`)).toBeVisible();
+      }
+      // Per-call duration renders from startedAt/endedAt (g-b1: 20s).
+      await expect(
+        page.locator('[data-testid="tool-call-row-g-b1"] [data-testid="tool-duration"]'),
+      ).toContainText("20s");
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
+
+  test("CHAT-TOOL-02: sub-agent rows never aggregate — they split the run", async ({ page, request }) => {
+    const fresh = await createTopic(request, "Tool Group Solo " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "explore then read",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk,
+        role: "assistant",
+        parentId: u.id,
+        content: "Done exploring.",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+        toolCalls: [
+          { id: "s-r1", name: "Read", args: { file_path: "/a.ts" }, status: "success", result: "aaa" },
+          { id: "s-r2", name: "Read", args: { file_path: "/b.ts" }, status: "success", result: "bbb" },
+          { id: "s-r3", name: "Read", args: { file_path: "/c.ts" }, status: "success", result: "ccc" },
+          { id: "s-task", name: "Task", args: { subagent_type: "Explore", description: "sweep the repo" }, status: "success", result: "found it" },
+        ],
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      // The three Reads aggregate; the Task stays a standalone row, visible
+      // WITHOUT expanding the group (its action log is the primary signal).
+      const group = page.locator('[data-testid="tool-group-row"]');
+      await expect(group).toBeVisible({ timeout: 10_000 });
+      await expect(group).toContainText("3 azioni");
+      await expect(page.locator('[data-testid="tool-call-row-s-task"]')).toBeVisible();
+      await expect(page.locator('[data-testid="tool-call-row-s-r1"]')).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
+
+  test("CHAT-TOOL-04: Read body highlights TypeScript through the hljs facade", async ({ page, request }) => {
+    const fresh = await createTopic(request, "Tool Highlight " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "read app.ts",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk,
+        role: "assistant",
+        parentId: u.id,
+        content: "Read it.",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+        toolCalls: [{
+          id: "hl-read",
+          name: "Read",
+          args: { file_path: "/src/app.ts" },
+          status: "success",
+          result: 'export const app = "hello";',
+        }],
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      const row = page.locator('[data-testid="tool-call-row-hl-read"]');
+      await row.waitFor({ state: "visible", timeout: 10_000 });
+      await row.locator("button").first().click();
+
+      const result = row.locator('[data-testid="tool-call-result"]');
+      await expect(result).toContainText("export const app");
+      // hljs tokens appear once the lazy tokenizer chunk lands (language
+      // derived from the .ts extension) — the same facade markdown fences use.
+      await expect(result.locator(".hljs-keyword").first()).toBeVisible({ timeout: 10_000 });
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
+});

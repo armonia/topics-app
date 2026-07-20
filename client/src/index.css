@@ -1608,3 +1608,57 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
 .code-block-wrapper .hljs-deletion { color: #e06c75; }
 .code-block-wrapper .hljs-emphasis { font-style: italic; }
 .code-block-wrapper .hljs-strong { font-weight: 600; }
+
+/* CHAT-TOOL-04 — hljs palette for TOOL CARD bodies. Unlike chat code fences,
+ * a tool card's surface follows the app theme (bg-app-hover/40 is light in
+ * light mode), so it needs a light palette (One-Light-ish) with the One-Dark
+ * palette above re-applied under `.dark`. */
+.tool-card-code .hljs-comment,
+.tool-card-code .hljs-quote { color: #a0a1a7; font-style: italic; }
+.tool-card-code .hljs-keyword,
+.tool-card-code .hljs-selector-tag,
+.tool-card-code .hljs-literal,
+.tool-card-code .hljs-type { color: #a626a4; }
+.tool-card-code .hljs-string,
+.tool-card-code .hljs-regexp,
+.tool-card-code .hljs-addition { color: #50a14f; }
+.tool-card-code .hljs-number,
+.tool-card-code .hljs-symbol,
+.tool-card-code .hljs-bullet,
+.tool-card-code .hljs-meta { color: #b76b01; }
+.tool-card-code .hljs-title,
+.tool-card-code .hljs-title.function_ { color: #4078f2; }
+.tool-card-code .hljs-attr,
+.tool-card-code .hljs-attribute,
+.tool-card-code .hljs-variable,
+.tool-card-code .hljs-template-variable,
+.tool-card-code .hljs-property { color: #e45649; }
+.tool-card-code .hljs-built_in,
+.tool-card-code .hljs-title.class_ { color: #c18401; }
+.tool-card-code .hljs-deletion { color: #e45649; }
+.tool-card-code .hljs-emphasis { font-style: italic; }
+.tool-card-code .hljs-strong { font-weight: 600; }
+
+.dark .tool-card-code .hljs-comment,
+.dark .tool-card-code .hljs-quote { color: #7f848e; }
+.dark .tool-card-code .hljs-keyword,
+.dark .tool-card-code .hljs-selector-tag,
+.dark .tool-card-code .hljs-literal,
+.dark .tool-card-code .hljs-type { color: #c678dd; }
+.dark .tool-card-code .hljs-string,
+.dark .tool-card-code .hljs-regexp,
+.dark .tool-card-code .hljs-addition { color: #98c379; }
+.dark .tool-card-code .hljs-number,
+.dark .tool-card-code .hljs-symbol,
+.dark .tool-card-code .hljs-bullet,
+.dark .tool-card-code .hljs-meta { color: #d19a66; }
+.dark .tool-card-code .hljs-title,
+.dark .tool-card-code .hljs-title.function_ { color: #61afef; }
+.dark .tool-card-code .hljs-attr,
+.dark .tool-card-code .hljs-attribute,
+.dark .tool-card-code .hljs-variable,
+.dark .tool-card-code .hljs-template-variable,
+.dark .tool-card-code .hljs-property { color: #e06c75; }
+.dark .tool-card-code .hljs-built_in,
+.dark .tool-card-code .hljs-title.class_ { color: #e5c07b; }
+.dark .tool-card-code .hljs-deletion { color: #e06c75; }

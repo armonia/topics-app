@@ -510,6 +510,9 @@ export function useChat() {
                     result: event.result as string | undefined,
                     error: (event.error as string | undefined) ?? oldTc.error,
                     detail: (event.detail as ToolCall['detail']) ?? oldTc.detail,
+                    // Server stamps the real-usage close on the result event;
+                    // durations render from endedAt - startedAt.
+                    endedAt: (typeof event.endedAt === 'number' ? event.endedAt : undefined) ?? oldTc.endedAt,
                   };
                   const nextToolCalls = msgs[i].toolCalls!.slice();
                   nextToolCalls[tcIdx] = newTc;

@@ -12,6 +12,7 @@ import { openExternalOnce } from '../lib/openExternal';
 import { selfTaskLinkTarget, openTaskInApp } from '../lib/openTaskLink';
 import { PartialIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
+import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import type { ToolCall } from '../types';
@@ -1037,18 +1038,19 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             );
           }
           if (g.kind === 'tools') {
+            // Consecutive runs of ≥3 aggregatable calls collapse into a
+            // single summary row with per-tool counts (CHAT-TOOL-02);
+            // waiting_for_input / sub-agent rows stay standalone, short
+            // runs keep the classic per-call rows.
             return (
               <div
                 key={`g-tools-${g.startIdx}`}
                 className="my-1 space-y-px"
               >
-                {g.tools.map((b, j) => (
-                  <ToolCallRow
-                    key={`b-${g.startIdx + j}-${b.toolCall.id}`}
-                    toolCall={b.toolCall}
-                    sessionKey={sessionKey}
-                  />
-                ))}
+                <GroupedToolRows
+                  tools={g.tools.map((b) => b.toolCall)}
+                  sessionKey={sessionKey}
+                />
               </div>
             );
           }
@@ -1130,9 +1132,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             {hasPreContentRows && (
               <div className="space-y-0 mb-1.5">
                 {thinking && <ReasoningRow content={thinking} partial={partial} />}
-                {legacyTools.map((tc) => (
-                  <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} />
-                ))}
+                <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} />
               </div>
             )}
 
