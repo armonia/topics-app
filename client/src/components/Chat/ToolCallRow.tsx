@@ -14,12 +14,15 @@ import { chatApi } from '../../lib/api';
  * the first ~second so instant tools don't blink a "0.9s" in and out.
  */
 export function ElapsedTimer({ since }: { since: number }) {
-  const [, force] = useState(0);
+  // Elapsed lives in state and is advanced by the interval — render stays
+  // pure (no Date.now() during render, react-hooks/purity).
+  const [ms, setMs] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => force((n) => n + 1), 1000);
+    const update = () => setMs(Date.now() - since);
+    update();
+    const t = setInterval(update, 1000);
     return () => clearInterval(t);
-  }, []);
-  const ms = Date.now() - since;
+  }, [since]);
   if (ms < 900) return null;
   return (
     <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-elapsed">
