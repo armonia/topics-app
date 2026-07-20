@@ -30,12 +30,6 @@ import {
 
 const BROWSER_ONLY: PaneType[] = ['browser'];
 
-/** Same origin host? Robust to path drift — a seeded output_url that 307'd to
- *  `/login` still matches its own host, so retiring the lone auto-seed works. */
-function sameHost(a: string, b: string): boolean {
-  try { return new URL(a).host === new URL(b).host; } catch { return false; }
-}
-
 // Stable ids for the derived (non-browser) surfaces. They never enter
 // pane-store-v2; they live only in this task's tiling descriptor.
 const threadPaneId = (taskId: string) => `thread:${taskId}`;
@@ -77,7 +71,7 @@ export interface TaskBrowserGroupLayout {
   seedFromUrl: (url: string, title?: string) => Promise<void>;
   /** Park the lone auto-seeded output tab (a screenshot supersedes the live,
    *  often login-gated server as the review surface). Reopenable from the tray. */
-  retireLoneSeed: (url: string) => Promise<void>;
+  retireLoneSeed: () => Promise<void>;
   /** Spread straight into `<GroupLayout {...props} />`. */
   groupLayoutProps: {
     panes: Pane[];
@@ -206,14 +200,17 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
     if (getTaskTabs(taskId).tabs.length === 0) taskBrowserTabs.addTab(taskId, url, title);
   }, [taskId]);
   /** Retire (park) the lone auto-seeded output tab when the screenshot takes
-   *  over as the review surface. Parks ONLY when there's exactly one live tab
-   *  whose host matches the review url — a reviewer who split/added tabs keeps
-   *  them all. Parked = reopenable from the closed-tab tray, never destroyed. */
-  const retireLoneSeed = useCallback(async (url: string) => {
-    if (!url) return;
+   *  over as the review surface. The seeded tab's URL is unreliable — it drifts
+   *  to `/login` after a 307, or points at a stale port — so we DON'T match on
+   *  url: a single live tab that the reviewer never pinned (renamed) IS the
+   *  auto-seed / a stale live server, and the screenshot supersedes it. A
+   *  reviewer who split/added tabs (>1) or pinned one is left untouched. Parked
+   *  = reopenable from the closed-tab tray, never destroyed; the live server
+   *  also stays a click away via the drawer's "Apri l'output" button. */
+  const retireLoneSeed = useCallback(async () => {
     await taskBrowserTabs.ensureLoaded(taskId);
     const live = liveTabs(getTaskTabs(taskId));
-    if (live.length === 1 && sameHost(live[0].url, url)) {
+    if (live.length === 1 && live[0].titleSource !== 'user') {
       taskBrowserTabs.closeTab(taskId, live[0].contextId);
     }
   }, [taskId]);
