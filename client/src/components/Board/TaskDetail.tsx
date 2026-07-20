@@ -67,6 +67,13 @@ export function TaskChangesSection({ projectId, taskId, bump }: { projectId: str
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
 
+// One-shot-per-session guard (module-level so it survives drawer remounts): a
+// task whose auto-seeded output tab we've already retired isn't re-parked when
+// the reviewer reopens the drawer — reopening the live server from the tray is
+// then respected. A page reload (new session) clears it, so a fresh stale login
+// tab is retired once more. Keyed by taskId.
+const retiredSeedTasks = new Set<string>();
+
 export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /**
@@ -155,9 +162,6 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // width preference (more room for the native tiling), no side-panel fold.
   const rootRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  // One-shot per task: retire the auto-seeded output tab at most once (so a
-  // reviewer who deliberately reopens the live server isn't fought on re-render).
-  const retiredSeedRef = useRef<Set<string>>(new Set());
 
   // Swipe-to-close (mobile full-screen overlay only). Track the first touch and
   // lock onto a horizontal drag (dominant X vs Y) so a vertical scroll inside the
@@ -669,9 +673,22 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // default ("Browser") until the page loads, then the page's OWN title (auto).
   useEffect(() => {
     if (!task?.outputUrl) return;
+    // Priorità dell'artefatto di review: lo SCREENSHOT pre-verificato (durevole)
+    // batte il live output_url — dev-server effimero e spesso login-gated. Con
+    // un'anteprima presente NON dirottiamo la review su una pagina di login:
+    // ritiriamo (una volta) l'eventuale tab già seminato nel tray riapribile e
+    // lasciamo il server vivo a un click ("Apri l'output"). Senza anteprima
+    // (task non fotografabili) seminiamo il browser come prima.
+    if (task.previewImage) {
+      if (!retiredSeedTasks.has(taskId)) {
+        retiredSeedTasks.add(taskId);
+        void browser.retireLoneSeed();
+      }
+      return;
+    }
     void browser.seedFromUrl(task.outputUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- seedFromUrl is stable per taskId; refire only when the output_url changes
-  }, [task?.outputUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seedFromUrl/retireLoneSeed are stable per taskId; refire only when output_url/previewImage change
+  }, [task?.outputUrl, task?.previewImage, taskId]);
 
   const doneCount = children.filter((c) => c.status === 'done').length;
 
