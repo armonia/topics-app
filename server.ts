@@ -1,5 +1,5 @@
 import { basename, join, resolve, sep } from "path";
-import { existsSync, readFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from "fs";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
@@ -35,6 +35,8 @@ import { createTaskService } from "./server/services/tasks";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
+import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
+import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic } from "./server/lib/session-control-core";
@@ -427,6 +429,10 @@ function dispatchExtraPaths(): string[] {
 // byte offsets so the dispatcher's 4s live ticker stays O(appended bytes).
 const transcriptUsageReader = createTranscriptUsageReader();
 
+// Assigned just below (after worktreeOfTask is defined); the dispatcher only
+// calls it lazily at review-time, so the late binding is safe.
+let previewManager: PreviewManager | undefined;
+
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
@@ -569,6 +575,11 @@ const taskDispatcher = createTaskDispatcher({
     } catch { /* best-effort — no mirror on failure */ }
     return null;
   },
+  // Review-ready previews: on delivery to review, boot a live preview server
+  // from the task's worktree and point output_url at the local deep-link (never
+  // prod). Lazy — reads `previewManager` when a turn actually reaches review.
+  preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),
+  teardownPreview: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
   broadcast: ctx.broadcastToAll,
 });
 
@@ -583,6 +594,106 @@ const worktreeOfTask = (taskId: string) => {
   if (!worktreeId) return null;
   return ctx.worktreeStore.get(worktreeId) ?? null;
 };
+
+// ── Review-ready previews ──────────────────────────────────────────────────
+// One preview server per task, booted from its branch worktree at review-time.
+// `previewManager` owns the lifecycle; the host wires HOW to start/probe/shoot.
+const PREVIEW_MEDIA_DIR = join(homedir(), ".openclaw", "media", "task-previews");
+const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
+
+previewManager = createPreviewManager({
+  worktreeOf: (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt) return null;
+    return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
+  },
+  // Env override (TOPICS_PREVIEW_CMD / TOPICS_PREVIEW_PATH) wins; otherwise pick
+  // the first present of preview/dev/start in the worktree's package.json. The
+  // server honours PORT (injected by the manager) so the pool port sticks.
+  resolveCommand: (_taskId, wt) => {
+    const deepLinkPath = process.env.TOPICS_PREVIEW_PATH?.trim() || "/";
+    const override = process.env.TOPICS_PREVIEW_CMD?.trim();
+    if (override) return { cmd: override.split(/\s+/), deepLinkPath };
+    try {
+      const pkgPath = join(wt.absPath, "package.json");
+      if (!existsSync(pkgPath)) return null;
+      const scripts = (JSON.parse(readFileSync(pkgPath, "utf-8"))?.scripts ?? {}) as Record<string, string>;
+      const script = PREVIEW_SCRIPT_CANDIDATES.find((s) => typeof scripts[s] === "string" && scripts[s].trim());
+      if (!script) return null;
+      return { cmd: ["bun", "run", script], deepLinkPath };
+    } catch { return null; }
+  },
+  spawn: (cmd, opts): PreviewProcess => {
+    const child = Bun.spawn(cmd, {
+      cwd: opts.cwd,
+      env: { ...process.env, ...opts.env },
+      stdout: "ignore", stderr: "ignore", stdin: "ignore",
+    });
+    return {
+      get pid() { return child.pid ?? null; },
+      alive() { return child.exitCode === null && !child.killed; },
+      kill() { try { child.kill(); } catch { /* already gone */ } },
+    };
+  },
+  probe: async (url) => {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 3000);
+      try { await fetch(url, { signal: ctrl.signal, redirect: "manual" }); return true; }
+      finally { clearTimeout(t); }
+    } catch { return false; }
+  },
+  // Reuse the already-running headless Chromium (no extra launch) via a throwaway
+  // context, sized to 1440px. Best-effort → boolean.
+  screenshot: async (url, outPath, opts) => {
+    let port = "0"; try { port = new URL(url).port || "0"; } catch { /* keep */ }
+    const id = `preview-shot:${port}`;
+    try {
+      await browserService.createContext(id, { viewport: { width: opts.width, height: 900 } });
+      const nav = await browserService.navigate(id, url);
+      if (nav.error) return false;
+      await new Promise((r) => setTimeout(r, 1500)); // let the first paint settle
+      const buf = await browserService.screenshot(id, { format: "png", fullPage: true });
+      writeFileSync(outPath, buf);
+      return true;
+    } catch (err) {
+      console.error("[preview] screenshot", err);
+      return false;
+    } finally {
+      try { await browserService.destroyContext(id); } catch { /* ignore */ }
+    }
+  },
+  currentOutputUrl: (taskId) => dispatcherSvc.get(taskId)?.task.outputUrl ?? null,
+  setOutputUrl: (taskId, url) => {
+    const projectId = dispatcherSvc.get(taskId)?.task.projectId;
+    if (!projectId) return;
+    try {
+      const t = dispatcherSvc.update({ taskId, actor: "agent", by: "verifier", patch: { outputUrl: url }, projectId });
+      ctx.broadcastToAll({ type: "task:updated", projectId, task: t });
+    } catch (err) { console.error("[preview] setOutputUrl", err); }
+  },
+  setPreviewImage: (taskId, absPath) => {
+    const projectId = dispatcherSvc.get(taskId)?.task.projectId;
+    if (!projectId) return;
+    try {
+      const t = dispatcherSvc.update({ taskId, actor: "agent", by: "verifier", patch: { previewImage: absPath }, projectId });
+      ctx.broadcastToAll({ type: "task:updated", projectId, task: t });
+    } catch (err) { console.error("[preview] setPreviewImage", err); }
+  },
+  addReviewNote: (taskId, { content, media }) => {
+    const projectId = dispatcherSvc.get(taskId)?.task.projectId;
+    try {
+      dispatcherSvc.addComment({ taskId, author: "verifier", content, media, projectId, kind: "review-note" });
+      const t = dispatcherSvc.get(taskId)?.task;
+      if (t) ctx.broadcastToAll({ type: "task:updated", projectId, task: t });
+    } catch (err) { console.error("[preview] addReviewNote", err); }
+  },
+  registerProcess: (entry) => registerPreviewProcess(entry),
+  unregisterProcess: (taskId) => unregisterPreviewProcess(taskId),
+  mediaDir: PREVIEW_MEDIA_DIR,
+  ensureMediaDir: () => { try { mkdirSync(PREVIEW_MEDIA_DIR, { recursive: true }); } catch { /* ignore */ } },
+  log: (msg, err) => console.error(msg, err ?? ""),
+});
 
 const taskAutoMerge = createTaskAutoMerge({
   resolveTaskMerge: (taskId) => {
@@ -612,6 +723,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     if (!wt) return false;
     return ctx.worktreeManager.delete(wt.id);
   },
+  // Reap the task's live preview server on land / approve / close.
+  teardownPreview: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
   // NOTE: the server no longer SELF-RESTARTS when an approve lands server code
   // (removed 2026-07-18, Attilio: "l'auto-riavvio sporca tutto"). A landed
   // server change goes live either via the opt-in graceful hot-reload watch
@@ -1689,7 +1802,17 @@ function runWorktreeGc() {
       const res = await taskAutoMerge.tryMerge(taskId, text);
       return res.status === "merged" ? "landed" : res.status === "nothing" ? "nothing" : res.status === "conflict" ? "conflict" : "skipped";
     },
-    reap: (worktreeId) => ctx.worktreeManager.delete(worktreeId),
+    reap: async (worktreeId) => {
+      // Reap-aware preview teardown: a GC'd worktree can't back a preview server.
+      try {
+        const topic = ctx.db.prepare("SELECT id FROM topics WHERE worktree_id = ? LIMIT 1").get(worktreeId) as { id?: string } | undefined;
+        if (topic?.id) {
+          const t = ctx.db.prepare("SELECT id FROM tasks WHERE assigned_topic_id = ? LIMIT 1").get(topic.id) as { id?: string } | undefined;
+          if (t?.id) await previewManager?.teardown(t.id);
+        }
+      } catch { /* best-effort */ }
+      return ctx.worktreeManager.delete(worktreeId);
+    },
     log: (msg) => console.log(msg),
   }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });
 }
@@ -1750,6 +1873,7 @@ async function gracefulShutdown(signal: string) {
   clearTimeout(worktreeGcBoot);
   clearInterval(worktreeGcTimer);
   taskDispatcher.shutdown();
+  void previewManager?.teardownAll(); // kill any live preview servers
   stopHeartbeatChecker();      // agent FSM stale-checker (was an unstoppable leak)
   activityMonitor.destroy();   // closes the log fs.watch + batch/persist timers
   journalCollector.stop();     // clears the journal collection interval

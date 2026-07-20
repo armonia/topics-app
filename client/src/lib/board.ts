@@ -113,7 +113,7 @@ export interface TaskComment {
   createdAt: string;
   /** 'status' = a transition event ("todo→review", author = who moved it) —
    *  rendered as a timeline row, never as a speech bubble. */
-  kind: 'comment' | 'status';
+  kind: 'comment' | 'status' | 'review-note';
 }
 
 export interface TaskWithThread {

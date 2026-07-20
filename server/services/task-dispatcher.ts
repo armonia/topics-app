@@ -115,6 +115,16 @@ export interface DispatcherDeps {
    */
   getLastAgentText?: (sessionKey: string) => string | null;
   /**
+   * A task just reached `review` (self-delivered or system-delivered): boot a
+   * live preview server from its worktree, point output_url at the LOCAL
+   * deep-link (never prod), and attach a screenshot as a `review-note`. Fired
+   * best-effort (void) — the review chip is already set, the preview populates a
+   * few seconds later. Absent (tests/degraded) ⇒ no preview, old behaviour.
+   */
+  preparePreview?: (taskId: string) => Promise<void>;
+  /** Tear a task's preview server down (land / approve / close / reap). */
+  teardownPreview?: (taskId: string) => Promise<void>;
+  /**
    * True if the topic still exists. Used to SELF-HEAL a dead binding: a task
    * whose `assigned_topic_id` points at a topic that was later reaped (its agent
    * tab deleted) would be skipped forever by the eligibility filter (`!assignedTopicId`)
@@ -563,10 +573,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         const comments = deps.svc.get(taskId)?.comments ?? [];
         // kind='status' rows are transition events, not the agent speaking —
         // "the agent's last word" must be an actual comment.
-        const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind !== "status");
+        const lastAgent = [...comments].reverse().find((c) => c.author !== "user" && c.author !== "system" && c.kind === "comment");
         if (lastAgent && !lastAgent.content.includes("```question")) chip = CHIP_DELIVERED;
       } catch { /* default to needs_input */ }
       try { emit(deps.svc.setDispatchState({ taskId, state: chip })); } catch { /* best-effort */ }
+      // Review-ready preview: boot a live server from the worktree, set output_url
+      // to the local deep-link, attach a screenshot. Best-effort, fire-and-forget.
+      try { void deps.preparePreview?.(taskId); } catch { /* best-effort */ }
       return;
     }
     if (cur.status === "in_progress") {
@@ -618,6 +631,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           : base;
         try {
           emit(deps.svc.deliverToReviewBySystem({ taskId, reason }));
+          try { void deps.preparePreview?.(taskId); } catch { /* best-effort */ }
         } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
         return;
       }
