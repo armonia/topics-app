@@ -182,11 +182,23 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
   }, [sendInput]);
 
   // ── The input bridge: capture-phase listeners inside the replayer iframe ─────
+  const bridgeRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attachInputBridge = useCallback(() => {
     const replayer = replayerRef.current;
     const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
     const doc = iframe?.contentDocument;
-    if (!replayer || !doc) return;
+    // The iframe's contentDocument isn't always ready the instant we're called
+    // (initial mount, and under WKWebView the 'fullsnapshot-rebuilded' timing
+    // differs from Chromium). If we bail here with no retry, the bridge never
+    // attaches → clicks are neither preventDefaulted nor relayed, so link clicks
+    // fall through to the shell's nav-guard and open in the SYSTEM browser
+    // ("i link mi aprono Dia"), and functional clicks never reach the headless.
+    // Retry a few frames until the doc exists.
+    if (bridgeRetryRef.current) { clearTimeout(bridgeRetryRef.current); bridgeRetryRef.current = null; }
+    if (!replayer || !doc) {
+      if (replayerRef.current) bridgeRetryRef.current = setTimeout(attachInputBridge, 50);
+      return;
+    }
 
     // doc.open() (full-snapshot rebuild) wiped any previous listeners; abort the
     // old controller and attach a fresh set — idempotent across rebuilds.
@@ -350,6 +362,11 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
           attachInputBridge();
           applyScale();
         });
+        // Belt for WKWebView, where 'fullsnapshot-rebuilded' can fire before the
+        // iframe's document is scriptable: also (re)attach on the iframe's own
+        // load. Idempotent — attachInputBridge aborts the prior controller.
+        const ifr = replayer.iframe as HTMLIFrameElement | undefined;
+        ifr?.addEventListener('load', attachInputBridge);
         started = true;
         applyScale();
         attachInputBridge();
@@ -383,6 +400,7 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
     return () => {
       unsubscribe();
       ro.disconnect();
+      if (bridgeRetryRef.current) { clearTimeout(bridgeRetryRef.current); bridgeRetryRef.current = null; }
       bridgeAbortRef.current?.abort();
       bridgeAbortRef.current = null;
       if (pendingScrollTimerRef.current) clearTimeout(pendingScrollTimerRef.current);
