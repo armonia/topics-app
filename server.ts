@@ -798,16 +798,38 @@ const wsHeartbeatTimer = setInterval(() => {
 // uses this set to tell a SURVIVING broker turn (detached by the previous
 // server's graceful shutdown — adopt it) from an idle child (reap it).
 // Reading partial=1 after this block would always see zero rows.
+//
+// Sessions whose child is still ALIVE in the detached ai-bridge daemon are
+// NOT stale — the turn survived the restart — so their partial rows are left
+// untouched. This keeps the mid-turn signal intact across RAPID successive
+// reloads: a boot that adopts and then dies before its adopted turn rewrote
+// the partial row must not blind the NEXT boot's sweep (observed live: the
+// sweep reaped a mid-turn child after a double reload). The adopted turn's
+// leftovers are cleared by the sweep when the turn ends.
 const midTurnAtBoot = new Set<string>();
 {
   console.log("[Startup] Checking for stale partial messages...");
+  let liveBrokerChatSessions = new Set<string>();
+  if (aiBridgeEnabled()) {
+    try {
+      liveBrokerChatSessions = new Set(
+        (await getAiBridgeClient().list())
+          .filter((s) => s.alive && s.id.startsWith("topic:"))
+          .map((s) => s.id),
+      );
+    } catch { /* daemon unreachable → nothing survived → all partials are stale */ }
+  }
+  let cleared = 0;
   try {
     const rows = db.query("SELECT DISTINCT session_key AS sk FROM messages WHERE partial = 1").all() as Array<{ sk: string }>;
-    for (const row of rows) midTurnAtBoot.add(row.sk);
+    for (const row of rows) {
+      midTurnAtBoot.add(row.sk);
+      if (liveBrokerChatSessions.has(row.sk)) continue; // surviving turn — keep the signal
+      cleared += db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [row.sk]).changes;
+    }
   } catch { /* capture is best-effort; the sweep degrades to reaping */ }
-  const result = db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE partial = 1");
-  if (result.changes > 0) {
-    console.log(`[Startup] Reset ${result.changes} stale partial messages`);
+  if (cleared > 0) {
+    console.log(`[Startup] Reset ${cleared} stale partial messages (${midTurnAtBoot.size} session(s) were mid-turn, ${liveBrokerChatSessions.size} broker-alive kept)`);
   } else {
     console.log("[Startup] No stale partial messages found");
   }
@@ -1726,8 +1748,14 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     const topic = ctx.getTopicBySessionKey(s.id);
     if (topic && !topic.archived && midTurnAtBoot.has(s.id)) {
       console.log(`[chat-reattach] adopting surviving mid-turn broker session ${s.id}`);
-      runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 }).catch((err) =>
-        console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err));
+      runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 })
+        .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
+        .finally(() => {
+          // The turn is over (completed, died, or timed out): clear any
+          // partial leftovers for the session — including the pre-reload row
+          // the startup reset deliberately skipped while the child was alive.
+          try { ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [s.id]); } catch { /* next boot's reset catches it */ }
+        });
       continue;
     }
     // Idle / archived / deleted-topic session: reap. Guard against a send
