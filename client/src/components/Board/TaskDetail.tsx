@@ -146,6 +146,20 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     try { localStorage.setItem('board:taskDetailWide', next ? '1' : '0'); } catch { /* private mode */ }
     return next;
   });
+  // Desktop (lg+) gate for the two-column layout: on a phone the drawer is a
+  // full-screen single column, so `wide` (which can persist from a desktop
+  // session) must NOT trigger the side-by-side split there.
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const on = () => setIsDesktop(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  // Two-column review layout: controls (info + subtasks) on the LEFT, the
+  // conversation/workspace + composer on the RIGHT — only when expanded on
+  // desktop. Same section grouping stacks correctly in the single column.
+  const twoCol = wide && isDesktop;
   // Collapsible description + subtask sections (sticky per client): the drawer
   // header can grow tall, and both are secondary to the thread/body — collapsing
   // them reclaims vertical room for the chat.
@@ -857,11 +871,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             the drawer height, so the subtask tray's `max-h-[40%]` and the
             thread's `overflow-y-auto` never get a bounded height → nothing
             scrolls. */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* Info block (eyebrow, title, chips, description, preview) — bounded
-              + scrollable so a big preview / long description never squishes the
-              workspace below (before: unbounded → tutto schiacciato, no scroll). */}
-          <div className="shrink-0 max-h-[42%] overflow-y-auto border-b border-white/10 px-3 py-3">
+        <div className={`flex min-h-0 min-w-0 flex-1 ${twoCol ? 'flex-row' : 'flex-col'}`}>
+          {/* LEFT column (controls): info + subtasks. In two-column a fixed
+              scrollable rail; `display:contents` otherwise → the children stack
+              in the single column exactly as before (zero layout change). */}
+          <div className={twoCol ? 'flex w-[22rem] shrink-0 flex-col overflow-y-auto border-r border-white/10' : 'contents'}>
+          {/* Info block (eyebrow, title, chips, description, preview) — in the
+              single column it's bounded + scrollable so a big preview / long
+              description never squishes the workspace; in the rail it's natural
+              (the rail scrolls). */}
+          <div className={`shrink-0 border-b border-white/10 px-3 py-3 ${twoCol ? '' : 'max-h-[42%] overflow-y-auto'}`}>
             {task?.parentTaskId && onOpenTask && (
               <button
                 onClick={() => onOpenTask(task.parentTaskId!)}
@@ -1120,7 +1139,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               Hidden entirely when there are no subtasks ("non mostrare se non ci
               sono") — added on demand from the ⋯ menu (subtaskComposerOpen). */}
           {(children.length > 0 || subtaskComposerOpen) && (
-          <div className="max-h-[40%] shrink-0 overflow-y-auto border-b border-white/10 px-3 py-2" data-testid="task-detail-subtasks">
+          <div className={`shrink-0 border-b border-white/10 px-3 py-2 ${twoCol ? '' : 'max-h-[40%] overflow-y-auto'}`} data-testid="task-detail-subtasks">
             <button
               onClick={toggleSubtasksOpen}
               className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300"
@@ -1148,6 +1167,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             )}
           </div>
           )}
+          </div>{/* end LEFT column */}
+          {/* RIGHT column: conversation/workspace + composer. In two-column the
+              flex-1 pane beside the controls rail; `display:contents` otherwise
+              so it stacks in the single column exactly as before. */}
+          <div className={twoCol ? 'flex min-h-0 flex-1 flex-col' : 'contents'}>
           {/* "Modifiche" (worktree diff) lives HERE — above the body, OUT of the
               chat composer area ("sopra la chat era fastidioso"). It renders
               NOTHING when there's no worktree / an empty diff (owns its own
@@ -1266,6 +1290,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               >{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
             </div>
           </div>
+          </div>{/* end RIGHT column */}
         </div>
       </div>
       )}
