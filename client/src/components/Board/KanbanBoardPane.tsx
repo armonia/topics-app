@@ -370,6 +370,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const columnsScrollRef = useRef<HTMLDivElement>(null);
   // Provider model list for the board-default picker (settings panel). Seeded
   // from the snapshot and kept live — same source the composer's picker uses.
   const [claudeModels, setClaudeModels] = useState<string[]>(
@@ -399,11 +400,24 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // Opening the drawer shrinks the columns viewport (flex sibling): the card
   // that was just clicked can end up outside it. Bring it back after layout
   // settles — rAF fires post-commit, when the row already has its new width.
+  // Scroll the columns row's OWN scrollLeft directly (never
+  // element.scrollIntoView(): its automatic ancestor-walk can escape this
+  // (horizontal-only) concern onto an unrelated vertical/overflow-hidden
+  // ancestor — that's what silently scrolled the whole drawer, header and
+  // close button included, out of view on mobile).
   useEffect(() => {
     if (!selectedId) return;
     const raf = requestAnimationFrame(() => {
-      document.querySelector(`[data-task-card="${selectedId}"]`)
-        ?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+      const container = columnsScrollRef.current;
+      const card = document.querySelector(`[data-task-card="${selectedId}"]`);
+      if (!container || !card) return;
+      const containerRect = container.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      if (cardRect.left < containerRect.left) {
+        container.scrollBy({ left: cardRect.left - containerRect.left, behavior: 'smooth' });
+      } else if (cardRect.right > containerRect.right) {
+        container.scrollBy({ left: cardRect.right - containerRect.right, behavior: 'smooth' });
+      }
     });
     return () => cancelAnimationFrame(raf);
   }, [selectedId]);
@@ -749,7 +763,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setActiveId(null); flushDrag(); }}>
-            <div className="flex h-full min-w-0 snap-x snap-mandatory scroll-smooth gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3">
+            <div ref={columnsScrollRef} className="flex h-full min-w-0 snap-x snap-mandatory scroll-smooth gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3">
               {TASK_STATUSES.map((status) => (
                 <Column
                   key={status}
