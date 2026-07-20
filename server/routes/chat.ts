@@ -655,6 +655,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
           const handleGraceExpiry = () => {
             if (streamState !== "soft-timed-out") return;
+            // Auto-compact resilience: the CLI emits NOTHING while it compacts
+            // a full context (observed 3+ min of total silence), which is
+            // indistinguishable from a dead provider on the stream alone.
+            // While the child process is still ALIVE this is not a timeout —
+            // extend the grace window instead of aborting a healthy turn (the
+            // 30-min hard cap still bounds a truly wedged process). Bumping the
+            // stream activity keeps the StaleStream sweeper (3-min inactivity)
+            // from finalizing the vouched-for stream underneath us.
+            if (topicProvider.isTurnProcessAlive?.(sessionKey)) {
+              console.warn(`[StreamWS] Grace expired but provider process is alive on ${sessionKey} (compaction/long silence) — extending grace ${STREAM_GRACE_MS / 1000}s`);
+              updateStreamContent(sessionKey, fullContent, fullThinking);
+              graceTimer = setTimeout(handleGraceExpiry, STREAM_GRACE_MS);
+              return;
+            }
             console.warn(`[StreamWS] Grace expired without recovery on ${sessionKey} → finalize as timeout`);
             streamState = "finalized";
             const timeoutMsg = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
@@ -670,7 +684,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // so without this the spawned process keeps running and later fires
             // `onDone` → a second finalizeStream (now guarded) and, worse, a frozen
             // per-session turn queue. Mirrors `/api/chat/abort` in topics.ts.
-            topicProvider.abort?.(sessionKey)?.catch((err: any) => console.warn(`[StreamWS] Provider abort on grace-expiry failed:`, err));
+            // reason "watchdog": the liveness check above means we only get here
+            // with a DEAD child, but the abort must still never read "user stop".
+            topicProvider.abort?.(sessionKey, undefined, "watchdog")?.catch((err: any) => console.warn(`[StreamWS] Provider abort on grace-expiry failed:`, err));
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
@@ -697,7 +713,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // See handleGraceExpiry: abort the orphaned provider turn (no-op
             // unregister otherwise leaves the process running).
-            topicProvider.abort?.(sessionKey)?.catch((err: any) => console.warn(`[StreamWS] Provider abort on hard-timeout failed:`, err));
+            topicProvider.abort?.(sessionKey, undefined, "watchdog")?.catch((err: any) => console.warn(`[StreamWS] Provider abort on hard-timeout failed:`, err));
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: msg });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });

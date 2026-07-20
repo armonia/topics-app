@@ -60,6 +60,8 @@ import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
+import { aiBridgeEnabled } from "./server/providers/claude-code";
+import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickTaskModel } from "./server/services/task-model-picker";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
@@ -1679,6 +1681,38 @@ taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] boot recon
 const dispatchTimer = setInterval(() => {
   taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] poll reconcile failed", err));
 }, DISPATCH_POLL_MS);
+
+// Chat reload-resilience: adopt broker-surviving CHAT turns after a restart.
+// A graceful shutdown/hot-reload DETACHES chat children into the ai-bridge
+// daemon instead of killing them (claude-code stop()); this sweep re-adopts
+// any that are still alive so the in-flight turn streams on as if nothing
+// happened. The dispatcher's reconcile above already REATTACHes the turns of
+// in_progress board tasks — those sessionKeys are skipped here so two
+// handlers never race over one child.
+async function reattachSurvivingChatTurns(): Promise<void> {
+  if (!aiBridgeEnabled()) return;
+  let sessions: Awaited<ReturnType<ReturnType<typeof getAiBridgeClient>["list"]>>;
+  try { sessions = await getAiBridgeClient().list(); } catch { return; } // no daemon → nothing survived
+  const live = sessions.filter((s) => s.alive && s.id.startsWith("topic:"));
+  if (live.length === 0) return;
+  const dispatcherClaimed = new Set<string>();
+  try {
+    const rows = ctx.db.query(
+      "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
+    ).all() as Array<{ t: string }>;
+    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
+  } catch (err) {
+    console.warn("[chat-reattach] dispatcher claim query failed (adopting everything):", err);
+  }
+  for (const s of live) {
+    if (dispatcherClaimed.has(s.id)) continue;
+    if (!ctx.getTopicBySessionKey(s.id)) continue; // orphan broker session (topic deleted)
+    console.log(`[chat-reattach] adopting surviving broker turn for ${s.id}`);
+    runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 }).catch((err) =>
+      console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err));
+  }
+}
+reattachSurvivingChatTurns().catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
 // Dispatch worktrees were only reaped on a successful approve→automerge; every
