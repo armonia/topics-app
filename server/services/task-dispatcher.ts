@@ -22,7 +22,7 @@
  *  - wall-clock timeout per turn; turn-end reconciliation requeues (bounded by
  *    the retry cap) or parks a task that ended without reaching `review`.
  */
-import { LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
+import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
 import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
@@ -336,7 +336,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         "- CONSEGNA AUTOCONSISTENTE: il reviewer decide guardando SOLO il task — tutto ciò che serve alla decisione va nel thread: testi completi (es. la bozza di una mail va INCOLLATA nel commento, non descritta), anteprime come allegato, pagine/report come output_url. Se chiedi 'confermi X?' l'umano deve poter vedere X.",
         `- Se c'è qualcosa da mostrare al reviewer (dev server, pagina, report renderizzato): update_task(task_id="${task.id}", output_url=<url http(s)>) — appare nel pannello di review del task.`,
         `- Alla consegna, PRIMA di spostare in review: UN commento di sintesi con comment_task (1-2 frasi: cosa hai fatto QUESTO turno, dove guardare). Il server rifiuta la review se in questo turno non hai ancora commentato.`,
-        `- SE hai committato codice sul tuo branch (lavoro landabile), in quel commento di consegna offri le opzioni: comment_task(..., options=["${LAND_ACTION_LABEL}", "${PUBLISH_ACTION_LABEL}"]). Se l'umano sceglie "${LAND_ACTION_LABEL}" il SISTEMA fa il merge su main; se sceglie "${PUBLISH_ACTION_LABEL}" merge + push (deploy). Tu NON fare mai git merge/push a mano: proponi, decide l'umano, esegue il sistema. NON offrire queste opzioni senza codice committato (una domanda, un piano, lavoro solo-headless).`,
+        `- SE hai committato codice sul tuo branch (lavoro landabile), in quel commento di consegna offri SOLO l'opzione: comment_task(..., options=["${LAND_ACTION_LABEL}"]). Se l'umano la sceglie, il SISTEMA fa il merge LOCALE su main (nessun push). Tu NON fare mai git merge/push a mano. La pubblicazione online (push + deploy) è un passo SEPARATO, deciso ed eseguito dall'umano dal controllo "Pubblica" della board con anteprima del diff — NON proporla, non è un'opzione del task. NON offrire l'opzione senza codice committato (una domanda, un piano, lavoro solo-headless).`,
         `- Quando il lavoro è completo sposta il task in \`review\` con: update_task(task_id="${task.id}", status="review"). NON puoi portarlo a \`done\` (serve l'ok umano).`,
         "- Se ti serve una decisione umana per procedere:",
         `  1. comment_task(task_id="${task.id}", content=<la domanda in una riga>, options=[<opzione 1>, <opzione 2>, ...])`,
@@ -644,7 +644,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // and hands back a mute review. This is the "altro da fare?" → review-without-
       // comment gap. Even "niente di nuovo" is a valid summary.
       `Prosegui il lavoro. Alla consegna, PRIMA di mettere in review scrivi SEMPRE un commento di sintesi di QUESTO turno con comment_task (1-2 frasi: cosa hai fatto ora, dove guardare — oppure "niente di nuovo" col perché). POI update_task(task_id="${task.id}", status="review"). Senza un commento di questo turno il server rifiuta la review.`,
-      `Se hai committato codice landabile, offri le opzioni options=["${LAND_ACTION_LABEL}", "${PUBLISH_ACTION_LABEL}"]: "${LAND_ACTION_LABEL}" → il sistema merge su main; "${PUBLISH_ACTION_LABEL}" → merge + push (deploy). Tu non fare mai git merge/push; niente opzioni se non c'è codice committato.`,
+      `Se hai committato codice landabile, offri SOLO options=["${LAND_ACTION_LABEL}"] → il sistema fa il merge LOCALE su main (nessun push). Tu non fare mai git merge/push. La pubblicazione online è separata, la fa l'umano dal controllo "Pubblica" della board: NON proporla. Niente opzione se non c'è codice committato.`,
     ].join("\n");
   }
 
