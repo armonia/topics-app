@@ -793,9 +793,18 @@ const wsHeartbeatTimer = setInterval(() => {
   if (cleaned) { saveUnread(unreadData); console.log("[Startup] Cleaned orphaned unread entries"); }
 }
 
-// Startup: reset stale partial messages (via SQLite)
+// Startup: reset stale partial messages (via SQLite). BEFORE clearing,
+// capture which sessions were mid-turn: the chat-reattach boot sweep below
+// uses this set to tell a SURVIVING broker turn (detached by the previous
+// server's graceful shutdown — adopt it) from an idle child (reap it).
+// Reading partial=1 after this block would always see zero rows.
+const midTurnAtBoot = new Set<string>();
 {
   console.log("[Startup] Checking for stale partial messages...");
+  try {
+    const rows = db.query("SELECT DISTINCT session_key AS sk FROM messages WHERE partial = 1").all() as Array<{ sk: string }>;
+    for (const row of rows) midTurnAtBoot.add(row.sk);
+  } catch { /* capture is best-effort; the sweep degrades to reaping */ }
   const result = db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE partial = 1");
   if (result.changes > 0) {
     console.log(`[Startup] Reset ${result.changes} stale partial messages`);
@@ -1711,15 +1720,11 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     console.warn("[chat-reattach] dispatcher claim query failed (skipping reap for safety):", err);
     return;
   }
-  const midTurn = (sessionKey: string): boolean => {
-    try {
-      return !!ctx.db.query("SELECT 1 FROM messages WHERE session_key = ? AND partial = 1 LIMIT 1").get(sessionKey);
-    } catch { return false; }
-  };
+  // Mid-turn signal captured BEFORE the startup partial-reset above wiped it.
   for (const s of live) {
     if (dispatcherClaimed.has(s.id)) continue; // the dispatcher's reconcile owns it
     const topic = ctx.getTopicBySessionKey(s.id);
-    if (topic && !topic.archived && midTurn(s.id)) {
+    if (topic && !topic.archived && midTurnAtBoot.has(s.id)) {
       console.log(`[chat-reattach] adopting surviving mid-turn broker session ${s.id}`);
       runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 }).catch((err) =>
         console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err));
