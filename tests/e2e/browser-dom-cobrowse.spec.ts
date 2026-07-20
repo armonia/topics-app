@@ -37,7 +37,7 @@ test.describe("T1 DOM co-browse", () => {
     await resetPaneStore(request, []);
   });
 
-  test("toggle DOM reconstructs the page natively and relays input [T1]", async ({ page, browserProcessPageV2, request }) => {
+  test("DOM is the default surface — reconstructs the page natively and relays input [T1]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 10 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -54,17 +54,15 @@ test.describe("T1 DOM co-browse", () => {
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
 
-      // Switch to DOM mode via the toolbar toggle (default is video).
-      const toggle = page.locator('[data-testid="browser-render-toggle"]').first();
-      await expect(toggle).toBeVisible({ timeout: 8000 });
-      await toggle.click();
-
-      // The DOM co-browse layer mounts and the rrweb iframe reconstructs the page:
-      // real text, in this device's own engine (not a video frame).
+      // Option A: DOM is the DEFAULT — NO toggle click. The pane requests 'dom' on
+      // connect and the rrweb iframe reconstructs the page in this device's own
+      // engine (real browser, not a video frame). The toolbar toggle merely reflects
+      // the mode; it's the opt-out to video, not the way in.
       const dom = page.locator('[data-testid="browser-dom-cobrowse"]').first();
       await expect(dom).toBeVisible({ timeout: 8000 });
       const reconstructed = dom.frameLocator("iframe").locator("#hi");
       await expect(reconstructed).toHaveText("DOM COBROWSE OK", { timeout: 8000 });
+      await expect(page.locator('[data-testid="browser-render-toggle"]').first()).toContainText("DOM");
 
       // Input relay: a click on the overlay reaches the server as an `input` click
       // (mapped to source-page coords). Accumulate across polls (drain clears).
@@ -87,18 +85,14 @@ test.describe("T1 DOM co-browse", () => {
     }
   });
 
-  test("auto-falls back to DOM when the WebRTC video transport fails [T1]", async ({ page, browserProcessPageV2, request }) => {
-    // Force the video transport to fail at once: with no RTCPeerConnection the hook
-    // flags webrtcError immediately (no 4×6s retry wait). The panel must then RESOLVE
-    // it on its own by switching to DOM co-browse — the real browser rebuilt natively
-    // — instead of stranding the user on the "Sessione video non disponibile" box.
-    await page.addInitScript(() => {
-      // @ts-expect-error — null out the constructor so `typeof RTCPeerConnection` is 'undefined'
-      window.RTCPeerConnection = undefined;
-      // @ts-expect-error — webkit alias too
-      window.webkitRTCPeerConnection = undefined;
-    });
+  test("falls back to video when the server can't DOM-snapshot the page [T1]", async ({ page, browserProcessPageV2, request }) => {
+    // Option A safety net. The pane defaults to DOM, but a page the server can't
+    // snapshot (canvas/WebGL, blocked injection) forces render_mode:'video'. The pane
+    // must then negotiate the pixel (WebRTC) surface — never strand on a blank DOM
+    // overlay. mockDomUnsupported() makes the mock force video; mockWebrtcPeer() drives
+    // the video to connected deterministically.
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 10 });
+    await browserProcessPageV2.mockWebrtcPeer();
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true,
@@ -106,21 +100,19 @@ test.describe("T1 DOM co-browse", () => {
       title: "Example",
       hasScreenshot: true,
     });
-    browserProcessPageV2.mockDomCoBrowse(RRWEB_EVENTS);
+    browserProcessPageV2.mockDomUnsupported();
 
-    const topic = await createTopic(request, `E2E-DOMCB-AUTO-${Date.now()}`);
+    const topic = await createTopic(request, `E2E-DOMCB-VIDEO-${Date.now()}`);
     try {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPane(page, topic.id);
 
-      // No manual toggle click: the DOM co-browse must mount by itself once WebRTC errors.
-      const dom = page.locator('[data-testid="browser-dom-cobrowse"]').first();
-      await expect(dom).toBeVisible({ timeout: 10000 });
-      const reconstructed = dom.frameLocator("iframe").locator("#hi");
-      await expect(reconstructed).toHaveText("DOM COBROWSE OK", { timeout: 8000 });
-      // The toolbar toggle reflects the auto-switched mode.
-      await expect(page.locator('[data-testid="browser-render-toggle"]').first()).toContainText("DOM");
+      // The forced 'video' takes over: the WebRTC <video> is the visible surface and
+      // the DOM overlay is NOT mounted. No manual interaction — the pane resolves it.
+      await expect(page.locator('[data-testid="browser-webrtc-video"]').first()).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-testid="browser-dom-cobrowse"]')).toHaveCount(0);
+      await expect(page.locator('[data-testid="browser-render-toggle"]').first()).toContainText("Video");
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
