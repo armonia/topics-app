@@ -101,25 +101,29 @@ try {
 } catch (err) {
   console.warn('[BrowserService] rrweb record bundle missing — DOM co-browse disabled:', (err as Error)?.message);
 }
-// Runs in the page AFTER the bundle. Starts the recorder once (guarded across
-// re-injection on navigation) and pipes each event to the host via __rrwebEmit.
+// Runs in the page AFTER the bundle. Starts the recorder (guarded against a double
+// start on the same document) and pipes each event to the host via __rrwebEmit.
+// The recorder's stop fn is stashed on window.__rrwebStop so instrumentation is
+// REVOCABLE (see RRWEB_STOP) — the mutation observers detach when no one is watching.
 const RRWEB_RECORD_START = `(function(){
   if (window.__rrwebStarted) return;
   if (!window.rrweb || !window.rrweb.record) return;
-  window.__rrwebStarted = true;
   function emit(p){ try { window.__rrwebEmit && window.__rrwebEmit(JSON.stringify(p)); } catch(_){} }
   function start(){
     try {
-      window.rrweb.record({
+      window.__rrwebStop = window.rrweb.record({
         emit: function(event){ emit({ kind:'event', event:event }); },
         inlineStylesheet: true, inlineImages: false, collectFonts: false, recordCanvas: false,
         sampling: { mousemove: 50, scroll: 100, media: 400, input: 'last' },
       });
+      window.__rrwebStarted = true;
     } catch(e){ emit({ kind:'error', error:String(e&&e.message||e) }); }
   }
-  if (document.readyState === 'complete') start();
-  else window.addEventListener('load', function(){ start(); }, { once:true });
+  if (document.readyState === 'interactive' || document.readyState === 'complete') start();
+  else window.addEventListener('DOMContentLoaded', function(){ start(); }, { once:true });
 })();`;
+// Detach the recorder (stops all MutationObservers) and allow a clean restart.
+const RRWEB_STOP = `(function(){ try { if (window.__rrwebStop) { window.__rrwebStop(); window.__rrwebStop = null; } window.__rrwebStarted = false; } catch(_){} })();`;
 
 export interface AccessibilityNode {
   role: string;
@@ -533,40 +537,48 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     });
   }
 
-  // T1 DOM co-browse: inject rrweb into a context's page ONCE and pipe its events
-  // into the entry's bootstrap buffer + (when domEmit) the /ws/browser fan-out.
-  // Idempotent via entry.domInjected. addInitScript covers FUTURE navigations;
-  // addScriptTag records the CURRENT page immediately (evaluate() would scope the
-  // bundle's top-level `var rrweb` locally — a script tag makes it a real global).
-  async function injectRrweb(entry: BrowserContextEntry, id: string): Promise<boolean> {
+  // T1 DOM co-browse: (re)inject the rrweb record bundle + start into the CURRENT
+  // document. addScriptTag (not evaluate) so the bundle's top-level `var rrweb`
+  // becomes a real page global. Best-effort: about:blank / a mid-navigation page
+  // can reject — the next 'load' re-injects.
+  async function startRecordingNow(entry: BrowserContextEntry): Promise<void> {
+    await entry.page.addScriptTag({ content: RRWEB_RECORD_BUNDLE });
+    await entry.page.addScriptTag({ content: RRWEB_RECORD_START });
+  }
+
+  // Bind the rrweb host plumbing to a context's page — ONCE. Deliberately does NOT
+  // use addInitScript (Playwright can't remove it, so it would re-instrument every
+  // future navigation forever, even after all viewers leave DOM mode). Instead the
+  // recorder is (re)injected on demand and on each 'load' WHILE domEmit is true, and
+  // torn down (RRWEB_STOP detaches the observers) the moment it isn't — so DOM
+  // instrumentation is fully revocable except one inert binding. Returns false when
+  // the vendored bundle is missing or the exposed binding can't be installed.
+  async function ensureDomBinding(entry: BrowserContextEntry, id: string): Promise<boolean> {
     if (entry.domInjected) return true;
     if (!RRWEB_RECORD_BUNDLE) return false; // vendored bundle missing
-    const page = entry.page;
-    entry.dom = { meta: null, full: null, inc: [] };
     try {
       // Host binding: every rrweb event lands here. Buffer for late-join bootstrap,
-      // and broadcast live when at least one viewer is in DOM mode.
-      await page.exposeFunction('__rrwebEmit', (json: string) => {
+      // and broadcast live only while at least one viewer is in DOM mode.
+      await entry.page.exposeFunction('__rrwebEmit', (json: string) => {
+        if (!entry.dom) return;
         let m: { kind?: string; event?: { type?: number } };
         try { m = JSON.parse(json); } catch { return; }
         if (m.kind !== 'event' || !m.event) return;
         const e = m.event;
-        const buf = entry.dom!;
-        if (e.type === 4) buf.meta = e;              // Meta
+        const buf = entry.dom;
+        if (e.type === 4) buf.meta = e;                        // Meta
         else if (e.type === 2) { buf.full = e; buf.inc = []; } // FullSnapshot → reset prefix
         else { buf.inc.push(e); if (buf.inc.length > MAX_DOM_INCREMENTALS) buf.inc.shift(); }
         if (entry.domEmit) opts.broadcastToBrowserWs?.(id, { type: 'dom_event', event: e });
       });
-      // Future navigations: bundle + start run before page scripts.
-      await page.addInitScript(RRWEB_RECORD_BUNDLE);
-      await page.addInitScript(RRWEB_RECORD_START);
-      // Current page: inject now so recording starts without waiting for a reload.
-      await page.addScriptTag({ content: RRWEB_RECORD_BUNDLE });
-      await page.addScriptTag({ content: RRWEB_RECORD_START });
+      // Re-arm the recorder after each navigation, but ONLY while a viewer wants it.
+      entry.page.on('load', () => {
+        if (entry.domEmit) startRecordingNow(entry).catch(() => { /* transient page */ });
+      });
       entry.domInjected = true;
       return true;
     } catch (err) {
-      console.warn(`[BrowserService] rrweb injection failed for ${id}:`, (err as Error)?.message);
+      console.warn(`[BrowserService] rrweb binding failed for ${id}:`, (err as Error)?.message);
       return false;
     }
   }
@@ -1361,16 +1373,24 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // so the entry's lastActivity stays fresh.
     },
 
-    // T1 DOM co-browse — enable DOM render mode for a context. Injects rrweb
-    // (idempotent), starts broadcasting, and returns the bootstrap burst for the
-    // requesting viewer. Waits briefly for the FullSnapshot so a fresh enable
-    // doesn't hand back an empty bootstrap (recording emits it a tick after the
-    // script tag runs, via the exposed binding's async round-trip).
+    // T1 DOM co-browse — enable DOM render mode for a context. Binds rrweb (once),
+    // (re)starts recording on the current page, and returns the bootstrap burst
+    // [meta, full, ...incrementals] for the requesting viewer. Resets the buffer
+    // first so the wait blocks on the FRESH FullSnapshot (recording emits it a tick
+    // after the script tag runs, via the exposed binding's async round-trip), never
+    // a stale one from a prior enable.
     async enableDomMode(id) {
       const entry = await service.getOrCreate(id);
-      const ok = await injectRrweb(entry, id);
+      const ok = await ensureDomBinding(entry, id);
       if (!ok) return null;
       entry.domEmit = true;
+      entry.dom = { meta: null, full: null, inc: [] };
+      try {
+        await startRecordingNow(entry);
+      } catch (err) {
+        console.warn(`[BrowserService] rrweb start failed for ${id}:`, (err as Error)?.message);
+        return null;
+      }
       // Wait up to ~2s for the FullSnapshot (type 2) to land in the buffer.
       for (let i = 0; i < 40 && !entry.dom?.full; i++) {
         await new Promise((r) => setTimeout(r, 50));
@@ -1380,9 +1400,16 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       return [buf.meta, buf.full, ...buf.inc].filter((e) => e != null);
     },
 
+    // Gate emission. Turning it OFF also DETACHES the recorder (RRWEB_STOP stops the
+    // MutationObservers) so an unwatched page carries zero DOM instrumentation — the
+    // 'load' re-arm is a no-op while domEmit is false, so future navigations stay clean.
     setDomEmit(id, on) {
       const entry = contexts.get(id);
-      if (entry) entry.domEmit = on;
+      if (!entry) return;
+      entry.domEmit = on;
+      if (!on && entry.domInjected) {
+        entry.page.evaluate(RRWEB_STOP).catch(() => { /* page gone / navigating */ });
+      }
     },
 
     // Phase 30 BROWSER-CHAT-03 — agent_active broadcast over /ws/browser/:contextId.
