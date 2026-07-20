@@ -182,7 +182,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const unassigned = isProjectlessId(task.projectId);
   const projectLabel = task.projectId.replace(/-[^-]+$/, '');
   const hasState = !!(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) || (!task.dispatchState && !!task.dispatchError);
-  const agentBusy = ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+  // A task in review is the APPROVAL surface, never the "steer a working agent"
+  // surface — so it's never busy here even if a stale dispatch_state='working'
+  // lingers. Without this gate a review task with dispatch_state='working'
+  // renders BOTH the steer input and the review feedback input (two boxes).
+  const agentBusy = task.status !== 'review' && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
   // Agent cluster in the card's top-right slot: dispatch state + model/effort +
   // "apri tab" all live up there — the body below stays pure content.
   const hasModelChip = (!!live && task.dispatchState === 'working') || !!task.model || task.agentMs > 0 || task.agentTokens > 0;

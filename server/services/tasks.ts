@@ -804,6 +804,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // used to strand "delivered"/"serve te" on a closed card (only
         // reviewDecision cleared it).
         if (patch.status === "done") put("dispatch_state", null);
+        // A task arriving in review is a hand-off, not live work: settle a
+        // lingering in-flight chip ('queued'/'starting'/'working') to
+        // 'delivered' so a review card never shows the "agent al lavoro" UI
+        // (which also double-renders the feedback input — steer + review). An
+        // already-settled chip ('needs_input'/'delivered') is kept as-is; the
+        // dispatcher's own delivery detection still refines it when it observes
+        // a question (→ needs_input).
+        if (patch.status === "review" && ["queued", "starting", "working"].includes(row.dispatch_state ?? "")) {
+          put("dispatch_state", "delivered");
+        }
         // A HUMAN dragging a task into todo is a fresh mandate: reset the
         // retry budget. Without this, a task parked at the cap could never be
         // re-dispatched — the claim filter skipped it and the card stranded
