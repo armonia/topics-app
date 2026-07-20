@@ -249,4 +249,40 @@ describe('browser-service: DOM co-browse (real browser)', () => {
       await svc.close();
     }
   }, 45000);
+
+  it("echoes EVERY typed keystroke to the fan-out (rrweb sampling.input='all')", async () => {
+    // The "scrivo e non appare" gap: rrweb's sampling.input:'last' records only the
+    // FINAL input value (on settle/blur), so a co-browse user typed and the mirror
+    // stayed empty until they left the field. With 'all', each keystroke emits an
+    // Input incremental (type 3, source 5) → live echo. This guards that config.
+    const emitted: { msg: BrowserWsMessage }[] = [];
+    const svc = await createBrowserService({
+      broadcastToBrowserWs: (_id, msg) => emitted.push({ msg }),
+    });
+    const id = `dom-cb-input-${Date.now()}`;
+    try {
+      await svc.createContext(id);
+      await svc.evaluate(id, "document.title='T'; document.body.innerHTML='<input id=\"q\" type=\"text\">';");
+      const boot = await svc.enableDomMode(id);
+      expect(boot).not.toBeNull();
+
+      // Focus the field, then type char-by-char through the same path a relayed
+      // keystroke takes (dispatchInput 'type' → page.keyboard.type).
+      await svc.evaluate(id, "document.getElementById('q').focus();");
+      const MARK = "HELLOECHO";
+      for (const ch of MARK) await svc.dispatchInput(id, "type", { text: ch });
+      await new Promise((r) => setTimeout(r, 600));
+
+      // An Input incremental (type 3, data.source 5) must carry the typed value.
+      const inputEvents = emitted
+        .filter((e) => e.msg.type === "dom_event")
+        .map((e) => (e.msg as { event?: { type?: number; data?: { source?: number; text?: string } } }).event)
+        .filter((ev) => ev?.type === 3 && ev?.data?.source === 5);
+      expect(inputEvents.length).toBeGreaterThan(0);
+      // The last echoed value is the full string ('all' streamed the buildup).
+      expect(inputEvents.some((ev) => ev?.data?.text === MARK)).toBe(true);
+    } finally {
+      await svc.close();
+    }
+  }, 45000);
 });
