@@ -1473,12 +1473,29 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       for (let i = 0; i < 40 && !entry.dom?.full; i++) {
         await new Promise((r) => setTimeout(r, 50));
       }
-      // No FullSnapshot within the grace window → treat DOM mode as UNSUPPORTED
-      // for this page and return null, so the caller forces 'video' cleanly. A
-      // partial bootstrap (Meta only) is worse than useless: rrweb's Replayer
-      // can't build a mirror without a FullSnapshot, so the DOM overlay would
-      // stay transparent and the paused video would bleed through it — the exact
-      // "DOM mode still shows video" symptom.
+      // Nav-aware second chance: the pane sends set_render:'dom' and its first
+      // nav back-to-back, so the injection can land on a document the in-flight
+      // goto is about to swap — the snapshot dies with it and a hard fail here
+      // would force the viewer to video with no retry (the 'load' re-arm keeps
+      // recording, but the viewer already left DOM mode). If the page is still
+      // loading, ride the navigation out and re-inject; if it settled and the
+      // snapshot is still missing, re-inject once anyway (our instrumented doc
+      // may have been swapped right after injection).
+      if (!entry.dom?.full) {
+        try {
+          await entry.page.waitForLoadState('load', { timeout: 10000 }).catch(() => {});
+          await startRecordingNow(entry);
+          for (let i = 0; i < 40 && !entry.dom?.full; i++) {
+            await new Promise((r) => setTimeout(r, 50));
+          }
+        } catch { /* fall through to the unsupported path */ }
+      }
+      // No FullSnapshot even after the nav settled → treat DOM mode as
+      // UNSUPPORTED for this page and return null, so the caller forces 'video'
+      // cleanly. A partial bootstrap (Meta only) is worse than useless: rrweb's
+      // Replayer can't build a mirror without a FullSnapshot, so the DOM overlay
+      // would stay transparent and the paused video would bleed through it — the
+      // exact "DOM mode still shows video" symptom.
       if (!entry.dom?.full) {
         console.warn(`[BrowserService] rrweb produced no FullSnapshot for ${id} — DOM mode unsupported here`);
         return null;
