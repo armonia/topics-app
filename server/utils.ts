@@ -1138,7 +1138,14 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Media helpers (unchanged) ---
+  // Base media di Topics: ~/.topics (nuova, preferita) + ~/.openclaw (legacy
+  // e root CONDIVISA dell'ecosistema Jarvis — resta leggibile per i path già
+  // salvati e per i media prodotti da altri tool). NON migrare la root intera:
+  // credenziali/gateway/cron/router vivono in ~/.openclaw e non sono di Topics.
+  const TOPICS_DIR = `${process.env.HOME}/.topics`;
   const ALLOWED_MEDIA_BASES = [
+    `${TOPICS_DIR}/media/`,
+    `${TOPICS_DIR}/workspace/`,
     `${OPENCLAW_DIR}/media/`,
     `${OPENCLAW_DIR}/workspace/`,
   ];
@@ -1168,6 +1175,8 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   const MEDIA_SCAN_DIRS = [
+    join(process.env.HOME || "", ".topics/media/browser"),
+    join(process.env.HOME || "", ".topics/media"),
     join(process.env.HOME || "", ".openclaw/media/browser"),
     join(process.env.HOME || "", ".openclaw/media"),
   ];
