@@ -120,6 +120,28 @@ const setStreamMessageSchema = z.object({
   active: z.boolean(),
 });
 
+/** Client -> server (T1 DOM co-browse): how this pane renders — 'video' (JPEG/
+ *  WebRTC pixels, default) or 'dom' (rrweb DOM stream, reconstructed natively).
+ *  Paired with set_stream:false to pause the screencast while in DOM mode. */
+const setRenderMessageSchema = z.object({
+  type: z.literal('set_render'),
+  mode: z.enum(['video', 'dom']),
+});
+
+/** Server -> client: the render mode now in effect (ack, or forced 'video'
+ *  fallback when DOM mode is unsupported for this context). Mirrors server schema. */
+const renderModeMessageSchema = z.object({
+  type: z.literal('render_mode'),
+  mode: z.enum(['video', 'dom']),
+});
+
+/** Server -> client (T1 DOM co-browse): one opaque rrweb event fed straight to
+ *  the pane's Replayer (NOT deep-validated — rrweb owns its event shape). */
+const domEventMessageSchema = z.object({
+  type: z.literal('dom_event'),
+  event: z.unknown(),
+});
+
 /** Client -> server (webrtc shared-session transport): viewer SDP offer. */
 const webrtcOfferMessageSchema = z.object({
   type: z.literal('webrtc_offer'),
@@ -155,6 +177,9 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   setEngineMessageSchema,
   engineMessageSchema,
   setStreamMessageSchema,
+  setRenderMessageSchema,
+  renderModeMessageSchema,
+  domEventMessageSchema,
   webrtcOfferMessageSchema,
   webrtcAnswerMessageSchema,
   webrtcIceMessageSchema,
