@@ -375,13 +375,13 @@ test.describe("Kanban board", () => {
     await expect(drawer).toBeVisible({ timeout: 10000 });
 
     // The copy-link button is present; clicking it writes an openable deep-link
-    // (?task=<projectId>~<taskId>) to the clipboard.
+    // to the clipboard. Path-based form since 42684dcf: `<origin>/task/<taskId>`
+    // (the redundant project slug was dropped — the UUID resolves on its own).
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]).catch(() => {});
     await drawer.getByTestId("task-copy-link").click();
     const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => "")).catch(() => "");
     if (clip) {
-      // The URL API percent-encodes '~' as %7E; decode before matching.
-      expect(decodeURIComponent(clip)).toContain(`task=${PROJECT_ID}~${task.id}`);
+      expect(clip).toContain(`/task/${task.id}`);
     }
 
     // Esc closes the drawer (not editing, no menu open → the drawer's own Esc).
@@ -406,12 +406,15 @@ test.describe("Kanban board", () => {
     await page.goto(`/task/${task.id}`);
 
     // The board must activate AND its drawer open on its own — the whole point
-    // of the deep-link. Generous timeout: it must survive the boot hydrate storm.
+    // of the deep-link. The drawer only mounts when the (global) board is the
+    // active pane AND the task is selected, so its visibility with the task's
+    // own text is the unambiguous proof the deep-link resolved. Generous
+    // timeout: it must survive the boot hydrate storm. (No column assertion —
+    // `kanban-column-*` is not board-unique, so it trips strict mode when a
+    // prior test left a second board pane open.)
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 15000 });
     await expect(drawer.getByText(text)).toBeVisible({ timeout: 10000 });
-    // The global board is the active surface (columns rendered).
-    await expect(page.getByTestId("kanban-column-in_progress")).toBeVisible();
     // The URL still carries the target (source of truth, refresh-survivable).
     expect(new URL(page.url()).pathname).toBe(`/task/${task.id}`);
   });
