@@ -8,9 +8,10 @@ import { resolve as resolvePath } from "path";
  * T1 DOM co-browse (client) — the native rrweb reconstruction path. The mock WS
  * answers the pane's set_render:'dom' with a real rrweb Meta+FullSnapshot(+incr)
  * burst (captured offline into fixtures/rrweb-sample.json); the pane's Replayer
- * must rebuild the page in its own engine (real browser, not a video), and the
- * overlay must relay a click back as an `input` message. The default video path
- * is untouched — this only exercises the opt-in toggle.
+ * must rebuild the page in its own engine (real browser, not a video). The
+ * mirror ITSELF is the input surface: clicks and keystrokes captured inside the
+ * iframe relay back as `input` messages, while text selection stays native and
+ * local (the whole point of DOM mode over a pixel stream).
  */
 const RRWEB_EVENTS = JSON.parse(
   readFileSync(resolvePath(__dirname, "fixtures/rrweb-sample.json"), "utf-8"),
@@ -64,8 +65,9 @@ test.describe("T1 DOM co-browse", () => {
       await expect(reconstructed).toHaveText("DOM COBROWSE OK", { timeout: 8000 });
       await expect(page.locator('[data-testid="browser-render-toggle"]').first()).toContainText("DOM");
 
-      // Input relay: a click on the overlay reaches the server as an `input` click
-      // (mapped to source-page coords). Accumulate across polls (drain clears).
+      // Input relay: a click lands INSIDE the interactive iframe (no capture
+      // overlay anymore) and the in-iframe bridge relays it to the server as an
+      // `input` click in source-page coords. Accumulate across polls (drain clears).
       browserProcessPageV2.drainInputMessages();
       await dom.click({ position: { x: 40, y: 30 } });
       let clicks = 0;
@@ -80,6 +82,53 @@ test.describe("T1 DOM co-browse", () => {
           return clicks;
         }, { timeout: 5000 })
         .toBeGreaterThan(0);
+
+      // Keyboard relay: with focus inside the mirror, a printable key relays as
+      // an `input` type action (the mirror itself never mutates locally).
+      let typed = 0;
+      await page.keyboard.press("a");
+      await expect
+        .poll(() => {
+          typed += browserProcessPageV2
+            .drainInputMessages()
+            .filter((m) => {
+              const t = m as { type?: string; action?: string; payload?: { text?: string } };
+              return t?.type === "input" && t?.action === "type" && t?.payload?.text === "a";
+            }).length;
+          return typed;
+        }, { timeout: 5000 })
+        .toBeGreaterThan(0);
+
+      // Native selection — the point of DOM mode: double-click selects the word
+      // LOCALLY in this device's engine (the old capture overlay made this
+      // impossible; a pixel stream cannot do it at all). frameLocator.dblclick()
+      // can't be used here: Playwright doesn't map in-frame coords through the
+      // wrapper's CSS transform (the fit scale), so the double-click would land
+      // off-target — compute the visual point manually from the iframe's visual
+      // box (post-transform) vs its recorded 900px layout width.
+      const iframeBox = await dom.locator("iframe").boundingBox();
+      // Aim at the START of the text (a <p> is block-wide; its center is empty
+      // space past the last glyph, where a double-click only places a caret).
+      const textPoint = await reconstructed.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.x + 30, y: r.y + r.height / 2 };
+      });
+      if (!iframeBox) throw new Error("replayer iframe has no bounding box");
+      const fitScale = iframeBox.width / 900; // recorded viewport width (rrweb Meta)
+      await page.mouse.dblclick(
+        iframeBox.x + textPoint.x * fitScale,
+        iframeBox.y + textPoint.y * fitScale,
+      );
+      // Read the selection from the PARENT context (the sandboxed frame realm
+      // under-reports); the double-click word-selects "DOM" natively.
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const iframe = document.querySelector('[data-testid="browser-dom-cobrowse"] iframe') as HTMLIFrameElement | null;
+            return iframe?.contentDocument?.getSelection()?.toString() ?? "";
+          }),
+        )
+        .toContain("DOM");
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
