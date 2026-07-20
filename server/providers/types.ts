@@ -218,10 +218,23 @@ export interface StreamHandler {
    * (claude-code) a tool is announced via onToolStart the moment the model
    * STARTS writing its input (args still empty/partial); this callback
    * delivers the parsed full args once the input block closes. Consumers
-   * upsert by id — same ToolCall, richer args. Never fired more than once
-   * per tool call.
+   * upsert by id — same ToolCall, richer args.
+   *
+   * Also fired PROVISIONALLY while the input JSON is still streaming, as soon
+   * as a primary field (file_path / command / url / …) is fully received, so
+   * the row shows `Write(App.tsx)` within moments instead of a blank running
+   * row for the whole (possibly minutes-long) input generation. Idempotent
+   * upsert: a later call with fuller args overwrites.
    */
   onToolArgsUpdate?: (toolCallId: string, args: ToolArgs) => void;
+  /**
+   * Keep-alive: the tool's input is actively streaming (input_json_delta),
+   * even though no new field is parseable yet. Lets the route reset its
+   * stream inactivity timer so a legitimately slow-to-write Edit/Write input
+   * doesn't trip the false "stream slow" annotation. No persistence, no
+   * broadcast — purely a liveness signal.
+   */
+  onToolActivity?: (toolCallId: string) => void;
   /**
    * Tool finished. `isError = true` means the tool reported a failure (Claude
    * SDK's `tool_result.is_error`). Default false; existing callers that pass

@@ -1163,6 +1163,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               broadcastToAll({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult: _partialResult });
             },
 
+            onToolActivity: (_toolCallId: string) => {
+              // A tool's input is actively streaming (input_json_delta) — the
+              // turn is alive even with no new field to show. Reset the stream
+              // timer so a minutes-long Write/Edit input doesn't trip the false
+              // "stream slow" annotation. No persistence, no broadcast.
+              resetStreamTimer();
+            },
+
             onToolArgsUpdate: (toolCallId: string, args: Record<string, unknown>) => {
               resetStreamTimer();
               // The tool was announced EARLY (input still streaming, args {})

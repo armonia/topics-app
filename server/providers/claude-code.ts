@@ -57,6 +57,40 @@ const KILL_GRACE_MS = 3_000;                       // 3s between SIGTERM and SIG
 const HEARTBEAT_TICK_MS = 10_000;                  // 10s tick (cheap)
 const HEARTBEAT_QUIET_MS = 30_000;                 // emit only after 30s silence
 
+// Throttle for provisional partial-input emits (filename/command surfaced +
+// route timer keep-alive) while a `--include-partial-messages` tool input
+// streams. 500ms is imperceptible to the reader but bounds the broadcast rate
+// on a large Write/Edit input to ~2/s.
+const PARTIAL_ARGS_EMIT_MS = 500;
+
+// Primary input fields, in priority order — the ONE thing worth surfacing on a
+// tool row before its full input finishes streaming (the file being written,
+// the command being run, the URL being fetched). Matched against the still-
+// incomplete input-JSON buffer, so only a FULLY received quoted value counts.
+const PARTIAL_PRIMARY_KEYS = ["file_path", "filePath", "path", "command", "cmd", "url", "pattern", "query"] as const;
+
+/**
+ * Pull the first fully-received primary field from a partial input-JSON buffer.
+ * The regex only matches a complete `"key":"value"` (closing quote present), so
+ * a value still mid-stream is ignored until done — no garbage on the row. In
+ * Write/Edit/Bash the primary key streams first, so this surfaces the target
+ * within moments of the input starting.
+ */
+function extractPrimaryToolArg(buf: string): { key: string; value: string } | null {
+  for (const key of PARTIAL_PRIMARY_KEYS) {
+    const re = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+    const m = re.exec(buf);
+    if (m) {
+      try {
+        return { key, value: JSON.parse(`"${m[1]}"`) as string };
+      } catch {
+        return { key, value: m[1] };
+      }
+    }
+  }
+  return null;
+}
+
 // ============ CLI Path Resolution ============
 
 const CLI_VERSIONS_DIR = join(process.env.HOME || "", ".local/share/claude/versions");
@@ -742,8 +776,10 @@ interface PersistentProcess {
   settledToolCalls?: Set<string>;
   /** In-flight tool inputs from `--include-partial-messages` stream_events,
    *  keyed by content-block index: id/name captured at content_block_start,
-   *  `buf` accumulates input_json_delta.partial_json until block stop. */
-  streamingToolInputs?: Map<number, { id: string; name: string; buf: string }>;
+   *  `buf` accumulates input_json_delta.partial_json until block stop.
+   *  `lastEmitAt`/`emittedPrimary` throttle the provisional filename/command
+   *  emit + timer keep-alive during a long input stream. */
+  streamingToolInputs?: Map<number, { id: string; name: string; buf: string; lastEmitAt?: number; emittedPrimary?: string }>;
   /** Tool ids whose COMPLETE input has been delivered (onToolArgsUpdate fired
    *  or announced directly with full args). Keeps the late-args path
    *  idempotent across block stop + every cumulative snapshot re-emission. */
@@ -1999,6 +2035,8 @@ export class ClaudeCodeProvider implements AIProvider {
     }
   }
 
+  // ── Partial-input streaming (below) ──────────────────────────────────────
+
   /**
    * `--include-partial-messages` stream_event handling. ONLY the tool_use
    * lifecycle is consumed here: `content_block_start` announces the tool the
@@ -2029,7 +2067,27 @@ export class ClaudeCodeProvider implements AIProvider {
     } else if (ev.type === "content_block_delta") {
       if (ev.delta?.type !== "input_json_delta" || typeof ev.delta.partial_json !== "string") return;
       const entry = pp.streamingToolInputs?.get(index);
-      if (entry) entry.buf += ev.delta.partial_json;
+      if (!entry) return;
+      entry.buf += ev.delta.partial_json;
+      // The input is actively streaming — the turn is NOT stalled. Two things,
+      // throttled: (1) keep the ROUTE's stream timer alive so a minutes-long
+      // Write/Edit input doesn't trip the false "stream slow" annotation
+      // (input_json_delta reaches only the provider, not the route callbacks),
+      // and (2) surface the primary field (filename / command / url) the moment
+      // it's fully in the buffer, so the row reads `Write(App.tsx)` instead of a
+      // blank running row for the whole (possibly 4-min) input generation.
+      if (handler && !pp.replaySilent && !pp.settledToolCalls?.has(entry.id) && !pp.argsFinalized?.has(entry.id)) {
+        const now = Date.now();
+        if (!entry.lastEmitAt || now - entry.lastEmitAt >= PARTIAL_ARGS_EMIT_MS) {
+          entry.lastEmitAt = now;
+          handler.onToolActivity?.(entry.id);
+          const primary = extractPrimaryToolArg(entry.buf);
+          if (primary && primary.value !== entry.emittedPrimary) {
+            entry.emittedPrimary = primary.value;
+            handler.onToolArgsUpdate?.(entry.id, { [primary.key]: primary.value });
+          }
+        }
+      }
     } else if (ev.type === "content_block_stop") {
       const entry = pp.streamingToolInputs?.get(index);
       if (!entry) return;
