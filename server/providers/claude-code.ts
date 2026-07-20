@@ -690,6 +690,22 @@ interface PersistentProcess {
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
+  /** True during reattach's SCAN pass: every handler emission is suppressed
+   *  and only the store's tail shape is recorded (see fields below). A broker
+   *  store spans the child's LIFETIME — multiple turns — so replaying it
+   *  unmuted from 0 both re-streams old turns into the fresh bubble AND lets
+   *  an OLD turn's `result` null the handler, misclassifying an open turn as
+   *  "completed" (observed live: the adopted turn kept running headless). */
+  replayMute?: boolean;
+  /** Scan outcome: true when meaningful events follow the last `result` in
+   *  the store — i.e. a turn is in flight. */
+  replayTailOpen?: boolean;
+  /** Scan outcome: the last replayed `result` event (delivered synthetically
+   *  through onDone when the turn completed while we were detached). */
+  replayLastResult?: unknown;
+  /** Scan outcome: consumed-store offset right after the last `result` —
+   *  where the LIVE second attach starts so old turns are never re-emitted. */
+  replayAfterLastResultOffset?: number;
   /** Accumulated stderr tail for the rate-limit / missing-session scan. */
   stderrBuf: string;
   /** Spawn-time facts the stderr scan + reattach need. */
@@ -1534,6 +1550,45 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.adoptBrokerProcess(sessionKey);
     this.processes.set(sessionKey, pp);
 
+    // ── Phase 1 · SCAN ──
+    // The broker store spans the child's LIFETIME (multiple turns). A muted
+    // replay from 0 learns the tail shape without re-emitting old turns:
+    // does anything follow the last `result` (open turn), and what was that
+    // last result (to deliver it if the turn completed while detached)?
+    pp.replayMute = true;
+    pp.replayTailOpen = false;
+    pp.replayLastResult = undefined;
+    pp.replayAfterLastResultOffset = 0;
+    const scan = await client.attach(sessionKey, 0);
+    pp.replayMute = false;
+    if (scan.missing) {
+      pp.streamHandler = handler;
+      this.finalizeDeadReattach(pp);
+      return "dead";
+    }
+
+    if (!pp.replayTailOpen) {
+      // The store ends on a result: no turn in flight.
+      if (pp.replayLastResult) {
+        // The turn COMPLETED while we were detached — deliver the missed
+        // final result through the normal onDone path so the route finalizes
+        // the bubble with the real content instead of dropping it.
+        pp.streamHandler = handler;
+        this.handleStreamEvent(pp, pp.replayLastResult);
+        return "completed";
+      }
+      // Empty store (child idle since spawn, or nothing meaningful): nothing
+      // to adopt.
+      pp.streamHandler = handler;
+      this.finalizeDeadReattach(pp);
+      return scan.alive ? "completed" : "dead";
+    }
+
+    // ── Phase 2 · LIVE ──
+    // An open turn exists. Attach from just past the last completed turn so
+    // ONLY the in-flight turn folds into the fresh handler (replaySilent
+    // still suppresses live-only side effects during this replay), then keep
+    // driving until the live result.
     pp.streamHandler = handler;
     pp.replaySilent = true;
     const turnDone = new Promise<void>((resolve, reject) => {
@@ -1541,12 +1596,12 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.pendingReject = (e) => reject(e);
     });
 
-    const res = await client.attach(sessionKey, 0);
+    const res = await client.attach(sessionKey, pp.replayAfterLastResultOffset ?? 0);
     pp.replaySilent = false;
 
     // Replay is fully folded now (synchronous onData). Classify from pp state.
     if (res.missing) { this.finalizeDeadReattach(pp); return "dead"; }
-    if (pp.streamHandler === null) return "completed"; // `result` was in the replay
+    if (pp.streamHandler === null) return "completed"; // the live `result` landed during the replay
     if (!res.alive) { this.finalizeDeadReattach(pp); return "dead"; }
 
     if (pp.pendingInputs.size > 0) {
@@ -1674,6 +1729,21 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // Filter noise
     if (event.type === "system" || event.type === "rate_limit_event") return;
+
+    // Reattach SCAN pass: record the store's tail shape, emit nothing.
+    if (pp.replayMute) {
+      if (event.type === "result") {
+        const rt = event.result ?? "";
+        if (rt && rt !== "waiting for message") {
+          pp.replayTailOpen = false;
+          pp.replayLastResult = event;
+          pp.replayAfterLastResultOffset = pp.consumedOffset;
+        }
+      } else {
+        pp.replayTailOpen = true;
+      }
+      return;
+    }
 
     // Mark "real activity from provider" — heartbeats consult this to
     // decide whether to fire. Any event that gets past the noise filter
