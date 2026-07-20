@@ -138,7 +138,10 @@ export interface UseProjectLayoutArgs {
   // ProjectWindow holds this in component-local state and threads it into
   // `<RemoteBrowserPanel navigateUrl={…} />`. Called from the WS listener
   // installed below.
-  onBrowserNavigateUrl?: (url: string) => void;
+  /** Push a navigation into a SPECIFIC browser pane (`paneId`). Without the
+   *  target, every visible browser pane consumed the same window-level URL —
+   *  with splits, N panes navigated in lockstep. */
+  onBrowserNavigateUrl?: (url: string, paneId?: string) => void;
 }
 
 export interface UseProjectLayoutReturn {
@@ -556,7 +559,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         const ctx = getBrowserContextFromPaneId(existing.id);
         if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
         seedPaneUrl(existing.id);
-        onBrowserNavigateUrl?.(url);
+        onBrowserNavigateUrl?.(url, existing.id);
         return;
       }
 
@@ -571,9 +574,12 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
           if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
           seedPaneUrl(newId);
           setPendingBrowserSplit({ paneId: newId, sourceGroupId: fgid });
+          // Navigate the pane we just created — and ONLY that one. The old
+          // untargeted call here fired before the pane even existed and landed
+          // on whatever browser panes happened to be visible.
+          onBrowserNavigateUrl?.(url, newId);
         }
       });
-      onBrowserNavigateUrl?.(url);
     };
 
     const topicBelongsToThisProject = (topicId: string | undefined): boolean => {
