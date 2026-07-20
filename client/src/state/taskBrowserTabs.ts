@@ -20,6 +20,7 @@
  */
 
 import { useSyncExternalStore, useEffect } from 'react';
+import { getTabId } from './pane/middleware/syncCrossTab';
 
 export interface TaskBrowserTab {
   /** Canonical browser contextId: `task-<id8>-<seq>`. */
@@ -236,12 +237,24 @@ function uiPutDebounced(key: string, value: unknown, ms = 800): void {
   writeTimers.set(key, setTimeout(() => {
     writeTimers.delete(key);
     fetch(`/api/ui-state/${key}`, { // PANE-01-ALLOWED: task-browser-tabs keys, not pane state
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+      method: 'PUT',
+      // X-Client-Id lets the server stamp the broadcast's `sourceClientId` so the
+      // WS bridge can drop THIS client's own echo (else applyRemote would re-apply
+      // our own write, or worse revert a newer local edit).
+      headers: { 'Content-Type': 'application/json', 'X-Client-Id': getTabId() },
+      body: JSON.stringify(value),
     }).catch(() => {});
   }, ms));
 }
 
-const keyFor = (taskId: string) => `task-browser-tabs:${taskId}`;
+const KEY_PREFIX = 'task-browser-tabs:';
+const keyFor = (taskId: string) => `${KEY_PREFIX}${taskId}`;
+
+/** Extract the taskId from a `task-browser-tabs:<taskId>` ui-state key (or null
+ *  when the key isn't a task-tabs key). Lets the WS bridge route broadcasts. */
+export function taskIdFromKey(key: string): string | null {
+  return typeof key === 'string' && key.startsWith(KEY_PREFIX) ? key.slice(KEY_PREFIX.length) : null;
+}
 
 // ── in-memory cache + subscription (React) ───────────────────────────────────
 
@@ -279,6 +292,43 @@ function commit(taskId: string, next: TaskBrowserTabsState): void {
   loaded.add(taskId);
   uiPutDebounced(keyFor(taskId), next, next.tabs.length ? 800 : 0);
   notify();
+}
+
+/** Apply a server-pushed value for ONE task WITHOUT persisting it (no PUT echo).
+ *  Returns true when the cache changed. A task with a PENDING local write is left
+ *  untouched: the un-flushed edit is newer than any inbound frame and is about to
+ *  be persisted + re-broadcast, so applying a remote value would clobber it. Marks
+ *  the task loaded — the frame carries the full per-task record, so it supersedes
+ *  a still-in-flight initial GET. */
+function applyRemote(taskId: string, value: unknown): boolean {
+  if (!taskId || writeTimers.has(keyFor(taskId))) return false;
+  const sanitized = sanitizeTaskTabs(value);
+  if (!sanitized) return false;
+  loaded.add(taskId);
+  const cur = cache.get(taskId);
+  if (cur && JSON.stringify(cur) === JSON.stringify(sanitized)) return false;
+  cache.set(taskId, sanitized);
+  return true;
+}
+
+/** Live-apply a single remote `ui-state:updated` for a task-browser-tabs key. The
+ *  WS bridge drops this client's own echo (by sourceClientId) before calling, so a
+ *  park/close/reorder/rename/remove on ANOTHER device updates this one in real time
+ *  — the missing inbound path that left the store write-only. */
+export function applyRemoteTaskTabs(taskId: string, value: unknown): void {
+  if (applyRemote(taskId, value)) notify();
+}
+
+/** Live-apply the bulk `ui-state:init` snapshot on (re)connect: every
+ *  task-browser-tabs key in `data`, coalesced into one notify. Resyncs closes the
+ *  client missed while it was disconnected. */
+export function applyRemoteTaskTabsInit(data: Record<string, unknown>): void {
+  let changed = false;
+  for (const [key, value] of Object.entries(data)) {
+    const taskId = taskIdFromKey(key);
+    if (taskId && applyRemote(taskId, value)) changed = true;
+  }
+  if (changed) notify();
 }
 
 /** Task-bound mutators. Each applies a pure reducer op and persists. */
