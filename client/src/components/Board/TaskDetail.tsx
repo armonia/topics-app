@@ -858,7 +858,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
             thread's `overflow-y-auto` never get a bounded height → nothing
             scrolls. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="border-b border-white/10 px-3 py-3">
+          {/* Info block (eyebrow, title, chips, description, preview) — bounded
+              + scrollable so a big preview / long description never squishes the
+              workspace below (before: unbounded → tutto schiacciato, no scroll). */}
+          <div className="shrink-0 max-h-[42%] overflow-y-auto border-b border-white/10 px-3 py-3">
             {task?.parentTaskId && onOpenTask && (
               <button
                 onClick={() => onOpenTask(task.parentTaskId!)}
@@ -1080,7 +1083,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <PreviewMedia
                 path={task.previewImage}
                 variant="drawer"
-                className="mt-2 max-h-[50vh] w-full rounded border border-white/10 bg-black/20 object-contain"
+                className="mt-2 max-h-52 w-full rounded border border-white/10 bg-black/20 object-contain"
               />
             )}
           </div>
