@@ -194,6 +194,44 @@ test.describe("Kanban board", () => {
     await expect(reviewCol.getByText(text)).not.toBeVisible();
   });
 
+  test("BOARD-13: Rifiuta con nota — la nota scritta parte col rifiuto e il composer cresce", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
+    const text = `Reject-note task ${Date.now()}`;
+    const task = await apiCreateTask(page.request, { text, status: "in_progress" });
+    const patch = await page.request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${task.id}`, {
+      data: { status: "review" },
+    });
+    expect(patch.ok()).toBe(true);
+
+    await page.goto("/");
+    await openProjectBoard(page);
+
+    // Apri il drawer dalla card in review.
+    const reviewCol = page.getByTestId("kanban-column-review");
+    await reviewCol.getByText(text).click();
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10000 });
+
+    // Auto-grow del composer: con più righe l'altezza cresce, entro il cap.
+    const ta = drawer.locator("textarea");
+    await expect(ta).toBeVisible();
+    const h0 = (await ta.boundingBox())!.height;
+    await ta.fill("nota di rifiuto riga 1\nriga 2\nriga 3\nriga 4");
+    await expect.poll(async () => (await ta.boundingBox())!.height).toBeGreaterThan(h0 + 10);
+    expect((await ta.boundingBox())!.height).toBeLessThanOrEqual(150);
+
+    // Col campo pieno il bottone dichiara che porterà la nota…
+    const reject = drawer.getByRole("button", { name: /Rifiuta con nota/ });
+    await expect(reject).toBeVisible();
+
+    // …e il click la threada come commento e riporta il task in lavorazione.
+    await reject.click();
+    await expect(drawer.getByText("nota di rifiuto riga 1")).toBeVisible({ timeout: 10000 });
+    await expect(ta).toHaveValue("");
+    await expect(reviewCol.getByText(text)).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("kanban-column-in_progress").getByText(text)).toBeVisible({ timeout: 10000 });
+  });
+
   test("BOARD-06: dispatch pill IS the global start toggle (click flips on/off)", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-07" });
     await page.goto("/");
