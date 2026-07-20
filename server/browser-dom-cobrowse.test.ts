@@ -139,6 +139,39 @@ describe('browser-service: DOM co-browse (real browser)', () => {
     }
   }, 45000);
 
+  it('enable racing a SLOW first navigation still bootstraps (no forced video)', async () => {
+    // The live pane sends set_render:'dom' and its first nav back-to-back: the
+    // injection lands on the provisional document, the (slow) goto then swaps
+    // it mid-record, the snapshot never emits — and a fixed 2s wait gave up and
+    // forced the client to video, with no retry path. enableDomMode must ride
+    // through an in-flight navigation: wait for 'load', re-inject, THEN decide.
+    const svc = await createBrowserService({ broadcastToBrowserWs: () => {} });
+    const SLOW_MARKER = 'CIAO NAV LENTA';
+    const server = Bun.serve({
+      port: 0,
+      fetch: async () => {
+        await new Promise((r) => setTimeout(r, 1500)); // slow like a real site
+        return new Response(
+          `<!doctype html><html><head><title>SLOW</title></head><body><h1>${SLOW_MARKER}</h1></body></html>`,
+          { headers: { 'content-type': 'text/html' } },
+        );
+      },
+    });
+    const id = `dom-cb-slow-${Date.now()}`;
+    try {
+      await svc.createContext(id);
+      const [boot] = await Promise.all([
+        svc.enableDomMode(id),
+        svc.navigate(id, `http://127.0.0.1:${server.port}/`),
+      ]);
+      expect(boot).not.toBeNull();
+      expect(JSON.stringify(boot)).toContain(SLOW_MARKER);
+    } finally {
+      server.stop(true);
+      await svc.close();
+    }
+  }, 45000);
+
   it('re-arms after a navigation: enable on blank, navigate, fresh FullSnapshot broadcasts', async () => {
     // The real pane's sequence: the client asserts set_render:'dom' on WS-open,
     // BEFORE its nav lands — so enableDomMode runs against about:blank and the
