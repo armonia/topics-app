@@ -14,7 +14,7 @@ import { UnifiedDiff } from './UnifiedDiff';
 import { PreviewMedia } from './PreviewMedia';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow } from './format';
-import { StatusIcon, DispatchChip } from './atoms';
+import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { GroupLayout } from '../Layout/GroupLayout';
 import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
@@ -892,17 +892,20 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 title below then gets the FULL width, no chip competing with it. */}
             {task && (
               <div className="mb-1 flex items-center gap-2">
-                <button
-                  ref={projChipRef}
-                  onClick={openProjMenu}
-                  data-testid="task-project-chip"
-                  title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
-                  className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200"
-                >
-                  <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
-                  <span className="min-w-0 truncate font-medium">{projectLabel}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
-                </button>
+                <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <button
+                    ref={projChipRef}
+                    onClick={openProjMenu}
+                    data-testid="task-project-chip"
+                    title={`Progetto: ${projectLabel} — sposta, apri o creane uno nuovo`}
+                    className="flex min-w-0 items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200"
+                  >
+                    <ProjectFavicon path={currentProject?.path ?? ''} size={14} className="shrink-0" fallback={<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />} />
+                    <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+                    <ChevronDown className="h-3 w-3 shrink-0 text-neutral-600" />
+                  </button>
+                  <TaskIdChip id={task.id} />
+                </div>
                 {(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
                   <DispatchChip state={task.dispatchState} error={task.dispatchError} />
                 ) : (!task.dispatchState && task.dispatchError) ? (

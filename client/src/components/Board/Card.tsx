@@ -11,7 +11,7 @@ import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt } from './format';
-import { StatusIcon, DispatchChip } from './atoms';
+import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 
 // ── Column ────────────────────────────────────────────────────────────────
 export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById }: {
@@ -92,23 +92,6 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────
-/** Short task id, click-to-copy (the full id lands in the clipboard). Sits in
- *  the card's eyebrow after the project so a task is quick to reference (deep
- *  links, /task/<id>, board API). stopPropagation so copying never opens the card. */
-function TaskIdChip({ id }: { id: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
-      }}
-      title={copied ? 'ID copiato' : `Copia l'ID del task (${id})`}
-      className="shrink-0 rounded bg-white/5 px-1 py-0.5 font-mono text-[10px] leading-none text-neutral-500 hover:bg-white/10 hover:text-neutral-300"
-    >{copied ? 'copiato ✓' : id.slice(0, 8)}</button>
-  );
-}
-
 // Memoized: the board re-renders every 4s as the live-usage ticker rebuilds
 // `liveById`. Without memo every card re-renders on each tick; with it only the
 // cards whose `live` prop actually changed (the working ones) do. All handler
