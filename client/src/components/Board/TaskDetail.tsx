@@ -570,7 +570,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   useEffect(() => { if (sessionKey) void loadSession(); }, [sessionKey, loadSession, bump]);
 
   // Live agent state (needed below): typing indicator + stream preview + stop.
-  const agentBusy = !!task && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+  // In review the drawer is the approval surface (isAgentReview drives the
+  // composer): a stale dispatch_state='working' must NOT also light up the
+  // "agent al lavoro" busy UI, or the reviewer sees a working task in review.
+  const agentBusy = !!task && task.status !== 'review' && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
 
   // While a turn runs, poll the history (it overlays the LIVE stream content)
   // so the drawer shows what the agent is thinking/writing right now.
