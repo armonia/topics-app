@@ -62,6 +62,10 @@ interface RemoteBrowserState {
   /** WebRTC could not be established after all retries (sidecar missing / ICE failed).
    *  The pane surfaces an error + Riprova instead of a JPEG fallback. */
   webrtcError: boolean;
+  /** T1 DOM co-browse: how THIS pane renders. 'video' = the pixel stream
+   *  (WebRTC/JPEG, default); 'dom' = a native rrweb DOM reconstruction (real
+   *  browser, cross-device-sharp) — the server streams DOM events instead of pixels. */
+  renderMode: 'video' | 'dom';
 }
 
 interface InteractionHandlers {
@@ -93,6 +97,20 @@ interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
   setStreamActive: (active: boolean) => void;
   /** Retry the WebRTC transport after a `webrtcError` (the pane's Riprova button). */
   retryWebrtc: () => void;
+  /** T1 DOM co-browse: request 'video' (pixel stream) or 'dom' (native rrweb
+   *  reconstruction). The server confirms via `render_mode` (or forces 'video'
+   *  when DOM mode is unsupported for the context). */
+  setRenderMode: (mode: 'video' | 'dom') => void;
+  /** T1 DOM co-browse: register the live rrweb-event sink (the DomCoBrowse view's
+   *  Replayer). Returns an unsubscribe. Only one sink at a time. */
+  registerDomSink: (cb: (event: unknown) => void) => () => void;
+  /** Low-level input relay (page-CSS px). The <img>/<video> handlers use it via
+   *  their own mapping; the DomCoBrowse view calls it directly with coords it maps
+   *  from the reconstructed iframe. */
+  sendInput: (
+    action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
+    payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' },
+  ) => void;
 }
 
 const IDLE_INTERVAL = 2000;
@@ -189,6 +207,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     webrtcActive: false,
     webrtcMounted: false,
     webrtcError: false,
+    renderMode: 'video',
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -204,6 +223,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   const webrtcAttemptRef = useRef(0);
   const webrtcRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webrtcStartRef = useRef<() => void>(() => {});
+  // Mirror of the effect-local teardownWebrtc so out-of-effect callers (DOM-mode
+  // switch) can drop the PC — the server pauses the screencast in DOM mode.
+  const webrtcTeardownRef = useRef<() => void>(() => {});
+  // T1 DOM co-browse: mirror of renderMode for the long-lived onmessage closure,
+  // and the live rrweb-event sink (registered by the DomCoBrowse view's Replayer).
+  const renderModeRef = useRef<'video' | 'dom'>('video');
+  const domSinkRef = useRef<((event: unknown) => void) | null>(null);
   // Newest frame delivered so far. Frames after the first are direct
   // `img.src` writes (no setState), so state.screenshotSrc goes stale by
   // design — this ref lets a remounted <img> re-assert the newest frame
@@ -609,6 +635,18 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
             }
             break;
           }
+          case 'render_mode': {
+            // Server confirmed (or forced) the render mode for this pane. On a
+            // forced 'video' (DOM unsupported) this reverts an optimistic toggle.
+            renderModeRef.current = msg.mode;
+            setState(s => (s.renderMode === msg.mode ? s : { ...s, renderMode: msg.mode }));
+            break;
+          }
+          case 'dom_event':
+            // One rrweb event (Meta/FullSnapshot/Incremental) → the DomCoBrowse
+            // Replayer, when mounted. Dropped when nothing is subscribed (video mode).
+            domSinkRef.current?.(msg.event);
+            break;
           default:
             break;
         }
@@ -757,6 +795,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
       armWebrtcWatchdog(pc, WEBRTC_NO_ANSWER_TIMEOUT_MS);
     };
     webrtcStartRef.current = startWebrtc;
+    webrtcTeardownRef.current = teardownWebrtc;
 
     connect();
 
@@ -1049,6 +1088,30 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     webrtcStartRef.current();
   }, []);
 
+  // T1 DOM co-browse: request a render mode. Optimistic (snappy toggle); the
+  // server's `render_mode` reply confirms or corrects it (forced 'video' when
+  // unsupported). Entering DOM mode tears down WebRTC — the server pauses the
+  // screencast, so the pixel transport has nothing left to carry.
+  const setRenderMode = useCallback((mode: 'video' | 'dom') => {
+    if (renderModeRef.current === mode) return;
+    renderModeRef.current = mode;
+    setState(s => (s.renderMode === mode ? s : { ...s, renderMode: mode }));
+    if (mode === 'dom') webrtcTeardownRef.current();
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      try {
+        const msg: BrowserWsMessage = { type: 'set_render', mode };
+        wsRef.current.send(JSON.stringify(msg));
+      } catch { /* socket gone — re-asserted on next onopen */ }
+    }
+  }, []);
+
+  // T1 DOM co-browse: register the single live rrweb-event sink (DomCoBrowse's
+  // Replayer). Returns an unsubscribe that only clears if still the current sink.
+  const registerDomSink = useCallback((cb: (event: unknown) => void) => {
+    domSinkRef.current = cb;
+    return () => { if (domSinkRef.current === cb) domSinkRef.current = null; };
+  }, []);
+
   // Engine switch (task 54601eeb): ask the server to move this pane to `engine`.
   // Server-orchestrated over the WS — the reply is an `engine` broadcast that
   // flips state + remounts. Streaming-mode only (no WS ⇒ silent no-op).
@@ -1090,5 +1153,8 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     setEngine,
     setStreamActive,
     retryWebrtc,
-  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, retryWebrtc]);
+    setRenderMode,
+    registerDomSink,
+    sendInput,
+  }), [state, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, retryWebrtc, setRenderMode, registerDomSink, sendInput]);
 }

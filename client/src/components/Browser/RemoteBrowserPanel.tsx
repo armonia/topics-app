@@ -1,5 +1,6 @@
 import { BrowserToolbar } from './BrowserToolbar';
-import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download, Puzzle } from 'lucide-react';
+import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download, Puzzle, Boxes, MonitorPlay } from 'lucide-react';
+import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
@@ -11,6 +12,10 @@ import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
 import type { Topic } from '../../types';
+
+// T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
+// only load when a pane actually switches to DOM mode (default video path is free).
+const DomCoBrowse = lazy(() => import('./DomCoBrowse'));
 
 /** Report a browser pane's busy state (page loading or an agent driving it)
  *  into the unified signals store, so its tab spinner + the project rollup
@@ -695,6 +700,28 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           </button>
         )}
 
+        {/* T1 DOM co-browse toggle — DOM (native rrweb reconstruction) ↔ video (the
+            pixel stream). Shown once the pane is on a real page. Default video; DOM
+            is the cross-device-robust path (fixes the blank/error on other devices). */}
+        {!!browser.url && browser.url !== 'about:blank' && (
+          <button
+            type="button"
+            data-testid="browser-render-toggle"
+            onClick={() => browser.setRenderMode(browser.renderMode === 'dom' ? 'video' : 'dom')}
+            className={`absolute bottom-2 left-2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+              browser.renderMode === 'dom'
+                ? 'bg-primary/15 border-primary/40 text-primary hover:bg-primary/25'
+                : 'bg-surface/90 border-border text-muted hover:bg-surface hover:text-text'
+            }`}
+            title={browser.renderMode === 'dom'
+              ? 'Modalità DOM: browser vero ricostruito nativamente (cross-device). Clicca per tornare al video.'
+              : 'Modalità video (stream a pixel). Clicca per la modalità DOM: il browser vero, nativo e cross-device.'}
+          >
+            {browser.renderMode === 'dom' ? <Boxes size={12} className="flex-shrink-0" /> : <MonitorPlay size={12} className="flex-shrink-0" />}
+            {browser.renderMode === 'dom' ? 'DOM' : 'Video'}
+          </button>
+        )}
+
         {/* Navigation error strip (BRW-REL-02) — a failed goto/launch used to
             be invisible (pane stayed on the previous page / infinite
             "Starting browser…"). Cleared by the next navigation. */}
@@ -736,25 +763,56 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           />
         )}
 
+        {/* T1 DOM co-browse — native rrweb reconstruction, overlaid above the (now
+            paused) pixel surface. Real browser, cross-device-sharp, not a video. */}
+        {browser.renderMode === 'dom' && (
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-white">
+                <Loader2 size={24} className="text-app-spinner animate-spin" />
+              </div>
+            }
+          >
+            <div className="absolute inset-0 z-[5]" data-testid="browser-dom-cobrowse">
+              <DomCoBrowse
+                registerDomSink={browser.registerDomSink}
+                sendInput={browser.sendInput}
+                agentActive={browser.agentActive}
+              />
+            </div>
+          </Suspense>
+        )}
+
         {/* No JPEG rendering — the visible surface is the WebRTC <video> above (when
             active) or a native <iframe> (framable URLs). Underneath: an error+Riprova
             if WebRTC couldn't be established, the empty-URL prompt, or a spinner while
             the shared session negotiates. */}
-        {browser.webrtcError ? (
+        {browser.renderMode === 'video' && browser.webrtcError ? (
           <div className="flex items-center justify-center h-full" data-testid="browser-webrtc-error">
             <div className="text-center max-w-xs px-4">
               <AlertTriangle size={30} className="mx-auto mb-3 text-red-500" />
               <p className="text-[13px] text-app-text-muted mb-1">Sessione video non disponibile</p>
-              <p className="text-[11px] text-app-text-faint mb-3">Il transport WebRTC non si è connesso.</p>
-              <button
-                type="button"
-                onClick={browser.retryWebrtc}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
-                data-testid="browser-webrtc-retry"
-              >
-                <RotateCw size={12} />
-                Riprova
-              </button>
+              <p className="text-[11px] text-app-text-faint mb-3">Il transport WebRTC non si è connesso. Prova la modalità DOM: il browser vero, ricostruito nativamente e cross-device.</p>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => browser.setRenderMode('dom')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+                  data-testid="browser-dom-fallback"
+                >
+                  <Boxes size={12} />
+                  Modalità DOM
+                </button>
+                <button
+                  type="button"
+                  onClick={browser.retryWebrtc}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-surface border border-border text-text rounded-md hover:bg-surface/70 transition-colors"
+                  data-testid="browser-webrtc-retry"
+                >
+                  <RotateCw size={12} />
+                  Riprova video
+                </button>
+              </div>
             </div>
           </div>
         ) : (!browser.url || browser.url === 'about:blank') ? (
@@ -765,7 +823,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
               <p className="text-[11px] text-app-text-faint">Enter a URL above to navigate</p>
             </div>
           </div>
-        ) : browser.webrtcActive ? null : (
+        ) : (browser.webrtcActive || browser.renderMode === 'dom') ? null : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
