@@ -143,7 +143,13 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
   }, [sendInput]);
 
   return (
-    <div ref={rootRef} className="relative h-full w-full overflow-hidden bg-white" style={{ isolation: 'isolate' }}>
+    <div ref={rootRef} className="topics-dom-cobrowse relative h-full w-full overflow-hidden bg-white" style={{ isolation: 'isolate' }}>
+      {/* Hide rrweb's REPLAYED cursor: liveMode paints a `.replayer-mouse` dot that
+          chases the source page's CDP mouse, so every relayed click makes a lagging
+          dot jump across the pane — the exact "it feels like streaming, the mouse
+          moves" artifact. In DOM mode the user drives with their OWN native cursor;
+          the replayed one adds nothing but round-trip lag. Scoped to this view. */}
+      <style>{`.topics-dom-cobrowse .replayer-mouse,.topics-dom-cobrowse .replayer-mouse-tail{display:none!important}`}</style>
       {/* Transparent capture layer over the reconstructed iframe. tabIndex makes it
           keyboard-focusable so keydown relays; agent-lock suppresses relays. */}
       <div
