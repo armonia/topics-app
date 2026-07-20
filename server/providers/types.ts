@@ -214,6 +214,15 @@ export interface StreamHandler {
   onToolStart: (toolCallId: string, name: string, args?: ToolArgs) => void;
   onToolUpdate?: (toolCallId: string, partialResult: string) => void;
   /**
+   * The tool's input is now complete. With `--include-partial-messages`
+   * (claude-code) a tool is announced via onToolStart the moment the model
+   * STARTS writing its input (args still empty/partial); this callback
+   * delivers the parsed full args once the input block closes. Consumers
+   * upsert by id — same ToolCall, richer args. Never fired more than once
+   * per tool call.
+   */
+  onToolArgsUpdate?: (toolCallId: string, args: ToolArgs) => void;
+  /**
    * Tool finished. `isError = true` means the tool reported a failure (Claude
    * SDK's `tool_result.is_error`). Default false; existing callers that pass
    * only 2 args remain valid.

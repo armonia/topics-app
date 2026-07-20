@@ -740,6 +740,14 @@ interface PersistentProcess {
    *  re-emits them on every cumulative `assistant` snapshot, so we need a
    *  set to skip duplicates and prevent push-without-dedup downstream. */
   settledToolCalls?: Set<string>;
+  /** In-flight tool inputs from `--include-partial-messages` stream_events,
+   *  keyed by content-block index: id/name captured at content_block_start,
+   *  `buf` accumulates input_json_delta.partial_json until block stop. */
+  streamingToolInputs?: Map<number, { id: string; name: string; buf: string }>;
+  /** Tool ids whose COMPLETE input has been delivered (onToolArgsUpdate fired
+   *  or announced directly with full args). Keeps the late-args path
+   *  idempotent across block stop + every cumulative snapshot re-emission. */
+  argsFinalized?: Set<string>;
   inactivityTimer: ReturnType<typeof setTimeout> | null;
   lifetimeTimer: ReturnType<typeof setTimeout> | null;
   /**
@@ -928,6 +936,8 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.fullText = "";
     pp.activeToolCalls.clear();
     pp.settledToolCalls?.clear();
+    pp.streamingToolInputs?.clear();
+    pp.argsFinalized?.clear();
     // Sidechain state belongs to a single turn — fresh tracker per sendChat
     // so a Task() called in turn N doesn't leak state into turn N+1.
     pp.sidechain.clear();
@@ -1345,6 +1355,14 @@ export class ClaudeCodeProvider implements AIProvider {
       "--append-system-prompt", TOPICS_AGENT_SYSTEM_PROMPT,
       "--input-format", "stream-json",
       "--output-format", "stream-json",
+      // Emit `stream_event` lines (content_block_start/delta/stop) in addition
+      // to the cumulative assistant snapshots. Without this, a tool_use is only
+      // announced AFTER the model finished writing its input — the UI's
+      // "running" window covered just the execution (ms for a Read) while the
+      // longest phase (input generation, 10-30s for a big Edit) was invisible.
+      // handlePartialStreamEvent announces the tool at content_block_start so
+      // the visible running state matches the tool's real usage window.
+      "--include-partial-messages",
       ...(isNewSession ? ["--session-id", claudeSessionId] : ["--resume", claudeSessionId]),
     ];
 
@@ -1748,10 +1766,23 @@ export class ClaudeCodeProvider implements AIProvider {
     // Mark "real activity from provider" — heartbeats consult this to
     // decide whether to fire. Any event that gets past the noise filter
     // counts (assistant text, tool_use, tool_result, sub-agent, result).
+    // Includes partial-message input deltas: a model spending 30s writing a
+    // big Edit input is ACTIVE, and the watchdog must see it as such.
     pp.lastEventAt = Date.now();
+
+    // Partial-message stream events (`--include-partial-messages`). Only the
+    // tool_use lifecycle is consumed here — text/thinking keep flowing
+    // through the cumulative snapshots below, so nothing double-counts.
+    if (event.type === "stream_event") {
+      this.handlePartialStreamEvent(pp, event, handler);
+      return;
+    }
 
     // Result event: stream is done for this turn
     if (event.type === "result") {
+      // Turn over — drop any leftover partial-input buffers (a block that
+      // never got its stop event would otherwise pin its JSON forever).
+      pp.streamingToolInputs?.clear();
       // A missing-session miss ("No conversation found with session ID …") is
       // reported as an ERROR result on STDOUT, not on stderr — route it into the
       // same resume-recovery as the stderr scan so a dead `--resume` id is
@@ -1900,38 +1931,31 @@ export class ClaudeCodeProvider implements AIProvider {
           handler.onThinkingDelta?.(block.thinking);
         } else if (block.type === "tool_use") {
           const toolId = (typeof block.id === "string" ? block.id : null) ?? crypto.randomUUID();
-          if (pp.activeToolCalls.has(toolId) || settled.has(toolId)) continue;
+          if (settled.has(toolId)) continue;
+          const toolName = String(block.name ?? "");
+          const input = block.input as Record<string, unknown> | undefined;
+          if (pp.activeToolCalls.has(toolId)) {
+            // Already announced EARLY by handlePartialStreamEvent (args were
+            // still streaming then). The cumulative snapshot carries the
+            // COMPLETE input — deliver it now (idempotent via argsFinalized).
+            // Also the fallback when the partial-json buffer didn't parse or
+            // the CLI never emitted a content_block_stop.
+            this.finalizeToolArgs(pp, handler, toolId, toolName, input ?? {});
+            continue;
+          }
           pp.activeToolCalls.add(toolId);
           // Sidechain bookkeeping: if this is a Task() call, register it as a
           // sub-agent parent so its child events get aggregated. We do this
           // before onToolStart so the route handler sees the right state if
           // it queries the tracker.
-          const toolName = String(block.name ?? "");
           if (toolName === "Task") {
             pp.sidechain.registerParent(toolId, block.input);
           }
-          handler.onToolStart(toolId, toolName, block.input as Record<string, unknown> | undefined);
-          // Detect "I am asking the user a question" tools (AskUserQuestion,
-          // MCP elicitation). When matched, the CLI is now sitting on its
-          // stdin waiting for a `tool_result` line; the route handler must
-          // pause the soft inactivity timer, broadcast the form schema, and
-          // wait for `POST /api/chat/tool-response`. We surface the request
-          // via the optional `onUserInputRequired` callback so the route can
-          // also stamp the corresponding `ToolCall.status` to
-          // `waiting_for_input`.
-          {
-            const schema = detectUserInputRequest({ name: toolName, input: block.input });
-            if (schema) {
-              const sessionKey = this.findSessionKeyForProcess(pp);
-              if (sessionKey) {
-                pp.pendingInputs.set(toolId, { sessionKey, schema, awaitingSince: Date.now() });
-              }
-              // During a reattach REPLAY we rebuild pendingInputs (above) but do
-              // NOT re-surface the form live — reattach() re-fires onUserInputRequired
-              // once, after replay, for the entries that are STILL unanswered.
-              if (!pp.replaySilent) handler.onUserInputRequired?.(toolId, toolName, schema);
-            }
-          }
+          handler.onToolStart(toolId, toolName, input);
+          // Announced with the full input already in hand — mark finalized
+          // and run user-input detection (AskUserQuestion / MCP elicitation).
+          (pp.argsFinalized ??= new Set<string>()).add(toolId);
+          this.detectUserInputForTool(pp, handler, toolId, toolName, block.input);
         } else if (block.type === "tool_result") {
           const toolId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
           if (!toolId || settled.has(toolId)) continue;
@@ -1973,6 +1997,110 @@ export class ClaudeCodeProvider implements AIProvider {
         }
       }
     }
+  }
+
+  /**
+   * `--include-partial-messages` stream_event handling. ONLY the tool_use
+   * lifecycle is consumed here: `content_block_start` announces the tool the
+   * moment the model STARTS writing its input (so the UI's running window
+   * covers input generation + execution — the tool's real usage window),
+   * `input_json_delta` accumulates the input, and `content_block_stop`
+   * parses the complete input and upserts it via onToolArgsUpdate.
+   * Text/thinking deltas are ignored — the cumulative snapshots remain their
+   * single source, so nothing double-counts. Sidechain (sub-agent) partials
+   * are skipped: child tools aggregate from the sidechain's own snapshots.
+   */
+  private handlePartialStreamEvent(pp: PersistentProcess, event: any, handler: StreamHandler | null): void {
+    if (typeof event.parent_tool_use_id === "string" && event.parent_tool_use_id) return;
+    const ev = event.event;
+    if (!ev || typeof ev !== "object") return;
+    const index: number = typeof ev.index === "number" ? ev.index : -1;
+    if (ev.type === "content_block_start") {
+      const block = ev.content_block;
+      if (!block || block.type !== "tool_use" || typeof block.id !== "string" || !block.id) return;
+      const toolName = String(block.name ?? "");
+      (pp.streamingToolInputs ??= new Map()).set(index, { id: block.id, name: toolName, buf: "" });
+      if (pp.activeToolCalls.has(block.id) || pp.settledToolCalls?.has(block.id)) return;
+      pp.activeToolCalls.add(block.id);
+      // Task parents register immediately (empty input, back-filled by
+      // finalizeToolArgs) so early sidechain child events find their parent.
+      if (toolName === "Task") pp.sidechain.registerParent(block.id, {});
+      handler?.onToolStart(block.id, toolName, {});
+    } else if (ev.type === "content_block_delta") {
+      if (ev.delta?.type !== "input_json_delta" || typeof ev.delta.partial_json !== "string") return;
+      const entry = pp.streamingToolInputs?.get(index);
+      if (entry) entry.buf += ev.delta.partial_json;
+    } else if (ev.type === "content_block_stop") {
+      const entry = pp.streamingToolInputs?.get(index);
+      if (!entry) return;
+      pp.streamingToolInputs?.delete(index);
+      // An empty buffer is a REAL empty input (zero-arg tools stream no
+      // deltas). A non-empty buffer that doesn't parse to an object is a
+      // truncated/odd stream — leave finalization to the snapshot fallback.
+      let args: Record<string, unknown> | null = null;
+      if (!entry.buf) {
+        args = {};
+      } else {
+        try {
+          const parsed = JSON.parse(entry.buf);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            args = parsed as Record<string, unknown>;
+          }
+        } catch {
+          /* cumulative snapshot finalizes instead */
+        }
+      }
+      if (args) this.finalizeToolArgs(pp, handler, entry.id, entry.name, args);
+    }
+  }
+
+  /**
+   * Deliver a tool's COMPLETE input for a call that was announced early with
+   * partial args. Idempotent (argsFinalized guard): fires from
+   * content_block_stop AND from every cumulative snapshot re-emission —
+   * whichever lands first wins. Back-fills Task parents and runs user-input
+   * detection, both of which need the full input.
+   */
+  private finalizeToolArgs(
+    pp: PersistentProcess,
+    handler: StreamHandler | null,
+    toolId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): void {
+    const finalized = (pp.argsFinalized ??= new Set<string>());
+    if (finalized.has(toolId) || pp.settledToolCalls?.has(toolId)) return;
+    finalized.add(toolId);
+    if (toolName === "Task") pp.sidechain.updateParentInput(toolId, args);
+    handler?.onToolArgsUpdate?.(toolId, args);
+    this.detectUserInputForTool(pp, handler, toolId, toolName, args);
+  }
+
+  /**
+   * Detect "I am asking the user a question" tools (AskUserQuestion, MCP
+   * elicitation) — requires the COMPLETE input, so it runs at announce time
+   * only when the full args are already in hand, otherwise at args-finalize.
+   * When matched, the CLI is sitting on stdin waiting for a `tool_result`
+   * line; the route handler must pause the soft inactivity timer, broadcast
+   * the form schema, and wait for `POST /api/chat/tool-response`. During a
+   * reattach REPLAY we rebuild pendingInputs but do NOT re-surface the form
+   * live — reattach() re-fires onUserInputRequired once, after replay, for
+   * the entries that are STILL unanswered.
+   */
+  private detectUserInputForTool(
+    pp: PersistentProcess,
+    handler: StreamHandler | null,
+    toolId: string,
+    toolName: string,
+    input: unknown,
+  ): void {
+    const schema = detectUserInputRequest({ name: toolName, input });
+    if (!schema) return;
+    const sessionKey = this.findSessionKeyForProcess(pp);
+    if (sessionKey) {
+      pp.pendingInputs.set(toolId, { sessionKey, schema, awaitingSince: Date.now() });
+    }
+    if (!pp.replaySilent) handler?.onUserInputRequired?.(toolId, toolName, schema);
   }
 
   // --- Timer Management ---

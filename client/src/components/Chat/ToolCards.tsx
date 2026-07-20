@@ -8,12 +8,45 @@
  *
  * All cards follow the same visual language: small monospace 11px text,
  * subtle bg `bg-app-hover/40`, rounded corners. Long content is scrollable
- * (max-h-* with overflow-auto). No fancy syntax highlighting yet — that's a
- * future polish; the current improvement is over the previous 100% raw
- * `JSON.stringify` everything.
+ * (max-h-* with overflow-auto). Code payloads (Read/Write/Edit content, the
+ * shell command) run through the SAME lazy hljs facade as markdown code
+ * fences (CHAT-TOOL-04) — language derived from the file extension, plain
+ * text fallback when unknown/oversize/not-yet-loaded.
  */
 
+import { useMemo, useSyncExternalStore } from 'react';
+import type { ReactNode } from 'react';
 import type { ToolCallDetail } from '../../types';
+import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
+
+/**
+ * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
+ * only wraps tokens in class-only <span>s, so the injected HTML is safe by
+ * construction (same posture as MessageContent's CodeBlock). Until the
+ * tokenizers land — or for unknown languages / oversize payloads — it renders
+ * the plain text exactly like the previous raw <pre>.
+ */
+function HighlightedPre({ code, lang, className, testId, prefix }: {
+  code: string; lang: string; className: string; testId?: string;
+  /** Literal chrome rendered before the code, outside highlighting ("$ "). */
+  prefix?: ReactNode;
+}) {
+  const ready = useSyncExternalStore(subscribeHighlighter, highlighterReady);
+  const html = useMemo(
+    () => (lang ? highlightCode(code, lang) : null),
+    // `ready` re-runs the memo once the lazy tokenizers land.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [code, lang, ready],
+  );
+  return (
+    // `tool-card-code` scopes the theme-aware hljs palette (index.css) —
+    // tool card surfaces follow the app theme, unlike always-dark fences.
+    <pre data-testid={testId} className={`tool-card-code ${className}`}>
+      {prefix}
+      {html ? <code dangerouslySetInnerHTML={{ __html: html }} /> : code}
+    </pre>
+  );
+}
 
 // ── Shell ───────────────────────────────────────────────────────────────────
 
@@ -22,9 +55,13 @@ export function ShellCard({ command, cwd, output, exitCode, isError }: {
 }) {
   return (
     <div className="space-y-1">
-      <pre data-testid="tool-call-args" className="text-[11px] font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5">
-        $ {command}
-      </pre>
+      <HighlightedPre
+        testId="tool-call-args"
+        className="text-[11px] font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5"
+        prefix="$ "
+        code={command}
+        lang="bash"
+      />
       {cwd && <div className="text-[11px] font-mono text-app-text-muted truncate">cwd: {cwd}</div>}
       {output && (
         <div>
@@ -52,9 +89,12 @@ export function ReadCard({ filePath, content, offset, limit }: {
     <div className="space-y-1">
       <div data-testid="tool-call-args" className="text-[11px] font-mono text-app-text-secondary truncate">{filePath}{meta}</div>
       {content && (
-        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5">
-          {content}
-        </pre>
+        <HighlightedPre
+          testId="tool-call-result"
+          className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-app-hover/40 rounded px-2 py-1.5"
+          code={content}
+          lang={langFromPath(filePath)}
+        />
       )}
     </div>
   );
@@ -84,17 +124,22 @@ export function EditCard({ filePath, oldString, newString, unifiedDiff }: {
           {oldString && (
             <div>
               <div className="text-[11px] uppercase tracking-wide text-red-500/70 mb-0.5">- Before</div>
-              <pre className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-red-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-red-500/40">
-                {oldString}
-              </pre>
+              <HighlightedPre
+                className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-red-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-red-500/40"
+                code={oldString}
+                lang={langFromPath(filePath)}
+              />
             </div>
           )}
           {newString && (
             <div>
               <div className="text-[11px] uppercase tracking-wide text-green-500/70 mb-0.5">+ After</div>
-              <pre data-testid="tool-call-result" className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-green-500/40">
-                {newString}
-              </pre>
+              <HighlightedPre
+                testId="tool-call-result"
+                className="text-[11px] font-mono whitespace-pre-wrap overflow-auto max-h-72 bg-green-500/5 rounded px-2 py-1.5 text-app-text-secondary border-l-2 border-green-500/40"
+                code={newString}
+                lang={langFromPath(filePath)}
+              />
             </div>
           )}
         </div>
@@ -112,9 +157,12 @@ export function WriteCard({ filePath, content }: { filePath: string; content?: s
         {filePath}{content ? ` · ${content.length.toLocaleString()} chars` : ''}
       </div>
       {content && (
-        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-green-500/5 rounded px-2 py-1.5 border-l-2 border-green-500/40">
-          {content}
-        </pre>
+        <HighlightedPre
+          testId="tool-call-result"
+          className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-80 bg-green-500/5 rounded px-2 py-1.5 border-l-2 border-green-500/40"
+          code={content}
+          lang={langFromPath(filePath)}
+        />
       )}
     </div>
   );
