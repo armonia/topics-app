@@ -1080,11 +1080,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 l'evidenza. Immagine → click per aprirla piena; video (clip di
                 review comportamentale) → controlli inline. */}
             {task?.previewImage && (
-              <PreviewMedia
-                path={task.previewImage}
-                variant="drawer"
-                className="mt-2 max-h-52 w-full rounded border border-white/10 bg-black/20 object-contain"
-              />
+              <PreviewMedia path={task.previewImage} variant="drawer" />
             )}
           </div>
           {/* Closed-tab tray — ONLY the soft-closed browser tabs live here under
