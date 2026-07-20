@@ -159,6 +159,14 @@ if [ "${TOPICS_SERVER_WATCH:-0}" = "1" ]; then
         if [ -n "$SP" ] && kill -0 "$SP" 2>/dev/null; then
           echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP)"
           kill -TERM "$SP" 2>/dev/null
+          # Settle window: one save can emit TWO fswatch batches (write +
+          # rename straddling the 2s latency). Without this pause the second
+          # batch SIGTERMs the FRESH server mid-init — before server.ts has
+          # registered its signal handlers — killing it with code 143 and
+          # skipping gracefulShutdown. Sleeping here just delays the next
+          # batch's reload until the new process is fully up (init is ~2-4s),
+          # so every reload stays graceful.
+          sleep 10
         fi
       done
   ) &
