@@ -92,6 +92,23 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────
+/** Short task id, click-to-copy (the full id lands in the clipboard). Sits in
+ *  the card's eyebrow after the project so a task is quick to reference (deep
+ *  links, /task/<id>, board API). stopPropagation so copying never opens the card. */
+function TaskIdChip({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
+      }}
+      title={copied ? 'ID copiato' : `Copia l'ID del task (${id})`}
+      className="shrink-0 rounded bg-white/5 px-1 py-0.5 font-mono text-[10px] leading-none text-neutral-500 hover:bg-white/10 hover:text-neutral-300"
+    >{copied ? 'copiato ✓' : id.slice(0, 8)}</button>
+  );
+}
+
 // Memoized: the board re-renders every 4s as the live-usage ticker rebuilds
 // `liveById`. Without memo every card re-renders on each tick; with it only the
 // cards whose `live` prop actually changed (the working ones) do. All handler
@@ -181,7 +198,6 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // standalone). Both render with NO chip — the "generale" label is noise.
   const unassigned = isProjectlessId(task.projectId);
   const projectLabel = task.projectId.replace(/-[^-]+$/, '');
-  const hasState = !!(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) || (!task.dispatchState && !!task.dispatchError);
   // A task in review is the APPROVAL surface, never the "steer a working agent"
   // surface — so it's never busy here even if a stale dispatch_state='working'
   // lingers. Without this gate a review task with dispatch_state='working'
@@ -189,9 +205,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const agentBusy = task.status !== 'review' && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
   // Agent cluster in the card's top-right slot: dispatch state + model/effort +
   // "apri tab" all live up there — the body below stays pure content.
-  const hasModelChip = (!!live && task.dispatchState === 'working') || !!task.model || task.agentMs > 0 || task.agentTokens > 0;
   const hasOpenTab = !!(task.assignedTopicId && onOpenTopic);
-  const showTopRow = (showProject && !unassigned) || hasState || hasModelChip || hasOpenTab;
+  // Always shown: the eyebrow row carries the click-to-copy task id on every card
+  // (plus project/state/model/tab when present).
+  const showTopRow = true;
   const showPriority = !task.priorityAuto && task.priority !== 2;
   // Review expands the subtask checklist on the card; elsewhere the count chip suffices.
   const checklist = task.status === 'review' ? children : [];
@@ -214,12 +231,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           crushing the eyebrow. */}
       {showTopRow && (
         <div className="mb-1 flex flex-wrap items-center justify-end gap-1.5">
-          {showProject && !unassigned ? (
-            <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400">
-              {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
-              <span className="min-w-0 truncate font-medium">{projectLabel}</span>
-            </div>
-          ) : <div className="min-w-0 flex-1" />}
+          <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400">
+            {showProject && !unassigned && (
+              <>
+                {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
+                <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+              </>
+            )}
+            <TaskIdChip id={task.id} />
+          </div>
           {/* The live chip's pulse dot already says "working": while it ticks,
               the 'al lavoro' state chip is redundant — one chip, not two. */}
           {(live && task.dispatchState === 'working') ? null : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
