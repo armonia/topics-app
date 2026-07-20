@@ -38,6 +38,9 @@ import {
 // SHARED action set — the SAME source the native validator (tauriBrowserOps) uses,
 // so the two paths can never disagree on what browser_act accepts.
 import { REF_ACTIONS, ACT_ACTIONS, UPLOAD_FN, STATUS_JS } from "../shared/browser-snapshot-core";
+import { writeFile, mkdir, readdir, unlink } from "node:fs/promises";
+import { join } from "node:path";
+import { topicsHome } from "./services/daemon-state";
 
 const observeCache = new Map<string, IndexedElement[]>();
 /** Last ref-based snapshot per context — powers incremental diffs in observe/act. */
@@ -520,13 +523,58 @@ export async function handleBrowserReadScreen(
   });
 }
 
+/** Where agent-facing screenshots land: durable, under the known media root.
+ *  Resolved lazily so a TOPICS_HOME set after import (worktree isolation, tests)
+ *  is honoured. */
+function agentShotDir(): string {
+  return join(topicsHome(), "media", "agent-screenshots");
+}
+/** Keep the newest N screenshots on disk; prune the rest (best-effort). */
+const AGENT_SHOT_KEEP = 50;
+
+/**
+ * Persist a screenshot buffer to disk and return its absolute path — instead of
+ * handing the agent a base64 blob it can't view and would only bloat its
+ * context (a JPEG is tens of thousands of tokens of unusable text, which pushes
+ * the turn toward the compact/stall boundary). The agent gets a path it can
+ * feed straight to `moondream <path>`, the Read tool, or `browser_read_screen`.
+ * Filenames are timestamp-prefixed so lexicographic order == chronological,
+ * which makes the prune trivial and deterministic.
+ */
+export async function writeAgentScreenshot(
+  buf: Buffer,
+  contextId: string,
+  ext: "jpg" | "png" = "jpg"
+): Promise<string> {
+  const dir = agentShotDir();
+  await mkdir(dir, { recursive: true });
+  const safeCtx = contextId.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 40);
+  const rand = Math.random().toString(36).slice(2, 8);
+  const path = join(dir, `${Date.now()}-${safeCtx}-${rand}.${ext}`);
+  await writeFile(path, buf);
+  // Best-effort prune of older shots so the dir can't grow unbounded.
+  try {
+    const files = (await readdir(dir))
+      .filter((f) => f.endsWith(".jpg") || f.endsWith(".png"))
+      .sort(); // ts-prefixed → ascending == oldest first
+    const excess = files.length - AGENT_SHOT_KEEP;
+    for (let i = 0; i < excess; i++) {
+      await unlink(join(dir, files[i])).catch(() => {});
+    }
+  } catch {
+    /* prune is best-effort — never fail a screenshot over cleanup */
+  }
+  return path;
+}
+
 export async function handleBrowserScreenshot(
   service: BrowserService,
   contextId: string,
   args: { full_page?: boolean }
 ): Promise<{
   format: "jpeg";
-  data: string;
+  path: string;
+  bytes: number;
   viewport: { width: number; height: number };
 }> {
   console.log(
@@ -540,9 +588,11 @@ export async function handleBrowserScreenshot(
       fullPage: args?.full_page ?? false,
     });
     const vp = await ops.viewport();
+    const path = await writeAgentScreenshot(buf, contextId);
     return {
       format: "jpeg" as const,
-      data: buf.toString("base64"),
+      path,
+      bytes: buf.length,
       viewport: vp,
     };
   });

@@ -28,6 +28,7 @@ import {
   handleBrowserImportChrome,
   handleBrowserUpload,
   handleBrowserStatus,
+  writeAgentScreenshot,
 } from "./browser-tools-handler";
 import type { BrowserActAction } from "./browser-tools";
 import { describeImage, pointObject } from "./integrations/moondream-client";
@@ -81,6 +82,25 @@ async function readUploadFile(args: ToolCallArgs): Promise<UploadFile | { error:
  * CDP/Playwright path — the agent gets the IDENTICAL `{vision}` / `{clicked,point}`
  * result whether the pane is native or streaming.
  */
+/**
+ * Native-pane `browser_screenshot`: delegate the capture to the WKWebView, then
+ * write the PNG to disk server-side and return its PATH — never the base64. The
+ * web-pane path (handleBrowserScreenshot) already does this; mirroring it here
+ * closes the seam so NEITHER pane type ever floods the agent's context with an
+ * un-viewable image blob (the root cause of the compact/stall spiral).
+ */
+async function nativeScreenshotOp(contextId: string): Promise<unknown> {
+  const shot = await nativeDelegateRegistry.delegateOp(contextId, "browser_screenshot", {});
+  if (shot && typeof shot === "object" && "error" in shot) return shot; // failsoft
+  const data = (shot as { data?: unknown })?.data;
+  if (typeof data !== "string" || !data) {
+    return { error: "browser_screenshot: native pane returned no image data" };
+  }
+  const buf = Buffer.from(data, "base64");
+  const path = await writeAgentScreenshot(buf, contextId, "png");
+  return { format: "png" as const, path, bytes: buf.length };
+}
+
 async function nativeVisionOp(
   toolName: string,
   args: ToolCallArgs,
@@ -255,6 +275,11 @@ export async function dispatchBrowserToolCallByContext(
     // delegated native screenshot instead of forwarding the whole call.
     if (toolName === "browser_read_screen" || toolName === "browser_point") {
       return nativeVisionOp(toolName, args, contextId);
+    }
+    // Screenshot: capture natively but persist to disk + return a path (same as
+    // the web pane) so the agent never gets a base64 blob it can't view.
+    if (toolName === "browser_screenshot") {
+      return nativeScreenshotOp(contextId);
     }
     // Login-state ops split across the seam the same way: handle persistence
     // (Topics + external stores) and Chrome Keychain decryption stay server-side,
