@@ -28,6 +28,8 @@ import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
 import { initDevBundleReload } from './lib/devBundleReload';
+import { initChunkReloadGuard } from './lib/chunkReloadGuard';
+import { DevBundleToast } from './components/DevBundleToast';
 import { openTaskFromUrl } from './lib/openTaskLink';
 import { useDismissable } from './hooks/useDismissable';
 import { POPOVER_SURFACE, POPOVER_PANEL, Z_POPOVER } from './lib/popoverStyles';
@@ -128,10 +130,15 @@ function App() {
   // No-op off Tauri; safe to run once on mount.
   useEffect(() => { wireTauriDragRegions(); }, []);
 
-  // Dev bundle hot-delivery: reload when the server says /public was rebuilt.
-  // The server only broadcasts this behind its dev flag file — see
-  // server/lib/dev-bundle-reload.ts.
-  useEffect(() => initDevBundleReload(), []);
+  // Dev bundle freshness: when the server (behind its dev flag) says /public
+  // was rebuilt, OR a lazy chunk 404s against a rebuilt bundle, surface a
+  // "Ricarica" prompt (DevBundleToast) — never an auto-reload under the user.
+  // See lib/devBundleReload.ts + lib/chunkReloadGuard.ts.
+  useEffect(() => {
+    const offRev = initDevBundleReload();
+    const offChunk = initChunkReloadGuard();
+    return () => { offRev(); offChunk(); };
+  }, []);
 
   // Deep-link a board task from /task/<taskId> (the drawer's "copia link"; a
   // legacy ?task=<slug>~<taskId> link still resolves too): opens the global
@@ -1371,6 +1378,9 @@ function App() {
 
       {/* Phase E · UpdaterToast (rendered at root, listens to electron-updater) */}
       <UpdaterToast />
+      {/* In-page bundle refresh prompt (dev rebuilds + stale-chunk 404s) —
+          the manual-reload replacement for the old silent auto-reload. */}
+      <DevBundleToast />
 
       {/* Root-level fallback outlet for global notifications (e.g. agent
           completion). When a scoped outlet (ProjectWindow's) is mounted,
