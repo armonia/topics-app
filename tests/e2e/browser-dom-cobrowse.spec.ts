@@ -134,6 +134,41 @@ test.describe("T1 DOM co-browse", () => {
     }
   });
 
+  test("a non-framable localhost app renders via DOM co-browse, not a blank iframe [T1]", async ({ page, browserProcessPageV2, request }) => {
+    // Regression: a local dev app that sends X-Frame-Options / frame-ancestors
+    // (e.g. Quadra on :3100 → SAMEORIGIN) loaded BLANK in the iframe, because the
+    // web pane used to force the iframe for ANY localhost URL ("il browser resta
+    // bianco, non fa nulla"). localhost now goes through the framability probe;
+    // non-framable → the DOM co-browse surface (the server mirrors the real DOM).
+    await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 10 });
+    await browserProcessPageV2.mockBrowserContexts([]);
+    await browserProcessPageV2.mockRemoteBrowserPane({
+      connected: true,
+      url: "http://localhost:5173/app",
+      title: "Local Dev",
+      hasScreenshot: true,
+    });
+    // The probe reports the local app as NON-framable (its framing headers block us).
+    await page.route(/\/api\/browsers\/framable/, async (route) => {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ framable: false }) });
+    });
+    browserProcessPageV2.mockDomCoBrowse(RRWEB_EVENTS);
+
+    const topic = await createTopic(request, `E2E-LHFRAME-${Date.now()}`);
+    try {
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await mountBrowserPane(page, topic.id, "http://localhost:5173/app");
+
+      // The DOM co-browse surface renders; the native iframe must NOT be used
+      // (it would be a dead white pane behind the framing block).
+      await expect(page.locator('[data-testid="browser-dom-cobrowse"]').first()).toBeVisible({ timeout: 8000 });
+      await expect(page.locator('[data-testid="browser-iframe"]')).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
   test("falls back to video when the server can't DOM-snapshot the page [T1]", async ({ page, browserProcessPageV2, request }) => {
     // Option A safety net. The pane defaults to DOM, but a page the server can't
     // snapshot (canvas/WebGL, blocked injection) forces render_mode:'video'. The pane
