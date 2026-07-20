@@ -686,6 +686,15 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       }
       return;
     }
+    // Senza screenshot: seminiamo il live server come prima MA, una volta,
+    // ritiriamo una eventuale tab stranded su /login (mai una superficie di
+    // review) così il reviewer vede almeno il thread con la consegna invece del
+    // muro di login. La retire non rimuove la tab da `.tabs` (la parca), quindi
+    // il seed successivo non ri-semina: il server resta a un click ("Apri l'output").
+    if (!retiredSeedTasks.has(taskId)) {
+      retiredSeedTasks.add(taskId);
+      void browser.retireLoneSeed({ loginWallOnly: true });
+    }
     void browser.seedFromUrl(task.outputUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seedFromUrl/retireLoneSeed are stable per taskId; refire only when output_url/previewImage change
   }, [task?.outputUrl, task?.previewImage, taskId]);

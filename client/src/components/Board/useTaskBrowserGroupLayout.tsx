@@ -30,6 +30,12 @@ import {
 
 const BROWSER_ONLY: PaneType[] = ['browser'];
 
+/** A stranded auth wall — the seeded output_url 307'd here and never came back.
+ *  Never a reviewable surface, so it's safe to retire even without a screenshot. */
+function isLoginWall(url: string): boolean {
+  return /\/(login|signin|sign-in|auth)(\/|\?|#|$)/i.test(url || '');
+}
+
 // Stable ids for the derived (non-browser) surfaces. They never enter
 // pane-store-v2; they live only in this task's tiling descriptor.
 const threadPaneId = (taskId: string) => `thread:${taskId}`;
@@ -70,8 +76,10 @@ export interface TaskBrowserGroupLayout {
   /** Seed the first browser tab from a url only when the task has no tabs yet. */
   seedFromUrl: (url: string, title?: string) => Promise<void>;
   /** Park the lone auto-seeded output tab (a screenshot supersedes the live,
-   *  often login-gated server as the review surface). Reopenable from the tray. */
-  retireLoneSeed: () => Promise<void>;
+   *  often login-gated server as the review surface). Reopenable from the tray.
+   *  `loginWallOnly` restricts it to tabs stranded on a login page — used when
+   *  there's no screenshot, so a legit live server is left seeded. */
+  retireLoneSeed: (opts?: { loginWallOnly?: boolean }) => Promise<void>;
   /** Spread straight into `<GroupLayout {...props} />`. */
   groupLayoutProps: {
     panes: Pane[];
@@ -207,12 +215,14 @@ export function useTaskBrowserGroupLayout(taskId: string, input: TaskDrawerLayou
    *  reviewer who split/added tabs (>1) or pinned one is left untouched. Parked
    *  = reopenable from the closed-tab tray, never destroyed; the live server
    *  also stays a click away via the drawer's "Apri l'output" button. */
-  const retireLoneSeed = useCallback(async () => {
+  const retireLoneSeed = useCallback(async (opts?: { loginWallOnly?: boolean }) => {
     await taskBrowserTabs.ensureLoaded(taskId);
     const live = liveTabs(getTaskTabs(taskId));
-    if (live.length === 1 && live[0].titleSource !== 'user') {
-      taskBrowserTabs.closeTab(taskId, live[0].contextId);
-    }
+    if (live.length !== 1) return;
+    const t = live[0];
+    if (t.titleSource === 'user') return;                       // reviewer pinned it
+    if (opts?.loginWallOnly && !isLoginWall(t.url)) return;     // keep a legit live server
+    taskBrowserTabs.closeTab(taskId, t.contextId);
   }, [taskId]);
 
   return {
