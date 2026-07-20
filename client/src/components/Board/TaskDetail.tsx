@@ -155,6 +155,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // width preference (more room for the native tiling), no side-panel fold.
   const rootRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // One-shot per task: retire the auto-seeded output tab at most once (so a
+  // reviewer who deliberately reopens the live server isn't fought on re-render).
+  const retiredSeedRef = useRef<Set<string>>(new Set());
 
   // Swipe-to-close (mobile full-screen overlay only). Track the first touch and
   // lock onto a horizontal drag (dominant X vs Y) so a vertical scroll inside the

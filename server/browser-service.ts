@@ -47,6 +47,10 @@ interface BrowserContextEntry {
    *  (type 2) + incrementals since that snapshot (capped). A new DOM-mode viewer
    *  is replayed [meta, full, ...inc] so it can reconstruct without a reload. */
   dom?: { meta: unknown | null; full: unknown | null; inc: unknown[] };
+  /** Cached CDP session used to inject the rrweb recorder via Runtime.evaluate
+   *  (CSP-exempt, unlike addScriptTag whose inline <script> most real sites'
+   *  Content-Security-Policy refuses). Lazily created; detached on destroy. */
+  recorderCdp?: import("playwright-core").CDPSession;
 }
 
 interface BrowserServiceOptions {
@@ -541,12 +545,32 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   }
 
   // T1 DOM co-browse: (re)inject the rrweb record bundle + start into the CURRENT
-  // document. addScriptTag (not evaluate) so the bundle's top-level `var rrweb`
-  // becomes a real page global. Best-effort: about:blank / a mid-navigation page
-  // can reject — the next 'load' re-injects.
+  // document via CDP Runtime.evaluate — NOT addScriptTag. addScriptTag inserts a
+  // real inline <script>, which the page's Content-Security-Policy refuses on most
+  // of the modern web (GitHub, Google, …: `script-src 'self'` with no
+  // 'unsafe-inline') → the bundle silently never runs, no rrweb events flow, and
+  // DOM mode falls back to video. Runtime.evaluate runs the code at page-global
+  // scope AS THE DEBUGGER (CSP-exempt), so the bundle's top-level `var rrweb`
+  // still becomes a real page global and recording starts everywhere. The recorder
+  // world matches the exposed __rrwebEmit binding (both main-world). Best-effort:
+  // about:blank / a mid-navigation page can reject — the next 'load' re-injects.
   async function startRecordingNow(entry: BrowserContextEntry): Promise<void> {
-    await entry.page.addScriptTag({ content: RRWEB_RECORD_BUNDLE });
-    await entry.page.addScriptTag({ content: RRWEB_RECORD_START });
+    if (!entry.recorderCdp) {
+      entry.recorderCdp = await entry.context.newCDPSession(entry.page);
+    }
+    const cdp = entry.recorderCdp;
+    const run = async (expression: string) => {
+      const res = (await cdp.send("Runtime.evaluate", {
+        expression,
+        returnByValue: false,
+        awaitPromise: false,
+      })) as { exceptionDetails?: { text?: string; exception?: { description?: string } } };
+      if (res.exceptionDetails) {
+        throw new Error(res.exceptionDetails.exception?.description || res.exceptionDetails.text || "rrweb eval error");
+      }
+    };
+    await run(RRWEB_RECORD_BUNDLE);
+    await run(RRWEB_RECORD_START);
   }
 
   // Bind the rrweb host plumbing to a context's page — ONCE. Deliberately does NOT
@@ -869,6 +893,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // Phase 30 BROWSER-CHAT-02 — stop screencast first so no in-flight
       // CDP frames target a context that's about to be torn down.
       await service.stopScreencast(id).catch(() => {});
+      // T1 DOM co-browse — detach the recorder CDP session (best-effort; closing
+      // the context would detach it anyway, but don't leave it dangling).
+      if (entry.recorderCdp) { await entry.recorderCdp.detach().catch(() => {}); entry.recorderCdp = undefined; }
       entry.autoSaveCleanup?.();
       if (entry.engine === "chromium") {
         // Chromium engine: the sidecar owns the persistent profile (no per-context
@@ -1398,9 +1425,17 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       for (let i = 0; i < 40 && !entry.dom?.full; i++) {
         await new Promise((r) => setTimeout(r, 50));
       }
-      const buf = entry.dom;
-      if (!buf) return [];
-      return [buf.meta, buf.full, ...buf.inc].filter((e) => e != null);
+      // No FullSnapshot within the grace window → treat DOM mode as UNSUPPORTED
+      // for this page and return null, so the caller forces 'video' cleanly. A
+      // partial bootstrap (Meta only) is worse than useless: rrweb's Replayer
+      // can't build a mirror without a FullSnapshot, so the DOM overlay would
+      // stay transparent and the paused video would bleed through it — the exact
+      // "DOM mode still shows video" symptom.
+      if (!entry.dom?.full) {
+        console.warn(`[BrowserService] rrweb produced no FullSnapshot for ${id} — DOM mode unsupported here`);
+        return null;
+      }
+      return [entry.dom.meta, entry.dom.full, ...entry.dom.inc].filter((e) => e != null);
     },
 
     // Gate emission. Turning it OFF also DETACHES the recorder (RRWEB_STOP stops the
