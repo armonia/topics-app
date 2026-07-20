@@ -99,9 +99,16 @@ const MAX_DOM_INCREMENTALS = 4000;
 // DOM in its own native engine (the real browser, not a video).
 let RRWEB_RECORD_BUNDLE = '';
 try {
+  // Idempotence guard: the bundle opens with `var rrweb = ...`, and at global
+  // scope that IS window.rrweb — re-evaluating it (every enableDomMode calls
+  // startRecordingNow) would CLOBBER the live module with a fresh-state copy
+  // whose internal "recording started" flag is false, breaking
+  // record.takeFullSnapshot for late joiners. Only evaluate into a window that
+  // doesn't have the recorder yet; `var` hoisting keeps the block harmless.
   RRWEB_RECORD_BUNDLE =
+    'if(!(window.rrweb&&window.rrweb.record)){\n' +
     readFileSync(join(import.meta.dir, 'assets', 'rrweb.min.js'), 'utf8') +
-    '\n;window.rrweb=window.rrweb||rrweb;';
+    '\n;window.rrweb=window.rrweb||rrweb;\n}';
 } catch (err) {
   console.warn('[BrowserService] rrweb record bundle missing — DOM co-browse disabled:', (err as Error)?.message);
 }
@@ -110,10 +117,21 @@ try {
 // The recorder's stop fn is stashed on window.__rrwebStop so instrumentation is
 // REVOCABLE (see RRWEB_STOP) — the mutation observers detach when no one is watching.
 const RRWEB_RECORD_START = `(function(){
-  if (window.__rrwebStarted) return;
-  if (!window.rrweb || !window.rrweb.record) return;
   function emit(p){ try { window.__rrwebEmit && window.__rrwebEmit(JSON.stringify(p)); } catch(_){} }
+  if (window.__rrwebStarted) {
+    // A recorder is already live on this document (another viewer enabled DOM
+    // first, or a reconnect re-asserted the mode). rrweb emits Meta+FullSnapshot
+    // only at record() start, so on a static page a no-op here would starve the
+    // (reset) server buffer forever — enableDomMode would time out and force the
+    // JOINING viewer to video. Force a fresh checkout instead: Meta+FullSnapshot
+    // re-emit for everyone (existing mirrors just rebuild once).
+    try { window.rrweb.record.takeFullSnapshot(true); }
+    catch(e){ emit({ kind:'error', error:String(e&&e.message||e) }); }
+    return;
+  }
+  if (!window.rrweb || !window.rrweb.record) return;
   function start(){
+    if (window.__rrwebStarted) return;
     try {
       window.__rrwebStop = window.rrweb.record({
         emit: function(event){ emit({ kind:'event', event:event }); },
@@ -588,8 +606,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // and broadcast live only while at least one viewer is in DOM mode.
       await entry.page.exposeFunction('__rrwebEmit', (json: string) => {
         if (!entry.dom) return;
-        let m: { kind?: string; event?: { type?: number } };
+        let m: { kind?: string; event?: { type?: number }; error?: string };
         try { m = JSON.parse(json); } catch { return; }
+        // In-page recorder failures are otherwise invisible (the page can't log
+        // to us) — surface them, they're the difference between "unsupported
+        // page" and a plumbing bug.
+        if (m.kind === 'error') {
+          console.warn(`[BrowserService] rrweb in-page error for ${id}:`, m.error);
+          return;
+        }
         if (m.kind !== 'event' || !m.event) return;
         const e = m.event;
         const buf = entry.dom;

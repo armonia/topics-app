@@ -72,6 +72,30 @@ describe('browser-service: DOM co-browse (real browser)', () => {
     }
   }, 45000);
 
+  it('a second enable while the recorder is live still bootstraps (late joiner / reconnect)', async () => {
+    const svc = await createBrowserService({ broadcastToBrowserWs: () => {} });
+    const id = 'dom-cb-rejoin';
+    try {
+      await svc.createContext(id);
+      // STATIC page — no mutations. rrweb only emits Meta+FullSnapshot at
+      // record() start, so if the second enable no-ops on the already-running
+      // recorder, its (reset) buffer never fills and enableDomMode returns null
+      // → the server forces the joining viewer to video. This is the live
+      // "second viewer / WS-reconnect re-assert lands on video" repro.
+      await svc.evaluate(id, "document.title='DOMCB2'; document.body.innerHTML='<h1>STATICO REJOIN</h1>';");
+      const first = await svc.enableDomMode(id);
+      expect(first).not.toBeNull();
+      const second = await svc.enableDomMode(id);
+      expect(second).not.toBeNull();
+      const types = (second ?? []).map((e) => (e as { type?: number })?.type);
+      expect(types).toContain(4); // fresh Meta
+      expect(types).toContain(2); // fresh FullSnapshot (takeFullSnapshot checkout)
+      expect(JSON.stringify(second)).toContain('STATICO REJOIN');
+    } finally {
+      await svc.close();
+    }
+  }, 45000);
+
   it('bootstraps a FullSnapshot even when the page CSP forbids inline scripts', async () => {
     const svc = await createBrowserService({ broadcastToBrowserWs: () => {} });
     const server = Bun.serve({
