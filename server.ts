@@ -79,6 +79,23 @@ import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 import { startDevBundleReload } from "./server/lib/dev-bundle-reload";
 
+// ─── Early signal handlers (registered BEFORE any await in init) ───────────
+// The full gracefulShutdown is only wired at the very bottom of this file,
+// AFTER init completes — init includes top-level awaits (TLS probe, broker
+// list) that can take seconds. A SIGTERM landing in that window previously
+// hit the default disposition and killed the process with code 143, skipping
+// every shutdown path (observed with start-prod's hot-reload watcher firing a
+// second batch onto a freshly relaunched server). During init nothing is
+// owned yet (no provider children attached, no clients), so a clean exit(0)
+// is the correct response; once init finishes, `onTermSignal` is repointed
+// to gracefulShutdown below.
+let onTermSignal: (signal: string) => void = (signal) => {
+  console.log(`[Shutdown] ${signal} received during init — exiting cleanly (nothing owned yet)`);
+  process.exit(0);
+};
+process.on("SIGTERM", () => onTermSignal("SIGTERM"));
+process.on("SIGINT", () => onTermSignal("SIGINT"));
+
 // Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
 if (!process.env.GATEWAY_TOKEN) {
   try {
@@ -1869,7 +1886,15 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
 }
 
 // Graceful shutdown
+let shutdownInProgress = false;
 async function gracefulShutdown(signal: string) {
+  // Re-entrancy guard: a second signal during shutdown (hot-reload watcher
+  // double-batch) must not run the teardown twice.
+  if (shutdownInProgress) {
+    console.log(`[Shutdown] ${signal} received while already shutting down — ignored`);
+    return;
+  }
+  shutdownInProgress = true;
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
   clearInterval(heartbeatTimer);
   clearInterval(wsHeartbeatTimer);
@@ -1897,5 +1922,6 @@ async function gracefulShutdown(signal: string) {
   process.exit(0);
 }
 
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+// Init is complete: repoint the early-registered signal listeners (top of
+// file) from the exit-clean stub to the real teardown.
+onTermSignal = (signal) => { void gracefulShutdown(signal); };
