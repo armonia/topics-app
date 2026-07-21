@@ -337,7 +337,7 @@ const voiceRouter = createVoiceRouter(ctx);
 const remoteRouter = createRemoteRouter(ctx);
 const mediaRouter = createMediaRouter(ctx);
 const branchesRouter = createBranchesRouter(ctx);
-const browserRouter = createBrowserRouter(ctx, browserService);
+const browserRouter = createBrowserRouter(ctx, browserService, (c) => browserWsClients.get(c)?.size ?? 0);
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
 const terminalRouter = createTerminalRouter(ctx, claudeSessionTracker);

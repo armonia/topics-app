@@ -82,4 +82,60 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
     // And the driving viewer sees it too (its own nav response + the broadcast).
     expect(result.aReceivedState).toBe(true);
   });
+
+  // Cross-device auto-share signal: GET /api/browsers/:id/viewers reports how many
+  // devices are streaming a context. A desktop pane rendering natively holds NO
+  // streaming WS, so this count IS the number of OTHER devices watching the shared
+  // session — the trigger that flips an 'auto' pane to shared and back. Drives
+  // computeAutoShared (unit-tested); here we prove the server signal it consumes.
+  test("the viewer-count endpoint tracks streaming viewers of a context", async ({ page, request, baseURL }) => {
+    await goToApp(page);
+    const ctx = `e2e-viewers-${Date.now()}`;
+    const base = baseURL ?? "http://localhost:13334";
+    const viewersUrl = `${base}/api/browsers/${encodeURIComponent(ctx)}/viewers`;
+
+    const readCount = async (): Promise<number> => {
+      const res = await request.get(viewersUrl);
+      if (!res.ok()) return -1;
+      const data = await res.json();
+      return typeof data?.count === "number" ? data.count : -1;
+    };
+
+    // No viewers yet.
+    expect(await readCount()).toBe(0);
+
+    // Open two live viewers. Each sends set_stream:false immediately so the server
+    // skips launching a headless Chromium (within its 250ms grace) — the count is
+    // membership-based, so it still reflects both connections.
+    await page.evaluate(async ({ ctx }) => {
+      const wsBase = location.origin.replace(/^http/, "ws");
+      const open = () => new Promise<WebSocket>((resolve, reject) => {
+        const ws = new WebSocket(`${wsBase}/ws/browser/${encodeURIComponent(ctx)}`);
+        ws.addEventListener("open", () => { ws.send(JSON.stringify({ type: "set_stream", active: false })); resolve(ws); });
+        ws.addEventListener("error", () => reject(new Error("ws error")));
+      });
+      // Stash on window so a later evaluate can close one.
+      (window as unknown as { __viewers: WebSocket[] }).__viewers = await Promise.all([open(), open()]);
+    }, { ctx });
+
+    // Poll until the server sees both.
+    let count = -1;
+    for (let i = 0; i < 40 && count !== 2; i++) { count = await readCount(); if (count !== 2) await page.waitForTimeout(150); }
+    expect(count).toBe(2);
+
+    // Close one viewer → the count drops to 1.
+    await page.evaluate(() => {
+      const arr = (window as unknown as { __viewers: WebSocket[] }).__viewers;
+      arr[0].close();
+    });
+    let after = -1;
+    for (let i = 0; i < 40 && after !== 1; i++) { after = await readCount(); if (after !== 1) await page.waitForTimeout(150); }
+    expect(after).toBe(1);
+
+    // Clean up the remaining viewer.
+    await page.evaluate(() => {
+      const arr = (window as unknown as { __viewers: WebSocket[] }).__viewers;
+      arr[1].close();
+    });
+  });
 });

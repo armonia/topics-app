@@ -22,6 +22,11 @@ import { browserEngineRegistry, chromiumEngineInfo, CHROMIUM_ENGINE_ENABLED } fr
 export function createBrowserRouter(
   ctx: AppContext,
   browserService: BrowserService,
+  /** How many live /ws/browser/:id streaming viewers a context has. Injected
+   *  from server.ts (owns the browserWsClients registry). Drives cross-device
+   *  auto-share: a Tauri pane rendering natively holds NO streaming WS, so this
+   *  count IS the number of OTHER devices watching the shared session. */
+  getViewerCount: (contextId: string) => number = () => 0,
 ): RouteHandler {
   const { readJSON, json, errorResponse, matchRoute, broadcast } = ctx;
 
@@ -59,6 +64,17 @@ export function createBrowserRouter(
       if (!target) return errorResponse(400, "url required");
       const framable = await probeFraming(target);
       return json({ framable });
+    }
+
+    // --- Viewer count (cross-device auto-share) ---
+    // Number of live streaming viewers of this context. A Tauri pane rendering
+    // its private native WKWebView opens NO streaming WS, so this equals the
+    // number of OTHER devices (phone PWA / web) watching the shared session:
+    // the signal that flips an 'auto' pane to shared (sync) and, once it drops
+    // back to the pane's own connection, returns it to the fast native render.
+    const viewersMatch = matchRoute(pathname, "/api/browsers/:id/viewers");
+    if (method === "GET" && viewersMatch) {
+      return json({ count: getViewerCount(viewersMatch.id) });
     }
 
     // --- Get context info ---
