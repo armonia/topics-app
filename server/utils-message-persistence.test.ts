@@ -122,6 +122,37 @@ describe("message field-ownership on updateMessage", () => {
     expect(row.toolCalls?.[0]?.id).toBe("t4");
   });
 
+  test("endStream marks a hung 'running' tool as interrupted, stamps endedAt, returns it", () => {
+    const msg = ctx.createPartialMessage(SK, "assistant");
+    ctx.startStream(SK, msg.id);
+    ctx.addToolCallToLastMessage(SK, tool("t6", { status: "running" }));
+
+    // Turn dies without a result → endStream must not leave the tool spinning.
+    const interrupted = ctx.endStream(SK);
+
+    expect(interrupted.map(t => t.id)).toEqual(["t6"]);
+    expect(interrupted[0]?.status).toBe("error");
+    expect(typeof interrupted[0]?.endedAt).toBe("number"); // duration freezes
+
+    const row = ctx.getMessageById(msg.id)!;
+    expect(row.toolCalls?.[0]?.status).toBe("error");
+    expect(typeof row.toolCalls?.[0]?.endedAt).toBe("number");
+  });
+
+  test("endStream leaves already-settled tools untouched", () => {
+    const msg = ctx.createPartialMessage(SK, "assistant");
+    ctx.startStream(SK, msg.id);
+    ctx.addToolCallToLastMessage(SK, tool("t7", { status: "running" }));
+    ctx.updateToolCallResult(SK, "t7", "ok");
+
+    const interrupted = ctx.endStream(SK);
+
+    expect(interrupted.length).toBe(0); // nothing was still running
+    const row = ctx.getMessageById(msg.id)!;
+    expect(row.toolCalls?.[0]?.status).toBe("success");
+    expect(row.toolCalls?.[0]?.result).toBe("ok");
+  });
+
   test("a timeout marker sets content but preserves the tool timeline", () => {
     const msg = ctx.createPartialMessage(SK, "assistant");
     ctx.addToolCallToLastMessage(SK, tool("t5"));
