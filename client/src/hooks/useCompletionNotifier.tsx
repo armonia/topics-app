@@ -281,6 +281,30 @@ export function useCompletionNotifier({
       prevStatusRef.current = next;
   });
 
+  // ── End-of-task notifier ───────────────────────────────────────────────
+  // A board task entering review is the "the task you asked for is done" cue.
+  // Unlike the session-idle inference above, this rides the task's OWN terminal
+  // state (server broadcasts `task:review-ready` only on the review edge), so it
+  // fires reliably for a clean self-delivery AND the system-delivered review
+  // after a timeout — the case that was previously silent. Deliberately NOT
+  // focus-gated: a task landing in review is actionable no matter which tab is
+  // open; the 10s per-task cooldown is the only spam guard. `taskId` makes the
+  // banner clickable → opens that task's drawer.
+  useWSSubscription(onWSMessage, 'task:review-ready', (msg) => {
+      const cfg = settingsRef.current;
+      if (!cfg.notificationsEnabled) return;
+      const taskId = msg.taskId;
+      if (!taskId) return;
+      const key = `task-review:${taskId}`;
+      const now = Date.now();
+      const last = cooldownRef.current.get(key) ?? 0;
+      if (now - last < 10_000) return;
+      cooldownRef.current.set(key, now);
+      const title = (msg.taskTitle || 'Task').slice(0, 140);
+      // "Title: body" — emitSystemNotification splits on the first ": ".
+      fire('ok', `Task pronto per la review: ${title}`, cfg.notificationsSound, true, taskId);
+  });
+
   // ── Claude Code session-state notifier ─────────────────────────────────
   // Surface a toast on the lifecycle phase transitions the user actually
   // needs to react to. The full set of phases is in client/src/types

@@ -36,6 +36,33 @@ const ERROR_STATUS: Record<string, number> = {
 };
 
 /**
+ * Broadcast the dedicated "a task just ENTERED review" edge event. This is the
+ * end-of-task signal the user asked for: it drives the OS banner (client
+ * `useCompletionNotifier`) and the closed-app web-push (`push-triggers.ts`),
+ * decoupled from the fragile session-idle inference. No-op unless the task
+ * actually transitioned INTO review (prevStatus !== "review"), so re-emitting
+ * `task:updated` for an already-in-review task (e.g. a new comment) never
+ * re-notifies. Emitted IN ADDITION to `task:updated`, never instead of it.
+ */
+export function emitReviewReadyEdge(
+  broadcast: (m: object) => void,
+  projectId: string,
+  task: { id: string; text: string; status: string } | undefined | null,
+  prevStatus: string | undefined,
+  reason?: string,
+): void {
+  if (task && task.status === "review" && prevStatus !== "review") {
+    broadcast({
+      type: "task:review-ready",
+      projectId,
+      taskId: task.id,
+      taskTitle: task.text || "Task",
+      ...(reason ? { reason } : {}),
+    });
+  }
+}
+
+/**
  * Cap for AGENT-authored comments (the session surface only — humans are
  * uncapped). Generous enough for 2-3 dense sentences or a question block,
  * tight enough to reject log dumps; the 400 message coaches a retry.
@@ -864,6 +891,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               },
             });
             broadcastToAll({ type: "task:updated", projectId, task });
+            emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus);
             // Auto-dispatch trigger: the human dragging a task INTO todo is the
             // "vai" signal; dragging it back OUT while still queued cancels it.
             // The dispatcher itself no-ops when auto_dispatch is off for the board.
@@ -1020,6 +1048,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
         }
         try {
+          const prevStatus = svc.get(item.taskId, { projectId: sess.projectId })?.task.status;
           const task = svc.update({
             taskId: item.taskId,
             actor: "agent",
@@ -1038,6 +1067,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             },
           });
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+          emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus);
           return json(task);
         } catch (e) { return fail(e); }
       }
