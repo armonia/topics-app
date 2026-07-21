@@ -373,6 +373,33 @@ export function MessageList({
     }
   }, [filteredMessages, _currentStreaming, activateScrollGuard, topic.id]);
 
+  // A message the USER just sent must ALWAYS snap the view to the bottom —
+  // even if they were reading scrolled-up history — because sending is an
+  // explicit intent to follow the reply. Unlike the inbound-append effect
+  // above (which respects scroll-up for peer/system messages), this fires
+  // ONLY when the newly appended last message is the user's own, and bypasses
+  // the isScrolledUpRef gate. Double-rAF so the freshly measured item height
+  // lands before we pin (mirrors the streaming pin). The palette-jump veto
+  // still wins.
+  const prevSendLenRef = useRef(filteredMessages.length);
+  useEffect(() => {
+    const grew = filteredMessages.length > prevSendLenRef.current;
+    prevSendLenRef.current = filteredMessages.length;
+    if (!grew) return;
+    const last = filteredMessages[filteredMessages.length - 1];
+    if (last?.role !== 'user') return;
+    if (peekScrollToMessage(topic.id)) return;
+    isScrolledUpRef.current = false;
+    setIsScrolledUp(false);
+    activateScrollGuard();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = scrollerElRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    });
+  }, [filteredMessages, activateScrollGuard, topic.id]);
+
   // Detect new messages while scrolled up
   useEffect(() => {
     if (currentMessages.length > prevMsgCountRef.current && isScrolledUp) {

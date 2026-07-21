@@ -277,6 +277,7 @@ export const MessageBubble = memo(function MessageBubble({
                 blocks={msg.blocks}
                 media={msg.media}
                 partial={msg.partial}
+                turnStartedAt={Date.parse(msg.timestamp)}
                 latencyMs={msg.latencyMs}
                 usagePromptTokens={msg.usagePromptTokens}
                 usageCompletionTokens={msg.usageCompletionTokens}

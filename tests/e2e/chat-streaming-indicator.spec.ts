@@ -1,0 +1,131 @@
+import { expect } from "@playwright/test";
+import { test } from "./fixtures/chat.fixture";
+import { goToApp, openTopic } from "./helpers";
+import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { mockHangingStream, unmockChatStream } from "./helpers/sse-helpers";
+
+const BASE = "http://localhost:13334";
+
+/**
+ * The turn-activity indicator (playful rotating phrase + soft-glow dot + a live
+ * turn timer) replaces the old three bouncing dots and the "Streaming..." row,
+ * and a user-sent message must always snap the view to the bottom. Record video
+ * so the indicator + timer + snap are durable evidence, not just a green tick.
+ */
+test.use({ video: "on" });
+
+test.describe("Chat streaming indicator", () => {
+  let topicId: string;
+  let topicName: string;
+
+  test.beforeAll(async ({ request }) => {
+    topicName = `stream-indicator-${Date.now()}`;
+    const topic = await createTopic(request, topicName);
+    topicId = topic.id;
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (topicId) await deleteTopic(request, topicId);
+  });
+
+  test("shows a playful phrase + a live ticking timer (no bounce dots)", async ({ page, chatPage }) => {
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    // Hold the /api/chat response open: `sendMessage` creates a `partial`
+    // assistant placeholder BEFORE the response (useChat.ts:898), and the
+    // client's stream watchdog is 3 min — so while the request hangs, the turn
+    // stays `partial` and the indicator stays put for us to inspect. (A mock
+    // that returns immediately would finalize the turn within a frame and the
+    // indicator would flash by uncaught.)
+    await page.route("**/api/chat", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await new Promise((r) => setTimeout(r, 20_000));
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: "data: [DONE]\n\n",
+      });
+    });
+
+    await chatPage.messageInput.click();
+    await chatPage.messageInput.fill("ciao");
+    await chatPage.messageInput.press("Enter");
+
+    // The indicator is up…
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+
+    // …with a non-empty playful phrase (ends with the ellipsis, no digits)…
+    const phrase = chatPage.streamingIndicator.locator('[data-testid="turn-phrase"]');
+    await expect(phrase).toBeVisible();
+    const phraseText = (await phrase.textContent())?.trim() ?? "";
+    expect(phraseText.length).toBeGreaterThan(1);
+    expect(phraseText).toMatch(/…$/);
+    expect(phraseText).not.toMatch(/\d/);
+
+    // …and NONE of the old three-dot bounce animation remains.
+    await expect(chatPage.messageList.locator(".animate-bounce")).toHaveCount(0);
+
+    // The timer advances: read it, wait, read again — it must have grown.
+    const timer = chatPage.streamingIndicator.locator('[data-testid="turn-timer"]');
+    const parseSecs = async () => {
+      const t = (await timer.textContent()) ?? "";
+      const m = t.match(/([\d.]+)\s*s/);
+      return m ? parseFloat(m[1]) : NaN;
+    };
+    // First tick may be 0.0s; wait for a real value, then confirm growth.
+    await expect(timer).toContainText(/s/, { timeout: 3_000 });
+    const before = await parseSecs();
+    await page.waitForTimeout(2_200);
+    const after = await parseSecs();
+    expect(Number.isFinite(before)).toBe(true);
+    expect(after).toBeGreaterThanOrEqual(before + 0.9);
+
+    await unmockChatStream(page);
+  });
+
+  test("sending a message snaps the view to the bottom even when scrolled up", async ({ page, chatPage, request }) => {
+    // Seed enough history to make the topic scrollable.
+    for (let i = 0; i < 20; i++) {
+      await request.post(`${BASE}/api/topics/${topicId}/system-message`, {
+        data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
+        ignoreHTTPSErrors: true,
+      });
+    }
+
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+
+    const scroller = chatPage.messageList;
+    await expect(scroller).toBeVisible({ timeout: 10_000 });
+
+    // Scroll up to the top so we are genuinely NOT at the bottom.
+    await scroller.click();
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(800);
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(1_200);
+    const distUp = await scroller.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+    expect(distUp).toBeGreaterThan(150); // precondition: we really scrolled up
+
+    // Send a message (hanging stream so the send itself doesn't need a turn).
+    await mockHangingStream(page, "…");
+    await chatPage.messageInput.click();
+    await chatPage.messageInput.fill("torna giù per favore");
+    await chatPage.messageInput.press("Enter");
+
+    // The view must snap back to the bottom (150px = the app's at-bottom band).
+    await expect
+      .poll(
+        async () => scroller.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight),
+        { timeout: 8_000 },
+      )
+      .toBeLessThan(150);
+
+    await unmockChatStream(page);
+  });
+});
