@@ -104,38 +104,45 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
     // No viewers yet.
     expect(await readCount()).toBe(0);
 
-    // Open two live viewers. Each sends set_stream:false immediately so the server
-    // skips launching a headless Chromium (within its 250ms grace) — the count is
-    // membership-based, so it still reflects both connections.
+    // Open two live viewers + one NATIVE-DELEGATE connection (a Tauri native pane
+    // registers register_native_executor over its own /ws/browser socket). Each
+    // viewer sends set_stream:false immediately so the server skips launching a
+    // headless Chromium (within its 250ms grace). The delegate must NOT be counted
+    // — that was the "browser resets every 2s" oscillation bug.
     await page.evaluate(async ({ ctx }) => {
       const wsBase = location.origin.replace(/^http/, "ws");
-      const open = () => new Promise<WebSocket>((resolve, reject) => {
+      const open = (kind: "viewer" | "delegate") => new Promise<WebSocket>((resolve, reject) => {
         const ws = new WebSocket(`${wsBase}/ws/browser/${encodeURIComponent(ctx)}`);
-        ws.addEventListener("open", () => { ws.send(JSON.stringify({ type: "set_stream", active: false })); resolve(ws); });
+        ws.addEventListener("open", () => {
+          ws.send(JSON.stringify(kind === "delegate" ? { type: "register_native_executor" } : { type: "set_stream", active: false }));
+          resolve(ws);
+        });
         ws.addEventListener("error", () => reject(new Error("ws error")));
       });
-      // Stash on window so a later evaluate can close one.
-      (window as unknown as { __viewers: WebSocket[] }).__viewers = await Promise.all([open(), open()]);
+      const viewers = await Promise.all([open("viewer"), open("viewer")]);
+      const delegate = await open("delegate");
+      (window as unknown as { __viewers: WebSocket[]; __delegate: WebSocket }).__viewers = viewers;
+      (window as unknown as { __viewers: WebSocket[]; __delegate: WebSocket }).__delegate = delegate;
     }, { ctx });
 
-    // Poll until the server sees both.
+    // Poll until the server sees exactly the two viewers (delegate excluded).
     let count = -1;
     for (let i = 0; i < 40 && count !== 2; i++) { count = await readCount(); if (count !== 2) await page.waitForTimeout(150); }
-    expect(count).toBe(2);
+    expect(count).toBe(2); // 2 viewers, delegate NOT counted
 
-    // Close one viewer → the count drops to 1.
+    // Close one viewer → the count drops to 1 (delegate still excluded).
     await page.evaluate(() => {
-      const arr = (window as unknown as { __viewers: WebSocket[] }).__viewers;
-      arr[0].close();
+      (window as unknown as { __viewers: WebSocket[] }).__viewers[0].close();
     });
     let after = -1;
     for (let i = 0; i < 40 && after !== 1; i++) { after = await readCount(); if (after !== 1) await page.waitForTimeout(150); }
     expect(after).toBe(1);
 
-    // Clean up the remaining viewer.
+    // Clean up.
     await page.evaluate(() => {
-      const arr = (window as unknown as { __viewers: WebSocket[] }).__viewers;
-      arr[1].close();
+      const w = window as unknown as { __viewers: WebSocket[]; __delegate: WebSocket };
+      w.__viewers[1].close();
+      w.__delegate.close();
     });
   });
 });

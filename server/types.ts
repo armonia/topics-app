@@ -35,6 +35,12 @@ export interface WSData {
    *  ref-count DOM viewers per context so `dom_event` emission stops once the last
    *  one leaves (on close or set_render:'video'). Absent = video (the default). */
   _domRender?: boolean;
+  /** Set when this WS registered as a Tauri native-executor (register_native_executor):
+   *  a native pane that runs ops itself and NEVER views the server session. Excluded
+   *  from the cross-device viewer count (GET /api/browsers/:id/viewers) so a solo
+   *  native pane reads 0 other viewers — otherwise its own delegate connection would
+   *  make 'auto' oscillate native↔shared every poll ("il browser si resetta"). */
+  _nativeDelegate?: boolean;
   /** WebRTC shared-session transport — the set of webrtc-bridge peer ids this WS
    *  opened (one per RTCPeerConnection). Used on close to tell the sidecar to tear
    *  each peer down. Absent until the pane sends its first `webrtc_offer`. */
