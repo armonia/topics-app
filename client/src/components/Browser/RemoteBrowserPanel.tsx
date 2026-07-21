@@ -56,10 +56,11 @@ interface RemoteBrowserPanelProps {
    *  A native-pane click never reaches React, so without this the pane can't
    *  activate its own tab. The render site wires it to activate this pane. */
   onSelfFocus?: () => void;
-  /** SHARED-SESSION state + toggle (Tauri only). When the pane is `shared`, the
-   *  Mac drops its private native WKWebView and renders the SAME server-side
-   *  streamed session a phone/web viewer of this pane sees — same page, same
-   *  login, same cursor. `onToggleShare` is undefined on the web (there the pane
+  /** SHARED-SESSION state + toggle (Tauri only). Default is the private native
+   *  WKWebView (fast local render). When the user flips `shared` ON, the Mac drops
+   *  the native pane and renders the SAME server-side streamed session a phone/web
+   *  viewer sees — same page, same login, same cursor — trading local speed for
+   *  cross-device parity. `onToggleShare` is undefined on the web (there the pane
    *  is always the shared server session). Threaded into the toolbar. */
   shared?: boolean;
   onToggleShare?: () => void;
@@ -73,18 +74,22 @@ function sharedStorageKey(contextId: string): string {
   return `topics.browser.shared.${contextId}`;
 }
 function readSharedPref(contextId: string): boolean {
-  // Shared is the DEFAULT (Option A): the pane joins the server session so the
-  // phone/web see the SAME live page — and it's the same browser agents drive, so
-  // everything converges with zero handoff. Only an explicit '0' opts this Mac OUT
-  // into the private native WKWebView. Legacy '1' (an early opt-IN) stays shared.
-  // Absent / unreadable storage → shared.
-  try { return localStorage.getItem(sharedStorageKey(contextId)) !== '0'; } catch { return true; }
+  // NATIVE is the default on desktop (2026-07-21): the pane renders the real
+  // WKWebView locally — WebKit rendering on-device = instant, true caret in
+  // inputs, real (GPU/DRM) media. The server MIRROR (DOM rrweb / WebRTC pixels)
+  // is structurally laggy: every frame and every click is a round-trip to a
+  // headless Chromium, and the page is a DOM reconstruction. So the fast local
+  // browser is the daily driver; the shared server session is an explicit opt-IN
+  // ('1') for cross-device viewing (phone/agent see the SAME live page). Legacy
+  // '1' (the historical opt-in) already meant shared → migration-clean. Absent /
+  // unreadable storage → native.
+  try { return localStorage.getItem(sharedStorageKey(contextId)) === '1'; } catch { return false; }
 }
 function writeSharedPref(contextId: string, shared: boolean): void {
   try {
-    // Shared is the default → clear the key; store '0' only for the local opt-out.
-    if (shared) localStorage.removeItem(sharedStorageKey(contextId));
-    else localStorage.setItem(sharedStorageKey(contextId), '0');
+    // Native is the default → clear the key; store '1' only for the shared opt-in.
+    if (shared) localStorage.setItem(sharedStorageKey(contextId), '1');
+    else localStorage.removeItem(sharedStorageKey(contextId));
   } catch { /* private mode / no storage — in-memory state still drives the switch */ }
 }
 
@@ -118,11 +123,13 @@ function isSeedableUrl(raw: string | undefined): raw is string {
 }
 
 export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
-  // SHARED-SESSION switch (Tauri only). Default ON (Option A): the pane joins the
-  // SAME server-side session the phone/web see (same page/login/cursor) — the same
-  // browser agents drive, so Mac + phone + agent converge with zero handoff. The
-  // toggle opts this Mac OUT into the fast, private native WKWebView. The choice is
-  // per-device + persisted (localStorage), so a reload keeps it.
+  // SHARED-SESSION switch (Tauri only). Default OFF (2026-07-21): the pane renders
+  // the FAST private native WKWebView (real local WebKit — instant, true caret,
+  // real media). The toggle opts this Mac INTO the shared server session (same
+  // page/login/cursor as phone/web, the same browser agents drive) at the cost of
+  // the mirror's round-trip lag. Per-device + persisted (localStorage), so a reload
+  // keeps it. Cross-device sharing becomes zero-compromise once the native host is
+  // streamed to followers (Fase 1 — see openspec browser-native-host-cobrowse).
   const [shared, setShared] = useState(() => isTauri && readSharedPref(contextId));
   // Re-read when the pane is reused for a different context id — the "adjust
   // state during render on prop change" pattern (no effect, no cascading render).
