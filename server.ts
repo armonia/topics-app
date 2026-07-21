@@ -1817,7 +1817,7 @@ const server = Bun.serve<WSData>({
 function finalizeOrphanedRunningTools() {
   try {
     const rows = db.prepare(
-      `SELECT id, tool_calls FROM messages WHERE partial = 0 AND tool_calls LIKE '%"status":"running"%'`
+      `SELECT id, tool_calls FROM messages WHERE partial = 0 AND (tool_calls LIKE '%"status":"running"%' OR tool_calls LIKE '%"status":"pending"%')`
     ).all() as Array<{ id: string; tool_calls: string }>;
     if (rows.length === 0) return;
     const upd = db.prepare(`UPDATE messages SET tool_calls = ? WHERE id = ?`);
@@ -1828,7 +1828,7 @@ function finalizeOrphanedRunningTools() {
         const tcs = JSON.parse(r.tool_calls) as Array<Record<string, unknown>>;
         let changed = false;
         for (const tc of tcs) {
-          if (tc && tc.status === "running") {
+          if (tc && (tc.status === "running" || tc.status === "pending")) {
             tc.status = "error";
             if (tc.endedAt == null) tc.endedAt = (typeof tc.startedAt === "number" ? tc.startedAt : now);
             if (!tc.error) tc.error = "Interrotto: la sessione è terminata prima del risultato";
