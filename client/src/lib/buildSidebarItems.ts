@@ -69,6 +69,18 @@ function topicTimestamp(t: Topic): number {
   return ts ? new Date(ts).getTime() : 0;
 }
 
+/** A terminal's real last-activity: the Claude session's own last-touched
+ *  timestamp (from `sessionLastActivityById`, keyed by terminal id — see
+ *  deriveSessionLastActivity in signals.ts) when known, else its createdAt.
+ *  `createdAt` alone freezes a row at session start forever — a claude-code
+ *  session that ran for an hour and finished would still sort/display as if
+ *  nothing happened since it was opened. `Math.max` guards against a stale
+ *  Claude timestamp (e.g. race on session bootstrap) ever sorting a terminal
+ *  BEFORE its own creation time. */
+function terminalLastActivity(ts: TerminalSessionInfo, sessionLastActivityById: Map<string, number>): number {
+  return Math.max(new Date(ts.createdAt).getTime(), sessionLastActivityById.get(ts.id) ?? 0);
+}
+
 /**
  * Read persisted pane IDs for a project's INNER ProjectWindow from
  * localStorage (`topics-project-panes-<hash>`). This is the only authoritative
@@ -169,10 +181,18 @@ interface BuildSidebarItemsOpts {
    *  title. When an entry carries a `projectPath`, the row nests back under that
    *  project; its `title`/`url` seed the label. */
   browserOriginById?: Map<string, BrowserOrigin>;
+  /** Real last-touched timestamp per claude-code terminal session (topicId for
+   *  chats isn't needed here — chats already use topicTimestamp), keyed by
+   *  terminal session id, from signals.ts's deriveSessionLastActivity. Folds
+   *  into every terminal row's `lastActivity` so sort order and the visible
+   *  "agg. Xm fa" reflect actual Claude activity, not just when the session
+   *  was created. Default empty for callers that don't wire it (falls back to
+   *  createdAt, the pre-existing behavior). */
+  sessionLastActivityById?: Map<string, number>;
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>() } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -312,7 +332,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         type: 'terminal' as const,
         name: ts.name,
         icon: ts.type === 'claude-code' ? 'claude' : ts.type === 'codex' ? 'codex' : 'terminal',
-        lastActivity: new Date(ts.createdAt).getTime(),
+        lastActivity: terminalLastActivity(ts, sessionLastActivityById),
         notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
         archived: false,
         terminal: ts,
@@ -416,7 +436,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         type: 'terminal',
         name: ts.name,
         icon: ts.type === 'claude-code' ? 'claude' : ts.type === 'codex' ? 'codex' : 'terminal',
-        lastActivity: new Date(ts.createdAt).getTime(),
+        lastActivity: terminalLastActivity(ts, sessionLastActivityById),
         notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
         archived: false,
         projectPath: pp,
@@ -522,7 +542,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       type: 'terminal',
       name: ts.name,
       icon: ts.type === 'claude-code' ? 'claude' : ts.type === 'codex' ? 'codex' : 'terminal',
-      lastActivity: new Date(ts.createdAt).getTime(),
+      lastActivity: terminalLastActivity(ts, sessionLastActivityById),
       notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
       archived: false,
       terminal: ts,

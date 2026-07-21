@@ -195,6 +195,12 @@ interface SignalsState {
   // label on sidebar rows and the mobile activity view. Derived centrally from
   // the claude session states + roster (see deriveSessionActivity).
   sessionActivity: Map<string, SessionActivitySignal>;
+  // Unfiltered twin of sessionActivity: last-touched timestamp for EVERY
+  // session with known Claude state (idle/completed/dormant/error included),
+  // keyed the same way. Drives sidebar ORDERING and the "agg. Xm fa" label —
+  // sessionActivity can't serve that because it drops idle/finished sessions
+  // entirely (see deriveSessionLastActivity).
+  sessionLastActivity: Map<string, number>;
 
   setTopicSet: (key: TopicSetKey, ids: Set<string>) => void;
   setBrowserBusy: (paneId: string, busy: boolean) => void;
@@ -206,6 +212,7 @@ interface SignalsState {
   reconcileTerminals: (roster: TerminalRosterEntry[]) => void;
   setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>) => void;
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => void;
+  setSessionLastActivity: (activity: Map<string, number>) => void;
 }
 
 /**
@@ -346,6 +353,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   terminalFinishedIds: new Set(),
   terminalReloadingIds: new Set(),
   sessionActivity: new Map(),
+  sessionLastActivity: new Map(),
 
   setTopicSet: (key, ids) =>
     set((s) => (setsEqual(ids, s[key]) ? s : ({ [key]: ids } as Pick<SignalsState, TopicSetKey>))),
@@ -410,6 +418,9 @@ export const useSignalsStore = create<SignalsState>((set) => ({
 
   setSessionActivity: (activity) =>
     set((s) => (sessionActivityEqual(s.sessionActivity, activity) ? s : { sessionActivity: activity })),
+
+  setSessionLastActivity: (activity) =>
+    set((s) => (sessionLastActivityEqual(s.sessionLastActivity, activity) ? s : { sessionLastActivity: activity })),
 }));
 
 /** Shallow structural equality for the sessionActivity map — same keys and each
@@ -426,6 +437,15 @@ function sessionActivityEqual(a: Map<string, SessionActivitySignal>, b: Map<stri
   return true;
 }
 
+/** Shallow structural equality for the sessionLastActivity map. */
+function sessionLastActivityEqual(a: Map<string, number>, b: Map<string, number>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [k, va] of a) {
+    if (b.get(k) !== va) return false;
+  }
+  return true;
+}
+
 // ---- Raw setters for App-level sync (stable references) ---------------------
 
 export const signalsActions = {
@@ -436,6 +456,7 @@ export const signalsActions = {
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
   setAwaitingInputTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingInputTopics', ids),
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => useSignalsStore.getState().setSessionActivity(activity),
+  setSessionLastActivity: (activity: Map<string, number>) => useSignalsStore.getState().setSessionLastActivity(activity),
   setBrowserBusy: (paneId: string, busy: boolean) => useSignalsStore.getState().setBrowserBusy(paneId, busy),
   setTerminalBusy: (id: string, busy: boolean) => useSignalsStore.getState().setTerminalBusy(id, busy),
   markTerminalFinished: (id: string) => useSignalsStore.getState().markTerminalFinished(id),
@@ -605,6 +626,42 @@ export function deriveSessionActivity(
     if (!st) continue;
     const sig = signalFor(st);
     if (sig) out.set(ts.id, sig);
+  }
+  return out;
+}
+
+/**
+ * Build a "when did this session last actually do something" map, keyed by
+ * SUBJECT id (topicId for chats, terminalSessionId for claude-code
+ * terminals) — the UNFILTERED twin of deriveSessionActivity. That function
+ * drops idle/completed/dormant/error sessions (nothing to show as an
+ * activity label), which is exactly wrong for ORDERING: a finished session
+ * still needs its real finish time so the sidebar can rank it by last touch
+ * instead of freezing at createdAt. Every session with known Claude state
+ * gets an entry here, regardless of phase.
+ */
+export function deriveSessionLastActivity(
+  topics: Record<string, Topic>,
+  roster: TerminalRosterTypeEntry[],
+  claudeSessions: ReadonlyMap<string, ClaudeSessionState>,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const lastTouchedAt = (st: ClaudeSessionState): number => st.phaseUpdatedAt || st.updatedAt;
+  // Chats — keyed by topicId via sessionKey.
+  for (const t of Object.values(topics)) {
+    const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
+    if (!st) continue;
+    out.set(t.id, lastTouchedAt(st));
+  }
+  // Terminals — keyed by terminal session id via claudeSessionId.
+  const byCsid = new Map<string, ClaudeSessionState>();
+  for (const st of claudeSessions.values()) byCsid.set(st.claudeSessionId, st);
+  for (const ts of roster) {
+    if (ts.type !== 'claude-code' && ts.type !== 'claude-code-team') continue;
+    if (!ts.claudeSessionId) continue;
+    const st = byCsid.get(ts.claudeSessionId);
+    if (!st) continue;
+    out.set(ts.id, lastTouchedAt(st));
   }
   return out;
 }
@@ -798,6 +855,15 @@ export function useSessionActivity(subjectId: string | undefined): SessionActivi
   // returns a new-but-equal ref). useShallow compares the descriptor's fields so
   // an unchanged subject stays referentially stable to its consumer.
   return useSignalsStore(useShallow((s) => (subjectId ? s.sessionActivity.get(subjectId) : undefined)));
+}
+
+/** The full "last touched" map (topicId/terminalSessionId → ms epoch), for
+ *  buildSidebarItems to fold into terminal row ordering. See
+ *  deriveSessionLastActivity — unlike useSessionActivity this includes idle
+ *  and finished sessions, so a completed run still sorts by when it actually
+ *  finished instead of vanishing back to createdAt. */
+export function useSessionLastActivity(): Map<string, number> {
+  return useSignalsStore((s) => s.sessionLastActivity);
 }
 
 /** A terminal session is loading when its claude phase is active, or (for

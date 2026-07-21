@@ -6,7 +6,7 @@
 import { useEffect } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
 import type { AgentSession } from '../hooks/useAgents';
-import { signalsActions, derivePhaseTerminals, deriveSessionActivity, useSignalsStore, type TerminalPhaseLite } from './signals';
+import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, useSignalsStore, type TerminalPhaseLite } from './signals';
 import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics } from './signals';
 
 interface Args {
@@ -56,6 +56,13 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
   // Drives the SessionActivity label on sidebar rows + the mobile activity view.
   useEffect(() => {
     signalsActions.setSessionActivity(deriveSessionActivity(topics, terminalSessions, claudeSessions));
+  }, [topics, terminalSessions, claudeSessions]);
+
+  // "When did each session last actually do something" → unfiltered twin of
+  // the activity map above (includes idle/finished sessions). Drives sidebar
+  // ORDERING for claude-code terminals — see deriveSessionLastActivity.
+  useEffect(() => {
+    signalsActions.setSessionLastActivity(deriveSessionLastActivity(topics, terminalSessions, claudeSessions));
   }, [topics, terminalSessions, claudeSessions]);
 
   // Live chat streams (useChat) → by topic.
