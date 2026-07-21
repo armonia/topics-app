@@ -1019,21 +1019,36 @@ export function createAppContext(baseDir: string): AppContext {
     const interrupted: ToolCall[] = [];
     if (stream?.messageId) {
       try {
-        const row = db.prepare(`SELECT tool_calls FROM messages WHERE id = ?`).get(stream.messageId) as any;
+        const row = db.prepare(`SELECT tool_calls, blocks FROM messages WHERE id = ?`).get(stream.messageId) as any;
+        const endedAt = Date.now();
+        const fix = (tc: any): boolean => {
+          if (tc && (tc.status === 'running' || tc.status === 'pending')) {
+            tc.status = 'error';
+            if (tc.endedAt == null) tc.endedAt = endedAt;
+            if (!tc.error) tc.error = 'Interrotto: il turno è terminato senza risultato';
+            return true;
+          }
+          return false;
+        };
+        let tcStr: string | null = row?.tool_calls ?? null;
+        let blStr: string | null = row?.blocks ?? null;
+        let changed = false;
         if (row?.tool_calls) {
           const toolCalls = JSON.parse(row.tool_calls) as ToolCall[];
-          const endedAt = Date.now();
-          for (const tc of toolCalls) {
-            if (tc?.status === 'running' || tc?.status === 'pending') {
-              tc.status = 'error';
-              if (tc.endedAt == null) tc.endedAt = endedAt;
-              if (!tc.error) tc.error = 'Interrotto: il turno è terminato senza risultato';
-              interrupted.push(tc);
-            }
-          }
-          if (interrupted.length > 0) {
-            db.prepare(`UPDATE messages SET tool_calls = ? WHERE id = ?`).run(JSON.stringify(toolCalls), stream.messageId);
-          }
+          let c = false;
+          for (const tc of toolCalls) if (fix(tc)) { c = true; interrupted.push(tc); }
+          if (c) { tcStr = JSON.stringify(toolCalls); changed = true; }
+        }
+        // The client renders tool state from `blocks` (the timeline) when
+        // present, so finalize the block copy too or the spinner keeps ticking.
+        if (row?.blocks) {
+          const bl = JSON.parse(row.blocks) as any[];
+          let c = false;
+          for (const b of bl) if (b?.kind === 'tool' && fix(b.toolCall)) c = true;
+          if (c) { blStr = JSON.stringify(bl); changed = true; }
+        }
+        if (changed) {
+          db.prepare(`UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?`).run(tcStr, blStr, stream.messageId);
         }
       } catch {}
     }
