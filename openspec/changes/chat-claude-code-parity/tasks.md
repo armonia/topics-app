@@ -55,7 +55,7 @@ Each task lists its verification. The change is complete only when every box is 
 - [ ] 4.2 Provider: post-turn listener routes recognisable events with no active `streamHandler` to `onOutOfTurn` instead of dropping. **Verify:** integration — an event after `result` reaches `onOutOfTurn`.
 - [ ] 4.3 Route + persistence: `stream:out_of_turn` broadcast + `role:"system" kind:"background"` row (excluded from provider history). **Verify:** row written + not in assembled history.
 - [ ] 4.4 Client: render as a muted system entry in the message list; existing `useCompletionNotifier` toast unchanged; **no** model auto-resume. **Verify:** E2E — Monitor completion appears inline; no new turn starts.
-- [ ] 4.5 Tool-detail rows for the tools that today fall through `deriveToolDetail` to `type:"unknown"` (`tool-detail.ts:209`): `Monitor`, `BashOutput`, `KillShell`/`KillBash`, background (`run_in_background`) Bash, plus `NotebookEdit`, `Skill`, `SlashCommand`, `LSP`. Add the missing name aliases + typed shapes (server `tool-detail.ts`) and their cards (client `ToolCards.tsx`). **Verify:** `bun:test` on `deriveToolDetail` for each name; each renders as a typed row, not the raw `unknown` JSON card.
+- [x] 4.5 Tool-detail rows for the tools that today fall through `deriveToolDetail` to `type:"unknown"` (`tool-detail.ts:209`): `Monitor`, `BashOutput`, `KillShell`/`KillBash`, background (`run_in_background`) Bash, plus `NotebookEdit`, `Skill`, `SlashCommand`, `LSP`. Add the missing name aliases + typed shapes (server `tool-detail.ts`) and their cards (client `ToolCards.tsx`). **Verify:** `bun:test` on `deriveToolDetail` for each name; each renders as a typed row, not the raw `unknown` JSON card.
 
 ## 5. Broker survival — spec, verify, observe
 

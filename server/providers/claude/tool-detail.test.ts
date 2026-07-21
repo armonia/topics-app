@@ -231,4 +231,98 @@ describe("deriveToolDetail", () => {
     expect(deriveToolDetail("Read", { file_path: "x" }).type).toBe("read");
     expect(deriveToolDetail("EDIT", { file_path: "x" }).type).toBe("edit");
   });
+
+  // ── Long-lived / background / harness tools (previously `unknown`) ──────────
+
+  test("background Bash — run_in_background sets background flag", () => {
+    const d = deriveToolDetail("Bash", { command: "npm run dev", run_in_background: true });
+    expect(d.type).toBe("shell");
+    if (d.type === "shell") {
+      expect(d.background).toBe(true);
+      expect(d.command).toBe("npm run dev");
+    }
+    // Foreground bash never carries the flag.
+    const fg = deriveToolDetail("Bash", { command: "ls" });
+    if (fg.type === "shell") expect(fg.background).toBeUndefined();
+  });
+
+  test("Monitor → type=monitor with description + ws url", () => {
+    const d = deriveToolDetail("Monitor", { description: "errors in deploy.log", ws: { url: "wss://x/stream" }, persistent: true }, "hit");
+    expect(d.type).toBe("monitor");
+    if (d.type === "monitor") {
+      expect(d.description).toBe("errors in deploy.log");
+      expect(d.wsUrl).toBe("wss://x/stream");
+      expect(d.persistent).toBe(true);
+      expect(d.result).toBe("hit");
+    }
+  });
+
+  test("Monitor → command source when no ws", () => {
+    const d = deriveToolDetail("Monitor", { description: "tail", command: "tail -f log" });
+    if (d.type === "monitor") {
+      expect(d.command).toBe("tail -f log");
+      expect(d.wsUrl).toBeUndefined();
+      expect(d.persistent).toBeUndefined();
+    }
+  });
+
+  test("BashOutput → type=bash_output with shellId from bash_id", () => {
+    const d = deriveToolDetail("BashOutput", { bash_id: "sh_42", filter: "ERROR" }, "line1");
+    expect(d.type).toBe("bash_output");
+    if (d.type === "bash_output") {
+      expect(d.shellId).toBe("sh_42");
+      expect(d.filter).toBe("ERROR");
+      expect(d.output).toBe("line1");
+    }
+  });
+
+  test("KillShell / KillBash → type=kill_shell", () => {
+    for (const name of ["KillShell", "KillBash", "kill_shell"]) {
+      const d = deriveToolDetail(name, { shell_id: "sh_7" });
+      expect(d.type).toBe("kill_shell");
+      if (d.type === "kill_shell") expect(d.shellId).toBe("sh_7");
+    }
+  });
+
+  test("NotebookEdit → type=notebook_edit", () => {
+    const d = deriveToolDetail("NotebookEdit", { notebook_path: "/a.ipynb", cell_id: "c1", edit_mode: "insert", cell_type: "code" });
+    expect(d.type).toBe("notebook_edit");
+    if (d.type === "notebook_edit") {
+      expect(d.notebookPath).toBe("/a.ipynb");
+      expect(d.cellId).toBe("c1");
+      expect(d.editMode).toBe("insert");
+      expect(d.cellType).toBe("code");
+    }
+  });
+
+  test("Skill → type=skill", () => {
+    const d = deriveToolDetail("Skill", { skill: "deploy", args: "--prod" }, "ok");
+    expect(d.type).toBe("skill");
+    if (d.type === "skill") {
+      expect(d.skill).toBe("deploy");
+      expect(d.args).toBe("--prod");
+      expect(d.result).toBe("ok");
+    }
+  });
+
+  test("SlashCommand → type=slash_command", () => {
+    const d = deriveToolDetail("SlashCommand", { command: "/review" });
+    expect(d.type).toBe("slash_command");
+    if (d.type === "slash_command") expect(d.command).toBe("/review");
+  });
+
+  test("LSP → type=lsp with operation + symbol", () => {
+    const d = deriveToolDetail("LSP", { operation: "goToDefinition", file_path: "/x.ts", query: "foo" });
+    expect(d.type).toBe("lsp");
+    if (d.type === "lsp") {
+      expect(d.operation).toBe("goToDefinition");
+      expect(d.filePath).toBe("/x.ts");
+      expect(d.symbol).toBe("foo");
+    }
+  });
+
+  test("unknown tools still fall through to type=unknown", () => {
+    const d = deriveToolDetail("SomeRandomTool", { foo: 1 });
+    expect(d.type).toBe("unknown");
+  });
 });

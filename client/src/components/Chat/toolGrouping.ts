@@ -98,6 +98,19 @@ export function toolCallDigest(tc: ToolCall): string | undefined {
       }
     case 'mcp':
       return detail.tool;
+    case 'monitor':
+      return detail.description ? truncateMiddleless(detail.description, 28) : undefined;
+    case 'bash_output':
+    case 'kill_shell':
+      return detail.shellId || undefined;
+    case 'notebook_edit':
+      return detail.notebookPath?.split('/').pop() || undefined;
+    case 'skill':
+      return detail.skill || undefined;
+    case 'slash_command':
+      return detail.command ? truncateMiddleless(detail.command, 24) : undefined;
+    case 'lsp':
+      return detail.operation || undefined;
     default:
       return undefined;
   }

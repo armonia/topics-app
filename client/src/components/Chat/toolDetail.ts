@@ -51,6 +51,7 @@ export function deriveToolDetail(
       type: 'shell',
       command: s(a.command) ?? s(a.cmd) ?? s(a.input) ?? '',
       ...(s(a.cwd) ? { cwd: s(a.cwd)! } : {}),
+      ...(a.run_in_background === true ? { background: true } : {}),
       ...(result ? { output: result } : {}),
     };
   }
@@ -155,6 +156,67 @@ export function deriveToolDetail(
     };
   }
 
+  if (c === 'monitor') {
+    const ws = asRecord(a.ws);
+    return {
+      type: 'monitor',
+      description: s(a.description) ?? '',
+      ...(s(a.command) ? { command: s(a.command)! } : {}),
+      ...(s(ws.url) ? { wsUrl: s(ws.url)! } : {}),
+      ...(a.persistent === true ? { persistent: true } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === 'bashoutput' || c === 'bash_output') {
+    return {
+      type: 'bash_output',
+      shellId: s(a.bash_id) ?? s(a.shell_id) ?? s(a.id) ?? '',
+      ...(s(a.filter) ? { filter: s(a.filter)! } : {}),
+      ...(result ? { output: result } : {}),
+    };
+  }
+  if (c === 'killshell' || c === 'killbash' || c === 'kill_shell' || c === 'kill_bash') {
+    return {
+      type: 'kill_shell',
+      shellId: s(a.shell_id) ?? s(a.bash_id) ?? s(a.id) ?? '',
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === 'notebookedit' || c === 'notebook_edit') {
+    return {
+      type: 'notebook_edit',
+      notebookPath: s(a.notebook_path) ?? s(a.notebookPath) ?? s(a.path) ?? '',
+      ...(s(a.cell_id) ? { cellId: s(a.cell_id)! } : {}),
+      ...(s(a.edit_mode) ? { editMode: s(a.edit_mode)! } : {}),
+      ...(s(a.cell_type) ? { cellType: s(a.cell_type)! } : {}),
+    };
+  }
+  if (c === 'skill') {
+    return {
+      type: 'skill',
+      skill: s(a.skill) ?? s(a.name) ?? '',
+      ...(s(a.args) ? { args: s(a.args)! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === 'slashcommand' || c === 'slash_command') {
+    return {
+      type: 'slash_command',
+      command: s(a.command) ?? s(a.slash) ?? '',
+      ...(result ? { result } : {}),
+    };
+  }
+  if (c === 'lsp') {
+    const filePath = s(a.filePath) ?? s(a.file_path);
+    return {
+      type: 'lsp',
+      operation: s(a.operation) ?? '',
+      ...(filePath ? { filePath } : {}),
+      ...(s(a.query) ? { symbol: s(a.query)! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+
   if (c.startsWith('mcp__')) {
     const parts = name.split('__');
     return {
@@ -210,7 +272,7 @@ function summarizeArgs(args?: Record<string, unknown>): string | undefined {
 export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string): { name: string; summary?: string } {
   switch (detail.type) {
     case 'shell':
-      return { name: 'Shell', summary: detail.command };
+      return { name: detail.background ? 'Shell (background)' : 'Shell', summary: detail.command };
     case 'read':
       return { name: 'Read', summary: stripCwd(detail.filePath) };
     case 'edit':
@@ -240,6 +302,20 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
       return { name: 'Plan', summary: detail.text.slice(0, 80) };
     case 'mcp':
       return { name: `${detail.server} · ${detail.tool}`, summary: summarizeArgs(detail.args) };
+    case 'monitor':
+      return { name: 'Monitor', summary: detail.description || detail.command || detail.wsUrl };
+    case 'bash_output':
+      return { name: 'BashOutput', summary: detail.filter ? `${detail.shellId} · /${detail.filter}/` : detail.shellId };
+    case 'kill_shell':
+      return { name: 'KillShell', summary: detail.shellId };
+    case 'notebook_edit':
+      return { name: 'NotebookEdit', summary: stripCwd(detail.notebookPath) };
+    case 'skill':
+      return { name: 'Skill', summary: detail.args ? `${detail.skill} ${detail.args}` : detail.skill };
+    case 'slash_command':
+      return { name: 'SlashCommand', summary: detail.command };
+    case 'lsp':
+      return { name: 'LSP', summary: detail.symbol ? `${detail.operation} · ${detail.symbol}` : detail.operation };
     case 'unknown':
       // A bare "Tool" row is unreadable — surface the provider's actual tool
       // name plus a scalar-args digest so the collapsed row stands on its own.

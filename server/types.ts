@@ -63,7 +63,7 @@ export interface WSData {
  * back to the generic args/result row.
  */
 export type ToolCallDetail =
-  | { type: "shell"; command: string; cwd?: string; output?: string; exitCode?: number | null }
+  | { type: "shell"; command: string; cwd?: string; output?: string; exitCode?: number | null; background?: boolean }
   | { type: "read"; filePath: string; content?: string; offset?: number; limit?: number }
   | { type: "edit"; filePath: string; oldString?: string; newString?: string; unifiedDiff?: string }
   | { type: "write"; filePath: string; content?: string }
@@ -85,6 +85,15 @@ export type ToolCallDetail =
     }
   | { type: "plan"; text: string }
   | { type: "mcp"; server: string; tool: string; args?: Record<string, unknown>; result?: string }
+  // Long-lived / background / harness tools that previously fell through to
+  // `unknown`. Typed so the chat shows a real row instead of a raw JSON blob.
+  | { type: "monitor"; description: string; command?: string; wsUrl?: string; persistent?: boolean; result?: string }
+  | { type: "bash_output"; shellId: string; filter?: string; output?: string }
+  | { type: "kill_shell"; shellId: string; result?: string }
+  | { type: "notebook_edit"; notebookPath: string; cellId?: string; editMode?: string; cellType?: string }
+  | { type: "skill"; skill: string; args?: string; result?: string }
+  | { type: "slash_command"; command: string; result?: string }
+  | { type: "lsp"; operation: string; filePath?: string; symbol?: string; result?: string }
   | { type: "unknown"; raw: { args?: Record<string, unknown>; result?: string } };
 
 export interface ToolCall {

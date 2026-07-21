@@ -92,6 +92,30 @@ const validDetails: ToolCallDetail[] = [
   { type: 'mcp', server: 'context7', tool: 'resolve-library-id' },
   { type: 'mcp', server: 'omega', tool: 'omega_query', args: { mode: 'semantic' }, result: 'hits: 3' },
 
+  { type: 'shell', command: 'npm run dev', background: true },
+
+  { type: 'monitor', description: 'errors in deploy.log' },
+  { type: 'monitor', description: 'ws feed', wsUrl: 'wss://x/stream', persistent: true, result: 'event' },
+  { type: 'monitor', description: 'tail', command: 'tail -f log' },
+
+  { type: 'bash_output', shellId: 'sh_1' },
+  { type: 'bash_output', shellId: 'sh_1', filter: 'ERROR', output: 'boom' },
+
+  { type: 'kill_shell', shellId: 'sh_1' },
+  { type: 'kill_shell', shellId: 'sh_1', result: 'killed' },
+
+  { type: 'notebook_edit', notebookPath: '/a.ipynb' },
+  { type: 'notebook_edit', notebookPath: '/a.ipynb', cellId: 'c1', editMode: 'insert', cellType: 'code' },
+
+  { type: 'skill', skill: 'deploy' },
+  { type: 'skill', skill: 'deploy', args: '--prod', result: 'ok' },
+
+  { type: 'slash_command', command: '/review' },
+  { type: 'slash_command', command: '/model', result: 'set' },
+
+  { type: 'lsp', operation: 'goToDefinition' },
+  { type: 'lsp', operation: 'findReferences', filePath: '/x.ts', symbol: 'foo', result: '3 refs' },
+
   { type: 'unknown', raw: {} },
   { type: 'unknown', raw: { args: { x: 1 }, result: 'noop' } },
 ];
@@ -199,8 +223,8 @@ describe('isToolCallDetail — boolean guard', () => {
 });
 
 describe('schema completeness', () => {
-  test('exactly 11 variants in the union', () => {
-    expect(toolCallDetailSchema.options.length).toBe(11);
+  test('exactly 18 variants in the union', () => {
+    expect(toolCallDetailSchema.options.length).toBe(18);
   });
 
   test('all variant discriminators are unique', () => {
@@ -223,6 +247,13 @@ describe('schema completeness', () => {
         'sub_agent',
         'plan',
         'mcp',
+        'monitor',
+        'bash_output',
+        'kill_shell',
+        'notebook_edit',
+        'skill',
+        'slash_command',
+        'lsp',
         'unknown',
       ]),
     );

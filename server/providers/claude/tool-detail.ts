@@ -65,6 +65,7 @@ export function deriveToolDetail(
       type: "shell",
       command: s(a.command) ?? s(a.cmd) ?? s(a.input) ?? "",
       ...(s(a.cwd) ? { cwd: s(a.cwd)! } : {}),
+      ...(a.run_in_background === true ? { background: true } : {}),
       ...(result ? { output: result } : {}),
     };
   }
@@ -186,6 +187,79 @@ export function deriveToolDetail(
       ...(s(a.subagent_type) ? { subAgentType: s(a.subagent_type)! } : {}),
       ...(s(a.description) ? { description: s(a.description)! } : {}),
       actions: [],
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // Monitor — long-lived event watcher (Bash/ws stream). The `description` is
+  // shown in every notification; a `command` or `ws.url` names the source.
+  if (c === "monitor") {
+    const ws = asRecord(a.ws);
+    return {
+      type: "monitor",
+      description: s(a.description) ?? "",
+      ...(s(a.command) ? { command: s(a.command)! } : {}),
+      ...(s(ws.url) ? { wsUrl: s(ws.url)! } : {}),
+      ...(a.persistent === true ? { persistent: true } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // Background-shell lifecycle tools.
+  if (c === "bashoutput" || c === "bash_output") {
+    return {
+      type: "bash_output",
+      shellId: s(a.bash_id) ?? s(a.shell_id) ?? s(a.id) ?? "",
+      ...(s(a.filter) ? { filter: s(a.filter)! } : {}),
+      ...(result ? { output: result } : {}),
+    };
+  }
+  if (c === "killshell" || c === "killbash" || c === "kill_shell" || c === "kill_bash") {
+    return {
+      type: "kill_shell",
+      shellId: s(a.shell_id) ?? s(a.bash_id) ?? s(a.id) ?? "",
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // Notebook editing.
+  if (c === "notebookedit" || c === "notebook_edit") {
+    return {
+      type: "notebook_edit",
+      notebookPath: s(a.notebook_path) ?? s(a.notebookPath) ?? s(a.path) ?? "",
+      ...(s(a.cell_id) ? { cellId: s(a.cell_id)! } : {}),
+      ...(s(a.edit_mode) ? { editMode: s(a.edit_mode)! } : {}),
+      ...(s(a.cell_type) ? { cellType: s(a.cell_type)! } : {}),
+    };
+  }
+
+  // Skill invocation (`/<name>` or the Skill tool).
+  if (c === "skill") {
+    return {
+      type: "skill",
+      skill: s(a.skill) ?? s(a.name) ?? "",
+      ...(s(a.args) ? { args: s(a.args)! } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // Slash command dispatched to the CLI.
+  if (c === "slashcommand" || c === "slash_command") {
+    return {
+      type: "slash_command",
+      command: s(a.command) ?? s(a.slash) ?? "",
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // LSP code-intelligence lookups.
+  if (c === "lsp") {
+    const filePath = s(a.filePath) ?? s(a.file_path);
+    return {
+      type: "lsp",
+      operation: s(a.operation) ?? "",
+      ...(filePath ? { filePath } : {}),
+      ...(s(a.query) ? { symbol: s(a.query)! } : {}),
       ...(result ? { result } : {}),
     };
   }
