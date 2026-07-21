@@ -45,13 +45,20 @@ export function detectDropZone(
     return mode === 'edges+center' ? 'center' : null;
   }
 
-  // Outer ring: nearest edge wins, distances normalized by each axis's ring
-  // depth so a corner resolves to whichever edge the cursor is proportionally
-  // closer to (ties break in left/right/top/bottom order, matching v1).
-  const dl = x / depthX;
-  const dr = (w - x) / depthX;
-  const dt = y / depthY;
-  const db = (h - y) / depthY;
+  // Outer ring: NEAREST edge wins by ABSOLUTE distance. The four distances are
+  // divided by a SINGLE shared depth (the smaller of the two axis depths) so the
+  // comparison stays in one unit — dividing all four by the same constant can't
+  // change which is smallest, so this is exactly "closest physical edge." The
+  // old code normalized left/right by depthX but top/bottom by depthY: on a
+  // wide-short (or tall-narrow) cell those depths diverge (e.g. 400px vs 62px),
+  // so an off-center drop 30px from the bottom but 50px from the right resolved
+  // to 'right' — the "I aimed at the bottom, it split sideways" bug. Ties still
+  // break left/right/top/bottom (matching v1).
+  const depth = Math.min(depthX, depthY);
+  const dl = x / depth;
+  const dr = (w - x) / depth;
+  const dt = y / depth;
+  const db = (h - y) / depth;
   const min = Math.min(dl, dr, dt, db);
   if (min === dl) return 'left';
   if (min === dr) return 'right';

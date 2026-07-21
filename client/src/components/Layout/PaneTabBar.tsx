@@ -45,6 +45,10 @@ import { releaseNativeFocus } from '../../lib/shell/tauri';
 // running. Closing is reversible via Cmd+Shift+U regardless, so a single
 // uniform affordance is both cleaner and less surprising.
 
+/** Max px a native tab "drag" may travel and still count as a click the browser
+ *  ate (see dragStartPtRef). Mirrors SplitTree's DRAG_SLOP_PX. */
+const TAB_DRAG_SLOP_PX = 4;
+
 const ICONS: Record<string, React.FC<{ size: number; className?: string; style?: React.CSSProperties }>> = {
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock,
 };
@@ -228,6 +232,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // `dragover` (React state may not have committed yet — the "drop lands
   // nowhere / needs a second try" bug, same fix GroupLayout/PanelGrid use).
   const dragOverIdxRef = useRef<number | null>(null);
+  // Native-drag click recovery: a tab is `draggable`, so a plain click with a
+  // sub-pixel hand tremor (common on trackpads, worse in WKWebView whose native
+  // drag threshold is tiny) can spuriously START a drag — and per the HTML5 DnD
+  // spec the browser then never dispatches the `click`, so the tab silently
+  // doesn't activate ("sometimes I can't click a tab"). We record where the drag
+  // began and whether a real drop consumed it; on dragend, a release within
+  // TAB_DRAG_SLOP_PX of the start that dropped nowhere is treated as the click
+  // it really was. Same slop philosophy as SplitTree's divider DRAG_SLOP_PX.
+  const dragStartPtRef = useRef<{ paneId: string; x: number; y: number } | null>(null);
+  const dropConsumedRef = useRef(false);
 
   const { isTouch } = useMobile();
 
@@ -380,6 +394,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   }, []);
   const handleTabDragStart = useCallback((paneId: string) => (e: React.DragEvent) => {
     if (!onReorderPanes) return;
+    // Record the gesture origin for the sub-slop click recovery (see the ref
+    // decl). Reset the drop-consumed flag for this fresh drag.
+    dragStartPtRef.current = { paneId, x: e.clientX, y: e.clientY };
+    dropConsumedRef.current = false;
     setDraggedPaneId(paneId);
     e.dataTransfer.setData(DND_TYPES.PANE_TAB, paneId);
     if (groupId) {
@@ -547,16 +565,39 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
       }
     }
 
+    // A real drop landed — the dragend click-recovery must NOT then re-fire as a
+    // spurious activation.
+    if (didDrop) dropConsumedRef.current = true;
+
     resetDrag();
   }, [panes, onReorderPanes, onCrossGroupDrop, groupId, onActivate, activePaneId, dndScope, resetDrag]);
 
-  const handleTabDragEnd = useCallback(() => {
+  const handleTabDragEnd = useCallback((e: React.DragEvent) => {
+    // Sub-slop click recovery: if this "drag" never actually moved (release is
+    // within TAB_DRAG_SLOP_PX of where it started) and no drop consumed it, the
+    // user meant to CLICK — the native drag just ate the click event. Activate
+    // the tab as the click would have. A genuine drag moves far past the slop,
+    // so a real reorder / cross-group move / cancel-elsewhere never trips this.
+    // (WKWebView occasionally reports 0,0 on dragend; the distance check then
+    // simply fails and we no-op — harmless, the stuck-overlay reset covers the
+    // other half of the "can't click a tab" report.)
+    const start = dragStartPtRef.current;
+    dragStartPtRef.current = null;
+    const consumed = dropConsumedRef.current;
+    dropConsumedRef.current = false;
     resetDrag();
     if (dragGhostRef.current) {
       dragGhostRef.current.remove();
       dragGhostRef.current = null;
     }
-  }, [resetDrag]);
+    if (!consumed && start && onActivate && Number.isFinite(e.clientX) && (e.clientX !== 0 || e.clientY !== 0)) {
+      const dx = Math.abs(e.clientX - start.x);
+      const dy = Math.abs(e.clientY - start.y);
+      if (dx <= TAB_DRAG_SLOP_PX && dy <= TAB_DRAG_SLOP_PX) {
+        onActivate(start.paneId);
+      }
+    }
+  }, [resetDrag, onActivate]);
 
   // Belt-and-suspenders cleanup: a TARGET group never receives `onDragEnd`
   // (that only fires on the source element), so a cross-group drag that ended
@@ -683,6 +724,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
               if (sourcePaneId && sourceGroupId) {
                 onEdgeSplitDrop(sourcePaneId, sourceGroupId, edgeSplitZone);
+                dropConsumedRef.current = true;
               }
               setEdgeSplitZone(null);
               setDraggedPaneId(null);

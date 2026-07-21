@@ -58,9 +58,9 @@ export const Z_DROP_FULLROW = 50;
  */
 export function dropRegionStyle(
   zone: EdgeZone,
-  opts: { fullWidth?: boolean; gutterInset?: number } = {},
+  opts: { fullWidth?: boolean; gutterInset?: number; topInset?: number } = {},
 ): CSSProperties {
-  const { fullWidth = false, gutterInset = 0 } = opts;
+  const { fullWidth = false, gutterInset = 0, topInset = 0 } = opts;
   // Inner-edge seam: the region occupies the half on `zone`'s side, so its inner
   // edge is the OPPOSITE side (a right-split's pane sits on the right → its seam
   // is on its left). One inset shadow on that edge = the divider line.
@@ -73,7 +73,12 @@ export function dropRegionStyle(
     position: 'absolute',
     pointerEvents: 'none',
     zIndex: Z_DROP_REGION,
-    top: zone === 'bottom' ? '50%' : 0,
+    // `topInset` lifts the top edge DOWN so a `top`/`left`/`right` region stops
+    // BELOW the full-width-row strip at the container's first-row edge (the twin
+    // of `gutterInset` at the bottom) — the fill then ends exactly where the
+    // full-row strip's hit band begins, so the user can SEE that the top ~26px
+    // belongs to the full-width-row gesture, not this column split.
+    top: zone === 'bottom' ? '50%' : topInset,
     bottom: zone === 'top' ? '50%' : gutterInset,
     left: fullWidth ? 0 : zone === 'right' ? '50%' : 0,
     right: fullWidth ? 0 : zone === 'left' ? '50%' : 0,
@@ -128,12 +133,18 @@ export function caretStyle(side: 'left' | 'right'): CSSProperties {
  * plus an uppercase text label on every drag, which cluttered the workspace
  * before the user had expressed any intent.
  */
-export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean): CSSProperties {
+export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean, edgeOffset = 0): CSSProperties {
   return {
     position: 'absolute',
     left: 0,
     right: 0,
-    [side]: 0,
+    // `edgeOffset` pushes the strip IN from the container edge — the project
+    // layout offsets the TOP strip by the first row's tab-bar height so the
+    // strip sits over the first row's CONTENT, never over its tab bar (a
+    // pointer-events:auto strip on top of the tab bar swallowed tab clicks and
+    // stole tab-move drops aimed at the bar — the "can't click the tab / can't
+    // drag a tab onto the first bar" report). 0 keeps the legacy flush-to-edge.
+    [side]: edgeOffset,
     height: FULL_ROW_GUTTER_PX,
     zIndex: Z_DROP_FULLROW,
     background: active ? DROP_REGION_FILL : 'transparent',

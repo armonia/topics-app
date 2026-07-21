@@ -21,6 +21,11 @@ import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
 import { pxToWeightDelta, resizeWeights } from '../../state/layout/splitController';
 import { MIN_PANE_FRACTION } from './constants';
 
+/** Height of a group's tab-bar chrome row (Tailwind `h-10` = 2.5rem = 40px).
+ *  The TOP full-width-row drop strip is offset by this so it clears the first
+ *  row's tab bar instead of sitting on top of it (see FullWidthRowZone). */
+const TAB_BAR_H = 40;
+
 interface GroupLayoutProps {
   panes: Pane[];
   groups: PaneGroup[];
@@ -591,6 +596,30 @@ export function GroupLayout({
     };
   }, [resetDndOverlays]);
 
+  // Belt-and-suspenders for a `dragActive` that never saw its `dragend`/`drop`:
+  // in WKWebView (the Tauri shell) a release captured by a native browser
+  // WebContentsView — or a drag that ends off-window — can drop BOTH terminal
+  // DnD events, leaving the full-width/ row-gap strips (real pointer-events:auto
+  // hit targets, z-50) mounted forever. Stuck, they swallow clicks and tab-move
+  // drops in the tab-bar band — the "sometimes I can't click a tab / it's like
+  // it detects that drag-preview piece" report. HTML5 DnD suppresses pointer
+  // events for the drag's DURATION, so the FIRST `pointermove` with no button
+  // held (or any `pointerup`/window blur) proves the gesture is over — clear
+  // then. Attached only while a drag is nominally active (cheap, self-removing).
+  useEffect(() => {
+    if (!dragActive) return;
+    const clear = () => resetDndOverlays();
+    const onMove = (e: PointerEvent) => { if ((e.buttons & 1) === 0) clear(); };
+    window.addEventListener('pointerup', clear, true);
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('blur', clear);
+    return () => {
+      window.removeEventListener('pointerup', clear, true);
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('blur', clear);
+    };
+  }, [dragActive, resetDndOverlays]);
+
   /* ================================================================== */
   /*  Split-tree render path                                              */
   /* ================================================================== */
@@ -896,6 +925,7 @@ export function GroupLayout({
             <SplitRegion
               zone={edgeDrop}
               gutterInset={rowIdx === rows.length - 1 && rows.some((r) => r.groupIds.length > 1) ? FULL_ROW_GUTTER_PX : 0}
+              topInset={rowIdx === 0 && rows.some((r) => r.groupIds.length > 1) ? FULL_ROW_GUTTER_PX : 0}
             />
           )}
           {edgeDrop === 'center' && <CenterRegion />}
@@ -1091,6 +1121,10 @@ export function GroupLayout({
           key={side}
           side={side}
           active={fullRowDrop === side}
+          // Offset the TOP strip below the first row's tab bar (h-10 = 40px) so
+          // it sits over content, never over the bar — otherwise it swallowed
+          // clicks and stole tab-move drops on the first row's tabs.
+          edgeOffset={side === 'top' ? TAB_BAR_H : 0}
           onDragOver={handleFullRowDragOver(side)}
           onDragLeave={handleFullRowDragLeave}
           onDrop={handleFullRowDrop(side)}
