@@ -9,33 +9,37 @@
  * Loaded lazily (React.lazy) so rrweb + its CSS only land in the bundle when a
  * pane actually switches to DOM mode — the default video path never pays for it.
  *
- * Input: the mirror itself is the input surface. The replayer iframe is
- * interactive (`enableInteract()`), so selection, hover states, cursor shapes,
- * native scroll (wheel + touch momentum) and the copy context menu all happen
- * locally in this device's engine — no round trip. A capture-phase bridge inside
- * the iframe document relays the SEMANTIC actions to the source page via
- * sendInput (→ CDP): clicks (default-prevented so the mirror never navigates or
- * toggles on its own), keystrokes (beforeinput covers mobile soft keyboards and
- * paste), and coalesced scroll deltas so the source + other viewers follow.
- * Coordinates need no scale math: events captured inside the iframe are already
- * in the iframe's own coordinate space = source-page viewport CSS px (the
- * browser maps the pointer through the wrapper's transform).
+ * Input — PARENT-FRAME capture overlay (not inside the mirror iframe).
+ * ------------------------------------------------------------------------
+ * The earlier design made the rrweb iframe itself the input surface
+ * (`enableInteract()`) and attached capture-phase listeners INSIDE its
+ * `sandbox="allow-same-origin"` contentDocument. That is hostile to WKWebView +
+ * the `tauri://localhost` custom scheme: the sandboxed subframe's document is not
+ * reliably scriptable when the bridge runs, and WKWebView ignores an in-iframe
+ * `preventDefault`, so a link click drives a real subframe navigation that the
+ * shell nav-guard then cancels — tearing down the rebuilt DOM. Result: on the Mac
+ * app clicks/typing were dead while the web client (Blink) worked.
  *
- * Scroll echo: while the local user is actively scrolling, incoming rrweb scroll
- * events (the source echoing our own relayed deltas, or another driver) are
- * stashed instead of applied — applying them mid-gesture makes the pane rubber-
- * band, the exact "it's a laggy stream" feel. The latest stashed position is
- * applied when the gesture window expires, so viewers still converge on the
- * source's authoritative position at rest.
+ * So the mirror iframe is kept strictly as a VISUAL surface (`pointer-events:none`,
+ * the Replayer default) and ALL input is captured by a transparent overlay in the
+ * MAIN frame — which is fully scriptable with reliable first-responder/focus under
+ * WKWebView, and never navigates. Pointer events map to source-page CSS px through
+ * the known fit `scale` (the overlay is sized to the scaled mirror, pinned
+ * top-left, so `sourcePx = localPx / scale`) and relay via `sendInput` (→ CDP).
+ * Keyboard is captured by a hidden, always-refocused <textarea>: `keydown` covers
+ * hardware keys, `beforeinput`/composition cover mobile soft keyboards, paste and
+ * IME — so an iPhone PWA follower can type into the shared session too. This is
+ * the same input primitive the follower/video path will reuse.
  *
- * The rebuild gotcha: rrweb's full-snapshot rebuild goes through doc.open(),
- * which wipes every listener on the iframe document — the bridge re-attaches on
- * each 'fullsnapshot-rebuilded' event (AbortController makes that idempotent).
+ * Local selection on demand: holding Option (Alt) flips the mirror iframe back to
+ * interactive so the user can natively select + copy text; releasing reverts to
+ * the robust relay overlay. While interactive we still cancel link/submit
+ * navigations inside the iframe so a stray click can't bust the shell nav-guard.
  *
  * Gated on the agent lock: while an agent drives, a blocking overlay suppresses
  * this viewer's input, mirroring the pixel path's take-control model.
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/rrweb.min.css';
 
@@ -47,25 +51,19 @@ type RrwebEvent = {
 };
 
 /** rrweb constants we depend on (avoid importing the full enum surface). */
-const EVENT_INCREMENTAL = 3;
 const EVENT_META = 4;
-const INCREMENTAL_SOURCE_SCROLL = 3;
 
-/** Named keys relayed to the source as key presses (the rest stay native). */
+/** Named keys relayed to the source as key presses (the rest go through as text). */
 const RELAYED_KEYS = new Set([
   'Enter', 'Backspace', 'Delete', 'Tab', 'Escape',
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
   'Home', 'End', 'PageUp', 'PageDown',
 ]);
 
-/** How long after local input we treat scrolling as user-driven (ms). */
-const USER_GESTURE_WINDOW = 1200;
-/** Touch momentum self-extension: each user-driven scroll keeps the window alive. */
-const TOUCH_MOMENTUM_WINDOW = 900;
-/** Ignore local scroll events this soon after applying a remote scroll (echo). */
-const REMOTE_APPLY_WINDOW = 400;
-/** Coalesce relayed scroll deltas at this cadence (ms). */
-const SCROLL_RELAY_INTERVAL = 80;
+/** Coalesce relayed scroll deltas at this cadence (ms) so we don't flood the WS. */
+const SCROLL_RELAY_INTERVAL = 60;
+/** Below this touch travel a touch is treated as a tap (→ click), not a scroll. */
+const TAP_SLOP = 8;
 
 type SendInput = (
   action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
@@ -84,27 +82,30 @@ interface Props {
 export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  const kbdRef = useRef<HTMLTextAreaElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
   // Recorded source dimensions (from the Meta event) + the current fit scale.
   const dimsRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const scaleRef = useRef(1);
   const agentActiveRef = useRef(agentActive);
-  agentActiveRef.current = agentActive;
+  // Latest sendInput for the native (non-React) keyboard listeners below.
+  const sendInputRef = useRef(sendInput);
+  useEffect(() => { agentActiveRef.current = agentActive; }, [agentActive]);
+  useEffect(() => { sendInputRef.current = sendInput; }, [sendInput]);
 
-  // ── Interaction state (all refs: the bridge lives outside React's render) ────
-  const userActiveUntilRef = useRef(0);
-  const touchActiveUntilRef = useRef(0);
-  const remoteApplyUntilRef = useRef(0);
-  const mouseDownRef = useRef(false);
-  const pendingRemoteScrollRef = useRef<RrwebEvent | null>(null);
-  const pendingScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastDocScrollRef = useRef({ x: 0, y: 0 });
+  // ── Interaction state (refs: the handlers live outside React's render) ───────
   const scrollAccRef = useRef<{ dx: number; dy: number; x: number; y: number; timer: ReturnType<typeof setTimeout> | null }>(
     { dx: 0, dy: 0, x: 0, y: 0, timer: null },
   );
-  const bridgeAbortRef = useRef<AbortController | null>(null);
+  const touchRef = useRef<{ x: number; y: number; travel: number } | null>(null);
+  // Option/Alt held → let the user select + copy natively in the mirror iframe.
+  const [selecting, setSelecting] = useState(false);
+  const selectingRef = useRef(false);
+  useEffect(() => { selectingRef.current = selecting; }, [selecting]);
+  const navGuardAbortRef = useRef<AbortController | null>(null);
 
-  // Fit the reconstructed iframe (recorded WxH) inside the pane, pinned top-left.
+  // Fit the reconstructed iframe (recorded WxH) inside the pane, pinned top-left,
+  // and size the capture overlay to exactly that scaled rect.
   const applyScale = useCallback(() => {
     const root = rootRef.current;
     const replayer = replayerRef.current;
@@ -126,42 +127,19 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
     }
   }, []);
 
-  // Apply a (stashed) remote scroll directly via the replayer's mirror — bypasses
-  // the live timer so an out-of-window event can't confuse its clock. Absolute
-  // positions make this idempotent.
-  const applyRemoteScroll = useCallback((event: RrwebEvent) => {
-    const replayer = replayerRef.current;
-    const data = event.data;
-    if (!replayer || !data || data.id == null) return;
-    const mirror = replayer.getMirror();
-    const node = mirror.getNode(data.id) as Node | null;
-    if (!node) return;
-    remoteApplyUntilRef.current = Date.now() + REMOTE_APPLY_WINDOW;
-    const doc = node.nodeType === Node.DOCUMENT_NODE ? (node as Document) : null;
-    const el = doc ? (doc.scrollingElement || doc.documentElement) : (node as Element);
-    if (!el || typeof (el as Element).scrollTop !== 'number') return;
-    (el as Element).scrollLeft = data.x ?? 0;
-    (el as Element).scrollTop = data.y ?? 0;
-    if (doc) lastDocScrollRef.current = { x: data.x ?? 0, y: data.y ?? 0 };
+  // Map an overlay-local pointer to source-page CSS px. The overlay is the scaled
+  // mirror pinned top-left, so the source coordinate is simply local ÷ scale.
+  const toSource = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
+    const overlay = overlayRef.current;
+    if (!overlay) return null;
+    const rect = overlay.getBoundingClientRect();
+    const s = scaleRef.current || 1;
+    const x = (clientX - rect.left) / s;
+    const y = (clientY - rect.top) / s;
+    const { w, h } = dimsRef.current;
+    if (x < 0 || y < 0 || (w && x > w) || (h && y > h)) return null;
+    return { x: Math.round(x), y: Math.round(y) };
   }, []);
-
-  const flushPendingRemoteScroll = useCallback(() => {
-    const pending = pendingRemoteScrollRef.current;
-    pendingRemoteScrollRef.current = null;
-    if (pendingScrollTimerRef.current) {
-      clearTimeout(pendingScrollTimerRef.current);
-      pendingScrollTimerRef.current = null;
-    }
-    if (!pending) return;
-    const remaining = userActiveUntilRef.current - Date.now();
-    if (remaining > 0) {
-      // Gesture window got extended (momentum) — re-arm for the new expiry.
-      pendingRemoteScrollRef.current = pending;
-      pendingScrollTimerRef.current = setTimeout(flushPendingRemoteScroll, remaining + 20);
-      return;
-    }
-    applyRemoteScroll(pending);
-  }, [applyRemoteScroll]);
 
   // Coalesced scroll relay — one `scroll` input per interval, summed deltas.
   const queueScrollRelay = useCallback((dx: number, dy: number, x: number, y: number) => {
@@ -181,158 +159,191 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
     }, SCROLL_RELAY_INTERVAL);
   }, [sendInput]);
 
-  // ── The input bridge: capture-phase listeners inside the replayer iframe ─────
-  const bridgeRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const attachInputBridge = useCallback(() => {
-    const replayer = replayerRef.current;
-    const iframe = replayer?.iframe as HTMLIFrameElement | undefined;
-    const doc = iframe?.contentDocument;
-    // The iframe's contentDocument isn't always ready the instant we're called
-    // (initial mount, and under WKWebView the 'fullsnapshot-rebuilded' timing
-    // differs from Chromium). If we bail here with no retry, the bridge never
-    // attaches → clicks are neither preventDefaulted nor relayed, so link clicks
-    // fall through to the shell's nav-guard and open in the SYSTEM browser
-    // ("i link mi aprono Dia"), and functional clicks never reach the headless.
-    // Retry a few frames until the doc exists.
-    if (bridgeRetryRef.current) { clearTimeout(bridgeRetryRef.current); bridgeRetryRef.current = null; }
-    if (!replayer || !doc) {
-      if (replayerRef.current) bridgeRetryRef.current = setTimeout(attachInputBridge, 50);
-      return;
+  const focusKbd = useCallback(() => {
+    // Focusing inside the pointer gesture pops the mobile soft keyboard (iOS).
+    try { kbdRef.current?.focus({ preventScroll: true }); } catch { kbdRef.current?.focus(); }
+  }, []);
+
+  // ── Pointer / wheel / touch on the overlay ───────────────────────────────────
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    if (selectingRef.current) return;
+    focusKbd();
+    // Let the host app see the gesture (pane/tab activation).
+    rootRef.current?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    e.preventDefault();
+  }, [focusKbd]);
+
+  const onClick = useCallback((e: React.MouseEvent) => {
+    if (selectingRef.current || agentActiveRef.current) return;
+    const c = toSource(e.clientX, e.clientY);
+    if (!c) return;
+    sendInput('click', { x: c.x, y: c.y, button: 'left' });
+  }, [toSource, sendInput]);
+
+  const onContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    if (selectingRef.current || agentActiveRef.current) return;
+    const c = toSource(e.clientX, e.clientY);
+    if (c) sendInput('click', { x: c.x, y: c.y, button: 'right' });
+  }, [toSource, sendInput]);
+
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    if (selectingRef.current) return;
+    const c = toSource(e.clientX, e.clientY) || { x: dimsRef.current.w / 2, y: dimsRef.current.h / 2 };
+    queueScrollRelay(e.deltaX, e.deltaY, c.x, c.y);
+  }, [toSource, queueScrollRelay]);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    if (selectingRef.current) return;
+    focusKbd();
+    const t = e.touches[0];
+    if (t) touchRef.current = { x: t.clientX, y: t.clientY, travel: 0 };
+    rootRef.current?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  }, [focusKbd]);
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    if (selectingRef.current) return;
+    const prev = touchRef.current;
+    const t = e.touches[0];
+    if (!prev || !t) return;
+    // Natural scroll: dragging content DOWN scrolls the page UP → invert.
+    const dx = prev.x - t.clientX;
+    const dy = prev.y - t.clientY;
+    prev.travel += Math.abs(dx) + Math.abs(dy);
+    prev.x = t.clientX;
+    prev.y = t.clientY;
+    const c = toSource(t.clientX, t.clientY) || { x: dimsRef.current.w / 2, y: dimsRef.current.h / 2 };
+    queueScrollRelay(dx, dy, c.x, c.y);
+  }, [toSource, queueScrollRelay]);
+
+  const onTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (selectingRef.current || agentActiveRef.current) { touchRef.current = null; return; }
+    const prev = touchRef.current;
+    touchRef.current = null;
+    if (!prev || prev.travel > TAP_SLOP) return; // a scroll, not a tap
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const c = toSource(t.clientX, t.clientY);
+    if (c) sendInput('click', { x: c.x, y: c.y, button: 'left' });
+  }, [toSource, sendInput]);
+
+  // ── Keyboard (hidden textarea kept focused; relays to the source page) ───────
+  const onKbdKeyDown = useCallback((e: React.KeyboardEvent) => {
+    e.stopPropagation(); // don't double-relay via the panel's onKeyDown
+    if (agentActiveRef.current) { e.preventDefault(); return; }
+    // Meta/Ctrl combos stay native: ⌘C copies a (selection-mode) selection, ⌘V
+    // paste lands in beforeinput below and is relayed there.
+    if (e.metaKey || e.ctrlKey) return;
+    if (RELAYED_KEYS.has(e.key)) {
+      e.preventDefault();
+      sendInput('keypress', { key: e.key });
+    } else if (e.key.length === 1) {
+      e.preventDefault();
+      sendInput('type', { text: e.key });
     }
+    // Dead/Process/Unidentified fall through: IME composes; the composition +
+    // soft-keyboard text lands in beforeinput / compositionend below.
+  }, [sendInput]);
 
-    // doc.open() (full-snapshot rebuild) wiped any previous listeners; abort the
-    // old controller and attach a fresh set — idempotent across rebuilds.
-    bridgeAbortRef.current?.abort();
-    const ac = new AbortController();
-    bridgeAbortRef.current = ac;
-    const opts = { capture: true, signal: ac.signal } as AddEventListenerOptions;
-    const passive = { capture: true, passive: true, signal: ac.signal } as AddEventListenerOptions;
-
-    const refreshUserWindow = () => { userActiveUntilRef.current = Date.now() + USER_GESTURE_WINDOW; };
-
-    doc.addEventListener('click', (e) => {
-      // The mirror must never act on its own: no link navigation, no checkbox
-      // toggles, no form submits — the SOURCE performs the action and its DOM
-      // echoes back. preventDefault also under the agent lock (view-only).
-      e.preventDefault();
-      if (agentActiveRef.current) return;
-      // A drag-select release also fires click — don't nuke the user's selection
-      // intent with a stray relayed click.
-      const sel = doc.getSelection();
-      if (sel && !sel.isCollapsed) return;
-      sendInput('click', { x: e.clientX, y: e.clientY, button: 'left' });
-    }, opts);
-
-    doc.addEventListener('auxclick', (e) => { e.preventDefault(); }, opts);
-    doc.addEventListener('submit', (e) => { e.preventDefault(); }, opts);
-    // Selected text can start a native drag — meaningless in a mirror.
-    doc.addEventListener('dragstart', (e) => { e.preventDefault(); }, opts);
-
-    doc.addEventListener('mousedown', (e) => {
-      mouseDownRef.current = true;
-      refreshUserWindow();
-      // Let the host app see the gesture (pane/tab activation) — the iframe
-      // swallows it otherwise.
-      rootRef.current?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      // A native <select> popup would fork local state the echo then stomps —
-      // relay the click and let the source own the dropdown (arrow keys work).
-      const target = e.target as HTMLElement | null;
-      if (target && target.tagName === 'SELECT') {
-        e.preventDefault();
-        if (!agentActiveRef.current) sendInput('click', { x: e.clientX, y: e.clientY, button: 'left' });
-      }
-    }, opts);
-    doc.addEventListener('mouseup', () => { mouseDownRef.current = false; }, passive);
-
-    doc.addEventListener('keydown', (e) => {
-      if (agentActiveRef.current) { e.preventDefault(); return; }
-      // Meta/Ctrl combos stay native: ⌘C copies the local selection, ⌘A selects
-      // all in the mirror. (⌘V still relays — paste lands in beforeinput below.)
-      if (e.metaKey || e.ctrlKey) return;
-      if (RELAYED_KEYS.has(e.key)) {
-        e.preventDefault();
-        sendInput('keypress', { key: e.key });
-      } else if (e.key.length === 1) {
-        e.preventDefault();
-        sendInput('type', { text: e.key });
-      }
-      // Dead/Process/Unidentified fall through: IME composes locally (not
-      // cancelable anyway); mobile soft keyboards land in beforeinput.
-    }, opts);
-
-    doc.addEventListener('beforeinput', (e) => {
-      const ie = e as InputEvent;
-      // insertCompositionText is not cancelable per spec — the echo reconciles.
+  // `beforeinput` carries the real InputEvent.inputType (React's synthetic
+  // onBeforeInput does not), and covers mobile soft keyboards + paste + IME — so
+  // it's attached as a NATIVE listener on the textarea.
+  useEffect(() => {
+    const ta = kbdRef.current;
+    if (!ta) return;
+    const onBeforeInput = (ev: Event) => {
+      const ie = ev as InputEvent;
+      ev.stopPropagation();
+      // insertCompositionText is not cancelable per spec — relayed at compositionend.
       if (ie.inputType === 'insertCompositionText') return;
-      e.preventDefault();
+      ev.preventDefault();
       if (agentActiveRef.current) return;
+      const send = sendInputRef.current;
       switch (ie.inputType) {
         case 'insertText':
         case 'insertFromPaste':
-          if (ie.data) sendInput('type', { text: ie.data });
+          if (ie.data) send('type', { text: ie.data });
           break;
         case 'insertParagraph':
         case 'insertLineBreak':
-          sendInput('keypress', { key: 'Enter' });
+          send('keypress', { key: 'Enter' });
           break;
         case 'deleteContentBackward':
-          sendInput('keypress', { key: 'Backspace' });
+          send('keypress', { key: 'Backspace' });
           break;
         case 'deleteContentForward':
-          sendInput('keypress', { key: 'Delete' });
+          send('keypress', { key: 'Delete' });
           break;
       }
-    }, opts);
+    };
+    ta.addEventListener('beforeinput', onBeforeInput);
+    return () => ta.removeEventListener('beforeinput', onBeforeInput);
+  }, []);
 
-    // Wheel: NOT default-prevented — the iframe scrolls natively (instant, with
-    // momentum) and the coalesced relay keeps the source + other viewers aligned.
-    doc.addEventListener('wheel', (e) => {
-      refreshUserWindow();
-      queueScrollRelay(e.deltaX, e.deltaY, e.clientX, e.clientY);
-    }, passive);
+  const onKbdCompositionEnd = useCallback((e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    e.stopPropagation();
+    if (!agentActiveRef.current && e.data) sendInput('type', { text: e.data });
+    if (kbdRef.current) kbdRef.current.value = '';
+  }, [sendInput]);
 
-    doc.addEventListener('touchstart', (e) => {
-      refreshUserWindow();
-      touchActiveUntilRef.current = Date.now() + USER_GESTURE_WINDOW;
-      const t = e.touches[0];
-      if (t) rootRef.current?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    }, passive);
-    doc.addEventListener('touchmove', () => {
-      refreshUserWindow();
-      touchActiveUntilRef.current = Date.now() + USER_GESTURE_WINDOW;
-    }, passive);
+  // Keep the capture textarea empty so it never accumulates / scrolls.
+  const onKbdInput = useCallback(() => { if (kbdRef.current) kbdRef.current.value = ''; }, []);
 
-    // Document-level scrolls: always track the position; relay the delta only
-    // when locally driven — touch pan/momentum (no wheel events on mobile) or a
-    // scrollbar drag (mouse held). Wheel-driven doc scrolls already relayed above.
-    doc.addEventListener('scroll', (e) => {
-      if (e.target !== doc) return; // inner scrollers: wheel relay covers desktop
-      const el = doc.scrollingElement || doc.documentElement;
-      if (!el) return;
-      const now = Date.now();
-      const last = lastDocScrollRef.current;
-      const dx = el.scrollLeft - last.x;
-      const dy = el.scrollTop - last.y;
-      lastDocScrollRef.current = { x: el.scrollLeft, y: el.scrollTop };
-      if (now < remoteApplyUntilRef.current) return; // echo of a remote apply
-      const touchDriven = now < touchActiveUntilRef.current;
-      if (!touchDriven && !mouseDownRef.current) return;
-      if (touchDriven) {
-        // Momentum self-extension: keep treating the glide as user-driven.
-        touchActiveUntilRef.current = now + TOUCH_MOMENTUM_WINDOW;
-        userActiveUntilRef.current = Math.max(userActiveUntilRef.current, now + TOUCH_MOMENTUM_WINDOW);
-      } else {
-        userActiveUntilRef.current = now + USER_GESTURE_WINDOW;
-      }
-      const { w, h } = dimsRef.current;
-      queueScrollRelay(dx, dy, w / 2, h / 2);
-    }, passive);
-  }, [sendInput, queueScrollRelay]);
+  // ── Option/Alt hold → native local selection in the mirror ───────────────────
+  // The mirror iframe is made interactive ONCE (enableInteract) but sits UNDER the
+  // capture overlay: in normal mode the overlay intercepts every pointer event so
+  // the iframe receives nothing and never navigates (WKWebView-safe); holding
+  // Option drops the overlay (pointer-events:none, synchronous) so events fall
+  // through to the iframe for native selection/copy. Toggling only the overlay
+  // avoids the race where the iframe's pointer-events would lag the overlay's.
+  //
+  // Cancel link/submit navigations inside the iframe regardless — a stray click in
+  // selection mode must not drive a real sub-frame navigation (the shell nav-guard
+  // would cancel it and could tear down the rebuilt DOM). Best-effort, re-armed on
+  // every full-snapshot rebuild (doc.open() drops the listeners); the primary
+  // overlay input path never depends on the iframe being scriptable.
+  const attachNavGuard = useCallback(() => {
+    const doc = (replayerRef.current?.iframe as HTMLIFrameElement | undefined)?.contentDocument;
+    navGuardAbortRef.current?.abort();
+    if (!doc) return;
+    const ac = new AbortController();
+    navGuardAbortRef.current = ac;
+    const opts = { capture: true, signal: ac.signal } as AddEventListenerOptions;
+    doc.addEventListener('click', (e) => e.preventDefault(), opts);
+    doc.addEventListener('auxclick', (e) => e.preventDefault(), opts);
+    doc.addEventListener('submit', (e) => e.preventDefault(), opts);
+  }, []);
 
+  useEffect(() => {
+    // Option (Alt) TOGGLES a local text-selection mode; Escape exits it. A toggle
+    // (not press-and-hold) is deliberate: holding Option during the select gesture
+    // would alter the native selection on macOS. In select mode the overlay yields
+    // so the pointer reaches the interactive mirror; a normal press returns to the
+    // relay overlay.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.key === 'Alt' || e.key === 'Option') setSelecting((s) => !s);
+      else if (e.key === 'Escape') setSelecting(false);
+    };
+    const onBlur = () => setSelecting(false);
+    // Capture phase: the focused capture-textarea stopPropagations its keydowns
+    // (so they don't double-relay via the panel), which would otherwise hide the
+    // Option press from a bubble-phase window listener.
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
+
+  // ── rrweb live reconstruction ────────────────────────────────────────────────
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     let started = false;
+    // Captured for cleanup (stable object; avoids reading a ref at teardown time).
+    const acc = scrollAccRef.current;
 
     const handle = (raw: unknown) => {
       const event = raw as RrwebEvent;
@@ -349,45 +360,24 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
           mouseTail: false,
           showWarning: false,
           showDebug: false,
-          // Remote focus must never yank THIS device's focus — local clicks
-          // focus mirror elements natively (it's a real DOM).
+          // Remote focus must never yank THIS device's focus — the local user
+          // drives via the overlay / hidden textarea, not the mirror's elements.
           triggerFocus: false,
         });
         replayer.startLive(event.timestamp - 100);
         replayerRef.current = replayer;
-        // The mirror is the input surface: native selection, hover, scroll.
+        // Make the iframe interactive once; it stays UNDER the capture overlay, so
+        // it only receives events when the user holds Option (the overlay yields).
         replayer.enableInteract();
-        // doc.open() during each full-snapshot rebuild wipes the bridge — re-attach.
         replayer.on('fullsnapshot-rebuilded', () => {
-          attachInputBridge();
           applyScale();
+          // doc.open() during rebuild drops in-iframe listeners — re-arm the guard.
+          attachNavGuard();
         });
-        // Belt for WKWebView, where 'fullsnapshot-rebuilded' can fire before the
-        // iframe's document is scriptable: also (re)attach on the iframe's own
-        // load. Idempotent — attachInputBridge aborts the prior controller.
-        const ifr = replayer.iframe as HTMLIFrameElement | undefined;
-        ifr?.addEventListener('load', attachInputBridge);
         started = true;
         applyScale();
-        attachInputBridge();
+        attachNavGuard();
         return;
-      }
-      // Scroll echo suppression: while the local user is mid-gesture, stash the
-      // source's scroll instead of applying it (rubber-banding = "laggy stream"
-      // feel). Latest wins; applied when the gesture window expires.
-      if (event.type === EVENT_INCREMENTAL && event.data?.source === INCREMENTAL_SOURCE_SCROLL) {
-        const now = Date.now();
-        if (now < userActiveUntilRef.current) {
-          pendingRemoteScrollRef.current = event;
-          if (!pendingScrollTimerRef.current) {
-            pendingScrollTimerRef.current = setTimeout(
-              flushPendingRemoteScroll,
-              userActiveUntilRef.current - now + 20,
-            );
-          }
-          return;
-        }
-        remoteApplyUntilRef.current = now + REMOTE_APPLY_WINDOW;
       }
       replayerRef.current?.addEvent(event as never);
       if (event.type === EVENT_META) applyScale(); // a resize re-emits Meta
@@ -400,36 +390,77 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
     return () => {
       unsubscribe();
       ro.disconnect();
-      if (bridgeRetryRef.current) { clearTimeout(bridgeRetryRef.current); bridgeRetryRef.current = null; }
-      bridgeAbortRef.current?.abort();
-      bridgeAbortRef.current = null;
-      if (pendingScrollTimerRef.current) clearTimeout(pendingScrollTimerRef.current);
-      pendingScrollTimerRef.current = null;
-      const acc = scrollAccRef.current;
+      navGuardAbortRef.current?.abort();
+      navGuardAbortRef.current = null;
       if (acc.timer) clearTimeout(acc.timer);
       acc.timer = null;
       try { replayerRef.current?.destroy(); } catch { /* already gone */ }
       replayerRef.current = null;
     };
-  }, [registerDomSink, applyScale, attachInputBridge, flushPendingRemoteScroll]);
+  }, [registerDomSink, applyScale, attachNavGuard]);
 
   return (
     <div ref={rootRef} className="topics-dom-cobrowse relative h-full w-full overflow-hidden bg-white" style={{ isolation: 'isolate' }}>
       {/* Hide rrweb's REPLAYED cursor: liveMode paints a `.replayer-mouse` dot that
-          chases the source page's CDP mouse, so every relayed click makes a lagging
-          dot jump across the pane — the exact "it feels like streaming, the mouse
-          moves" artifact. In DOM mode the user drives with their OWN native cursor;
-          the replayed one adds nothing but round-trip lag. Scoped to this view. */}
+          chases the source page's CDP mouse — in co-browse the local user drives
+          with their OWN native cursor, so the replayed one is only round-trip lag. */}
       <style>{`.topics-dom-cobrowse .replayer-mouse,.topics-dom-cobrowse .replayer-mouse-tail{display:none!important}`}</style>
+
+      {/* Hidden keyboard capture: kept focused on pointer/touch so hardware keys
+          (keydown), mobile soft keyboards + paste + IME (beforeinput/composition)
+          all reach the source page. aria-hidden + transparent caret + 1px box so
+          it's invisible and never shifts layout. */}
+      <textarea
+        ref={kbdRef}
+        data-testid="browser-dom-kbd"
+        aria-hidden="true"
+        tabIndex={-1}
+        autoCapitalize="off"
+        autoCorrect="off"
+        autoComplete="off"
+        spellCheck={false}
+        className="absolute left-0 top-0 z-0 opacity-0 pointer-events-none"
+        style={{ width: 1, height: 1, resize: 'none', border: 0, padding: 0, caretColor: 'transparent', background: 'transparent' }}
+        onKeyDown={onKbdKeyDown}
+        onCompositionEnd={onKbdCompositionEnd}
+        onInput={onKbdInput}
+      />
+
+      {/* Parent-frame capture overlay — the robust input surface. Sized to the
+          scaled mirror (applyScale), pinned top-left. Disabled while the user
+          holds Option (native selection in the iframe) or an agent drives. */}
+      <div
+        ref={overlayRef}
+        data-testid="browser-dom-input-overlay"
+        className="absolute left-0 top-0 z-[2]"
+        style={{ pointerEvents: selecting || agentActive ? 'none' : 'auto', cursor: 'default', touchAction: 'none' }}
+        onPointerDown={onPointerDown}
+        onClick={onClick}
+        onContextMenu={onContextMenu}
+        onWheel={onWheel}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      />
+
+      {/* Local text-selection mode indicator (Option toggles it). While active the
+          overlay yields to the interactive mirror so text is natively selectable. */}
+      {selecting && !agentActive && (
+        <div
+          data-testid="browser-dom-select-mode"
+          className="absolute top-2 left-1/2 -translate-x-1/2 z-[3] px-2 py-0.5 rounded-full bg-black/70 text-white text-[11px] font-medium pointer-events-none select-none"
+        >
+          Selezione testo · ⌥ per tornare
+        </div>
+      )}
+
       {/* Agent lock: while an agent drives, a blocking overlay suppresses local
-          input (take-control parity). When idle it's not rendered at all — the
-          interactive mirror IS the surface. */}
+          input (take-control parity). */}
       {agentActive && (
         <div
-          ref={overlayRef}
           role="presentation"
           data-testid="browser-dom-agent-lock"
-          className="absolute left-0 top-0 z-10"
+          className="absolute left-0 top-0 z-[3] w-full h-full"
           style={{ cursor: 'not-allowed' }}
         />
       )}

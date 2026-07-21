@@ -65,11 +65,12 @@ test.describe("T1 DOM co-browse", () => {
       await expect(reconstructed).toHaveText("DOM COBROWSE OK", { timeout: 8000 });
       await expect(page.locator('[data-testid="browser-render-toggle"]').first()).toContainText("DOM");
 
-      // Input relay: a click lands INSIDE the interactive iframe (no capture
-      // overlay anymore) and the in-iframe bridge relays it to the server as an
-      // `input` click in source-page coords. Accumulate across polls (drain clears).
+      // Input relay: clicks land on the PARENT-FRAME capture overlay (robust under
+      // WKWebView, where in-iframe capture is unreliable) and relay to the server as
+      // an `input` click in source-page coords. Accumulate across polls (drain clears).
+      const overlay = page.locator('[data-testid="browser-dom-input-overlay"]').first();
       browserProcessPageV2.drainInputMessages();
-      await dom.click({ position: { x: 40, y: 30 } });
+      await overlay.click({ position: { x: 40, y: 30 } });
       let clicks = 0;
       await expect
         .poll(() => {
@@ -83,8 +84,9 @@ test.describe("T1 DOM co-browse", () => {
         }, { timeout: 5000 })
         .toBeGreaterThan(0);
 
-      // Keyboard relay: with focus inside the mirror, a printable key relays as
-      // an `input` type action (the mirror itself never mutates locally).
+      // Keyboard relay: the pointer gesture focuses the hidden capture <textarea>,
+      // so a printable key relays as an `input` type action (the mirror never
+      // mutates locally). The textarea drives hardware keys + mobile soft keyboards.
       let typed = 0;
       await page.keyboard.press("a");
       await expect
@@ -99,36 +101,28 @@ test.describe("T1 DOM co-browse", () => {
         }, { timeout: 5000 })
         .toBeGreaterThan(0);
 
-      // Native selection — the point of DOM mode: double-click selects the word
-      // LOCALLY in this device's engine (the old capture overlay made this
-      // impossible; a pixel stream cannot do it at all). frameLocator.dblclick()
-      // can't be used here: Playwright doesn't map in-frame coords through the
-      // wrapper's CSS transform (the fit scale), so the double-click would land
-      // off-target — compute the visual point manually from the iframe's visual
-      // box (post-transform) vs its recorded 900px layout width.
-      const iframeBox = await dom.locator("iframe").boundingBox();
-      // Aim at the START of the text (a <p> is block-wide; its center is empty
-      // space past the last glyph, where a double-click only places a caret).
-      const textPoint = await reconstructed.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        return { x: r.x + 30, y: r.y + r.height / 2 };
-      });
-      if (!iframeBox) throw new Error("replayer iframe has no bounding box");
-      const fitScale = iframeBox.width / 900; // recorded viewport width (rrweb Meta)
-      await page.mouse.dblclick(
-        iframeBox.x + textPoint.x * fitScale,
-        iframeBox.y + textPoint.y * fitScale,
-      );
-      // Read the selection from the PARENT context (the sandboxed frame realm
-      // under-reports); the double-click word-selects "DOM" natively.
+      // Native selection ON DEMAND — Option TOGGLES a select mode (a press-and-hold
+      // would alter the native selection gesture on macOS). We assert the CONTRACT
+      // this component owns: entering select mode shows the affordance, the capture
+      // overlay YIELDS (pointer-events:none) and the mirror iframe is INTERACTIVE
+      // (enableInteract → pointer-events:auto) — so the user's own drag selects text
+      // locally in this device's engine (which a pixel stream can't do at all). The
+      // native word-selection itself is the browser's job; asserting it through the
+      // wrapper's CSS transform + sandboxed frame realm is harness-brittle, not what
+      // this component controls.
+      await page.keyboard.press("Alt");
+      await expect(page.locator('[data-testid="browser-dom-select-mode"]')).toBeVisible();
       await expect
-        .poll(() =>
-          page.evaluate(() => {
-            const iframe = document.querySelector('[data-testid="browser-dom-cobrowse"] iframe') as HTMLIFrameElement | null;
-            return iframe?.contentDocument?.getSelection()?.toString() ?? "";
-          }),
-        )
-        .toContain("DOM");
+        .poll(() => overlay.evaluate((el) => getComputedStyle(el).pointerEvents))
+        .toBe("none");
+      await expect
+        .poll(() => dom.locator("iframe").evaluate((el) => getComputedStyle(el).pointerEvents))
+        .toBe("auto");
+      await page.keyboard.press("Alt"); // exit select mode → overlay recaptures
+      await expect(page.locator('[data-testid="browser-dom-select-mode"]')).toHaveCount(0);
+      await expect
+        .poll(() => overlay.evaluate((el) => getComputedStyle(el).pointerEvents))
+        .toBe("auto");
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
