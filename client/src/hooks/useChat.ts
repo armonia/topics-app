@@ -424,6 +424,54 @@ export function useChat() {
   }, []);
 
   // Handle WebSocket stream events (cross-window sync)
+  // ── Live-delta coalescing (CHAT-PERF-01) ───────────────────────────────────
+  // Cross-window WS mirroring delivers content/thinking one frame per token;
+  // committing each as its own render makes the streaming bubble re-parse
+  // markdown per token (O(n²) over a turn). Buffer per session and flush at
+  // most once per animation frame — parity with the foreground SSE path, which
+  // already batches per read-cycle (see sendMessage). Any NON-delta event
+  // flushes synchronously first, so the chronological `blocks` timeline stays
+  // correctly ordered: a tool block must never jump ahead of text before it.
+  const liveDeltaBufferRef = useRef<Map<string, { content: string; thinking: string }>>(new Map());
+  const liveDeltaRafRef = useRef<number | null>(null);
+
+  const flushLiveDeltas = useCallback((sessionKey?: string) => {
+    const buf = liveDeltaBufferRef.current;
+    const keys = sessionKey != null ? (buf.has(sessionKey) ? [sessionKey] : []) : [...buf.keys()];
+    for (const k of keys) {
+      const pending = buf.get(k);
+      buf.delete(k);
+      if (pending && (pending.content || pending.thinking)) {
+        appendToLastMessage(k, pending.content || undefined, pending.thinking || undefined);
+      }
+    }
+    if (buf.size === 0 && liveDeltaRafRef.current != null) {
+      cancelAnimationFrame(liveDeltaRafRef.current);
+      liveDeltaRafRef.current = null;
+    }
+  }, [appendToLastMessage]);
+
+  const bufferLiveDelta = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
+    const buf = liveDeltaBufferRef.current;
+    const entry = buf.get(sessionKey) ?? { content: '', thinking: '' };
+    if (contentDelta) entry.content += contentDelta;
+    if (thinkingDelta) entry.thinking += thinkingDelta;
+    buf.set(sessionKey, entry);
+    if (liveDeltaRafRef.current == null) {
+      liveDeltaRafRef.current = requestAnimationFrame(() => {
+        liveDeltaRafRef.current = null;
+        flushLiveDeltas();
+      });
+    }
+  }, [flushLiveDeltas]);
+
+  // Drop any buffered deltas on unmount (server holds the authoritative copy;
+  // this window re-syncs via loadHistory). No setState on a dead component.
+  useEffect(() => () => {
+    if (liveDeltaRafRef.current != null) cancelAnimationFrame(liveDeltaRafRef.current);
+    liveDeltaBufferRef.current.clear();
+  }, []);
+
   const handleStreamEvent = useCallback((event: WSMessage) => {
     // Every stream:* and message:media variant carries a sessionKey, but the
     // dispatcher upstream accepts the full WSMessage union (which includes
@@ -431,6 +479,12 @@ export function useChat() {
     // use `sessionKey` without per-case re-narrowing on each switch arm.
     const sessionKey = 'sessionKey' in event ? (event as { sessionKey?: string }).sessionKey : undefined;
     if (!sessionKey) return;
+
+    // Ordering guarantee: a non-delta event must see buffered text already
+    // committed before it reads/mutates the last message (blocks timeline).
+    if (event.type !== 'stream:content_chunk' && event.type !== 'stream:thinking_chunk') {
+      flushLiveDeltas(sessionKey);
+    }
 
     // Skip WS stream events for sessions with an active local SSE stream
     // (sendMessage already processes these via HTTP response — avoid double content)
@@ -469,7 +523,7 @@ export function useChat() {
 
       case 'stream:thinking_chunk':
         if (event.content) {
-          appendToLastMessage(sessionKey, undefined, event.content);
+          bufferLiveDelta(sessionKey, undefined, event.content);
         }
         break;
 
@@ -480,8 +534,8 @@ export function useChat() {
       case 'stream:content_chunk':
         if (event.content) {
           const cleanedChunk = cleanInvisibleMarkers(event.content);
-          if (cleanedChunk) appendToLastMessage(sessionKey, cleanedChunk, undefined);
-          resetStreamTimeout(sessionKey); // Reset watchdog on each chunk
+          if (cleanedChunk) bufferLiveDelta(sessionKey, cleanedChunk, undefined);
+          resetStreamTimeout(sessionKey); // Reset watchdog on each chunk (immediate, not deferred)
         }
         break;
 
@@ -756,7 +810,7 @@ export function useChat() {
         }
         break;
     }
-  }, [appendToLastMessage, addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout]);
+  }, [appendToLastMessage, addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout, bufferLiveDelta, flushLiveDeltas]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {

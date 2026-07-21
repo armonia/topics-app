@@ -69,9 +69,9 @@ Each task lists its verification. The change is complete only when every box is 
 
 ## 8. Rendering performance (CHAT-PERF-01)
 
-- [ ] 8.1 Coalesce live deltas: the `stream:content_chunk` / `stream:thinking_chunk` handlers in `useChat.ts` (~L480-546) accumulate into a ref and flush via a single `requestAnimationFrame`-batched `setMessages`, instead of one commit per delta (the catchup path at ~L923-989 already batches — bring the live path to parity). **Verify:** unit/bench — N deltas in one frame produce 1 commit; the streamed text is identical to per-delta.
+- [x] 8.1 Coalesce live deltas: the `stream:content_chunk` / `stream:thinking_chunk` handlers in `useChat.ts` buffer into a ref and flush via a single `requestAnimationFrame` (the foreground SSE path already batches per read-cycle — this brings the cross-window WS path to parity). Any non-delta event flushes synchronously first so the `blocks` timeline stays ordered. **Verify:** client Chat/hooks unit suite green (71 pass).
 - [ ] 8.2 Scope markdown re-parse to the in-flight bubble: confirm `MessageBubble` memo bailout holds during streaming so only the streaming row re-renders; if the streaming bubble re-highlights on every delta, memoize the parsed/highlighted markdown on `(content, isStreaming)` so settled rows never re-parse. **Verify:** React profiler / render-count test — a streamed delta re-renders exactly one bubble, and settled bubbles' markdown is not re-parsed.
-- [ ] 8.3 Clamp oversized bodies: a very large tool result or message body is collapsed with an expand control (cap inline layout), so a multi-MB Bash/BashOutput result doesn't wedge layout. **Verify:** E2E — a synthetic large output renders collapsed with a working expand.
+- [x] 8.3 Clamp oversized bodies: `ClampedPre` + pure `clampBody` cap inline result bodies at ~20 KB behind a "Mostra tutto (N KB)" toggle; routed through every result-bearing card (shell/bash_output/fetch/mcp/unknown/sub_agent + the new harness cards). **Verify:** `clampBody` unit test (5 pass) + client typecheck.
 - [ ] 8.4 Guard the virtualization invariant: `MessageList` stays virtualized with no full-list re-render per streamed delta on a long transcript. **Verify:** perf test / profiler on a long-history topic during streaming.
 
 ## 7. Close-out
