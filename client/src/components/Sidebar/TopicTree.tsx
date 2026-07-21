@@ -19,7 +19,7 @@ import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
-import { useAttentionSignals, signalsActions, useTerminalAttentionTier, useSignalsStore, projectAttentionTier } from '@/state/signals';
+import { useAttentionSignals, signalsActions, useTerminalAttentionTier, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
@@ -203,6 +203,10 @@ export function TopicTree({
   // the same thing the tab bar does (Claude needs-you, finished terminal turns),
   // not just raw server unread.
   const { claudeAttentionTopics, terminalFinishedIds } = useAttentionSignals();
+  // Real last-touched timestamp per claude-code terminal (idle/finished
+  // sessions included — see deriveSessionLastActivity) so a terminal row sorts
+  // and displays by actual Claude activity, not just when the session opened.
+  const sessionLastActivityById = useSessionLastActivity();
   // Active inner pane per open project (reported by each ProjectWindow). Lets a
   // project's child row (chat/terminal) light up when that project is the
   // focused pane — focusedPanelId stays the project pane, so without this only
@@ -262,7 +266,8 @@ export function TopicTree({
     detachedTopicIds,
     paneTitleById,
     browserOriginById,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById]);
+    sessionLastActivityById,
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -453,6 +458,7 @@ export function TopicTree({
         isTouch={isTouch}
         depth={depth}
         pinned={!!item.pinned}
+        lastActivity={item.lastActivity}
         onTerminalClick={onTerminalClick}
         onCloseTerminal={onCloseTerminal}
         onOpenAsProject={onOpenAsProject}
@@ -894,6 +900,11 @@ interface TerminalSidebarItemProps {
   /** Pinned ("Fissati") — renders the trailing Pin glyph and the row survives
    *  tab close (see buildSidebarItems pinnedIds escape for `terminal:<id>`). */
   pinned?: boolean;
+  /** Real last-touched timestamp (createdAt, or the Claude session's own
+   *  phaseUpdatedAt/updatedAt when more recent — see buildSidebarItems'
+   *  terminalLastActivity). Rendered as a relative-time label so it's visible
+   *  WHY this row sorts above/below another, mirroring BrowserSidebarItem. */
+  lastActivity: number;
   onTerminalClick?: (sessionId: string, sessionName: string) => void;
   onCloseTerminal?: (sessionId: string) => void;
   onOpenAsProject?: (path: string) => void;
@@ -902,7 +913,7 @@ interface TerminalSidebarItemProps {
   onTogglePin?: () => void;
 }
 
-function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, pinned, onTerminalClick, onCloseTerminal, onOpenAsProject, onTogglePin }: TerminalSidebarItemProps) {
+function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, pinned, lastActivity, onTerminalClick, onCloseTerminal, onOpenAsProject, onTogglePin }: TerminalSidebarItemProps) {
   const overflowRef = useRef<HTMLButtonElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
   // Desktop right-click menu (touch uses the overflow "…" DropdownPortal). null
@@ -961,6 +972,12 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             number, same noise we already stripped from the project header
             (see the comment near the project row). The live socket count is
             still available server-side if a surface ever genuinely needs it. */}
+        {/* Relative last-activity — same trailing timestamp BrowserSidebarItem
+            shows, so it's visible AT A GLANCE why this row sorts above/below
+            another (real last touch, not frozen createdAt). */}
+        <span className={`flex-shrink-0 text-[11px] tabular-nums group-hover/terminal:hidden mr-1 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}>
+          {relativeTime(lastActivity)}
+        </span>
         {/* Loading spinner + status pinned to the END of the row (after the cwd
             metadata) so "what's working" reads at the trailing edge, mirroring
             the tab bar. A finished turn surfaces as the notification badge, not

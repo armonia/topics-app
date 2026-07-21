@@ -548,3 +548,60 @@ describe("buildSidebarItems — utility tabs (tab-driven, same rule as everythin
     expect(groups.utility.map((i) => i.id)).toEqual(["__board__"]);
   });
 });
+
+describe("buildSidebarItems — terminal lastActivity reflects real Claude activity", () => {
+  // term()'s createdAt is fixed at new Date(0) — every case below overrides
+  // sessionLastActivityById (keyed by terminal id, from signals.ts's
+  // deriveSessionLastActivity) to isolate the fold from createdAt.
+  test("uses the session's last-touched timestamp when newer than createdAt", () => {
+    const items = buildSidebarItems({
+      ...base,
+      terminalSessions: [term("s1", "/home/me")],
+      openPanels: ["terminal:s1"],
+      sessionLastActivityById: new Map([["s1", 5000]]),
+    });
+    const row = items.find((i) => i.id === "terminal:s1");
+    expect(row?.lastActivity).toBe(5000);
+  });
+
+  test("falls back to createdAt when no session-activity entry exists (hook-less/untouched session)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      terminalSessions: [term("s1", "/home/me")],
+      openPanels: ["terminal:s1"],
+    });
+    const row = items.find((i) => i.id === "terminal:s1");
+    expect(row?.lastActivity).toBe(new Date(0).getTime());
+  });
+
+  test("never sorts a session BEFORE its own creation time (stale/race session-activity value)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      terminalSessions: [term("s1", "/home/me")],
+      openPanels: ["terminal:s1"],
+      sessionLastActivityById: new Map([["s1", -1000]]),
+    });
+    const row = items.find((i) => i.id === "terminal:s1");
+    expect(row?.lastActivity).toBe(new Date(0).getTime());
+  });
+
+  test("a finished session (idle phase, no live activity label) still sorts by its real finish time", () => {
+    // deriveSessionActivity would drop this session's entry entirely (idle),
+    // but deriveSessionLastActivity — the map this option is fed from — keeps
+    // it, so a completed run doesn't collapse back to createdAt ordering.
+    const items = buildSidebarItems({
+      ...base,
+      terminalSessions: [term("old", "/home/me"), term("recent", "/home/me")],
+      openPanels: ["terminal:old", "terminal:recent"],
+      sessionLastActivityById: new Map([
+        ["old", 1000],
+        ["recent", 9000],
+      ]),
+    });
+    const sorted = items
+      .filter((i) => i.type === "terminal")
+      .sort((a, b) => b.lastActivity - a.lastActivity)
+      .map((i) => i.id);
+    expect(sorted).toEqual(["terminal:recent", "terminal:old"]);
+  });
+});
