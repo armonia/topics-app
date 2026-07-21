@@ -14,10 +14,11 @@
  * text fallback when unknown/oversize/not-yet-loaded.
  */
 
-import { useMemo, useSyncExternalStore } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import type { ToolCallDetail } from '../../types';
 import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
+import { clampBody, formatBytes } from './clampBody';
 
 /**
  * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
@@ -221,11 +222,7 @@ export function FetchCard({ url, prompt, result, statusCode, bytes }: {
           {prompt}
         </pre>
       )}
-      {result && (
-        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
-          {result}
-        </pre>
-      )}
+      {result && <ClampedPre text={result} />}
     </div>
   );
 }
@@ -306,9 +303,7 @@ export function SubAgentCard({ subAgentType, description, actions, result, isRun
       {result && (
         <div>
           <div className="text-[11px] uppercase tracking-wide text-app-text-muted mb-0.5">Final result</div>
-          <pre className="text-[11px] text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-56 bg-app-hover/40 rounded px-2 py-1.5">
-            {result}
-          </pre>
+          <ClampedPre text={result} maxH="max-h-56" />
         </div>
       )}
     </div>
@@ -352,23 +347,45 @@ export function McpCard({ args, result }: {
   return (
     <div className="space-y-1">
       {args && Object.keys(args).length > 0 && <ArgsPre args={args} />}
-      {result && (
-        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
-          {result}
-        </pre>
+      {result && <ClampedPre text={result} />}
+    </div>
+  );
+}
+
+// ── Clamped result block (CHAT-PERF-01) ─────────────────────────────────────
+
+/**
+ * Result <pre> that collapses multi-MB bodies behind a "show all" toggle so a
+ * pathological tool output never lays out megabytes of text inline. Shared by
+ * every result-bearing card; preserves the `tool-call-result` test hook.
+ */
+function ClampedPre({ text, testId = 'tool-call-result', maxH = 'max-h-72' }: {
+  text: string; testId?: string; maxH?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { shown, oversized, length } = clampBody(text);
+  return (
+    <div className="space-y-1">
+      <pre data-testid={testId} className={`text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>
+        {expanded ? text : shown}
+        {oversized && !expanded && <span className="text-app-text-muted">…</span>}
+      </pre>
+      {oversized && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="text-[11px] text-blue-500 hover:underline"
+        >
+          {expanded ? 'Mostra meno' : `Mostra tutto (${formatBytes(length)})`}
+        </button>
       )}
     </div>
   );
 }
 
-// ── Result block shared by the background / harness cards ───────────────────
-
+/** Back-compat alias used by the background/harness cards. */
 function ResultPre({ text }: { text: string }) {
-  return (
-    <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
-      {text}
-    </pre>
-  );
+  return <ClampedPre text={text} />;
 }
 
 // ── Monitor (long-lived event watcher) ──────────────────────────────────────
@@ -479,11 +496,7 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
   return (
     <div className="space-y-1">
       {args && Object.keys(args).length > 0 && <ArgsPre args={args} />}
-      {result && (
-        <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-56 bg-app-hover/40 rounded px-2 py-1.5">
-          {result}
-        </pre>
-      )}
+      {result && <ClampedPre text={result} maxH="max-h-56" />}
     </div>
   );
 }
