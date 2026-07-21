@@ -337,7 +337,17 @@ const voiceRouter = createVoiceRouter(ctx);
 const remoteRouter = createRemoteRouter(ctx);
 const mediaRouter = createMediaRouter(ctx);
 const branchesRouter = createBranchesRouter(ctx);
-const browserRouter = createBrowserRouter(ctx, browserService, (c) => browserWsClients.get(c)?.size ?? 0);
+const browserRouter = createBrowserRouter(ctx, browserService, (c) => {
+  // Count only REAL streaming viewers of the shared session. A Tauri native pane
+  // holds a /ws/browser socket too (for register_native_executor delegation) but
+  // is NOT a viewer — excluding it keeps a solo native pane at 0 so 'auto' doesn't
+  // oscillate native↔shared (browser reset every ~2s).
+  const set = browserWsClients.get(c);
+  if (!set) return 0;
+  let n = 0;
+  for (const w of set) if (!w.data._nativeDelegate) n++;
+  return n;
+});
 const cronRouter = createCronRouter(ctx);
 const contextRouter = createContextRouter(ctx);
 const terminalRouter = createTerminalRouter(ctx, claudeSessionTracker);
@@ -1538,6 +1548,10 @@ const server = Bun.serve<WSData>({
             // Chromium / bandwidth for a context that isn't streaming).
             try { void ws.data._browserCleanup?.(); } catch {}
             ws.data._browserCleanup = undefined;
+            // Mark it so the viewer count excludes it: a native pane is NOT a viewer
+            // of the shared session, and counting its own delegate socket made an
+            // 'auto' pane flap native↔shared every poll (browser reset every ~2s).
+            ws.data._nativeDelegate = true;
             console.log(`[WS][browser] native executor registered for ctx ${ctxId}`);
             return;
           }
