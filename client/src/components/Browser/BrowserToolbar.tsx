@@ -401,7 +401,7 @@ export function BrowserToolbar({
             onClose={() => setOverflowOpen(false)}
             align="right"
           >
-            {/* Sessione: server condivisa (default) ↔ browser nativo privato.
+            {/* Sessione: browser nativo privato (default) ↔ server condivisa.
                 NON è "condivisione con altri utenti" (quella è per-chat/progetto,
                 task d6baaf5e) — è la resa di QUESTO device. */}
             {onToggleShare && (
