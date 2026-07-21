@@ -155,6 +155,9 @@ describe('formatters', () => {
     expect(formatDurationMs(9_400)).toBe('9.4s');
     expect(formatDurationMs(41_000)).toBe('41s');
     expect(formatDurationMs(65_000)).toBe('1m 05s');
+    expect(formatDurationMs(59 * 60_000 + 30_000)).toBe('59m 30s');
+    expect(formatDurationMs(60 * 60_000)).toBe('1h 00m');
+    expect(formatDurationMs(3600_000 + 125_000)).toBe('1h 02m');
     expect(formatDurationMs(-5)).toBe('');
   });
 });

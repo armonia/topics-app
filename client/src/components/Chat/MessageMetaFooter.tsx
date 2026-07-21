@@ -1,3 +1,5 @@
+import { formatDurationMs } from './toolGrouping';
+
 interface Props {
   latencyMs?: number | null;
   promptTokens?: number | null;
@@ -37,8 +39,9 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
 
   const safeLatency = safeNum(latencyMs);
   if (safeLatency > 0) {
-    const seconds = safeLatency / 1000;
-    parts.push(seconds >= 10 ? `${seconds.toFixed(0)}s` : `${seconds.toFixed(1)}s`);
+    // Same formatter as the tool/turn timers so a slow turn reads "1m 30s",
+    // not "90s" — one consistent duration language across the chat.
+    parts.push(formatDurationMs(safeLatency));
   }
   if (total > 0) {
     parts.push(`${total.toLocaleString()} tokens`);
