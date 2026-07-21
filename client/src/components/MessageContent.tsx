@@ -941,6 +941,9 @@ interface MessageContentProps {
   blocks?: import('../types').ContentBlock[];
   media?: string[];
   partial?: boolean;
+  /** Whether this is the last row in the transcript. The live turn indicator is
+   *  gated on it so a stale/ghost partial can't render a second indicator. */
+  isLast?: boolean;
   /**
    * Turn start (ms epoch), from the streaming message's `timestamp`. Anchors
    * the live turn timer inside <TurnActivityIndicator>. Only read while
@@ -969,7 +972,7 @@ interface MessageContentProps {
   onMessage?: (handler: (msg: import('../types').WSMessage) => void) => () => void;
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, turnStartedAt, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1125,7 +1128,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           </div>
         ))}
 
-        {partial && <TurnActivityIndicator since={turnStartedAt} />}
+        {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} />}
 
         {!partial && (
           <MessageMetaFooter
@@ -1205,7 +1208,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
       {/* Live turn-activity indicator (playful phrase + timer) — covers empty
           placeholder and mid-stream alike. */}
-      {partial && <TurnActivityIndicator since={turnStartedAt} />}
+      {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} />}
 
       {/* Per-message footer (latency + tokens + cost). Hidden until streaming
            ends and at least one metric is reported by the provider. */}

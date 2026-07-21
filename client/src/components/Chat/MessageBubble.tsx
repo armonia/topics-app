@@ -85,6 +85,11 @@ interface MessageBubbleProps {
   onOpenSessionViewer?: (sessionKey: string) => void;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
+  /** True only for the last row in the list. The live turn-activity indicator
+   *  is gated on this so a stale partial left earlier in the transcript (a
+   *  ghost from a lost stream:end) can never paint a SECOND running indicator
+   *  under the real, current turn. */
+  isLast?: boolean;
 }
 
 export const MessageBubble = memo(function MessageBubble({
@@ -109,6 +114,7 @@ export const MessageBubble = memo(function MessageBubble({
   onOpenSessionViewer,
   onMessage,
   onRetry,
+  isLast,
 }: MessageBubbleProps) {
   const grouped = idx > 0 && prev && prev.role === msg.role && msg.timestamp && prev.timestamp && (new Date(msg.timestamp).getTime() - new Date(prev.timestamp).getTime() < 120000);
   const dateSep = getDateSeparator(msg.timestamp, prev?.timestamp);
@@ -277,6 +283,7 @@ export const MessageBubble = memo(function MessageBubble({
                 blocks={msg.blocks}
                 media={msg.media}
                 partial={msg.partial}
+                isLast={isLast}
                 turnStartedAt={Date.parse(msg.timestamp)}
                 latencyMs={msg.latencyMs}
                 usagePromptTokens={msg.usagePromptTokens}

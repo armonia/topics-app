@@ -651,6 +651,7 @@ export function MessageList({
                   msg={msg}
                   prev={prev}
                   idx={idx}
+                  isLast={idx === filteredMessages.length - 1}
                   topic={topic}
                   copiedMsgId={copiedMsgId}
                   isCompact={isCompact}
