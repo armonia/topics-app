@@ -905,6 +905,54 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       return json({ sessions });
     }
 
+    // Custom slash commands + skills the user has, for composer autocomplete.
+    // The headless CLI expands both (`/commit`, `/vai`, …) — verified — so the
+    // composer just needs to surface them; on send they fall through to the
+    // child (handleSlashCommand only intercepts the app allowlist). Best-effort:
+    // a missing dir is simply skipped.
+    if (method === "GET" && pathname === "/api/slash-commands") {
+      const out: Array<{ name: string; description: string; kind: "command" | "skill" }> = [];
+      const seen = new Set<string>();
+      const descOf = (file: string): string => {
+        try {
+          const txt = readFileSync(file, "utf-8");
+          const fm = txt.match(/^---[\s\S]*?\n\s*description:\s*(.+?)\s*(?:\n|$)/i);
+          if (fm) return fm[1].replace(/^["']|["']$/g, "").slice(0, 100);
+          for (const line of txt.split("\n")) {
+            const t = line.trim();
+            if (!t || t === "---" || t.startsWith("#")) continue;
+            return t.slice(0, 100);
+          }
+        } catch { /* unreadable — no description */ }
+        return "";
+      };
+      const add = (name: string, description: string, kind: "command" | "skill") => {
+        if (!name || seen.has(name)) return;
+        seen.add(name);
+        out.push({ name, description, kind });
+      };
+      for (const dir of [join(homedir(), ".claude", "commands"), join(process.cwd(), ".claude", "commands")]) {
+        try {
+          for (const f of readdirSync(dir)) {
+            if (!f.endsWith(".md")) continue;
+            add(f.slice(0, -3), descOf(join(dir, f)), "command");
+          }
+        } catch { /* dir absent */ }
+      }
+      for (const dir of [join(homedir(), ".claude", "skills"), join(homedir(), "jarvis", "skills-marketplace", "skills")]) {
+        try {
+          for (const d of readdirSync(dir, { withFileTypes: true })) {
+            if (!d.isDirectory()) continue;
+            const md = join(dir, d.name, "SKILL.md");
+            if (!existsSync(md)) continue;
+            add(d.name, descOf(md), "skill");
+          }
+        } catch { /* dir absent */ }
+      }
+      out.sort((a, b) => a.name.localeCompare(b.name));
+      return json(out);
+    }
+
     if (method === "POST" && pathname === "/api/topics") {
       const body = await readJSON(req);
       // typeof guard: slugify() calls .toLowerCase() and would 500 on a non-string name.

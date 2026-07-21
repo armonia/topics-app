@@ -678,6 +678,16 @@ export interface CommandResult {
   error?: string;
 }
 
+export interface CustomSlashCommand { name: string; description: string; kind: 'command' | 'skill'; }
+
+/** The user's custom slash commands + skills (for composer autocomplete). The
+ *  headless CLI expands them; the composer only surfaces them. Best-effort. */
+export const slashCommandsApi = {
+  async list(): Promise<CustomSlashCommand[]> {
+    return request<CustomSlashCommand[]>('/slash-commands');
+  },
+};
+
 export const commandApi = {
   async execute(sessionKey: string, command: string, args?: Record<string, unknown>): Promise<CommandResult> {
     return request<CommandResult>('/command', {
