@@ -1825,8 +1825,20 @@ const staleStreamTimer = setInterval(() => {
     const lastActivity = new Date(stream.lastActivity).getTime();
     if (now - lastActivity > STALE_STREAM_TIMEOUT_MS) {
       console.log(`[StaleStream] Auto-clearing stale stream for ${sessionKey}`);
-      // Finalize partial messages via SQLite
-      db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [sessionKey]);
+      // Non-destructive finalize. A genuinely stale partial means the turn died
+      // without a clean `result` (detached/orphaned/wedged process). Do NOT just
+      // flip `partial = 0` — a turn that streamed only tool calls (no final prose)
+      // would be left as a blank bubble that the client then hides, which is the
+      // "message streams then disappears" bug. If no prose was streamed, drop in
+      // an explicit interrupted marker so the user sees WHAT happened; any tool
+      // blocks are untouched and still render below it.
+      const hadProse = typeof partial.content === "string" && partial.content.trim().length > 0;
+      if (hadProse) {
+        db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE id = ?", [stream.messageId]);
+      } else {
+        const marker = "⚠️ Risposta interrotta: nessuna attività per 3 minuti (il processo potrebbe essersi bloccato o disconnesso). Riprova.";
+        db.run("UPDATE messages SET partial = 0, streamed_at = NULL, content = ? WHERE id = ?", [marker, stream.messageId]);
+      }
       const topicId = ctx.getTopicBySessionKey(sessionKey)?.id;
       broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "stale_timeout" });
       activeStreams.delete(sessionKey);
