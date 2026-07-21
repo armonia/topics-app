@@ -10,7 +10,7 @@ import { getMediaUrl } from '../lib/api';
 import { basename } from '../lib/path-utils';
 import { openExternalOnce } from '../lib/openExternal';
 import { selfTaskLinkTarget, openTaskInApp } from '../lib/openTaskLink';
-import { PartialIndicator } from './MessageParts';
+import { TurnActivityIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
@@ -898,6 +898,12 @@ interface MessageContentProps {
   blocks?: import('../types').ContentBlock[];
   media?: string[];
   partial?: boolean;
+  /**
+   * Turn start (ms epoch), from the streaming message's `timestamp`. Anchors
+   * the live turn timer inside <TurnActivityIndicator>. Only read while
+   * `partial`; undefined/NaN degrades gracefully (elapsed from mount).
+   */
+  turnStartedAt?: number;
   // Per-message footer (Slice 7) — all optional. Footer hides when none set.
   latencyMs?: number | null;
   usagePromptTokens?: number | null;
@@ -920,7 +926,7 @@ interface MessageContentProps {
   onMessage?: (handler: (msg: import('../types').WSMessage) => void) => () => void;
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, turnStartedAt, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1071,15 +1077,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           );
         })}
 
-        {/* Streaming dots for empty placeholder messages */}
-        {blocks.length === 0 && partial && (
-          <div className="flex gap-1.5 items-center py-0.5">
-            <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-            <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-            <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-          </div>
-        )}
-
         {/* Media — rendered after content blocks */}
         {allMediaPaths.map((path, i) => (
           <div key={`m-${i}`} className="mb-2">
@@ -1087,7 +1084,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           </div>
         ))}
 
-        {partial && <PartialIndicator />}
+        {partial && <TurnActivityIndicator since={turnStartedAt} />}
 
         {!partial && (
           <MessageMetaFooter
@@ -1136,15 +1133,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               </div>
             )}
 
-            {/* Inline typing indicator for empty streaming message */}
-            {!cleanText && !thinking && partial && (
-              <div className="flex gap-1.5 items-center py-0.5">
-                <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-1.5 h-1.5 bg-app-text-muted rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
-            )}
-
             {/* Plan view - detect plan-format responses */}
             {cleanText && !partial && planResp && onPlanApprove && (
               <PlanView
@@ -1176,8 +1164,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       {/* Media — rendered after content so images appear inline */}
       {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} /></div>)}
 
-      {/* Streaming indicator - only when content has started */}
-      {partial && (cleanText || thinking) && <PartialIndicator />}
+      {/* Live turn-activity indicator (playful phrase + timer) — covers empty
+          placeholder and mid-stream alike. */}
+      {partial && <TurnActivityIndicator since={turnStartedAt} />}
 
       {/* Per-message footer (latency + tokens + cost). Hidden until streaming
            ends and at least one metric is reported by the provider. */}

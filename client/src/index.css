@@ -953,6 +953,40 @@ input[type="range"]::-webkit-slider-thumb {
   animation: streamDot 1.4s ease-in-out infinite;
 }
 
+/* Turn activity indicator — the playful "thinking" line + live timer that
+   replaces the old three bouncing dots and the generic "Streaming..." row.
+   The dot breathes with a soft glow; the phrase gets a slow highlight sweep
+   (reuses @keyframes shimmer). Honors prefers-reduced-motion. */
+@keyframes turnDotGlow {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 0 0 var(--primary-light); }
+  50%      { opacity: 1;   box-shadow: 0 0 7px 1px var(--primary-medium); }
+}
+.turn-activity-dot {
+  animation: turnDotGlow 1.6s ease-in-out infinite;
+}
+.turn-activity-phrase {
+  background-image: linear-gradient(
+    100deg,
+    var(--text-muted) 0%, var(--text-muted) 38%,
+    var(--text) 50%,
+    var(--text-muted) 62%, var(--text-muted) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: shimmer 3s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-activity-dot { animation: none; opacity: 0.9; }
+  .turn-activity-phrase {
+    animation: none;
+    -webkit-text-fill-color: var(--text-muted);
+    color: var(--text-muted);
+  }
+}
+
 /* Empty state icon animation */
 @keyframes floatIcon {
   0%, 100% { transform: translateY(0); }
