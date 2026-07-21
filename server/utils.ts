@@ -903,7 +903,7 @@ export function createAppContext(baseDir: string): AppContext {
     return msg;
   }
 
-  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string): StoredMessage | null {
+  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>): StoredMessage | null {
     const row = stmts.getLastMessage.get(sessionKey) as any;
     if (!row) return null;
     const msg = rowToMessage(row);
@@ -912,6 +912,9 @@ export function createAppContext(baseDir: string): AppContext {
       tc.result = result;
       tc.error = error;
       tc.status = error ? 'error' : 'success';
+      // Terminal-time extras (endedAt timestamp, etc.) ride the same write
+      // instead of paying a second parse→serialize cycle per tool.
+      if (extra) Object.assign(tc, extra);
       stmts.updateMessage.run({
         $id: msg.id,
         $content: msg.content,
@@ -1138,7 +1141,14 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Media helpers (unchanged) ---
+  // Base media di Topics: ~/.topics (nuova, preferita) + ~/.openclaw (legacy
+  // e root CONDIVISA dell'ecosistema Jarvis — resta leggibile per i path già
+  // salvati e per i media prodotti da altri tool). NON migrare la root intera:
+  // credenziali/gateway/cron/router vivono in ~/.openclaw e non sono di Topics.
+  const TOPICS_DIR = `${process.env.HOME}/.topics`;
   const ALLOWED_MEDIA_BASES = [
+    `${TOPICS_DIR}/media/`,
+    `${TOPICS_DIR}/workspace/`,
     `${OPENCLAW_DIR}/media/`,
     `${OPENCLAW_DIR}/workspace/`,
   ];
@@ -1168,6 +1178,8 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   const MEDIA_SCAN_DIRS = [
+    join(process.env.HOME || "", ".topics/media/browser"),
+    join(process.env.HOME || "", ".topics/media"),
     join(process.env.HOME || "", ".openclaw/media/browser"),
     join(process.env.HOME || "", ".openclaw/media"),
   ];
@@ -1303,6 +1315,8 @@ export function createAppContext(baseDir: string): AppContext {
     "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",
     "audio/mpeg", "audio/wav", "audio/ogg", "audio/mp4", "audio/webm",
+    // Review clips (Playwright / spec-flow recordings) as first-class evidence.
+    "video/webm", "video/mp4", "video/quicktime",
   ]);
 
   // --- Branching helpers ---

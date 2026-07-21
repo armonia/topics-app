@@ -118,8 +118,19 @@ function scheduleInitialLoadFallback(): void {
  * renders. Idempotent via each init*()'s internal `started` flag.
  */
 export function bootstrapPaneStore(): void {
+  // Detached pop-out windows (`?topics=a,b` / legacy `?topic=`) host exactly
+  // the topics in their URL and must be READ-ONLY toward the shared pane
+  // store: they still hydrate (local snapshot + WS/HTTP) so panes render, but
+  // never write back — no server PUT, no cross-tab broadcast, no local
+  // snapshot overwrite, no tombstone mirroring, no legacy-key clearing. A
+  // detached window that persisted its dispatches leaked its panes into every
+  // other client's layout (live incident 2026-07-20: automation windows in
+  // detached mode stranded nine floating browser panes in group:default).
+  const params = new URLSearchParams(window.location.search);
+  const isDetached = Boolean(params.get('topics') ?? params.get('topic'));
+
   // Seed the reducer from legacy localStorage (one-shot; also clears legacy keys).
-  hydrateFromLegacyStorage();
+  if (!isDetached) hydrateFromLegacyStorage();
 
   // Warm-hydrate from the same-device `pane-store-v2` snapshot BEFORE React
   // renders. Closes the ~500 ms gap between mount and the WS/HTTP server
@@ -128,10 +139,12 @@ export function bootstrapPaneStore(): void {
   // Server hydrate still wins LWW via syncWS's lastAppliedServerSeq guard.
   hydrateFromLocalSnapshot();
 
-  // Wire the four persistence subscribers.
-  initLocalPersistence();
-  initServerSync();
-  initCrossTabSync();
+  // Wire the persistence subscribers (write paths gated on detached above).
+  if (!isDetached) {
+    initLocalPersistence();
+    initServerSync();
+    initCrossTabSync();
+  }
   // Subscribe to the app's single WS via the module-level frame bus. When
   // React later mounts and useWebSocket opens the socket, frames flow into
   // `dispatchFrame` and fan out to every subscriber registered here.
@@ -140,7 +153,7 @@ export function bootstrapPaneStore(): void {
   // Cross-device mirroring of browser/terminal close-tombstones over the same
   // ui_state channel (union-only, clobber-safe). Wired after the frame bus so
   // its subscribeFrames registration is in place before the socket opens.
-  initTombstoneSync();
+  if (!isDetached) initTombstoneSync();
 
   // 500 ms WS-latency fallback to GET /api/ui-state.
   scheduleInitialLoadFallback();

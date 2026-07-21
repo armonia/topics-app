@@ -36,6 +36,21 @@ interface BrowserContextEntry {
    *  keeps running — its lifetime is owned by the engine registry's ref count),
    *  so destroyContext must close THIS + the page, never the shared context. */
   engineBrowser?: Browser;
+  /** T1 DOM co-browse (opt-in). Set once rrweb has been injected into this
+   *  context's page (bundle addInitScript + exposed __rrwebEmit binding). */
+  domInjected?: boolean;
+  /** Whether captured rrweb events are being broadcast right now. Gated so the
+   *  page keeps recording (cheap) but no `dom_event` traffic is sent once every
+   *  viewer has switched back to the video stream. */
+  domEmit?: boolean;
+  /** Bootstrap buffer for late-joiners: last Meta (type 4) + FullSnapshot
+   *  (type 2) + incrementals since that snapshot (capped). A new DOM-mode viewer
+   *  is replayed [meta, full, ...inc] so it can reconstruct without a reload. */
+  dom?: { meta: unknown | null; full: unknown | null; inc: unknown[] };
+  /** Cached CDP session used to inject the rrweb recorder via Runtime.evaluate
+   *  (CSP-exempt, unlike addScriptTag whose inline <script> most real sites'
+   *  Content-Security-Policy refuses). Lazily created; detached on destroy. */
+  recorderCdp?: import("playwright-core").CDPSession;
 }
 
 interface BrowserServiceOptions {
@@ -71,6 +86,74 @@ interface BrowserServiceOptions {
 }
 
 const MAX_CONSOLE_MESSAGES = 100;
+/** Cap on buffered incrementals kept for late-join bootstrap (a Meta+FullSnapshot
+ *  resets this). ~4000 covers minutes of a busy page; older ones drop off. */
+const MAX_DOM_INCREMENTALS = 4000;
+
+// ── T1 DOM co-browse: rrweb record injection (opt-in, default OFF) ────────────
+// The record UMD is vendored (server/assets/rrweb.min.js) at the SAME version as
+// the client's Replayer dependency, so capture and replay can never drift.
+// Injected into a page ONLY when a viewer requests DOM render mode — the default
+// JPEG/WebRTC pixel path is left completely untouched. Captured events (tiny JSON)
+// fan out over /ws/browser/:contextId as `dom_event`; each device reconstructs the
+// DOM in its own native engine (the real browser, not a video).
+let RRWEB_RECORD_BUNDLE = '';
+try {
+  // Idempotence guard: the bundle opens with `var rrweb = ...`, and at global
+  // scope that IS window.rrweb — re-evaluating it (every enableDomMode calls
+  // startRecordingNow) would CLOBBER the live module with a fresh-state copy
+  // whose internal "recording started" flag is false, breaking
+  // record.takeFullSnapshot for late joiners. Only evaluate into a window that
+  // doesn't have the recorder yet; `var` hoisting keeps the block harmless.
+  RRWEB_RECORD_BUNDLE =
+    'if(!(window.rrweb&&window.rrweb.record)){\n' +
+    readFileSync(join(import.meta.dir, 'assets', 'rrweb.min.js'), 'utf8') +
+    '\n;window.rrweb=window.rrweb||rrweb;\n}';
+} catch (err) {
+  console.warn('[BrowserService] rrweb record bundle missing — DOM co-browse disabled:', (err as Error)?.message);
+}
+// Runs in the page AFTER the bundle. Starts the recorder (guarded against a double
+// start on the same document) and pipes each event to the host via __rrwebEmit.
+// The recorder's stop fn is stashed on window.__rrwebStop so instrumentation is
+// REVOCABLE (see RRWEB_STOP) — the mutation observers detach when no one is watching.
+const RRWEB_RECORD_START = `(function(){
+  function emit(p){ try { window.__rrwebEmit && window.__rrwebEmit(JSON.stringify(p)); } catch(_){} }
+  if (window.__rrwebStarted) {
+    // A recorder is already live on this document (another viewer enabled DOM
+    // first, or a reconnect re-asserted the mode). rrweb emits Meta+FullSnapshot
+    // only at record() start, so on a static page a no-op here would starve the
+    // (reset) server buffer forever — enableDomMode would time out and force the
+    // JOINING viewer to video. Force a fresh checkout instead: Meta+FullSnapshot
+    // re-emit for everyone (existing mirrors just rebuild once).
+    try { window.rrweb.record.takeFullSnapshot(true); }
+    catch(e){ emit({ kind:'error', error:String(e&&e.message||e) }); }
+    return;
+  }
+  if (!window.rrweb || !window.rrweb.record) return;
+  function start(){
+    if (window.__rrwebStarted) return;
+    try {
+      window.__rrwebStop = window.rrweb.record({
+        emit: function(event){ emit({ kind:'event', event:event }); },
+        inlineStylesheet: true, inlineImages: false, collectFonts: false, recordCanvas: false,
+        // Never stream password field contents in clear (explicit, not just rrweb's
+        // default). Other inputs stay visible — a co-browse of a form is the point.
+        maskInputOptions: { password: true },
+        // input: 'all' — echo EVERY keystroke to the mirror live. rrweb's 'last'
+        // only records the final value once the input settles, so a co-browse
+        // user typed and saw NOTHING until blur ("scrivo e non appare"). Typing
+        // is human-rate (trivial volume vs the throttled mousemove/scroll), so
+        // 'all' is the right call for a real, native-feeling text input.
+        sampling: { mousemove: 50, scroll: 100, media: 400, input: 'all' },
+      });
+      window.__rrwebStarted = true;
+    } catch(e){ emit({ kind:'error', error:String(e&&e.message||e) }); }
+  }
+  if (document.readyState === 'interactive' || document.readyState === 'complete') start();
+  else window.addEventListener('DOMContentLoaded', function(){ start(); }, { once:true });
+})();`;
+// Detach the recorder (stops all MutationObservers) and allow a clean restart.
+const RRWEB_STOP = `(function(){ try { if (window.__rrwebStop) { window.__rrwebStop(); window.__rrwebStop = null; } window.__rrwebStarted = false; } catch(_){} })();`;
 
 export interface AccessibilityNode {
   role: string;
@@ -140,6 +223,15 @@ export interface BrowserService {
     action: 'click' | 'type' | 'scroll' | 'mousemove' | 'keypress',
     payload: { x?: number; y?: number; text?: string; key?: string; deltaX?: number; deltaY?: number; button?: 'left' | 'right' | 'middle' }
   ): Promise<void>;
+  /** T1 DOM co-browse: inject rrweb into this context's page (idempotent) and
+   *  start broadcasting `dom_event`s to its viewers. Resolves with the bootstrap
+   *  burst [meta, full, ...incrementals] for the requesting viewer, or null when
+   *  DOM mode can't be enabled (no page / injection failed) — the caller then
+   *  forces the pane back to the video stream. */
+  enableDomMode(id: string): Promise<unknown[] | null>;
+  /** T1 DOM co-browse: gate whether captured events are broadcast. The page keeps
+   *  recording (cheap) but `dom_event` traffic stops once no viewer is in DOM mode. */
+  setDomEmit(id: string, on: boolean): void;
   /** Phase 30 BROWSER-CHAT-03 — broadcast `{ type: 'agent_active', active, action? }`
    *  over the /ws/browser/:contextId bridge. No-op when no broadcast callback was
    *  wired. On `active=true` it attaches the human-readable action label set by the
@@ -231,6 +323,15 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   // pendingViewportHints: set by setEngineHint, cleared on switch-to-default and
   // on destroyContext. Absent entry ⇒ the default headless engine.
   const pendingEngineHints = new Map<string, { engine: "default" | "chromium"; cdpEndpoint?: string }>();
+  // Single-flight guard for createContext: on a fresh pane the WS-open handler
+  // (screencast bootstrap), set_render and nav all hit getOrCreate CONCURRENTLY.
+  // Without this, each racer built a full Playwright context for the same id and
+  // the last `contexts.set` won — the losers leaked as ORPHAN live pages. With
+  // DOM co-browse the damage was visible: recorder, __rrwebEmit binding and the
+  // 'load' re-arm all lived on an orphan stuck on about:blank, so every viewer
+  // mirrored a blank page forever (live repro 2026-07-20: double "Context
+  // created" lines per id with two targetIds).
+  const pendingCreates = new Map<string, Promise<void>>();
   // How a chromium-engine context reaches the real Chromium (injectable for tests).
   const connectOverCDP =
     opts.connectOverCDP ??
@@ -475,6 +576,83 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     });
   }
 
+  // T1 DOM co-browse: (re)inject the rrweb record bundle + start into the CURRENT
+  // document via CDP Runtime.evaluate — NOT addScriptTag. addScriptTag inserts a
+  // real inline <script>, which the page's Content-Security-Policy refuses on most
+  // of the modern web (GitHub, Google, …: `script-src 'self'` with no
+  // 'unsafe-inline') → the bundle silently never runs, no rrweb events flow, and
+  // DOM mode falls back to video. Runtime.evaluate runs the code at page-global
+  // scope AS THE DEBUGGER (CSP-exempt), so the bundle's top-level `var rrweb`
+  // still becomes a real page global and recording starts everywhere. The recorder
+  // world matches the exposed __rrwebEmit binding (both main-world). Best-effort:
+  // about:blank / a mid-navigation page can reject — the next 'load' re-injects.
+  async function startRecordingNow(entry: BrowserContextEntry): Promise<void> {
+    if (!entry.recorderCdp) {
+      entry.recorderCdp = await entry.context.newCDPSession(entry.page);
+    }
+    const cdp = entry.recorderCdp;
+    const run = async (expression: string) => {
+      const res = (await cdp.send("Runtime.evaluate", {
+        expression,
+        returnByValue: false,
+        awaitPromise: false,
+      })) as { exceptionDetails?: { text?: string; exception?: { description?: string } } };
+      if (res.exceptionDetails) {
+        throw new Error(res.exceptionDetails.exception?.description || res.exceptionDetails.text || "rrweb eval error");
+      }
+    };
+    await run(RRWEB_RECORD_BUNDLE);
+    await run(RRWEB_RECORD_START);
+  }
+
+  // Bind the rrweb host plumbing to a context's page — ONCE. Deliberately does NOT
+  // use addInitScript (Playwright can't remove it, so it would re-instrument every
+  // future navigation forever, even after all viewers leave DOM mode). Instead the
+  // recorder is (re)injected on demand and on each 'load' WHILE domEmit is true, and
+  // torn down (RRWEB_STOP detaches the observers) the moment it isn't — so DOM
+  // instrumentation is fully revocable except one inert binding. Returns false when
+  // the vendored bundle is missing or the exposed binding can't be installed.
+  async function ensureDomBinding(entry: BrowserContextEntry, id: string): Promise<boolean> {
+    if (entry.domInjected) return true;
+    if (!RRWEB_RECORD_BUNDLE) return false; // vendored bundle missing
+    try {
+      // Host binding: every rrweb event lands here. Buffer for late-join bootstrap,
+      // and broadcast live only while at least one viewer is in DOM mode.
+      await entry.page.exposeFunction('__rrwebEmit', (json: string) => {
+        if (!entry.dom) return;
+        let m: { kind?: string; event?: { type?: number }; error?: string };
+        try { m = JSON.parse(json); } catch { return; }
+        // In-page recorder failures are otherwise invisible (the page can't log
+        // to us) — surface them, they're the difference between "unsupported
+        // page" and a plumbing bug.
+        if (m.kind === 'error') {
+          console.warn(`[BrowserService] rrweb in-page error for ${id}:`, m.error);
+          return;
+        }
+        if (m.kind !== 'event' || !m.event) return;
+        const e = m.event;
+        const buf = entry.dom;
+        if (e.type === 4) buf.meta = e;                        // Meta
+        else if (e.type === 2) { buf.full = e; buf.inc = []; } // FullSnapshot → reset prefix
+        else { buf.inc.push(e); if (buf.inc.length > MAX_DOM_INCREMENTALS) buf.inc.shift(); }
+        if (entry.domEmit) opts.broadcastToBrowserWs?.(id, { type: 'dom_event', event: e });
+      });
+      // Re-arm the recorder after each navigation, but ONLY while a viewer wants it.
+      entry.page.on('load', () => {
+        if (entry.domEmit) startRecordingNow(entry).catch((err: unknown) => {
+          // A dead re-arm strands every DOM viewer on the previous page's mirror
+          // — never swallow it silently.
+          console.warn(`[BrowserService] rrweb re-arm failed for ${id}:`, (err as Error)?.message);
+        });
+      });
+      entry.domInjected = true;
+      return true;
+    } catch (err) {
+      console.warn(`[BrowserService] rrweb binding failed for ${id}:`, (err as Error)?.message);
+      return false;
+    }
+  }
+
   // Reap inactive contexts, then the idle Chromium itself. Started from
   // createBrowserService (NOT from launch(), which the server never calls in
   // its lazy-launch setup) so the reaper is always live. Idempotent.
@@ -560,6 +738,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     },
 
     async createContext(id, opts) {
+      // Coalesce concurrent creates for the same id (see pendingCreates above).
+      // The first caller's opts win — correct for the same-id race, where every
+      // racer wants "the context for this pane", not a specific configuration.
+      const inflight = pendingCreates.get(id);
+      if (inflight) return inflight;
+      const create = (async () => {
       if (contexts.has(id)) return;
       if (contexts.size >= maxContexts) {
         throw new Error(`Max contexts (${maxContexts}) reached`);
@@ -750,6 +934,10 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         await context.close().catch(() => {});
         throw err;
       }
+      })();
+      const tracked = create.finally(() => pendingCreates.delete(id));
+      pendingCreates.set(id, tracked);
+      return tracked;
     },
 
     async destroyContext(id) {
@@ -758,6 +946,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       // Phase 30 BROWSER-CHAT-02 — stop screencast first so no in-flight
       // CDP frames target a context that's about to be torn down.
       await service.stopScreencast(id).catch(() => {});
+      // T1 DOM co-browse — detach the recorder CDP session (best-effort; closing
+      // the context would detach it anyway, but don't leave it dangling).
+      if (entry.recorderCdp) { await entry.recorderCdp.detach().catch(() => {}); entry.recorderCdp = undefined; }
       entry.autoSaveCleanup?.();
       if (entry.engine === "chromium") {
         // Chromium engine: the sidecar owns the persistent profile (no per-context
@@ -1263,6 +1454,70 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       // getOrCreate already touched activity; the action is a real interaction
       // so the entry's lastActivity stays fresh.
+    },
+
+    // T1 DOM co-browse — enable DOM render mode for a context. Binds rrweb (once),
+    // (re)starts recording on the current page, and returns the bootstrap burst
+    // [meta, full, ...incrementals] for the requesting viewer. Resets the buffer
+    // first so the wait blocks on the FRESH FullSnapshot (recording emits it a tick
+    // after the script tag runs, via the exposed binding's async round-trip), never
+    // a stale one from a prior enable.
+    async enableDomMode(id) {
+      const entry = await service.getOrCreate(id);
+      const ok = await ensureDomBinding(entry, id);
+      if (!ok) return null;
+      entry.domEmit = true;
+      entry.dom = { meta: null, full: null, inc: [] };
+      try {
+        await startRecordingNow(entry);
+      } catch (err) {
+        console.warn(`[BrowserService] rrweb start failed for ${id}:`, (err as Error)?.message);
+        return null;
+      }
+      // Wait up to ~2s for the FullSnapshot (type 2) to land in the buffer.
+      for (let i = 0; i < 40 && !entry.dom?.full; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      // Nav-aware second chance: the pane sends set_render:'dom' and its first
+      // nav back-to-back, so the injection can land on a document the in-flight
+      // goto is about to swap — the snapshot dies with it and a hard fail here
+      // would force the viewer to video with no retry (the 'load' re-arm keeps
+      // recording, but the viewer already left DOM mode). If the page is still
+      // loading, ride the navigation out and re-inject; if it settled and the
+      // snapshot is still missing, re-inject once anyway (our instrumented doc
+      // may have been swapped right after injection).
+      if (!entry.dom?.full) {
+        try {
+          await entry.page.waitForLoadState('load', { timeout: 10000 }).catch(() => {});
+          await startRecordingNow(entry);
+          for (let i = 0; i < 40 && !entry.dom?.full; i++) {
+            await new Promise((r) => setTimeout(r, 50));
+          }
+        } catch { /* fall through to the unsupported path */ }
+      }
+      // No FullSnapshot even after the nav settled → treat DOM mode as
+      // UNSUPPORTED for this page and return null, so the caller forces 'video'
+      // cleanly. A partial bootstrap (Meta only) is worse than useless: rrweb's
+      // Replayer can't build a mirror without a FullSnapshot, so the DOM overlay
+      // would stay transparent and the paused video would bleed through it — the
+      // exact "DOM mode still shows video" symptom.
+      if (!entry.dom?.full) {
+        console.warn(`[BrowserService] rrweb produced no FullSnapshot for ${id} — DOM mode unsupported here`);
+        return null;
+      }
+      return [entry.dom.meta, entry.dom.full, ...entry.dom.inc].filter((e) => e != null);
+    },
+
+    // Gate emission. Turning it OFF also DETACHES the recorder (RRWEB_STOP stops the
+    // MutationObservers) so an unwatched page carries zero DOM instrumentation — the
+    // 'load' re-arm is a no-op while domEmit is false, so future navigations stay clean.
+    setDomEmit(id, on) {
+      const entry = contexts.get(id);
+      if (!entry) return;
+      entry.domEmit = on;
+      if (!on && entry.domInjected) {
+        entry.page.evaluate(RRWEB_STOP).catch(() => { /* page gone / navigating */ });
+      }
     },
 
     // Phase 30 BROWSER-CHAT-03 — agent_active broadcast over /ws/browser/:contextId.

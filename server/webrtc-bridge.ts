@@ -14,7 +14,7 @@
  * TOPICS_PTY_BRIDGE_BIN) → else the dev build under desktop-tauri/. Kill switch:
  * `TOPICS_DISABLE_WEBRTC_BRIDGE=1`.
  */
-import { spawn, type ChildProcess } from "child_process";
+import { spawn, spawnSync, type ChildProcess } from "child_process";
 import net from "net";
 import { createInterface } from "readline";
 import { createHash } from "crypto";
@@ -153,6 +153,16 @@ export function createWebrtcBridge(): WebrtcBridge {
     });
   }
 
+  /** Kill any orphaned sidecar bound to OUR socket (leftover from a previous
+   *  server incarnation). POSIX-only, best-effort; the unique socket-hash in the
+   *  pattern keeps this from matching any other process. Synchronous so the reap
+   *  finishes before the caller spawns the replacement (no self-kill race). */
+  function reapOrphanBridges(): void {
+    if (process.platform === "win32") return;
+    try { spawnSync("pkill", ["-f", `webrtc-bridge --socket ${SOCK}`], { stdio: "ignore" }); }
+    catch { /* pkill missing — best effort */ }
+  }
+
   async function ensure(): Promise<boolean> {
     if (!bin) return false;
     if (ready && sock && !sock.destroyed) return true;
@@ -173,6 +183,14 @@ export function createWebrtcBridge(): WebrtcBridge {
       const dead = !child || child.exitCode !== null || child.signalCode !== null;
       if (dead) {
         try { child?.kill("SIGKILL"); } catch { /* already gone */ }
+        // Reap any ORPHAN sidecar bound to our socket before spawning a new one.
+        // The bridge is spawned detached+unref'd (survives a server --watch
+        // reload), so a server that EXITS leaves it running, reparented to PID 1.
+        // The next server computes the same socket path and spawns again —
+        // main.rs unlinks+rebinds, so the orphan keeps running forever with no
+        // viewer (observed: one orphan at 42% CPU). Sync reap (blocks until pkill
+        // exits) so it can't race — and can't hit the process we're about to spawn.
+        reapOrphanBridges();
         // The sidecar removes a stale socket file before binding (main.rs), so no unlink here.
         child = spawn(bin, ["--socket", SOCK], { detached: true, stdio: ["ignore", "ignore", "inherit"] });
         child.on("exit", () => { child = null; });

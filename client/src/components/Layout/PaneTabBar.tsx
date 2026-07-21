@@ -298,17 +298,26 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // should reappear already scrolled, not animate from 0. Only genuine tab
   // switches after mount animate. useLayoutEffect runs before paint, so the
   // instant case lands with no visible jump from scrollLeft 0.
+  // Adjust the strip's OWN scrollLeft directly (never element.scrollIntoView():
+  // a freshly-mounted tab can still be 0-width when this fires, so the
+  // browser's ancestor-walk escapes past this strip onto a distant unrelated
+  // overflow-hidden ancestor — scrolling whole panes out of view elsewhere in
+  // the app with no scrollbar to recover it).
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const didInitialScrollRef = useRef(false);
   useLayoutEffect(() => {
-    if (!activePaneId || !scrollContainerRef.current) return;
-    const el = scrollContainerRef.current.querySelector(`[data-pane-id="${CSS.escape(activePaneId)}"]`) as HTMLElement;
+    const container = scrollContainerRef.current;
+    if (!activePaneId || !container) return;
+    const el = container.querySelector(`[data-pane-id="${CSS.escape(activePaneId)}"]`) as HTMLElement;
     if (el) {
-      el.scrollIntoView({
-        behavior: didInitialScrollRef.current ? 'smooth' : 'auto',
-        block: 'nearest',
-        inline: 'nearest',
-      });
+      const behavior: ScrollBehavior = didInitialScrollRef.current ? 'smooth' : 'auto';
+      const containerRect = container.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      if (elRect.left < containerRect.left) {
+        container.scrollBy({ left: elRect.left - containerRect.left, behavior });
+      } else if (elRect.right > containerRect.right) {
+        container.scrollBy({ left: elRect.right - containerRect.right, behavior });
+      }
       didInitialScrollRef.current = true;
     }
   }, [activePaneId]);

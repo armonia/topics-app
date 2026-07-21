@@ -7,7 +7,6 @@ import { openTaskInApp } from './lib/openTaskLink';
 import { useClaudeEventNotifications } from './hooks/useClaudeEventNotifications';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
-import { ReloadNudges } from './components/ReloadNudges';
 import type { SidebarTab } from './types';
 import { useTopics } from './hooks/useTopics';
 import { useChat } from './hooks/useChat';
@@ -29,7 +28,9 @@ import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
 import { initDevBundleReload } from './lib/devBundleReload';
-import { openTaskFromUrl } from './lib/openTaskLink';
+import { initChunkReloadGuard } from './lib/chunkReloadGuard';
+import { DevBundleToast } from './components/DevBundleToast';
+import { openTaskFromUrl, currentTaskTarget } from './lib/openTaskLink';
 import { useDismissable } from './hooks/useDismissable';
 import { POPOVER_SURFACE, POPOVER_PANEL, Z_POPOVER } from './lib/popoverStyles';
 
@@ -55,6 +56,7 @@ import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
 import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
+import { usePaneStore } from './state/pane/store';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { useAgentActivityCounts } from './state/signals';
@@ -129,16 +131,61 @@ function App() {
   // No-op off Tauri; safe to run once on mount.
   useEffect(() => { wireTauriDragRegions(); }, []);
 
-  // Dev bundle hot-delivery: reload when the server says /public was rebuilt.
-  // The server only broadcasts this behind its dev flag file — see
-  // server/lib/dev-bundle-reload.ts.
-  useEffect(() => initDevBundleReload(), []);
+  // Dev bundle freshness: when the server (behind its dev flag) says /public
+  // was rebuilt, OR a lazy chunk 404s against a rebuilt bundle, surface a
+  // "Ricarica" prompt (DevBundleToast) — never an auto-reload under the user.
+  // See lib/devBundleReload.ts + lib/chunkReloadGuard.ts.
+  useEffect(() => {
+    const offRev = initDevBundleReload();
+    const offChunk = initChunkReloadGuard();
+    return () => { offRev(); offChunk(); };
+  }, []);
 
   // Deep-link a board task from /task/<taskId> (the drawer's "copia link"; a
   // legacy ?task=<slug>~<taskId> link still resolves too): opens the global
-  // board and jumps to the task, once, after the initial layout has mounted its
-  // event listeners.
-  useEffect(() => { openTaskFromUrl(); }, []);
+  // board and jumps to the task.
+  //
+  // The single mount-time fire RACES the boot pane-store hydrate: the first
+  // `ui-state:init` re-runs the focus reconciliation and restores the
+  // previously-focused pane, stealing the board activation before its drawer
+  // opens (repro: open /task/<id> cold → the last project pane shows, no
+  // drawer). So we RE-ASSERT the deep-link on each pane-store hydrate during a
+  // short boot window, riding the same (proven-working) open path once the
+  // store is stable. Bounded and safe: it stops the instant the drawer opens
+  // (`topics:task-opened`), only re-fires while the URL still carries the
+  // target, and self-cancels after the boot window so it can never yank focus
+  // from a user who has since navigated elsewhere.
+  useEffect(() => {
+    if (!currentTaskTarget()) return;
+    openTaskFromUrl();
+    let done = false;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
+      if (done) return;
+      done = true;
+      unsub();
+      clearTimeout(settleTimer);
+      clearTimeout(deadline);
+      window.removeEventListener('topics:task-opened', stop);
+    };
+    // DEBOUNCED re-assert: a hydrate wave re-runs the focus reconciliation, so
+    // we wait for it to go QUIET (no new seq for 400ms) and then re-assert ONCE
+    // — matching the stable post-boot open path. Re-asserting on every wave
+    // instead flaps the drawer; firing only after the storm settles does not.
+    const scheduleReassert = () => {
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        const target = currentTaskTarget();
+        if (!done && target) openTaskInApp(target);
+      }, 400);
+    };
+    const unsub = usePaneStore.subscribe((s) => s.lastSeq, scheduleReassert);
+    // Drawer opened → the deep-link is fulfilled, stand down.
+    window.addEventListener('topics:task-opened', stop);
+    // Boot window only — never yank focus long after load.
+    const deadline = setTimeout(stop, 8000);
+    return stop;
+  }, []);
 
   // Warm the ⌘K command-palette chunk on idle so its FIRST open is composited
   // from an already-parsed module (no fetch+eval on the opening frame). Idle-
@@ -1372,10 +1419,9 @@ function App() {
 
       {/* Phase E · UpdaterToast (rendered at root, listens to electron-updater) */}
       <UpdaterToast />
-
-      {/* Reload nudges: bundle-stuck banner + SW-waiting apply prompt (both
-          used to fail silently). */}
-      <ReloadNudges />
+      {/* In-page bundle refresh prompt (dev rebuilds + stale-chunk 404s) —
+          the manual-reload replacement for the old silent auto-reload. */}
+      <DevBundleToast />
 
       {/* Root-level fallback outlet for global notifications (e.g. agent
           completion). When a scoped outlet (ProjectWindow's) is mounted,

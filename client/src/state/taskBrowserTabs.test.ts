@@ -17,6 +17,11 @@ import {
   reorderTabs,
   updateTab,
   sanitizeTaskTabs,
+  taskIdFromKey,
+  applyRemoteTaskTabs,
+  applyRemoteTaskTabsInit,
+  getTaskTabs,
+  subscribeTaskTabs,
 } from './taskBrowserTabs';
 
 const TASK = '125aafd5-0e15-4aa0-ab25-f00000000000';
@@ -200,5 +205,83 @@ describe('sanitizeTaskTabs', () => {
     expect(s?.tabs[0]).toMatchObject({ parked: true, titleSource: 'user' });
     expect(s?.tabs[1].parked).toBeUndefined();
     expect(s?.activeContextId).toBe('task-1-1'); // falls back to first LIVE tab
+  });
+});
+
+// ── inbound cross-device sync (the write-only → live-apply fix) ───────────────
+// These touch the module singleton cache; each test uses a UNIQUE taskId so the
+// shared cache can't leak between cases. No pending writeTimers (no mutator PUTs
+// here), so applyRemote is never gated by an in-flight local edit.
+
+const uniq = (p: string) => `${p}-${Math.random().toString(36).slice(2)}`;
+
+describe('taskIdFromKey', () => {
+  test('parses task-browser-tabs keys, rejects unrelated ones', () => {
+    expect(taskIdFromKey('task-browser-tabs:abc-123')).toBe('abc-123');
+    expect(taskIdFromKey('pane-store-v2')).toBeNull();
+    expect(taskIdFromKey('tombstones-browser')).toBeNull();
+    expect(taskIdFromKey('')).toBeNull();
+  });
+});
+
+describe('applyRemoteTaskTabs (inbound live-apply)', () => {
+  test('seeds the cache from a server-pushed value and notifies subscribers', () => {
+    const tid = uniq('apply');
+    let notified = 0;
+    const unsub = subscribeTaskTabs(() => { notified++; });
+    applyRemoteTaskTabs(tid, { tabs: [{ contextId: 'task-a-0', url: 'u', title: 'T', seq: 0 }], activeContextId: 'task-a-0', nextSeq: 1 });
+    expect(getTaskTabs(tid).tabs.map((t) => t.contextId)).toEqual(['task-a-0']);
+    expect(notified).toBeGreaterThan(0);
+    unsub();
+  });
+
+  test('a remote PARK drops the tab from the live set — the close→sync bug', () => {
+    const tid = uniq('apply');
+    applyRemoteTaskTabs(tid, {
+      tabs: [
+        { contextId: 'task-b-0', url: 'a', title: 'A', seq: 0 },
+        { contextId: 'task-b-1', url: 'b', title: 'B', seq: 1 },
+      ],
+      activeContextId: 'task-b-0', nextSeq: 2,
+    });
+    expect(liveTabs(getTaskTabs(tid)).length).toBe(2);
+    // Other device closed (parked) task-b-0 → the broadcast carries it parked.
+    applyRemoteTaskTabs(tid, {
+      tabs: [
+        { contextId: 'task-b-0', url: 'a', title: 'A', seq: 0, parked: true },
+        { contextId: 'task-b-1', url: 'b', title: 'B', seq: 1 },
+      ],
+      activeContextId: 'task-b-1', nextSeq: 2,
+    });
+    expect(liveTabs(getTaskTabs(tid)).map((t) => t.contextId)).toEqual(['task-b-1']);
+  });
+
+  test('an identical value is a no-op — no spurious notify', () => {
+    const tid = uniq('apply');
+    const value = { tabs: [{ contextId: 'task-c-0', url: 'u', title: 'T', seq: 0 }], activeContextId: 'task-c-0', nextSeq: 1 };
+    applyRemoteTaskTabs(tid, value);
+    let notified = 0;
+    const unsub = subscribeTaskTabs(() => { notified++; });
+    applyRemoteTaskTabs(tid, value);
+    expect(notified).toBe(0);
+    unsub();
+  });
+
+  test('an unsanitizable payload leaves the cache untouched', () => {
+    const tid = uniq('apply');
+    applyRemoteTaskTabs(tid, { tabs: [{ contextId: 'task-d-0', url: 'u', title: 'T', seq: 0 }], activeContextId: 'task-d-0', nextSeq: 1 });
+    applyRemoteTaskTabs(tid, null);
+    expect(getTaskTabs(tid).tabs.length).toBe(1);
+  });
+});
+
+describe('applyRemoteTaskTabsInit (reconnect resync)', () => {
+  test('applies only the task-browser-tabs keys from the snapshot', () => {
+    const tid = uniq('init');
+    applyRemoteTaskTabsInit({
+      [`task-browser-tabs:${tid}`]: { tabs: [{ contextId: 'task-e-0', url: 'u', title: 'T', seq: 0 }], activeContextId: 'task-e-0', nextSeq: 1 },
+      'pane-store-v2': { panes: {} },
+    });
+    expect(getTaskTabs(tid).tabs.map((t) => t.contextId)).toEqual(['task-e-0']);
   });
 });

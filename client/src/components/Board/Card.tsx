@@ -7,11 +7,11 @@ import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { boardApi, STATUS_LABEL, parseQuestionBlock, isProjectlessId, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
-import { getMediaUrl } from '../../lib/api';
+import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt } from './format';
-import { StatusIcon, DispatchChip } from './atoms';
+import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
 
 // ── Column ────────────────────────────────────────────────────────────────
 export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById }: {
@@ -181,13 +181,17 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // standalone). Both render with NO chip — the "generale" label is noise.
   const unassigned = isProjectlessId(task.projectId);
   const projectLabel = task.projectId.replace(/-[^-]+$/, '');
-  const hasState = !!(task.dispatchState && DISPATCH_CHIP[task.dispatchState]) || (!task.dispatchState && !!task.dispatchError);
-  const agentBusy = ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+  // A task in review is the APPROVAL surface, never the "steer a working agent"
+  // surface — so it's never busy here even if a stale dispatch_state='working'
+  // lingers. Without this gate a review task with dispatch_state='working'
+  // renders BOTH the steer input and the review feedback input (two boxes).
+  const agentBusy = task.status !== 'review' && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
   // Agent cluster in the card's top-right slot: dispatch state + model/effort +
   // "apri tab" all live up there — the body below stays pure content.
-  const hasModelChip = (!!live && task.dispatchState === 'working') || !!task.model || task.agentMs > 0 || task.agentTokens > 0;
   const hasOpenTab = !!(task.assignedTopicId && onOpenTopic);
-  const showTopRow = (showProject && !unassigned) || hasState || hasModelChip || hasOpenTab;
+  // Always shown: the eyebrow row carries the click-to-copy task id on every card
+  // (plus project/state/model/tab when present).
+  const showTopRow = true;
   const showPriority = !task.priorityAuto && task.priority !== 2;
   // Review expands the subtask checklist on the card; elsewhere the count chip suffices.
   const checklist = task.status === 'review' ? children : [];
@@ -210,12 +214,15 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           crushing the eyebrow. */}
       {showTopRow && (
         <div className="mb-1 flex flex-wrap items-center justify-end gap-1.5">
-          {showProject && !unassigned ? (
-            <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400">
-              {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
-              <span className="min-w-0 truncate font-medium">{projectLabel}</span>
-            </div>
-          ) : <div className="min-w-0 flex-1" />}
+          <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-neutral-400">
+            {showProject && !unassigned && (
+              <>
+                {projectPath && <ProjectFavicon path={projectPath} size={12} className="shrink-0" />}
+                <span className="min-w-0 truncate font-medium">{projectLabel}</span>
+              </>
+            )}
+            <TaskIdChip id={task.id} />
+          </div>
           {/* The live chip's pulse dot already says "working": while it ticks,
               the 'al lavoro' state chip is redundant — one chip, not two. */}
           {(live && task.dispatchState === 'working') ? null : (task.dispatchState && DISPATCH_CHIP[task.dispatchState]) ? (
@@ -251,13 +258,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           cosa. Il click passa alla card (apre il drawer). object-top: di un
           full-page si vede la testata, non un centro anonimo. */}
       {task.previewImage && (
-        <img
-          src={getMediaUrl(task.previewImage)}
-          alt=""
-          loading="lazy"
-          draggable={false}
-          className="mb-1.5 max-h-36 w-full rounded border border-white/10 object-cover object-top"
-        />
+        <PreviewMedia path={task.previewImage} variant="card" />
       )}
       {/* Title — full width; the priority rides INLINE before the text (only
           when hand-set and non-default), so urgency reads in the same glance
@@ -419,13 +420,13 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               className="flex items-center gap-1 rounded-md bg-sky-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-sky-500 disabled:opacity-50"
             ><Send className="h-3.5 w-3.5" /></button>
             <button
-              disabled={busy} onClick={() => review('approve')}
-              title="Accetta e completa il task"
+              disabled={busy} onClick={() => review('approve', freeText.trim() || undefined)}
+              title={freeText.trim() ? 'Accetta e completa il task — il testo scritto finisce nel thread' : 'Accetta e completa il task'}
               className="flex items-center gap-1 rounded-md bg-emerald-500/80 px-2.5 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50"
             ><ShieldCheck className="h-3.5 w-3.5" /></button>
             <button
-              disabled={busy} onClick={() => review('reject')}
-              title="Rifiuta (l'agent riparte senza indicazioni)"
+              disabled={busy} onClick={() => review('reject', freeText.trim() || undefined)}
+              title={freeText.trim() ? "Rifiuta — l'agent riparte col testo scritto come indicazione" : "Rifiuta (l'agent riparte senza indicazioni — scrivi nel campo per dargliene)"}
               className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-xs text-neutral-200 hover:bg-white/20 disabled:opacity-50"
             ><ShieldX className="h-3.5 w-3.5" /></button>
           </div>

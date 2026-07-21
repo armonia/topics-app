@@ -214,6 +214,28 @@ export interface StreamHandler {
   onToolStart: (toolCallId: string, name: string, args?: ToolArgs) => void;
   onToolUpdate?: (toolCallId: string, partialResult: string) => void;
   /**
+   * The tool's input is now complete. With `--include-partial-messages`
+   * (claude-code) a tool is announced via onToolStart the moment the model
+   * STARTS writing its input (args still empty/partial); this callback
+   * delivers the parsed full args once the input block closes. Consumers
+   * upsert by id — same ToolCall, richer args.
+   *
+   * Also fired PROVISIONALLY while the input JSON is still streaming, as soon
+   * as a primary field (file_path / command / url / …) is fully received, so
+   * the row shows `Write(App.tsx)` within moments instead of a blank running
+   * row for the whole (possibly minutes-long) input generation. Idempotent
+   * upsert: a later call with fuller args overwrites.
+   */
+  onToolArgsUpdate?: (toolCallId: string, args: ToolArgs) => void;
+  /**
+   * Keep-alive: the tool's input is actively streaming (input_json_delta),
+   * even though no new field is parseable yet. Lets the route reset its
+   * stream inactivity timer so a legitimately slow-to-write Edit/Write input
+   * doesn't trip the false "stream slow" annotation. No persistence, no
+   * broadcast — purely a liveness signal.
+   */
+  onToolActivity?: (toolCallId: string) => void;
+  /**
    * Tool finished. `isError = true` means the tool reported a failure (Claude
    * SDK's `tool_result.is_error`). Default false; existing callers that pass
    * only 2 args remain valid.
@@ -359,7 +381,24 @@ export interface AIProvider {
 
   // --- Session Management (optional) ---
 
-  abort?(sessionKey: string, runId?: string): Promise<void>;
+  /**
+   * Cancel the in-flight turn for a session. `reason` distinguishes a human
+   * stop ("user", default) from the stream watchdog giving up ("watchdog") so
+   * the provider can label the resulting process exit honestly — a watchdog
+   * abort must NOT read as "user stop" in logs/UI.
+   */
+  abort?(sessionKey: string, runId?: string, reason?: "user" | "watchdog"): Promise<void>;
+
+  /**
+   * True when the provider's child process for this session is currently
+   * alive. The stream watchdog consults this before finalizing a silent
+   * stream as timed out: a live child that emits nothing is NOT dead — e.g.
+   * the Claude CLI is mute for the whole duration of an auto-compact
+   * (observed 3+ minutes) and only the hard cap should bound that. Providers
+   * without a per-session child leave this undefined (watchdog behavior
+   * unchanged).
+   */
+  isTurnProcessAlive?(sessionKey: string): boolean;
 
   /**
    * Signal that a session's persisted config changed (e.g. the per-topic

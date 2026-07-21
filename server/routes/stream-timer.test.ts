@@ -19,6 +19,10 @@
  *      timed out and removes the annotation in favor of the hard marker.
  *   6. The hard timer is independent: it fires after STREAM_HARD_TIMEOUT_MS
  *      regardless of activity, and never resets.
+ *   7. Grace expiry with the provider process still ALIVE (auto-compact:
+ *      the CLI is mute for 3+ min while compacting) EXTENDS the grace
+ *      window instead of finalizing — only a dead process (or the hard
+ *      cap) finalizes as timeout.
  *
  * The replica below is kept in one-to-one structural correspondence with
  * the route code; if either drifts, this file should fail and the
@@ -29,7 +33,7 @@ import { describe, expect, test } from "bun:test";
 
 // ── Replica of the route timer state machine (mirror of topics.ts) ──────
 // Constants match the production values exactly. Don't drift them.
-const STREAM_TIMEOUT_MS = 120_000;
+const STREAM_TIMEOUT_MS = 60_000;
 const STREAM_GRACE_MS = 60_000;
 const STREAM_HARD_TIMEOUT_MS = 30 * 60_000;
 const STREAM_SLOW_ANNOTATION =
@@ -42,6 +46,9 @@ interface Harness {
   log: string[];
   /** Callbacks the route would actually run; we just record them. */
   events: string[];
+  /** Mirror of `topicProvider.isTurnProcessAlive?.(sessionKey)` — the route
+   *  treats a missing method as falsy, so the replica defaults to false. */
+  providerAlive: boolean;
 }
 
 /** Build a fresh state machine wired to a Harness for inspection. */
@@ -52,6 +59,7 @@ function build() {
     trackedToolCallIds: [],
     log: [],
     events: [],
+    providerAlive: false,
   };
 
   let softTimer: ReturnType<typeof setTimeout> | null = null;
@@ -63,6 +71,20 @@ function build() {
       ? s.slice(0, -STREAM_SLOW_ANNOTATION.length)
       : s;
 
+  const graceExpiry = () => {
+    if (h.state !== "soft-timed-out") return;
+    // Mirror of handleGraceExpiry's liveness branch: a live-but-mute child
+    // (auto-compact) extends the grace window instead of finalizing.
+    if (h.providerAlive) {
+      h.events.push("grace-extended");
+      graceTimer = setTimeout(graceExpiry, STREAM_GRACE_MS);
+      return;
+    }
+    h.state = "finalized";
+    h.fullContent = stripSlow(h.fullContent) + "\n\n---\n*[Response timed out]*";
+    h.events.push("grace-expired");
+  };
+
   const armSoft = () => {
     if (h.state !== "streaming") return;
     if (softTimer) clearTimeout(softTimer);
@@ -72,12 +94,7 @@ function build() {
       h.state = "soft-timed-out";
       h.fullContent = stripSlow(h.fullContent) + STREAM_SLOW_ANNOTATION;
       h.events.push("soft-timeout");
-      graceTimer = setTimeout(() => {
-        if (h.state !== "soft-timed-out") return;
-        h.state = "finalized";
-        h.fullContent = stripSlow(h.fullContent) + "\n\n---\n*[Response timed out]*";
-        h.events.push("grace-expired");
-      }, STREAM_GRACE_MS);
+      graceTimer = setTimeout(graceExpiry, STREAM_GRACE_MS);
     }, STREAM_TIMEOUT_MS);
   };
 
@@ -240,6 +257,55 @@ describe("stream timer state machine", () => {
       expect(h.state).toBe("finalized");
       expect(h.fullContent).not.toContain("⏱ stream lento");
       expect(h.events).toContain("recovered-on-finalize");
+    });
+  });
+
+  test("auto-compact: grace extends while the provider process is alive, then recovers", () => {
+    withFakeTimers((advance) => {
+      const { h, onEvent } = build();
+      h.providerAlive = true; // the child is compacting: mute but alive
+      onEvent(); // arm soft timer
+      // Real-world shape of the 2026-07-20 incident: 188s of total silence.
+      advance(STREAM_TIMEOUT_MS + 1); // 60s → soft timeout
+      expect(h.state).toBe("soft-timed-out");
+      advance(STREAM_GRACE_MS); // 120s → grace expiry #1: alive → extend
+      expect(h.state).toBe("soft-timed-out");
+      advance(STREAM_GRACE_MS); // 180s → grace expiry #2: alive → extend
+      expect(h.state).toBe("soft-timed-out");
+      expect(h.events.filter((e) => e === "grace-extended").length).toBe(2);
+      // ~195s: compaction done, the provider emits again → full recovery.
+      advance(15_000);
+      onEvent();
+      expect(h.state).toBe("streaming");
+      expect(h.fullContent).not.toContain("⏱ stream lento");
+      expect(h.events).toContain("recovered");
+    });
+  });
+
+  test("grace expiry with a DEAD provider process still finalizes as timeout", () => {
+    withFakeTimers((advance) => {
+      const { h, onEvent } = build();
+      h.providerAlive = true;
+      onEvent();
+      advance(STREAM_TIMEOUT_MS + STREAM_GRACE_MS + 1); // one extension granted
+      expect(h.state).toBe("soft-timed-out");
+      h.providerAlive = false; // child dies during the extended window
+      advance(STREAM_GRACE_MS);
+      expect(h.state).toBe("finalized");
+      expect(h.events).toContain("grace-expired");
+      expect(h.fullContent).toContain("Response timed out");
+    });
+  });
+
+  test("provider alive forever + total silence → the 30-min hard cap still bounds", () => {
+    withFakeTimers((advance) => {
+      const { h, onEvent } = build();
+      h.providerAlive = true; // wedged-but-alive child
+      onEvent();
+      advance(STREAM_HARD_TIMEOUT_MS + 1);
+      expect(h.state).toBe("finalized");
+      expect(h.events).toContain("hard-timeout");
+      expect(h.events).not.toContain("grace-expired");
     });
   });
 

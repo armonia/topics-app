@@ -78,6 +78,39 @@ describe('browser-ws-messages: set_stream (client -> server)', () => {
   });
 });
 
+describe('browser-ws-messages: set_render (client -> server)', () => {
+  it('accepts video / dom', () => {
+    expect(parseBrowserWsMessage({ type: 'set_render', mode: 'video' }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'set_render', mode: 'dom' }).ok).toBe(true);
+  });
+  it('rejects an unknown mode or a missing field', () => {
+    expect(parseBrowserWsMessage({ type: 'set_render', mode: 'pixels' }).ok).toBe(false);
+    expect(parseBrowserWsMessage({ type: 'set_render' }).ok).toBe(false);
+  });
+});
+
+describe('browser-ws-messages: render_mode (server -> client)', () => {
+  it('accepts video / dom', () => {
+    expect(parseBrowserWsMessage({ type: 'render_mode', mode: 'dom' }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'render_mode', mode: 'video' }).ok).toBe(true);
+  });
+  it('rejects an unknown mode', () => {
+    expect(parseBrowserWsMessage({ type: 'render_mode', mode: 'nope' }).ok).toBe(false);
+  });
+});
+
+describe('browser-ws-messages: dom_event (server -> client)', () => {
+  it('accepts an opaque rrweb event untouched (no deep validation)', () => {
+    const full = { type: 'dom_event' as const, event: { type: 2, data: { node: { id: 1 } }, timestamp: 111 } };
+    const r = parseBrowserWsMessage(full);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data).toEqual(full);
+    // Any JSON payload is allowed — the client's Replayer owns the shape.
+    expect(parseBrowserWsMessage({ type: 'dom_event', event: [1, 2, 3] }).ok).toBe(true);
+    expect(parseBrowserWsMessage({ type: 'dom_event', event: 'meta' }).ok).toBe(true);
+  });
+});
+
 describe('browser-ws-messages: union still discriminates', () => {
   it('parses a frame and rejects an unknown type', () => {
     expect(parseBrowserWsMessage({ type: 'frame', data: 'abc', metadata: { timestamp: 1 } }).ok).toBe(true);

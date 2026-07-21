@@ -194,6 +194,14 @@ export interface ToolCall {
   error?: string;
   contentOffset?: number;
   /**
+   * Wall-clock bounds of the tool's real usage window (epoch ms), stamped
+   * server-side: `startedAt` at announce (with partial-message streaming
+   * that's when the model starts WRITING the input), `endedAt` when the
+   * result lands. Durations render from `endedAt - startedAt`.
+   */
+  startedAt?: number;
+  endedAt?: number;
+  /**
    * Optional typed detail built at the provider boundary. Renderers branch
    * on `detail.type` for per-tool UI. When absent, fall back to generic
    * args/result rendering. Sub-agents (Task) accumulate child activity in
@@ -575,6 +583,8 @@ export interface WSStreamToolResultMessage {
   result?: string;
   error?: string;
   detail?: ToolCall['detail'];
+  /** Server-stamped close of the tool's real-usage window (epoch ms). */
+  endedAt?: number;
 }
 export interface WSStreamToolUpdateMessage {
   type: 'stream:tool_update';

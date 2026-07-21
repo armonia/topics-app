@@ -6,10 +6,13 @@ export interface SeedToolCall {
   id: string;
   name: string;
   args: Record<string, any>;
-  status?: "pending" | "running" | "success" | "error";
+  status?: "pending" | "running" | "success" | "error" | "waiting_for_input";
   result?: string;
   error?: string;
   contentOffset?: number;
+  /** Real-usage window bounds (epoch ms) — drive duration rendering. */
+  startedAt?: number;
+  endedAt?: number;
 }
 
 export interface SeedMessageOpts {

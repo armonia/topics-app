@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rrweb co-browse · follower</title>
+<link rel="stylesheet" href="./vendor/rrweb.min.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d12; }
+  #app { position: absolute; inset: 0; }
+  /* rrweb builds an iframe inside #app; pin it flush so a screenshot is 1:1. */
+  #app iframe { border: 0 !important; }
+  #hud { position: fixed; top: 8px; right: 10px; z-index: 9; font: 12px system-ui; color: #cfd3e6;
+         background: rgba(20,24,40,.7); padding: 4px 9px; border-radius: 999px; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud" hidden></div>
+<script src="./vendor/rrweb.min.js"></script>
+<script>
+(function () {
+  var root = document.getElementById('app');
+  var hud = document.getElementById('hud');
+  var replayer = null;
+
+  // ---- Harness mode: replay a full captured batch and seek to the end ----
+  // Returns basic reconstructed-DOM facts so the host can assert fidelity.
+  window.__replayAll = function (events) {
+    replayer = new rrweb.Replayer(events, {
+      root: root, liveMode: false, mouseTail: false,
+      showWarning: false, showDebug: false, useVirtualDom: false,
+    });
+    var meta = replayer.getMetaData();
+    replayer.pause((meta.endTime - meta.startTime) + 1000); // seek to final state
+    return { totalTime: meta.endTime - meta.startTime };
+  };
+
+  // Read the reconstructed page (rrweb replays into a same-origin iframe).
+  window.__probe = function (selector) {
+    var ifr = root.querySelector('iframe');
+    if (!ifr || !ifr.contentDocument) return null;
+    var doc = ifr.contentDocument;
+    var el = selector ? doc.querySelector(selector) : doc.body;
+    return {
+      title: doc.title || '',
+      bodyText: (doc.body ? doc.body.innerText : '').slice(0, 4000),
+      selText: el ? (el.innerText || el.textContent || '') : null,
+      nodeCount: doc.getElementsByTagName('*').length,
+    };
+  };
+
+  // ---- Live mode: stream events over WS as a viewer of a session ----
+  // URL: client.html?live=1&session=<id>&role=viewer  (role reserved for co-op)
+  var qs = new URLSearchParams(location.search);
+  if (qs.get('live') === '1') {
+    hud.hidden = false; hud.textContent = 'connessione…';
+    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    var url = proto + '://' + location.host + '/ws?session=' + encodeURIComponent(qs.get('session') || 'default') +
+              '&role=' + encodeURIComponent(qs.get('role') || 'viewer');
+    var ws = new WebSocket(url);
+    var started = false, buffer = [];
+    ws.onmessage = function (m) {
+      var msg; try { msg = JSON.parse(m.data); } catch (_) { return; }
+      if (msg.kind === 'event') {
+        if (!started) {
+          replayer = new rrweb.Replayer([msg.event], { root: root, liveMode: true, mouseTail: false, showWarning: false });
+          replayer.startLive(msg.event.timestamp - 100);
+          started = true;
+          hud.textContent = 'live';
+        } else {
+          replayer.addEvent(msg.event);
+        }
+      } else if (msg.kind === 'presence') {
+        hud.textContent = 'live · ' + msg.viewers + ' viewer';
+      }
+    };
+    ws.onclose = function () { hud.textContent = 'disconnesso'; };
+
+    // Relay this follower's input back to the source session (co-op controller path).
+    function relay(type, ev) {
+      if (ws.readyState !== 1) return;
+      var ifr = root.querySelector('iframe'); if (!ifr) return;
+      var r = ifr.getBoundingClientRect();
+      ws.send(JSON.stringify({ kind: 'input', type: type,
+        x: (ev.clientX - r.left), y: (ev.clientY - r.top),
+        w: r.width, h: r.height, key: ev.key, deltaY: ev.deltaY }));
+    }
+    root.addEventListener('click', function (e) { relay('click', e); });
+    root.addEventListener('wheel', function (e) { relay('scroll', e); }, { passive: true });
+    window.addEventListener('keydown', function (e) { relay('key', e); });
+  }
+})();
+</script>
+</body>
+</html>

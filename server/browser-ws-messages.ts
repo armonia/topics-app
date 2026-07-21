@@ -4,8 +4,8 @@
  * mirrored Zod schemas (this file is the canonical source).
  *
  * Direction conventions:
- *   - frame, agent_active, console, download, engine, webrtc_answer: server -> client only
- *   - input, take_control, resize, set_engine, set_stream, webrtc_offer: client -> server only
+ *   - frame, agent_active, console, download, engine, webrtc_answer, render_mode, dom_event: server -> client only
+ *   - input, take_control, resize, set_engine, set_stream, set_render, webrtc_offer: client -> server only
  *   - nav, webrtc_ice:                                            both directions (request from either side, response broadcast)
  *
  * KEEP IN SYNC: client/src/types/browser-ws-messages.ts mirrors this file.
@@ -149,6 +149,36 @@ const setStreamMessageSchema = z.object({
   active: z.boolean(),
 });
 
+/** Client -> server (T1 DOM co-browse): request how THIS pane renders the source.
+ *  'video' = the JPEG/WebRTC pixel stream (default); 'dom' = the server injects
+ *  rrweb into the headless page and streams DOM events, which the pane reconstructs
+ *  NATIVELY (real browser, not a video) — cross-device-sharp and ~500x lighter than
+ *  the JPEG stream. Additive: servers/clients without DOM support never switch. The
+ *  pane pairs 'dom' with `set_stream:false` so the wasted screencast pauses. */
+const setRenderMessageSchema = z.object({
+  type: z.literal('set_render'),
+  mode: z.enum(['video', 'dom']),
+});
+
+/** Server -> client: the render mode now in effect for the pane — an ack for a
+ *  set_render, or a FORCED fallback to 'video' when DOM mode is unsupported for
+ *  this context (e.g. the chromium engine, or injection failed). The pane resumes
+ *  its screencast on any 'video'. Additive: older clients drop it and stay on video. */
+const renderModeMessageSchema = z.object({
+  type: z.literal('render_mode'),
+  mode: z.enum(['video', 'dom']),
+});
+
+/** Server -> client (T1 DOM co-browse): ONE rrweb event (Meta / FullSnapshot /
+ *  Incremental). `event` is opaque JSON fed straight to the pane's rrweb Replayer —
+ *  deliberately NOT deep-validated (events are large and their shape is rrweb's
+ *  contract, not ours). A late joiner is bootstrapped with a Meta+FullSnapshot
+ *  (+ buffered incrementals) burst, then live incrementals follow. */
+const domEventMessageSchema = z.object({
+  type: z.literal('dom_event'),
+  event: z.unknown(),
+});
+
 /** Client -> server (webrtc shared-session transport): the viewer's SDP offer.
  *  The pane opens an RTCPeerConnection (recvonly video), and this carries the
  *  offer to the Rust webrtc-bridge sidecar, which attaches to THIS pane's CDP
@@ -193,6 +223,9 @@ export const browserWsMessageSchema = z.discriminatedUnion('type', [
   setEngineMessageSchema,
   engineMessageSchema,
   setStreamMessageSchema,
+  setRenderMessageSchema,
+  renderModeMessageSchema,
+  domEventMessageSchema,
   webrtcOfferMessageSchema,
   webrtcAnswerMessageSchema,
   webrtcIceMessageSchema,

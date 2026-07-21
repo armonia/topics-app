@@ -79,6 +79,27 @@ export class SidechainTracker {
   }
 
   /**
+   * Back-fill `subAgentType`/`description` on an already-registered parent,
+   * or register it fresh. Needed because parents can be registered EARLY with
+   * empty input — by the sidechain branch's lazy placeholder, or by the
+   * partial-message announce (`content_block_start` carries `input: {}`) —
+   * and `registerParent` is a no-op on re-register, so without this the real
+   * input arriving later (block stop / cumulative snapshot) never landed.
+   */
+  updateParentInput(toolUseId: string, input: unknown): void {
+    const st = this.states.get(toolUseId);
+    if (!st) {
+      this.registerParent(toolUseId, input);
+      return;
+    }
+    if (input && typeof input === "object") {
+      const obj = input as Record<string, unknown>;
+      if (!st.subAgentType && typeof obj.subagent_type === "string") st.subAgentType = obj.subagent_type;
+      if (!st.description && typeof obj.description === "string") st.description = obj.description;
+    }
+  }
+
+  /**
    * Returns true if the given tool_use id is a known Task() parent tracked by
    * this sidechain. Used by the provider to decide whether to route events.
    */

@@ -40,7 +40,7 @@ function freshDb(): Database {
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1
+    priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -915,5 +915,74 @@ describe("priorità automatica", () => {
     const upd = s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { priority: 3 } });
     expect(upd.priority).toBe(3);
     expect(upd.priorityAuto).toBe(false);
+  });
+});
+
+describe("review-evidence promotion — preview_image garantita dal commento di consegna", () => {
+  let db: Database;
+  const mk = (exists: (p: string) => boolean) => {
+    let n = 500;
+    return createTaskService(db, {
+      now: () => new Date().toISOString(),
+      uuid: () => `pv-${++n}`,
+      fileExists: exists,
+    });
+  };
+  beforeEach(() => { db = freshDb(); });
+
+  const preview = (id: string) =>
+    (db.prepare("SELECT preview_image FROM tasks WHERE id = ?").get(id) as any)?.preview_image ?? null;
+
+  test("comment-first: il media del commento diventa preview al passaggio in review", () => {
+    const s = mk(() => true);
+    const t = s.create({ projectId: PID, text: "fix ui" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto", media: ["/Users/x/.topics/media/evidenza.png"] });
+    expect(preview(t.id)).toBeNull(); // non ancora in review: nessuna promozione
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe("/Users/x/.topics/media/evidenza.png");
+  });
+
+  test("evidenza arrivata DOPO la review (commento di consegna solo testo) riempie la preview", () => {
+    const s = mk(() => true);
+    const t = s.create({ projectId: PID, text: "fix ui" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto, evidenza a seguire" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBeNull();
+    s.addComment({ taskId: t.id, author: "claude", content: "evidenza", media: ["/Users/x/.topics/media/clip.webm"] });
+    expect(preview(t.id)).toBe("/Users/x/.topics/media/clip.webm");
+  });
+
+  test("una preview esplicita non viene mai sovrascritta", () => {
+    const s = mk(() => true);
+    const t = s.create({ projectId: PID, text: "fix ui" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { previewImage: "/Users/x/.topics/media/scelta.png" } });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto", media: ["/Users/x/.topics/media/altra.png"] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe("/Users/x/.topics/media/scelta.png");
+  });
+
+  test("file inesistente o non-previewable (pdf/log) non viene promosso", () => {
+    const s = mk((p) => p.endsWith(".png") === false ? true : false); // il png "non esiste", il resto sì
+    const t = s.create({ projectId: PID, text: "fix ui" });
+    s.addComment({ taskId: t.id, author: "claude", content: "fatto", media: ["/Users/x/.topics/media/morto.png", "/Users/x/.topics/media/report.pdf"] });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBeNull(); // png inesistente, pdf non previewable
+  });
+
+  test("più commenti: vince il media del commento più recente", () => {
+    const clock = { t: Date.parse("2026-07-20T10:00:00.000Z") };
+    let n = 900;
+    const s = createTaskService(db, {
+      now: () => new Date(clock.t).toISOString(),
+      uuid: () => `pv2-${++n}`,
+      fileExists: () => true,
+    });
+    const t = s.create({ projectId: PID, text: "fix ui" });
+    s.addComment({ taskId: t.id, author: "claude", content: "progress", media: ["/m/vecchia.png"] });
+    clock.t += 60_000;
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna", media: ["/m/finale.png"] });
+    clock.t += 60_000;
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review" } });
+    expect(preview(t.id)).toBe("/m/finale.png");
   });
 });

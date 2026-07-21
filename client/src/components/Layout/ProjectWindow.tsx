@@ -119,7 +119,14 @@ export function ProjectWindowPane({
   // used by `StandaloneChatGroup` — without this, the bug from PR #18/#19
   // (browser:navigate broadcast lands but no pane opens) surfaces whenever
   // the user is inside a ProjectWindow — i.e. almost always.
-  const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
+  //
+  // TARGETED: carries the destination pane id alongside the url. The old
+  // string-only state fanned out to EVERY visible browser pane (the isVisible
+  // gate assumed tab semantics — one visible browser at a time), so with
+  // splits N panes navigated in lockstep: a leftover browser tab from an
+  // archived topic shadow-followed every terminal-driven navigation ("two
+  // tabs on the same site"). paneId absent = legacy broadcast, old behavior.
+  const [browserNavigate, setBrowserNavigate] = useState<{ url: string; paneId?: string } | null>(null);
 
   // --- Layout (state + handlers + file events) ---
   const layout = useProjectLayout({
@@ -145,7 +152,7 @@ export function ProjectWindowPane({
     stopSession,
     onOpenPaneSettings: setSettingsTopicId,
     gateRefs: loaded.gateRefs,
-    onBrowserNavigateUrl: setBrowserNavigateUrl,
+    onBrowserNavigateUrl: (url, paneId) => setBrowserNavigate({ url, paneId }),
   });
   const { panes, groups, rows, rowHeights, focusedGroupId, sidebarCollapsed } = layout.state;
 
@@ -346,8 +353,8 @@ export function ProjectWindowPane({
               // (mount-only). pane.url round-trips via projectLayoutSync. Guard
               // with isRealUrl so a persisted chrome-error: page doesn't restore.
               initialUrl={isRealUrl(pane.url) ? pane.url : undefined}
-              navigateUrl={isVisible && browserNavigateUrl ? browserNavigateUrl : undefined}
-              onNavigateConsumed={isVisible ? () => setBrowserNavigateUrl(null) : undefined}
+              navigateUrl={isVisible && browserNavigate && (!browserNavigate.paneId || browserNavigate.paneId === pane.id) ? browserNavigate.url : undefined}
+              onNavigateConsumed={isVisible ? () => setBrowserNavigate(null) : undefined}
               // Persist each navigation onto the project pane for next restart.
               // isRealUrl == the standalone path's guard (browserPaneUrl.ts) — it
               // also drops chrome-error: pages, which the old inline check missed.
@@ -444,7 +451,7 @@ export function ProjectWindowPane({
     topics, focusedPanelId, projectPath, wrapperPaneId,
     getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
     sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-    handleOpenFile, pinPaneById, onFocusPanel, browserNavigateUrl, chatSync.reopenTopic,
+    handleOpenFile, pinPaneById, onFocusPanel, browserNavigate, chatSync.reopenTopic,
   ]);
 
   return (

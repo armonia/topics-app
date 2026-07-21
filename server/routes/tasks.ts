@@ -953,7 +953,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (requestedMedia > 0 && (media?.length ?? 0) < requestedMedia) {
         return json({
           error:
-            "some attachments are outside the allowed dirs — copy the file(s) into ~/.openclaw/media/ (or the workspace) and re-attach from there",
+            "some attachments are outside the allowed dirs — copy the file(s) into ~/.topics/media/ (or the workspace) and re-attach from there",
           code: "media_path_not_allowed",
         }, 400);
       }

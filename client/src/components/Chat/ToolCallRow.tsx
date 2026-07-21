@@ -1,11 +1,42 @@
-import { createElement, useState } from 'react';
+import { createElement, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, HelpCircle, Loader2, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
 import { ToolCardBody } from './ToolCards';
 import { iconForDetail } from './toolIcons';
 import { ToolInputForm } from './ToolInputForm';
+import { formatDurationMs } from './toolGrouping';
 import { chatApi } from '../../lib/api';
+
+/**
+ * Live elapsed readout for a running call — ticks every second from `since`.
+ * The "hot" signal that the agent is actually inside this tool. Hidden for
+ * the first ~second so instant tools don't blink a "0.9s" in and out.
+ */
+export function ElapsedTimer({ since }: { since: number }) {
+  // Elapsed lives in state and is advanced by the interval — render stays
+  // pure (no Date.now() during render, react-hooks/purity).
+  const [ms, setMs] = useState(0);
+  useEffect(() => {
+    const update = () => setMs(Date.now() - since);
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, [since]);
+  if (ms < 900) return null;
+  return (
+    <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-elapsed">
+      {formatDurationMs(ms)}
+    </span>
+  );
+}
+
+/** Running must persist this long before the body auto-opens — instant tools
+ *  (a sub-250ms Read) never flash a panel open and closed (CHAT-TOOL-03). */
+const AUTO_OPEN_DELAY_MS = 250;
+/** Once auto-opened, the body stays visible at least this long even if the
+ *  tool finishes earlier, so short tools remain readable. */
+const AUTO_OPEN_MIN_DWELL_MS = 1500;
 
 interface Props {
   toolCall: ToolCall;
@@ -54,10 +85,31 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
   // reason for showing), and RUNNING tools — the open body is the live
   // preview of what the agent is doing right now; it collapses back on
   // completion so finished rows stay compact. Honor user toggles afterwards.
+  //
+  // CHAT-TOOL-03 anti-flash gating: the running auto-open engages only after
+  // AUTO_OPEN_DELAY_MS of sustained running (instant tools never flash), and
+  // once engaged it lingers AUTO_OPEN_MIN_DWELL_MS past completion so a
+  // sub-second tool stays readable instead of blinking.
   const [userToggled, setUserToggled] = useState(false);
+  const [autoOpen, setAutoOpen] = useState(false);
+  const autoOpenedAtRef = useRef(0);
+  useEffect(() => {
+    if (isRunning) {
+      const t = setTimeout(() => {
+        autoOpenedAtRef.current = Date.now();
+        setAutoOpen(true);
+      }, AUTO_OPEN_DELAY_MS);
+      return () => clearTimeout(t);
+    }
+    if (autoOpen) {
+      const residual = Math.max(0, AUTO_OPEN_MIN_DWELL_MS - (Date.now() - autoOpenedAtRef.current));
+      const t = setTimeout(() => setAutoOpen(false), residual);
+      return () => clearTimeout(t);
+    }
+  }, [isRunning, autoOpen]);
   const effectiveOpen = userToggled
     ? open
-    : (open || detail.type === 'sub_agent' || isWaiting || isRunning);
+    : (open || detail.type === 'sub_agent' || isWaiting || autoOpen);
 
   const onToggle = () => {
     setUserToggled(true);
@@ -84,13 +136,28 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
             lookup, not one defined during render; createElement is the
             lint-clean equivalent of `<Icon/>` (react-hooks/static-components). */}
         {createElement(Icon, { size: 13, className: `flex-shrink-0 ${isRunning ? 'text-primary' : 'text-app-text-muted'}` })}
+        {/* Claude Code-style header: `Shell(bun test)` / `Read(App.tsx)` —
+            the WHAT sits inside the parens at full contrast instead of a
+            timid muted afterthought. Truncation may eat the closing paren
+            on long args; that's the familiar CLI look. */}
         <span data-testid="tool-call-name" className={`flex-shrink-0 font-medium ${isRunning ? 'text-primary' : 'text-app-text'}`}>{label ?? display.name}</span>
         {display.summary && (
-          <span className="text-[11px] text-app-text-muted truncate font-mono">
-            {display.summary}
+          <span className="text-[11.5px] text-app-text-secondary truncate font-mono">
+            ({display.summary})
           </span>
         )}
-        <span className="ml-auto flex-shrink-0" data-testid={`tool-call-status-${toolCall.id}`} data-status={status}>
+        <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1.5" data-testid={`tool-call-status-${toolCall.id}`} data-status={status}>
+          {/* Real-usage duration: live ticking elapsed while running (the
+              "hot" signal the agent is inside this tool), settled span once
+              the result lands. Legacy rows without timestamps show nothing. */}
+          {isRunning && typeof toolCall.startedAt === 'number' && (
+            <ElapsedTimer since={toolCall.startedAt} />
+          )}
+          {!isRunning && typeof toolCall.startedAt === 'number' && typeof toolCall.endedAt === 'number' && toolCall.endedAt >= toolCall.startedAt && (
+            <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-duration">
+              {formatDurationMs(toolCall.endedAt - toolCall.startedAt)}
+            </span>
+          )}
           {/* `waiting_for_input` is the new state: spinner is misleading
               ("we're working on it") because we're actually blocked on
               the user. Show a help-circle accent instead, matching the
