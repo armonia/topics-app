@@ -25,6 +25,7 @@
 import { getTabId } from '../middleware/syncCrossTab';
 import { subscribeFrames, subscribeLifecycle } from '../../../lib/wsFrameBus';
 import { backoff } from './syncBackoff';
+import { usePaneStore, findPaneLocation } from '../store';
 import {
   exportTombstones,
   importTombstones,
@@ -32,6 +33,40 @@ import {
   type TombstoneEntry,
   type TombstoneKind,
 } from './closedTabRecord';
+
+// Only a close within this window drives a LIVE eviction (mirrors the tombstone
+// store's own TTL). Bounds the blast radius: a stale marker can't reach across
+// the wire and strip a pane that has been open for hours.
+const EVICT_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * A browser close-tombstone just merged in FROM ANOTHER DEVICE — evict the
+ * matching open pane here so the close propagates LIVE (a browser tab closed on
+ * the Mac disappears on the phone/web without a reload). Without this the peer
+ * only stops RESURRECTING the tab on its next hydrate — an already-mounted pane
+ * lingered until reload ("l'ho chiusa da app, ma sta ancora su pwa").
+ *
+ * Safe by two guards: (1) causal — a pane RE-OPENED after that close
+ * (`openedAt > ts`, and OPEN_PANE always stamps openedAt) is authoritative and
+ * kept; (2) TTL — only a close within EVICT_WINDOW_MS evicts. Browser-only:
+ * terminal panes are reconciled by their own roster effect. CLOSE_PANE records
+ * the durable pane-store tombstone + strips groups, so the eviction also rides
+ * this device's next pane-store PUT and never resurrects.
+ */
+function evictRemotelyClosedBrowserPanes(entries: TombstoneEntry[]): void {
+  const now = Date.now();
+  const store = usePaneStore.getState();
+  for (const e of entries) {
+    if (now - e.ts >= EVICT_WINDOW_MS) continue;
+    const paneId = `browser:${e.id}`;
+    const pane = store.panes[paneId];
+    if (!pane) continue;
+    if (typeof pane.openedAt === 'number' && pane.openedAt > e.ts) continue; // re-opened after the close
+    const loc = findPaneLocation(store, paneId);
+    if (!loc) continue;
+    store.dispatch({ type: 'CLOSE_PANE', payload: { id: paneId, groupId: loc.groupId, groupIndex: loc.groupIndex } });
+  }
+}
 
 // ui_state keys. Distinct from the localStorage keys — these are the server-side
 // KV identifiers the two devices converge on.
@@ -134,6 +169,10 @@ function applyServerValue(uiKey: string, value: unknown, serverSeq: number, sour
   } finally {
     applyingRemote = false;
   }
+  // Propagate a REMOTE browser close live: evict the matching open pane here so
+  // the tab actually disappears cross-device (not just "won't resurrect on next
+  // hydrate"). Runs after the merge so the durable marker is already recorded.
+  if (kind === 'browser') evictRemotelyClosedBrowserPanes(entries);
   // Record the merged local set so publish() doesn't bounce it back, but leave
   // it eligible to re-publish if the union added ids the peer lacked (its own
   // subsequent close/publish covers that; convergence is order-independent).
@@ -198,6 +237,12 @@ export function initTombstoneSync(): void {
  *  failed PUT is retained for the next WS-reconnect retry. */
 export function __getUnackedTombstoneSyncKeys(): string[] {
   return [...unackedJson.keys()];
+}
+/** Test-only: the live cross-device browser-close eviction (see the function's
+ *  own docstring). Exposed so a unit test can drive it against the pane store
+ *  singleton without reconstructing the WS frame path. */
+export function __evictRemotelyClosedBrowserPanesForTests(entries: TombstoneEntry[]): void {
+  evictRemotelyClosedBrowserPanes(entries);
 }
 /** Test-only: reset per-key sync bookkeeping between cases. Deliberately
  *  does NOT touch `wired` — re-running `initTombstoneSync()` would double
