@@ -5,6 +5,8 @@ import {
   clearBrowserOrigin,
   enqueueProjectBrowserReopen,
   drainProjectBrowserReopens,
+  enqueueProjectBrowserNavigate,
+  drainProjectBrowserNavigates,
   resolvePinnedBrowserOrigin,
 } from "./browserOriginStore";
 import type { ClosedTabRecord } from "./closedTabRecord";
@@ -125,6 +127,49 @@ describe("pending project-browser reopen queue (not-open bridge)", () => {
 
   test("draining an unknown project → empty array", () => {
     expect(drainProjectBrowserReopens("/never")).toEqual([]);
+  });
+});
+
+describe("pending project-browser NAVIGATE queue (Apri nel workspace bridge)", () => {
+  test("enqueue then drain returns the parked navigate", () => {
+    enqueueProjectBrowserNavigate("/tmp/proj", { url: "http://localhost:3400/", contextId: "task-abc" });
+    const out = drainProjectBrowserNavigates("/tmp/proj");
+    expect(out).toEqual([{ url: "http://localhost:3400/", contextId: "task-abc" }]);
+  });
+
+  test("drain empties the queue (a second drain is empty)", () => {
+    enqueueProjectBrowserNavigate("/tmp/proj", { url: "http://localhost:3400/", contextId: "task-abc" });
+    drainProjectBrowserNavigates("/tmp/proj");
+    expect(drainProjectBrowserNavigates("/tmp/proj")).toEqual([]);
+  });
+
+  test("de-dups by url+contextId so a double-click queues once", () => {
+    enqueueProjectBrowserNavigate("/tmp/proj", { url: "http://localhost:3400/", contextId: "task-abc" });
+    enqueueProjectBrowserNavigate("/tmp/proj", { url: "http://localhost:3400/", contextId: "task-abc" });
+    expect(drainProjectBrowserNavigates("/tmp/proj")).toHaveLength(1);
+  });
+
+  test("same url, different contextId → two distinct entries", () => {
+    enqueueProjectBrowserNavigate("/tmp/proj", { url: "http://localhost:3400/", contextId: "task-abc" });
+    enqueueProjectBrowserNavigate("/tmp/proj", { url: "http://localhost:3400/", contextId: "task-def" });
+    expect(drainProjectBrowserNavigates("/tmp/proj")).toHaveLength(2);
+  });
+
+  test("queues are isolated per project path", () => {
+    enqueueProjectBrowserNavigate("/tmp/a", { url: "http://localhost:3400/", contextId: "a" });
+    enqueueProjectBrowserNavigate("/tmp/b", { url: "http://localhost:3401/", contextId: "b" });
+    expect(drainProjectBrowserNavigates("/tmp/a")).toHaveLength(1);
+    expect(drainProjectBrowserNavigates("/tmp/b")).toHaveLength(1);
+  });
+
+  test("ignores an empty url or missing project path", () => {
+    enqueueProjectBrowserNavigate("/tmp/proj", { url: "" });
+    enqueueProjectBrowserNavigate("", { url: "http://localhost:3400/" });
+    expect(drainProjectBrowserNavigates("/tmp/proj")).toEqual([]);
+  });
+
+  test("draining an unknown project → empty array", () => {
+    expect(drainProjectBrowserNavigates("/never")).toEqual([]);
   });
 });
 
