@@ -20,6 +20,7 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
+import { insertCompactionMarker } from "../db/compaction-markers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
@@ -1286,6 +1287,35 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // Remove from tracked list (it's already finalized)
               const idx = trackedToolCallIds.indexOf(toolCallId);
               if (idx >= 0) trackedToolCallIds.splice(idx, 1);
+            },
+
+            onCompaction: (marker) => {
+              // CHAT-COMPACT-01: surface + persist a context-compaction boundary
+              // as a display-only divider. Render-only — no model resume, and
+              // the marker never re-enters provider history (separate table).
+              try {
+                resetStreamTimer();
+                const stored = insertCompactionMarker(ctx.db, {
+                  sessionKey,
+                  topicId: matchedTopic?.id ?? null,
+                  afterMessageId: partialMsg?.parentId ?? null,
+                  marker,
+                });
+                const evt = {
+                  type: "stream:compaction" as const,
+                  sessionKey,
+                  topicId: matchedTopic?.id,
+                  markerId: stored.id,
+                  afterMessageId: stored.afterMessageId,
+                  trigger: stored.trigger,
+                  ...(stored.preTokens != null ? { preTokens: stored.preTokens } : {}),
+                  createdAt: stored.createdAt,
+                };
+                if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, evt);
+                else broadcastToAll(evt);
+              } catch (err) {
+                console.error("[compaction] persist/broadcast failed:", err);
+              }
             },
 
             onDone: (message?: any) => {

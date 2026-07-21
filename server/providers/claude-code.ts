@@ -24,6 +24,7 @@ import type {
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { SidechainTracker } from "./claude/sidechain-tracker";
+import { parseCompactBoundary } from "./claude/compaction";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
 import { warnThrottled } from "../lib/warn-throttled";
@@ -1780,6 +1781,20 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private handleStreamEvent(pp: PersistentProcess, event: any): void {
     const handler = pp.streamHandler;
+
+    // Compaction boundary (CHAT-COMPACT-01): lift it out BEFORE the generic
+    // `system` drop below. Skip during reattach replay (replayMute scan /
+    // replaySilent fold) so re-reading the store never double-fires the marker.
+    if (event.type === "system" && event.subtype === "compact_boundary") {
+      if (!pp.replayMute && !pp.replaySilent) {
+        const marker = parseCompactBoundary(event);
+        if (marker) {
+          pp.lastEventAt = Date.now();
+          handler?.onCompaction?.(marker);
+        }
+      }
+      return;
+    }
 
     // Filter noise
     if (event.type === "system" || event.type === "rate_limit_event") return;

@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Paperclip } from 'lucide-react';
-import type { Topic, ChatMessage, WSMessage } from '../../types';
+import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
+import { CompactionDivider } from './CompactionDivider';
+import { partitionMarkers } from './partitionMarkers';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { MessageBubble } from './MessageBubble';
@@ -17,6 +19,9 @@ interface MessageListProps {
   isMobile: boolean;
   topic: Topic;
   currentMessages: ChatMessage[];
+  /** Compaction dividers for this session (CHAT-COMPACT-01); folded into the
+   *  transcript by afterMessageId. */
+  compactionMarkers?: CompactionMarker[];
   currentLoading: boolean;
   currentStreaming: boolean;
   copiedMsgId: string | null;
@@ -60,6 +65,7 @@ export function MessageList({
   isMobile,
   topic,
   currentMessages,
+  compactionMarkers,
   currentLoading,
   currentStreaming: _currentStreaming,
   copiedMsgId,
@@ -147,6 +153,12 @@ export function MessageList({
       return true;
     }),
     [currentMessages]
+  );
+
+  // Position compaction dividers within the visible transcript (CHAT-COMPACT-01).
+  const markerPartition = useMemo(
+    () => partitionMarkers(filteredMessages, compactionMarkers),
+    [filteredMessages, compactionMarkers],
   );
 
   // Helper: activate scroll guard for a brief period after forced scrolls
@@ -595,7 +607,12 @@ export function MessageList({
             const prev = idx > 0 ? filteredMessages[idx - 1] : undefined;
             // Only show plan approve/reject on the last assistant message
             const isLastAssistant = msg.role === 'assistant' && idx === filteredMessages.length - 1;
+            const trailingMarkers = msg.id ? markerPartition.byAfter.get(msg.id) : undefined;
             return (
+              <>
+              {idx === 0 && markerPartition.leading.map((mk) => (
+                <CompactionDivider key={mk.id} marker={mk} />
+              ))}
               <div
                 className={
                   (isMobile ? 'px-2' : 'px-4') +
@@ -627,6 +644,10 @@ export function MessageList({
                   onRetry={isLastAssistant ? onRetry : undefined}
                 />
               </div>
+              {trailingMarkers && trailingMarkers.map((mk) => (
+                <CompactionDivider key={mk.id} marker={mk} />
+              ))}
+              </>
             );
           }}
           components={virtuosoComponents}

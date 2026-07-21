@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
-import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType } from '../../types';
+import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
 import { LazyPane } from './LazyPane';
 import { useTopics } from '../../contexts/TopicsContext';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
@@ -45,6 +45,7 @@ export interface ProjectWindowPaneProps {
   onFocusPanel: (topicId: string) => void;
   onClosePanel: (topicId: string) => void;
   getSessionMessages: (sk: string) => ChatMessage[];
+  getCompactionMarkers?: (sk: string) => CompactionMarker[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
   stopSession: (sk: string) => boolean;
@@ -78,7 +79,7 @@ export interface ProjectWindowPaneProps {
 export function ProjectWindowPane({
   projectPath, focusedPanelId,
   onFocusPanel, onClosePanel: _onClosePanel,
-  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
+  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession,
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
@@ -307,6 +308,7 @@ export function ProjectWindowPane({
             topic={topic}
             isFocused={isFocused && focusedPanelId === wrapperPaneId}
             getSessionMessages={getSessionMessages}
+            getCompactionMarkers={getCompactionMarkers}
             isSessionLoading={isSessionLoading}
             isSessionStreaming={isSessionStreaming}
             stopSession={stopSession}

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler, StoredMessage } from "../types";
 import type { AIProvider } from "../providers";
+import { getCompactionMarkersBySession } from "../db/compaction-markers";
 
 export interface HistoryDeps {
   matchHistoryRoute: (pathname: string) => string | null;
@@ -92,7 +93,11 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
 
       const lastMsg = completeMsgs[completeMsgs.length - 1];
       const hasOrphanedMessage = lastMsg?.role === 'user';
-      return json({ messages: result, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null });
+      // Compaction dividers (CHAT-COMPACT-01) — display-only, folded into the
+      // timeline client-side by `afterMessageId`. Cheap query; empty for the
+      // vast majority of sessions.
+      const compactionMarkers = getCompactionMarkersBySession(ctx.db, sessionKey);
+      return json({ messages: result, total, hasOrphanedMessage, isStreaming: !!currentStream, streamState: currentStream ? { startedAt: currentStream.startedAt, isThinking: currentStream.isThinking } : null, compactionMarkers });
     }
 
     // Fallback: Provider history

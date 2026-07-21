@@ -59,6 +59,8 @@ import m050 from "./migrations/051-board-dispatch-auto-merge.sql" with { type: "
 import m051 from "./migrations/052-board-dispatch-model.sql" with { type: "text" };
 import m052 from "./migrations/053-board-max-agents-auto.sql" with { type: "text" };
 import m053 from "./migrations/054-app-settings.sql" with { type: "text" };
+import m054 from "./migrations/055-task-preview-image.sql" with { type: "text" };
+import m055 from "./migrations/056-compaction-markers.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -122,4 +124,6 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 52, name: "052-board-dispatch-model.sql", sql: m051 },
   { version: 53, name: "053-board-max-agents-auto.sql", sql: m052 },
   { version: 54, name: "054-app-settings.sql", sql: m053 },
+  { version: 55, name: "055-task-preview-image.sql", sql: m054 },
+  { version: 56, name: "056-compaction-markers.sql", sql: m055 },
 ];

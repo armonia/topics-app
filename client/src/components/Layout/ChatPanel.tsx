@@ -4,7 +4,7 @@ import { useSpawnedBrowser } from '../../state/browserSpawner';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SessionActivityBar } from '../Shared/SessionActivity';
-import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab } from '../../types';
+import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab, CompactionMarker } from '../../types';
 import { topicsApi, commandApi } from '../../lib/api';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
@@ -23,7 +23,7 @@ function errorMessage(e: unknown): string {
 interface ChatPanelProps {
   topic: Topic; isFocused: boolean; onFocus: () => void; onClose: () => void;
   onDragStart: (e: React.DragEvent) => void; onToggleSidebar?: () => void; isDragOver: boolean;
-  getSessionMessages: (sk: string) => ChatMessage[]; isSessionLoading: (sk: string) => boolean;
+  getSessionMessages: (sk: string) => ChatMessage[]; getCompactionMarkers?: (sk: string) => CompactionMarker[]; isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean; sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
   /**
    * Abort the in-flight assistant turn for `sessionKey`. Returns true iff
@@ -65,7 +65,7 @@ interface ChatPanelProps {
 
 export function ChatPanel({
   topic, isFocused, onFocus, onClose, onDragStart, onToggleSidebar, isDragOver,
-  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory,
+  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic, initialTab, onInitialTabConsumed,
   headerLeft, showCloseButton = true,
   onOpenSessionViewer,
@@ -248,6 +248,7 @@ export function ChatPanel({
                 topic={topic}
                 isFocused={isFocused}
                 getSessionMessages={getSessionMessages}
+                getCompactionMarkers={getCompactionMarkers}
                 isSessionLoading={isSessionLoading}
                 isSessionStreaming={isSessionStreaming}
                 stopSession={stopSession}

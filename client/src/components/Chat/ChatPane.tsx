@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { X } from 'lucide-react';
-import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
+import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi } from '../../lib/api';
 import { DND_TYPES } from '../../lib/dndTypes';
@@ -44,6 +44,7 @@ export interface ChatPaneProps {
   topic: Topic;
   isFocused: boolean;
   getSessionMessages: (sk: string) => ChatMessage[];
+  getCompactionMarkers?: (sk: string) => CompactionMarker[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
   /**
@@ -77,7 +78,7 @@ export interface ChatPaneProps {
 
 function ChatPaneComponent({
   topic, isFocused,
-  getSessionMessages, isSessionLoading, isSessionStreaming, stopSession, sendMessage, loadHistory,
+  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession, sendMessage, loadHistory,
   chatError, sendWS, onWSMessage, onUpdateTopic,
   onOpenFile: _onOpenFile, onNavigateBrowser: _onNavigateBrowser,
   editMessage, regenerateMessage, deleteMessage, switchBranch, onOpenSessionViewer,
@@ -266,6 +267,7 @@ function ChatPaneComponent({
   // Sticky current-todo strip (CHAT-TODO-01): mirror the latest TodoWrite above
   // the composer so the plan stays visible while typing.
   const latestTodo = useMemo(() => selectLatestTodo(currentMessages), [currentMessages]);
+  const currentMarkers = getCompactionMarkers?.(topic.sessionKey);
   const currentLoading = isSessionLoading(topic.sessionKey);
   const currentStreaming = isSessionStreaming(topic.sessionKey);
 
@@ -760,7 +762,7 @@ function ChatPaneComponent({
         </div>
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} textareaRef={textareaRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} setMessage={setMessage} onPlanApprove={handlePlanApprove} onPlanReject={handlePlanReject} onRemember={handleRememberMessage} onEdit={editMessage ? handleEditMessage : undefined} onRegenerate={regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={switchBranch ? handleSwitchBranch : undefined} onOpenSessionViewer={onOpenSessionViewer} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} />
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
