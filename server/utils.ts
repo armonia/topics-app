@@ -1005,28 +1005,40 @@ export function createAppContext(baseDir: string): AppContext {
     return { content: stream.content, thinking: stream.thinking, messageId: stream.messageId };
   }
 
-  function endStream(sessionKey: string) {
+  /**
+   * Ends a stream. Marks any tool call left `running` as interrupted so the
+   * client stops showing a spinner that ticks forever (observed: a tool
+   * "running" for 2h+ after the turn already died). Stamps `endedAt` so the
+   * duration freezes, and RETURNS the interrupted calls so the caller can
+   * broadcast `stream:tool_result` to live clients (the DB write alone only
+   * fixes a later reload). Parse → map → serialize (never a substring REPLACE,
+   * which would clobber a literal `"status":"running"` inside args/result).
+   */
+  function endStream(sessionKey: string): ToolCall[] {
     const stream = activeStreams.get(sessionKey);
+    const interrupted: ToolCall[] = [];
     if (stream?.messageId) {
-      // Mark any "running" tool calls as "error" in the DB so clients don't show stale spinners.
-      // Parse → map → serialize (same pattern as updateToolCallResult) instead of a substring
-      // REPLACE, which would also clobber the literal string `"status":"running"` if it ever
-      // appeared inside a tool call's args/result.
       try {
         const row = db.prepare(`SELECT tool_calls FROM messages WHERE id = ?`).get(stream.messageId) as any;
         if (row?.tool_calls) {
           const toolCalls = JSON.parse(row.tool_calls) as ToolCall[];
-          let changed = false;
+          const endedAt = Date.now();
           for (const tc of toolCalls) {
-            if (tc?.status === 'running') { tc.status = 'error'; changed = true; }
+            if (tc?.status === 'running') {
+              tc.status = 'error';
+              if (tc.endedAt == null) tc.endedAt = endedAt;
+              if (!tc.error) tc.error = 'Interrotto: il turno è terminato senza risultato';
+              interrupted.push(tc);
+            }
           }
-          if (changed) {
+          if (interrupted.length > 0) {
             db.prepare(`UPDATE messages SET tool_calls = ? WHERE id = ?`).run(JSON.stringify(toolCalls), stream.messageId);
           }
         }
       } catch {}
     }
     activeStreams.delete(sessionKey);
+    return interrupted;
   }
 
   function isStreaming(sessionKey: string): ActiveStream | undefined {
