@@ -17,6 +17,7 @@ import {
   isSessionViewerPaneId,
   getBrowserContextFromPaneId,
   getTerminalSessionFromPaneId,
+  addBrowserTombstone,
 } from '../../../state/pane/adapters';
 import { primaryFromSoloCellKey } from '../soloCells';
 import { canSplitPane, standaloneSplitSurface } from '../splitRules';
@@ -56,6 +57,12 @@ const PANE_KIND_HANDLERS: PaneKindHandler[] = [
         // Clear the spawner relationship so the "opened a browser" tab cue
         // disappears once the browser is closed (registry isn't auto-pruned).
         clearBrowserSpawner(ctx);
+        // Write the cross-device close-tombstone so the tab actually closes on
+        // OTHER devices LIVE (phone PWA / web), not just here. Project-inner
+        // closes already did this in useProjectLayout; standalone/global browser
+        // panes did NOT, so a tab closed on the Mac lingered on the PWA. Paired
+        // with tombstoneSync's evictRemotelyClosedBrowserPanes on the peer.
+        addBrowserTombstone(ctx);
       }
     },
     localManaged: true,
