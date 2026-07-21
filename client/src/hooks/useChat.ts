@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, ChatRequest, ContentBlock, HistoryMessage, Message, ToolCall, WSMessage } from '../types';
+import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryMessage, Message, ToolCall, WSMessage } from '../types';
 import { chatApi } from '../lib/api';
 import { bumpAura } from '../lib/auraActivity';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
@@ -120,6 +120,17 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 
 export function useChat() {
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>(getInitialMessages);
+  // Compaction dividers per session (CHAT-COMPACT-01): display-only, merged
+  // into the transcript by afterMessageId in MessageList. Populated live via
+  // stream:compaction and on reload from /api/history.
+  const [compactionMarkers, setCompactionMarkers] = useState<Record<string, CompactionMarker[]>>({});
+  const upsertMarker = useCallback((sessionKey: string, marker: CompactionMarker) => {
+    setCompactionMarkers(prev => {
+      const list = prev[sessionKey] || [];
+      if (list.some(m => m.id === marker.id)) return prev;
+      return { ...prev, [sessionKey]: [...list, marker] };
+    });
+  }, []);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [streaming, setStreaming] = useState<Record<string, boolean>>({});
   const [thinking, setThinking] = useState<Record<string, boolean>>({});
@@ -539,6 +550,18 @@ export function useChat() {
         }
         break;
 
+      case 'stream:compaction':
+        // Context compaction boundary (CHAT-COMPACT-01) — display-only divider.
+        // Render-only: no message mutation, no model resume.
+        upsertMarker(sessionKey, {
+          id: event.markerId,
+          afterMessageId: event.afterMessageId ?? null,
+          trigger: event.trigger,
+          ...(typeof event.preTokens === 'number' ? { preTokens: event.preTokens } : {}),
+          createdAt: event.createdAt,
+        });
+        break;
+
       case 'stream:tool_call':
         if (event.toolCall) {
           addToolCallToLastMessage(sessionKey, event.toolCall as ToolCall);
@@ -810,7 +833,7 @@ export function useChat() {
         }
         break;
     }
-  }, [appendToLastMessage, addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout, bufferLiveDelta, flushLiveDeltas]);
+  }, [appendToLastMessage, addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1181,6 +1204,11 @@ export function useChat() {
     return out;
   }, [messages]);
 
+  const EMPTY_MARKERS = useRef<CompactionMarker[]>([]).current;
+  const getCompactionMarkers = useCallback((sessionKey: string): CompactionMarker[] => {
+    return compactionMarkers[sessionKey] || EMPTY_MARKERS;
+  }, [compactionMarkers, EMPTY_MARKERS]);
+
   const isSessionLoading = useCallback((sessionKey: string): boolean => {
     return loading[sessionKey] || false;
   }, [loading]);
@@ -1278,6 +1306,13 @@ export function useChat() {
           : chatMessages;
         return { ...prev, [sessionKey]: merged };
       });
+
+      // Compaction dividers (CHAT-COMPACT-01) — replace the session's set with
+      // the server's authoritative list on every history load.
+      const markers = (response as { compactionMarkers?: CompactionMarker[] }).compactionMarkers;
+      if (Array.isArray(markers)) {
+        setCompactionMarkers(prev => ({ ...prev, [sessionKey]: markers }));
+      }
 
       // Cache messages for offline fallback
       cacheMessages(sessionKey, chatMessages);
@@ -1688,6 +1723,7 @@ export function useChat() {
     switchBranch,
     stopSession,
     getSessionMessages,
+    getCompactionMarkers,
     isSessionLoading,
     isSessionStreaming,
     reconcileServerStreams,

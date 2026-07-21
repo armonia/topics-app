@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo, Fragment } from 'react';
-import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack } from '../../types';
+import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelGridRow, PanelGridCellStack, CompactionMarker } from '../../types';
 import { useTopics } from '../../contexts/TopicsContext';
 import { StandaloneChatGroup } from './StandaloneChatGroup';
 import type { SplitMapDescriptor } from '../Shared/SplitMiniMap';
@@ -205,6 +205,7 @@ interface PanelGridProps {
   nextPanelMode?: 'side' | 'below';
   onPanelModeUsed?: () => void;
   getSessionMessages: (sessionKey: string) => ChatMessage[];
+  getCompactionMarkers?: (sessionKey: string) => CompactionMarker[];
   isSessionLoading: (sessionKey: string) => boolean;
   isSessionStreaming: (sessionKey: string) => boolean;
   stopSession: (sessionKey: string) => boolean;
@@ -279,6 +280,7 @@ export function PanelGrid({
   nextPanelMode: _nextPanelMode = 'side',
   onPanelModeUsed: _onPanelModeUsed,
   getSessionMessages,
+  getCompactionMarkers,
   isSessionLoading,
   isSessionStreaming,
   stopSession,
@@ -2226,6 +2228,7 @@ export function PanelGrid({
         onClosePanelImmediate={onClosePanelImmediate}
         onDragStart={handleDragStart}
         getSessionMessages={getSessionMessages}
+        getCompactionMarkers={getCompactionMarkers}
         isSessionLoading={isSessionLoading}
         isSessionStreaming={isSessionStreaming}
         stopSession={stopSession}
@@ -2280,7 +2283,7 @@ export function PanelGrid({
     ),
     [
       focusedPanelId, onFocusPanel, onClosePanel, handleDragStart,
-      getSessionMessages, isSessionLoading,
+      getSessionMessages, getCompactionMarkers, isSessionLoading,
       isSessionStreaming, stopSession, sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch,
       loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
       onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed, onNewChat,

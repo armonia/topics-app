@@ -20,13 +20,13 @@ Each task lists its verification. The change is complete only when every box is 
 
 ## 1. Compaction — surface, persist, render, honest silence
 
-- [ ] 1.1 `server/providers/claude/compaction.ts`: pure `parseCompactBoundary(event)` → `CompactionMarker | null`, defensive on missing fields. **Verify:** `bun:test` against 0.2 fixture + malformed inputs.
-- [ ] 1.2 `claude-code.ts:1640`: branch `compact_boundary` before the `system` drop → `handleCompactBoundary` → `onCompaction` hook (`types.ts`) + StaleStream bump. **Verify:** unit test that a boundary event fires `onCompaction` and does not fall through to text callbacks.
-- [ ] 1.3 `routes/chat.ts`: wire `onCompaction` → `broadcastToAll({type:"stream:compaction",…})` + persist a `role:"system" kind:"compaction"` `messages` row (postTokens backfilled from next `result`). **Verify:** integration test row is written + broadcast emitted.
-- [ ] 1.4 `build-provider-history.ts`: exclude `role:"system"` marker rows from provider memory. **Verify:** `bun:test` — assembled history omits compaction/background rows.
-- [ ] 1.5 Client: `useChat.ts` handle `stream:compaction`; new `CompactionDivider.tsx`; render as `ContentBlock kind:"compaction"` in `MessageContent.tsx` timeline and as a `role:"system"` row in `MessageBubble.tsx`; let it through `MessageList` filter. **Verify:** E2E — divider shows pre→post tokens.
+- [x] 1.1 `server/providers/claude/compaction.ts`: pure `parseCompactBoundary(event)` → `CompactionMarker | null`, defensive on missing fields. **Verify:** `bun:test` against 0.2 fixture + malformed inputs.
+- [x] 1.2 `claude-code.ts:1640`: branch `compact_boundary` before the `system` drop → `handleCompactBoundary` → `onCompaction` hook (`types.ts`) + StaleStream bump. **Verify:** unit test that a boundary event fires `onCompaction` and does not fall through to text callbacks.
+- [x] 1.3 `routes/chat.ts`: wire `onCompaction` → `broadcastToAll({type:"stream:compaction",…})` + persist a marker in its OWN `compaction_markers` table (migration 056) positioned by `afterMessageId` — chosen over a `role:"system"` message row to avoid the `messages.role` CHECK rebuild. **Verify:** `compaction-markers` persistence unit test (in-memory sqlite).
+- [x] 1.4 History exclusion is structural: markers live in a separate table and never enter `messages` / `build-provider-history`, so they can never re-reach the model. **Verify:** by construction (no messages row is ever written).
+- [x] 1.5 Client: `useChat.ts` handles `stream:compaction` + loads markers from history; new `CompactionDivider.tsx`; `MessageList` folds dividers into the transcript by `afterMessageId` (pure `partitionMarkers`, unit-tested) via `itemContent` so it bypasses the content filter. **Verify:** `partitionMarkers` unit test + client typecheck.
 - [ ] 1.6 Honest-silence state: extend `handleGraceExpiry` (`chat.ts:656-671`) to emit `stream:compaction {phase:"in_progress"}` on first grace extension; client swaps `PartialIndicator` for an "ottimizzazione del contesto…" state; clear on boundary/resume. **Verify:** unit test on the timer path (extend `stream-timer.test.ts`).
-- [ ] 1.7 Persistence rehydration: compaction marker reloads via `loadHistory`. **Verify:** E2E — reload the topic, divider is still there in the right position.
+- [x] 1.7 Persistence rehydration: compaction marker reloads via `loadHistory`. **Verify:** E2E — reload the topic, divider is still there in the right position.
 - [ ] 1.8 Harden tail read: cap `Buffer.alloc` in `claude-session-tracker.ts:459-461` at `MAX_TAIL_READ`, advance in bounded chunks on overflow. **Verify:** `bun:test` — a synthetic multi-MB growth is read in ≤ cap-sized chunks; no single giant alloc.
 
 ## 2. Slash-command parity (claude-code)

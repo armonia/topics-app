@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from 'react';
-import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab } from '../../types';
+import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, CompactionMarker } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
 import { ChatPanel } from './ChatPanel';
@@ -61,6 +61,7 @@ interface StandaloneChatGroupProps {
   onDragStart: (topicId: string) => (e: React.DragEvent) => void;
   // Chat props pass-through
   getSessionMessages: (sk: string) => ChatMessage[];
+  getCompactionMarkers?: (sk: string) => CompactionMarker[];
   isSessionLoading: (sk: string) => boolean;
   isSessionStreaming: (sk: string) => boolean;
   sendMessage: (sk: string, content: string, options?: { planMode?: boolean }) => Promise<boolean>;
@@ -139,7 +140,7 @@ interface StandaloneChatGroupProps {
 export function StandaloneChatGroup({
   topicIds, focusedPanelId,
   onFocusPanel, onClosePanel, onClosePanelImmediate, onDragStart,
-  getSessionMessages, isSessionLoading, isSessionStreaming,
+  getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming,
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   onToggleSidebar, panelInitialTab, onPanelInitialTabConsumed,
   onNewChat, stopSession,
@@ -684,6 +685,7 @@ export function StandaloneChatGroup({
           onFocusPanel={onFocusPanel}
           onClosePanel={onClosePanel}
           getSessionMessages={getSessionMessages}
+          getCompactionMarkers={getCompactionMarkers}
           isSessionLoading={isSessionLoading}
           isSessionStreaming={isSessionStreaming}
           stopSession={stopSession}
@@ -759,6 +761,7 @@ export function StandaloneChatGroup({
         isDragOver={false}
         showCloseButton={false}
         getSessionMessages={getSessionMessages}
+        getCompactionMarkers={getCompactionMarkers}
         isSessionLoading={isSessionLoading}
         isSessionStreaming={isSessionStreaming}
         stopSession={stopSession}

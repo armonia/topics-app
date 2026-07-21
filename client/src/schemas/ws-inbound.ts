@@ -204,6 +204,12 @@ const streamErrorSchema = z.looseObject({
   error: z.string(),
 });
 
+const streamCompactionSchema = z.looseObject({
+  type: z.literal('stream:compaction'),
+  sessionKey: z.string(),
+  markerId: z.string(),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const INBOUND_SCHEMAS = {
@@ -219,6 +225,7 @@ const INBOUND_SCHEMAS = {
   'stream:start': streamStartSchema,
   'stream:content_chunk': streamContentChunkSchema,
   'stream:error': streamErrorSchema,
+  'stream:compaction': streamCompactionSchema,
   'typing': typingBroadcastSchema,
   'ui:bundle-updated': uiBundleUpdatedSchema,
   'ui:bundle-rev': uiBundleRevSchema,

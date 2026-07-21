@@ -610,6 +610,25 @@ export interface WSStreamErrorMessage {
   sessionKey: string;
   error?: string;
 }
+/** Display-only marker of a context-compaction boundary (CHAT-COMPACT-01). */
+export interface CompactionMarker {
+  id: string;
+  afterMessageId: string | null;
+  trigger: 'auto' | 'manual' | 'unknown';
+  preTokens?: number;
+  postTokens?: number;
+  createdAt: string;
+}
+export interface WSStreamCompactionMessage {
+  type: 'stream:compaction';
+  sessionKey: string;
+  topicId?: string;
+  markerId: string;
+  afterMessageId: string | null;
+  trigger: 'auto' | 'manual' | 'unknown';
+  preTokens?: number;
+  createdAt: string;
+}
 /**
  * A tool call paused the stream and is asking the user for input.
  * The client opens the inline `ToolInputForm` against `schema`; on
@@ -1078,6 +1097,7 @@ export type WSMessage =
   | WSStreamToolUpdateMessage
   | WSStreamToolDetailMessage
   | WSStreamErrorMessage
+  | WSStreamCompactionMessage
   | WSStreamToolUserInputRequiredMessage
   | WSStreamCatchupMessage
   | WSTypingMessage

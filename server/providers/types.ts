@@ -7,6 +7,7 @@
  */
 
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+import type { CompactionMarker } from "./claude/compaction";
 
 // ============ Message Types ============
 
@@ -281,6 +282,13 @@ export interface StreamHandler {
     toolName: string,
     schema: import("../types").UserInputSchema,
   ) => void;
+  /**
+   * Context compaction happened mid-session (Claude Code `compact_boundary`).
+   * Render-only: the route surfaces it as a "context compacted" divider and
+   * persists a display marker — it never re-enters the model's context and
+   * never resumes a turn. See CHAT-COMPACT-01.
+   */
+  onCompaction?: (marker: CompactionMarker) => void;
   onDone: (message?: ProviderDoneMessage) => void;
   onError: (error: string) => void;
   onAborted?: (message?: ProviderDoneMessage) => void;

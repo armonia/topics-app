@@ -379,6 +379,7 @@ function App() {
     switchBranch,
     stopSession,
     getSessionMessages,
+    getCompactionMarkers,
     addMessageFromWS,
     isSessionLoading,
     isSessionStreaming,
@@ -1095,6 +1096,7 @@ function App() {
           nextPanelMode={nextPanelMode}
           onPanelModeUsed={() => setNextPanelMode('side')}
           getSessionMessages={getSessionMessages}
+          getCompactionMarkers={getCompactionMarkers}
           isSessionLoading={isSessionLoading}
           isSessionStreaming={isSessionStreaming}
           stopSession={stopSession}
