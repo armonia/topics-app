@@ -17,17 +17,23 @@
 - [x] Spike misura footprint + substrato: `spike/browser-engine/EVALUATION.md`
       (headless-shell vs full, screencast fps, input RTT). Riproducibile: `run-all.sh`.
 
-## Fase 1 — Host nativo Chromium + election + riserva server
-- [ ] Spike integrazione: compositare una finestra Chromium gestita nel layout Tauri
-      (CEF vs finestra esterna vs screencast-locale) → decisione + EVALUATION.
-- [ ] `BrowserControl` seam (interfaccia unica CDP: navigate/screencast/input/cookies),
-      impl `CDPControl` su **pipe** (host headful) e **port** (headless-shell).
-- [ ] Host nativo on-device di default (flip `shared`): solo = nativo. `ungoogled-chromium`
-      opzione device-host.
-- [ ] Host-election: primo device attivo = host; server = riserva; promote/demote su
-      join/leave/sleep; riusa `register_native_executor` per il drive dell'agente.
-- [ ] Motore per ruolo: `chrome-headless-shell` per server/render-node; headful per host.
-- [ ] Test: unit election (puro), e2e selezione host/fallback.
+## Fase 1 — Host nativo unificato (substrato DECISO: WKWebView + native-executor + cattura)
+> Decisione 2026-07-21 su mappa del codice: NIENTE CEF. Compositing pane nativo,
+> delega agente e encode/fan-out WebRTC esistono già. Unico mancante = cattura
+> device-side del pane → bridge. Sequenza MVP-first:
+- [ ] **(gated build shell)** MVP wiring: loop `takeSnapshot`→JPEG in `jpeg_tx` (`lib.rs`)
+      per provare nativo→follower end-to-end a basso fps.
+- [ ] **(verificabile qui)** Bridge sorgente-agnostico: re-key `get_or_create_target`/offer
+      da CDP-targetId a paneId + ingresso producer JPEG accanto a `cdp::attach_and_stream`
+      (`webrtc-bridge/src/{main.rs,cdp.rs}`); estendere `test-harness.mjs`; `cargo build`.
+- [ ] **(live via kickstart)** Routing server: `webrtc_offer` → stream device-side quando
+      `isDelegated(ctx)` (`server.ts:1660-1676`, `server/webrtc-bridge.ts`).
+- [ ] **(gated build shell + TCC)** Cattura ScreenCaptureKit: nuovo modulo Rust `SCStream`
+      sul pane → JPEG → bridge + flusso permesso screen-recording.
+- [ ] Input back-channel follower→Mac (riuso `browser_act`; caveat `isTrusted=false`).
+- [ ] **(rebuild bundle)** Flip `readSharedPref` → host nativo primario (DOPO la cattura).
+- [ ] Election promote/demote (device attivo=host, server=riserva); riusa la delega.
+- [ ] Test: harness sidecar (frame device→viewer), unit routing/election, e2e default.
 
 ## Fase 2 — Trasporto follower (pixel + input)
 - [ ] `webrtc-bridge` con **source = device host** (oltre al source server esistente).
