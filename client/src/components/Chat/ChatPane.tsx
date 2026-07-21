@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
-import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi } from '../../lib/api';
+import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi, contextAnalysisApi } from '../../lib/api';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
@@ -20,6 +20,7 @@ import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/compos
 
 const SLASH_COMMANDS_HELP = [
   '/status — Show session status',
+  '/context — Show context-window usage (tokens, budget, sources)',
   '/clear — Clear conversation',
   '/model — Change model (e.g. /model claude-opus-4-5)',
   '/reasoning — Toggle reasoning mode',
@@ -478,6 +479,20 @@ function ChatPaneComponent({
   const handleSlashCommand = useCallback(async (text: string): Promise<boolean> => {
     const cmd = text.toLowerCase().trim();
     if (cmd === '/status') { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); setCommandResult({ type: 'success', message: r.output || 'Status retrieved' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/context') {
+      setCommandLoading(true);
+      try {
+        const a = await contextAnalysisApi.analyze(topic.id);
+        const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k` : `${n}`);
+        const lines = [`Contesto: ${k(a.totalTokens)} / ${k(a.budgetLimit)} token (${Math.round(a.budgetPercent)}%)`];
+        const top = [...a.sources].filter((s) => s.enabled && s.tokens > 0).sort((x, y) => y.tokens - x.tokens).slice(0, 6);
+        for (const s of top) lines.push(`  • ${s.category} · ${s.label} — ${k(s.tokens)}`);
+        if (a.warnings && a.warnings.length > 0) lines.push(`⚠ ${a.warnings.length} avviso${a.warnings.length === 1 ? '' : 'i'}`);
+        setCommandResult({ type: 'success', message: lines.join('\n') });
+      } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); }
+      finally { setCommandLoading(false); }
+      return true;
+    }
     if (cmd === '/clear') { if (!window.confirm('Clear conversation? A backup will be saved.')) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }

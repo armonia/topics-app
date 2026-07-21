@@ -84,15 +84,29 @@ export function getCompactionMarkersBySession(db: Database, sessionKey: string):
 }
 
 /** Backfill the post-compaction token count on the most recent marker that
- *  still lacks one (called from the following `result`'s usage). Best-effort. */
-export function backfillPostTokens(db: Database, sessionKey: string, postTokens: number): void {
-  if (!Number.isFinite(postTokens) || postTokens < 0) return;
-  db.prepare(
-    `UPDATE compaction_markers SET post_tokens = $post
-       WHERE id = (
-         SELECT id FROM compaction_markers
-          WHERE session_key = $sk AND post_tokens IS NULL
-          ORDER BY created_at DESC, rowid DESC LIMIT 1
-       )`,
-  ).run({ $post: postTokens, $sk: sessionKey });
+ *  still lacks one (called from the following `result`'s usage). Returns the
+ *  updated marker so the caller can re-broadcast it (the divider then shows the
+ *  pre→post delta live), or null when there was nothing to fill. Best-effort. */
+export function backfillPostTokens(
+  db: Database,
+  sessionKey: string,
+  postTokens: number,
+): StoredCompactionMarker | null {
+  if (!Number.isFinite(postTokens) || postTokens < 0) return null;
+  const target = db
+    .prepare(
+      `SELECT id FROM compaction_markers
+        WHERE session_key = ? AND post_tokens IS NULL
+        ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    )
+    .get(sessionKey) as { id?: unknown } | undefined;
+  if (!target?.id) return null;
+  db.prepare(`UPDATE compaction_markers SET post_tokens = $post WHERE id = $id`).run({
+    $post: postTokens,
+    $id: String(target.id),
+  });
+  const row = db
+    .prepare(`SELECT * FROM compaction_markers WHERE id = ?`)
+    .get(String(target.id)) as Record<string, unknown> | undefined;
+  return row ? mapRow(row) : null;
 }

@@ -627,6 +627,9 @@ export interface WSStreamCompactionMessage {
   afterMessageId: string | null;
   trigger: 'auto' | 'manual' | 'unknown';
   preTokens?: number;
+  /** Filled by a follow-up broadcast once the post-compaction context size is
+   *  known (the next result's input tokens) — drives the pre→post delta. */
+  postTokens?: number;
   createdAt: string;
 }
 /**

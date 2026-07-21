@@ -20,7 +20,7 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
-import { insertCompactionMarker } from "../db/compaction-markers";
+import { insertCompactionMarker, backfillPostTokens } from "../db/compaction-markers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
@@ -540,6 +540,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           let usagePromptTokens: number | undefined;
           let usageCompletionTokens: number | undefined;
           let costCents: number | undefined;
+          // Set when a compaction boundary lands mid-turn, so onDone knows this
+          // turn's `prompt_tokens` (the compacted context that was sent) is the
+          // post-compaction size to backfill onto the just-created marker.
+          let compactedThisTurn = false;
           const partialMsg = createPartialMessage(sessionKey, "assistant");
           startStream(sessionKey, partialMsg.id);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
@@ -1295,6 +1299,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // the marker never re-enters provider history (separate table).
               try {
                 resetStreamTimer();
+                compactedThisTurn = true;
                 const stored = insertCompactionMarker(ctx.db, {
                   sessionKey,
                   topicId: matchedTopic?.id ?? null,
@@ -1343,6 +1348,31 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   const outTok = usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens;
                   if (typeof inTok === "number") usagePromptTokens = inTok;
                   if (typeof outTok === "number") usageCompletionTokens = outTok;
+                  // If a compaction landed this turn, the input tokens we just
+                  // sent ARE the post-compaction context size — backfill it onto
+                  // the marker and re-broadcast so the divider shows the pre→post
+                  // delta live (CHAT-COMPACT-01 finished the wiring but never
+                  // called this).
+                  if (compactedThisTurn && typeof inTok === "number") {
+                    try {
+                      const filled = backfillPostTokens(ctx.db, sessionKey, inTok);
+                      if (filled) {
+                        const cevt = {
+                          type: "stream:compaction" as const,
+                          sessionKey,
+                          topicId: matchedTopic?.id,
+                          markerId: filled.id,
+                          afterMessageId: filled.afterMessageId,
+                          trigger: filled.trigger,
+                          ...(filled.preTokens != null ? { preTokens: filled.preTokens } : {}),
+                          ...(filled.postTokens != null ? { postTokens: filled.postTokens } : {}),
+                          createdAt: filled.createdAt,
+                        };
+                        if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cevt);
+                        else broadcastToAll(cevt);
+                      }
+                    } catch (err) { console.error("[compaction] backfill failed:", err); }
+                  }
                   // Cost: try the provider field first, then derive via the
                   // existing per-model price table when both token counts exist.
                   const usdFromProvider = typeof usage.costUsd === "number" ? usage.costUsd : undefined;

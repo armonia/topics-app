@@ -127,7 +127,16 @@ export function useChat() {
   const upsertMarker = useCallback((sessionKey: string, marker: CompactionMarker) => {
     setCompactionMarkers(prev => {
       const list = prev[sessionKey] || [];
-      if (list.some(m => m.id === marker.id)) return prev;
+      const idx = list.findIndex(m => m.id === marker.id);
+      if (idx >= 0) {
+        // Merge — a follow-up broadcast backfills postTokens onto an existing
+        // marker (pre→post delta). No-op if nothing actually changed.
+        const merged = { ...list[idx], ...marker };
+        if (merged.postTokens === list[idx].postTokens && merged.preTokens === list[idx].preTokens) return prev;
+        const next = list.slice();
+        next[idx] = merged;
+        return { ...prev, [sessionKey]: next };
+      }
       return { ...prev, [sessionKey]: [...list, marker] };
     });
   }, []);
@@ -558,6 +567,7 @@ export function useChat() {
           afterMessageId: event.afterMessageId ?? null,
           trigger: event.trigger,
           ...(typeof event.preTokens === 'number' ? { preTokens: event.preTokens } : {}),
+          ...(typeof event.postTokens === 'number' ? { postTokens: event.postTokens } : {}),
           createdAt: event.createdAt,
         });
         break;
