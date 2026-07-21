@@ -5422,14 +5422,20 @@ pub fn run() {
                         || (url.scheme() == "http"
                             && url.host_str() == Some("127.0.0.1")
                             && url.port() == Some(PROXY_PORT));
-                    if !allowed {
-                        use tauri::Manager;
-                        use tauri_plugin_opener::OpenerExt;
-                        let _ = webview
-                            .app_handle()
-                            .opener()
-                            .open_url(url.to_string(), None::<&str>);
-                    }
+                    // Do NOT route disallowed navigations to the OS browser. This
+                    // handler ALSO fires for the DOM co-browse mirror iframe's link
+                    // clicks — a sub-frame navigation wry can't distinguish from a
+                    // top-frame one — and opening those in the system browser (Dia)
+                    // was the "clicco un link nel browser di Topics e mi si apre
+                    // fuori" bug. WKWebView doesn't reliably let the in-page bridge
+                    // preventDefault the sandboxed-iframe navigation, so this shell
+                    // guard is the reliable stop. Safe: every LEGIT external link in
+                    // the app UI goes through openExternalOnce → the opener plugin
+                    // directly (never this handler), and no app code navigates the
+                    // main/detached frame to an external URL. So denying here just
+                    // keeps the app on its origin (no white-screen) and lets the
+                    // mirror's link clicks stay in the shared session (they relay as
+                    // coordinate input; the headless navigates and the mirror follows).
                     allowed
                 })
                 .build(),
