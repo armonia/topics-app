@@ -113,6 +113,8 @@ export function ToolInputForm({ schema, onSubmit, toolCallId }: Props) {
 
 // --- Subcomponents -------------------------------------------------------
 
+const OTHER = 'Other';
+
 function QuestionsForm({
   questions, toolCallId, submitting, error, onSubmit,
 }: {
@@ -122,23 +124,39 @@ function QuestionsForm({
   error: string | null;
   onSubmit: (response: ToolUserResponse) => Promise<void>;
 }) {
-  // `answers` keyed by question text — same shape the server persists
-  // and re-injects into the provider stream.
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  // Per-question free-text override when the user picks "Other".
+  // Selected option labels per question (keyed by question text). "Other" is a
+  // sentinel entry resolved to `otherText`. A single-select question holds at
+  // most one label; a `multiSelect` one holds any number — the wire format
+  // stays `Record<string,string>`, so multiple picks are joined with ", ".
+  const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [otherText, setOtherText] = useState<Record<string, string>>({});
 
+  const picked = (qKey: string, label: string) => (selections[qKey] || []).includes(label);
+
+  function toggle(q: AskUserQuestionItem, label: string) {
+    const qKey = q.question;
+    setSelections((prev) => {
+      const cur = prev[qKey] || [];
+      if (q.multiSelect) {
+        return { ...prev, [qKey]: cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label] };
+      }
+      return { ...prev, [qKey]: [label] }; // single-select: replace
+    });
+  }
+
   const allAnswered = questions.every((q) => {
-    const a = answers[q.question];
-    if (!a) return false;
-    if (a === 'Other') return (otherText[q.question] || '').trim().length > 0;
+    const cur = selections[q.question] || [];
+    if (cur.length === 0) return false;
+    if (cur.includes(OTHER) && (otherText[q.question] || '').trim().length === 0) return false;
     return true;
   });
 
   function resolveAnswerFor(q: AskUserQuestionItem): string {
-    const selection = answers[q.question];
-    if (selection === 'Other') return otherText[q.question] || '';
-    return selection || '';
+    const cur = selections[q.question] || [];
+    return cur
+      .map((l) => (l === OTHER ? (otherText[q.question] || '').trim() : l))
+      .filter(Boolean)
+      .join(', ');
   }
 
   return (
@@ -157,7 +175,9 @@ function QuestionsForm({
         <HelpCircle size={12} />
         <span>L'agente attende la tua risposta</span>
       </div>
-      {questions.map((q, qIdx) => (
+      {questions.map((q, qIdx) => {
+        const inputType = q.multiSelect ? 'checkbox' : 'radio';
+        return (
         <fieldset key={`${toolCallId}-q-${qIdx}`} className="space-y-1">
           <legend className="text-[11px] font-medium text-app-text">
             {q.question}
@@ -166,16 +186,19 @@ function QuestionsForm({
                 {q.header}
               </span>
             )}
+            {q.multiSelect && (
+              <span className="ml-2 text-[10px] normal-case tracking-normal text-app-text-muted">(scelta multipla)</span>
+            )}
           </legend>
           <div className="space-y-0.5 pl-1">
             {q.options.map((opt, oIdx) => (
               <label key={`${toolCallId}-q-${qIdx}-o-${oIdx}`} className="flex items-start gap-2 text-[11px] cursor-pointer hover:bg-app-hover rounded px-1 py-0.5">
                 <input
-                  type="radio"
-                  name={`${toolCallId}-q-${qIdx}`}
+                  type={inputType}
+                  name={q.multiSelect ? undefined : `${toolCallId}-q-${qIdx}`}
                   value={opt.label}
-                  checked={answers[q.question] === opt.label}
-                  onChange={() => setAnswers((prev) => ({ ...prev, [q.question]: opt.label }))}
+                  checked={picked(q.question, opt.label)}
+                  onChange={() => toggle(q, opt.label)}
                   disabled={submitting}
                   className="mt-0.5"
                 />
@@ -190,17 +213,17 @@ function QuestionsForm({
             {/* "Other" — always available; mirrors the SDK contract. */}
             <label className="flex items-start gap-2 text-[11px] cursor-pointer hover:bg-app-hover rounded px-1 py-0.5">
               <input
-                type="radio"
-                name={`${toolCallId}-q-${qIdx}`}
-                value="Other"
-                checked={answers[q.question] === 'Other'}
-                onChange={() => setAnswers((prev) => ({ ...prev, [q.question]: 'Other' }))}
+                type={inputType}
+                name={q.multiSelect ? undefined : `${toolCallId}-q-${qIdx}`}
+                value={OTHER}
+                checked={picked(q.question, OTHER)}
+                onChange={() => toggle(q, OTHER)}
                 disabled={submitting}
                 className="mt-0.5"
               />
               <div className="flex-1 min-w-0">
                 <div className="text-app-text">Other</div>
-                {answers[q.question] === 'Other' && (
+                {picked(q.question, OTHER) && (
                   <textarea
                     value={otherText[q.question] || ''}
                     onChange={(e) => setOtherText((prev) => ({ ...prev, [q.question]: e.target.value }))}
@@ -214,7 +237,8 @@ function QuestionsForm({
             </label>
           </div>
         </fieldset>
-      ))}
+        );
+      })}
       {error && (
         <div className="text-[11px] text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
       )}
