@@ -32,6 +32,7 @@ const shellSchema = z.object({
   cwd: z.string().optional(),
   output: z.string().optional(),
   exitCode: z.number().nullable().optional(),
+  background: z.boolean().optional(),
 });
 
 const readSchema = z.object({
@@ -118,6 +119,57 @@ const mcpSchema = z.object({
   result: z.string().optional(),
 });
 
+const monitorSchema = z.object({
+  type: z.literal('monitor'),
+  description: z.string(),
+  command: z.string().optional(),
+  wsUrl: z.string().optional(),
+  persistent: z.boolean().optional(),
+  result: z.string().optional(),
+});
+
+const bashOutputSchema = z.object({
+  type: z.literal('bash_output'),
+  shellId: z.string(),
+  filter: z.string().optional(),
+  output: z.string().optional(),
+});
+
+const killShellSchema = z.object({
+  type: z.literal('kill_shell'),
+  shellId: z.string(),
+  result: z.string().optional(),
+});
+
+const notebookEditSchema = z.object({
+  type: z.literal('notebook_edit'),
+  notebookPath: z.string(),
+  cellId: z.string().optional(),
+  editMode: z.string().optional(),
+  cellType: z.string().optional(),
+});
+
+const skillSchema = z.object({
+  type: z.literal('skill'),
+  skill: z.string(),
+  args: z.string().optional(),
+  result: z.string().optional(),
+});
+
+const slashCommandSchema = z.object({
+  type: z.literal('slash_command'),
+  command: z.string(),
+  result: z.string().optional(),
+});
+
+const lspSchema = z.object({
+  type: z.literal('lsp'),
+  operation: z.string(),
+  filePath: z.string().optional(),
+  symbol: z.string().optional(),
+  result: z.string().optional(),
+});
+
 const unknownSchema = z.object({
   type: z.literal('unknown'),
   raw: z.object({
@@ -139,6 +191,13 @@ export const toolCallDetailSchema = z.discriminatedUnion('type', [
   subAgentSchema,
   planSchema,
   mcpSchema,
+  monitorSchema,
+  bashOutputSchema,
+  killShellSchema,
+  notebookEditSchema,
+  skillSchema,
+  slashCommandSchema,
+  lspSchema,
   unknownSchema,
 ]);
 

@@ -361,6 +361,118 @@ export function McpCard({ args, result }: {
   );
 }
 
+// ── Result block shared by the background / harness cards ───────────────────
+
+function ResultPre({ text }: { text: string }) {
+  return (
+    <pre data-testid="tool-call-result" className="text-[11px] font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto max-h-72 bg-app-hover/40 rounded px-2 py-1.5">
+      {text}
+    </pre>
+  );
+}
+
+// ── Monitor (long-lived event watcher) ──────────────────────────────────────
+
+export function MonitorCard({ description, command, wsUrl, persistent, result }: {
+  description: string; command?: string; wsUrl?: string; persistent?: boolean; result?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      {description && <div className="text-[12px] text-app-text">{description}</div>}
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+        {persistent && <span className="px-1.5 py-0.5 rounded bg-app-hover/60 font-mono">persistent</span>}
+        {wsUrl && <span className="font-mono text-blue-500 break-all">{wsUrl}</span>}
+      </div>
+      {command && (
+        <HighlightedPre code={command} lang="bash" className="text-[11px] font-mono text-app-text whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5" prefix={<span className="text-app-text-muted select-none">$ </span>} />
+      )}
+      {result && <ResultPre text={result} />}
+    </div>
+  );
+}
+
+// ── BashOutput / KillShell (background-shell lifecycle) ──────────────────────
+
+export function BashOutputCard({ shellId, filter, output }: { shellId: string; filter?: string; output?: string }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+        <span className="font-mono">shell <span className="text-app-text-secondary">{shellId}</span></span>
+        {filter && <span className="font-mono">filter <span className="text-app-text-secondary">/{filter}/</span></span>}
+      </div>
+      {output && <ResultPre text={output} />}
+    </div>
+  );
+}
+
+export function KillShellCard({ shellId, result }: { shellId: string; result?: string }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] text-app-text-muted font-mono">shell <span className="text-app-text-secondary">{shellId}</span></div>
+      {result && <ResultPre text={result} />}
+    </div>
+  );
+}
+
+// ── NotebookEdit ────────────────────────────────────────────────────────────
+
+export function NotebookEditCard({ notebookPath, cellId, editMode, cellType }: {
+  notebookPath: string; cellId?: string; editMode?: string; cellType?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] font-mono text-app-text-secondary break-all">{notebookPath}</div>
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-app-text-muted">
+        {editMode && <span className="px-1.5 py-0.5 rounded bg-app-hover/60 font-mono">{editMode}</span>}
+        {cellType && <span className="font-mono">{cellType}</span>}
+        {cellId && <span className="font-mono">cell <span className="text-app-text-secondary">{cellId}</span></span>}
+      </div>
+    </div>
+  );
+}
+
+// ── Skill ───────────────────────────────────────────────────────────────────
+
+export function SkillCard({ skill, args, result }: { skill: string; args?: string; result?: string }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[12px] font-mono">
+        <span className="text-purple-500">/{skill}</span>
+        {args && <span className="text-app-text-secondary"> {args}</span>}
+      </div>
+      {result && <ResultPre text={result} />}
+    </div>
+  );
+}
+
+// ── SlashCommand ─────────────────────────────────────────────────────────────
+
+export function SlashCommandCard({ command, result }: { command: string; result?: string }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[12px] font-mono text-app-text">{command.startsWith('/') ? command : `/${command}`}</div>
+      {result && <ResultPre text={result} />}
+    </div>
+  );
+}
+
+// ── LSP (code intelligence) ─────────────────────────────────────────────────
+
+export function LspCard({ operation, filePath, symbol, result }: {
+  operation: string; filePath?: string; symbol?: string; result?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="font-mono text-app-text">{operation}</span>
+        {symbol && <span className="font-mono text-app-text-secondary">{symbol}</span>}
+        {filePath && <span className="font-mono text-app-text-muted break-all">{filePath}</span>}
+      </div>
+      {result && <ResultPre text={result} />}
+    </div>
+  );
+}
+
 // ── Unknown / generic fallback ──────────────────────────────────────────────
 
 export function UnknownCard({ args, result }: { args?: Record<string, unknown>; result?: string }) {
@@ -400,6 +512,20 @@ export function ToolCardBody({ detail, isError, isRunning }: { detail: ToolCallD
       return <PlanCard text={detail.text} />;
     case 'mcp':
       return <McpCard server={detail.server} tool={detail.tool} args={detail.args} result={detail.result} />;
+    case 'monitor':
+      return <MonitorCard description={detail.description} command={detail.command} wsUrl={detail.wsUrl} persistent={detail.persistent} result={detail.result} />;
+    case 'bash_output':
+      return <BashOutputCard shellId={detail.shellId} filter={detail.filter} output={detail.output} />;
+    case 'kill_shell':
+      return <KillShellCard shellId={detail.shellId} result={detail.result} />;
+    case 'notebook_edit':
+      return <NotebookEditCard notebookPath={detail.notebookPath} cellId={detail.cellId} editMode={detail.editMode} cellType={detail.cellType} />;
+    case 'skill':
+      return <SkillCard skill={detail.skill} args={detail.args} result={detail.result} />;
+    case 'slash_command':
+      return <SlashCommandCard command={detail.command} result={detail.result} />;
+    case 'lsp':
+      return <LspCard operation={detail.operation} filePath={detail.filePath} symbol={detail.symbol} result={detail.result} />;
     case 'unknown':
       return <UnknownCard args={detail.raw.args} result={detail.raw.result} />;
   }
