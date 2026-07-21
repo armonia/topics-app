@@ -203,7 +203,10 @@ export function createAppContext(baseDir: string): AppContext {
       VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
     `),
     updateMessage: db.prepare(`
-      UPDATE messages SET content = $content, thinking = $thinking, tool_calls = $tool_calls,
+      UPDATE messages SET
+        content = COALESCE($content, content),
+        thinking = COALESCE($thinking, thinking),
+        tool_calls = COALESCE($tool_calls, tool_calls),
         blocks = COALESCE($blocks, blocks),
         media = $media,
         partial = $partial, streamed_at = $streamed_at, plan_status = $plan_status,
@@ -814,11 +817,16 @@ export function createAppContext(baseDir: string): AppContext {
     if (!row) return null;
     const msg = rowToMessage(row);
     Object.assign(msg, updates);
+    // Only overwrite the body fields the caller actually passed. Fields absent
+    // from `updates` go in as null so the COALESCE in updateMessage keeps the
+    // existing column — a partial update (e.g. flipping `partial` on timeout)
+    // must never re-persist a stale content/thinking/tool snapshot over
+    // concurrent writes, which is how turns were being blanked.
     stmts.updateMessage.run({
       $id: msg.id,
-      $content: msg.content || '',
-      $thinking: msg.thinking || null,
-      $tool_calls: msg.toolCalls ? JSON.stringify(msg.toolCalls) : null,
+      $content: 'content' in updates ? (msg.content || '') : null,
+      $thinking: 'thinking' in updates ? (msg.thinking || null) : null,
+      $tool_calls: 'toolCalls' in updates ? (msg.toolCalls ? JSON.stringify(msg.toolCalls) : null) : null,
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -838,9 +846,11 @@ export function createAppContext(baseDir: string): AppContext {
     if (thinkingDelta) msg.thinking = (msg.thinking || "") + thinkingDelta;
     stmts.updateMessage.run({
       $id: msg.id,
+      // Owns content/thinking. tool_calls is null so COALESCE keeps them — a
+      // content delta must never overwrite tool state written concurrently.
       $content: msg.content,
       $thinking: msg.thinking || null,
-      $tool_calls: msg.toolCalls ? JSON.stringify(msg.toolCalls) : null,
+      $tool_calls: null,
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -858,9 +868,12 @@ export function createAppContext(baseDir: string): AppContext {
     delete msg.streamedAt;
     stmts.updateMessage.run({
       $id: msg.id,
-      $content: msg.content,
-      $thinking: msg.thinking || null,
-      $tool_calls: msg.toolCalls ? JSON.stringify(msg.toolCalls) : null,
+      // Flips the partial/streamed_at control flags only. All body fields are
+      // null so COALESCE preserves whatever streamed — finalizing a turn must
+      // never blank its content, thinking, or tools.
+      $content: null,
+      $thinking: null,
+      $tool_calls: null,
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: 0,
       $streamed_at: null,
@@ -891,8 +904,9 @@ export function createAppContext(baseDir: string): AppContext {
     }
     stmts.updateMessage.run({
       $id: msg.id,
-      $content: msg.content,
-      $thinking: msg.thinking || null,
+      // Owns tool_calls only — see updateToolCallResult.
+      $content: null,
+      $thinking: null,
       $tool_calls: JSON.stringify(msg.toolCalls),
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
@@ -917,8 +931,11 @@ export function createAppContext(baseDir: string): AppContext {
       if (extra) Object.assign(tc, extra);
       stmts.updateMessage.run({
         $id: msg.id,
-        $content: msg.content,
-        $thinking: msg.thinking || null,
+        // Owns tool_calls only. content/thinking are null so COALESCE keeps the
+        // streamed body — a late tool_result (e.g. a killed process draining its
+        // buffer) must never overwrite the assistant's text.
+        $content: null,
+        $thinking: null,
         $tool_calls: JSON.stringify(msg.toolCalls),
         $media: msg.media ? JSON.stringify(msg.media) : null,
         $partial: msg.partial ? 1 : 0,
@@ -947,8 +964,9 @@ export function createAppContext(baseDir: string): AppContext {
     Object.assign(tc, patch);
     stmts.updateMessage.run({
       $id: msg.id,
-      $content: msg.content,
-      $thinking: msg.thinking || null,
+      // Owns tool_calls only — see updateToolCallResult.
+      $content: null,
+      $thinking: null,
       $tool_calls: JSON.stringify(msg.toolCalls),
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
