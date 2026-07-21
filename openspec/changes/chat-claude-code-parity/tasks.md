@@ -55,7 +55,7 @@ Each task lists its verification. The change is complete only when every box is 
 - [ ] 4.2 Provider: post-turn listener routes recognisable events with no active `streamHandler` to `onOutOfTurn` instead of dropping. **Verify:** integration — an event after `result` reaches `onOutOfTurn`.
 - [ ] 4.3 Route + persistence: `stream:out_of_turn` broadcast + `role:"system" kind:"background"` row (excluded from provider history). **Verify:** row written + not in assembled history.
 - [ ] 4.4 Client: render as a muted system entry in the message list; existing `useCompletionNotifier` toast unchanged; **no** model auto-resume. **Verify:** E2E — Monitor completion appears inline; no new turn starts.
-- [ ] 4.5 Tool-detail rows for `Monitor`/`BashOutput`/`KillShell`/`run_in_background` (server `tool-detail.ts` + client `toolDetail.ts`). **Verify:** these render as typed rows, not `unknown`.
+- [ ] 4.5 Tool-detail rows for the tools that today fall through `deriveToolDetail` to `type:"unknown"` (`tool-detail.ts:209`): `Monitor`, `BashOutput`, `KillShell`/`KillBash`, background (`run_in_background`) Bash, plus `NotebookEdit`, `Skill`, `SlashCommand`, `LSP`. Add the missing name aliases + typed shapes (server `tool-detail.ts`) and their cards (client `ToolCards.tsx`). **Verify:** `bun:test` on `deriveToolDetail` for each name; each renders as a typed row, not the raw `unknown` JSON card.
 
 ## 5. Broker survival — spec, verify, observe
 
@@ -66,6 +66,13 @@ Each task lists its verification. The change is complete only when every box is 
 ## 6. Sticky todo strip (minor)
 
 - [ ] 6.1 Render latest `TodoWrite` in `ChatPane` `aboveInputSlot` (L763) as a compact, collapsible, in-place strip. **Verify:** E2E — strip updates as todos change; inline rows unaffected.
+
+## 8. Rendering performance (CHAT-PERF-01)
+
+- [ ] 8.1 Coalesce live deltas: the `stream:content_chunk` / `stream:thinking_chunk` handlers in `useChat.ts` (~L480-546) accumulate into a ref and flush via a single `requestAnimationFrame`-batched `setMessages`, instead of one commit per delta (the catchup path at ~L923-989 already batches — bring the live path to parity). **Verify:** unit/bench — N deltas in one frame produce 1 commit; the streamed text is identical to per-delta.
+- [ ] 8.2 Scope markdown re-parse to the in-flight bubble: confirm `MessageBubble` memo bailout holds during streaming so only the streaming row re-renders; if the streaming bubble re-highlights on every delta, memoize the parsed/highlighted markdown on `(content, isStreaming)` so settled rows never re-parse. **Verify:** React profiler / render-count test — a streamed delta re-renders exactly one bubble, and settled bubbles' markdown is not re-parsed.
+- [ ] 8.3 Clamp oversized bodies: a very large tool result or message body is collapsed with an expand control (cap inline layout), so a multi-MB Bash/BashOutput result doesn't wedge layout. **Verify:** E2E — a synthetic large output renders collapsed with a working expand.
+- [ ] 8.4 Guard the virtualization invariant: `MessageList` stays virtualized with no full-list re-render per streamed delta on a long transcript. **Verify:** perf test / profiler on a long-history topic during streaming.
 
 ## 7. Close-out
 

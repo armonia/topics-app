@@ -190,6 +190,26 @@ The system SHALL render the latest `TodoWrite` for a claude-code chat as a compa
 - **THEN** the sticky strip above the composer updates in place to the latest todo state
 - **AND** the inline transcript rows are unaffected
 
+### Requirement: CHAT-PERF-01 — Streaming and long transcripts stay smooth
+
+The chat client SHALL keep the UI responsive during high-rate streaming and on long transcripts. Live content/thinking deltas SHALL be coalesced into at most one render per animation frame (not one React state commit per token). The re-parse/re-highlight of markdown SHALL be scoped to the single in-flight streaming bubble — never a re-render or re-parse of the whole transcript per delta. The message list SHALL stay virtualized so memory and DOM node count are bounded regardless of transcript length, and a very large single tool output or message body SHALL be clamped/collapsed with an expand affordance rather than laying out megabytes of text inline. These guarantees SHALL hold for a claude-code turn that is simultaneously streaming prose and emitting tool events.
+
+#### Scenario: Token bursts coalesce to per-frame renders
+- **GIVEN** a turn streaming content deltas at high rate
+- **WHEN** many deltas arrive within one animation frame
+- **THEN** they are flushed as a single render for that frame (not one commit per delta)
+- **AND** only the in-flight streaming bubble re-parses/re-highlights, not the whole transcript
+
+#### Scenario: Long transcript stays bounded
+- **GIVEN** a topic with a very long message history
+- **WHEN** it is scrolled
+- **THEN** the list stays virtualized (bounded DOM nodes / memory), with no full-list re-render on each streamed delta
+
+#### Scenario: Oversized output does not wedge layout
+- **GIVEN** a tool result or message body of very large size
+- **WHEN** it renders
+- **THEN** it is clamped/collapsed with an expand control rather than laid out inline in full
+
 ## MODIFIED Requirements
 
 ### Requirement: CHAT-01 — Message Lifecycle
