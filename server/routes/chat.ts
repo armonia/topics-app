@@ -81,7 +81,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     broadcastToAll, broadcastToTopicSubscribers, db, json, readJSON,
     getTopicBySessionKey,
     appendLocalMessage,
-    createPartialMessage, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
+    createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamContent, endStream, isStreaming,
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
@@ -544,7 +544,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // turn's `prompt_tokens` (the compacted context that was sent) is the
           // post-compaction size to backfill onto the just-created marker.
           let compactedThisTurn = false;
-          const partialMsg = createPartialMessage(sessionKey, "assistant");
+          // Reattach after a server restart continues the SAME bubble the client
+          // was watching (reuse + in-place JSONL replay) instead of spawning a
+          // duplicate turn / leaving a ghost spinner. Normal sends always get a
+          // fresh row.
+          const partialMsg = body.mode === "reattach"
+            ? reuseOrCreatePartialForReattach(sessionKey)
+            : createPartialMessage(sessionKey, "assistant");
           startStream(sessionKey, partialMsg.id);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 

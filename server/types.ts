@@ -427,6 +427,7 @@ export interface AppContext {
   saveLocalMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   appendLocalMessage: (sessionKey: string, role: "user" | "assistant", content: string) => StoredMessage;
   createPartialMessage: (sessionKey: string, role: "user" | "assistant") => StoredMessage;
+  reuseOrCreatePartialForReattach: (sessionKey: string) => StoredMessage;
   updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>) => StoredMessage | null;
   appendToLastMessage: (sessionKey: string, contentDelta: string, thinkingDelta?: string) => StoredMessage | null;
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;
