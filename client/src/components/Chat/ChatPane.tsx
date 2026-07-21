@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
@@ -10,6 +10,8 @@ import { PinnedMessages } from './PinnedMessages';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { CheckpointTimeline } from './CheckpointTimeline';
+import { TodoStrip } from './TodoStrip';
+import { selectLatestTodo } from './selectLatestTodo';
 import { useVoiceRecording } from './useVoiceRecording';
 import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters';
@@ -261,6 +263,9 @@ function ChatPaneComponent({
   }, []);
 
   const currentMessages = getSessionMessages(topic.sessionKey);
+  // Sticky current-todo strip (CHAT-TODO-01): mirror the latest TodoWrite above
+  // the composer so the plan stays visible while typing.
+  const latestTodo = useMemo(() => selectLatestTodo(currentMessages), [currentMessages]);
   const currentLoading = isSessionLoading(topic.sessionKey);
   const currentStreaming = isSessionStreaming(topic.sessionKey);
 
@@ -760,6 +765,7 @@ function ChatPaneComponent({
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
+        {latestTodo && <TodoStrip snapshot={latestTodo} />}
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />
         <ChatInput isMobile={isMobile} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError} sendMessageDirect={(c: string) => sendMessage(topic.sessionKey, c)} messageQueue={messageQueue} onUpdateQueueItem={(idx, content) => setMessageQueue(prev => prev.map((m, i) => (i === idx ? content : m)))} onRemoveQueueItem={(idx) => setMessageQueue(prev => prev.filter((_, i) => i !== idx))} onClearQueue={() => setMessageQueue([])} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} planMode={planMode} onTogglePlanMode={togglePlanMode} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />

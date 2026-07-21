@@ -65,7 +65,7 @@ Each task lists its verification. The change is complete only when every box is 
 
 ## 6. Sticky todo strip (minor)
 
-- [ ] 6.1 Render latest `TodoWrite` in `ChatPane` `aboveInputSlot` (L763) as a compact, collapsible, in-place strip. **Verify:** E2E — strip updates as todos change; inline rows unaffected.
+- [x] 6.1 Render latest `TodoWrite` in `ChatPane` `aboveInputSlot` (L763) as a compact, collapsible, in-place strip. **Verify:** E2E — strip updates as todos change; inline rows unaffected.
 
 ## 8. Rendering performance (CHAT-PERF-01)
 
