@@ -92,6 +92,61 @@ programmata: Ladybird (stable ~2028), Servo `libservo`.
   download/reader/adblock; l'agente che condivide la TUA tab cross-device (il
   differenziatore).
 
+## Fase 1 — piano esecutivo (deciso 2026-07-21, su mappa del codice esistente)
+
+**Substrato deciso: host = WKWebView nativo + native-executor + cattura. NIENTE CEF.**
+Tre dei quattro problemi duri sono già spediti e riusabili:
+- **Compositing del pane nativo su uno slot di layout** — `NativeBrowserPlaceholder.tsx`
+  (`data-native-browser-slot`, ResizeObserver/scroll/mutation → `browser_set_bounds`) +
+  `browser_animate_bounds` (Core Animation) + freeze-frame (`browser_screenshot`→`<img>`
+  quando un overlay DOM deve coprire). `lib.rs:2538` `browser_open_inner`
+  (`add_child(WebviewBuilder…)`), `lib.rs:2749` `browser_set_bounds_inner`.
+- **Agente che pilota il pane nativo** — delega `register_native_executor`: round-trip
+  COMPLETO oggi per navigate/observe/act(click/type/fill/select/scroll/press)/extract/
+  eval/get_text/console/status/screenshot/upload/login. `browser-native-delegate.ts`
+  (registry+`delegateOp` 30s), `browser-tool-dispatcher.ts:273`, `tauriBrowserOps.ts`
+  (stesso `SNAPSHOT_FN`/`ACT_FN` di `shared/browser-snapshot-core` → zero drift di
+  formato con CDP).
+- **Encode + fan-out + SDP/ICE WebRTC** — `webrtc-bridge` sorgente-agnostico dietro il
+  boundary `jpeg_tx: SyncSender<Vec<u8>>` (`main.rs:114`); solo `cdp.rs` è CDP-specifico,
+  `encode.rs`+`main.rs` (track, keyframe-on-join, keepalive) riusabili tali e quali.
+
+**L'UNICO pezzo mancante: cattura device-side del pane nativo → nel bridge.** Oggi
+esiste solo `browser_screenshot` (`takeSnapshotWithConfiguration:`, one-shot, timeout
+10s) — inutile come transport live. Serve **ScreenCaptureKit** (`SCStream` filtrato
+alla window/regione del pane → `CVPixelBuffer` → JPEG/I420 → `jpeg_tx`), nuovo modulo
+Rust (`objc2`/binding screencapturekit) + permesso macOS screen-recording (TCC).
+
+**Caveat onesto (limite del path WKWebView):** l'input via native-executor è
+`isTrusted=false` (`ACT_FN` dispatcha eventi DOM sintetici) → alcuni siti che gate-ano
+sull'input trusted lo rifiutano; fallback documentato = pane CDP/streaming
+(`STREAMING_HINT`). **Per l'utente da solo l'input è nativo REALE** (usa la vera
+WKWebView) → il caso solo è perfetto; il caveat tocca solo agente e follower-relay su
+siti stretti.
+
+**I 6 pezzi nuovi + file (in ordine di sequenziamento MVP-first):**
+1. **MVP wiring — loop `takeSnapshot`→JPEG in `jpeg_tx`** (near-zero codice, `lib.rs`):
+   prova end-to-end nativo→follower a basso fps. Solo per validare il cablaggio, non da
+   shippare come transport.
+2. **Bridge sorgente-agnostico** — re-key `get_or_create_target`/protocollo offer da
+   CDP-targetId a **paneId/contextId** + ingresso producer JPEG accanto a
+   `cdp::attach_and_stream` (`webrtc-bridge/src/{main.rs,cdp.rs}`, riuso `encode.rs`).
+   Verificabile standalone (`cargo build` + `test-harness.mjs`).
+3. **Routing server** — quando `nativeDelegateRegistry.isDelegated(ctx)`, instrada
+   `webrtc_offer` allo stream device-side invece di `getTargetId` (null sui pane nativi)
+   — `server.ts:1660-1676`, `server/webrtc-bridge.ts`.
+4. **Cattura ScreenCaptureKit** — nuovo modulo Rust nel guscio: `SCStream` sul pane →
+   frame → JPEG → bridge. + flusso permesso TCC screen-recording.
+5. **Input back-channel follower→Mac** — i follower rilanciano click/tasti al pane nativo
+   (riuso `browser_act` della delega; caveat `isTrusted=false`).
+6. **Flip del default** — `readSharedPref` (`RemoteBrowserPanel.tsx:74-92,124-190`): host
+   nativo primario una volta che la cattura c'è; oggi il default è l'INVERSO (shared=
+   sessione server, nativo = opt-out). Il flip va DOPO la cattura, sennò = divergenza.
+
+**Gating ambiente (richiede la tua macchina + ok relaunch):** pezzi 1,2(binario),4,5 →
+build del sidecar e/o del guscio Tauri + relaunch dell'app + permesso TCC. Il pezzo 3
+(server) è live via kickstart; il pezzo 6 (client) via rebuild bundle.
+
 ## Rischi / trade-off onesti
 
 - **Host che dorme** → la riserva server copre (costo: si mantiene Chromium
