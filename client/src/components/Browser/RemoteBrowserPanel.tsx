@@ -1,5 +1,6 @@
 import { BrowserToolbar } from './BrowserToolbar';
-import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download, Puzzle } from 'lucide-react';
+import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download, Puzzle, Boxes, MonitorPlay } from 'lucide-react';
+import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
 import { useTauriBrowser } from '../../hooks/useTauriBrowser';
 import { useBrowserHistory } from '../../hooks/useBrowserHistory';
@@ -11,6 +12,10 @@ import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
 import type { Topic } from '../../types';
+
+// T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
+// only load when a pane actually switches to DOM mode (default video path is free).
+const DomCoBrowse = lazy(() => import('./DomCoBrowse'));
 
 /** Report a browser pane's busy state (page loading or an agent driving it)
  *  into the unified signals store, so its tab spinner + the project rollup
@@ -68,20 +73,21 @@ function sharedStorageKey(contextId: string): string {
   return `topics.browser.shared.${contextId}`;
 }
 function readSharedPref(contextId: string): boolean {
-  try { return localStorage.getItem(sharedStorageKey(contextId)) === '1'; } catch { return false; }
+  // Shared is the DEFAULT (Option A): the pane joins the server session so the
+  // phone/web see the SAME live page — and it's the same browser agents drive, so
+  // everything converges with zero handoff. Only an explicit '0' opts this Mac OUT
+  // into the private native WKWebView. Legacy '1' (an early opt-IN) stays shared.
+  // Absent / unreadable storage → shared.
+  try { return localStorage.getItem(sharedStorageKey(contextId)) !== '0'; } catch { return true; }
 }
 function writeSharedPref(contextId: string, shared: boolean): void {
   try {
-    if (shared) localStorage.setItem(sharedStorageKey(contextId), '1');
-    else localStorage.removeItem(sharedStorageKey(contextId));
+    // Shared is the default → clear the key; store '0' only for the local opt-out.
+    if (shared) localStorage.removeItem(sharedStorageKey(contextId));
+    else localStorage.setItem(sharedStorageKey(contextId), '0');
   } catch { /* private mode / no storage — in-memory state still drives the switch */ }
 }
 
-// Phase 30 BROWSER-CHAT-04 — local-network URLs (localhost, 127.0.0.1, *.local)
-// render via <iframe>. Zero Playwright overhead, full DevTools, and the user
-// already has the page on their machine. Agent tools refuse with structured
-// error in this mode (acknowledged constraint).
-const LOCAL_HOST_RX = /^https?:\/\/(localhost|127\.0\.0\.1|[^/]+\.local)(:|\/|$)/;
 
 /**
  * Whether a persisted pane url is safe to auto-seed into a blank server-side
@@ -112,11 +118,11 @@ function isSeedableUrl(raw: string | undefined): raw is string {
 }
 
 export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
-  // SHARED-SESSION switch (Tauri only). Default OFF → the fast, private native
-  // WKWebView. When ON, the Mac joins the SAME server-side streamed session a
-  // phone/web viewer of this pane sees (same page/login/cursor). The choice is
-  // per-device + persisted (localStorage), so a reload keeps the pane shared
-  // instead of silently reverting to native and diverging from the phone again.
+  // SHARED-SESSION switch (Tauri only). Default ON (Option A): the pane joins the
+  // SAME server-side session the phone/web see (same page/login/cursor) — the same
+  // browser agents drive, so Mac + phone + agent converge with zero handoff. The
+  // toggle opts this Mac OUT into the fast, private native WKWebView. The choice is
+  // per-device + persisted (localStorage), so a reload keeps it.
   const [shared, setShared] = useState(() => isTauri && readSharedPref(contextId));
   // Re-read when the pane is reused for a different context id — the "adjust
   // state during render on prop change" pattern (no effect, no cascading render).
@@ -481,6 +487,25 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     }
   }, [navigateUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cross-device robustness: when the WebRTC video transport can't establish
+  // (the "esce bianco" / "Sessione video non disponibile" dead-end other devices
+  // hit), automatically fall back to DOM co-browse — the real browser rebuilt
+  // natively — instead of stranding the user on an error. One-shot per URL:
+  //   • re-armed on navigation, so each page gets one automatic attempt;
+  //   • a page where DOM is unsupported makes the server force 'video' back — the
+  //     guard then lets it settle on the error box's manual controls (no loop);
+  //   • a MANUAL switch back to video after an auto-fallback is respected (we
+  //     don't yank the user back into DOM).
+  const autoDomForUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!browser.webrtcError || browser.renderMode !== 'video') return;
+    const url = browser.url;
+    if (!url || url === 'about:blank') return;
+    if (autoDomForUrlRef.current === url) return; // already auto-tried this page
+    autoDomForUrlRef.current = url;
+    browser.setRenderMode('dom');
+  }, [browser.webrtcError, browser.renderMode, browser.url, browser.setRenderMode]);
+
   // Notify parent of URL changes + record in per-topic history.
   useEffect(() => {
     if (browser.url) {
@@ -526,10 +551,16 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   }, [clickT]);
 
   // T2 — native <iframe> path (CodePen-style), early-return with the full
-  // toolbar. Used, in the WEB client only, when the current URL is (a) a local
-  // dev site OR (b) a remote site the server probed as framable — AND no agent
-  // is driving the pane (agents can't reach into a cross-origin iframe, so an
-  // agent flips the pane back to the screenshot stream).
+  // toolbar. Used, in the WEB client only, when the server probed the current URL
+  // as framable — AND no agent is driving the pane (agents can't reach into a
+  // cross-origin iframe, so an agent flips the pane back to the streamed surface).
+  //
+  // localhost is NOT force-framed anymore: a local dev app that sends
+  // X-Frame-Options / frame-ancestors (e.g. Quadra on :3100 → SAMEORIGIN) loads
+  // BLANK in the iframe, which read as "il browser non fa nulla, resta bianco".
+  // Now localhost goes through the same framability probe; non-framable local
+  // apps fall to the DOM co-browse surface (the server renders them and mirrors
+  // the real DOM — works past the framing block AND cross-device).
   //
   // NOT under the Tauri shell: there the whole app is a SINGLE WKWebView, and an
   // SPA that frame-busts (`top.location = …`) would navigate the main frame away
@@ -538,8 +569,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // (a screenshot <img> driven by the server's headless browser), which can't
   // touch the host frame. On web a hijack only swaps this one browser tab, and
   // the sandbox (no `allow-top-navigation`) blocks it anyway.
-  const useIframe = !isTauri && !!browser.url && !browser.agentActive &&
-    (LOCAL_HOST_RX.test(browser.url) || browser.framable);
+  const useIframe = !isTauri && !!browser.url && !browser.agentActive && browser.framable;
   // Task 052f53ef — while a native <iframe> is showing, the server-side headless
   // Chromium has no viewer: pause its screencast (keeps the WS open for
   // agent_active). Resume the instant we fall back to the stream.
@@ -695,6 +725,29 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           </button>
         )}
 
+        {/* T1 DOM co-browse toggle — DOM (native rrweb reconstruction) ↔ video (the
+            pixel stream). Shown once the pane is on a real page. DOM is the DEFAULT
+            (Option A): the real browser, native + cross-device-sharp, no video. Video
+            is the manual/auto fallback for canvas/WebGL/media the DOM can't rebuild. */}
+        {!!browser.url && browser.url !== 'about:blank' && (
+          <button
+            type="button"
+            data-testid="browser-render-toggle"
+            onClick={() => browser.setRenderMode(browser.renderMode === 'dom' ? 'video' : 'dom')}
+            className={`absolute bottom-2 left-2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+              browser.renderMode === 'dom'
+                ? 'bg-primary/15 border-primary/40 text-primary hover:bg-primary/25'
+                : 'bg-surface/90 border-border text-muted hover:bg-surface hover:text-text'
+            }`}
+            title={browser.renderMode === 'dom'
+              ? 'Modalità DOM: browser vero ricostruito nativamente (cross-device). Clicca per tornare al video.'
+              : 'Modalità video (stream a pixel). Clicca per la modalità DOM: il browser vero, nativo e cross-device.'}
+          >
+            {browser.renderMode === 'dom' ? <Boxes size={12} className="flex-shrink-0" /> : <MonitorPlay size={12} className="flex-shrink-0" />}
+            {browser.renderMode === 'dom' ? 'DOM' : 'Video'}
+          </button>
+        )}
+
         {/* Navigation error strip (BRW-REL-02) — a failed goto/launch used to
             be invisible (pane stayed on the previous page / infinite
             "Starting browser…"). Cleared by the next navigation. */}
@@ -736,25 +789,58 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           />
         )}
 
+        {/* T1 DOM co-browse — native rrweb reconstruction, overlaid above the (now
+            paused) pixel surface. Real browser, cross-device-sharp, not a video.
+            Gated on a real page: a blank pane shows the "enter a URL" prompt below,
+            not an opaque white overlay. This is the DEFAULT surface now (Option A). */}
+        {browser.renderMode === 'dom' && !!browser.url && browser.url !== 'about:blank' && (
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-white">
+                <Loader2 size={24} className="text-app-spinner animate-spin" />
+              </div>
+            }
+          >
+            <div className="absolute inset-0 z-[5]" data-testid="browser-dom-cobrowse">
+              <DomCoBrowse
+                registerDomSink={browser.registerDomSink}
+                sendInput={browser.sendInput}
+                agentActive={browser.agentActive}
+              />
+            </div>
+          </Suspense>
+        )}
+
         {/* No JPEG rendering — the visible surface is the WebRTC <video> above (when
             active) or a native <iframe> (framable URLs). Underneath: an error+Riprova
             if WebRTC couldn't be established, the empty-URL prompt, or a spinner while
             the shared session negotiates. */}
-        {browser.webrtcError ? (
+        {browser.renderMode === 'video' && browser.webrtcError ? (
           <div className="flex items-center justify-center h-full" data-testid="browser-webrtc-error">
             <div className="text-center max-w-xs px-4">
               <AlertTriangle size={30} className="mx-auto mb-3 text-red-500" />
               <p className="text-[13px] text-app-text-muted mb-1">Sessione video non disponibile</p>
-              <p className="text-[11px] text-app-text-faint mb-3">Il transport WebRTC non si è connesso.</p>
-              <button
-                type="button"
-                onClick={browser.retryWebrtc}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
-                data-testid="browser-webrtc-retry"
-              >
-                <RotateCw size={12} />
-                Riprova
-              </button>
+              <p className="text-[11px] text-app-text-faint mb-3">Il transport WebRTC non si è connesso. Prova la modalità DOM: il browser vero, ricostruito nativamente e cross-device.</p>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => browser.setRenderMode('dom')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-primary text-white rounded-md hover:bg-primary/90 transition-colors"
+                  data-testid="browser-dom-fallback"
+                >
+                  <Boxes size={12} />
+                  Modalità DOM
+                </button>
+                <button
+                  type="button"
+                  onClick={browser.retryWebrtc}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium bg-surface border border-border text-text rounded-md hover:bg-surface/70 transition-colors"
+                  data-testid="browser-webrtc-retry"
+                >
+                  <RotateCw size={12} />
+                  Riprova video
+                </button>
+              </div>
             </div>
           </div>
         ) : (!browser.url || browser.url === 'about:blank') ? (
@@ -765,7 +851,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
               <p className="text-[11px] text-app-text-faint">Enter a URL above to navigate</p>
             </div>
           </div>
-        ) : browser.webrtcActive ? null : (
+        ) : (browser.webrtcActive || browser.renderMode === 'dom') ? null : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />

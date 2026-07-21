@@ -112,7 +112,75 @@ describe("abort() marks the process as aborting", () => {
     (provider as any).processes.set("sess-x", pp);
     await provider.abort("sess-x");
     expect(pp.aborting).toBe(true);
+    expect((pp as any).abortReason).toBe("user"); // default: a human stop
     expect(signals).toEqual(["SIGINT"]);
+  });
+
+  test("watchdog abort carries the reason so the exit is never logged as a user stop", async () => {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const pp = fakePP({
+      alive: true,
+      streamHandler: spyHandler(),
+      pendingInputs: new Map(),
+      io: { signal: () => {} },
+    });
+    (provider as any).processes.set("sess-w", pp);
+    await provider.abort("sess-w", undefined, "watchdog");
+    expect(pp.aborting).toBe(true);
+    expect((pp as any).abortReason).toBe("watchdog");
+  });
+});
+
+describe("reattach scan pass — tail classification of a multi-turn broker store", () => {
+  const provider = new ClaudeCodeProvider({ type: "claude-code" });
+  const emit = (pp: unknown, event: unknown) => (provider as any).handleStreamEvent(pp, event);
+  const scanPP = (): any => fakePP({
+    replayMute: true, replayTailOpen: false, replayLastResult: undefined,
+    replayAfterLastResultOffset: 0, consumedOffset: 0, lastEventAt: 0,
+  });
+
+  test("events after the last result → tail OPEN (turn in flight), handler untouched", () => {
+    const h = spyHandler();
+    const pp = scanPP(); pp.streamHandler = h;
+    emit(pp, { type: "assistant", message: { content: [{ type: "text", text: "turn 1" }] } });
+    pp.consumedOffset = 100;
+    emit(pp, { type: "result", result: "turn 1 done" });
+    emit(pp, { type: "assistant", message: { content: [{ type: "text", text: "turn 2 in flight" }] } });
+    expect(pp.replayTailOpen).toBe(true);
+    expect(pp.replayAfterLastResultOffset).toBe(100);
+    expect(h.calls).toEqual([]); // muted: an OLD result must NOT fire onDone/null the handler
+    expect(pp.streamHandler).toBe(h);
+  });
+
+  test("store ending on a result → tail CLOSED with the final payload captured", () => {
+    const pp = scanPP();
+    emit(pp, { type: "assistant", message: { content: [{ type: "text", text: "work" }] } });
+    expect(pp.replayTailOpen).toBe(true);
+    emit(pp, { type: "result", result: "final answer" });
+    expect(pp.replayTailOpen).toBe(false);
+    expect((pp.replayLastResult as any).result).toBe("final answer");
+  });
+
+  test("'waiting for message' results are noise and do not close the tail", () => {
+    const pp = scanPP();
+    emit(pp, { type: "assistant", message: { content: [{ type: "text", text: "work" }] } });
+    emit(pp, { type: "result", result: "waiting for message" });
+    expect(pp.replayTailOpen).toBe(true);
+  });
+});
+
+describe("isTurnProcessAlive — the stream watchdog's liveness probe", () => {
+  const provider = new ClaudeCodeProvider({ type: "claude-code" });
+
+  test("true for a live pooled process (e.g. mute during auto-compact)", () => {
+    (provider as any).processes.set("sess-alive", fakePP({ alive: true }));
+    expect(provider.isTurnProcessAlive("sess-alive")).toBe(true);
+  });
+
+  test("false for a dead process and for an unknown session", () => {
+    (provider as any).processes.set("sess-dead", fakePP({ alive: false }));
+    expect(provider.isTurnProcessAlive("sess-dead")).toBe(false);
+    expect(provider.isTurnProcessAlive("sess-unknown")).toBe(false);
   });
 });
 

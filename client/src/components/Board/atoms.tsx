@@ -1,5 +1,28 @@
+import { useState } from 'react';
 import type { TaskStatus } from '../../lib/board';
 import { STATUS_ICON_COLOR, DISPATCH_CHIP } from './constants';
+import { memorableId } from '../../lib/memorableId';
+
+/**
+ * Memorable, click-to-copy task id chip — shown in the card eyebrow AND the
+ * drawer, after the project. Displays a stable adjective-noun slug (e.g.
+ * "brave-otter") so a task is recognisable at a glance; clicking copies the
+ * FULL UUID (the actionable key for the API / deep links). stopPropagation so
+ * copying never opens/navigates the card.
+ */
+export function TaskIdChip({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
+      }}
+      title={copied ? 'ID copiato' : `${memorableId(id)} · clicca per copiare l'ID pieno (${id})`}
+      className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] leading-none text-neutral-500 hover:bg-white/10 hover:text-neutral-300"
+    >{copied ? 'copiato ✓' : memorableId(id)}</button>
+  );
+}
 
 /**
  * Linear-style status glyph — the segmented progress circle that became the

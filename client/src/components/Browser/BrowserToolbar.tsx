@@ -375,32 +375,13 @@ export function BrowserToolbar({
       )}
       {onZoom && <ZoomControl zoom={zoom} onZoom={onZoom} />}
 
-      {/* Shared-session toggle (Tauri only) — native WKWebView ↔ streamed server
-          session a phone/web viewer sees live. Kept inline at every width: it's a
-          primary action for "watch/drive this on my phone too". */}
-      {onToggleShare && (
-        <button
-          type="button"
-          onClick={onToggleShare}
-          className={`w-6 h-6 flex items-center justify-center rounded transition-colors shrink-0 ${
-            shared
-              ? 'text-green-600 dark:text-green-400 bg-green-500/15 hover:bg-green-500/25'
-              : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'
-          }`}
-          title={shared
-            ? 'Sessione condivisa attiva — telefono e web vedono e guidano QUESTA pagina. Clicca per tornare al browser nativo (privato di questo Mac).'
-            : 'Condividi sessione — passa alla sessione server-side così puoi vederla/guidarla anche dal telefono (stesso login, stesso cursore).'}
-          data-testid="browser-share-toggle"
-          aria-pressed={!!shared}
-        >
-          <MonitorSmartphone size={14} />
-        </button>
-      )}
-
-      {compact ? (
-        /* Narrow pane — only the SECONDARY actions (history / DevTools / open
-           external) fold into one overflow "⋯" menu so the URL bar keeps its
-           width. Reuses the shared DropdownPortal popover. */
+      {/* Overflow "⋯" menu. Compact panes fold the SECONDARY actions (history /
+          DevTools / open-external) in here so the URL bar keeps its width. The
+          session switch (Tauri only) lives here at EVERY width — it's a rare,
+          deliberate action (leave the shared server session for the private
+          native browser), not a primary toolbar button. So the menu renders
+          whenever the pane is compact OR there's a session switch to host. */}
+      {(compact || !!onToggleShare) && (
         <>
           <button
             ref={overflowBtnRef}
@@ -415,48 +396,75 @@ export function BrowserToolbar({
             <MoreHorizontal size={14} />
           </button>
           <DropdownPortal
-            open={compact && overflowOpen}
+            open={overflowOpen}
             anchorRef={overflowBtnRef}
             onClose={() => setOverflowOpen(false)}
             align="right"
           >
-            {history && history.length > 0 && (
+            {/* Sessione: server condivisa (default) ↔ browser nativo privato.
+                NON è "condivisione con altri utenti" (quella è per-chat/progetto,
+                task d6baaf5e) — è la resa di QUESTO device. */}
+            {onToggleShare && (
               <>
-                {history.slice(0, 8).map((entry) => (
-                  <button
-                    key={entry}
-                    type="button"
-                    onClick={() => { onUrlChange(entry); setOverflowOpen(false); }}
-                    className={POPOVER_ITEM}
-                    title={entry}
-                  >
-                    <Clock size={13} className="shrink-0 text-app-text-tertiary" />
-                    <span className="truncate">{entry}</span>
-                  </button>
-                ))}
-                <div className={POPOVER_DIVIDER} />
+                <button
+                  type="button"
+                  onClick={() => { onToggleShare(); setOverflowOpen(false); }}
+                  className={POPOVER_ITEM}
+                  data-testid="browser-share-toggle"
+                  aria-pressed={!!shared}
+                  title={shared
+                    ? 'Ora usi la sessione server (condivisa coi tuoi device e con gli agenti). Passa al browser nativo, privato di questo Mac.'
+                    : 'Ora usi il browser nativo, privato di questo Mac. Passa alla sessione server condivisa (la vedono telefono e agenti).'}
+                >
+                  <MonitorSmartphone size={13} className={`shrink-0 ${shared ? 'text-green-600 dark:text-green-400' : 'text-app-text-tertiary'}`} />
+                  {shared ? 'Usa il browser nativo (privato)' : 'Usa la sessione server (condivisa)'}
+                </button>
+                {compact && <div className={POPOVER_DIVIDER} />}
               </>
             )}
-            {onToggleDevTools && (
-              <button
-                type="button"
-                onClick={() => { onToggleDevTools(); setOverflowOpen(false); }}
-                className={POPOVER_ITEM}
-              >
-                <Code2 size={13} className="shrink-0 text-app-text-tertiary" /> DevTools
-              </button>
+            {compact && (
+              <>
+                {history && history.length > 0 && (
+                  <>
+                    {history.slice(0, 8).map((entry) => (
+                      <button
+                        key={entry}
+                        type="button"
+                        onClick={() => { onUrlChange(entry); setOverflowOpen(false); }}
+                        className={POPOVER_ITEM}
+                        title={entry}
+                      >
+                        <Clock size={13} className="shrink-0 text-app-text-tertiary" />
+                        <span className="truncate">{entry}</span>
+                      </button>
+                    ))}
+                    <div className={POPOVER_DIVIDER} />
+                  </>
+                )}
+                {onToggleDevTools && (
+                  <button
+                    type="button"
+                    onClick={() => { onToggleDevTools(); setOverflowOpen(false); }}
+                    className={POPOVER_ITEM}
+                  >
+                    <Code2 size={13} className="shrink-0 text-app-text-tertiary" /> DevTools
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { handleOpenExternal(); setOverflowOpen(false); }}
+                  disabled={!url}
+                  className={`${POPOVER_ITEM} disabled:opacity-40`}
+                >
+                  <ExternalLink size={13} className="shrink-0 text-app-text-tertiary" /> Apri nel browser di sistema
+                </button>
+              </>
             )}
-            <button
-              type="button"
-              onClick={() => { handleOpenExternal(); setOverflowOpen(false); }}
-              disabled={!url}
-              className={`${POPOVER_ITEM} disabled:opacity-40`}
-            >
-              <ExternalLink size={13} className="shrink-0 text-app-text-tertiary" /> Apri nel browser di sistema
-            </button>
           </DropdownPortal>
         </>
-      ) : (
+      )}
+
+      {!compact && (
         <>
           {/* Phase 30 BROWSER-CHAT-04 — URL history dropdown (per-topic, last 10) */}
           {history && history.length > 0 && (

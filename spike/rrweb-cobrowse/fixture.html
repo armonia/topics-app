@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rrweb co-browse fixture</title>
+<style>
+  :root { --accent: #6366f1; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, system-ui, sans-serif; color: #1e2330; background: #f6f7fb; }
+  header { padding: 20px 28px; background: linear-gradient(120deg, #4f46e5, #7c3aed); color: #fff; }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: -.01em; }
+  main { max-width: 720px; margin: 24px auto; padding: 0 20px; }
+  .card { background: #fff; border: 1px solid #e6e8f0; border-radius: 12px; padding: 20px; margin-bottom: 18px; box-shadow: 0 1px 2px rgba(20,25,48,.04); }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; }
+  .live { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); font-size: 30px; }
+  input, button { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid #cdd2e4; }
+  button { background: var(--accent); color: #fff; border-color: transparent; cursor: pointer; }
+  ul#feed { margin: 8px 0 0; padding-left: 18px; }
+  ul#feed li { margin: 2px 0; }
+  .logo { width: 40px; height: 40px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<header>
+  <img class="logo" alt="logo" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><rect width='40' height='40' rx='9' fill='white' opacity='.18'/><circle cx='20' cy='20' r='9' fill='white'/></svg>">
+  <h1>Topics · rrweb co-browse fixture</h1>
+</header>
+<main>
+  <div class="card">
+    <span class="badge">stato live</span>
+    <p>Contatore che muta ogni 500ms — prova che le <b>mutazioni incrementali</b> del DOM
+       arrivano ai follower (non un video, DOM vero ricostruito nativamente).</p>
+    <div class="live" id="counter">0</div>
+    <div>orologio: <span id="clock" style="font-variant-numeric:tabular-nums">—</span></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Form reale</h3>
+    <label>Nome <input id="name" type="text" placeholder="scrivi qui"></label>
+    <button id="go">Aggiungi al feed</button>
+    <ul id="feed"></ul>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Testo statico</h3>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Il rendering è HTML/CSS
+       reale: testo selezionabile, nitido, accessibile — non pixel.</p>
+  </div>
+</main>
+<script>
+  var n = 0;
+  setInterval(function () {
+    n += 1;
+    document.getElementById('counter').textContent = String(n);
+    document.getElementById('clock').textContent = new Date().toLocaleTimeString('it-IT');
+  }, 500);
+  var i = 0;
+  setInterval(function () {
+    i += 1;
+    var li = document.createElement('li');
+    li.textContent = 'evento auto #' + i + ' @ ' + Date.now();
+    document.getElementById('feed').appendChild(li);
+    // tieni il feed corto
+    var feed = document.getElementById('feed');
+    while (feed.children.length > 6) feed.removeChild(feed.firstChild);
+  }, 1000);
+  document.getElementById('go').addEventListener('click', function () {
+    var v = document.getElementById('name').value || '(vuoto)';
+    var li = document.createElement('li');
+    li.textContent = 'manuale: ' + v;
+    document.getElementById('feed').appendChild(li);
+  });
+</script>
+</body>
+</html>

@@ -63,6 +63,8 @@ import { createAgentProfilesRouter } from "./server/routes/agent-profiles";
 import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
+import { aiBridgeEnabled } from "./server/providers/claude-code";
+import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickTaskModel } from "./server/services/task-model-picker";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter } from "./server/routes/tasks";
@@ -79,6 +81,23 @@ import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
 import { startDevBundleReload } from "./server/lib/dev-bundle-reload";
+
+// ─── Early signal handlers (registered BEFORE any await in init) ───────────
+// The full gracefulShutdown is only wired at the very bottom of this file,
+// AFTER init completes — init includes top-level awaits (TLS probe, broker
+// list) that can take seconds. A SIGTERM landing in that window previously
+// hit the default disposition and killed the process with code 143, skipping
+// every shutdown path (observed with start-prod's hot-reload watcher firing a
+// second batch onto a freshly relaunched server). During init nothing is
+// owned yet (no provider children attached, no clients), so a clean exit(0)
+// is the correct response; once init finishes, `onTermSignal` is repointed
+// to gracefulShutdown below.
+let onTermSignal: (signal: string) => void = (signal) => {
+  console.log(`[Shutdown] ${signal} received during init — exiting cleanly (nothing owned yet)`);
+  process.exit(0);
+};
+process.on("SIGTERM", () => onTermSignal("SIGTERM"));
+process.on("SIGINT", () => onTermSignal("SIGINT"));
 
 // Gateway token: .env takes priority, falls back to reading from ~/.openclaw/openclaw.json
 if (!process.env.GATEWAY_TOKEN) {
@@ -905,12 +924,43 @@ const wsHeartbeatTimer = setInterval(() => {
   if (cleaned) { saveUnread(unreadData); console.log("[Startup] Cleaned orphaned unread entries"); }
 }
 
-// Startup: reset stale partial messages (via SQLite)
+// Startup: reset stale partial messages (via SQLite). BEFORE clearing,
+// capture which sessions were mid-turn: the chat-reattach boot sweep below
+// uses this set to tell a SURVIVING broker turn (detached by the previous
+// server's graceful shutdown — adopt it) from an idle child (reap it).
+// Reading partial=1 after this block would always see zero rows.
+//
+// Sessions whose child is still ALIVE in the detached ai-bridge daemon are
+// NOT stale — the turn survived the restart — so their partial rows are left
+// untouched. This keeps the mid-turn signal intact across RAPID successive
+// reloads: a boot that adopts and then dies before its adopted turn rewrote
+// the partial row must not blind the NEXT boot's sweep (observed live: the
+// sweep reaped a mid-turn child after a double reload). The adopted turn's
+// leftovers are cleared by the sweep when the turn ends.
+const midTurnAtBoot = new Set<string>();
 {
   console.log("[Startup] Checking for stale partial messages...");
-  const result = db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE partial = 1");
-  if (result.changes > 0) {
-    console.log(`[Startup] Reset ${result.changes} stale partial messages`);
+  let liveBrokerChatSessions = new Set<string>();
+  if (aiBridgeEnabled()) {
+    try {
+      liveBrokerChatSessions = new Set(
+        (await getAiBridgeClient().list())
+          .filter((s) => s.alive && s.id.startsWith("topic:"))
+          .map((s) => s.id),
+      );
+    } catch { /* daemon unreachable → nothing survived → all partials are stale */ }
+  }
+  let cleared = 0;
+  try {
+    const rows = db.query("SELECT DISTINCT session_key AS sk FROM messages WHERE partial = 1").all() as Array<{ sk: string }>;
+    for (const row of rows) {
+      midTurnAtBoot.add(row.sk);
+      if (liveBrokerChatSessions.has(row.sk)) continue; // surviving turn — keep the signal
+      cleared += db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [row.sk]).changes;
+    }
+  } catch { /* capture is best-effort; the sweep degrades to reaping */ }
+  if (cleared > 0) {
+    console.log(`[Startup] Reset ${cleared} stale partial messages (${midTurnAtBoot.size} session(s) were mid-turn, ${liveBrokerChatSessions.size} broker-alive kept)`);
   } else {
     console.log("[Startup] No stale partial messages found");
   }
@@ -1560,6 +1610,38 @@ const server = Bun.serve<WSData>({
             // Task 052f53ef — pause/resume this viewer's screencast when the pane
             // enters/leaves native iframe-mode (kills the wasted headless render).
             ws.data._browserSetStream?.(parsed.active);
+          } else if (parsed.type === 'set_render') {
+            // T1 DOM co-browse — switch THIS viewer between the pixel stream
+            // ('video', default) and a native rrweb DOM reconstruction ('dom').
+            // DOM mode injects rrweb into the SHARED headless page, streams tiny
+            // DOM events, and pauses this viewer's wasted screencast; input keeps
+            // flowing over the existing `input` messages (same page-CSS coords).
+            if (parsed.mode === 'dom') {
+              browserService.enableDomMode(ctxId).then((bootstrap) => {
+                if (!bootstrap) {
+                  // Unsupported (no page / injection failed) — force back to video.
+                  sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' });
+                  return;
+                }
+                ws.data._domRender = true;
+                sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'dom' });
+                // Bootstrap this viewer so it reconstructs without a reload.
+                for (const event of bootstrap) sendBrowserWsMessage(ws, { type: 'dom_event', event });
+                // Stop paying for JPEG frames this viewer no longer renders.
+                ws.data._browserSetStream?.(false);
+              }).catch((err) => {
+                console.warn(`[WS][browser] enableDomMode failed for ${ctxId}:`, err?.message || err);
+                try { sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' }); } catch { /* socket gone */ }
+              });
+            } else {
+              // Back to pixels: resume screencast, ack, and stop DOM emission once
+              // NO viewer of this context is in DOM mode anymore.
+              ws.data._domRender = false;
+              ws.data._browserSetStream?.(true);
+              sendBrowserWsMessage(ws, { type: 'render_mode', mode: 'video' });
+              const anyDom = [...(browserWsClients.get(ctxId) ?? [])].some((w) => w.data._domRender);
+              if (!anyDom) browserService.setDomEmit(ctxId, false);
+            }
           } else if (parsed.type === 'webrtc_offer') {
             // Shared-session WebRTC transport — relay the viewer's offer to the Rust
             // sidecar, which attaches to THIS pane's CDP target and streams it as an
@@ -1686,6 +1768,12 @@ const server = Bun.serve<WSData>({
           bset.delete(ws);
           if (bset.size === 0) browserWsClients.delete(ws.data.browserContextId);
         }
+        // T1 DOM co-browse — if this was the last DOM-mode viewer, stop emission
+        // (the page keeps recording cheaply; no wasted `dom_event` fan-out).
+        if (ws.data._domRender) {
+          const anyDom = [...(bset ?? [])].some((w) => w.data._domRender);
+          if (!anyDom) browserService.setDomEmit(ws.data.browserContextId, false);
+        }
         // Drop any native-executor registration for this pane + fail its in-flight
         // ops (Tauri delegation) — no-op if this context never registered, and
         // owner-scoped so a late `close` from an OLD socket can't kill a fresh
@@ -1755,6 +1843,63 @@ taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] boot recon
 const dispatchTimer = setInterval(() => {
   taskDispatcher.reconcile().catch((err) => console.error("[dispatcher] poll reconcile failed", err));
 }, DISPATCH_POLL_MS);
+
+// Chat reload-resilience: adopt broker-surviving CHAT turns after a restart.
+// A graceful shutdown/hot-reload DETACHES chat children into the ai-bridge
+// daemon instead of killing them (claude-code stop()); this sweep re-adopts
+// any that were MID-TURN (a partial assistant message exists) so the turn
+// streams on as if nothing happened. Everything else alive in the daemon is
+// REAPED: an idle child costs RAM forever and loses nothing when killed —
+// the next sendChat respawns it with --resume on the same claude_session_id.
+// Without the reap, detach-on-shutdown would leak one orphan child per chat
+// per lifetime (observed: dispatch children from July 18-19 still alive).
+// The dispatcher's reconcile above already REATTACHes the turns of
+// in_progress board tasks — those sessionKeys are left strictly alone so two
+// handlers never race over one child.
+async function reattachSurvivingChatTurns(): Promise<void> {
+  if (!aiBridgeEnabled()) return;
+  const client = getAiBridgeClient();
+  let sessions: Awaited<ReturnType<typeof client.list>>;
+  try { sessions = await client.list(); } catch { return; } // no daemon → nothing survived
+  const live = sessions.filter((s) => s.alive && s.id.startsWith("topic:"));
+  if (live.length === 0) return;
+  const dispatcherClaimed = new Set<string>();
+  try {
+    const rows = ctx.db.query(
+      "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
+    ).all() as Array<{ t: string }>;
+    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
+  } catch (err) {
+    console.warn("[chat-reattach] dispatcher claim query failed (skipping reap for safety):", err);
+    return;
+  }
+  // Mid-turn signal captured BEFORE the startup partial-reset above wiped it.
+  for (const s of live) {
+    if (dispatcherClaimed.has(s.id)) continue; // the dispatcher's reconcile owns it
+    const topic = ctx.getTopicBySessionKey(s.id);
+    if (topic && !topic.archived && midTurnAtBoot.has(s.id)) {
+      console.log(`[chat-reattach] adopting surviving mid-turn broker session ${s.id}`);
+      runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 })
+        .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
+        .finally(() => {
+          // The turn is over (completed, died, or timed out): clear any
+          // partial leftovers for the session — including the pre-reload row
+          // the startup reset deliberately skipped while the child was alive.
+          try { ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [s.id]); } catch { /* next boot's reset catches it */ }
+        });
+      continue;
+    }
+    // Idle / archived / deleted-topic session: reap. Guard against a send
+    // that raced in during boot and already owns the child.
+    try {
+      const prov = getProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
+      if (prov?.isTurnProcessAlive?.(s.id)) continue; // adopted by a live turn — hands off
+    } catch { /* provider not up yet — reap anyway, a turn can't be running */ }
+    console.log(`[chat-reattach] reaping idle broker session ${s.id} (${topic ? (topic.archived ? "archived topic" : "no in-flight turn") : "topic gone"})`);
+    try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
+  }
+}
+reattachSurvivingChatTurns().catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
 // Dispatch worktrees were only reaped on a successful approve→automerge; every
@@ -1852,7 +1997,15 @@ async function waitForDispatcherQuiescent(label: string, capMs = QUIESCENCE_CAP_
 }
 
 // Graceful shutdown
+let shutdownInProgress = false;
 async function gracefulShutdown(signal: string) {
+  // Re-entrancy guard: a second signal during shutdown (hot-reload watcher
+  // double-batch) must not run the teardown twice.
+  if (shutdownInProgress) {
+    console.log(`[Shutdown] ${signal} received while already shutting down — ignored`);
+    return;
+  }
+  shutdownInProgress = true;
   console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
   clearInterval(heartbeatTimer);
   clearInterval(wsHeartbeatTimer);
@@ -1881,5 +2034,6 @@ async function gracefulShutdown(signal: string) {
   process.exit(0);
 }
 
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+// Init is complete: repoint the early-registered signal listeners (top of
+// file) from the exit-clean stub to the real teardown.
+onTermSignal = (signal) => { void gracefulShutdown(signal); };

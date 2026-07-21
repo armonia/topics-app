@@ -146,7 +146,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
     name: "browser_screenshot",
     description:
-      "Capture a JPEG screenshot of the pane. Returns { format, data (base64), viewport }. To SEE what's rendered, prefer browser_read_screen (lighter, returns text).",
+      "Capture a screenshot of the pane and SAVE IT TO A FILE — returns { format, path, bytes, viewport }, never the raw image. `path` is an absolute file you can feed to the `moondream <path>` CLI or the Read tool. The image is NOT put in your context (a base64 blob would be tens of thousands of unusable tokens). To just SEE/describe what's rendered, prefer browser_read_screen (one call, returns text — no file, no pixels to handle).",
     schema: {
       type: "object",
       properties: {
@@ -159,7 +159,7 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
     name: "browser_read_screen",
     description:
-      "SEE the current pane via a lightweight vision model — returns a TEXT description/answer WITHOUT loading any image into your context. Pass `question` for a specific query (e.g. \"is there a captcha?\", \"what's the error?\"), else you get a caption. Use for charts/images/canvas/captchas the a11y snapshot can't convey.",
+      "The DEFAULT way to visually check a page: SEE the current pane via a vision model and get a TEXT description/answer back — WITHOUT loading any image into your context and WITHOUT any file to decode. Pass `question` for a specific query (e.g. \"is the layout correct?\", \"is there a captcha?\", \"what's the error?\"), else you get a caption. Prefer this over browser_screenshot for any \"does it look right / what's on screen\" check; reach for browser_screenshot only when you genuinely need the raw image file.",
     schema: {
       type: "object",
       properties: {

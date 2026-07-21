@@ -188,7 +188,15 @@ export function parseQuestionBlock(text: string): { question: string; options: s
   }
   const question = qLines.join(' ').trim();
   if (!question) return null;
-  return { question, options };
+  // "Landa e pubblica" (go online = merge + push + deploy) is NEVER a per-task
+  // quick-reply: publishing is a SEPARATE, human-only board action (the "Pubblica"
+  // control) with a diff preview to review before pushing. The dispatcher used to
+  // make agents offer it at delivery; drop it from the rendered options so old
+  // deliveries that still carry it don't show a one-click merge+push button.
+  // "Landa su main" (local merge, no push) stays.
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const filtered = options.filter((o) => norm(o) !== 'landa e pubblica');
+  return { question, options: filtered };
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {

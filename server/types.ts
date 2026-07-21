@@ -30,6 +30,11 @@ export interface WSData {
    *  set_stream(true) when it switches back to the stream (agent attaches / frame
    *  not framable). Keeps the WS open so agent_active still reaches the pane. */
   _browserSetStream?: (active: boolean) => void;
+  /** T1 DOM co-browse — true while THIS viewer renders the pane as a native rrweb
+   *  DOM reconstruction (set_render:'dom') instead of the pixel stream. Used to
+   *  ref-count DOM viewers per context so `dom_event` emission stops once the last
+   *  one leaves (on close or set_render:'video'). Absent = video (the default). */
+  _domRender?: boolean;
   /** WebRTC shared-session transport — the set of webrtc-bridge peer ids this WS
    *  opened (one per RTCPeerConnection). Used on close to tell the sidecar to tear
    *  each peer down. Absent until the pane sends its first `webrtc_offer`. */
@@ -96,6 +101,15 @@ export interface ToolCall {
   result?: string;
   error?: string;
   contentOffset?: number;
+  /**
+   * Wall-clock bounds of the tool's real usage window (epoch ms), stamped by
+   * the route handler: `startedAt` at announce (which, with partial-message
+   * streaming, is when the model STARTS writing the input — not when the
+   * input is complete), `endedAt` when the result lands. UI shows
+   * `endedAt - startedAt` as the call's duration.
+   */
+  startedAt?: number;
+  endedAt?: number;
   /**
    * Optional typed detail built at the provider boundary. Renderers branch on
    * `detail.type` for per-tool UI. When absent, fall back to generic rendering
@@ -402,7 +416,7 @@ export interface AppContext {
   appendToLastMessage: (sessionKey: string, contentDelta: string, thinkingDelta?: string) => StoredMessage | null;
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;
   addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall) => StoredMessage | null;
-  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string) => StoredMessage | null;
+  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>) => StoredMessage | null;
   /**
    * Patch arbitrary fields on a single ToolCall of the last assistant
    * message. Used by the user-input flow (status='waiting_for_input',

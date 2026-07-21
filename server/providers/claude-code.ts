@@ -57,6 +57,40 @@ const KILL_GRACE_MS = 3_000;                       // 3s between SIGTERM and SIG
 const HEARTBEAT_TICK_MS = 10_000;                  // 10s tick (cheap)
 const HEARTBEAT_QUIET_MS = 30_000;                 // emit only after 30s silence
 
+// Throttle for provisional partial-input emits (filename/command surfaced +
+// route timer keep-alive) while a `--include-partial-messages` tool input
+// streams. 500ms is imperceptible to the reader but bounds the broadcast rate
+// on a large Write/Edit input to ~2/s.
+const PARTIAL_ARGS_EMIT_MS = 500;
+
+// Primary input fields, in priority order — the ONE thing worth surfacing on a
+// tool row before its full input finishes streaming (the file being written,
+// the command being run, the URL being fetched). Matched against the still-
+// incomplete input-JSON buffer, so only a FULLY received quoted value counts.
+const PARTIAL_PRIMARY_KEYS = ["file_path", "filePath", "path", "command", "cmd", "url", "pattern", "query"] as const;
+
+/**
+ * Pull the first fully-received primary field from a partial input-JSON buffer.
+ * The regex only matches a complete `"key":"value"` (closing quote present), so
+ * a value still mid-stream is ignored until done — no garbage on the row. In
+ * Write/Edit/Bash the primary key streams first, so this surfaces the target
+ * within moments of the input starting.
+ */
+function extractPrimaryToolArg(buf: string): { key: string; value: string } | null {
+  for (const key of PARTIAL_PRIMARY_KEYS) {
+    const re = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`);
+    const m = re.exec(buf);
+    if (m) {
+      try {
+        return { key, value: JSON.parse(`"${m[1]}"`) as string };
+      } catch {
+        return { key, value: m[1] };
+      }
+    }
+  }
+  return null;
+}
+
 // ============ CLI Path Resolution ============
 
 const CLI_VERSIONS_DIR = join(process.env.HOME || "", ".local/share/claude/versions");
@@ -634,6 +668,12 @@ export function renderReplayPrologue(turns: ReplayTurn[]): string {
 const USE_AI_BRIDGE = process.env.TOPICS_AI_BRIDGE === "1"
   || (process.env.TOPICS_AI_BRIDGE !== "0" && process.platform !== "win32");
 
+/** Whether chat children run in the detached ai-bridge daemon (broker mode).
+ *  Exported for the server's boot sweep that re-adopts surviving chat turns. */
+export function aiBridgeEnabled(): boolean {
+  return USE_AI_BRIDGE;
+}
+
 /**
  * The stdin/signal/kill surface of a session — the ONLY child-coupled operations
  * left after the pool state (streamHandler, pending promises, tool state, timers)
@@ -684,6 +724,22 @@ interface PersistentProcess {
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
+  /** True during reattach's SCAN pass: every handler emission is suppressed
+   *  and only the store's tail shape is recorded (see fields below). A broker
+   *  store spans the child's LIFETIME — multiple turns — so replaying it
+   *  unmuted from 0 both re-streams old turns into the fresh bubble AND lets
+   *  an OLD turn's `result` null the handler, misclassifying an open turn as
+   *  "completed" (observed live: the adopted turn kept running headless). */
+  replayMute?: boolean;
+  /** Scan outcome: true when meaningful events follow the last `result` in
+   *  the store — i.e. a turn is in flight. */
+  replayTailOpen?: boolean;
+  /** Scan outcome: the last replayed `result` event (delivered synthetically
+   *  through onDone when the turn completed while we were detached). */
+  replayLastResult?: unknown;
+  /** Scan outcome: consumed-store offset right after the last `result` —
+   *  where the LIVE second attach starts so old turns are never re-emitted. */
+  replayAfterLastResultOffset?: number;
   /** Accumulated stderr tail for the rate-limit / missing-session scan. */
   stderrBuf: string;
   /** Spawn-time facts the stderr scan + reattach need. */
@@ -696,6 +752,10 @@ interface PersistentProcess {
    *  the CLI exits code 0 on SIGINT, and without this flag onSessionClosed
    *  surfaced it as "⚠️ Process exited with code 0". */
   aborting?: boolean;
+  /** Who asked for the abort — "user" (default) or "watchdog" (stream
+   *  timeout). Only affects the exit log label so a watchdog kill is never
+   *  misread as the human pressing stop. */
+  abortReason?: "user" | "watchdog";
   /** Set when a `--resume` failed because the session is gone (we've already
    *  forgotten it, next spawn is fresh). The turn can't finish, but it's a
    *  recoverable reset — onSessionClosed surfaces a clear "resend" note instead
@@ -714,6 +774,16 @@ interface PersistentProcess {
    *  re-emits them on every cumulative `assistant` snapshot, so we need a
    *  set to skip duplicates and prevent push-without-dedup downstream. */
   settledToolCalls?: Set<string>;
+  /** In-flight tool inputs from `--include-partial-messages` stream_events,
+   *  keyed by content-block index: id/name captured at content_block_start,
+   *  `buf` accumulates input_json_delta.partial_json until block stop.
+   *  `lastEmitAt`/`emittedPrimary` throttle the provisional filename/command
+   *  emit + timer keep-alive during a long input stream. */
+  streamingToolInputs?: Map<number, { id: string; name: string; buf: string; lastEmitAt?: number; emittedPrimary?: string }>;
+  /** Tool ids whose COMPLETE input has been delivered (onToolArgsUpdate fired
+   *  or announced directly with full args). Keeps the late-args path
+   *  idempotent across block stop + every cumulative snapshot re-emission. */
+  argsFinalized?: Set<string>;
   inactivityTimer: ReturnType<typeof setTimeout> | null;
   lifetimeTimer: ReturnType<typeof setTimeout> | null;
   /**
@@ -841,8 +911,22 @@ export class ClaudeCodeProvider implements AIProvider {
   stop(): void {
     this.started = false;
     for (const [key, pp] of this.processes) {
-      console.log(`[claude-code] Shutdown: killing process for ${key}`);
-      this.killProcess(pp);
+      if (USE_AI_BRIDGE && pp.alive) {
+        // The child lives in the DETACHED ai-bridge daemon and must SURVIVE a
+        // graceful shutdown/hot-reload (mirror of disconnectBridge() for PTY
+        // sessions). Killing it here — the pre-broker behavior — was exactly
+        // what murdered every in-flight chat turn on each start-prod
+        // hot-reload. Drop only our attachment: the next server process
+        // re-adopts an in-flight turn via reattach() (boot sweep in
+        // server.ts), and an idle child is resumed by the next sendChat's
+        // idempotent broker spawn.
+        console.log(`[claude-code] Shutdown: detaching broker session for ${key} (child stays alive)`);
+        this.cleanupTimers(pp);
+        try { getAiBridgeClient().detach(key); } catch { /* daemon gone — nothing to detach */ }
+      } else {
+        console.log(`[claude-code] Shutdown: killing process for ${key}`);
+        this.killProcess(pp);
+      }
     }
     this.processes.clear();
     this.queues.clear();
@@ -888,6 +972,8 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.fullText = "";
     pp.activeToolCalls.clear();
     pp.settledToolCalls?.clear();
+    pp.streamingToolInputs?.clear();
+    pp.argsFinalized?.clear();
     // Sidechain state belongs to a single turn — fresh tracker per sendChat
     // so a Task() called in turn N doesn't leak state into turn N+1.
     pp.sidechain.clear();
@@ -1131,13 +1217,15 @@ export class ClaudeCodeProvider implements AIProvider {
 
   // --- Abort ---
 
-  async abort(sessionKey: string, _runId?: string): Promise<void> {
+  async abort(sessionKey: string, _runId?: string, reason: "user" | "watchdog" = "user"): Promise<void> {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
 
     // Mark BEFORE signalling: the CLI exits (code 0) on SIGINT, so the exit
-    // event that follows must be read as a clean user-stop, not a crash.
+    // event that follows must be read as a clean stop, not a crash. The
+    // reason keeps the exit log honest ("watchdog stop" vs "user stop").
     pp.aborting = true;
+    pp.abortReason = reason;
 
     // SIGINT cancels the current turn without killing the process
     try {
@@ -1303,6 +1391,14 @@ export class ClaudeCodeProvider implements AIProvider {
       "--append-system-prompt", TOPICS_AGENT_SYSTEM_PROMPT,
       "--input-format", "stream-json",
       "--output-format", "stream-json",
+      // Emit `stream_event` lines (content_block_start/delta/stop) in addition
+      // to the cumulative assistant snapshots. Without this, a tool_use is only
+      // announced AFTER the model finished writing its input — the UI's
+      // "running" window covered just the execution (ms for a Read) while the
+      // longest phase (input generation, 10-30s for a big Edit) was invisible.
+      // handlePartialStreamEvent announces the tool at content_block_start so
+      // the visible running state matches the tool's real usage window.
+      "--include-partial-messages",
       ...(isNewSession ? ["--session-id", claudeSessionId] : ["--resume", claudeSessionId]),
     ];
 
@@ -1471,6 +1567,14 @@ export class ClaudeCodeProvider implements AIProvider {
     return pp;
   }
 
+  /** Watchdog liveness probe (see Provider.isTurnProcessAlive): true while the
+   *  session's child is running — direct or broker mode. A live-but-mute child
+   *  (auto-compact) must not be finalized as a timeout. */
+  isTurnProcessAlive(sessionKey: string): boolean {
+    const pp = this.processes.get(sessionKey);
+    return !!pp && pp.alive;
+  }
+
   /** True if a still-running broker session exists for `sessionKey`. The signal
    *  the dispatcher uses to REATTACH (non-lossy) vs RESUME-from-scratch. */
   async hasLiveSession(sessionKey: string): Promise<boolean> {
@@ -1500,6 +1604,45 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.adoptBrokerProcess(sessionKey);
     this.processes.set(sessionKey, pp);
 
+    // ── Phase 1 · SCAN ──
+    // The broker store spans the child's LIFETIME (multiple turns). A muted
+    // replay from 0 learns the tail shape without re-emitting old turns:
+    // does anything follow the last `result` (open turn), and what was that
+    // last result (to deliver it if the turn completed while detached)?
+    pp.replayMute = true;
+    pp.replayTailOpen = false;
+    pp.replayLastResult = undefined;
+    pp.replayAfterLastResultOffset = 0;
+    const scan = await client.attach(sessionKey, 0);
+    pp.replayMute = false;
+    if (scan.missing) {
+      pp.streamHandler = handler;
+      this.finalizeDeadReattach(pp);
+      return "dead";
+    }
+
+    if (!pp.replayTailOpen) {
+      // The store ends on a result: no turn in flight.
+      if (pp.replayLastResult) {
+        // The turn COMPLETED while we were detached — deliver the missed
+        // final result through the normal onDone path so the route finalizes
+        // the bubble with the real content instead of dropping it.
+        pp.streamHandler = handler;
+        this.handleStreamEvent(pp, pp.replayLastResult);
+        return "completed";
+      }
+      // Empty store (child idle since spawn, or nothing meaningful): nothing
+      // to adopt.
+      pp.streamHandler = handler;
+      this.finalizeDeadReattach(pp);
+      return scan.alive ? "completed" : "dead";
+    }
+
+    // ── Phase 2 · LIVE ──
+    // An open turn exists. Attach from just past the last completed turn so
+    // ONLY the in-flight turn folds into the fresh handler (replaySilent
+    // still suppresses live-only side effects during this replay), then keep
+    // driving until the live result.
     pp.streamHandler = handler;
     pp.replaySilent = true;
     const turnDone = new Promise<void>((resolve, reject) => {
@@ -1507,12 +1650,12 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.pendingReject = (e) => reject(e);
     });
 
-    const res = await client.attach(sessionKey, 0);
+    const res = await client.attach(sessionKey, pp.replayAfterLastResultOffset ?? 0);
     pp.replaySilent = false;
 
     // Replay is fully folded now (synchronous onData). Classify from pp state.
     if (res.missing) { this.finalizeDeadReattach(pp); return "dead"; }
-    if (pp.streamHandler === null) return "completed"; // `result` was in the replay
+    if (pp.streamHandler === null) return "completed"; // the live `result` landed during the replay
     if (!res.alive) { this.finalizeDeadReattach(pp); return "dead"; }
 
     if (pp.pendingInputs.size > 0) {
@@ -1589,7 +1732,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // respawns fresh and resends. A user stop (aborting) or a clean exit (code 0)
     // is ABORTED. Only a genuine non-zero exit is PROCESS_DIED.
     const graceful = pp.aborting === true || code === 0;
-    const kind = pp.recovering ? " (session reset)" : pp.aborting ? " (user stop)" : "";
+    const kind = pp.recovering ? " (session reset)"
+      : pp.aborting ? (pp.abortReason === "watchdog" ? " (watchdog stop)" : " (user stop)")
+      : "";
     console.log(`[claude-code] Process exited with code ${code}${kind}`);
     if (pp.pendingReject) {
       const reject = pp.pendingReject;
@@ -1639,13 +1784,41 @@ export class ClaudeCodeProvider implements AIProvider {
     // Filter noise
     if (event.type === "system" || event.type === "rate_limit_event") return;
 
+    // Reattach SCAN pass: record the store's tail shape, emit nothing.
+    if (pp.replayMute) {
+      if (event.type === "result") {
+        const rt = event.result ?? "";
+        if (rt && rt !== "waiting for message") {
+          pp.replayTailOpen = false;
+          pp.replayLastResult = event;
+          pp.replayAfterLastResultOffset = pp.consumedOffset;
+        }
+      } else {
+        pp.replayTailOpen = true;
+      }
+      return;
+    }
+
     // Mark "real activity from provider" — heartbeats consult this to
     // decide whether to fire. Any event that gets past the noise filter
     // counts (assistant text, tool_use, tool_result, sub-agent, result).
+    // Includes partial-message input deltas: a model spending 30s writing a
+    // big Edit input is ACTIVE, and the watchdog must see it as such.
     pp.lastEventAt = Date.now();
+
+    // Partial-message stream events (`--include-partial-messages`). Only the
+    // tool_use lifecycle is consumed here — text/thinking keep flowing
+    // through the cumulative snapshots below, so nothing double-counts.
+    if (event.type === "stream_event") {
+      this.handlePartialStreamEvent(pp, event, handler);
+      return;
+    }
 
     // Result event: stream is done for this turn
     if (event.type === "result") {
+      // Turn over — drop any leftover partial-input buffers (a block that
+      // never got its stop event would otherwise pin its JSON forever).
+      pp.streamingToolInputs?.clear();
       // A missing-session miss ("No conversation found with session ID …") is
       // reported as an ERROR result on STDOUT, not on stderr — route it into the
       // same resume-recovery as the stderr scan so a dead `--resume` id is
@@ -1794,38 +1967,31 @@ export class ClaudeCodeProvider implements AIProvider {
           handler.onThinkingDelta?.(block.thinking);
         } else if (block.type === "tool_use") {
           const toolId = (typeof block.id === "string" ? block.id : null) ?? crypto.randomUUID();
-          if (pp.activeToolCalls.has(toolId) || settled.has(toolId)) continue;
+          if (settled.has(toolId)) continue;
+          const toolName = String(block.name ?? "");
+          const input = block.input as Record<string, unknown> | undefined;
+          if (pp.activeToolCalls.has(toolId)) {
+            // Already announced EARLY by handlePartialStreamEvent (args were
+            // still streaming then). The cumulative snapshot carries the
+            // COMPLETE input — deliver it now (idempotent via argsFinalized).
+            // Also the fallback when the partial-json buffer didn't parse or
+            // the CLI never emitted a content_block_stop.
+            this.finalizeToolArgs(pp, handler, toolId, toolName, input ?? {});
+            continue;
+          }
           pp.activeToolCalls.add(toolId);
           // Sidechain bookkeeping: if this is a Task() call, register it as a
           // sub-agent parent so its child events get aggregated. We do this
           // before onToolStart so the route handler sees the right state if
           // it queries the tracker.
-          const toolName = String(block.name ?? "");
           if (toolName === "Task") {
             pp.sidechain.registerParent(toolId, block.input);
           }
-          handler.onToolStart(toolId, toolName, block.input as Record<string, unknown> | undefined);
-          // Detect "I am asking the user a question" tools (AskUserQuestion,
-          // MCP elicitation). When matched, the CLI is now sitting on its
-          // stdin waiting for a `tool_result` line; the route handler must
-          // pause the soft inactivity timer, broadcast the form schema, and
-          // wait for `POST /api/chat/tool-response`. We surface the request
-          // via the optional `onUserInputRequired` callback so the route can
-          // also stamp the corresponding `ToolCall.status` to
-          // `waiting_for_input`.
-          {
-            const schema = detectUserInputRequest({ name: toolName, input: block.input });
-            if (schema) {
-              const sessionKey = this.findSessionKeyForProcess(pp);
-              if (sessionKey) {
-                pp.pendingInputs.set(toolId, { sessionKey, schema, awaitingSince: Date.now() });
-              }
-              // During a reattach REPLAY we rebuild pendingInputs (above) but do
-              // NOT re-surface the form live — reattach() re-fires onUserInputRequired
-              // once, after replay, for the entries that are STILL unanswered.
-              if (!pp.replaySilent) handler.onUserInputRequired?.(toolId, toolName, schema);
-            }
-          }
+          handler.onToolStart(toolId, toolName, input);
+          // Announced with the full input already in hand — mark finalized
+          // and run user-input detection (AskUserQuestion / MCP elicitation).
+          (pp.argsFinalized ??= new Set<string>()).add(toolId);
+          this.detectUserInputForTool(pp, handler, toolId, toolName, block.input);
         } else if (block.type === "tool_result") {
           const toolId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
           if (!toolId || settled.has(toolId)) continue;
@@ -1867,6 +2033,132 @@ export class ClaudeCodeProvider implements AIProvider {
         }
       }
     }
+  }
+
+  // ── Partial-input streaming (below) ──────────────────────────────────────
+
+  /**
+   * `--include-partial-messages` stream_event handling. ONLY the tool_use
+   * lifecycle is consumed here: `content_block_start` announces the tool the
+   * moment the model STARTS writing its input (so the UI's running window
+   * covers input generation + execution — the tool's real usage window),
+   * `input_json_delta` accumulates the input, and `content_block_stop`
+   * parses the complete input and upserts it via onToolArgsUpdate.
+   * Text/thinking deltas are ignored — the cumulative snapshots remain their
+   * single source, so nothing double-counts. Sidechain (sub-agent) partials
+   * are skipped: child tools aggregate from the sidechain's own snapshots.
+   */
+  private handlePartialStreamEvent(pp: PersistentProcess, event: any, handler: StreamHandler | null): void {
+    if (typeof event.parent_tool_use_id === "string" && event.parent_tool_use_id) return;
+    const ev = event.event;
+    if (!ev || typeof ev !== "object") return;
+    const index: number = typeof ev.index === "number" ? ev.index : -1;
+    if (ev.type === "content_block_start") {
+      const block = ev.content_block;
+      if (!block || block.type !== "tool_use" || typeof block.id !== "string" || !block.id) return;
+      const toolName = String(block.name ?? "");
+      (pp.streamingToolInputs ??= new Map()).set(index, { id: block.id, name: toolName, buf: "" });
+      if (pp.activeToolCalls.has(block.id) || pp.settledToolCalls?.has(block.id)) return;
+      pp.activeToolCalls.add(block.id);
+      // Task parents register immediately (empty input, back-filled by
+      // finalizeToolArgs) so early sidechain child events find their parent.
+      if (toolName === "Task") pp.sidechain.registerParent(block.id, {});
+      handler?.onToolStart(block.id, toolName, {});
+    } else if (ev.type === "content_block_delta") {
+      if (ev.delta?.type !== "input_json_delta" || typeof ev.delta.partial_json !== "string") return;
+      const entry = pp.streamingToolInputs?.get(index);
+      if (!entry) return;
+      entry.buf += ev.delta.partial_json;
+      // The input is actively streaming — the turn is NOT stalled. Two things,
+      // throttled: (1) keep the ROUTE's stream timer alive so a minutes-long
+      // Write/Edit input doesn't trip the false "stream slow" annotation
+      // (input_json_delta reaches only the provider, not the route callbacks),
+      // and (2) surface the primary field (filename / command / url) the moment
+      // it's fully in the buffer, so the row reads `Write(App.tsx)` instead of a
+      // blank running row for the whole (possibly 4-min) input generation.
+      if (handler && !pp.replaySilent && !pp.settledToolCalls?.has(entry.id) && !pp.argsFinalized?.has(entry.id)) {
+        const now = Date.now();
+        if (!entry.lastEmitAt || now - entry.lastEmitAt >= PARTIAL_ARGS_EMIT_MS) {
+          entry.lastEmitAt = now;
+          handler.onToolActivity?.(entry.id);
+          const primary = extractPrimaryToolArg(entry.buf);
+          if (primary && primary.value !== entry.emittedPrimary) {
+            entry.emittedPrimary = primary.value;
+            handler.onToolArgsUpdate?.(entry.id, { [primary.key]: primary.value });
+          }
+        }
+      }
+    } else if (ev.type === "content_block_stop") {
+      const entry = pp.streamingToolInputs?.get(index);
+      if (!entry) return;
+      pp.streamingToolInputs?.delete(index);
+      // An empty buffer is a REAL empty input (zero-arg tools stream no
+      // deltas). A non-empty buffer that doesn't parse to an object is a
+      // truncated/odd stream — leave finalization to the snapshot fallback.
+      let args: Record<string, unknown> | null = null;
+      if (!entry.buf) {
+        args = {};
+      } else {
+        try {
+          const parsed = JSON.parse(entry.buf);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            args = parsed as Record<string, unknown>;
+          }
+        } catch {
+          /* cumulative snapshot finalizes instead */
+        }
+      }
+      if (args) this.finalizeToolArgs(pp, handler, entry.id, entry.name, args);
+    }
+  }
+
+  /**
+   * Deliver a tool's COMPLETE input for a call that was announced early with
+   * partial args. Idempotent (argsFinalized guard): fires from
+   * content_block_stop AND from every cumulative snapshot re-emission —
+   * whichever lands first wins. Back-fills Task parents and runs user-input
+   * detection, both of which need the full input.
+   */
+  private finalizeToolArgs(
+    pp: PersistentProcess,
+    handler: StreamHandler | null,
+    toolId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): void {
+    const finalized = (pp.argsFinalized ??= new Set<string>());
+    if (finalized.has(toolId) || pp.settledToolCalls?.has(toolId)) return;
+    finalized.add(toolId);
+    if (toolName === "Task") pp.sidechain.updateParentInput(toolId, args);
+    handler?.onToolArgsUpdate?.(toolId, args);
+    this.detectUserInputForTool(pp, handler, toolId, toolName, args);
+  }
+
+  /**
+   * Detect "I am asking the user a question" tools (AskUserQuestion, MCP
+   * elicitation) — requires the COMPLETE input, so it runs at announce time
+   * only when the full args are already in hand, otherwise at args-finalize.
+   * When matched, the CLI is sitting on stdin waiting for a `tool_result`
+   * line; the route handler must pause the soft inactivity timer, broadcast
+   * the form schema, and wait for `POST /api/chat/tool-response`. During a
+   * reattach REPLAY we rebuild pendingInputs but do NOT re-surface the form
+   * live — reattach() re-fires onUserInputRequired once, after replay, for
+   * the entries that are STILL unanswered.
+   */
+  private detectUserInputForTool(
+    pp: PersistentProcess,
+    handler: StreamHandler | null,
+    toolId: string,
+    toolName: string,
+    input: unknown,
+  ): void {
+    const schema = detectUserInputRequest({ name: toolName, input });
+    if (!schema) return;
+    const sessionKey = this.findSessionKeyForProcess(pp);
+    if (sessionKey) {
+      pp.pendingInputs.set(toolId, { sessionKey, schema, awaitingSince: Date.now() });
+    }
+    if (!pp.replaySilent) handler?.onUserInputRequired?.(toolId, toolName, schema);
   }
 
   // --- Timer Management ---

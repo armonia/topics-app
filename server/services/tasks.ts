@@ -22,6 +22,7 @@
  * DB without booting the server.
  */
 import type { Database } from "bun:sqlite";
+import { existsSync } from "node:fs";
 
 export type TaskStatus = "backlog" | "todo" | "in_progress" | "review" | "done";
 export type Actor = "human" | "agent";
@@ -307,6 +308,8 @@ interface ServiceOpts {
   uuid?: () => string;
   /** Window within which an identical comment (same task+author+content) is deduped. */
   commentDedupeMs?: number;
+  /** Injectable for tests: whether a media path exists on disk (default node:fs existsSync). */
+  fileExists?: (p: string) => boolean;
 }
 
 export interface TaskService {
@@ -448,6 +451,40 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   const now = opts.now ?? (() => new Date().toISOString());
   const uuid = opts.uuid ?? (() => crypto.randomUUID());
   const commentDedupeMs = opts.commentDedupeMs ?? 10_000;
+  const fileExists = opts.fileExists ?? existsSync;
+
+  // ── Review-evidence promotion ──
+  // The delivery protocol asks agents for update_task(previewImage=…), but in
+  // practice they attach the evidence to the delivery COMMENT and the board
+  // card stays blind (3 out of 3 first real dispatches). Same philosophy as
+  // the dispatcher's mirrored delivery comment: the server GUARANTEES the
+  // outcome instead of relying on agent discipline. When a task is in review
+  // with no preview, promote the newest previewable comment attachment
+  // (image/video, absolute path, existing on disk) to `preview_image`.
+  // Idempotent and best-effort: an explicit previewImage always wins (we only
+  // fill the empty case), and any failure just leaves the card without
+  // preview — exactly the status quo.
+  const PREVIEWABLE_MEDIA = /\.(png|jpe?g|gif|webp|webm|mp4|mov)$/i;
+  function promoteReviewPreview(taskId: string): void {
+    try {
+      const row = getTaskRow(taskId);
+      if (!row || row.status !== "review" || (row.preview_image ?? "").trim()) return;
+      const rows = db.prepare(
+        "SELECT media FROM task_comments WHERE task_id = ? AND media IS NOT NULL ORDER BY created_at DESC LIMIT 10",
+      ).all(taskId) as Array<{ media: string }>;
+      for (const r of rows) {
+        let files: unknown;
+        try { files = JSON.parse(r.media); } catch { continue; }
+        if (!Array.isArray(files)) continue;
+        for (const f of files) {
+          if (typeof f !== "string" || !f.startsWith("/") || !PREVIEWABLE_MEDIA.test(f)) continue;
+          if (!fileExists(f)) continue;
+          db.prepare("UPDATE tasks SET preview_image = ?, updated_at = ? WHERE id = ?").run(f, now(), taskId);
+          return;
+        }
+      }
+    } catch { /* best-effort — the card just stays without a preview */ }
+  }
 
   // The global start switch (row '*'). Closure helper — never `this` — so the
   // methods survive being destructured off the service.
@@ -809,6 +846,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // used to strand "delivered"/"serve te" on a closed card (only
         // reviewDecision cleared it).
         if (patch.status === "done") put("dispatch_state", null);
+        // A task arriving in review is a hand-off, not live work: settle a
+        // lingering in-flight chip ('queued'/'starting'/'working') to
+        // 'delivered' so a review card never shows the "agent al lavoro" UI
+        // (which also double-renders the feedback input — steer + review). An
+        // already-settled chip ('needs_input'/'delivered') is kept as-is; the
+        // dispatcher's own delivery detection still refines it when it observes
+        // a question (→ needs_input).
+        if (patch.status === "review" && ["queued", "starting", "working"].includes(row.dispatch_state ?? "")) {
+          put("dispatch_state", "delivered");
+        }
         // A HUMAN dragging a task into todo is a fresh mandate: reset the
         // retry budget. Without this, a task parked at the cap could never be
         // re-dispatched — the claim filter skipped it and the card stranded
@@ -821,6 +868,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Status history: every applied transition lands in the thread with its
       // author — the timeline answers "chi l'ha spostato e quando".
       if (patch.status !== undefined && patch.status !== current) logStatus(taskId, current, patch.status, by);
+      // Hand-off into review without an explicit preview: promote the
+      // delivery comment's evidence (comment-first delivery order).
+      if (patch.status === "review") promoteReviewPreview(taskId);
       return rowToTask(getTaskRow(taskId));
     },
 
@@ -866,6 +916,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
       db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, taskId);
+      // Evidence attached AFTER the review transition (review-first delivery
+      // order): fill the still-empty card preview from this attachment.
+      if (files.length) promoteReviewPreview(taskId);
       return rowToComment(db.prepare("SELECT * FROM task_comments WHERE id = ?").get(id));
     },
 
