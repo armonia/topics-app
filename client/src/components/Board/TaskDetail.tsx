@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
-import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, ExternalLink, Footprints, GitMerge, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -7,6 +7,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink } from '../../lib/openTaskLink';
+import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle } from '../../lib/board';
@@ -436,6 +437,21 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath: currentProject.path } }));
     setProjMenuOpen(false);
   };
+  // "Apri nel workspace": open the delivered result as a REAL Topics browser tab
+  // (managed pane — split/resize/close) in the task's project window, NOT the OS
+  // browser. If that window isn't mounted yet, park the navigate so it drains on
+  // mount; topics:open-project triggers the mount, the racing event loses it.
+  const openInWorkspace = useCallback(() => {
+    const projectPath = currentProject?.path;
+    const url = task?.outputUrl;
+    if (!url || !projectPath) return;
+    // Deterministic contextId → same pane is reused on re-open and the agent can
+    // steer it later (login handoff, fase 2).
+    const contextId = task?.assignedTopicId || `task-${task?.id}`;
+    enqueueProjectBrowserNavigate(projectPath, { url, contextId });
+    window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath } }));
+    window.dispatchEvent(new CustomEvent('browser:open-and-navigate', { detail: { projectPath, url, topicId: task?.assignedTopicId, contextId } }));
+  }, [currentProject?.path, task?.outputUrl, task?.assignedTopicId, task?.id]);
   const doCreateProject = async (name: string) => {
     if (!name || projBusy || !task) return;
     setProjBusy(true);
@@ -790,10 +806,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           )}
           {task?.outputUrl && (
             <button
-              onClick={() => openExternalOnce(task.outputUrl!)}
-              title="Apri l'output nel browser"
+              onClick={openInWorkspace}
+              data-testid="task-open-in-workspace"
+              title="Apri il risultato come tab nel workspace del progetto"
               className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
-            ><ExternalLink className="h-4 w-4" /></button>
+            ><Globe className="h-4 w-4" /></button>
           )}
           {/* Espandi/riduci ha senso solo sul side-panel desktop: su mobile il
               drawer è già full-screen, quindi il toggle è nascosto (<lg). */}
@@ -1051,6 +1068,37 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onClick={() => openExternalOnce(getMediaUrl(task.previewImage!))}
                 className="mt-2 max-h-[50vh] w-full cursor-zoom-in rounded border border-white/10 bg-black/20 object-contain"
               />
+            )}
+            {/* File consegnati: ogni artefatto (screenshot/video/PDF) è
+                polimorfo — click sul nome lo apre come TAB nel workspace del
+                task, l'icona lo SCARICA. Rimpiazza l'idea di "output" a parte:
+                il risultato è tab + lista scaricabili. */}
+            {mediaPaths.length > 0 && (
+              <div className="mt-3" data-testid="task-downloads">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-600">File consegnati</div>
+                <ul className="flex flex-col gap-1">
+                  {mediaPaths.map((p) => {
+                    const name = p.split('/').pop() || p;
+                    return (
+                      <li key={p} className="flex items-center gap-2 rounded-md bg-white/[0.03] px-2 py-1.5 text-xs text-neutral-300">
+                        <Paperclip className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
+                        <button
+                          type="button"
+                          onClick={() => browser.focusPane(`media:${p}`)}
+                          title="Apri come tab nel workspace del task"
+                          className="min-w-0 flex-1 truncate text-left hover:text-white"
+                        >{name}</button>
+                        <a
+                          href={getMediaUrl(p)}
+                          download={name}
+                          title="Scarica il file"
+                          className="shrink-0 rounded p-1 text-neutral-400 hover:bg-white/10 hover:text-white"
+                        ><Download className="h-3.5 w-3.5" /></a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             )}
           </div>
           {/* Closed-tab tray — ONLY the soft-closed browser tabs live here under

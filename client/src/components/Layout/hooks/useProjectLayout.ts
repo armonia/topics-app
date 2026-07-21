@@ -52,6 +52,7 @@ import {
   getBrowserTombstones,
   recordBrowserOrigin,
   drainProjectBrowserReopens,
+  drainProjectBrowserNavigates,
 } from '../../../state/pane/adapters';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
@@ -325,6 +326,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // space-aware group beside the source (consumed by the effect below once the
   // pane is committed). Mirrors the standalone pendingSoloPanelId pattern.
   const [pendingBrowserSplit, setPendingBrowserSplit] = useState<{ paneId: string; sourceGroupId: string } | null>(null);
+  // Set inside the WS/DOM browser-open effect; read by the parked-navigate drain
+  // effect so a board "Apri nel workspace" that raced this window's mount still
+  // opens its pane once the layout exists.
+  const ensureBrowserPaneAndNavigateRef = useRef<((url: string, targetGroupId?: string, spawnerKey?: string, contextId?: string) => void) | null>(null);
 
   // Forward-declared ref so the pendingFocusTopicId effect (mounted ~80
   // lines below) can call `reopenChatPane`, which is itself defined
@@ -519,7 +524,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       // Default to the focused group (chat-driven navigation), but allow an
       // explicit target so a terminal-originated open lands beside the SAME
       // group as the terminal pane rather than wherever focus happens to be.
-      const fgid = targetGroupId ?? focusedGroupIdRef.current;
+      // Fall back to the first group when nothing is focused yet: a freshly
+      // opened project window can drain a parked "Apri nel workspace" navigate
+      // before focus settles, and we still want the pane to land somewhere.
+      const fgid = targetGroupId ?? focusedGroupIdRef.current ?? groupsRef.current[0]?.id;
       if (!fgid) return;
 
       // Reuse ANY existing browser in this project — refresh it in place rather
@@ -575,6 +583,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       });
       onBrowserNavigateUrl?.(url);
     };
+    // Expose it so the parked-navigate drain effect (below) can open a pane for a
+    // board "Apri nel workspace" that arrived while this window was still closed.
+    ensureBrowserPaneAndNavigateRef.current = ensureBrowserPaneAndNavigate;
 
     const topicBelongsToThisProject = (topicId: string | undefined): boolean => {
       if (!topicId) return false;
@@ -609,11 +620,21 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     });
 
     const domHandler = (e: Event) => {
-      const detail = (e as CustomEvent<{ topicId?: string; url?: string }>).detail;
-      if (detail?.url && topicBelongsToThisProject(detail.topicId)) {
-        // chat-topic contextId === topicId (resolveContextIdForTopic).
-        ensureBrowserPaneAndNavigate(detail.url, undefined, detail.topicId, detail.topicId);
-      }
+      const detail = (e as CustomEvent<{ topicId?: string; url?: string; projectPath?: string; contextId?: string }>).detail;
+      if (!detail?.url) return;
+      // Belongs to this window if the event names THIS project path (the board's
+      // "Apri nel workspace", which has no chat topic to key on) OR the topic is
+      // one of ours (chat-driven /browser).
+      const belongs =
+        (!!detail.projectPath && detail.projectPath === projectPath) ||
+        topicBelongsToThisProject(detail.topicId);
+      if (!belongs) return;
+      // chat-topic contextId === topicId (resolveContextIdForTopic); the board
+      // passes an explicit contextId so the pane is steerable by the agent later.
+      ensureBrowserPaneAndNavigate(detail.url, undefined, detail.topicId, detail.contextId ?? detail.topicId);
+      // Handled live by a mounted window — drop any copy parked for the not-yet-
+      // mounted case so it can't re-fire on a later remount.
+      drainProjectBrowserNavigates(projectPath);
     };
     window.addEventListener('browser:open-and-navigate', domHandler);
 
@@ -660,6 +681,18 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     // render. Deps are the stable identity inputs only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onWSMessage, onBrowserNavigateUrl, topics, projectPath]);
+
+  // Open a browser pane for any "Apri nel workspace" navigate parked while this
+  // window was closed (the board dispatches topics:open-project + enqueues here;
+  // the racing browser:open-and-navigate event loses the mount, so the parked
+  // copy is what actually opens the pane). Fires once the layout has a group to
+  // host it; idempotent — a re-run finds the queue already drained.
+  useEffect(() => {
+    if (groups.length === 0) return;
+    for (const nav of drainProjectBrowserNavigates(projectPath)) {
+      ensureBrowserPaneAndNavigateRef.current?.(nav.url, undefined, nav.spawnerKey ?? nav.contextId, nav.contextId);
+    }
+  }, [projectPath, groups.length]);
 
   // Consume a queued browser split: once the freshly added browser pane is
   // committed into its source group (beside the chat/terminal), split it OUT
