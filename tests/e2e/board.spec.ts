@@ -342,8 +342,9 @@ test.describe("Kanban board", () => {
     await drawer.getByTestId("task-copy-link").click();
     const clip = await page.evaluate(() => navigator.clipboard.readText().catch(() => "")).catch(() => "");
     if (clip) {
-      // The URL API percent-encodes '~' as %7E; decode before matching.
-      expect(decodeURIComponent(clip)).toContain(`task=${PROJECT_ID}~${task.id}`);
+      // Path-based deep-link (/task/<uuid>) — the ?task=slug~uuid query form was
+      // dropped (commit e5c10f37). The uuid is the stable identifier.
+      expect(clip).toContain(`/task/${task.id}`);
     }
 
     // Esc closes the drawer (not editing, no menu open → the drawer's own Esc).
