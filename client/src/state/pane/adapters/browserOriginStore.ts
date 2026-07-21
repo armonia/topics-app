@@ -170,3 +170,37 @@ export function drainProjectBrowserReopens(projectPath: string): ClosedTabRecord
   pendingReopens.delete(projectPath);
   return list;
 }
+
+/**
+ * Same open→mount bridge as reopens, but for a plain "open this URL as a browser
+ * pane in the project workspace" request — the board's "Apri nel workspace" on a
+ * task. When the target ProjectWindow isn't mounted yet, the caller parks the
+ * navigate here AND dispatches `topics:open-project`; the window drains this on
+ * mount. The live (already-mounted) path handles the dispatched
+ * `browser:open-and-navigate` event directly and then clears the queue, so a
+ * parked entry never lingers to re-fire on a later remount. In-memory, one
+ * session — it bridges the async open→mount gap, not reloads.
+ */
+export interface PendingBrowserNavigate {
+  url: string;
+  contextId?: string;
+  spawnerKey?: string;
+}
+
+const pendingNavigates = new Map<string, PendingBrowserNavigate[]>();
+
+export function enqueueProjectBrowserNavigate(projectPath: string, nav: PendingBrowserNavigate): void {
+  if (!projectPath || !nav.url) return;
+  const list = pendingNavigates.get(projectPath) ?? [];
+  // De-dup by url+context so a double-click can't queue the same navigate twice.
+  if (list.some((n) => n.url === nav.url && n.contextId === nav.contextId)) return;
+  list.push(nav);
+  pendingNavigates.set(projectPath, list);
+}
+
+export function drainProjectBrowserNavigates(projectPath: string): PendingBrowserNavigate[] {
+  const list = pendingNavigates.get(projectPath);
+  if (!list || list.length === 0) return [];
+  pendingNavigates.delete(projectPath);
+  return list;
+}

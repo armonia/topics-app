@@ -7,6 +7,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { openExternalOnce } from '../../lib/openExternal';
 import { buildTaskLink } from '../../lib/openTaskLink';
+import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle } from '../../lib/board';
@@ -436,6 +437,21 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath: currentProject.path } }));
     setProjMenuOpen(false);
   };
+  // "Apri nel workspace": open the delivered result as a REAL Topics browser tab
+  // (managed pane — split/resize/close) in the task's project window, NOT the OS
+  // browser. If that window isn't mounted yet, park the navigate so it drains on
+  // mount; topics:open-project triggers the mount, the racing event loses it.
+  const openInWorkspace = useCallback(() => {
+    const projectPath = currentProject?.path;
+    const url = task?.outputUrl;
+    if (!url || !projectPath) return;
+    // Deterministic contextId → same pane is reused on re-open and the agent can
+    // steer it later (login handoff, fase 2).
+    const contextId = task?.assignedTopicId || `task-${task?.id}`;
+    enqueueProjectBrowserNavigate(projectPath, { url, contextId });
+    window.dispatchEvent(new CustomEvent('topics:open-project', { detail: { projectPath } }));
+    window.dispatchEvent(new CustomEvent('browser:open-and-navigate', { detail: { projectPath, url, topicId: task?.assignedTopicId, contextId } }));
+  }, [currentProject?.path, task?.outputUrl, task?.assignedTopicId, task?.id]);
   const doCreateProject = async (name: string) => {
     if (!name || projBusy || !task) return;
     setProjBusy(true);
@@ -790,10 +806,11 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           )}
           {task?.outputUrl && (
             <button
-              onClick={() => openExternalOnce(task.outputUrl!)}
-              title="Apri l'output nel browser"
+              onClick={openInWorkspace}
+              data-testid="task-open-in-workspace"
+              title="Apri il risultato come tab nel workspace del progetto"
               className="rounded p-1.5 text-neutral-400 hover:bg-white/10"
-            ><ExternalLink className="h-4 w-4" /></button>
+            ><Globe className="h-4 w-4" /></button>
           )}
           {/* Espandi/riduci ha senso solo sul side-panel desktop: su mobile il
               drawer è già full-screen, quindi il toggle è nascosto (<lg). */}
