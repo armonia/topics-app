@@ -11,6 +11,8 @@ import { DownloadStrip } from './DownloadStrip';
 import { useBrowserSpawner } from '../../state/browserSpawner';
 import { signalsActions } from '../../state/signals';
 import { isTauri } from '../../lib/shell';
+import { computeAutoShared, type ShareMode } from '../../lib/sharedAuto';
+import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
 import type { Topic } from '../../types';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
@@ -56,13 +58,14 @@ interface RemoteBrowserPanelProps {
    *  A native-pane click never reaches React, so without this the pane can't
    *  activate its own tab. The render site wires it to activate this pane. */
   onSelfFocus?: () => void;
-  /** SHARED-SESSION state + toggle (Tauri only). Default is the private native
-   *  WKWebView (fast local render). When the user flips `shared` ON, the Mac drops
-   *  the native pane and renders the SAME server-side streamed session a phone/web
-   *  viewer sees — same page, same login, same cursor — trading local speed for
-   *  cross-device parity. `onToggleShare` is undefined on the web (there the pane
-   *  is always the shared server session). Threaded into the toolbar. */
+  /** SHARE state + cycle (Tauri only). `shared` is the EFFECTIVE render (native
+   *  when false, shared server session when true); `shareMode` is the user's
+   *  choice ('auto' default — native solo, shared when another device views the
+   *  same context; or a pinned 'native'/'shared'). `onToggleShare` cycles the
+   *  mode. All undefined on the web (there the pane is always the shared session).
+   *  Threaded into the toolbar. */
   shared?: boolean;
+  shareMode?: ShareMode;
   onToggleShare?: () => void;
 }
 
@@ -73,23 +76,24 @@ interface RemoteBrowserPanelProps {
 function sharedStorageKey(contextId: string): string {
   return `topics.browser.shared.${contextId}`;
 }
-function readSharedPref(contextId: string): boolean {
-  // NATIVE is the default on desktop (2026-07-21): the pane renders the real
-  // WKWebView locally — WebKit rendering on-device = instant, true caret in
-  // inputs, real (GPU/DRM) media. The server MIRROR (DOM rrweb / WebRTC pixels)
-  // is structurally laggy: every frame and every click is a round-trip to a
-  // headless Chromium, and the page is a DOM reconstruction. So the fast local
-  // browser is the daily driver; the shared server session is an explicit opt-IN
-  // ('1') for cross-device viewing (phone/agent see the SAME live page). Legacy
-  // '1' (the historical opt-in) already meant shared → migration-clean. Absent /
-  // unreadable storage → native.
-  try { return localStorage.getItem(sharedStorageKey(contextId)) === '1'; } catch { return false; }
-}
-function writeSharedPref(contextId: string, shared: boolean): void {
+function readShareMode(contextId: string): ShareMode {
+  // AUTO is the default on desktop (2026-07-22): render the FAST private native
+  // WKWebView (WebKit on-device = instant, true caret, real media) when you're
+  // the only viewer, and auto-join the shared server session the moment another
+  // device (phone PWA / web) opens the SAME context — so they stay in sync — then
+  // return to native when alone again. The user can PIN a fixed mode from the
+  // toolbar: '0' = always native (private/fast), '1' = always shared. Legacy '1'
+  // already meant shared → migration-clean. Absent / unreadable → auto.
   try {
-    // Native is the default → clear the key; store '1' only for the shared opt-in.
-    if (shared) localStorage.setItem(sharedStorageKey(contextId), '1');
-    else localStorage.removeItem(sharedStorageKey(contextId));
+    const v = localStorage.getItem(sharedStorageKey(contextId));
+    return v === '0' ? 'native' : v === '1' ? 'shared' : 'auto';
+  } catch { return 'auto'; }
+}
+function writeShareMode(contextId: string, mode: ShareMode): void {
+  try {
+    // Auto is the default → clear the key; store the pin only for a fixed choice.
+    if (mode === 'auto') localStorage.removeItem(sharedStorageKey(contextId));
+    else localStorage.setItem(sharedStorageKey(contextId), mode === 'shared' ? '1' : '0');
   } catch { /* private mode / no storage — in-memory state still drives the switch */ }
 }
 
@@ -123,25 +127,48 @@ function isSeedableUrl(raw: string | undefined): raw is string {
 }
 
 export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus }: RemoteBrowserPanelProps) {
-  // SHARED-SESSION switch (Tauri only). Default OFF (2026-07-21): the pane renders
-  // the FAST private native WKWebView (real local WebKit — instant, true caret,
-  // real media). The toggle opts this Mac INTO the shared server session (same
-  // page/login/cursor as phone/web, the same browser agents drive) at the cost of
-  // the mirror's round-trip lag. Per-device + persisted (localStorage), so a reload
-  // keeps it. Cross-device sharing becomes zero-compromise once the native host is
-  // streamed to followers (Fase 1 — see openspec browser-native-host-cobrowse).
-  const [shared, setShared] = useState(() => isTauri && readSharedPref(contextId));
+  // SHARE MODE (Tauri only). Default 'auto' (2026-07-22): render the FAST private
+  // native WKWebView when you're the only viewer, and auto-join the shared server
+  // session when another device (phone PWA / web) opens the SAME context so they
+  // stay in sync. 'native'/'shared' pin a fixed choice. Web is always the shared
+  // server session (no native shell). Per-device + persisted (localStorage).
+  const [mode, setMode] = useState<ShareMode>(() => (isTauri ? readShareMode(contextId) : 'shared'));
+  // Auto-share's live decision: whether AUTO currently wants the shared session.
+  const [autoShared, setAutoShared] = useState(false);
   // Re-read when the pane is reused for a different context id — the "adjust
   // state during render on prop change" pattern (no effect, no cascading render).
   const [sharedCtx, setSharedCtx] = useState(contextId);
   if (sharedCtx !== contextId) {
     setSharedCtx(contextId);
-    setShared(isTauri && readSharedPref(contextId));
+    setMode(isTauri ? readShareMode(contextId) : 'shared');
+    setAutoShared(false);
   }
+
+  // Poll the server's viewer count ONLY in auto mode on desktop. A native pane
+  // holds no streaming WS, so the count is exactly the number of OTHER devices
+  // watching the shared session (see useSharedViewerCount / computeAutoShared).
+  const autoEnabled = isTauri && mode === 'auto';
+  const viewerCount = useSharedViewerCount(contextId, autoEnabled);
+  useEffect(() => {
+    // Pinned mode: `shared` is derived from `mode`, not autoShared → nothing to do.
+    if (!autoEnabled) return;
+    const want = computeAutoShared(viewerCount, autoShared);
+    if (want === autoShared) return;
+    // Debounce flaps (async, not a synchronous in-effect setState): a reconnecting
+    // phone must not bounce the pane native↔shared.
+    const t = setTimeout(() => setAutoShared(want), 1200);
+    return () => clearTimeout(t);
+  }, [autoEnabled, viewerCount, autoShared]);
+
+  // Effective render: pinned mode wins; in auto it follows the live decision.
+  const shared = mode === 'shared' ? true : mode === 'native' ? false : autoShared;
+
+  // Toolbar action: cycle native → shared → auto → native and persist. (In auto,
+  // the pane already switches by itself; the cycle lets the user pin or free it.)
   const onToggleShare = useCallback(() => {
-    setShared((prev) => {
-      const next = !prev;
-      writeSharedPref(contextId, next);
+    setMode((prev) => {
+      const next: ShareMode = prev === 'native' ? 'shared' : prev === 'shared' ? 'auto' : 'native';
+      writeShareMode(contextId, next);
       return next;
     });
   }, [contextId]);
@@ -166,6 +193,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
         topics={topics}
         onSelfFocus={onSelfFocus}
         shared={false}
+        shareMode={mode}
         onToggleShare={onToggleShare}
       />
     );
@@ -189,6 +217,7 @@ export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlCh
       topics={topics}
       isVisible={isVisible}
       shared={shared}
+      shareMode={isTauri ? mode : undefined}
       onToggleShare={isTauri ? onToggleShare : undefined}
     />
   );
@@ -236,7 +265,7 @@ function useBackToSpawner(
  * bridges now; BrowserToolbar still self-hides any control whose handler is
  * absent, so there are never dead buttons.
  */
-function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, onToggleShare }: RemoteBrowserPanelProps) {
+function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
@@ -370,6 +399,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
         consoleSummary={browser.consoleSummary}
         onClearConsole={browser.clearConsole}
         shared={shared}
+        shareMode={shareMode}
         onToggleShare={onToggleShare}
       />
       {findOpen && (
@@ -436,7 +466,7 @@ function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChang
   );
 }
 
-function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true, shared, onToggleShare }: RemoteBrowserPanelProps) {
+function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, onFocusPanel, topics, isVisible = true, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   // isVisible gates the screencast: only the visible pane streams frames (keeps
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const browser = useRemoteBrowser(contextId, isVisible);
@@ -602,6 +632,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           agentActive={browser.agentActive}
           agentAction={browser.agentAction}
           shared={shared}
+          shareMode={shareMode}
           onToggleShare={onToggleShare}
         />
         <div className="flex-1 min-h-0 overflow-hidden bg-surface relative">
@@ -685,6 +716,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
         agentActive={browser.agentActive}
         agentAction={browser.agentAction}
         shared={shared}
+        shareMode={shareMode}
         onToggleShare={onToggleShare}
       />
 

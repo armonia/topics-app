@@ -4,6 +4,7 @@ import { AgentActivityPill } from './AgentActivityPill';
 import { ZoomControl, DeviceSwitcher, ConsoleBadge } from './BrowserDevControls';
 import type { DeviceMode, BrowserConsoleEntry, NavHistoryEntry } from './browserDevTypes';
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
+import type { ShareMode } from '../../lib/sharedAuto';
 import { DropdownPortal } from '../Shared/DropdownPortal';
 import { Menu } from '../Shared/Menu';
 import { openExternalOnce } from '../../lib/openExternal';
@@ -70,13 +71,15 @@ interface BrowserToolbarProps {
   /** Back/forward history (Chrome-style right-click / long-press menu). */
   getNavEntries?: () => Promise<{ entries: NavHistoryEntry[]; activeIndex: number }>;
   onGoToNavIndex?: (index: number) => void;
-  /** SHARED-SESSION toggle (Tauri only). When defined, renders a monitor/phone
-   *  button that flips this pane between the native WKWebView (private to this
-   *  Mac) and the server-side streamed session that a phone/web viewer of the
-   *  same pane sees LIVE. Undefined on the web (there the pane is always the
-   *  shared server session — no native alternative to toggle to). `shared`
-   *  is the current state (true = streaming the shared session). */
+  /** SHARE control (Tauri only). When `onToggleShare` is defined, renders a
+   *  monitor/phone button that cycles this pane's share mode. `shared` is the
+   *  EFFECTIVE render (true = streaming the shared server session a phone/web
+   *  viewer sees LIVE; false = private native WKWebView). `shareMode` is the
+   *  user's choice: 'auto' (native solo, shared when another device views the
+   *  same context — the default), or a pinned 'native'/'shared'. Undefined on the
+   *  web (the pane is always the shared session — nothing to toggle). */
   shared?: boolean;
+  shareMode?: ShareMode;
   onToggleShare?: () => void;
 }
 
@@ -107,6 +110,7 @@ export function BrowserToolbar({
   getNavEntries,
   onGoToNavIndex,
   shared,
+  shareMode,
   onToggleShare,
 }: BrowserToolbarProps) {
   const [editUrl, setEditUrl] = useState(url);
@@ -401,27 +405,38 @@ export function BrowserToolbar({
             onClose={() => setOverflowOpen(false)}
             align="right"
           >
-            {/* Sessione: browser nativo privato (default) ↔ server condivisa.
-                NON è "condivisione con altri utenti" (quella è per-chat/progetto,
-                task d6baaf5e) — è la resa di QUESTO device. */}
-            {onToggleShare && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => { onToggleShare(); setOverflowOpen(false); }}
-                  className={POPOVER_ITEM}
-                  data-testid="browser-share-toggle"
-                  aria-pressed={!!shared}
-                  title={shared
-                    ? 'Ora usi la sessione server (condivisa coi tuoi device e con gli agenti). Passa al browser nativo, privato di questo Mac.'
-                    : 'Ora usi il browser nativo, privato di questo Mac. Passa alla sessione server condivisa (la vedono telefono e agenti).'}
-                >
-                  <MonitorSmartphone size={13} className={`shrink-0 ${shared ? 'text-green-600 dark:text-green-400' : 'text-app-text-tertiary'}`} />
-                  {shared ? 'Usa il browser nativo (privato)' : 'Usa la sessione server (condivisa)'}
-                </button>
-                {compact && <div className={POPOVER_DIVIDER} />}
-              </>
-            )}
+            {/* Sessione di QUESTO device: automatica (default) → nativa privata →
+                server condivisa → automatica. NON è "condivisione con altri utenti"
+                (quella è per-chat/progetto, task d6baaf5e). L'automatica va nativa e
+                veloce da solo, e si condivide da sé quando un altro tuo device apre
+                la stessa tab. Un clic FISSA lo stato successivo del ciclo. */}
+            {onToggleShare && (() => {
+              const m: ShareMode = shareMode ?? (shared ? 'shared' : 'native');
+              const label = m === 'auto' ? 'Sessione: automatica' : m === 'shared' ? 'Sessione: condivisa' : 'Sessione: nativa (privata)';
+              const title = m === 'auto'
+                ? 'Automatica: nativa e veloce da solo, si condivide da sé quando un altro tuo device apre la stessa tab. Clic → fissa NATIVA.'
+                : m === 'shared'
+                ? 'Condivisa: sessione server, la vedono telefono/agenti (più lenta). Clic → AUTOMATICA.'
+                : 'Nativa: browser privato di questo Mac, veloce. Clic → fissa CONDIVISA.';
+              const dot = shared ? 'text-green-600 dark:text-green-400' : m === 'auto' ? 'text-app-text-secondary' : 'text-app-text-tertiary';
+              return (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { onToggleShare(); setOverflowOpen(false); }}
+                    className={POPOVER_ITEM}
+                    data-testid="browser-share-toggle"
+                    data-share-mode={m}
+                    aria-pressed={!!shared}
+                    title={title}
+                  >
+                    <MonitorSmartphone size={13} className={`shrink-0 ${dot}`} />
+                    {label}
+                  </button>
+                  {compact && <div className={POPOVER_DIVIDER} />}
+                </>
+              );
+            })()}
             {compact && (
               <>
                 {history && history.length > 0 && (
