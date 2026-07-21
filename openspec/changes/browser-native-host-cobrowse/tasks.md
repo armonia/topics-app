@@ -21,6 +21,12 @@
 > Decisione 2026-07-21 su mappa del codice: NIENTE CEF. Compositing pane nativo,
 > delega agente e encode/fan-out WebRTC esistono già. Unico mancante = cattura
 > device-side del pane → bridge. Sequenza MVP-first:
+- [x] **ANTICIPATO (commit `d7bcfd30`)** Flip del default desktop → **nativo**
+      (`readSharedPref` in `RemoteBrowserPanel.tsx`). Motivo: la lentezza del mirror
+      server è il dolore quotidiano ("va ancora troppo lento") e il pane nativo era
+      già l'opt-out. Trade-off dichiarato: il cross-device live torna opt-in (toggle
+      toolbar) finché la cattura non lo rende zero-compromessi. Migrazione pulita
+      ('1'=shared storico, chiavi assenti flippano a nativo). tsc+eslint+e2e verdi.
 - [ ] **(gated build shell)** MVP wiring: loop `takeSnapshot`→JPEG in `jpeg_tx` (`lib.rs`)
       per provare nativo→follower end-to-end a basso fps.
 - [ ] **(verificabile qui)** Bridge sorgente-agnostico: re-key `get_or_create_target`/offer
@@ -31,7 +37,10 @@
 - [ ] **(gated build shell + TCC)** Cattura ScreenCaptureKit: nuovo modulo Rust `SCStream`
       sul pane → JPEG → bridge + flusso permesso screen-recording.
 - [ ] Input back-channel follower→Mac (riuso `browser_act`; caveat `isTrusted=false`).
-- [ ] **(rebuild bundle)** Flip `readSharedPref` → host nativo primario (DOPO la cattura).
+- [x] **FATTO in anticipo (`d7bcfd30`)** Flip `readSharedPref` → host nativo primario.
+      (Il piano lo metteva DOPO la cattura per evitare divergenza; anticipato con
+      tradeoff dichiarato — vedi la voce in cima alla Fase 1. La cattura lo renderà
+      poi zero-compromessi anche col follower connesso.)
 - [ ] Election promote/demote (device attivo=host, server=riserva); riusa la delega.
 - [ ] Test: harness sidecar (frame device→viewer), unit routing/election, e2e default.
 
