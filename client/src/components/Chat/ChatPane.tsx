@@ -22,8 +22,9 @@ const SLASH_COMMANDS_HELP = [
   '/status — Show session status',
   '/context — Show context-window usage (tokens, budget, sources)',
   '/clear — Clear conversation',
-  '/model — Change model (e.g. /model claude-opus-4-5)',
-  '/reasoning — Toggle reasoning mode',
+  '/model — Change model (e.g. /model claude-opus-4-8)',
+  '/effort — Set reasoning effort (low|medium|high|xhigh|max)',
+  '/reasoning — Toggle reasoning (openclaw) / → /effort on claude-code',
   '/agents — List all agent profiles',
   '/pause @name — Pause an agent',
   '/resume @name — Resume a paused agent',
@@ -496,7 +497,9 @@ function ChatPaneComponent({
     if (cmd === '/clear') { if (!window.confirm('Clear conversation? A backup will be saved.')) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
-    if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { const r = await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: r.message || `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/effort') { setCommandResult({ type: 'error', message: 'Uso: /effort <low|medium|high|xhigh|max>' }); return true; }
+    if (cmd.startsWith('/effort ')) { const tier = text.slice(8).trim().toLowerCase(); if (!tier) return false; setCommandLoading(true); try { const r = await commandApi.setEffort(topic.sessionKey, tier); setCommandResult({ type: 'success', message: r.message || `Effort set to: ${tier}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
 
     // /project — info / create <name> / open <path-or-name>
     if (cmd === '/project' || cmd.startsWith('/project ')) {

@@ -2148,18 +2148,63 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           case "model": {
             const modelName = args?.model;
             if (!modelName) return json({ error: "model name required" }, 400);
-            if (providerForSessionKey(sessionKey).name !== 'openclaw') return json({ error: "Model switching not supported by this provider" }, 400);
-            const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
-            if (!resp.ok) return json({ error: "Failed to set model" }, 500);
-            return json({ ok: true, command: "model", model: modelName, message: `Model set to: ${modelName}` });
+            if (providerForSessionKey(sessionKey).name === 'openclaw') {
+              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/model ${modelName}` }] }) });
+              if (!resp.ok) return json({ error: "Failed to set model" }, 500);
+              return json({ ok: true, command: "model", model: modelName, message: `Model set to: ${modelName}` });
+            }
+            // claude-code (and any respawn provider): the model is a spawn-time
+            // `--model` flag. Persist it per-topic and drop the idle pooled
+            // process so the next turn respawns with it — same path as PATCH
+            // /api/topics/:id. (Previously this returned a hard 400.)
+            const topic = getTopicBySessionKey(sessionKey);
+            if (!topic) return json({ error: "No topic found for this session" }, 404);
+            const prevModel = topic.model ?? null;
+            topic.model = String(modelName).trim() || null;
+            topic.updatedAt = new Date().toISOString();
+            saveSingleTopic(topic);
+            broadcastToAll({ type: "topic:updated", topic });
+            if ((topic.model ?? null) !== prevModel) {
+              try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
+              catch (err) { console.warn(`[command] refreshSessionConfig (model) failed:`, err); }
+            }
+            return json({ ok: true, command: "model", model: topic.model, message: `Modello impostato: ${topic.model} — attivo dal prossimo turno.` });
+          }
+          case "effort": {
+            // Per-topic reasoning-effort tier for claude-code (spawn-time
+            // `--effort`). openclaw has no effort tier → route through /reasoning.
+            const tier = String(args?.level || args?.effort || "").trim().toLowerCase();
+            const VALID_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+            if (providerForSessionKey(sessionKey).name === 'openclaw') {
+              return json({ error: "L'effort non si applica a questo provider — usa /reasoning." }, 400);
+            }
+            if (!tier || !VALID_EFFORTS.has(tier)) {
+              return json({ error: "Uso: /effort <low|medium|high|xhigh|max>" }, 400);
+            }
+            const topic = getTopicBySessionKey(sessionKey);
+            if (!topic) return json({ error: "No topic found for this session" }, 404);
+            const prevEffort = topic.effort ?? null;
+            topic.effort = tier;
+            topic.updatedAt = new Date().toISOString();
+            saveSingleTopic(topic);
+            broadcastToAll({ type: "topic:updated", topic });
+            if ((topic.effort ?? null) !== prevEffort) {
+              try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
+              catch (err) { console.warn(`[command] refreshSessionConfig (effort) failed:`, err); }
+            }
+            return json({ ok: true, command: "effort", level: tier, message: `Effort impostato: ${tier} — attivo dal prossimo turno.` });
           }
           case "reasoning": {
             const level = args?.level || "on";
-            if (providerForSessionKey(sessionKey).name !== 'openclaw') return json({ error: "Reasoning toggle not supported by this provider" }, 400);
-            const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/reasoning ${level}` }] }) });
-            if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
-            const text = await resp.text();
-            return json({ ok: true, command: "reasoning", level, message: `Reasoning set to: ${level}`, output: text });
+            if (providerForSessionKey(sessionKey).name === 'openclaw') {
+              const resp = await fetch(`${GATEWAY_URL}/api/inference/chat`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}`, "x-openclaw-scopes": "operator.read,operator.write" }, body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: `/reasoning ${level}` }] }) });
+              if (!resp.ok) return json({ error: "Failed to toggle reasoning" }, 500);
+              const text = await resp.text();
+              return json({ ok: true, command: "reasoning", level, message: `Reasoning set to: ${level}`, output: text });
+            }
+            // claude-code has no on/off reasoning toggle — it has an effort tier.
+            // Point the user at /effort instead of the old hard 400.
+            return json({ ok: true, command: "reasoning", message: "Su claude-code il ragionamento si regola con l'effort: usa /effort <low|medium|high|xhigh|max>." });
           }
           case "project": {
             const sub = args?.sub || "info"; // create | open | info
