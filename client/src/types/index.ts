@@ -1074,6 +1074,18 @@ export interface WSSessionStateMessage {
   state: ClaudeSessionState;
 }
 
+/** A board task just ENTERED review — the end-of-task cue. Emitted IN ADDITION
+ *  to (not instead of) `task:updated`, only on the transition edge, so the
+ *  completion notifier fires exactly once per delivery. `taskId` makes the OS
+ *  banner clickable → opens that task's drawer (openTaskInApp). */
+export interface WSTaskReviewReadyMessage {
+  type: 'task:review-ready';
+  projectId: string;
+  taskId: string;
+  taskTitle: string;
+  reason?: string;
+}
+
 export type WSMessage =
   | WSProvidersSnapshotMessage
   | WSGatewayStatusMessage
@@ -1131,6 +1143,7 @@ export type WSMessage =
   | WSProjectMessage
   | WSWorktreeMessage
   | WSMachineMessage
+  | WSTaskReviewReadyMessage
   | WSSessionStateMessage;
 // (Historical note: an earlier shape included `WSUnknownMessage` as a
 // union member, whose `type: string` widened the union's `type` to plain

@@ -38,6 +38,20 @@ export function maybeSendPush(message: Record<string, any>): void {
     return;
   }
 
+  // A board task just entered review — the end-of-task signal. Tied to the
+  // task's terminal state (not the fragile session-idle inference), so it fires
+  // for a clean self-delivery AND the previously-silent system-delivered review
+  // after a timeout. `tag` keyed by taskId so a re-emit replaces, not stacks.
+  if (type === "task:review-ready") {
+    firePush({
+      title: "📋 Task pronto per la review",
+      body: message.taskTitle || "Un task è pronto per la review",
+      tag: `task-review-${message.taskId || "new"}`,
+      url: "/",
+    });
+    return;
+  }
+
   // Stream ended — Claude finished responding in a topic
   if (type === "stream:end" && message.sessionKey) {
     firePush({

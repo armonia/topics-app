@@ -634,7 +634,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
           : base;
         try {
-          emit(deps.svc.deliverToReviewBySystem({ taskId, reason }));
+          const delivered = deps.svc.deliverToReviewBySystem({ taskId, reason });
+          emit(delivered);
+          // System-delivery bypasses the route PATCH, so the review-edge
+          // notification (OS banner + web-push) would never fire. Emit it here:
+          // this is exactly the "task waiting for review after a timeout" case
+          // that was previously silent.
+          try {
+            deps.broadcast({
+              type: "task:review-ready",
+              projectId: delivered.projectId,
+              taskId: delivered.id,
+              taskTitle: delivered.text || "Task",
+              reason: "system-delivered",
+            });
+          } catch { /* best-effort */ }
           try { void deps.preparePreview?.(taskId); } catch { /* best-effort */ }
         } catch (err) { log(`deliverToReviewBySystem failed for ${taskId}`, err); }
         return;
