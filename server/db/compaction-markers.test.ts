@@ -62,4 +62,21 @@ describe("compaction-markers persistence", () => {
     backfillPostTokens(db, "sk4", 999);
     expect(getCompactionMarkersBySession(db, "sk4")[0].postTokens).toBe(42);
   });
+
+  test("backfillPostTokens returns the updated marker (for re-broadcast), else null", () => {
+    const m = insertCompactionMarker(db, { sessionKey: "sk5", marker: { trigger: "manual", preTokens: 200 } });
+    const filled = backfillPostTokens(db, "sk5", 55);
+    expect(filled).not.toBeNull();
+    expect(filled!.id).toBe(m.id);
+    expect(filled!.postTokens).toBe(55);
+    expect(filled!.preTokens).toBe(200);
+    // Nothing left to fill → null (so the caller skips the re-broadcast).
+    expect(backfillPostTokens(db, "sk5", 999)).toBeNull();
+    // Unknown session → null.
+    expect(backfillPostTokens(db, "nope", 10)).toBeNull();
+    // Invalid post count → null (guard).
+    insertCompactionMarker(db, { sessionKey: "sk6", marker: { trigger: "auto" } });
+    expect(backfillPostTokens(db, "sk6", -1)).toBeNull();
+    expect(backfillPostTokens(db, "sk6", NaN)).toBeNull();
+  });
 });

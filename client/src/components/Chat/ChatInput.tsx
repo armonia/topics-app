@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download } from 'lucide-react';
+import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
 import { ImageThumbnail } from '../MessageContent';
@@ -25,6 +25,7 @@ const ContextInspector = lazy(() => import('../Context/ContextInspector').then(m
 // Available slash commands
 const SLASH_COMMANDS = [
   { cmd: '/status', label: 'Status', description: 'Show session status', icon: Zap },
+  { cmd: '/context', label: 'Context', description: 'Show context-window usage (tokens, budget, sources)', icon: Gauge },
   { cmd: '/clear', label: 'Clear', description: 'Clear conversation', icon: Trash2 },
   { cmd: '/model', label: 'Model', description: 'Change model', icon: Cpu },
   { cmd: '/reasoning', label: 'Reasoning', description: 'Toggle reasoning mode', icon: Brain },
