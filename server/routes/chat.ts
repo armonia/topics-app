@@ -707,7 +707,24 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
           const handleHardTimeout = () => {
             if (streamState === "finalized") return;
-            console.error(`[StreamWS] Hard timeout (${STREAM_HARD_TIMEOUT_MS / 60_000} min) on ${sessionKey}`);
+            // Match the interactive CLI: NEVER kill a turn whose child process is
+            // still alive. A 40-minute refactor, a big test run, a slow-but-live
+            // tool is doing real work — not wedged. The terminal `claude` has no
+            // wall-clock session cap at all; a turn runs until the model finishes,
+            // the process dies, or the human hits Ctrl+C. So here the hard cap is
+            // symmetric with the grace window: while the process is ALIVE we
+            // extend (never SIGKILL a live, working turn — that was the sole
+            // reason a headless chat could "crash"); only a DEAD child is
+            // finalized, non-destructively (accumulated content is kept). The
+            // Stop button is the user's Ctrl+C for a genuinely stuck-but-alive
+            // turn.
+            if (topicProvider.isTurnProcessAlive?.(sessionKey)) {
+              console.warn(`[StreamWS] Hard cap (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached but provider process is alive on ${sessionKey} — extending (a live turn is never killed)`);
+              updateStreamContent(sessionKey, fullContent, fullThinking);
+              hardTimer = setTimeout(handleHardTimeout, STREAM_HARD_TIMEOUT_MS);
+              return;
+            }
+            console.error(`[StreamWS] Hard cap (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached and provider process is DEAD on ${sessionKey} → finalize`);
             streamState = "finalized";
             const msg = `⚠️ Hard timeout (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached. The provider stopped responding.`;
             fullContent = stripSlowAnnotation(fullContent);

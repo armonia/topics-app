@@ -17,8 +17,10 @@
  *      transitions back to "streaming".
  *   5. The grace period expiring without events finalizes the stream as
  *      timed out and removes the annotation in favor of the hard marker.
- *   6. The hard timer is independent: it fires after STREAM_HARD_TIMEOUT_MS
- *      regardless of activity, and never resets.
+ *   6. The hard cap is symmetric with the grace window: while the provider
+ *      process is ALIVE it EXTENDS (a live, working turn is never killed —
+ *      CLI parity: the terminal `claude` has no wall-clock session kill); only
+ *      a DEAD process is finalized by the cap (the orphan backstop).
  *   7. Grace expiry with the provider process still ALIVE (auto-compact:
  *      the CLI is mute for 3+ min while compacting) EXTENDS the grace
  *      window instead of finalizing — only a dead process (or the hard
@@ -122,12 +124,21 @@ function build() {
     onEvent();
   };
 
-  hardTimer = setTimeout(() => {
+  // Mirror of handleHardTimeout: the hard cap is now symmetric with the grace
+  // window — a live child is NEVER killed (CLI parity: no wall-clock session
+  // kill of a working turn). Only a DEAD process is finalized by the cap.
+  const hardExpiry = () => {
     if (h.state === "finalized") return;
+    if (h.providerAlive) {
+      h.events.push("hard-extended");
+      hardTimer = setTimeout(hardExpiry, STREAM_HARD_TIMEOUT_MS);
+      return;
+    }
     h.state = "finalized";
     h.fullContent = stripSlow(h.fullContent) + "\n\n---\n*[Hard timeout (30 min) reached]*";
     h.events.push("hard-timeout");
-  }, STREAM_HARD_TIMEOUT_MS);
+  };
+  hardTimer = setTimeout(hardExpiry, STREAM_HARD_TIMEOUT_MS);
 
   const finalize = (reason: "done" | "aborted" | "error") => {
     if (softTimer) clearTimeout(softTimer);
@@ -297,31 +308,47 @@ describe("stream timer state machine", () => {
     });
   });
 
-  test("provider alive forever + total silence → the 30-min hard cap still bounds", () => {
+  test("provider alive forever + total silence → the hard cap EXTENDS, never kills a live turn (CLI parity)", () => {
     withFakeTimers((advance) => {
       const { h, onEvent } = build();
-      h.providerAlive = true; // wedged-but-alive child
+      h.providerAlive = true; // wedged-but-alive child — like the terminal CLI, never SIGKILL it
       onEvent();
-      advance(STREAM_HARD_TIMEOUT_MS + 1);
-      expect(h.state).toBe("finalized");
-      expect(h.events).toContain("hard-timeout");
-      expect(h.events).not.toContain("grace-expired");
+      // Three full hard windows (90 min) of total silence with the child alive.
+      advance(STREAM_HARD_TIMEOUT_MS * 3 + 1);
+      expect(h.state).not.toBe("finalized");
+      expect(h.events.filter((e) => e === "hard-extended").length).toBeGreaterThanOrEqual(3);
+      expect(h.events).not.toContain("hard-timeout");
     });
   });
 
-  test("hard timer fires at 30 min regardless of activity", () => {
+  test("hard cap finalizes only a DEAD process (backstop) after 30 min", () => {
     withFakeTimers((advance) => {
       const { h, onToolStart, onToolResult } = build();
-      // Keep the soft timer suspended forever via tool churn.
+      // providerAlive defaults to false: a dead/orphaned child. Tool churn keeps
+      // the soft timer suspended so only the hard cap can fire.
       for (let i = 0; i < 30; i++) {
         onToolStart(`t-${i}`);
         advance(60_000);
         onToolResult(`t-${i}`);
       }
-      // 30 minutes elapsed; hard timer should have fired.
       expect(h.state).toBe("finalized");
       expect(h.events).toContain("hard-timeout");
       expect(h.fullContent).toContain("Hard timeout");
+    });
+  });
+
+  test("a turn making progress re-arms the soft window and the hard cap never trips while alive", () => {
+    withFakeTimers((advance) => {
+      const { h, onEvent } = build();
+      h.providerAlive = true;
+      // Emit an event every ~20 min for 2 hours — real (if sparse) progress.
+      for (let i = 0; i < 6; i++) {
+        onEvent();
+        advance(20 * 60_000);
+      }
+      // Never finalized: the child is alive throughout; the hard cap extended.
+      expect(h.state).not.toBe("finalized");
+      expect(h.events).not.toContain("hard-timeout");
     });
   });
 });
