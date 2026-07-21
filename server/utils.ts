@@ -1024,7 +1024,7 @@ export function createAppContext(baseDir: string): AppContext {
           const toolCalls = JSON.parse(row.tool_calls) as ToolCall[];
           const endedAt = Date.now();
           for (const tc of toolCalls) {
-            if (tc?.status === 'running') {
+            if (tc?.status === 'running' || tc?.status === 'pending') {
               tc.status = 'error';
               if (tc.endedAt == null) tc.endedAt = endedAt;
               if (!tc.error) tc.error = 'Interrotto: il turno è terminato senza risultato';
