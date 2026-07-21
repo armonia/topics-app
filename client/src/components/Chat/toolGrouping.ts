@@ -164,12 +164,15 @@ export function formatToolCounts(counts: ToolGroupSummary['counts']): string {
   return counts.map((c) => (c.count > 1 ? `${c.name} ×${c.count}` : c.name)).join(' · ');
 }
 
-/** Human duration: "0.8s" under 10s, "41s" under a minute, "1m 05s" above. */
+/** Human duration: "0.8s" under 10s, "41s" under a minute, "1m 05s" under an
+ *  hour, "1h 02m" above (seconds dropped at the hour scale). */
 export function formatDurationMs(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '';
   if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+  const totalS = Math.round(ms / 1000);
+  if (totalS < 60) return `${totalS}s`;
+  const totalM = Math.floor(totalS / 60);
+  if (totalM < 60) return `${totalM}m ${String(totalS % 60).padStart(2, '0')}s`;
+  const h = Math.floor(totalM / 60);
+  return `${h}h ${String(totalM % 60).padStart(2, '0')}m`;
 }
