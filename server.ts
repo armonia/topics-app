@@ -1817,12 +1817,13 @@ const server = Bun.serve<WSData>({
 function finalizeOrphanedRunningTools() {
   try {
     const rows = db.prepare(
-      `SELECT id, tool_calls, blocks FROM messages WHERE partial = 0 AND (
+      `SELECT id, content, tool_calls, blocks FROM messages WHERE partial = 0 AND (
          tool_calls LIKE '%"status":"running"%' OR tool_calls LIKE '%"status":"pending"%'
          OR blocks LIKE '%"status":"running"%' OR blocks LIKE '%"status":"pending"%')`
-    ).all() as Array<{ id: string; tool_calls: string | null; blocks: string | null }>;
+    ).all() as Array<{ id: string; content: string | null; tool_calls: string | null; blocks: string | null }>;
     if (rows.length === 0) return;
-    const upd = db.prepare(`UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?`);
+    const upd = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
+    const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto — puoi rilanciarlo o riprendere da qui.";
     const now = Date.now();
     let msgs = 0, tools = 0;
     const fix = (tc: Record<string, unknown> | undefined | null): boolean => {
@@ -1856,9 +1857,24 @@ function finalizeOrphanedRunningTools() {
           if (c) { blStr = JSON.stringify(bl); changed = true; }
         }
       } catch { /* skip malformed blocks */ }
-      if (changed) { upd.run(tcStr, blStr, r.id); msgs++; }
+      if (changed) {
+        // If the interrupted turn produced no final prose, add an explanation
+        // so the user sees a reason instead of a bare unexplained error X.
+        const hasProse = typeof r.content === "string" && r.content.trim().length > 0;
+        const content = hasProse ? r.content : INTERRUPTED_MARKER;
+        upd.run(content, tcStr, blStr, r.id); msgs++;
+      }
     }
     if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);
+    // Second pass: an assistant turn already finalized as interrupted (its tool
+    // carries the "Interrotto" marker) but with no final prose renders as a bare
+    // unexplained error X. Give it the explanation. Idempotent — once content is
+    // set the row no longer matches.
+    const explained = db.prepare(
+      `UPDATE messages SET content = ? WHERE role = 'assistant' AND (content IS NULL OR trim(content) = '')
+         AND (tool_calls LIKE '%Interrotto%' OR blocks LIKE '%Interrotto%')`
+    ).run(INTERRUPTED_MARKER);
+    if (explained.changes > 0) console.log(`[boot] added interruption explanation to ${explained.changes} message(s)`);
   } catch (e) {
     console.warn(`[boot] finalizeOrphanedRunningTools failed:`, e);
   }
