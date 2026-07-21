@@ -1806,6 +1806,45 @@ const server = Bun.serve<WSData>({
   },
 });
 
+// Boot cleanup: a FINALIZED message (partial=0) must never carry a tool still
+// marked 'running' — the client renders it as a spinner whose timer ticks
+// forever (observed: a Shell tool "running" for 2h+ at session end). These are
+// orphans from turns that died without finalizing their tools (a server restart
+// clears the in-memory activeStreams, so the stale-stream sweeper can no longer
+// reach them). Mark them interrupted and stamp endedAt so the duration freezes.
+// Scoped to partial=0 so a mid-turn message being adopted (partial=1) is never
+// touched. Idempotent — a clean boot finds nothing to fix.
+function finalizeOrphanedRunningTools() {
+  try {
+    const rows = db.prepare(
+      `SELECT id, tool_calls FROM messages WHERE partial = 0 AND tool_calls LIKE '%"status":"running"%'`
+    ).all() as Array<{ id: string; tool_calls: string }>;
+    if (rows.length === 0) return;
+    const upd = db.prepare(`UPDATE messages SET tool_calls = ? WHERE id = ?`);
+    const now = Date.now();
+    let msgs = 0, tools = 0;
+    for (const r of rows) {
+      try {
+        const tcs = JSON.parse(r.tool_calls) as Array<Record<string, unknown>>;
+        let changed = false;
+        for (const tc of tcs) {
+          if (tc && tc.status === "running") {
+            tc.status = "error";
+            if (tc.endedAt == null) tc.endedAt = (typeof tc.startedAt === "number" ? tc.startedAt : now);
+            if (!tc.error) tc.error = "Interrotto: la sessione è terminata prima del risultato";
+            changed = true; tools++;
+          }
+        }
+        if (changed) { upd.run(JSON.stringify(tcs), r.id); msgs++; }
+      } catch { /* skip malformed tool_calls */ }
+    }
+    if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);
+  } catch (e) {
+    console.warn(`[boot] finalizeOrphanedRunningTools failed:`, e);
+  }
+}
+finalizeOrphanedRunningTools();
+
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
