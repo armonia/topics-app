@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>anim</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}canvas{display:block}</style>
+<canvas id="c" width="1280" height="720"></canvas>
+<script>
+// Continuously-changing full-frame animation so every compositor frame is a new image
+// (forces the screencast to actually emit ~monitor-rate frames).
+const c = document.getElementById('c'), x = c.getContext('2d');
+let t = 0;
+function frame() {
+  t += 1;
+  const g = x.createLinearGradient(0, 0, 1280, 720);
+  const h = (t * 3) % 360;
+  g.addColorStop(0, `hsl(${h},90%,50%)`);
+  g.addColorStop(1, `hsl(${(h + 120) % 360},90%,40%)`);
+  x.fillStyle = g; x.fillRect(0, 0, 1280, 720);
+  x.fillStyle = '#fff';
+  x.font = '120px sans-serif';
+  x.fillText(String(t), 40 + (t % 200), 400);
+  // moving box
+  x.fillStyle = 'rgba(255,255,255,.4)';
+  x.fillRect((t * 7) % 1280, 500, 120, 120);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
