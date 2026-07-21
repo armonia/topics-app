@@ -1817,26 +1817,46 @@ const server = Bun.serve<WSData>({
 function finalizeOrphanedRunningTools() {
   try {
     const rows = db.prepare(
-      `SELECT id, tool_calls FROM messages WHERE partial = 0 AND (tool_calls LIKE '%"status":"running"%' OR tool_calls LIKE '%"status":"pending"%')`
-    ).all() as Array<{ id: string; tool_calls: string }>;
+      `SELECT id, tool_calls, blocks FROM messages WHERE partial = 0 AND (
+         tool_calls LIKE '%"status":"running"%' OR tool_calls LIKE '%"status":"pending"%'
+         OR blocks LIKE '%"status":"running"%' OR blocks LIKE '%"status":"pending"%')`
+    ).all() as Array<{ id: string; tool_calls: string | null; blocks: string | null }>;
     if (rows.length === 0) return;
-    const upd = db.prepare(`UPDATE messages SET tool_calls = ? WHERE id = ?`);
+    const upd = db.prepare(`UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?`);
     const now = Date.now();
     let msgs = 0, tools = 0;
+    const fix = (tc: Record<string, unknown> | undefined | null): boolean => {
+      if (tc && (tc.status === "running" || tc.status === "pending")) {
+        tc.status = "error";
+        if (tc.endedAt == null) tc.endedAt = (typeof tc.startedAt === "number" ? tc.startedAt : now);
+        if (!tc.error) tc.error = "Interrotto: la sessione è terminata prima del risultato";
+        tools++;
+        return true;
+      }
+      return false;
+    };
     for (const r of rows) {
+      let changed = false;
+      let tcStr = r.tool_calls, blStr = r.blocks;
+      // The client renders tool state from `blocks` (the chronological timeline)
+      // when present — so BOTH columns must be finalized, or the spinner keeps
+      // ticking off the stale block copy even though tool_calls is fixed.
       try {
-        const tcs = JSON.parse(r.tool_calls) as Array<Record<string, unknown>>;
-        let changed = false;
-        for (const tc of tcs) {
-          if (tc && (tc.status === "running" || tc.status === "pending")) {
-            tc.status = "error";
-            if (tc.endedAt == null) tc.endedAt = (typeof tc.startedAt === "number" ? tc.startedAt : now);
-            if (!tc.error) tc.error = "Interrotto: la sessione è terminata prima del risultato";
-            changed = true; tools++;
-          }
+        if (r.tool_calls) {
+          const tcs = JSON.parse(r.tool_calls) as Array<Record<string, unknown>>;
+          let c = false; for (const tc of tcs) if (fix(tc)) c = true;
+          if (c) { tcStr = JSON.stringify(tcs); changed = true; }
         }
-        if (changed) { upd.run(JSON.stringify(tcs), r.id); msgs++; }
       } catch { /* skip malformed tool_calls */ }
+      try {
+        if (r.blocks) {
+          const bl = JSON.parse(r.blocks) as Array<Record<string, unknown>>;
+          let c = false;
+          for (const b of bl) if (b && b.kind === "tool" && fix(b.toolCall as Record<string, unknown>)) c = true;
+          if (c) { blStr = JSON.stringify(bl); changed = true; }
+        }
+      } catch { /* skip malformed blocks */ }
+      if (changed) { upd.run(tcStr, blStr, r.id); msgs++; }
     }
     if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);
   } catch (e) {
