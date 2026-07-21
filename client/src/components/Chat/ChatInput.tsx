@@ -9,7 +9,7 @@ import { FileMentionMenu, FilePill, type MentionedFile } from './FileMentionMenu
 import { ContextPills } from './ContextPills';
 import { useContextFileTokens } from './useContextFileTokens';
 import { basename } from '../../lib/path-utils';
-import { topicsApi, uploadApi } from '../../lib/api';
+import { topicsApi, uploadApi, slashCommandsApi, type CustomSlashCommand } from '../../lib/api';
 import { MentionAutocomplete } from './MentionAutocomplete';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { ContextRing } from '../Shared/ContextRing';
@@ -516,6 +516,14 @@ export function ChatInput({
   const [slashMenuIndex, setSlashMenuIndex] = useState(0);
   const [slashFilter, setSlashFilter] = useState('');
   const slashMenuRef = useRef<HTMLDivElement>(null);
+  // The user's custom commands/skills (/vai, /commit, /recap, …) for
+  // autocomplete. Fetched once; the headless CLI expands them on send.
+  const [customCmds, setCustomCmds] = useState<CustomSlashCommand[]>([]);
+  useEffect(() => {
+    let alive = true;
+    slashCommandsApi.list().then((c) => { if (alive) setCustomCmds(c); }).catch(() => { /* best-effort */ });
+    return () => { alive = false; };
+  }, []);
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [mentionMenuIndex, setMentionMenuIndex] = useState(0);
@@ -621,7 +629,19 @@ export function ChatInput({
     return () => window.removeEventListener('chat:insert-text', handler as EventListener);
   }, [message, setMessage, textareaRef]);
 
-  const filteredSlashCommands = SLASH_COMMANDS.filter(c =>
+  // Built-in app commands (handled by the composer) + the user's custom
+  // commands/skills (which fall through to the child, expanded by the CLI).
+  // Built-in wins on a name clash. The menu render only reads {cmd, description}.
+  const allSlashCommands = useMemo(() => {
+    const builtin = SLASH_COMMANDS.map((c) => ({ cmd: c.cmd, description: c.description }));
+    const builtinNames = new Set(builtin.map((c) => c.cmd));
+    const custom = customCmds
+      .map((c) => ({ cmd: '/' + c.name, description: c.description || (c.kind === 'skill' ? 'Skill' : 'Comando') }))
+      .filter((c) => !builtinNames.has(c.cmd));
+    return [...builtin, ...custom];
+  }, [customCmds]);
+
+  const filteredSlashCommands = allSlashCommands.filter(c =>
     c.cmd.toLowerCase().startsWith(slashFilter.toLowerCase())
   );
 
