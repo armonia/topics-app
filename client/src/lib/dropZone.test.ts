@@ -55,6 +55,26 @@ describe('detectDropZone (relative 5-zone)', () => {
     expect(detectDropZone(at(1050, 800), off)).toBe('left');
   });
 
+  test('wide-short cell: an off-center drop near the bottom stays bottom (not sideways)', () => {
+    // Regression for the per-axis tie-break skew: on a 1600×250 cell
+    // (depthX≈400, depthY≈62) a drop 30px above the bottom but 50px from the
+    // right is ABSOLUTELY closer to the bottom — it used to resolve to 'right'
+    // because left/right were normalized by the (much larger) depthX.
+    const wide = bounds(1600, 250);
+    expect(detectDropZone(at(1550, 220), wide)).toBe('bottom');
+    // Symmetric on the left side, and the center box still wins in the middle.
+    expect(detectDropZone(at(50, 220), wide)).toBe('bottom');
+    expect(detectDropZone(at(800, 125), wide)).toBe('center');
+  });
+
+  test('tall-narrow cell: an off-center drop near the right stays right (not vertical)', () => {
+    // The dual of the wide-short case: a 250×1600 cell (depthX≈62,
+    // depthY≈400) drop 30px from the right but 50px from the top must be right.
+    const tall = bounds(250, 1600);
+    expect(detectDropZone(at(220, 50), tall)).toBe('right');
+    expect(detectDropZone(at(220, 1550), tall)).toBe('right');
+  });
+
   test('E2E contract: a point 5px from the left edge at mid-height is left', () => {
     // tab-system-reliability.spec.ts dispatches dragover at x+5, h/2 and
     // asserts the overlay zone is 'left' — the v2 geometry must keep that.

@@ -43,7 +43,7 @@ async function openProject(page: Page, name: string | RegExp, projectPath = "/tm
     .then(() => true).catch(() => false);
   if (!visible) {
     await seedProjectPane(page.request, projectPath);
-    await page.reload({ waitUntil: 'networkidle' });
+    await page.reload({ waitUntil: 'load' });
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 15000 });
     await expect(projectBtn.first()).toBeVisible({ timeout: 10000 });
   }
@@ -125,7 +125,7 @@ test.describe("Grid Split System", () => {
         return;
       }
 
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(3000);
       // Re-open the same project
       await openProject(page, /e2e-grid/);
@@ -554,7 +554,7 @@ test.describe("Grid Split System", () => {
       expect(before, 'split-down should have written cellStacks to localStorage').toBeTruthy();
       expect(before!, 'cellStacks key must be present in saved layout').toContain('cellStacks');
 
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'load' });
       // Allow the post-hydrate sync effect to settle.
       await page.waitForTimeout(2000);
 
@@ -726,7 +726,7 @@ test.describe("Grid Split System", () => {
       expect(preDividers, 'Should have at least 1 col divider before reload').toBeGreaterThanOrEqual(1);
 
       // Reload and wait for layout restore
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(3000);
 
       // The split layout should persist
@@ -856,7 +856,7 @@ test.describe("Grid Split System", () => {
 
       // Persistence: the flat layout survives a reload (written through the
       // usePanelGridPersistence debounced writer, restored by its sanitizers).
-      await page.reload({ waitUntil: 'networkidle' });
+      await page.reload({ waitUntil: 'load' });
       await page.waitForTimeout(2000);
       expect(await countRowDividers(page), 'flat layout must persist across reload').toBe(0);
       const labelsReloaded = await getVisibleTabLabels(page);

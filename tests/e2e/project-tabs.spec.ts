@@ -423,6 +423,128 @@ test.describe("Project Tabs", () => {
     }
   });
 
+  // Regression for "perdo il focus su questa tab" / "perdo lo split": a Git/Files
+  // pane is born `preview:true`, and the persist effect used to drop EVERY
+  // preview pane from nonChatPanes — so on reload the focused preview tab
+  // vanished, its cell collapsed (orphan-sync prunes an empty group) and focus
+  // snapped to a chat. The fix persists a preview pane that is a group's ACTIVE
+  // tab, so whatever the user is looking at (a focused Git/Files tab, or a
+  // split-out preview cell) survives the reload.
+  test("PROJECT-TABS-02: focused preview (Files/Git) pane survives reload", async ({
+    page,
+  }) => {
+    test.info().annotations.push({
+      type: "spec",
+      description: "PROJECT-TABS-02-preview-focus",
+    });
+    await goToApp(page);
+    await openTestProject(page);
+
+    const projectAdd = page
+      .locator(
+        '[data-testid="panel-tab-bar"]:not([data-group-id="standalone"]):not([data-group-id^="solo:"])'
+      )
+      .getByTitle("Add pane");
+    // Files/Git are `addableScopes: ['project']`, so a project add menu MUST
+    // offer them — assert (not skip) so this stays a real guard.
+    await expect(projectAdd.first()).toBeVisible({ timeout: 10000 });
+
+    // Add a PREVIEW pane (Files/Git — non-durable, born preview:true). It becomes
+    // its group's ACTIVE tab.
+    await projectAdd.last().click();
+    const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
+    await expect(addMenu).toBeVisible({ timeout: 5000 });
+    // Loose contains-match (the button also carries an icon and a ⌘N hint, so an
+    // anchored ^Files$ never matched — it silently skipped the whole test).
+    const previewBtn = addMenu
+      .locator("button")
+      .filter({ hasText: /\b(Files|Git)\b/ })
+      .first();
+    await expect(previewBtn).toBeVisible({ timeout: 5000 });
+    await previewBtn.click();
+    // Confirm the preview pane actually mounted as a tab before asserting its
+    // persistence (guards against a silent no-op click).
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i)!;
+            if (!k.startsWith("topics-project-panes-")) continue;
+            try {
+              const v = JSON.parse(localStorage.getItem(k) || "{}");
+              const panes = Array.isArray(v?.nonChatPanes) ? v.nonChatPanes : [];
+              if (panes.length > 0) return true;
+            } catch { /* not JSON */ }
+          }
+          return false;
+        }),
+        { timeout: 8000 }
+      )
+      .toBe(true);
+
+    // The fix: an ACTIVE preview pane is now written to the device-local
+    // nonChatPanes. Poll the panes key until it lists the file/git pane — the
+    // exact bit that used to be missing, which caused the reload loss.
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i)!;
+              if (!k.startsWith("topics-project-panes-")) continue;
+              try {
+                const v = JSON.parse(localStorage.getItem(k) || "{}");
+                const panes = Array.isArray(v?.nonChatPanes)
+                  ? v.nonChatPanes
+                  : [];
+                if (
+                  panes.some(
+                    (p: { type?: string }) =>
+                      p.type === "files" || p.type === "git"
+                  )
+                )
+                  return true;
+              } catch {
+                /* not JSON */
+              }
+            }
+            return false;
+          }),
+        { timeout: 10000 }
+      )
+      .toBe(true);
+
+    // "load" not "networkidle": live WS keeps the network busy.
+    await page.reload({ waitUntil: "load" });
+    await page.waitForSelector('[aria-label="Topics sidebar"]', {
+      state: "visible",
+      timeout: 15000,
+    });
+    await openTestProject(page);
+
+    // The focused preview tab is restored (its cell didn't collapse, focus
+    // didn't snap to a chat): a project group bar reappears AND the file/git
+    // pane is still in the persisted set after the reload round-trip.
+    const projectBars = page.locator(
+      '[data-testid="panel-tab-bar"][data-group-id^="group:"]'
+    );
+    await expect(projectBars.first()).toBeVisible({ timeout: 10000 });
+    expect(
+      await page.evaluate(() => {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i)!;
+          if (!k.startsWith("topics-project-panes-")) continue;
+          try {
+            const v = JSON.parse(localStorage.getItem(k) || "{}");
+            const panes = Array.isArray(v?.nonChatPanes) ? v.nonChatPanes : [];
+            if (panes.some((p: { type?: string }) => p.type === "files" || p.type === "git")) return true;
+          } catch { /* not JSON */ }
+        }
+        return false;
+      })
+    ).toBe(true);
+  });
+
   // PROJECT-TABS-03: Project Tab Status Badges
 
   test("PROJECT-TABS-03: project tab renders with status badge infrastructure", async ({

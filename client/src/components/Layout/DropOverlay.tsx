@@ -20,12 +20,14 @@ export function SplitRegion({
   zone,
   fullWidth,
   gutterInset,
+  topInset,
 }: {
   zone: EdgeZone;
   fullWidth?: boolean;
   gutterInset?: number;
+  topInset?: number;
 }) {
-  return <div data-grid-split-overlay={zone} style={dropRegionStyle(zone, { fullWidth, gutterInset })} />;
+  return <div data-grid-split-overlay={zone} style={dropRegionStyle(zone, { fullWidth, gutterInset, topInset })} />;
 }
 
 /** A 1-D insert caret at a tab's left/right edge — reorder / add-as-tab. */
@@ -51,12 +53,17 @@ export function CenterRegion() {
 export function FullWidthRowZone({
   side,
   active,
+  edgeOffset,
   onDragOver,
   onDragLeave,
   onDrop,
 }: {
   side: 'top' | 'bottom';
   active: boolean;
+  /** Push the strip IN from the container edge (px). The project layout offsets
+   *  the TOP strip by the first row's tab-bar height so it never overlaps — and
+   *  never swallows clicks/drops on — that bar. */
+  edgeOffset?: number;
   onDragOver?: React.DragEventHandler;
   onDragLeave?: React.DragEventHandler;
   onDrop?: React.DragEventHandler;
@@ -67,7 +74,7 @@ export function FullWidthRowZone({
   return (
     <div
       data-full-row-zone={side}
-      style={fullRowZoneStyle(side, active)}
+      style={fullRowZoneStyle(side, active, edgeOffset)}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
