@@ -805,6 +805,28 @@ export function createAppContext(baseDir: string): AppContext {
     return stored;
   }
 
+  /** Reattach after a server restart: REUSE the surviving partial assistant row
+   *  for this session (the exact bubble the client was watching before the
+   *  restart) and clear its body so the JSONL replay rebuilds it IN PLACE — no
+   *  duplicate turn, no ghost spinner, and the client's `stream:catchup` targets
+   *  the same messageId so the bubble updates seamlessly. Falls back to a fresh
+   *  partial row when nothing survived. Only used on the reattach boot path. */
+  function reuseOrCreatePartialForReattach(sessionKey: string): StoredMessage {
+    const row = stmts.getLastMessage.get(sessionKey) as any;
+    if (row && row.role === "assistant" && (row.partial === 1 || row.partial === true)) {
+      const now = new Date().toISOString();
+      db.run(
+        "UPDATE messages SET content = '', thinking = NULL, tool_calls = NULL, blocks = NULL, streamed_at = ?, partial = 1 WHERE id = ?",
+        [now, String(row.id)],
+      );
+      return {
+        id: String(row.id), role: "assistant", content: "", timestamp: String(row.timestamp),
+        partial: true, streamedAt: now, parentId: row.parent_id ?? null, branchIndex: row.branch_index ?? 0,
+      };
+    }
+    return createPartialMessage(sessionKey, "assistant");
+  }
+
   /** Get the last message in the active thread (or by sort_order as fallback for streaming). */
   function getLastActiveMessage(sessionKey: string): any | null {
     // During streaming, the last message by sort_order is the partial assistant message
@@ -1463,7 +1485,7 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,
     loadLocalMessages, saveLocalMessages, appendLocalMessage,
-    createPartialMessage, updateLastMessage, appendToLastMessage,
+    createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,

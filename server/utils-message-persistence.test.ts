@@ -167,3 +167,44 @@ describe("message field-ownership on updateMessage", () => {
     expect(row.toolCalls?.[0]?.result).toBe("ok");
   });
 });
+
+describe("reuseOrCreatePartialForReattach — reload-survival (no duplicate turn, no ghost)", () => {
+  test("reuses the surviving partial row IN PLACE, clears its body, rebuilds cleanly", () => {
+    const sk = "topic:reatt01";
+    const original = ctx.createPartialMessage(sk, "assistant");
+    ctx.appendToLastMessage(sk, "contenuto pre-restart");
+    ctx.addToolCallToLastMessage(sk, tool("rt1"));
+
+    // Boot reattach path: continue the SAME bubble.
+    const reused = ctx.reuseOrCreatePartialForReattach(sk);
+    expect(reused.id).toBe(original.id); // same bubble — no duplicate, no ghost
+
+    const cleared = ctx.getMessageById(original.id)!;
+    expect(cleared.partial).toBeTruthy(); // still streaming
+    expect(cleared.content).toBe(""); // body cleared for a clean JSONL replay
+    expect(cleared.toolCalls == null || cleared.toolCalls.length === 0).toBe(true);
+
+    // The replay rebuilds the same row in place.
+    ctx.appendToLastMessage(sk, "turno ricostruito dal replay");
+    expect(ctx.getMessageById(original.id)!.content).toBe("turno ricostruito dal replay");
+  });
+
+  test("creates a FRESH row when nothing survived (last message already finalized)", () => {
+    const sk = "topic:reatt02";
+    const done = ctx.createPartialMessage(sk, "assistant");
+    ctx.appendToLastMessage(sk, "completo");
+    ctx.finalizeLastMessage(sk);
+
+    const fresh = ctx.reuseOrCreatePartialForReattach(sk);
+    expect(fresh.id).not.toBe(done.id); // new bubble
+    expect(ctx.getMessageById(fresh.id)!.partial).toBeTruthy();
+    expect(ctx.getMessageById(done.id)!.content).toBe("completo"); // the finalized turn is untouched
+  });
+
+  test("creates a FRESH row on an empty session (no last message)", () => {
+    const sk = "topic:reatt03-empty";
+    const fresh = ctx.reuseOrCreatePartialForReattach(sk);
+    expect(ctx.getMessageById(fresh.id)!.partial).toBeTruthy();
+    expect(ctx.getMessageById(fresh.id)!.content).toBe("");
+  });
+});

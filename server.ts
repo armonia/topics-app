@@ -951,29 +951,49 @@ const midTurnAtBoot = new Set<string>();
 {
   console.log("[Startup] Checking for stale partial messages...");
   let liveBrokerChatSessions = new Set<string>();
+  // `listConfirmed` = we got an AUTHORITATIVE alive-set from the broker. This is
+  // the load-bearing invariant of reload-survival: resetting a partial row to
+  // partial=0 is what later mints the "interrotto" marker, so we only do it for
+  // a session the broker CONFIRMS is dead. If we cannot get a confirmed list
+  // (daemon not yet connected during the boot race, a transient error), we
+  // treat every mid-turn row as "possibly alive" and KEEP partial=1 — the
+  // reattach sweep below (which lists again) reconciles survivors, and a
+  // genuinely-dead one is cleaned by its .finally / the next boot. Never orphan
+  // a possibly-live turn on an unconfirmed read.
+  let listConfirmed = false;
   if (aiBridgeEnabled()) {
-    try {
-      liveBrokerChatSessions = new Set(
-        (await getAiBridgeClient().list())
-          .filter((s) => s.alive && s.id.startsWith("topic:"))
-          .map((s) => s.id),
-      );
-    } catch { /* daemon unreachable → nothing survived → all partials are stale */ }
+    for (let attempt = 0; attempt < 4 && !listConfirmed; attempt++) {
+      try {
+        await getAiBridgeClient().ensureConnected();
+        const sessions = await getAiBridgeClient().list();
+        liveBrokerChatSessions = new Set(
+          sessions.filter((s) => s.alive && s.id.startsWith("topic:")).map((s) => s.id),
+        );
+        listConfirmed = true;
+      } catch {
+        await new Promise((r) => setTimeout(r, 250)); // daemon still coming up — retry
+      }
+    }
+    if (!listConfirmed) {
+      console.warn("[Startup] ai-bridge list() unavailable after retries — keeping ALL partial rows intact (reattach will reconcile); refusing to orphan possibly-live turns");
+    }
+  } else {
+    listConfirmed = true; // bridge disabled → no detached survivors possible → safe to reset
   }
-  let cleared = 0;
+  let cleared = 0, kept = 0;
   try {
     const rows = db.query("SELECT DISTINCT session_key AS sk FROM messages WHERE partial = 1").all() as Array<{ sk: string }>;
     for (const row of rows) {
       midTurnAtBoot.add(row.sk);
-      if (liveBrokerChatSessions.has(row.sk)) continue; // surviving turn — keep the signal
+      // Keep the mid-turn signal when the child survived OR when we could not
+      // confirm it's dead (fail-safe — an unconfirmed read must never orphan a
+      // live turn, the bug that surfaced as "la sessione si è chiusa mentre un
+      // tool era ancora in corso").
+      if (!listConfirmed || liveBrokerChatSessions.has(row.sk)) { kept++; continue; }
       cleared += db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [row.sk]).changes;
     }
   } catch { /* capture is best-effort; the sweep degrades to reaping */ }
-  if (cleared > 0) {
-    console.log(`[Startup] Reset ${cleared} stale partial messages (${midTurnAtBoot.size} session(s) were mid-turn, ${liveBrokerChatSessions.size} broker-alive kept)`);
-  } else {
-    console.log("[Startup] No stale partial messages found");
-  }
+  console.log(`[Startup] partial sweep: reset ${cleared}, kept ${kept} (mid-turn ${midTurnAtBoot.size}, broker-alive ${liveBrokerChatSessions.size}, listConfirmed=${listConfirmed})`);
 }
 
 const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
