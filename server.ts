@@ -38,6 +38,7 @@ import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-au
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
+import { branchStatusFromRepo } from "./server/services/branch-status";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
@@ -1763,19 +1764,6 @@ const dispatchTimer = setInterval(() => {
 // provably nothing to lose, landing a closed task's unmerged-but-clean commits
 // first. See server/services/worktree-gc.ts.
 const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
-async function gitExit(cwd: string, args: string[]): Promise<number> {
-  try {
-    const proc = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "ignore", stderr: "ignore" });
-    return await proc.exited;
-  } catch { return 1; }
-}
-// Branch state read from the PROJECT repo, so it's correct even after the
-// worktree dir was removed (the common ghost case): gone / merged / unmerged.
-async function branchStatusFromRepo(repoPath: string, branch: string | null): Promise<"gone" | "merged" | "unmerged"> {
-  if (!branch) return "gone";
-  if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) !== 0) return "gone";
-  return (await gitExit(repoPath, ["merge-base", "--is-ancestor", branch, "main"])) === 0 ? "merged" : "unmerged";
-}
 function runWorktreeGc() {
   return sweepWorktrees({
     listWorktrees: () => ctx.worktreeStore.list({ status: "ready" }).map((w) => ({
