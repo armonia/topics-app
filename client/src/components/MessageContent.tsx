@@ -4,7 +4,8 @@ import { createPortal } from 'react-dom';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
-import { Copy, Check, CheckCheck, Download } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download, Layers, ChevronRight } from 'lucide-react';
+import { splitCompactionSummary } from '../lib/compactionSummary';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
 import { basename } from '../lib/path-utils';
@@ -884,6 +885,48 @@ function renderContentWithInlineTools(
   return elements;
 }
 
+/** Fold for the CLI's auto-compaction summary — collapsed by default so a
+ *  ~24 KB context recap doesn't dominate the transcript; expandable on demand.
+ *  Echoes the CompactionDivider ("Contesto compattato") styling. */
+type MarkdownComponents = React.ComponentProps<typeof ChatMarkdown>['components'];
+
+function CompactionSummaryFold({ summary, components }: { summary: string; components: MarkdownComponents }) {
+  const [open, setOpen] = useState(false);
+  const approxK = Math.max(1, Math.round(summary.length / 4 / 1000));
+  return (
+    <div className="my-2 not-prose" data-testid="compaction-summary-fold">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 rounded-full border border-app-border/60 bg-app-hover/40 px-2.5 py-0.5 text-[11px] text-app-text-muted hover:bg-app-hover transition-colors"
+      >
+        <Layers size={12} className="flex-shrink-0" />
+        <span className="font-medium">Riassunto del contesto compattato</span>
+        <span className="text-app-text-muted/70">· ~{approxK}k token</span>
+        <ChevronRight size={12} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open && (
+        <div className="mt-1.5 prose prose-sm max-w-none opacity-70 prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5">
+          <ChatMarkdown components={components}>{summary}</ChatMarkdown>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Assistant prose that folds away a trailing auto-compaction summary
+ *  (interface-level handling — the CLI's recap otherwise leaks in as a wall of
+ *  text). Drop-in for `<ChatMarkdown components={…}>{text}</ChatMarkdown>`. */
+function ProseBlock({ text, components }: { text: string; components: MarkdownComponents }) {
+  const { before, summary } = splitCompactionSummary(text);
+  return (
+    <>
+      {before ? <ChatMarkdown components={components}>{before}</ChatMarkdown> : null}
+      {summary ? <CompactionSummaryFold summary={summary} components={components} /> : null}
+    </>
+  );
+}
+
 interface MessageContentProps {
   content: string;
   role: 'user' | 'assistant' | 'system';
@@ -1070,9 +1113,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           }
           return (
             <div key={`g-tx-${g.idx}`} className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-              <ChatMarkdown components={markdownComponents}>
-                {text}
-              </ChatMarkdown>
+              <ProseBlock text={text} components={markdownComponents} />
             </div>
           );
         })}
@@ -1151,9 +1192,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
                 <div>{renderContentWithInlineTools(cleanText, inlineTools, markdownComponents, sessionKey)}</div>
               ) : (
                 <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-headings:my-1.5 prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0 prose-pre:my-1.5 prose-blockquote:my-1">
-                  <ChatMarkdown components={markdownComponents}>
-                    {cleanText}
-                  </ChatMarkdown>
+                  <ProseBlock text={cleanText} components={markdownComponents} />
                 </div>
               )
             )}
