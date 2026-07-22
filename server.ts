@@ -75,6 +75,7 @@ import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./server/services/app-settings";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
+import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
@@ -2017,7 +2018,102 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
   }
 }
-reattachSurvivingChatTurns().catch((err) => console.error("[chat-reattach] boot sweep failed", err));
+// Boot reconcile of ORPHANED "working" phases — the keystone of "no chat sits
+// stuck spinning for an hour". A hard outage (a launchd bootout, a crash) kills
+// the ai-bridge child MID-TURN; `claude_code_sessions.phase` stays frozen on a
+// busy-spinner phase (starting/running/tool-running) that never returns to
+// terminal, so the loading dots spin forever. The reaper DOES clear it — but a
+// chat session has no PTY idle signal, so the running→dormant demote only fires
+// after `abandonedTimeoutMs` (~60 min of frozen updatedAt): exactly the "fermo
+// 1h55m" the user saw. This closes that window to ~0 by demoting, at boot, every
+// busy-phase topic session the broker CONFIRMS has no live child.
+//
+// Load-bearing safety (mirrors the partial-sweep invariant above): we ONLY act
+// on a CONFIRMED alive-set. If the broker list is unavailable after retries we
+// do NOTHING — a genuinely long turn (a live child the daemon just hasn't
+// answered for yet) must never be wrongly demoted; the 60-min reaper stays as
+// the backstop. Dispatcher-claimed sessions (in_progress board tasks) are left
+// to the dispatcher's own reconcile so the two never race over one session.
+async function reconcileOrphanedBusyPhases(): Promise<void> {
+  // 1) Authoritative alive-set (same retry/confirm contract as the partial sweep).
+  let aliveSet = new Set<string>();
+  let listConfirmed = false;
+  if (aiBridgeEnabled()) {
+    const client = getAiBridgeClient();
+    for (let attempt = 0; attempt < 4 && !listConfirmed; attempt++) {
+      try {
+        await client.ensureConnected();
+        const sessions = await client.list();
+        aliveSet = new Set(sessions.filter((s) => s.alive && s.id.startsWith("topic:")).map((s) => s.id));
+        listConfirmed = true;
+      } catch {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+    if (!listConfirmed) {
+      console.warn("[busy-reconcile] broker list unavailable after retries — skipping (60-min reaper remains the backstop); refusing to demote possibly-live turns");
+      return;
+    }
+  } else {
+    listConfirmed = true; // no daemon → no live child possible → every busy phase is orphaned
+  }
+
+  // 2) Dispatcher-claimed sessions are owned by taskDispatcher.reconcile() — hands off.
+  const dispatcherClaimed = new Set<string>();
+  try {
+    const rows = ctx.db.query(
+      "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
+    ).all() as Array<{ t: string }>;
+    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
+  } catch (err) {
+    console.warn("[busy-reconcile] dispatcher claim query failed — skipping for safety:", err);
+    return;
+  }
+
+  // 3) Every non-archived topic session pinned on a busy-spinner phase.
+  const placeholders = BUSY_SPINNER_PHASES.map(() => "?").join(",");
+  let busyRows: Array<{ sk: string; csid: string | null; phase: string }> = [];
+  try {
+    busyRows = ctx.db.query(
+      `SELECT s.session_key AS sk, s.claude_session_id AS csid, s.phase AS phase
+       FROM claude_code_sessions s
+       JOIN topics t ON t.session_key = s.session_key
+       WHERE s.phase IN (${placeholders}) AND (t.archived IS NULL OR t.archived = 0)`,
+    ).all(...BUSY_SPINNER_PHASES) as Array<{ sk: string; csid: string | null; phase: string }>;
+  } catch (err) {
+    console.warn("[busy-reconcile] busy-phase query failed:", err);
+    return;
+  }
+
+  let demoted = 0;
+  for (const row of busyRows) {
+    if (aliveSet.has(row.sk)) continue;            // live child → real turn, leave it
+    if (dispatcherClaimed.has(row.sk)) continue;   // dispatcher owns it
+    if (!row.csid) continue;                       // can't address the tracker without a claude_session_id
+    // Provably orphaned: demote phase→dormant (persists + broadcasts session:state,
+    // stopping the spinner on every live client without a reload).
+    const changed = claudeSessionTracker.noteDormant(row.csid);
+    if (!changed) continue;
+    demoted++;
+    console.log(`[busy-reconcile] demoted orphaned ${row.phase} session ${row.sk} (csid ${row.csid.slice(0, 8)}) → dormant`);
+    // Nudge any client still holding a local stream view (the server has no
+    // in-RAM stream after a restart, so this is idempotent/harmless).
+    const topicId = ctx.getTopicBySessionKey(row.sk)?.id;
+    broadcastToAll({ type: "stream:end", sessionKey: row.sk, topicId, reason: "server_restart_reconcile" });
+  }
+  if (busyRows.length > 0) {
+    console.log(`[busy-reconcile] scanned ${busyRows.length} busy-phase session(s), demoted ${demoted} orphaned (aliveSet ${aliveSet.size}, listConfirmed=${listConfirmed})`);
+  }
+}
+
+// Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
+// child alive → they stay in the alive-set → reconcile skips them) and reaps
+// idle children (so reconcile's fresh list sees them dead → demotes their
+// phantom phase). Running it after avoids a race where a just-reaped session is
+// still listed alive.
+reattachSurvivingChatTurns()
+  .then(() => reconcileOrphanedBusyPhases())
+  .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
 // Dispatch worktrees were only reaped on a successful approve→automerge; every

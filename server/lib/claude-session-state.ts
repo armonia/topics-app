@@ -37,6 +37,28 @@ export function isActivePhase(p: ClaudeSessionPhase): boolean {
   return ACTIVE_PHASES.has(p);
 }
 
+/**
+ * Phases the client renders as an in-progress "working" spinner (loading dots).
+ * A session frozen in one of these AFTER its turn's process has died — the
+ * ai-bridge child was killed by a server outage — is a PHANTOM: the persisted
+ * phase never returns to a terminal state and the UI spins forever. The reaper
+ * only clears it after `abandonedTimeoutMs` (~an hour); the boot reconcile
+ * clears it immediately once the broker CONFIRMS the child is gone.
+ *
+ * NOT included: `awaiting-user`/`awaiting-approval`/`paused` are legitimate
+ * resting/attention states (they can last as long as the human is away), not
+ * spinners — demoting them on a broker miss would erase a real "your turn".
+ */
+export const BUSY_SPINNER_PHASES: ReadonlyArray<ClaudeSessionPhase> = [
+  'starting', 'running', 'tool-running',
+];
+
+const BUSY_SPINNER_SET = new Set<ClaudeSessionPhase>(BUSY_SPINNER_PHASES);
+
+export function isBusySpinnerPhase(p: ClaudeSessionPhase): boolean {
+  return BUSY_SPINNER_SET.has(p);
+}
+
 export interface PendingApproval {
   kind: 'plan' | 'edit' | 'bash' | 'other';
   prompt: string;
