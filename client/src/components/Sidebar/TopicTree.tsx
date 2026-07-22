@@ -398,8 +398,11 @@ export function TopicTree({
     // Focused directly, OR the active inner chat of the focused project.
     const isFocused = focusedTopicId === topic.id
       || isActiveInnerChild(topic.projectPath, createPaneId('chat', topic.id));
+    // Sub-agents this chat spawned as an orchestrator (MCP spawn_agent) render
+    // nested one level deeper — same pattern as a parent terminal's sub-agents.
+    const subAgents = item.subAgents || [];
 
-    return (
+    const row = (
       <TopicItem
         key={item.id}
         topic={topic}
@@ -431,6 +434,13 @@ export function TopicTree({
         onTogglePin={onTogglePin ? () => onTogglePin(item.id) : undefined}
         hideIcon={depth > 0}
       />
+    );
+    if (subAgents.length === 0) return row;
+    return (
+      <div key={item.id}>
+        {row}
+        {subAgents.map(child => renderTerminalItem(child, depth + 1))}
+      </div>
     );
   };
 
