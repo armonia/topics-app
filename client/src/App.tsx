@@ -548,6 +548,20 @@ function App() {
     return () => window.removeEventListener('topics:open-project-picker', handler);
   }, [handleOpenProjectPicker]);
 
+  // In-chat sub-agent strip → open/focus the sub-agent's terminal pane. Routed
+  // via the CustomEvent bus (same pattern as topics:open-project-picker) so the
+  // chat pane doesn't need handleTerminalClick threaded down three layers. The
+  // handler is the exact same one the sidebar sub-agent rows use, so a click
+  // from inside the topic lands on the identical (now non-blank) terminal pane.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { sessionId?: string; name?: string } | undefined;
+      if (detail?.sessionId) handleTerminalClick(detail.sessionId, detail.name || '');
+    };
+    window.addEventListener('topics:open-terminal-pane', handler as EventListener);
+    return () => window.removeEventListener('topics:open-terminal-pane', handler as EventListener);
+  }, [handleTerminalClick]);
+
   // Native tray menu (Tauri) click on an attention row → open/focus that topic,
   // exactly like a sidebar click. The Rust `nav:` handler dispatches this DOM
   // CustomEvent into the webview (no @tauri-apps/event dependency).
