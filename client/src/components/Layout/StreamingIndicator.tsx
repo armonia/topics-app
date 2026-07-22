@@ -32,7 +32,9 @@
  * same loading facade and the same component so they can't drift.
  */
 
-import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
+import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive, useSessionLastActivityFor } from '../../state/signals';
+import { useSharedNow } from '../../state/useSharedNow';
+import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
 /**
  * The vertical 2-column × 3-row square matrix, drawn with the SAME grammar as
@@ -172,6 +174,14 @@ interface TopicSpinnerProps {
   /** Box size in px (default 16 — the tab slot). The sidebar chat row passes a
    *  larger value for a comfier hit target while keeping the identical glyph. */
   size?: number;
+  /**
+   * `compact` (default) — the bare glyph, identical on every tab. `labeled` — the
+   * sidebar treatment: once a turn runs long enough, an elapsed readout appears
+   * next to the glyph, and past a stale threshold the whole thing calms to a
+   * "long-running / maybe waiting" tone (see LabeledTopicSpinner). Only the
+   * roomy sidebar chat row opts in; the compact tab bar stays untouched.
+   */
+  variant?: 'compact' | 'labeled';
 }
 
 export function TopicStreamingSpinner({
@@ -180,29 +190,137 @@ export function TopicStreamingSpinner({
   title,
   className = '',
   size,
+  variant = 'compact',
 }: TopicSpinnerProps) {
   const streaming = useTopicLoading(topicId);
   if (!streaming) return null;
+  // `labeled` reads extra live signals (activity + a shared clock); keep that in a
+  // child that only mounts WHILE streaming, so idle rows never subscribe to the tick.
+  if (variant === 'labeled') {
+    return (
+      <LabeledTopicSpinner
+        topicId={topicId}
+        onStop={onStop}
+        title={title}
+        className={className}
+        size={size}
+      />
+    );
+  }
   const tip = title ?? (onStop ? 'Stop generating' : 'Streaming');
   return <LoaderSlot onStop={onStop} title={tip} className={className} size={size} />;
+}
+
+/**
+ * The sidebar-only "labeled" loader, shared by chat rows AND project rows. Given a
+ * last-update epoch-ms it reads TIME SINCE THE LAST UPDATE — a turn actively
+ * streaming keeps bumping it and never reads as stale. Below WORK_ELAPSED_AFTER_MS
+ * it's byte-identical to the compact spinner; past it an "agg. Xm fa" chip appears;
+ * past WORK_STALE_AFTER_MS the chip goes amber, the glyph dims and the tooltip
+ * explains — so a row that hasn't updated in 18 minutes reads as "forse ferma / in
+ * attesa", not as a fresh spinner. Mounted only while its parent is streaming, so
+ * the shared 10s clock ticks only while ≥1 row is actually working. `onStop`
+ * (chat rows) keeps the hover-to-stop affordance; project rows omit it (read-only
+ * aggregate). Stop (hover) and open (row click) are otherwise unchanged.
+ */
+function LabeledLoader({
+  lastUpdate,
+  onStop,
+  title,
+  className = '',
+  size,
+}: {
+  lastUpdate: number | undefined;
+  onStop?: () => void;
+  title?: string;
+  className?: string;
+  size?: number;
+}) {
+  const now = useSharedNow();
+  const { showElapsed, isStale, elapsedMs } = deriveWorkLongevity(lastUpdate, now);
+
+  const baseTip = title ?? (onStop ? 'Stop generating' : 'In esecuzione');
+  const stopHint = onStop ? ' Passa il mouse per fermare, clicca per aprire.' : '';
+  const tip = isStale
+    ? `Nessun aggiornamento da ${formatElapsedCompact(elapsedMs)} — potrebbe essere ferma o in attesa di un processo in background.${stopHint}`
+    : showElapsed
+      ? `Ultimo aggiornamento ${formatElapsedCompact(elapsedMs)} fa`
+      : baseTip;
+
+  // Under the threshold (or no trustworthy last-update): exactly the compact spinner.
+  if (!showElapsed) {
+    return <LoaderSlot onStop={onStop} title={tip} className={className} size={size} />;
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 ${className}`}>
+      <span
+        className={`text-[10px] leading-none tabular-nums flex-shrink-0 ${
+          isStale ? 'text-amber-600 dark:text-amber-400' : 'text-app-text-tertiary'
+        }`}
+        aria-hidden="true"
+      >
+        {formatElapsedCompact(elapsedMs)}
+      </span>
+      <LoaderSlot onStop={onStop} title={tip} size={size} className={isStale ? 'opacity-70' : ''} />
+    </span>
+  );
+}
+
+/** Chat-row labeled spinner: sources the last-update from the per-topic signal. */
+function LabeledTopicSpinner({
+  topicId,
+  onStop,
+  title,
+  className = '',
+  size,
+}: {
+  topicId: string | undefined;
+  onStop?: () => void;
+  title?: string;
+  className?: string;
+  size?: number;
+}) {
+  const lastUpdate = useSessionLastActivityFor(topicId);
+  return (
+    <LabeledLoader lastUpdate={lastUpdate} onStop={onStop} title={title} className={className} size={size} />
+  );
 }
 
 interface ProjectSpinnerProps {
   projectPath: string | undefined;
   className?: string;
   title?: string;
+  /**
+   * `compact` (default, tab bar) — the bare glyph. `labeled` (sidebar) — shows
+   * "agg. Xm fa" and, past the stale threshold, the calm "in attesa" treatment,
+   * driven by `lastActivity` (the project's aggregate last-touch).
+   */
+  variant?: 'compact' | 'labeled';
+  /**
+   * The project's aggregate last-update epoch-ms — max last-activity over its
+   * children, as buildSidebarItems already computes it for row ordering. Only read
+   * in the `labeled` variant; a fresh child keeps the whole project fresh, so a
+   * project reads as stale only when its active work has actually gone quiet.
+   */
+  lastActivity?: number;
 }
 
 export function ProjectStreamingSpinner({
   projectPath,
   title,
   className = '',
+  variant = 'compact',
+  lastActivity,
 }: ProjectSpinnerProps) {
   // Central rollup: true if ANY child (chat / terminal / agent) of this
   // project is loading — computed from global signals, no window mount needed.
   const loading = useProjectLoading(projectPath);
   if (!loading) return null;
-  return <LoaderSlot title={title ?? 'Una chat di questo progetto sta rispondendo'} className={className} />;
+  const tip = title ?? 'Una chat di questo progetto sta rispondendo';
+  if (variant === 'labeled') {
+    return <LabeledLoader lastUpdate={lastActivity} title={tip} className={className} />;
+  }
+  return <LoaderSlot title={tip} className={className} />;
 }
 
 interface TerminalSpinnerProps {

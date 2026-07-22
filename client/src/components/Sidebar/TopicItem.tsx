@@ -297,6 +297,7 @@ export const TopicItem = memo(function TopicItem({
           topicId={topic.id}
           onStop={onStopStreaming}
           size={28}
+          variant="labeled"
           className="flex-shrink-0"
         />
       ) : (
