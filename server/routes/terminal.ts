@@ -1541,12 +1541,39 @@ async function seedAgentPrompt(childId: string, prompt: string): Promise<void> {
   // Even if we never detected a hint, send anyway after the cap — better to try
   // than to silently strand the sub-agent with no prompt.
   void ready;
+  // Type the prompt once, then submit + VERIFY it was accepted, re-submitting if
+  // not. A single fire-and-forget Enter is fragile: the TUI can swallow it
+  // (bracketed-paste mode after a long paste, a first-run "trust this folder"
+  // dialog, or a readiness misfire), leaving the sub-agent idle FOREVER with no
+  // transcript — a chat that delegated to it then hangs waiting for a result
+  // that never comes. Acceptance = the child's transcript now exists (its first
+  // user turn got written), which also adopts the real session id early.
   noteTerminalInput(childId);
   sendToBridge({ type: "write", id: childId, data: prompt });
-  await new Promise(r => setTimeout(r, 150));
-  if (!sessions.has(childId)) return;
-  noteTerminalInput(childId);
-  sendToBridge({ type: "write", id: childId, data: "\r" });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (!sessions.has(childId)) return;
+    await new Promise(r => setTimeout(r, attempt === 0 ? 200 : 400));
+    noteTerminalInput(childId);
+    sendToBridge({ type: "write", id: childId, data: "\r" });
+    // Poll ~6s for the prompt to land (transcript appears). If it does, done.
+    for (let i = 0; i < 12; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      const child = sessions.get(childId);
+      if (!child) return;
+      if (childPromptAccepted(child)) return;
+    }
+    // Still nothing — the Enter was likely swallowed; loop re-submits it.
+  }
+  console.warn(`[Terminal] seedAgentPrompt: ${childId} never acknowledged its prompt after 3 submits`);
+}
+
+/** True once a sub-agent has actually accepted its prompt — i.e. claude wrote the
+ *  opening user turn, so a transcript for it now exists on disk. Runs discovery
+ *  (which also adopts the real, claude-minted session id onto the session) so the
+ *  check doubles as early id-capture. */
+function childPromptAccepted(child: TerminalSession): boolean {
+  if (child.claudeSessionId && fs.existsSync(claudeTranscriptPath(child.cwd, child.claudeSessionId))) return true;
+  return resolveChildTranscriptSessionId(child);
 }
 
 interface AgentReadEvent { type: 'assistant' | 'tool_use'; text?: string; name?: string; input?: unknown; }
