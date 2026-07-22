@@ -408,9 +408,16 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               // if no live output arrives, show the resume overlay instead of a
               // silent blank pane. A shell has no full-screen frame and can be
               // legitimately empty, so it's excluded — it also can't be resumed.
-              const t = lastInfoRef.current?.type;
+              const info = lastInfoRef.current;
+              const t = info?.type;
               const resumable = t === 'claude-code' || t === 'claude-code-team' || t === 'codex';
-              if (resumable && outputBytesRef.current === 0) {
+              // A FINISHED session is by definition old; a freshly-spawned one is
+              // young and may just be slow to draw its first frame (cold start).
+              // Gating on age >10s removes the only false-positive — a brief
+              // "Sessione terminata" flash on a booting new pane before its TUI
+              // paints — without missing any genuinely dead PTY.
+              const ageMs = info?.createdAt ? Date.now() - new Date(info.createdAt).getTime() : Infinity;
+              if (resumable && outputBytesRef.current === 0 && ageMs > 10_000) {
                 if (dormantTimerRef.current) clearTimeout(dormantTimerRef.current);
                 dormantTimerRef.current = setTimeout(() => {
                   dormantTimerRef.current = null;
