@@ -274,6 +274,12 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     try { return statSync(path).size; } catch { return 0; }
   }
 
+  /** Last-write time of a file in epoch ms, or undefined when missing/unreadable.
+   *  Sync — same rare-path budget as fileSizeOrZero. */
+  function fileMtimeMs(path: string): number | undefined {
+    try { return statSync(path).mtimeMs; } catch { return undefined; }
+  }
+
   /**
    * When a hook ESTABLISHES a new transcript path (SessionStart with a path we
    * didn't have), snap the offset to the file's current size: the live tail
@@ -371,7 +377,25 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     }
     const t = regOpts?.now ?? now();
     const state = makeInitialState(claudeSessionId, null, t, jsonlPath);
-    if (jsonlPath) state.jsonlOffset = fileSizeOrZero(jsonlPath);
+    if (jsonlPath) {
+      state.jsonlOffset = fileSizeOrZero(jsonlPath);
+      // This branch fires both for a brand-new session AND for reattaching to
+      // one that already existed before a server restart wiped terminalStates
+      // (it's in-memory only — see the module doc). For the reattach case `t`
+      // (now) is a LIE: the transcript may not have been touched in hours, but
+      // stamping phaseUpdatedAt/updatedAt = now makes deriveSessionLastActivity
+      // (client/src/state/signals.ts) report the session as freshly active,
+      // jumping a stale terminal to the top of the sidebar right after every
+      // kickstart. Seed from the transcript's own mtime instead — the last
+      // real write IS the true last-activity signal. For a genuinely new
+      // session the file was just created, so mtime ≈ now anyway: no change
+      // in that case.
+      const mtime = fileMtimeMs(jsonlPath);
+      if (mtime !== undefined) {
+        state.phaseUpdatedAt = mtime;
+        state.updatedAt = mtime;
+      }
+    }
     terminalStates.set(claudeSessionId, state);
     scheduleBroadcast(state);
   }
