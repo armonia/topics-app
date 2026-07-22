@@ -279,37 +279,21 @@ interface ProjectSpinnerProps {
   projectPath: string | undefined;
   className?: string;
   title?: string;
-  /**
-   * `compact` (default, tab bar) — the bare glyph. `labeled` (sidebar) — shows
-   * "agg. Xm fa" and, past the stale threshold, the calm "in attesa" treatment,
-   * driven by `lastActivity` (the project's aggregate last-touch).
-   */
-  variant?: 'compact' | 'labeled';
-  /**
-   * The project's aggregate last-update epoch-ms — max last-activity over its
-   * children, as buildSidebarItems already computes it for row ordering. Only read
-   * in the `labeled` variant; a fresh child keeps the whole project fresh, so a
-   * project reads as stale only when its active work has actually gone quiet.
-   */
-  lastActivity?: number;
 }
 
 export function ProjectStreamingSpinner({
   projectPath,
   title,
   className = '',
-  variant = 'compact',
-  lastActivity,
 }: ProjectSpinnerProps) {
   // Central rollup: true if ANY child (chat / terminal / agent) of this
   // project is loading — computed from global signals, no window mount needed.
+  // The project's "agg. X fa" last-update label is rendered by the sidebar row
+  // itself (TopicTree), like the chat/terminal/browser rows — this stays the bare
+  // busy glyph on every surface.
   const loading = useProjectLoading(projectPath);
   if (!loading) return null;
-  const tip = title ?? 'Una chat di questo progetto sta rispondendo';
-  if (variant === 'labeled') {
-    return <LabeledLoader lastUpdate={lastActivity} title={tip} className={className} />;
-  }
-  return <LoaderSlot title={tip} className={className} />;
+  return <LoaderSlot title={title ?? 'Una chat di questo progetto sta rispondendo'} className={className} />;
 }
 
 interface TerminalSpinnerProps {
