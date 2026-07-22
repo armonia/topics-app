@@ -400,6 +400,30 @@ export function MessageList({
     });
   }, [filteredMessages, activateScrollGuard, topic.id]);
 
+  // Re-pin the bottom when the COMPOSER changes height. Its height feeds the
+  // Virtuoso Footer — the ONLY bottom spacer — asynchronously via a
+  // ResizeObserver, so when the Stop button, TodoStrip or CheckpointTimeline
+  // appear/disappear mid-turn the newly reserved space lands a frame AFTER the
+  // send/streaming snap already ran. Without this, the freshly reserved gap
+  // pushes the live content — and the turn indicator that sits at the very
+  // bottom — under the composer ("il loader finisce sotto l'input"). Re-anchor
+  // on every height change, unless the user deliberately scrolled up or a
+  // palette jump owns the viewport.
+  const prevInputAreaHeightRef = useRef(inputAreaHeight);
+  useEffect(() => {
+    const changed = inputAreaHeight !== prevInputAreaHeightRef.current;
+    prevInputAreaHeightRef.current = inputAreaHeight;
+    if (!changed) return;
+    if (isScrolledUpRef.current) return;
+    if (peekScrollToMessage(topic.id)) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = scrollerElRef.current;
+        if (el && !isScrolledUpRef.current) el.scrollTop = el.scrollHeight;
+      });
+    });
+  }, [inputAreaHeight, topic.id]);
+
   // Detect new messages while scrolled up
   useEffect(() => {
     if (currentMessages.length > prevMsgCountRef.current && isScrolledUp) {

@@ -977,6 +977,11 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-text-fill-color: transparent;
   color: transparent;
   animation: shimmer 3s linear infinite;
+  /* background-clip:text paints only within the element's box; with a tight
+     line-box the descenders (g/p/y — frequent in the IT phrases) fall below it
+     and render transparent = "cut off". Give the paint box vertical room. */
+  line-height: 1.4;
+  padding-bottom: 1px;
 }
 @media (prefers-reduced-motion: reduce) {
   .turn-activity-dot { animation: none; opacity: 0.9; }
