@@ -18,6 +18,7 @@ import { createIdempotencyCache } from "../lib/idempotency-cache";
 import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { writeMcpConfigForSession, cleanupMcpConfigForSession } from "../providers/claude-code";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
+import { discoverClaudeSubAgentSessionId, normalizePromptSnippet } from "../lib/claude-subagent-transcript";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort, resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
@@ -49,6 +50,11 @@ interface TerminalSession {
    *  human-/chat-created session. The ownership guard keys off this so a parent
    *  can only drive the children it spawned, and the UI nests them under it. */
   parentSessionKey?: string;
+  /** Normalised fingerprint of a sub-agent's opening prompt, kept so the
+   *  transcript-discovery (which matches the child's real .jsonl by its first
+   *  user turn — claude-code ignores our pre-assigned --session-id) can run at
+   *  spawn AND as a self-healing fallback in the wake path. Sub-agents only. */
+  spawnPromptSnippet?: string;
 }
 
 const sessions = new Map<string, TerminalSession>();
@@ -82,11 +88,98 @@ async function readSubAgentFinalResult(child: TerminalSession): Promise<string> 
         .map((e) => (e.text as string).trim())
         .filter(Boolean);
       if (texts.length) return texts[texts.length - 1];
+      // No clean assistant text via the pre-assigned claudeSessionId — claude-code
+      // mints its own id for sub-agents, so the transcript lives under a DIFFERENT
+      // file. Self-heal by discovering the real id, then read once more. (The
+      // spawn-time capture usually already fixed this; this is the belt for a
+      // server restart or a missed capture.)
+      if (out.source === 'buffer' && resolveChildTranscriptSessionId(child)) {
+        const out2 = await readAgentOutput(child, 0);
+        const texts2 = out2.events
+          .filter((e) => e.type === 'assistant' && e.text)
+          .map((e) => (e.text as string).trim())
+          .filter(Boolean);
+        if (texts2.length) return texts2[texts2.length - 1];
+      }
     } catch {
       // transcript not ready / unreadable — retry
     }
   }
   return '';
+}
+
+/** Discover a sub-agent's REAL transcript id (claude-code ignores the pre-assigned
+ *  `--session-id` for children) and adopt it onto the session + DB row so every
+ *  subsequent transcript read hits the right .jsonl. No-op unless this is a
+ *  sub-agent with a recorded prompt fingerprint. Returns true when it adopted a
+ *  new id. Cheap and idempotent — safe to call from the read/wake paths. */
+function resolveChildTranscriptSessionId(child: TerminalSession): boolean {
+  if (!child.parentSessionKey?.startsWith('topic:') || !child.spawnPromptSnippet) return false;
+  // If the currently-recorded id already resolves to a real transcript, keep it.
+  if (child.claudeSessionId && fs.existsSync(claudeTranscriptPath(child.cwd, child.claudeSessionId))) {
+    return false;
+  }
+  const found = discoverClaudeSubAgentSessionId({
+    cwd: child.cwd,
+    promptSnippet: child.spawnPromptSnippet,
+    sinceMs: Date.parse(child.createdAt) || 0,
+  });
+  if (!found || found === child.claudeSessionId) return false;
+  const prev = child.claudeSessionId;
+  child.claudeSessionId = found;
+  try {
+    getDatabase().run("UPDATE terminal_sessions SET claude_session_id = ? WHERE id = ?", [found, child.id]);
+  } catch (e) {
+    console.warn(`[Terminal] sub-agent session-id adopt failed for ${child.id}:`, e);
+  }
+  // Re-key the phase tracker onto the id claude actually uses (its hooks carry
+  // the minted id, so the pre-assigned registration never matched).
+  if (prev) _tracker?.dropTerminalSession(prev);
+  _tracker?.registerTerminalSession(found, { cwd: child.cwd });
+  return true;
+}
+
+/** After a sub-agent PTY launches, poll for the transcript claude actually wrote
+ *  (matched by cwd + the child's opening prompt) and adopt its id, mirroring the
+ *  codex id-capture. Bounded, self-cancelling, unref'd. Best-effort — the wake
+ *  path re-attempts discovery if this misses. */
+function scheduleClaudeSubAgentIdCapture(childId: string): void {
+  let attempts = 0;
+  const poll = () => {
+    const child = sessions.get(childId);
+    if (!child) return; // stopped before the transcript appeared
+    if (resolveChildTranscriptSessionId(child)) {
+      broadcastTerminalSessions();
+      return;
+    }
+    if (++attempts < 20) {
+      const t = setTimeout(poll, 1000);
+      t.unref?.();
+    }
+  };
+  const t = setTimeout(poll, 1000);
+  t.unref?.();
+}
+
+/** Wake the parent CHAT when a sub-agent it spawned finishes, so a chat that
+ *  delegated work ("Monitoro X e ti aggiorno quando consegna") reaches its end
+ *  instead of sitting frozen: the launching turn already completed and no
+ *  background loop watches a Path-B (MCP spawn_agent) PTY child. Best-effort +
+ *  async (transcript read has retry lag); `deliverSubAgentExit` dedups on childId
+ *  so the two reap paths that both call this — the bridge `exit` frame and the
+ *  explicit `/stop` endpoint (which pre-deletes the session from the map, so the
+ *  exit frame can't see it) — never double-deliver. */
+function wakeParentTopicOnChildExit(child: TerminalSession, exitCode: number | null): void {
+  if (!child.parentSessionKey?.startsWith('topic:') || !subAgentExitHandler) return;
+  const parentSessionKey = child.parentSessionKey;
+  void (async () => {
+    const result = await readSubAgentFinalResult(child);
+    try {
+      subAgentExitHandler?.({ parentSessionKey, childId: child.id, name: child.name, result, exitCode });
+    } catch (err) {
+      console.warn(`[Terminal] subAgentExitHandler failed for ${child.id}:`, err);
+    }
+  })();
 }
 
 /**
@@ -629,24 +722,12 @@ function handleBridgeMessage(msg: any) {
       // A dying orchestrator must not leave drivable orphan sub-agents behind.
       cascadeKillChildren(msg.id);
       broadcastTerminalSessions();
-      // Wake the parent CHAT when a sub-agent it spawned finishes. Without this a
-      // chat that delegated work ("Monitoro X e ti aggiorno quando consegna") sits
-      // frozen forever: the launching turn already completed, and no background
-      // loop watches a Path-B (MCP spawn_agent) PTY child. We read the child's
-      // final result from its transcript and hand it to the registered handler,
-      // which delivers it into the chat so the conversation reaches its end.
-      if (exitedSession?.parentSessionKey?.startsWith('topic:') && subAgentExitHandler) {
-        const child = exitedSession;
-        const parentSessionKey = child.parentSessionKey!;
-        const exitCode = typeof msg.exitCode === 'number' ? msg.exitCode : null;
-        void (async () => {
-          const result = await readSubAgentFinalResult(child);
-          try {
-            subAgentExitHandler?.({ parentSessionKey, childId: child.id, name: child.name, result, exitCode });
-          } catch (err) {
-            console.warn(`[Terminal] subAgentExitHandler failed for ${child.id}:`, err);
-          }
-        })();
+      // Wake the parent CHAT when a sub-agent it spawned exits on its own (or via
+      // cascade). The explicit /stop reap path can't reach here — it pre-deletes
+      // the session so `exitedSession` would be null — so /stop calls the helper
+      // itself. Guarded to topic-parented children inside the helper.
+      if (exitedSession) {
+        wakeParentTopicOnChildExit(exitedSession, typeof msg.exitCode === 'number' ? msg.exitCode : null);
       }
       break;
     }
@@ -1966,12 +2047,20 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         try {
           await ensureBridge();
           const session = await createSession(id, name, cwd, undefined, 120, 30, undefined, "claude-code", true, undefined, parentKey);
+          // Fingerprint the opening prompt so transcript-discovery can find the
+          // .jsonl claude actually writes (it ignores our pre-assigned
+          // --session-id for sub-agents — see resolveChildTranscriptSessionId).
+          session.spawnPromptSnippet = normalizePromptSnippet(prompt);
           // The roster broadcast carries parentSessionKey, so the sub-agent
           // immediately appears nested under its parent in the sidebar tree.
           broadcastTerminalSessions();
           // Seed the first prompt once the TUI is ready (async, non-blocking).
           seedAgentPrompt(id, prompt)
             .catch((err) => console.warn(`[Terminal] seedAgentPrompt failed for ${id}:`, err));
+          // Discover + adopt the child's REAL transcript id shortly after start,
+          // so the wake/read paths deliver its actual final result (not "senza
+          // output") even when the orchestrator never polls it.
+          scheduleClaudeSubAgentIdCapture(id);
           return json({ agentId: id, name: session.name, cwd: session.cwd });
         } catch (err: any) {
           return errorResponse(502, `Failed to spawn sub-agent: ${err.message}`);
@@ -2035,6 +2124,10 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         if (childClaudeId) _tracker?.dropTerminalSession(childClaudeId);
         clearTerminalActivity(child.id);
         broadcastTerminalSessions();
+        // Reaping a sub-agent via /stop is the primary way an orchestrator ends a
+        // delegated task — wake its parent chat with the result here, because the
+        // pre-delete above makes the bridge `exit` frame unable to (session gone).
+        wakeParentTopicOnChildExit(child, null);
         return json({ ok: true });
       }
     }
