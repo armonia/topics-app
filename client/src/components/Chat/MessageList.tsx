@@ -347,14 +347,16 @@ export function MessageList({
   // bypassing Virtuoso's item-height measurement which may lag the actual layout.
   // Uses isScrolledUpRef (not state) to avoid re-triggering on scroll changes.
   useEffect(() => {
-    if (_currentStreaming && !isScrolledUpRef.current) {
+    if (_currentStreaming && !isScrolledUpRef.current && !userIntentUpRef.current) {
       // Pending palette jump wins over the streaming pin as well — the user
       // explicitly asked to look at an older message; the pin resumes once
       // the jump's short grace expires (scrollToMessage.ts).
       if (peekScrollToMessage(topic.id)) return;
       requestAnimationFrame(() => {
         const el = scrollerElRef.current;
-        if (el) {
+        // Re-check inside the rAF: a scroll-up between scheduling this frame and
+        // running it (releaseToUser) must not be overridden by a now-stale pin.
+        if (el && !isScrolledUpRef.current && !userIntentUpRef.current) {
           el.scrollTop = el.scrollHeight;
         }
       });
@@ -372,14 +374,29 @@ export function MessageList({
     const el = scrollerElRef.current;
     if (!el) return;
     lastScrollTopRef.current = el.scrollTop;
+    // A genuine scroll-up must release the streaming bottom-pin IMMEDIATELY.
+    // Setting userIntentUpRef alone isn't enough: the streaming pin effect fires
+    // on every content chunk gated only on isScrolledUpRef and keeps yanking the
+    // view to the bottom BEFORE Virtuoso's atBottomStateChange(false) can run to
+    // flip isScrolledUpRef — so atBottom never turns false and the user stays
+    // trapped at the bottom ("can't scroll up mid-stream"). Flip isScrolledUpRef
+    // here too, closing that race: the pin yields at once and ScrollToBottom
+    // appears. atBottomStateChange(true) clears both again on return to bottom.
+    const releaseToUser = () => {
+      userIntentUpRef.current = true;
+      if (_currentStreaming && !isScrolledUpRef.current) {
+        isScrolledUpRef.current = true;
+        setIsScrolledUp(true);
+      }
+    };
     const onWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0) userIntentUpRef.current = true;
+      if (e.deltaY < 0) releaseToUser();
     };
     const onScroll = () => {
       const st = el.scrollTop;
       // >24px drop = the user pulled the view up; smaller deltas are Virtuoso
       // remeasure jitter (the app's pin only ever raises scrollTop).
-      if (st < lastScrollTopRef.current - 24) userIntentUpRef.current = true;
+      if (st < lastScrollTopRef.current - 24) releaseToUser();
       lastScrollTopRef.current = st;
     };
     el.addEventListener('wheel', onWheel, { passive: true });
@@ -388,7 +405,7 @@ export function MessageList({
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('scroll', onScroll);
     };
-  }, [topic.id]);
+  }, [topic.id, _currentStreaming]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
@@ -433,6 +450,7 @@ export function MessageList({
     if (last?.role !== 'user') return;
     if (peekScrollToMessage(topic.id)) return;
     isScrolledUpRef.current = false;
+    userIntentUpRef.current = false;
     setIsScrolledUp(false);
     activateScrollGuard();
     requestAnimationFrame(() => {
