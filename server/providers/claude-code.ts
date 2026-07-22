@@ -1022,13 +1022,27 @@ export class ClaudeCodeProvider implements AIProvider {
       message: { role: "user", content: outboundMessage },
     }) + "\n";
 
-    // Set up message timeout. Keep the handle: the race below settles in
-    // seconds on a normal turn, and an uncleared 30-min timer would linger for
-    // its full window — one per message, so an active session accumulated
-    // dozens of pending timers (the complete() path already clears its own).
+    // Turn watchdog — an INACTIVITY backstop, NOT a wall-clock cap. It rejects
+    // only after the child has streamed NOTHING for MESSAGE_TIMEOUT_MS (a
+    // genuinely wedged child). A turn that keeps producing events (a long e2e
+    // run or refactor emitting tool results) bumps pp.lastEventAt and is never
+    // killed, however long it takes — the same never-kill-a-live-turn policy
+    // the route watchdog enforces (chat.ts isTurnProcessAlive → extend). A
+    // fixed 30-min timer here used to SIGKILL live long turns mid-work — the
+    // exact "chat stuck/dead before reaching the end" class. Self-reschedules
+    // for the time remaining until 30 min of continuous silence; the handle is
+    // cleared on settle so an active session never accumulates pending timers.
     let messageTimeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      messageTimeout = setTimeout(() => reject(new Error("TIMEOUT")), MESSAGE_TIMEOUT_MS);
+      const arm = () => {
+        const remaining = MESSAGE_TIMEOUT_MS - (Date.now() - pp.lastEventAt);
+        if (remaining <= 0) {
+          reject(new Error("TIMEOUT"));
+          return;
+        }
+        messageTimeout = setTimeout(arm, remaining);
+      };
+      messageTimeout = setTimeout(arm, MESSAGE_TIMEOUT_MS);
     });
 
     // Broker mode: wait for the child to actually exist before the first stdin
@@ -1040,6 +1054,10 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.pendingResolve = resolve;
       pp.pendingReject = reject;
       pp.lastActivity = Date.now();
+      // Anchor the inactivity watchdog's idle clock at the send: a turn that
+      // never produces an event is measured from here, not from a stale prior
+      // event. Real stream events keep bumping lastEventAt (see ~1812/1842).
+      pp.lastEventAt = Date.now();
 
       if (!pp.alive) {
         reject(new Error("PROCESS_DEAD"));
@@ -1071,10 +1089,12 @@ export class ClaudeCodeProvider implements AIProvider {
       }
 
       if (errMsg === "TIMEOUT") {
-        console.warn(`[claude-code] Message timed out for ${sessionKey}, killing process`);
+        console.warn(
+          `[claude-code] No model activity for ${Math.round(MESSAGE_TIMEOUT_MS / 60000)}min on ${sessionKey} — child appears wedged, killing process`,
+        );
         this.killProcess(pp);
         this.processes.delete(sessionKey);
-        handler.onError("Message timed out after 30 minutes");
+        handler.onError("Nessuna attività dal modello per 30 minuti — turno terminato");
         return { runId };
       }
 
