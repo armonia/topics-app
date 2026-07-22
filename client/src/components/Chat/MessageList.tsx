@@ -98,6 +98,17 @@ export function MessageList({
   const scrollerElRef = useRef<HTMLElement | null>(null);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const isScrolledUpRef = useRef(false);
+  // Streaming stick-to-bottom intent. During a stream the app PINS the scroller
+  // to the bottom itself (content grows in place). Virtuoso then reports
+  // atBottom=false whenever a big tool block grows the content BELOW the pinned
+  // position — that is NOT a user scroll, and latching "scrolled up" on it froze
+  // the view mid-stream ("perde l'aggancio da solo"). We only honor a scroll-up
+  // when the USER drives it: a wheel-up or a real decrease of scrollTop (the
+  // app's own pin only ever raises scrollTop). Reset on stream (re)start, topic
+  // switch, an explicit scroll-to-bottom, and whenever the view returns to the
+  // bottom.
+  const userIntentUpRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
   const prevStreamingRef = useRef(false);
   const [newMsgCount, setNewMsgCount] = useState(0);
   const [showNewBanner, setShowNewBanner] = useState(false);
@@ -182,6 +193,8 @@ export function MessageList({
       prevTopicIdRef.current = topic.id;
       needsScrollRef.current = true;
       isScrolledUpRef.current = false;
+      userIntentUpRef.current = false;
+      lastScrollTopRef.current = 0;
       sawLoadCompleteRef.current = false;
       setIsScrolledUp(false);
       setNewMsgCount(0);
@@ -321,6 +334,7 @@ export function MessageList({
   useEffect(() => {
     if (_currentStreaming && !prevStreamingRef.current) {
       isScrolledUpRef.current = false;
+      userIntentUpRef.current = false;
       setIsScrolledUp(false);
       activateScrollGuard();
     }
@@ -346,6 +360,35 @@ export function MessageList({
       });
     }
   }, [filteredMessages, _currentStreaming, topic.id]);
+
+  // Detect a GENUINE user scroll-up so the streaming bottom-pin can yield to it.
+  // A wheel-up is unambiguous; on touch (no wheel) a real DECREASE of scrollTop
+  // past a small threshold is the finger dragging content down. The app's own
+  // pin only ever raises scrollTop, so a decrease is always the user — this is
+  // what separates "the user wants to read history" from "a tool block just grew
+  // the content" (which must keep the view stuck). Bound to topic.id so it
+  // re-binds when the Virtuoso scroller remounts on a topic swap.
+  useEffect(() => {
+    const el = scrollerElRef.current;
+    if (!el) return;
+    lastScrollTopRef.current = el.scrollTop;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) userIntentUpRef.current = true;
+    };
+    const onScroll = () => {
+      const st = el.scrollTop;
+      // >24px drop = the user pulled the view up; smaller deltas are Virtuoso
+      // remeasure jitter (the app's pin only ever raises scrollTop).
+      if (st < lastScrollTopRef.current - 24) userIntentUpRef.current = true;
+      lastScrollTopRef.current = st;
+    };
+    el.addEventListener('wheel', onWheel, { passive: true });
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('scroll', onScroll);
+    };
+  }, [topic.id]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
@@ -510,6 +553,7 @@ export function MessageList({
   const scrollToBottom = useCallback(() => {
     activateScrollGuard();
     isScrolledUpRef.current = false;
+    userIntentUpRef.current = false;
     setIsScrolledUp(false);
     virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
     // Pin via DOM on next frame to prevent any drift after Virtuoso settles
@@ -633,25 +677,46 @@ export function MessageList({
           // atBottomStateChange below and the app's own at-bottom tolerance.
           atBottomThreshold={150}
           atBottomStateChange={(atBottom) => {
-            // During scroll guard, only suppress brief false "not at bottom" reports
-            // (the bounce), but allow genuine user scroll-up to be detected
-            if (!atBottom && scrollGuardRef.current) {
+            if (atBottom) {
+              // Back at the bottom → re-stick and forget any prior scroll-up
+              // intent, so the next content growth pins again.
+              isScrolledUpRef.current = false;
+              userIntentUpRef.current = false;
+              setIsScrolledUp(false);
+              setNewMsgCount(0);
+              setShowNewBanner(false);
+              return;
+            }
+            // atBottom === false.
+            // During a stream the app pins the bottom itself; Virtuoso reports
+            // atBottom=false whenever a tool block grows the content below the
+            // pinned position. That is NOT a user scroll — re-assert the pin and
+            // stay stuck, so the view never "loses the anchor on its own". A
+            // genuine user scroll-up (wheel-up / scrollTop drop, tracked above)
+            // sets userIntentUpRef and falls through to release the pin, keeping
+            // history readable mid-stream.
+            if (_currentStreaming && !userIntentUpRef.current) {
+              if (peekScrollToMessage(topic.id)) return;
+              requestAnimationFrame(() => {
+                const el = scrollerElRef.current;
+                if (el && !userIntentUpRef.current) el.scrollTop = el.scrollHeight;
+              });
+              return;
+            }
+            // Non-streaming: keep the original forced-scroll bounce guard — only
+            // suppress brief false "not at bottom" reports (<150px), but let a
+            // genuine user scroll-up (>150px) through.
+            if (scrollGuardRef.current) {
               const el = scrollerElRef.current;
               if (el) {
                 const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-                // If user genuinely scrolled far from bottom (>150px), respect it
                 if (distFromBottom < 150) return;
               } else {
                 return;
               }
             }
-            const scrolledUp = !atBottom;
-            isScrolledUpRef.current = scrolledUp;
-            setIsScrolledUp(scrolledUp);
-            if (atBottom) {
-              setNewMsgCount(0);
-              setShowNewBanner(false);
-            }
+            isScrolledUpRef.current = true;
+            setIsScrolledUp(true);
           }}
           increaseViewportBy={{ top: 400, bottom: 400 }}
           itemContent={(idx, msg) => {
