@@ -866,6 +866,16 @@ export function useSessionLastActivity(): Map<string, number> {
   return useSignalsStore((s) => s.sessionLastActivity);
 }
 
+/** Focused twin of useSessionLastActivity: the last-touched epoch-ms for ONE
+ *  subject (topicId / terminalSessionId), or undefined. Selecting the single
+ *  number means a subscriber re-renders only when THAT session's last activity
+ *  moves — used by the sidebar's "labeled" spinner to show "agg. Xm fa" / detect
+ *  a session that hasn't updated in a while, without re-rendering on every other
+ *  session's activity. */
+export function useSessionLastActivityFor(subjectId: string | undefined): number | undefined {
+  return useSignalsStore((s) => (subjectId ? s.sessionLastActivity.get(subjectId) : undefined));
+}
+
 /** A terminal session is loading when its claude phase is active, or (for
  *  shells / not-yet-known phases) its pty is busy. A claude-code session at a
  *  resting phase never shows loading from pty alone — see terminalLoadingFrom. */
