@@ -12,7 +12,8 @@ import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../b
 import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
-import { getTerminalSessionById } from "./terminal";
+import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
+import { formatSubAgentExitMessage, formatSubAgentExitBody, type SubAgentExitInfo } from "./subagent-exit";
 import { createTaskService } from "../services/tasks";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
 import { shouldHonorClearMessages } from "./abortClearPolicy";
@@ -580,6 +581,42 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     console.log(`[SubagentPoll] Watching ${sessionKey} for sub-agent completions (JSONL: ${jsonlPath ? 'found' : 'pending'}, offset: ${byteOffset})`);
     startSubagentPolling();
   }
+
+  // ── Path-B sub-agent wake ────────────────────────────────────────────────
+  // A sub-agent launched from a chat via the MCP `spawn_agent` tool is a separate
+  // claude PTY with its OWN transcript — it never writes an "[Internal task
+  // completion event]" into the parent's JSONL, so pollJSONLTranscripts above
+  // (which watches the gateway's native Task() sub-agents) never sees it. When
+  // such a PTY exits, terminal.ts calls the handler registered here so the parent
+  // chat still gets the result and stops hanging on a promise it can't keep.
+  const deliveredSubAgentExits = new Set<string>(); // childId, dedup double exits
+  function deliverSubAgentExit(info: SubAgentExitInfo) {
+    if (!info.parentSessionKey.startsWith('topic:')) return;
+    if (deliveredSubAgentExits.has(info.childId)) return;
+    deliveredSubAgentExits.add(info.childId);
+    const topic = getTopicBySessionKey(info.parentSessionKey);
+    if (!topic) return;
+    const body = formatSubAgentExitBody(info);
+    const msgContent = formatSubAgentExitMessage(info);
+    const stored = appendLocalMessage(info.parentSessionKey, 'assistant', msgContent);
+    broadcastToAll({
+      type: "message:new",
+      sessionKey: info.parentSessionKey,
+      topicId: topic.id,
+      role: "assistant",
+      messageId: stored.id,
+      content: msgContent,
+      preview: body.slice(0, 100),
+    });
+    // Refresh the sidebar's lastActivity so the row doesn't look frozen, and bump
+    // unread if the topic isn't focused — same finalization the chat turns use.
+    topic.updatedAt = new Date().toISOString();
+    saveSingleTopic(topic);
+    broadcastToAll({ type: "topic:updated", topic });
+    updateUnreadCount(topic.id);
+    console.log(`[SubagentExit] Delivered result of "${info.name}" → topic ${topic.id.slice(0, 8)}`);
+  }
+  setSubAgentExitHandler(deliverSubAgentExit);
 
   // Track which topics already had a browser navigate this session to avoid duplicate triggers
   const browserNavigatedTopics = new Set<string>();

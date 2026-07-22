@@ -21,6 +21,8 @@ import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort, resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
+import type { SubAgentExitInfo } from "./subagent-exit";
+export type { SubAgentExitInfo } from "./subagent-exit";
 
 interface TerminalSession {
   id: string;
@@ -55,6 +57,37 @@ const sessionSockets = new Map<string, Set<any>>();
 // same session (double right-click → "Ricarica", two clients) that would race the
 // kill→recreate sequence.
 const reloadingSessionIds = new Set<string>();
+
+// A sub-agent spawned FROM a topic chat (its `parentSessionKey` is `topic:<id>`)
+// exits with no one watching: the chat turn that launched it completed long ago,
+// so a promise like "ti aggiorno quando consegna" would leave the chat frozen
+// forever. The topics router registers a handler (setSubAgentExitHandler) that
+// wakes the parent chat by delivering the child's final result as a message, so
+// the conversation reaches its end. Type + message-shaping live in a pure module.
+let subAgentExitHandler: ((info: SubAgentExitInfo) => void) | null = null;
+export function setSubAgentExitHandler(fn: ((info: SubAgentExitInfo) => void) | null): void {
+  subAgentExitHandler = fn;
+}
+
+/** Read a just-exited sub-agent's final assistant message from its OWN on-disk
+ *  transcript (which survives the PTY death). A short retry covers the transcript
+ *  flush lag right at exit. Best-effort: returns '' when nothing is recoverable. */
+async function readSubAgentFinalResult(child: TerminalSession): Promise<string> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await new Promise((r) => setTimeout(r, attempt === 0 ? 800 : 700));
+    try {
+      const out = await readAgentOutput(child, 0);
+      const texts = out.events
+        .filter((e) => e.type === 'assistant' && e.text)
+        .map((e) => (e.text as string).trim())
+        .filter(Boolean);
+      if (texts.length) return texts[texts.length - 1];
+    } catch {
+      // transcript not ready / unreadable — retry
+    }
+  }
+  return '';
+}
 
 /**
  * Look up a live terminal session by its id. Used by the browser open-pane
@@ -596,6 +629,25 @@ function handleBridgeMessage(msg: any) {
       // A dying orchestrator must not leave drivable orphan sub-agents behind.
       cascadeKillChildren(msg.id);
       broadcastTerminalSessions();
+      // Wake the parent CHAT when a sub-agent it spawned finishes. Without this a
+      // chat that delegated work ("Monitoro X e ti aggiorno quando consegna") sits
+      // frozen forever: the launching turn already completed, and no background
+      // loop watches a Path-B (MCP spawn_agent) PTY child. We read the child's
+      // final result from its transcript and hand it to the registered handler,
+      // which delivers it into the chat so the conversation reaches its end.
+      if (exitedSession?.parentSessionKey?.startsWith('topic:') && subAgentExitHandler) {
+        const child = exitedSession;
+        const parentSessionKey = child.parentSessionKey!;
+        const exitCode = typeof msg.exitCode === 'number' ? msg.exitCode : null;
+        void (async () => {
+          const result = await readSubAgentFinalResult(child);
+          try {
+            subAgentExitHandler?.({ parentSessionKey, childId: child.id, name: child.name, result, exitCode });
+          } catch (err) {
+            console.warn(`[Terminal] subAgentExitHandler failed for ${child.id}:`, err);
+          }
+        })();
+      }
       break;
     }
     case "list": {
