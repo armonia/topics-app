@@ -982,6 +982,16 @@ export class ClaudeCodeProvider implements AIProvider {
     // handler is registered. Cleared in every finalization path below.
     this.startHeartbeat(pp, sessionKey);
 
+    // A turn is in flight → the process is NOT idle. Cancel any inactivity
+    // reaper armed at the PREVIOUS turn's end. Without this, that stale 15-min
+    // timer fires mid-turn and `killProcess()` reaps a live, working child —
+    // the chat dies before reaching the end (observed: a long tool/thinking
+    // gap on `topic:6b99e9cf` tripped it → `[claude-code] Inactivity timeout`
+    // → `[StaleStream] Auto-clearing`). Idle reaping is re-armed in the
+    // `finally` below, but ONLY between turns. Mirrors the route watchdog's
+    // "never kill a turn whose child is alive" policy (chat.ts handleHardTimeout).
+    this.clearInactivityTimer(pp);
+
     // Resilience: if the process was respawned fresh (e.g. after a doomed
     // `--resume`) and the DB carries prior turns, prepend a markdown recap
     // so the model picks up the conversation thread on its very first stdin
@@ -1099,13 +1109,23 @@ export class ClaudeCodeProvider implements AIProvider {
 
       handler.onError(errMsg || "Unknown error");
       return { runId };
+    } finally {
+      // Idle reaping resumes ONLY between turns. Re-arm the inactivity timer
+      // for a process that SURVIVED this turn (an abort keeps the child alive).
+      // Skipped for a killed/deleted child (TIMEOUT/PROCESS_DEAD) and for a
+      // superseded one (SESSION_RESET respawns a fresh pp that owns its own
+      // timer) — the identity check guards both. Counterpart to the
+      // clearInactivityTimer() at turn start: together they guarantee the
+      // reaper never fires while a turn is in flight.
+      if (pp.alive && this.processes.get(sessionKey) === pp) {
+        this.resetInactivityTimer(sessionKey, pp);
+      }
     }
 
     // Successful turn — heartbeat is no longer needed; the resolution of
     // messagePromise above means the SDK signaled `result` and the handler
-    // already received `onDone`.
+    // already received `onDone`. Idle reaping was re-armed in the `finally`.
     this.stopHeartbeat(pp);
-    this.resetInactivityTimer(sessionKey, pp);
     return { runId };
   }
 
@@ -2243,6 +2263,14 @@ export class ClaudeCodeProvider implements AIProvider {
       this.killProcess(pp);
       this.processes.delete(key);
     }, INACTIVITY_TIMEOUT_MS);
+  }
+
+  /** Suspend idle reaping for the duration of an active turn. The timer is a
+   *  BETWEEN-turns pool cleanup; letting it survive into a turn lets a stale
+   *  timer (armed at the previous turn's end) reap the live child mid-work.
+   *  Re-armed in sendChatInternal's `finally` once the turn settles. */
+  private clearInactivityTimer(pp: PersistentProcess): void {
+    if (pp.inactivityTimer) { clearTimeout(pp.inactivityTimer); pp.inactivityTimer = null; }
   }
 
   private killProcess(pp: PersistentProcess): void {
