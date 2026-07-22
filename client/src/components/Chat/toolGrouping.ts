@@ -59,69 +59,10 @@ export interface ToolGroupSummary {
   /** Wall-clock span of the run — first startedAt → last endedAt — when both
    *  bounds exist. Absent for legacy rows without timestamps. */
   durationMs?: number;
-  /** WHAT was touched, not just how often: per-call digests (commands run,
-   *  file basenames, search patterns, fetch hosts) deduped in run order.
-   *  Rendered as the collapsed group's second line. */
-  highlights: string[];
 }
-
-function truncateMiddleless(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
-}
-
-/**
- * The one thing you'd want to know about this call without expanding it:
- * the shell COMMAND, the file BASENAME, the grep PATTERN, the fetch HOST.
- * Powers the group's highlights line — "counts tell how much, digests tell
- * what". Undefined for calls with nothing scannable (todo, plan, unknown).
- */
-export function toolCallDigest(tc: ToolCall): string | undefined {
-  const detail = resolveToolDetail(tc);
-  switch (detail.type) {
-    case 'shell': {
-      const cmd = (detail.command ?? '').replace(/\s+/g, ' ').trim();
-      return cmd ? truncateMiddleless(cmd, 36) : undefined;
-    }
-    case 'read':
-    case 'edit':
-    case 'write': {
-      const base = detail.filePath?.split('/').pop();
-      return base || undefined;
-    }
-    case 'search':
-      return detail.query ? truncateMiddleless(detail.query, 24) : undefined;
-    case 'fetch':
-      try {
-        return detail.url ? new URL(detail.url).hostname : undefined;
-      } catch {
-        return undefined;
-      }
-    case 'mcp':
-      return detail.tool;
-    case 'monitor':
-      return detail.description ? truncateMiddleless(detail.description, 28) : undefined;
-    case 'bash_output':
-    case 'kill_shell':
-      return detail.shellId || undefined;
-    case 'notebook_edit':
-      return detail.notebookPath?.split('/').pop() || undefined;
-    case 'skill':
-      return detail.skill || undefined;
-    case 'slash_command':
-      return detail.command ? truncateMiddleless(detail.command, 24) : undefined;
-    case 'lsp':
-      return detail.operation || undefined;
-    default:
-      return undefined;
-  }
-}
-
-/** Highlights beyond this stay unrendered — the line truncates anyway. */
-const MAX_HIGHLIGHTS = 8;
 
 export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
   const byName = new Map<string, number>();
-  const highlights: string[] = [];
   let errors = 0;
   let running = 0;
   let firstStart: number | undefined;
@@ -131,10 +72,6 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
     byName.set(name, (byName.get(name) ?? 0) + 1);
     if (tc.status === 'error') errors++;
     else if (isActiveTool(tc)) running++;
-    if (highlights.length < MAX_HIGHLIGHTS) {
-      const digest = toolCallDigest(tc);
-      if (digest && !highlights.includes(digest)) highlights.push(digest);
-    }
     if (typeof tc.startedAt === 'number') {
       firstStart = firstStart === undefined ? tc.startedAt : Math.min(firstStart, tc.startedAt);
     }
@@ -154,7 +91,6 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
     counts,
     errors,
     running,
-    highlights,
     ...(durationMs !== undefined ? { durationMs } : {}),
   };
 }

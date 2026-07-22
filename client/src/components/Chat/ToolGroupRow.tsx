@@ -74,18 +74,6 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
             )}
           </span>
         </span>
-        {/* Highlights: WHAT was touched — commands run, files edited, patterns
-            searched — so the collapsed row answers "cosa ha fatto" at a
-            glance, not just "quante volte". Hidden once expanded (the
-            per-call rows carry the full detail). */}
-        {!open && summary.highlights.length > 0 && (
-          <span
-            data-testid="tool-group-highlights"
-            className="block ml-5 mt-0.5 text-[11px] font-mono text-app-text-secondary truncate"
-          >
-            {summary.highlights.join(' · ')}
-          </span>
-        )}
       </button>
       {(open || live) && (
         <div className="space-y-px">
