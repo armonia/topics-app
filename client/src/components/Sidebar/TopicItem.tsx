@@ -298,6 +298,7 @@ export const TopicItem = memo(function TopicItem({
           onStop={onStopStreaming}
           size={28}
           variant="labeled"
+          lastActivity={new Date(topic.updatedAt || topic.createdAt).getTime()}
           className="flex-shrink-0"
         />
       ) : (

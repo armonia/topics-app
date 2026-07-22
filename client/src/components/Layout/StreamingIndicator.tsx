@@ -32,7 +32,7 @@
  * same loading facade and the same component so they can't drift.
  */
 
-import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive, useSessionLastActivityFor } from '../../state/signals';
+import { useTopicLoading, useProjectLoading, useTerminalLoading, useBrowserLoading, useAnyAgentActive } from '../../state/signals';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
@@ -176,12 +176,19 @@ interface TopicSpinnerProps {
   size?: number;
   /**
    * `compact` (default) — the bare glyph, identical on every tab. `labeled` — the
-   * sidebar treatment: once a turn runs long enough, an elapsed readout appears
-   * next to the glyph, and past a stale threshold the whole thing calms to a
-   * "long-running / maybe waiting" tone (see LabeledTopicSpinner). Only the
-   * roomy sidebar chat row opts in; the compact tab bar stays untouched.
+   * sidebar treatment: past a threshold an "agg. Xm fa" readout appears next to the
+   * glyph, and past a stale threshold the whole thing calms to a "maybe waiting"
+   * tone (see LabeledLoader). Only the roomy sidebar chat row opts in; the compact
+   * tab bar stays untouched.
    */
   variant?: 'compact' | 'labeled';
+  /**
+   * The chat's last-update epoch-ms — `topic.updatedAt`, the SAME value the row
+   * shows at rest ("agg. X fa") AND the same one the project aggregate maxes over,
+   * so a chat row and its project row read ONE consistent time (a session actively
+   * writing keeps it fresh; only a genuinely quiet one goes stale). `labeled` only.
+   */
+  lastActivity?: number;
 }
 
 export function TopicStreamingSpinner({
@@ -191,15 +198,17 @@ export function TopicStreamingSpinner({
   className = '',
   size,
   variant = 'compact',
+  lastActivity,
 }: TopicSpinnerProps) {
   const streaming = useTopicLoading(topicId);
   if (!streaming) return null;
-  // `labeled` reads extra live signals (activity + a shared clock); keep that in a
-  // child that only mounts WHILE streaming, so idle rows never subscribe to the tick.
+  // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
+  // LabeledLoader, which mounts only here (while streaming) so the shared clock
+  // ticks only for working rows. `compact` (tab bar) stays the bare glyph.
   if (variant === 'labeled') {
     return (
-      <LabeledTopicSpinner
-        topicId={topicId}
+      <LabeledLoader
+        lastUpdate={lastActivity}
         onStop={onStop}
         title={title}
         className={className}
@@ -263,26 +272,6 @@ function LabeledLoader({
       </span>
       <LoaderSlot onStop={onStop} title={tip} size={size} className={isStale ? 'opacity-70' : ''} />
     </span>
-  );
-}
-
-/** Chat-row labeled spinner: sources the last-update from the per-topic signal. */
-function LabeledTopicSpinner({
-  topicId,
-  onStop,
-  title,
-  className = '',
-  size,
-}: {
-  topicId: string | undefined;
-  onStop?: () => void;
-  title?: string;
-  className?: string;
-  size?: number;
-}) {
-  const lastUpdate = useSessionLastActivityFor(topicId);
-  return (
-    <LabeledLoader lastUpdate={lastUpdate} onStop={onStop} title={title} className={className} size={size} />
   );
 }
 
