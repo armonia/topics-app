@@ -618,7 +618,7 @@ export function TopicTree({
                 the CHILD (terminal/browser) rows' spinners, which are flush. With
                 no right margin every sidebar loader lands at the same trailing
                 offset — the row's loaders line up in one column. */}
-            <ProjectStreamingSpinner projectPath={pp} className="ml-0.5" />
+            <ProjectStreamingSpinner projectPath={pp} variant="labeled" lastActivity={item.lastActivity} className="ml-0.5" />
             {/* Numeric status indicators (git changed-files / ahead-behind /
                 running processes / open-chat count) were removed from the
                 sidebar project header — they read as cryptic numbers. Only the
