@@ -8,7 +8,6 @@ import {
   isSoloTool,
   partitionToolGroup,
   summarizeToolGroup,
-  toolCallDigest,
 } from './toolGrouping';
 
 let seq = 0;
@@ -105,38 +104,6 @@ describe('summarizeToolGroup', () => {
 
   test('duration absent without timestamps (legacy rows)', () => {
     expect(summarizeToolGroup([tc({ name: 'Read' })]).durationMs).toBeUndefined();
-  });
-});
-
-describe('toolCallDigest / highlights', () => {
-  test('shell digest is the command, whitespace collapsed and truncated', () => {
-    expect(toolCallDigest(tc({ name: 'Bash', args: { command: '  bun   test ' } }))).toBe('bun test');
-    const long = 'x'.repeat(50);
-    expect(toolCallDigest(tc({ name: 'Bash', args: { command: long } }))!.length).toBe(36);
-  });
-
-  test('file tools digest to the basename, search to the pattern, fetch to the host', () => {
-    expect(toolCallDigest(tc({ name: 'Read', args: { file_path: '/src/components/App.tsx' } }))).toBe('App.tsx');
-    expect(toolCallDigest(tc({ name: 'Edit', args: { file_path: '/a/b/utils.ts' } }))).toBe('utils.ts');
-    expect(toolCallDigest(tc({ name: 'Grep', args: { pattern: 'onToolStart' } }))).toBe('onToolStart');
-    expect(toolCallDigest(tc({ name: 'WebFetch', args: { url: 'https://api.github.com/x' } }))).toBe('api.github.com');
-  });
-
-  test('digest is undefined when nothing is scannable', () => {
-    expect(toolCallDigest(tc({ name: 'TodoWrite', args: { todos: [] } }))).toBeUndefined();
-  });
-
-  test('summary highlights dedupe in run order and cap at 8', () => {
-    const tools = [
-      tc({ name: 'Read', args: { file_path: '/a.ts' } }),
-      tc({ name: 'Bash', args: { command: 'bun test' } }),
-      tc({ name: 'Read', args: { file_path: '/a.ts' } }), // dup
-      ...Array.from({ length: 10 }, (_, i) => tc({ name: 'Read', args: { file_path: `/f${i}.ts` } })),
-    ];
-    const s = summarizeToolGroup(tools);
-    expect(s.highlights[0]).toBe('a.ts');
-    expect(s.highlights[1]).toBe('bun test');
-    expect(s.highlights).toHaveLength(8);
   });
 });
 

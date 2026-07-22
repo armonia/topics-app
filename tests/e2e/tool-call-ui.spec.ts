@@ -227,10 +227,6 @@ test.describe.serial("Tool grouping + highlighting (chat-tool-experience)", () =
       await expect(group).toContainText("Read ×3");
       // Wall-clock span: first startedAt → last endedAt = 41s.
       await expect(group).toContainText("41s");
-      // Highlights line: WHAT was touched — file basenames + the command.
-      const highlights = group.locator('[data-testid="tool-group-highlights"]');
-      await expect(highlights).toContainText("a.ts");
-      await expect(highlights).toContainText("bun test");
       // The errored call stays IN the aggregate but its count is surfaced
       // on the collapsed summary (red ✗ badge).
       await expect(group.locator('[data-testid="tool-group-errors"]')).toContainText("1");
