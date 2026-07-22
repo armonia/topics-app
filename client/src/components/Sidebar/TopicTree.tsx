@@ -628,7 +628,21 @@ export function TopicTree({
                 the CHILD (terminal/browser) rows' spinners, which are flush. With
                 no right margin every sidebar loader lands at the same trailing
                 offset — the row's loaders line up in one column. */}
-            <ProjectStreamingSpinner projectPath={pp} variant="labeled" lastActivity={item.lastActivity} className="ml-0.5" />
+            {/* Last-update timestamp — the SAME trailing "agg. X fa" the chat,
+                terminal and browser rows all show (relativeTime of the row's real
+                last activity). The project row was the ONLY sidebar row without it,
+                so a project's last update wasn't visible at a glance. `item.lastActivity`
+                is the project's aggregate (max over its children, per buildSidebarItems).
+                Hidden on hover to free room for the action buttons, like the badge below. */}
+            {item.lastActivity > 0 && (
+              <span
+                className={`flex-shrink-0 text-[11px] tabular-nums group-hover/proj:hidden mr-1 ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+                title={new Date(item.lastActivity).toLocaleString()}
+              >
+                {relativeTime(item.lastActivity)}
+              </span>
+            )}
+            <ProjectStreamingSpinner projectPath={pp} className="ml-0.5" />
             {/* Numeric status indicators (git changed-files / ahead-behind /
                 running processes / open-chat count) were removed from the
                 sidebar project header — they read as cryptic numbers. Only the
