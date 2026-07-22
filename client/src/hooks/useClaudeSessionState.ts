@@ -181,21 +181,42 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
     scheduleFlush();
   });
 
-  // Stale-attention TTL sweep. A session that DIES without a terminating event
-  // (process killed, SessionEnd hook lost, and no WS reconnect to heal via the
-  // bootstrap above) keeps its phase forever — an amber/blue tab "lit up at
-  // random" long after anything is really waiting on you. So periodically demote
-  // an ABANDONED attention phase to `dormant` (no fill). Deliberately scoped to
+  // Stale-attention TTL sweep + stale-spinner reconcile.
+  //
+  // (1) A session that DIES without a terminating event (process killed,
+  // SessionEnd hook lost, and no WS reconnect to heal via the bootstrap above)
+  // keeps its phase forever — an amber/blue tab "lit up at random" long after
+  // anything is really waiting on you. So periodically demote an ABANDONED
+  // attention phase to `dormant` (no fill). Deliberately scoped to
   // `awaiting-approval` + `paused`: a stale permission gate is the worst offender
   // (the server reaper turns awaiting-approval→paused at 10 min, then it sits
   // forever). `awaiting-user` is LEFT ALONE — "your turn" legitimately lasts as
   // long as you're away, and the focus-clears-the-fill rule already stops it
   // flashing on the tab you're viewing. Server truth still wins: a fresh
   // session:state (or the reconnect bootstrap) re-instates a real phase.
+  //
+  // (2) A "working" spinner phase (running/tool-running/starting) whose
+  // terminating transition we NEVER received pins the loading dots forever: the
+  // process died in a server outage and the `session:state` that would clear it
+  // was lost while the socket was down, with no clean reconnect to fire the
+  // bootstrap above. We must NOT demote it locally — a genuinely long turn is
+  // ALSO a spinner phase with a stale `updatedAt`, because the server only
+  // broadcasts on a phase CHANGE, so a long tool call goes minutes without a
+  // frame. Instead RE-FETCH the authoritative snapshot: if the turn is truly
+  // alive the server still says running (a harmless no-op); if it's a phantom
+  // the server's boot-reconcile / reaper has already demoted it and we heal.
+  // Idempotent and cooldown-guarded so one stuck session triggers at most one
+  // re-fetch per BUSY_RECHECK_MS.
   useEffect(() => {
-    const STALE_MS = 30 * 60_000; // 30 min with no update → treat as abandoned
+    const STALE_MS = 30 * 60_000;        // abandoned attention phase → dormant
+    const BUSY_STALE_MS = 2 * 60_000;    // spinner phase silent this long → suspect
+    const BUSY_RECHECK_MS = 3 * 60_000;  // ...re-verify vs server at most this often
+    const BUSY_PHASES = new Set(['running', 'tool-running', 'starting']);
+    const lastRecheck = new Map<string, number>();
+    let cancelRefetch: (() => void) | undefined;
     const sweep = () => {
       const now = Date.now();
+      // (1) demote abandoned attention phases locally.
       setSessions((prev) => {
         let changed = false;
         let next: Map<string, ClaudeSessionState> | null = null;
@@ -209,10 +230,24 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
         }
         return changed && next ? next : prev;
       });
+      // (2) re-fetch server truth for stale spinner phases (never demote here).
+      let needsRefetch = false;
+      for (const [key, st] of sessionsRef.current) {
+        if (!BUSY_PHASES.has(st.phase)) continue;
+        const last = st.updatedAt || st.phaseUpdatedAt || 0;
+        if (now - last < BUSY_STALE_MS) continue;
+        if (now - (lastRecheck.get(key) ?? 0) < BUSY_RECHECK_MS) continue;
+        lastRecheck.set(key, now);
+        needsRefetch = true;
+      }
+      if (needsRefetch) {
+        cancelRefetch?.();
+        cancelRefetch = bootstrap();
+      }
     };
-    const interval = setInterval(sweep, 5 * 60_000); // check every 5 min
-    return () => clearInterval(interval);
-  }, []);
+    const interval = setInterval(sweep, 60_000); // check every minute
+    return () => { clearInterval(interval); cancelRefetch?.(); };
+  }, [bootstrap, sessionsRef]);
 
   const getByClaudeSessionId = useCallback((id: string): ClaudeSessionState | undefined => {
     for (const s of sessionsRef.current.values()) {

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  ALL_PHASES,
+  BUSY_SPINNER_PHASES,
   applyHook,
   applyJsonlEvent,
   deriveTranscriptPath,
+  isBusySpinnerPhase,
   markDormant,
   markPtyCrash,
   makeInitialState,
@@ -11,6 +14,7 @@ import {
   reviveOnPtyActivity,
   splitJsonlChunk,
   type ClaudeSessionState,
+  type ClaudeSessionPhase,
   type HookPayload,
 } from './claude-session-state';
 
@@ -748,6 +752,43 @@ describe('splitJsonlChunk', () => {
   it('ignores blank lines between events', () => {
     const { lines } = splitJsonlChunk('{"a":1}\n\n{"b":2}\n');
     expect(lines).toEqual(['{"a":1}', '{"b":2}']);
+  });
+});
+
+describe('isBusySpinnerPhase — the boot-reconcile predicate', () => {
+  it('is true for exactly the "working" spinner phases', () => {
+    expect(isBusySpinnerPhase('starting')).toBe(true);
+    expect(isBusySpinnerPhase('running')).toBe(true);
+    expect(isBusySpinnerPhase('tool-running')).toBe(true);
+  });
+
+  it('is false for resting/attention/terminal phases (never demote a real "your turn")', () => {
+    expect(isBusySpinnerPhase('awaiting-user')).toBe(false);
+    expect(isBusySpinnerPhase('awaiting-approval')).toBe(false);
+    expect(isBusySpinnerPhase('paused')).toBe(false);
+    expect(isBusySpinnerPhase('completed')).toBe(false);
+    expect(isBusySpinnerPhase('error')).toBe(false);
+    expect(isBusySpinnerPhase('dormant')).toBe(false);
+  });
+
+  it('BUSY_SPINNER_PHASES and isBusySpinnerPhase agree across every phase', () => {
+    const set = new Set<ClaudeSessionPhase>(BUSY_SPINNER_PHASES);
+    for (const p of ALL_PHASES) {
+      expect(isBusySpinnerPhase(p)).toBe(set.has(p));
+    }
+  });
+
+  it('a phantom running session (frozen updatedAt, no PTY) is a busy-spinner phase → boot reconcile targets it', () => {
+    // Mirrors the outage repro: a chat session (ptyIdleMs=null) stuck on running.
+    // reapStaleSession only clears it after abandonedTimeoutMs; the boot reconcile
+    // keys off this predicate to demote it immediately once the broker confirms
+    // the child is dead.
+    const phantom = freshState({ phase: 'running', updatedAt: T0, phaseUpdatedAt: T0 });
+    expect(isBusySpinnerPhase(phantom.phase)).toBe(true);
+    // markDormant is the transition the reconcile applies via noteDormant.
+    const demoted = markDormant(phantom, T0 + 60 * 60_000);
+    expect(demoted.phase).toBe('dormant');
+    expect(isBusySpinnerPhase(demoted.phase)).toBe(false);
   });
 });
 
