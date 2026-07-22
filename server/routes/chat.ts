@@ -79,7 +79,7 @@ export interface ChatDeps {
 export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService?: BrowserService): RouteHandler {
   const {
     broadcastToAll, broadcastToTopicSubscribers, db, json, readJSON,
-    getTopicBySessionKey,
+    getTopicBySessionKey, saveSingleTopic,
     appendLocalMessage,
     createPartialMessage, reuseOrCreatePartialForReattach, updateLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamContent, endStream, isStreaming,
@@ -129,6 +129,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         const storedUserMsg = appendLocalMessage(sessionKey, "user", lastUserMsg.content);
         if (matchedTopic) {
           broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
+          // Bump the topic's own timestamp on every real message, not just
+          // metadata edits (rename/archive/autoname/…). Without this the
+          // sidebar's lastActivity (topicTimestamp) freezes at whatever
+          // administrative touch happened last — a chat can be actively in use
+          // for hours and still show its row from a day-old rename.
+          matchedTopic.updatedAt = new Date().toISOString();
+          saveSingleTopic(matchedTopic);
+          broadcastToAll({ type: "topic:updated", topic: matchedTopic });
         }
 
         // Parse and store mentions from user message
