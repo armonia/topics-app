@@ -4735,16 +4735,25 @@ fn focus_task_composer_from_background(app: &tauri::AppHandle) {
     });
 }
 
-// Request Accessibility trust so the global monitor above receives key events.
-// AXIsProcessTrustedWithOptions with the prompt option shows the one-time system
-// dialog (and drops the app into System Settings ▸ Privacy ▸ Accessibility). Once
-// already trusted it's a silent no-op. Not fatal: without trust the app still runs,
-// only the GLOBAL tap is inert (the in-app gesture is unaffected).
+// Request Accessibility trust so the global monitor above receives key events — but
+// AT MOST ONCE per install. `AXIsProcessTrustedWithOptions` with the prompt option
+// shows the scary system dialog ("Topics wants to control this computer using
+// accessibility features") and drops the app into System Settings ▸ Privacy ▸
+// Accessibility. macOS re-shows it on EVERY launch while the app stays untrusted, so
+// a fresh user who ignores it — Accessibility is a heavy ask for what is only a
+// convenience here (the global right-⌘ tap → focus the board composer) — gets
+// re-nagged forever. That's the "chiede troppi permessi" a new install hits. So we
+// prompt once and never again: already trusted → silent no-op; already asked → stay
+// quiet. A user who wants the global tap grants it on the single ask (or later, from
+// System Settings — the first prompt already listed the app there); everyone else is
+// asked exactly once. Either way the in-app gesture and the rest of the app are
+// unaffected: without trust the global monitor is simply inert.
 #[cfg(target_os = "macos")]
-fn install_accessibility_prompt() {
+fn install_accessibility_prompt(app: &tauri::AppHandle) {
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::NSString;
     use objc::{class, msg_send, sel, sel_impl};
+    use tauri::Manager;
 
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
@@ -4755,8 +4764,29 @@ fn install_accessibility_prompt() {
 
     unsafe {
         if AXIsProcessTrusted() {
-            return; // already granted — no prompt
+            return; // already granted — silent no-op
         }
+    }
+
+    // At-most-once gate. The marker lives beside the app's per-user config so it
+    // survives relaunches (a genuine uninstall/reinstall may legitimately ask again).
+    // If the dir can't be resolved we key a temp path off the bundle id, so a broken
+    // path degrades to "ask again next launch" rather than a nag loop or a crash.
+    let marker = app
+        .path()
+        .app_config_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("io.armonia.topics.tauri"))
+        .join(".accessibility-prompted");
+    if marker.exists() {
+        log::info!(
+            "[topics] Accessibility not granted but already prompted once — not re-asking. \
+             Enable it in System Settings ▸ Privacy & Security ▸ Accessibility to use the \
+             global right-⌘ tap."
+        );
+        return;
+    }
+
+    unsafe {
         // options = @{ @"AXTrustedCheckOptionPrompt": @YES } — the constant's value
         // IS this string, so a literal key avoids linking the CFString global.
         let key = NSString::alloc(nil).init_str("AXTrustedCheckOptionPrompt");
@@ -4767,10 +4797,18 @@ fn install_accessibility_prompt() {
             log::warn!(
                 "[topics] Accessibility not yet granted — global right-⌘ tap stays inert \
                  until it's enabled in System Settings ▸ Privacy & Security ▸ Accessibility \
-                 (a relaunch may be needed)."
+                 (a relaunch may be needed). This prompt won't be shown again."
             );
         }
     }
+
+    // Record the single ask so no future launch re-prompts (whether or not the user
+    // granted it this time). Best-effort: a write failure just means we might ask once
+    // more next launch — strictly better than a persistent nag.
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&marker, b"1\n");
 }
 
 // ───────────────────────── Pop-out to a real OS window ─────────────────────────
@@ -5727,10 +5765,12 @@ pub fn run() {
 
             // Global right-⌘ TAP → focus the board task composer, even when Topics
             // is in the background (from any other app). Needs Accessibility trust
-            // for the global key monitor — request it, then arm the monitor.
+            // for the global key monitor — request it ONCE (see the fn), then arm the
+            // monitor. The monitor is harmless without trust: it simply receives no
+            // events, so arming it unconditionally costs nothing.
             #[cfg(target_os = "macos")]
             {
-                install_accessibility_prompt();
+                install_accessibility_prompt(app.handle());
                 install_global_cmd_tap(app.handle());
             }
 
