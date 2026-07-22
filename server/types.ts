@@ -30,6 +30,13 @@ export interface WSData {
    *  set_stream(true) when it switches back to the stream (agent attaches / frame
    *  not framable). Keeps the WS open so agent_active still reaches the pane. */
   _browserSetStream?: (active: boolean) => void;
+  /** Mirror of this viewer's current stream state (set by _browserSetStream).
+   *  A viewer that paused its stream (set_stream:false — e.g. its browser tab
+   *  went off-screen) is NOT an active watcher, so it's excluded from the
+   *  cross-device viewer count: a phone with the tab in the background must not
+   *  keep the desktop's 'auto' pane in the shared session. Absent = active (a
+   *  fresh viewer streams by default). */
+  _streamActive?: boolean;
   /** T1 DOM co-browse — true while THIS viewer renders the pane as a native rrweb
    *  DOM reconstruction (set_render:'dom') instead of the pixel stream. Used to
    *  ref-count DOM viewers per context so `dom_event` emission stops once the last
