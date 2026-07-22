@@ -91,6 +91,27 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
   } = deps;
 
+  // Bump the topic's own timestamp on real activity — a new user message
+  // (below) OR a completed/errored/timed-out assistant turn (via
+  // finalizeTurnActivity). Without the latter, a turn that never round-trips
+  // through a fresh POST /api/chat user message (autonomous continuation,
+  // dispatched task) left the sidebar's lastActivity — and the project row
+  // rolled up from it — frozen mid-conversation.
+  const bumpTopicActivity = (topic: Topic): void => {
+    topic.updatedAt = new Date().toISOString();
+    saveSingleTopic(topic);
+    broadcastToAll({ type: "topic:updated", topic });
+  };
+
+  // Every turn-finalization site (success / error / soft- or hard-timeout)
+  // funnels through here so the activity bump and the unread bump stay in
+  // lockstep — a new terminal path can't silently forget to refresh the
+  // sidebar's lastActivity and leave the row looking frozen mid-turn.
+  const finalizeTurnActivity = (topic: Topic): void => {
+    bumpTopicActivity(topic);
+    updateUnreadCount(topic.id);
+  };
+
   // Deps for the SDK-passthrough control tools (open/create-project, switch/new-
   // topic). Reuses the SAME closure-local project helpers + AppContext topic
   // ops the Layer-1 endpoints use, so a claude/openai tool call and an MCP tool
@@ -134,9 +155,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // sidebar's lastActivity (topicTimestamp) freezes at whatever
           // administrative touch happened last — a chat can be actively in use
           // for hours and still show its row from a day-old rename.
-          matchedTopic.updatedAt = new Date().toISOString();
-          saveSingleTopic(matchedTopic);
-          broadcastToAll({ type: "topic:updated", topic: matchedTopic });
+          bumpTopicActivity(matchedTopic);
         }
 
         // Parse and store mentions from user message
@@ -709,7 +728,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
-              updateUnreadCount(matchedTopic.id);
+              finalizeTurnActivity(matchedTopic);
             }
             // No separate "grace expired" log line — the soft-timeout entry
             // already exists; recovery would have logged on the way out.
@@ -753,7 +772,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: msg });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
-              updateUnreadCount(matchedTopic.id);
+              finalizeTurnActivity(matchedTopic);
             }
             logStreamHardTimeout({
               sessionKey,
@@ -929,7 +948,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 usageCompletionTokens,
                 costCents,
               });
-              updateUnreadCount(matchedTopic.id);
+              finalizeTurnActivity(matchedTopic);
             }
 
             // Activity log (Fix E): one row per stream lifecycle event so
@@ -1539,7 +1558,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
-                updateUnreadCount(matchedTopic.id);
+                finalizeTurnActivity(matchedTopic);
               }
               await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
               await writeSSE("[DONE]");
@@ -1554,7 +1573,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
-              updateUnreadCount(matchedTopic.id);
+              finalizeTurnActivity(matchedTopic);
             }
             await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
             await writeSSE("[DONE]");
@@ -1611,7 +1630,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: errorPartial.id, content: errorMsg, preview: errorMsg.slice(0, 100) });
               broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: errorPartial.id });
-              updateUnreadCount(matchedTopic.id);
+              finalizeTurnActivity(matchedTopic);
             }
             return new Response(
               `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(errorMsg)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`,
@@ -1642,7 +1661,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const storedJsonAssistant = content ? appendLocalMessage(sessionKey, "assistant", content) : null;
             if (matchedTopic && storedJsonAssistant) {
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedJsonAssistant.id, content, preview: content.slice(0, 100) });
-              updateUnreadCount(matchedTopic.id);
+              finalizeTurnActivity(matchedTopic);
             }
             if (matchedTopic && !matchedTopic.projectPath) setTimeout(() => autoBindProject(matchedTopic!), 100);
             const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
@@ -1708,7 +1727,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (matchedTopic) {
                 broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
-                updateUnreadCount(matchedTopic.id);
+                finalizeTurnActivity(matchedTopic);
               }
               return;
             }
@@ -1812,7 +1831,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined, partial: undefined, streamedAt: undefined });
                 endStream(sessionKey);
                 broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
-                if (matchedTopic) updateUnreadCount(matchedTopic.id);
+                if (matchedTopic) finalizeTurnActivity(matchedTopic);
               }
             }
           };
