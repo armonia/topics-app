@@ -345,7 +345,11 @@ const browserRouter = createBrowserRouter(ctx, browserService, (c) => {
   const set = browserWsClients.get(c);
   if (!set) return 0;
   let n = 0;
-  for (const w of set) if (!w.data._nativeDelegate) n++;
+  // Count real viewers that are ACTIVELY streaming: exclude native delegates
+  // (never watchers) AND viewers that paused their stream (set_stream:false —
+  // e.g. their browser tab is off-screen). So a phone with the tab backgrounded
+  // no longer flips this desktop's 'auto' pane into the shared session.
+  for (const w of set) if (!w.data._nativeDelegate && w.data._streamActive !== false) n++;
   return n;
 });
 const cronRouter = createCronRouter(ctx);

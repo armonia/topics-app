@@ -611,9 +611,16 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // Chromium has no viewer: pause its screencast (keeps the WS open for
   // agent_active). Resume the instant we fall back to the stream.
   const setStreamActive = browser.setStreamActive;
+  // Stream ONLY when this pane is the visible tab AND we're not showing the
+  // native <iframe>. A hidden pane (background tab / off-screen split, e.g. a
+  // browser tab you left on your phone) pauses the server screencast entirely —
+  // no bandwidth for a pane nobody is looking at, and (via the active-only viewer
+  // count) the desktop's 'auto' won't spin up a shared session for a device that
+  // isn't watching. The server pauses per-viewer, keeping the context alive
+  // (agent/nav still update); onopen re-asserts this on reconnect.
   useEffect(() => {
-    setStreamActive(!useIframe);
-  }, [useIframe, setStreamActive]);
+    setStreamActive(isVisible && !useIframe);
+  }, [isVisible, useIframe, setStreamActive]);
   if (useIframe) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

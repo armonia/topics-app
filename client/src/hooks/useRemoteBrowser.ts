@@ -228,6 +228,10 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // Mirror of the effect-local teardownWebrtc so out-of-effect callers (DOM-mode
   // switch) can drop the PC — the server pauses the screencast in DOM mode.
   const webrtcTeardownRef = useRef<() => void>(() => {});
+  // Pause the pixel track when the pane leaves the screen (see the isVisible
+  // effect below). Distinct from teardownWebrtc: it does NOT re-enable the JPEG
+  // bootstrap, so the panel's set_stream(isVisible) gate stays authoritative.
+  const webrtcPauseRef = useRef<() => void>(() => {});
   // T1 DOM co-browse: mirror of renderMode for the long-lived onmessage closure,
   // and the live rrweb-event sink (registered by the DomCoBrowse view's Replayer).
   const renderModeRef = useRef<'video' | 'dom'>('dom');
@@ -813,6 +817,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     };
     webrtcStartRef.current = startWebrtc;
     webrtcTeardownRef.current = teardownWebrtc;
+    // Hidden-pane pause: drop the peer connection + video surface, but leave the
+    // JPEG stream state alone (the panel's set_stream gate owns that). A reveal
+    // renegotiates via webrtcStartRef (see the isVisible effect).
+    webrtcPauseRef.current = () => {
+      closePc();
+      setState(s => (s.webrtcActive ? { ...s, webrtcActive: false } : s));
+    };
 
     connect();
 
@@ -849,6 +860,19 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // engineEpoch: a change (engine switch) tears down + reopens the WS so the
     // server recreates the context on the newly-selected engine.
   }, [contextId, encodedId, updateConnectionState, clearLoadingWatchdog, fetchInfo, sendResize, engineEpoch]);
+
+  // P3-3b: a hidden pane must also drop the WebRTC pixel track — set_stream only
+  // pauses the JPEG screencast, not the H.264 transport. Pause the peer when the
+  // pane leaves the screen; renegotiate on reveal if we're still a video-mode
+  // pane (DOM mode has no PC → the pause/start refs are safe no-ops). Reading via
+  // refs means no WS re-subscribe on a visibility toggle.
+  useEffect(() => {
+    if (isVisible) {
+      if (renderModeRef.current === 'video') webrtcStartRef.current();
+    } else {
+      webrtcPauseRef.current();
+    }
+  }, [isVisible]);
 
   // HTTP polling effect — runs ONLY when the WS dropped to fallback-http.
   // Mirrors the legacy polling loop but gated on connectionState.
