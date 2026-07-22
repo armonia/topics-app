@@ -133,6 +133,23 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const reconnectRef = useRef<(() => void) | null>(null);
   useEffect(() => { staleRef.current = stale; }, [stale]);
 
+  // ── Dormant-empty detection ────────────────────────────────────────────
+  // A claude/codex session whose PTY has EXITED stays in the roster (claude
+  // rows are revivable, never deleted) but the bridge no longer holds its PTY:
+  // the attach WS opens, `requestBuffer` returns zero bytes, and the server
+  // never closes the socket — so the pane renders BLANK forever. That is the
+  // "se ci clicco mi apre una finestra claude code vuota" when opening a
+  // finished sub-agent: it is NOT `stale` (still listed), so no overlay shows.
+  // We count output bytes since attach; a live claude TUI always replays its
+  // drawn full-screen frame, so zero bytes at `replay-end` (+ none within a
+  // grace) means the PTY is gone → surface the resume overlay instead of a
+  // silent blank. Cleared the instant any output byte arrives (live session).
+  const outputBytesRef = useRef(0);
+  const dormantTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [dormantEmpty, setDormantEmpty] = useState(false);
+  const dormantEmptyRef = useRef(dormantEmpty);
+  useEffect(() => { dormantEmptyRef.current = dormantEmpty; }, [dormantEmpty]);
+
   // Viewing a claude-code session = its "finished a turn" notification is seen,
   // so clear it. Depending on `finished` (not just isActive) is what makes this
   // false-positive-proof: if the session finishes *while you're already looking
@@ -170,7 +187,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   }, []);
   // Suppress the ring while the "expired"/"reloading" overlays own the pane —
   // those are their own state, and a glow around a dead pane would be noise.
-  const showWorkingRing = isWorking && workingGlowEnabled && !stale && !reloading;
+  const showWorkingRing = isWorking && workingGlowEnabled && !stale && !reloading && !dormantEmpty;
   const [copied, setCopied] = useState(false);
   const isDarkRef = useRef(document.documentElement.classList.contains('dark'));
 
@@ -198,6 +215,9 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     let intentionalClose = false;
 
     setStale(false); // Reset stale on (re)mount
+    setDormantEmpty(false);
+    outputBytesRef.current = 0;
+    if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
 
     const term = new Terminal({
       theme: getTerminalTheme(isDarkRef.current),
@@ -356,6 +376,12 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       ws.onopen = () => {
         retryCount = 0;
         setStale(false);
+        // Each fresh attach is judged on its own: reset the byte counter and
+        // any pending dormant grace so a reconnect (server reload, resume) can
+        // clear a previously-shown empty overlay once real output flows again.
+        setDormantEmpty(false);
+        outputBytesRef.current = 0;
+        if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
         // A "Ricarica" reload reconnects here — drop the "Riavvio…" overlay.
         signalsActions.clearTerminalReloading(sessionId);
         fetch(`/api/terminal/sessions/${sessionId}/resize`, {
@@ -374,12 +400,36 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           // JSON. Anything else is treated as plain output for forward compat.
           try {
             const msg = JSON.parse(data);
-            if (msg && msg.type === 'replay-end') { replayed = true; return; }
+            if (msg && msg.type === 'replay-end') {
+              replayed = true;
+              // Zero output bytes at replay-end on a resumable (claude/codex)
+              // session ⇒ its PTY is almost certainly gone (a live claude TUI
+              // always replays its drawn full-screen frame). Arm a short grace;
+              // if no live output arrives, show the resume overlay instead of a
+              // silent blank pane. A shell has no full-screen frame and can be
+              // legitimately empty, so it's excluded — it also can't be resumed.
+              const t = lastInfoRef.current?.type;
+              const resumable = t === 'claude-code' || t === 'claude-code-team' || t === 'codex';
+              if (resumable && outputBytesRef.current === 0) {
+                if (dormantTimerRef.current) clearTimeout(dormantTimerRef.current);
+                dormantTimerRef.current = setTimeout(() => {
+                  dormantTimerRef.current = null;
+                  if (outputBytesRef.current === 0) setDormantEmpty(true);
+                }, 2000);
+              }
+              return;
+            }
           } catch { /* not JSON — write as-is */ }
           term.write(data);
+          outputBytesRef.current += data.length;
+          if (dormantEmptyRef.current) setDormantEmpty(false);
+          if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
           if (replayed) bumpAura(sessionId, 0.2);
         } else if (data instanceof ArrayBuffer) {
           term.write(new Uint8Array(data));
+          outputBytesRef.current += data.byteLength;
+          if (dormantEmptyRef.current) setDormantEmpty(false);
+          if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
           // weight by chunk size so a fast, chatty session pushes the wave harder
           if (replayed) bumpAura(sessionId, 0.15 + Math.min(0.4, data.byteLength / 2000));
         }
@@ -458,6 +508,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     return () => {
       intentionalClose = true;
       clearTimeout(retryTimer);
+      if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
       reconnectRef.current = null;
       detachTouchScroll();
       el.removeEventListener('paste', handleImagePaste as unknown as EventListener, true);
@@ -722,6 +773,49 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             >
               <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
               <span>{reloading ? 'Riavvio…' : 'Ricarica'}</span>
+            </button>
+          </div>
+        )}
+        {/* Dormant-empty overlay — the session is still in the roster (revivable)
+            but its PTY has exited, so the attach replayed nothing and the pane
+            would otherwise be a silent blank ("finestra claude code vuota" when
+            opening a finished sub-agent). Same resume affordance as the stale
+            overlay: one click --resumes the conversation and brings it back live.
+            Distinct from `stale` on purpose — a listed session must not trip the
+            lossless-reconnect effect, so this owns its own state. */}
+        {dormantEmpty && !stale && !reloading && (
+          <div data-testid="terminal-dormant-overlay" className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-surface/80 z-10 px-4">
+            <div className="flex items-center gap-1.5 text-app-text-muted text-[12px]">
+              <Clock size={13} />
+              <span>Sessione terminata</span>
+            </div>
+            {(() => {
+              const info = lastInfoRef.current;
+              return (
+                <div
+                  data-testid="terminal-dormant-info"
+                  className="flex max-w-full flex-col items-center gap-0.5 break-all text-center font-mono text-[10px] leading-relaxed text-app-text-muted/70"
+                >
+                  {info?.type && (
+                    <span>{info.type}{info.cwd ? ` · ${info.cwd}` : ''}</span>
+                  )}
+                  <span>id {sessionId.slice(0, 8)}{info?.claudeSessionId ? ` · resume ${info.claudeSessionId.slice(0, 8)}` : ''}</span>
+                </div>
+              );
+            })()}
+            <button
+              type="button"
+              disabled={reloading}
+              onClick={() => {
+                signalsActions.markTerminalReloading(sessionId);
+                window.setTimeout(() => signalsActions.clearTerminalReloading(sessionId), 15000);
+                void fetch(`/api/terminal/sessions/${encodeURIComponent(sessionId)}/reload`, { method: 'POST' }).catch(() => {});
+              }}
+              title="Riprendi la sessione (--resume): riporta viva la conversazione del sotto-agente"
+              className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-[12px] text-white transition-colors hover:bg-black/55 disabled:opacity-50"
+            >
+              <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
+              <span>{reloading ? 'Riavvio…' : 'Riprendi'}</span>
             </button>
           </div>
         )}
