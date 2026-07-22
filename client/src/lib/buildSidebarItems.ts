@@ -301,45 +301,65 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   const terminalsByProject = new Map<string, TerminalSessionInfo[]>();
   const standaloneTerminals: TerminalSessionInfo[] = [];
 
-  // Sub-agent map: orchestrator sessionKey → the children it spawned. A
-  // terminal session's sessionKey == its id, so a child nests under the parent
-  // terminal whose id == child.parentSessionKey. Children whose parent is NOT a
-  // terminal (e.g. a chat orchestrator) fall through to the flat grouping below
+  // Sub-agent map: orchestrator → the children it spawned. A child terminal is
+  // stamped with its parent's sessionKey. The parent is EITHER another terminal
+  // (its sessionKey == its id) OR a CHAT topic (its sessionKey == topic.sessionKey,
+  // e.g. `topic:<id>`) — a chat orchestrator that spawned sub-agents via the MCP
+  // `spawn_agent` tool. BOTH cases nest the child under the parent row so the user
+  // sees / monitors / navigates to it from where it was launched. Children whose
+  // parent is neither (unknown/stale key) fall through to the flat grouping below
   // so they still appear somewhere.
   const terminalById = new Map(terminalSessions.map(t => [t.id, t]));
-  const subAgentsByParent = new Map<string, TerminalSessionInfo[]>();
+  const topicBySessionKey = new Map<string, Topic>();
+  for (const t of Object.values(topics)) {
+    if (t.sessionKey) topicBySessionKey.set(t.sessionKey, t);
+  }
+  const subAgentsByParent = new Map<string, TerminalSessionInfo[]>();      // parent is a terminal (keyed by its id)
+  const subAgentsByChatParent = new Map<string, TerminalSessionInfo[]>();  // parent is a chat topic (keyed by its sessionKey)
   for (const ts of terminalSessions) {
-    if (ts.parentSessionKey && terminalById.has(ts.parentSessionKey)) {
+    if (!ts.parentSessionKey) continue;
+    if (terminalById.has(ts.parentSessionKey)) {
       const arr = subAgentsByParent.get(ts.parentSessionKey) || [];
       arr.push(ts);
       subAgentsByParent.set(ts.parentSessionKey, arr);
+    } else if (topicBySessionKey.has(ts.parentSessionKey)) {
+      const arr = subAgentsByChatParent.get(ts.parentSessionKey) || [];
+      arr.push(ts);
+      subAgentsByChatParent.set(ts.parentSessionKey, arr);
     }
   }
+  // A child nested under EITHER a terminal or a chat parent must not ALSO be
+  // emitted as its own flat row.
   const isNestedSubAgent = (ts: TerminalSessionInfo) =>
-    !!ts.parentSessionKey && terminalById.has(ts.parentSessionKey);
+    !!ts.parentSessionKey &&
+    (terminalById.has(ts.parentSessionKey) || topicBySessionKey.has(ts.parentSessionKey));
 
-  // Build the nested sub-agent SidebarItems for a parent terminal, recursively
-  // (a sub-agent can spawn its own). Always visible — orchestrator-managed rows
-  // aren't gated on an open tab the way user-opened terminals are.
-  const buildSubAgentItems = (parentTerminalId: string): SidebarItem[] => {
-    const kids = (subAgentsByParent.get(parentTerminalId) || [])
-      .slice()
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    return kids.map(ts => {
-      const nested = buildSubAgentItems(ts.id);
-      return {
-        id: `terminal:${ts.id}`,
-        type: 'terminal' as const,
-        name: ts.name,
-        icon: ts.type === 'claude-code' ? 'claude' : ts.type === 'codex' ? 'codex' : 'terminal',
-        lastActivity: terminalLastActivity(ts, sessionLastActivityById),
-        notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
-        archived: false,
-        terminal: ts,
-        ...(nested.length ? { subAgents: nested } : {}),
-      };
-    });
+  const byCreatedAt = (a: TerminalSessionInfo, b: TerminalSessionInfo) =>
+    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  // Map one child terminal → a nested SidebarItem, recursing into its OWN
+  // sub-agents (a sub-agent can spawn its own; those are always terminal→terminal).
+  const toSubAgentItem = (ts: TerminalSessionInfo): SidebarItem => {
+    const nested = buildSubAgentItems(ts.id);
+    return {
+      id: `terminal:${ts.id}`,
+      type: 'terminal' as const,
+      name: ts.name,
+      icon: ts.type === 'claude-code' ? 'claude' : ts.type === 'codex' ? 'codex' : 'terminal',
+      lastActivity: terminalLastActivity(ts, sessionLastActivityById),
+      notificationCount: terminalAttentionCount(ts.id, terminalFinishedIds),
+      archived: false,
+      terminal: ts,
+      ...(nested.length ? { subAgents: nested } : {}),
+    };
   };
+  // Nested sub-agent items for a parent TERMINAL (recursive). Always visible —
+  // orchestrator-managed rows aren't gated on an open tab like user terminals.
+  function buildSubAgentItems(parentTerminalId: string): SidebarItem[] {
+    return (subAgentsByParent.get(parentTerminalId) || []).slice().sort(byCreatedAt).map(toSubAgentItem);
+  }
+  // Nested sub-agent items for a parent CHAT topic (by its sessionKey).
+  const buildChatSubAgentItems = (chatSessionKey: string): SidebarItem[] =>
+    (subAgentsByChatParent.get(chatSessionKey) || []).slice().sort(byCreatedAt).map(toSubAgentItem);
 
   for (const ts of terminalSessions) {
     // Sub-agents nested under a terminal parent are rendered inside that
@@ -392,10 +412,15 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       const hasInternalTab = internalPaneIds.has(chatPaneId) || internalPaneIds.has(t.id);
       const hasTopLevelTab = openPanelSet.has(t.id);
       const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
+      // Sub-agents this chat spawned as an orchestrator (MCP spawn_agent) nest
+      // under its row and keep it visible even with the tab closed, so a running
+      // sub-agent is never orphaned from where it was launched.
+      const chatSubAgents = buildChatSubAgentItems(t.sessionKey);
       // Pinned escape (fourth explicit exception, after archived/tab/notification):
       // a pinned chat keeps its row with the tab closed. A topic open in another
-      // window (detachedTopicIds) is the fifth — same `||` escape pattern.
-      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id)) continue;
+      // window (detachedTopicIds) is the fifth; a live sub-agent is the sixth —
+      // same `||` escape pattern.
+      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0) continue;
       children.push({
         id: t.id,
         type: 'chat',
@@ -408,6 +433,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         topic: t,
         ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
         ...(detachedTopicIds.has(t.id) ? { detachedWindowLabel: detachedTopicIds.get(t.id)!.windowLabel ?? "" } : {}),
+        ...(chatSubAgents.length ? { subAgents: chatSubAgents } : {}),
       });
     }
 
@@ -503,12 +529,15 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // Pinned escape: a pinned chat shows even archived (pre-feature close).
     if (t.archived && !showArchived && !pinnedIds.has(t.id)) continue;
     const notificationCount = topicAttentionCount(t.id, unreadData, claudeAttentionTopics);
+    // Sub-agents this chat spawned as an orchestrator (MCP spawn_agent) — nested
+    // under its row, and an escape that keeps the row visible with the tab closed.
+    const chatSubAgents = buildChatSubAgentItems(t.sessionKey);
     // Archived items shown when showArchived is on; active items need an open
-    // tab, a pending notification (unread / Claude needs-you), a pin — or being
-    // open in another window (detachedTopicIds, same `||` escape).
+    // tab, a pending notification (unread / Claude needs-you), a pin, being open
+    // in another window (detachedTopicIds), or a live sub-agent — same `||` escape.
     if (!t.archived) {
       const hasTab = openPanelSet.has(t.id);
-      if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id)) continue;
+      if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && chatSubAgents.length === 0) continue;
     }
     items.push({
       id: t.id,
@@ -521,6 +550,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       topic: t,
       ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
       ...(detachedTopicIds.has(t.id) ? { detachedWindowLabel: detachedTopicIds.get(t.id)!.windowLabel ?? "" } : {}),
+      ...(chatSubAgents.length ? { subAgents: chatSubAgents } : {}),
     });
   }
 

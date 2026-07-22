@@ -120,16 +120,45 @@ describe("buildSidebarItems — sub-agent nesting", () => {
     expect((parentRow!.subAgents ?? []).map((s) => s.id)).toEqual(["terminal:kid"]);
   });
 
-  test("a sub-agent whose parent is not a terminal (chat orchestrator) is not hidden", () => {
+  test("a sub-agent whose parent is an UNKNOWN key falls through to a flat row", () => {
     const items = buildSidebarItems({
       ...base,
-      // parentSessionKey points at a chat session, not a terminal id.
+      // parentSessionKey points at neither a terminal id nor a known topic.
       terminalSessions: [child("kid", "topic:abcd1234", "/home/me")],
       openPanels: [],
       projectOpenPanes: {},
     });
     // Falls through to the flat standalone path; visible because it's a sub-agent.
     expect(items.some((i) => i.id === "terminal:kid")).toBe(true);
+  });
+
+  test("a sub-agent nests under its CHAT orchestrator parent (not as a flat row)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      // The chat topic's sessionKey is `topic:orch` (see topic() helper below).
+      topics: { orch: topic("orch", "Orchestrator chat") },
+      terminalSessions: [child("kid", "topic:orch", "/home/me")],
+      openPanels: ["orch"], // chat tab open
+      projectOpenPanes: {},
+    });
+    const chatRow = items.find((i) => i.id === "orch");
+    expect(chatRow).toBeTruthy();
+    expect((chatRow!.subAgents ?? []).map((s) => s.id)).toEqual(["terminal:kid"]);
+    // …and the child is NOT emitted as its own flat row.
+    expect(items.some((i) => i.id === "terminal:kid")).toBe(false);
+  });
+
+  test("a chat orchestrator with a live sub-agent stays visible with its tab closed", () => {
+    const items = buildSidebarItems({
+      ...base,
+      topics: { orch: topic("orch", "Orchestrator chat") },
+      terminalSessions: [child("kid", "topic:orch", "/home/me")],
+      openPanels: [], // no open tab, no unread — only the sub-agent keeps it alive
+      projectOpenPanes: {},
+    });
+    const chatRow = items.find((i) => i.id === "orch");
+    expect(chatRow).toBeTruthy();
+    expect((chatRow!.subAgents ?? []).map((s) => s.id)).toEqual(["terminal:kid"]);
   });
 });
 
