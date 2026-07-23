@@ -60,7 +60,7 @@ function initFrame(seq: number): WSFrame {
 }
 
 describe("syncWS — LWW gate on server broadcasts", () => {
-  let dispatched: Array<{ type: string; payload?: any }>;
+  let dispatched: Array<{ type: string; payload?: unknown }>;
   let send: (frame: WSFrame) => void;
   let cleanup: () => void;
   const realGetState = usePaneStore.getState;
@@ -71,7 +71,7 @@ describe("syncWS — LWW gate on server broadcasts", () => {
     // Stub the store so we observe dispatches without invoking the real reducer.
     (usePaneStore as unknown as { getState: () => unknown }).getState = () => ({
       lastSeq: 0,
-      dispatch: (action: { type: string; payload?: any }) => dispatched.push(action),
+      dispatch: (action: { type: string; payload?: unknown }) => dispatched.push(action),
     });
 
     let handler: ((f: WSFrame) => void) | undefined;
@@ -108,7 +108,7 @@ describe("syncWS — LWW gate on server broadcasts", () => {
     send(updatedFrame(6));
     expect(dispatched.length).toBe(2);
     expect(__getLastAppliedServerSeq()).toBe(6);
-    expect(dispatched[1].payload.snapshot.server_seq).toBe(6);
+    expect((dispatched[1].payload as { snapshot: { server_seq: number } }).snapshot.server_seq).toBe(6);
   });
 
   test("(b) suppresses self-echo but still advances the gate", () => {
@@ -146,7 +146,7 @@ describe("syncWS — LWW gate on server broadcasts", () => {
     send(initFrame(12));
     expect(dispatched.length).toBe(2);
     expect(dispatched[1].type).toBe("HYDRATE_FROM_SNAPSHOT");
-    expect(dispatched[1].payload.snapshot.server_seq).toBe(12);
+    expect((dispatched[1].payload as { snapshot: { server_seq: number } }).snapshot.server_seq).toBe(12);
 
     send(updatedFrame(11));
     expect(dispatched.length).toBe(2);

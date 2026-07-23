@@ -32,7 +32,8 @@ function freshDb(): Database {
     auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT,
-    dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER
+    dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
+    max_agents_auto INTEGER
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -393,7 +394,11 @@ describe("task-dispatcher", () => {
 
   it("respects the concurrency cap", async () => {
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 1 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    // The concurrency cap is now a single MACHINE-WIDE budget (getGlobalCap),
+    // not a per-board maxAgents — pin it to 1 explicitly (auto off) so the
+    // harness's default (auto, max 3) doesn't let both tasks through.
+    h.svc.setGlobalCap({ auto: false, max: 1 });
     seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
     seedTask(h.db, { id: "t2", status: "todo", createdAt: "2020-01-02T00:00:00.000Z" });
     await h.dispatcher.tick(PID);
@@ -962,7 +967,10 @@ describe("blocked-by + context reuse", () => {
 describe("priority", () => {
   it("serves the queue by priority (4 first), age as tie-break", async () => {
     const h = harness();
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 1 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    // Global cap of 1 (see "respects the concurrency cap") so exactly one task
+    // wins this tick and priority ordering — not the cap — decides which.
+    h.svc.setGlobalCap({ auto: false, max: 1 });
     seedTask(h.db, { id: "old-low", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
     const urgent = h.svc.create({ projectId: PID, text: "fuoco", priority: 4 });
     await h.dispatcher.tick(PID);
