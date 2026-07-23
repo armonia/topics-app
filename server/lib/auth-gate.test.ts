@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { evaluateAuth, isLoopbackAddress, isLocalOrigin, isAuthGatedPath, type AuthInput } from "./auth-gate";
+import { evaluateAuth, isLoopbackAddress, isLocalOrigin, isAuthGatedPath, isWebSocketPath, type AuthInput } from "./auth-gate";
 
 const TOKEN = "a".repeat(64);
 
@@ -31,16 +31,34 @@ describe("auth-gate · isLoopbackAddress", () => {
   });
 });
 
+describe("auth-gate · isWebSocketPath", () => {
+  it("matches the PRIMARY bare /ws socket AND the /ws/… sub-sockets", () => {
+    // Regression: the primary client socket is `/ws` (no trailing slash,
+    // useWebSocket.ts); keying only on `/ws/` left it ungated.
+    for (const p of ["/ws", "/ws/terminal/abc", "/ws/browser/xyz"]) {
+      expect(isWebSocketPath(p)).toBe(true);
+    }
+  });
+  it("does not match look-alikes", () => {
+    for (const p of ["/websocket", "/wsx", "/", "/api/ws"]) {
+      expect(isWebSocketPath(p)).toBe(false);
+    }
+  });
+});
+
 describe("auth-gate · isAuthGatedPath", () => {
-  it("gates the API, WS upgrades, and BOTH file-serving roots (/preview, /media)", () => {
+  it("gates the API, BOTH WS forms (/ws + /ws/…), and every file-serving root", () => {
     for (const p of [
       "/api/topics",
       "/api/files/save",
       "/api/media?path=/etc/passwd",
+      "/ws",                 // ← the primary ui-state + live-chat socket
       "/ws/terminal/abc",
+      "/ws/browser/xyz",
       "/preview/Users/x/secret.pdf",
       "/media/browser/downloads/report.pdf",
       "/media/agent-screenshots/x.png",
+      "/uploads/attachment.png",
     ]) {
       expect(isAuthGatedPath(p)).toBe(true);
     }
@@ -52,8 +70,8 @@ describe("auth-gate · isAuthGatedPath", () => {
   });
   it("does not gate look-alike prefixes that aren't the real roots", () => {
     // guards against a `/mediafoo` or `/previews` bypass illusion — the trailing
-    // slash in the prefixes means only the actual roots match.
-    for (const p of ["/mediafoo", "/preview", "/apix", "/media", "/websocket"]) {
+    // slash in the prefixes means only the actual roots match (and /ws is exact).
+    for (const p of ["/mediafoo", "/preview", "/apix", "/media", "/websocket", "/uploadsx"]) {
       expect(isAuthGatedPath(p)).toBe(false);
     }
   });
@@ -111,6 +129,22 @@ describe("auth-gate · evaluateAuth", () => {
 
   it("loopback WS upgrade with a local origin → allow", () => {
     expect(evaluateAuth(input({ pathname: "/ws/terminal/x", origin: "tauri://localhost" })).allow).toBe(true);
+  });
+
+  // Regression: the PRIMARY socket is the bare `/ws` (ui-state + live chat). It
+  // must get the SAME token + CSRF treatment as `/ws/…`, not slip through.
+  it("bare /ws with a foreign origin → 403 (CSRF applies to the primary socket)", () => {
+    const r = evaluateAuth(input({ pathname: "/ws", origin: "https://evil.com" }));
+    expect(r).toEqual({ allow: false, status: 403, reason: "cross-site origin blocked" });
+  });
+
+  it("bare /ws from a remote peer with NO token → 401", () => {
+    const r = evaluateAuth(input({ pathname: "/ws", ip: "192.168.1.5", token: null }));
+    expect(r).toEqual({ allow: false, status: 401, reason: "pairing token required for remote access" });
+  });
+
+  it("bare /ws on loopback with a local origin → allow (the real app is unaffected)", () => {
+    expect(evaluateAuth(input({ pathname: "/ws", origin: "tauri://localhost" })).allow).toBe(true);
   });
 
   it("remote with the valid token → allow", () => {
