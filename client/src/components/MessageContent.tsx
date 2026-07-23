@@ -1,5 +1,5 @@
 // VoiceMessagePlayer v2 - custom player for voice messages
-import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
+import React, { createContext, useContext, useDeferredValue, useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
@@ -481,10 +481,27 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
   // hljs is lazy (first code block kicks off the chunk): hljsReady flips once
   // when the tokenizers land so already-rendered plain blocks re-highlight.
   const hljsReady = useSyncExternalStore(subscribeHighlighter, highlighterReady);
+  // Highlighting a growing code block on EVERY streaming delta re-tokenizes the
+  // whole block each time (bounded by MAX_HIGHLIGHT_CHARS but still costly on big
+  // blocks). Feed hljs a DEFERRED copy of the content: React coalesces the
+  // intermediate values under load, so the tokenizer runs a handful of times
+  // instead of once per delta. While the deferred input trails the live text we
+  // render PLAIN (the `shownHtml` consistency guard below), so the block never
+  // shows a stale/truncated highlighted snapshot — it snaps to colour once the
+  // stream settles and the deferred value catches up.
+  const deferredContent = useDeferredValue(displayContent);
   const highlightedHtml = useMemo(
-    () => (showLineNumbers ? null : highlightCode(displayContent, language)),
-    [displayContent, language, showLineNumbers, hljsReady],
+    () => (showLineNumbers ? null : highlightCode(deferredContent, language)),
+    // hljsReady looks unused to the linter but is a deliberate cache-bust: the
+    // memo body calls highlightCode, which only produces colours once the async
+    // hljs chunk has loaded and flipped this flag — without the dep, blocks
+    // rendered before the load would stay plain forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deferredContent, language, showLineNumbers, hljsReady],
   );
+  // Only trust the highlighted HTML when it was built from exactly what we're
+  // about to render; otherwise fall back to plain current text.
+  const shownHtml = highlightedHtml !== null && deferredContent === displayContent ? highlightedHtml : null;
 
   return (
     <div className="code-block-wrapper">
@@ -530,8 +547,8 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
                 ))}
               </tbody>
             </table>
-          ) : highlightedHtml ? (
-            <span dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+          ) : shownHtml ? (
+            <span dangerouslySetInnerHTML={{ __html: shownHtml }} />
           ) : (
             displayContent
           )}
