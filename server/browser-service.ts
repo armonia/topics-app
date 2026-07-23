@@ -1027,6 +1027,21 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     },
 
     async navigate(id, url) {
+      // Scheme guard (LFI/SSRF defense-in-depth): a browser pane must never be
+      // driven to file:// / chrome:// from ANY caller. Only the agent-tool path
+      // was guarded (assertAgentNavAllowed); the direct REST `/navigate`, the
+      // `/screenshot?url=` route, and the co-browse WS `{type:'nav'}` all reach
+      // here with untrusted input. Choke-point here covers them all. http/https/
+      // about/data only; escape hatch BROWSER_ALLOW_ALL_SCHEMES=1 (mirrors the
+      // agent guard's override). about:/data: stay allowed (blank pane, data URLs).
+      if (process.env.BROWSER_ALLOW_ALL_SCHEMES !== "1") {
+        let scheme = "";
+        try { scheme = new URL(url).protocol.toLowerCase(); }
+        catch { throw new Error(`navigate: invalid URL "${url}"`); }
+        if (!new Set(["http:", "https:", "about:", "data:"]).has(scheme)) {
+          throw new Error(`navigate: scheme "${scheme}" not allowed (http, https, about, data)`);
+        }
+      }
       const entry = await service.getOrCreate(id);
       let navError: string | undefined;
       try {
