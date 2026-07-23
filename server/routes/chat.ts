@@ -20,7 +20,7 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
-import { insertCompactionMarker, backfillPostTokens } from "../db/compaction-markers";
+import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
@@ -1350,7 +1350,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               try {
                 resetStreamTimer();
                 compactedThisTurn = true;
-                const stored = insertCompactionMarker(ctx.db, {
+                const stored = insertCompactionMarkerIfNew(ctx.db, {
                   sessionKey,
                   topicId: matchedTopic?.id ?? null,
                   afterMessageId: partialMsg?.parentId ?? null,

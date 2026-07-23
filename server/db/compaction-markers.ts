@@ -62,6 +62,59 @@ export function insertCompactionMarker(
   return row;
 }
 
+/**
+ * Insert a marker UNLESS the session's most-recent marker already anchors to
+ * the same message. Repeated compactions inside a single turn share the same
+ * anchor (`partialMsg.parentId` — no new message is persisted between them), so
+ * a naive insert stacks several identical "context compacted" dividers at the
+ * exact same transcript position. They convey nothing a single boundary doesn't
+ * (same spot, same label) and make the chat look split into separate segments.
+ *
+ * On a same-anchor repeat we keep the existing boundary and only enrich its
+ * token counts if the repeat carries ones the original lacked, returning it so
+ * the caller re-broadcasts the SAME markerId (idempotent on the client). A
+ * different anchor (a new turn / new persisted message) inserts normally.
+ */
+export function insertCompactionMarkerIfNew(
+  db: Database,
+  input: {
+    sessionKey: string;
+    topicId?: string | null;
+    afterMessageId?: string | null;
+    marker: CompactionMarker;
+  },
+): StoredCompactionMarker {
+  const anchor = input.afterMessageId ?? null;
+  const latest = db
+    .prepare(
+      `SELECT * FROM compaction_markers WHERE session_key = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    )
+    .get(input.sessionKey) as Record<string, unknown> | undefined;
+  if (latest) {
+    const latestAnchor = latest.after_message_id != null ? String(latest.after_message_id) : null;
+    if (latestAnchor === anchor) {
+      const patch: string[] = [];
+      const params: Record<string, string | number> = { $id: String(latest.id) };
+      if (latest.pre_tokens == null && input.marker.preTokens != null) {
+        patch.push("pre_tokens = $pre");
+        params.$pre = input.marker.preTokens;
+      }
+      if (latest.post_tokens == null && input.marker.postTokens != null) {
+        patch.push("post_tokens = $post");
+        params.$post = input.marker.postTokens;
+      }
+      if (patch.length) {
+        db.prepare(`UPDATE compaction_markers SET ${patch.join(", ")} WHERE id = $id`).run(params);
+      }
+      const row = db
+        .prepare(`SELECT * FROM compaction_markers WHERE id = ?`)
+        .get(String(latest.id)) as Record<string, unknown>;
+      return mapRow(row);
+    }
+  }
+  return insertCompactionMarker(db, input);
+}
+
 function mapRow(r: Record<string, unknown>): StoredCompactionMarker {
   return {
     id: String(r.id),
