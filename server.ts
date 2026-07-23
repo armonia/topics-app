@@ -76,6 +76,7 @@ import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./ser
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
+import { isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
@@ -2106,13 +2107,99 @@ async function reconcileOrphanedBusyPhases(): Promise<void> {
   }
 }
 
+// ── Orphaned-transcript reconcile — un-stick topics whose session can't resume ──
+// A topic runs its Claude session in a cwd (its project, or a bound worktree);
+// Claude stores the transcript under ~/.claude/projects/<encoded-cwd>/<id>.jsonl.
+// When a bound worktree is later reaped the topic degrades to its base project
+// path (the FK nulls worktree_id) but its claude_code_sessions row still points
+// at a claude_session_id whose transcript lived under the *worktree* dir — gone
+// with the checkout. `--resume` in the base cwd then looks where the transcript
+// ISN'T and fails; the topic sits frozen on its last turn (the "quadra" freeze).
+// worktree-store.delete now forgets those sessions at reap time, but topics
+// orphaned BEFORE that fix — or by any other path that moves a cwd out from under
+// a session — still carry a doomed pointer. This boot sweep forgets any topic
+// session whose transcript is missing at the cwd the provider will actually use,
+// so its next turn spawns fresh in the base project (seeded with the DB history
+// recap). Visible chat + any on-disk transcript are untouched.
+const ORPHAN_TRANSCRIPT_GRACE_MS = 5 * 60 * 1000;
+function reconcileOrphanedTranscripts(): void {
+  // Never disturb a session a dispatched task is actively running.
+  const dispatcherClaimed = new Set<string>();
+  try {
+    const rows = ctx.db
+      .query(
+        "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
+      )
+      .all() as Array<{ t: string }>;
+    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
+  } catch (err) {
+    console.warn("[orphan-transcript] dispatcher claim query failed — skipping for safety:", err);
+    return;
+  }
+
+  let rows: Array<{ sk: string; csid: string | null; updated_at: string | null }> = [];
+  try {
+    rows = ctx.db
+      .query(
+        `SELECT s.session_key AS sk, s.claude_session_id AS csid, s.updated_at AS updated_at
+         FROM claude_code_sessions s
+         JOIN topics t ON t.session_key = s.session_key
+         WHERE s.claude_session_id IS NOT NULL AND (t.archived IS NULL OR t.archived = 0)`,
+      )
+      .all() as Array<{ sk: string; csid: string | null; updated_at: string | null }>;
+  } catch (err) {
+    console.warn("[orphan-transcript] query failed:", err);
+    return;
+  }
+
+  const now = Date.now();
+  let forgotten = 0;
+  for (const row of rows) {
+    if (!row.csid) continue;
+    if (dispatcherClaimed.has(row.sk)) continue;
+    const topic = ctx.getTopicBySessionKey(row.sk);
+    const cwd = ctx.resolveTopicCwd(topic);
+    if (
+      !isTranscriptOrphaned({
+        cwd,
+        claudeSessionId: row.csid,
+        updatedAtMs: row.updated_at ? Date.parse(row.updated_at) : 0,
+        nowMs: now,
+        graceMs: ORPHAN_TRANSCRIPT_GRACE_MS,
+        transcriptExists: existsSync,
+      })
+    )
+      continue;
+    // Provably unresumable: the transcript isn't where `--resume` will look.
+    try {
+      ctx.db.run("DELETE FROM claude_code_sessions WHERE session_key = ?", [row.sk]);
+    } catch (err) {
+      console.warn(`[orphan-transcript] failed to forget ${row.sk}:`, err);
+      continue;
+    }
+    claudeSessionTracker.dropTerminalSession(row.csid); // drop the in-mem cache copy
+    forgotten++;
+    console.log(
+      `[orphan-transcript] forgot unresumable session ${row.sk} (csid ${row.csid.slice(0, 8)}) — transcript gone at ${cwd}; next turn spawns fresh`,
+    );
+    // Nudge any client still holding a spinner/stream view (idempotent).
+    broadcastToAll({ type: "stream:end", sessionKey: row.sk, topicId: topic?.id, reason: "orphan_transcript_reconcile" });
+  }
+  if (rows.length > 0) {
+    console.log(`[orphan-transcript] scanned ${rows.length} topic session(s), forgot ${forgotten} unresumable`);
+  }
+}
+
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
 // child alive → they stay in the alive-set → reconcile skips them) and reaps
 // idle children (so reconcile's fresh list sees them dead → demotes their
 // phantom phase). Running it after avoids a race where a just-reaped session is
-// still listed alive.
+// still listed alive. The orphaned-transcript sweep runs last: reattach has by
+// then re-homed every survivor, so a missing transcript is proof of a dead cwd,
+// not of an unfinished adopt.
 reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedBusyPhases())
+  .then(() => reconcileOrphanedTranscripts())
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err));
 
 // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
