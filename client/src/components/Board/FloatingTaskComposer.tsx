@@ -85,8 +85,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
       requestAnimationFrame(() => restoreCursor(COMPOSER_CURSOR_KEY, taRef.current));
     }).catch(() => { draftLoaded.current = true; });
     return () => { alive = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- restore-once on mount
-  }, []);
+  }, []); // restore-once on mount
   useEffect(() => {
     if (!draftLoaded.current) return; // never clobber the server draft pre-restore
     boardDrafts.putComposer({ text, model, prio, planFirst });
@@ -114,6 +113,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
     };
     window.addEventListener('task-composer:focus', handleTaskComposerFocus);
     return () => window.removeEventListener('task-composer:focus', handleTaskComposerFocus);
+    // Re-subscribe only when `global` flips; loadProjects is called via the event
+    // and just refetches, so a captured reference is stale-safe (no need to churn
+    // the listener on every render its identity changes).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [global]);
   // The Menu portals to <body>, so focus leaves the wrapper while it's open —
   // keep the composer expanded anyway.

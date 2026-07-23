@@ -852,7 +852,7 @@ export function useChat() {
         }
         break;
     }
-  }, [appendToLastMessage, addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
+  }, [addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {

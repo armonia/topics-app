@@ -40,7 +40,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   // exactly the same UI as before this change.
   useEffect(() => {
     let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- external-data sync: clear stale worktree before the async re-fetch on (re)open
+    // external-data sync: clear stale worktree before the async re-fetch on (re)open
     setWorktree(null);
     if (!isOpen || !topic.worktreeId) return;
     worktreesApi.get(topic.worktreeId)
@@ -50,7 +50,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   }, [isOpen, topic.worktreeId]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot sync of controlled form fields from the topic prop on open / topic change
+    // one-shot sync of controlled form fields from the topic prop on open / topic change
     setProjectPath(topic.projectPath || '');
     setAutonomyLevel(topic.autonomyLevel || 'ask');
     setTopicName(topic.name);

@@ -691,6 +691,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     if (selected) { reflectTaskOpen({ taskId: selected.id }); return; }
     if (pendingSelect) return; // deep-link mid-flight — keep the URL
     reflectTaskClose();
+    // Depend on selectedId (primitive), NOT the `selected` object: its reference
+    // churns on every board refetch while the id is what actually gates the URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [global, selectedId, pendingSelect]);
 
   // Back/forward drive the drawer from history: the value-equality guard in
