@@ -184,11 +184,15 @@ describe('isBrowserWsMessage — backward-compat boolean guard', () => {
 });
 
 describe('schema completeness', () => {
-  test('all 6 protocol variants are present', () => {
+  test('all 17 protocol variants are present', () => {
     // Snapshot test: if a new variant is added to the schema, this count
     // must be updated — forcing the test author to also document it.
+    // Grew from 6 → 17 with the server↔pane co-browse control channel
+    // (resize, download, engine toggle, stream/render toggles, rrweb
+    // dom_event, and the WebRTC transport trio). See the frozen literal
+    // list in tests/unit/ws-contract.test.ts for the per-variant rationale.
     const variantCount = browserWsMessageSchema.options.length;
-    expect(variantCount).toBe(6);
+    expect(variantCount).toBe(17);
   });
 
   test('every variant uses a unique `type` literal', () => {
@@ -201,7 +205,12 @@ describe('schema completeness', () => {
     const unique = new Set(literals);
     expect(unique.size).toBe(literals.length);
     expect(unique).toEqual(
-      new Set(['frame', 'input', 'nav', 'agent_active', 'console', 'take_control']),
+      new Set([
+        'frame', 'input', 'nav', 'agent_active', 'console', 'take_control',
+        'resize', 'download', 'set_engine', 'engine', 'set_stream',
+        'set_render', 'render_mode', 'dom_event',
+        'webrtc_offer', 'webrtc_answer', 'webrtc_ice',
+      ]),
     );
   });
 });

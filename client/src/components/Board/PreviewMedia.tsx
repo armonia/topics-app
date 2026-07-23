@@ -8,8 +8,10 @@ import { getMediaUrl } from '../../lib/api';
 // so the suffix guard is defensive).
 const VIDEO_RE = /\.(webm|mp4|mov|m4v)(\?|#|$)/i;
 
-/** True when the preview media path is a video clip (a review recording). */
-export function isVideoMedia(path: string | null | undefined): boolean {
+/** True when the preview media path is a video clip (a review recording).
+ *  Local to this module (the only caller is the Lightbox below) — keeping it
+ *  unexported lets react-refresh treat the file as component-only. */
+function isVideoMedia(path: string | null | undefined): boolean {
   return !!path && VIDEO_RE.test(path);
 }
 

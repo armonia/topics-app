@@ -137,6 +137,10 @@ describe('client inbound registry contract', () => {
       'pong',
       'presence:windows',
       'stream:catchup',
+      // stream:compaction joined with the per-turn compaction marker — the
+      // server's "context was compacted here" divider the chat renders inline
+      // (collapsed to one marker per anchor client-side).
+      'stream:compaction',
       'stream:content_chunk',
       'stream:end',
       'stream:error',

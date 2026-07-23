@@ -913,6 +913,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
   // dead white pane. Non-framable → the DOM co-browse surface renders it instead.
   useEffect(() => {
     const url = state.url;
+    // Deliberate synchronous reset the instant the url changes: it clears the
+    // previous page's `framable` so a new page never flashes the old iframe
+    // before the async probe below resolves. Guarded (only when framable is
+    // true) so it's at most ONE extra render per navigation — not a loop. The
+    // async probe that follows is the effect's real reason to exist.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState(s => (s.framable ? { ...s, framable: false } : s));
     if (!url || !/^https?:\/\//i.test(url)) return;
     let cancelled = false;

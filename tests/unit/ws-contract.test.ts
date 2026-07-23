@@ -148,13 +148,33 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
     const types = browserWsMessageSchema.options.map((opt) =>
       objectSignature(opt).literalKeys.type,
     );
+    // Eleven variants joined the browser WS protocol since the 6-variant
+    // freeze, all additive (server↔pane co-browse control channel):
+    //   resize                              — pane viewport resize
+    //   download                            — a file download the pane offers
+    //   set_engine / engine                 — Native↔Chromium engine toggle + status
+    //   set_stream                          — screencast on/off
+    //   set_render / render_mode            — pixel vs DOM co-browse render toggle + status
+    //   dom_event                           — rrweb DOM co-browse event
+    //   webrtc_offer / webrtc_answer / webrtc_ice — shared-session WebRTC transport
     expect([...types].sort()).toEqual([
       'agent_active',
       'console',
+      'dom_event',
+      'download',
+      'engine',
       'frame',
       'input',
       'nav',
+      'render_mode',
+      'resize',
+      'set_engine',
+      'set_render',
+      'set_stream',
       'take_control',
+      'webrtc_answer',
+      'webrtc_ice',
+      'webrtc_offer',
     ]);
   });
 
@@ -261,22 +281,38 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
 // ----- Contract: tool-call-detail (NORM-01) ---------------------------------
 
 describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
-  test('exactly 11 variants', () => {
-    expect(toolCallDetailSchema.options.length).toBe(11);
+  test('exactly 18 variants', () => {
+    expect(toolCallDetailSchema.options.length).toBe(18);
   });
 
   test('discriminator literals are frozen', () => {
     const types = toolCallDetailSchema.options.map((opt) =>
       objectSignature(opt).literalKeys.type,
     );
+    // Seven variants joined since the original 11-variant freeze, each a real
+    // Claude Code tool now surfaced in the chat tool-call UI:
+    //   bash_output   — BashOutput (poll a backgrounded shell)
+    //   kill_shell    — KillShell (stop a backgrounded shell)
+    //   monitor       — Monitor (streaming watch events)
+    //   notebook_edit — NotebookEdit (Jupyter cells)
+    //   skill         — Skill invocation
+    //   slash_command — user-typed slash command
+    //   lsp           — LSP language-server query
     expect([...types].sort()).toEqual([
+      'bash_output',
       'edit',
       'fetch',
+      'kill_shell',
+      'lsp',
       'mcp',
+      'monitor',
+      'notebook_edit',
       'plan',
       'read',
       'search',
       'shell',
+      'skill',
+      'slash_command',
       'sub_agent',
       'todo',
       'unknown',
@@ -291,7 +327,9 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     if (!shell) throw new Error('shell variant missing');
     const sig = objectSignature(shell);
     expect(sig.requiredKeys).toEqual(['command', 'type']);
-    expect([...sig.optionalKeys].sort()).toEqual(['cwd', 'exitCode', 'output']);
+    // `background` joined the shell variant (a Bash run with run_in_background)
+    // — additive + optional, so backward-compatible with older clients.
+    expect([...sig.optionalKeys].sort()).toEqual(['background', 'cwd', 'exitCode', 'output']);
   });
 
   test('search.toolName enum is locked', () => {

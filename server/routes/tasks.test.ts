@@ -27,7 +27,8 @@ function freshDb(): Database {
     require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
     only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
     auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
-    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20
+    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
+    max_agents_auto INTEGER
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -349,9 +350,17 @@ describe("board router (human, project-scoped)", () => {
     // The root is back in the agent's hands…
     const got = await (await call(r, "GET", `/api/boards/pX/tasks/${root.id}`))!.json();
     expect(got.task.status).toBe("in_progress");
-    // …and a further step comment while it works does NOT re-kick again.
+    // …and a further step comment while it works is STILL handed to the same
+    // agent through resume(): the router delivers every human comment on a
+    // dispatched subtree via resume(), whether the root is in review (reject +
+    // re-kick) or already in_progress (steering). The buffer-vs-run split for
+    // an in_progress root — buffer mid-turn, continue if idle, never a fresh
+    // spawn — lives in the REAL dispatcher.resume() and is covered by its own
+    // tests; this fake only records that the delivery was routed.
     await call(r, "POST", `/api/boards/pX/tasks/${step.id}/comments`, { content: "nota a margine" });
-    expect(resumed.length).toBe(1);
+    expect(resumed.length).toBe(2);
+    expect(resumed[1][0]).toBe(root.id);
+    expect(resumed[1][1]).toContain("nota a margine");
   });
 
   test("comment with media reaches the thread AND the resumed agent (paths in the message)", async () => {

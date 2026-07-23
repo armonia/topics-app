@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { Database } from 'bun:sqlite';
-import { readFileSync, readdirSync, mkdtempSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, mkdirSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createClaudeSessionTracker, type ClaudeSessionTracker } from './claude-session-tracker';
@@ -335,6 +335,12 @@ describe('ClaudeSessionTracker — live JSONL tail (tailOnce)', () => {
     const history = userLine(T0 - 60_000) + assistantLine(T0 - 50_000) + userLine(T0 - 40_000);
     const file = join(dir, 'term-1.jsonl');
     writeFileSync(file, history);
+    // registerTerminalSession seeds phaseUpdatedAt from the transcript's mtime
+    // (so a stale --resume doesn't jump to the top of the sidebar). This test
+    // runs on a synthetic clock (T0), so the file's real wall-clock mtime would
+    // sit far in the FUTURE relative to T0 and causally gate out the appended
+    // line below. Pin mtime to T0 so the fake clock and the filesystem agree.
+    utimesSync(file, T0 / 1000, T0 / 1000);
 
     const trk = makeTracker(freshDb(), makeRecorder(), { homeDir: home });
     trk.registerTerminalSession('term-1', { cwd, now: T0 });
