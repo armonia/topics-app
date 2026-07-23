@@ -40,5 +40,25 @@ export function partitionMarkers(
       leading.push(mk);
     }
   }
+
+  // Collapse repeated boundaries at the same anchor to a single divider.
+  // Multiple compactions inside one turn share an anchor (see
+  // insertCompactionMarkerIfNew server-side); they render at the identical
+  // transcript position, so stacking N "context compacted" lines only makes the
+  // chat look split into separate segments while conveying nothing extra. Keep
+  // the richest marker (one carrying token deltas) so no real detail is lost.
+  for (const [id, arr] of byAfter) {
+    if (arr.length > 1) byAfter.set(id, [pickRichest(arr)]);
+  }
   return { leading, byAfter };
+}
+
+/** The most informative of same-anchor markers: prefer a pre→post token delta,
+ *  then a pre-token count, else the earliest (the array is createdAt-sorted). */
+function pickRichest(markers: CompactionMarker[]): CompactionMarker {
+  return (
+    markers.find((m) => m.preTokens != null && m.postTokens != null) ??
+    markers.find((m) => m.preTokens != null) ??
+    markers[0]
+  );
 }

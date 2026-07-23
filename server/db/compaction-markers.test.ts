@@ -4,6 +4,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import {
   insertCompactionMarker,
+  insertCompactionMarkerIfNew,
   getCompactionMarkersBySession,
   backfillPostTokens,
 } from "./compaction-markers";
@@ -61,6 +62,40 @@ describe("compaction-markers persistence", () => {
     // A second backfill with no new pending marker is a no-op (doesn't overwrite).
     backfillPostTokens(db, "sk4", 999);
     expect(getCompactionMarkersBySession(db, "sk4")[0].postTokens).toBe(42);
+  });
+
+  test("insertCompactionMarkerIfNew collapses repeats at the same anchor", () => {
+    const first = insertCompactionMarkerIfNew(db, {
+      sessionKey: "sk7",
+      afterMessageId: "m1",
+      marker: { trigger: "auto", preTokens: 150_000 },
+    });
+    // Same anchor within the turn → no new row; the boundary is enriched, not duplicated.
+    const again = insertCompactionMarkerIfNew(db, {
+      sessionKey: "sk7",
+      afterMessageId: "m1",
+      marker: { trigger: "auto", postTokens: 40_000 },
+    });
+    expect(again.id).toBe(first.id);
+    const rows = getCompactionMarkersBySession(db, "sk7");
+    expect(rows.length).toBe(1);
+    expect(rows[0].preTokens).toBe(150_000);
+    expect(rows[0].postTokens).toBe(40_000); // enriched from the repeat
+  });
+
+  test("insertCompactionMarkerIfNew inserts when the anchor advances", () => {
+    insertCompactionMarkerIfNew(db, { sessionKey: "sk8", afterMessageId: "m1", marker: { trigger: "auto" } });
+    insertCompactionMarkerIfNew(db, { sessionKey: "sk8", afterMessageId: "m1", marker: { trigger: "auto" } });
+    // New turn → new anchor → a genuinely distinct boundary is recorded.
+    insertCompactionMarkerIfNew(db, { sessionKey: "sk8", afterMessageId: "m2", marker: { trigger: "auto" } });
+    const rows = getCompactionMarkersBySession(db, "sk8");
+    expect(rows.map(r => r.afterMessageId)).toEqual(["m1", "m2"]);
+  });
+
+  test("insertCompactionMarkerIfNew collapses consecutive null anchors too", () => {
+    insertCompactionMarkerIfNew(db, { sessionKey: "sk9", marker: { trigger: "auto" } });
+    insertCompactionMarkerIfNew(db, { sessionKey: "sk9", marker: { trigger: "auto" } });
+    expect(getCompactionMarkersBySession(db, "sk9").length).toBe(1);
   });
 
   test("backfillPostTokens returns the updated marker (for re-broadcast), else null", () => {
