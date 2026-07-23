@@ -28,12 +28,24 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
 
     const body = method === "POST" ? await readJSON(req) : {};
     const urlParams = url.searchParams;
-    // Parse defensively: a malformed query param (?limit=abc) yields NaN, and
-    // `sliced.slice(-NaN)` coerces to slice(0) → the ENTIRE thread ships,
-    // silently defeating pagination. Clamp to a finite, sane range instead.
-    const limitN = Number(body?.limit ?? urlParams.get('limit') ?? '50');
+    const rawLimit = body?.limit ?? urlParams.get('limit');
+    const hasExplicitLimit = rawLimit !== undefined && rawLimit !== null && rawLimit !== '';
+    const limitN = Number(rawLimit);
+    // "Complete thread" is the default the chat pane needs: an EXPLICIT
+    // non-positive limit (the chat sends limit:0) means "no cap, return the
+    // whole conversation" — a fixed ceiling silently dropped the head of long
+    // topics and the chat rendered "tagliata". A positive limit stays an
+    // explicit pagination request (the last `limit` messages), clamped to 500
+    // as a safety valve for THOSE callers only. Absent/malformed limit keeps
+    // the legacy 50 default (defends the ?limit=abc → slice(-NaN)=slice(0)
+    // pitfall) so other callers are unaffected.
+    const wantsAll = hasExplicitLimit && Number.isFinite(limitN) && limitN <= 0;
+    const limit = wantsAll
+      ? Infinity
+      : (hasExplicitLimit && Number.isFinite(limitN))
+        ? Math.min(Math.max(1, Math.trunc(limitN)), 500)
+        : 50;
     const offsetN = Number(body?.offset ?? urlParams.get('offset') ?? '0');
-    const limit = Number.isFinite(limitN) ? Math.min(Math.max(1, Math.trunc(limitN)), 500) : 50;
     const offset = Number.isFinite(offsetN) ? Math.max(0, Math.trunc(offsetN)) : 0;
 
     const localMsgs = loadLocalMessages(sessionKey);
@@ -76,7 +88,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     if (completeMsgs.length > 0) {
       const total = completeMsgs.length;
       const sliced = offset > 0 ? completeMsgs.slice(0, Math.max(0, total - offset)) : completeMsgs;
-      const result = sliced.slice(-limit);
+      const result = wantsAll ? sliced : sliced.slice(-limit);
       const currentStream = isStreaming(sessionKey);
 
       // Overlay in-memory stream content onto the last assistant message
@@ -103,11 +115,14 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     // Fallback: Provider history
     try {
       const histProvider = providerForSessionKey(sessionKey);
+      // `limit` is Infinity when the caller asked for the complete thread; the
+      // migration providers need a finite fetch bound, so cap it generously.
+      const fallbackFetch = wantsAll ? 1000 : limit + offset;
       let data: any;
       if (histProvider.invokeTool) {
-        data = await histProvider.invokeTool("sessions_history", { sessionKey, limit: limit + offset, includeTools: false });
+        data = await histProvider.invokeTool("sessions_history", { sessionKey, limit: fallbackFetch, includeTools: false });
       } else if (histProvider.getHistory) {
-        data = await histProvider.getHistory(sessionKey, limit + offset);
+        data = await histProvider.getHistory(sessionKey, fallbackFetch);
       }
       const gatewayMessages = data?.result?.messages || data?.result?.details?.messages || [];
       if (gatewayMessages.length > 0) {
@@ -120,7 +135,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
         const migrated = loadLocalMessages(sessionKey);
         const total = migrated.length;
         const sliced = offset > 0 ? migrated.slice(0, Math.max(0, total - offset)) : migrated;
-        return json({ messages: sliced.slice(-limit), total });
+        return json({ messages: wantsAll ? sliced : sliced.slice(-limit), total });
       }
     } catch (err) { console.warn(`[Messages] Gateway migration failed for ${sessionKey}:`, err); }
 
@@ -152,7 +167,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
             for (const msg of messages) appendLocalMessage(sessionKey, msg.role, msg.content);
             const total = messages.length;
             const sliced = offset > 0 ? messages.slice(0, Math.max(0, total - offset)) : messages;
-            return json({ messages: sliced.slice(-limit), total });
+            return json({ messages: wantsAll ? sliced : sliced.slice(-limit), total });
           }
         }
       }
