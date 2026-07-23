@@ -280,7 +280,7 @@ test.describe("Layout & Navigation", () => {
     expect(tabCountBeforeReload).toBeGreaterThanOrEqual(1);
 
     // Reload the page -- clears in-memory state, forces load from persistence
-    await page.reload({ waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "load" });
 
     // Re-open the same project
     await layoutPage.openProject(/topics-app/i);

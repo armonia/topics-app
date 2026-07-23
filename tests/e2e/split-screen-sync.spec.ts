@@ -187,7 +187,7 @@ test.describe("Split Screen Sync & Correctness", () => {
       )
       .toContain("solo:");
 
-    await page.reload({ waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "load" });
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
       state: "visible",
       timeout: 15000,
@@ -303,7 +303,7 @@ test.describe("Split Screen Sync & Correctness", () => {
             .toBe(true);
 
           // Reload
-          await page.reload({ waitUntil: "networkidle" });
+          await page.reload({ waitUntil: "load" });
           await page.waitForSelector('[aria-label="Topics sidebar"]', {
             state: "visible",
             timeout: 15000,
@@ -481,7 +481,7 @@ test.describe("Split Screen Sync & Correctness", () => {
     await page.waitForTimeout(3000);
 
     // Reload
-    await page.reload({ waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "load" });
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
       state: "visible",
       timeout: 15000,
