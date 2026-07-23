@@ -883,7 +883,6 @@ export function useChat() {
       addMessage(sessionKey, { role: 'user', content, timestamp: new Date().toISOString() });
       if (!streamQueueRef.current[sessionKey]) streamQueueRef.current[sessionKey] = [];
       streamQueueRef.current[sessionKey].push({ content, options });
-      console.log(`[useChat] Message queued (send-locked) for ${sessionKey} — will auto-send on stream:end`);
       return true;
     }
     acquireSendLock(sessionKey);
@@ -1155,7 +1154,6 @@ export function useChat() {
         // Queue for auto-send on stream:end
         if (!streamQueueRef.current[sessionKey]) streamQueueRef.current[sessionKey] = [];
         streamQueueRef.current[sessionKey].push({ content, options });
-        console.log(`[useChat] Message queued for ${sessionKey} — will auto-send on stream:end`);
         return true; // Return true since we accepted the message
       }
 
@@ -1683,7 +1681,6 @@ export function useChat() {
           // Still in-flight: assistant is streaming (partial) or user msg was already un-queued (partial: false)
           const inFlight = msgsAfter.some(m => m.role === 'assistant') || isSendLocked(item.sessionKey);
           if (alreadyDelivered || inFlight) {
-            console.log(`[useChat] Skipping queued message (${alreadyDelivered ? 'delivered' : 'in-flight'}) for ${item.sessionKey}`);
             continue;
           }
         }
