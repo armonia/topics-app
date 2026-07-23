@@ -1974,6 +1974,14 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       const id = body.id || crypto.randomUUID();
       const timestamp = body.timestamp || new Date().toISOString();
       const sortOrder = body.sortOrder ?? Date.now();
+      // Default the parent to the session's current last message so seeded
+      // threads stay linked. Without this a seeded message lands with parent_id
+      // NULL — a second root — and loadActiveThread treats the roots as branches
+      // and renders the thread truncated. Tests that build branch trees can
+      // still pass an explicit parentId (or null) to override.
+      const seedParentId = body.parentId !== undefined
+        ? body.parentId
+        : ((db.prepare(`SELECT id FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`).get(body.sessionKey) as any)?.id ?? null);
       try {
         db.prepare(`
           INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
@@ -1988,7 +1996,7 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           $media: body.media ? JSON.stringify(body.media) : null,
           $timestamp: timestamp,
           $sort_order: sortOrder,
-          $parent_id: body.parentId || null,
+          $parent_id: seedParentId,
           // Branch index — defaults to 0 (linear thread). Tests seed sibling
           // branches (same parent, distinct index) to exercise the branch-
           // navigation UI without driving a provider-backed edit.
