@@ -2,7 +2,7 @@ import { expect } from "@playwright/test";
 import { test } from "./fixtures/command-palette.fixture";
 import { createTopic, cleanupAll, deleteTopic, patchTopic } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
-import { ensureTopicVisible } from "./helpers";
+import { ensureTopicVisible, goToApp } from "./helpers";
 
 test.describe("Command Palette", () => {
   const TS = Date.now();
@@ -24,7 +24,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     await commandPalettePage.open();
 
@@ -44,7 +44,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Open palette and verify it's visible
     await commandPalettePage.open();
@@ -62,7 +62,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // The empty-state palette no longer renders a flat option list — it shows
     // two sparse columns (Ultimi progetti | Chiuse di recente) that can hold
@@ -100,7 +100,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Search for a specific topic by partial name
     await commandPalettePage.search("CmdAlpha");
@@ -141,7 +141,7 @@ test.describe("Command Palette", () => {
     await page.addInitScript(() => {
       localStorage.setItem("app-settings", JSON.stringify({ enableNewChat: true }));
     });
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // --- Part A: Theme toggle ---
     // Theme + Settings moved from result options into ActionPill <button>s in
@@ -207,7 +207,7 @@ test.describe("Command Palette", () => {
       })
     );
 
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Test 1: The palette search mechanism (shared by file results) surfaces a
     // seeded topic as an option — same option/listbox structure files use.
@@ -246,7 +246,7 @@ test.describe("Command Palette", () => {
     commandPalettePage,
     page,
   }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Mock the search API BEFORE opening palette
     await page.route("**/api/search", (route) =>
@@ -365,7 +365,7 @@ test.describe("Command Palette", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-01" });
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // The theme control is the "Theme" ActionPill in the palette's bottom bar
     // (CommandPalette.tsx). Clicking it advances themeMode light→dark→system
@@ -412,7 +412,7 @@ test.describe("Command Palette", () => {
       })
     );
 
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Open palette and search for a file
     await commandPalettePage.search("App");
@@ -461,7 +461,7 @@ test.describe("Command Palette", () => {
       });
     });
 
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Open palette
     await commandPalettePage.open();
@@ -507,7 +507,7 @@ test.describe("Command Palette", () => {
       })
     );
 
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Search for something that returns both action and message results
     await commandPalettePage.search("test");
@@ -554,7 +554,7 @@ test.describe("Command Palette", () => {
       })
     );
 
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Open palette and search for message content
     await commandPalettePage.search("Navigation target");
@@ -579,7 +579,7 @@ test.describe("Command Palette", () => {
   test("CMD-08: Cmd+/ opens keyboard shortcuts modal with all shortcut groups", async ({
     page,
   }) => {
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Press Cmd+/ to open keyboard shortcuts modal
     await page.keyboard.press("Meta+/");
@@ -646,7 +646,7 @@ test.describe("Command Palette", () => {
         data: { order: [idA, idB], pinned: [idA, idB] },
       }).catch(() => {}),
     ]);
-    await page.goto("/", { waitUntil: "networkidle" });
+    await goToApp(page);
 
     // Nest the layout via the tab context menu (Split Down → vertical stack).
     const tab = page.locator('[role="main"] [draggable="true"]').first();

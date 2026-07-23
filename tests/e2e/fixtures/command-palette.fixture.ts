@@ -12,7 +12,19 @@ export class CommandPalettePage {
   }
 
   async open() {
-    await this.page.keyboard.press("Meta+k");
+    // open()'s contract is "the palette is now open". The global Cmd+K handler
+    // occasionally drops the first synthetic keypress while focus is still
+    // settling right after navigation, which surfaced as a flaky "palette not
+    // visible". Press-then-wait with one retry; the 2.5s window is wide enough
+    // that a slow-but-real open is caught BEFORE a second press (Cmd+K toggles,
+    // so double-pressing an open palette would close it). A final waitFor still
+    // throws a clear error if it genuinely never opens — so a real regression
+    // (handler unbound) still fails the test rather than being masked.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await this.page.keyboard.press("Meta+k");
+      if (await this.overlay.waitFor({ state: "visible", timeout: 2500 }).then(() => true).catch(() => false)) return;
+    }
+    await this.overlay.waitFor({ state: "visible", timeout: 3000 });
   }
 
   async close() {
