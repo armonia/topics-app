@@ -4,8 +4,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.2.0 — 2026-07-23
 
+### Novità
+- **security** · auth-gate su /api,/ws,/preview — loopback-trusted + token + anti-CSRF
+
 ### Correzioni
 - perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri
+- **ux** · ContextMenu topic in IT + verbo unico "Archivia" + via console.log diagnostici
+- **ux** · toast d'errore sul fallimento-commit di archive/close (PendingAction)
+- **security** · scheme-guard su TUTTI i navigate del browser (LFI/SSRF)
 
 ### Sotto il cofano
 - test/lint: riallinea 12 test-drift al contratto corrente + lint 0 errori

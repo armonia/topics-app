@@ -3,11 +3,28 @@
     "version": "2.2.0",
     "date": "2026-07-23",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "text": "auth-gate on /api,/ws,/preview — loopback-trusted + pairing token + anti-CSRF",
+          "scope": "security"
+        }
+      ],
       "fixes": [
         {
           "text": "markdown re-parse O(n^2) fixed + no more spurious notification-permission prompt on Tauri",
           "scope": null
+        },
+        {
+          "text": "topic context menu localized + single \"Archive\" verb + diagnostic console.logs removed",
+          "scope": "ux"
+        },
+        {
+          "text": "error toast when an archive/close commit fails (PendingAction)",
+          "scope": "ux"
+        },
+        {
+          "text": "scheme guard on ALL browser navigations (LFI/SSRF)",
+          "scope": "security"
         }
       ],
       "perf": []
