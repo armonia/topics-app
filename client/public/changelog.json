@@ -35,14 +35,56 @@
           "en": "scheme guard on ALL browser navigations (LFI/SSRF)",
           "scope": "security",
           "breaking": false
+        },
+        {
+          "it": "gate anche /media/ (read remota-senza-token dei file ~/.topics/media)",
+          "en": "gate /media/ too — blocks token-less remote reads of ~/.topics/media files",
+          "scope": "security",
+          "breaking": false
         }
       ],
-      "perf": [],
+      "perf": [
+        {
+          "it": "hljs highlight deferito in streaming + split chunk dnd-kit",
+          "en": "syntax highlighting deferred while streaming + dnd-kit code-split into its own chunk",
+          "scope": "client",
+          "breaking": false
+        }
+      ],
       "internal": [
         {
           "it": "test/lint: riallinea 12 test-drift al contratto corrente + lint 0 errori",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "includi i fix 2.2 post-bump (ux + sicurezza) con EN",
+          "en": "",
+          "scope": "changelog",
+          "breaking": false
+        },
+        {
+          "it": "test/fix(suite): unit-suite deterministica e verde (2804/0), niente hang",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "azzera i 17 warning eslint del client (0 warning, 0 errori)",
+          "en": "",
+          "scope": "lint",
+          "breaking": false
+        },
+        {
+          "it": "allinea topic-management alle label IT del ContextMenu (2.2)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "fix branch-nav — semina radici-sorella con parentId:null esplicito",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
         }
       ]
     }

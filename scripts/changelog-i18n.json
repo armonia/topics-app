@@ -1493,5 +1493,7 @@
   "x64ArchFiles for universal merge — v1.0.3": "x64ArchFiles for universal merge — v1.0.3",
   "Zod schema for ToolCallDetail union — NORM-01 foundation": "Zod schema for ToolCallDetail union — NORM-01 foundation",
   "Zod validation for /ws main channel inbound — WS-01 extension": "Zod validation for /ws main channel inbound — WS-01 extension",
-  "Zod validation for /ws/browser/:contextId protocol — WS-01 partial": "Zod validation for /ws/browser/:contextId protocol — WS-01 partial"
+  "Zod validation for /ws/browser/:contextId protocol — WS-01 partial": "Zod validation for /ws/browser/:contextId protocol — WS-01 partial",
+  "gate anche /media/ (read remota-senza-token dei file ~/.topics/media)": "gate /media/ too — blocks token-less remote reads of ~/.topics/media files",
+  "hljs highlight deferito in streaming + split chunk dnd-kit": "syntax highlighting deferred while streaming + dnd-kit code-split into its own chunk"
 }
