@@ -75,6 +75,17 @@ function writeFakeCli(name: string, body: string): string {
   return p;
 }
 
+/** Poll `pred` until true or `timeoutMs` elapses — a deterministic replacement
+ *  for fixed sleeps that raced against a real subprocess on loaded machines. */
+async function waitFor(pred: () => boolean | Promise<boolean>, timeoutMs: number, intervalMs = 25): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await pred()) return;
+    if (Date.now() > deadline) throw new Error(`waitFor: condition not met within ${timeoutMs}ms`);
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
 describe("claude-code provider · reattach", () => {
   test("mid-generation: provider B adopts the live turn and completes it (partial replayed, not re-run)", async () => {
     // Fake CLI: emit an assistant partial, sleep, then the result. The reattach
@@ -82,7 +93,7 @@ describe("claude-code provider · reattach", () => {
     setEnv("TOPICS_CLAUDE_CLI_PATH", writeFakeCli("fake-midgen.sh",
       `read line
 printf '{"type":"assistant","message":{"content":[{"type":"text","text":"partial-answer"}]}}\\n'
-sleep 0.6
+sleep 2
 printf '{"type":"result","result":"final-answer","usage":{"input_tokens":1,"output_tokens":1},"duration_ms":1,"total_cost_usd":0}\\n'`));
     const sessionKey = "topic:reattach-midgen";
     seedTopic(sessionKey, "t-midgen");
@@ -91,18 +102,27 @@ printf '{"type":"result","result":"final-answer","usage":{"input_tokens":1,"outp
     const provA = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
     const hA = makeHandler();
     provA.sendChat(sessionKey, "hello", hA.handler).catch(() => { /* A dies at restart */ });
-    await new Promise((r) => setTimeout(r, 250)); // let the partial land
+
+    // Deterministic sync instead of a fixed sleep: wait until the partial NDJSON
+    // has actually landed in the daemon store (endOffset grows past 0). The CLI
+    // sleeps 2s before the result, so this poll resolves well inside the
+    // mid-generation window on any machine — no reliance on wall-clock timing.
+    const bridge = (await import("../lib/ai-bridge-client")).getAiBridgeClient();
+    await waitFor(async () => ((await bridge.list()).find((s) => s.id === sessionKey)?.endOffset ?? 0) > 0, 8000);
 
     // "Restart": provider B reattaches to the surviving daemon session.
     const provB = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
     expect(await provB.hasLiveSession(sessionKey)).toBe(true);
     const hB = makeHandler();
     const outcome = await provB.reattach(sessionKey, hB.handler);
+    // reattach ADOPTS the live turn and returns immediately with its state; wait
+    // for the turn to actually finish (onDone/onError/onAborted) before asserting.
+    expect(["live", "awaiting-input"]).toContain(outcome);
+    await hB.done;
 
     expect(hB.err).toBeNull();
     expect(hB.result as string | null).toBe("final-answer");
     expect(hB.text).toContain("partial-answer"); // replay rebuilt the partial
-    expect(["live", "awaiting-input"]).toContain(outcome);
   }, 20000);
 
   test("completed-while-down: replay carries the result → onDone fires, outcome 'completed', no re-run", async () => {

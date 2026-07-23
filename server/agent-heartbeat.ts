@@ -188,6 +188,12 @@ export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object
   // Run immediately once, then on interval
   check();
   const timer = setInterval(check, HEARTBEAT_CHECK_INTERVAL_MS);
+  // Background maintenance timer — must never keep the process alive on its own
+  // (the server stays up via Bun.serve; tests that start the checker without
+  // disposing it were leaking a ref'd interval that intermittently blocked
+  // teardown). Matches the .unref() convention used by the other background
+  // timers (status.ts, processes.ts, terminal.ts, claude-session-tracker.ts).
+  if (typeof timer.unref === "function") timer.unref();
 
   console.log("[Heartbeat] Checker started (every 30s, stale threshold: 2min)");
   // Return a disposer so the caller can stop the checker on shutdown — the
