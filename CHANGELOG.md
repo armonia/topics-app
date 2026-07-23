@@ -1,0 +1,2544 @@
+# Changelog
+
+_Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
+
+## 2.1.127 — 2026-07-23
+
+### Novità
+- **board** · preview di review garantita — il server promuove l'evidenza del commento di consegna
+- **chat** · tool call experience — running sincronizzato all'utilizzo reale, gruppi con conteggi+highlights, durate, hljs nei card
+- **dev** · hot-reload su richiesta — niente più reload a sorpresa
+- **board** · apri il risultato del task come tab browser nel workspace
+- **board** · file consegnati come lista scaricabile + apribili come tab
+- **chat** · card tipizzate per Monitor, BashOutput, KillShell, NotebookEdit, Skill, SlashCommand, LSP + Bash in background
+- **chat** · strip sticky del todo corrente sopra il composer (CHAT-TODO-01)
+- **chat** · compaction del contesto visibile e persistente (CHAT-COMPACT-01)
+- **chat** · indicatore di turno giocoso + scroll-anchor all'invio
+- **notifications** · notifica a fine task sull'edge verso review
+- **browser** · default nativo WKWebView sul desktop (fine del mirror lento by-default)
+- **chat** · rendi il multi-select nella card AskUserQuestion
+- **chat** · tempo coerente — rollup a ore + footer via formatDurationMs
+- **chat** · tracciamento contesto — delta pre→post compaction + comando /context
+- **browser** · auto-share cross-device (nativo da solo, condiviso quando un altro device guarda)
+- **chat** · autocomplete degli slash custom nel composer (/vai, /commit, …)
+- **browser** · pausa stream e traccia WebRTC per le pane non visibili (P3-3b)
+- **sidebar** · "da quanto è l'ultimo aggiornamento" su righe chat e progetti
+- **sidebar** · i sotto-agenti spawnati da una chat si annidano sotto la chat
+- **chat** · strip sotto-agenti nel topic da cui partono
+- **recovery** · boot-reconcile dimentica le sessioni con transcript orfano
+- **changelog** · changelog per-versione — modale in-app (IT) + pagina sul sito (EN)
+
+### Correzioni
+- **start-prod** · settle di 10s dopo il SIGTERM di hot-reload — mai più SIGTERM al server durante l'init
+- **chat** · ogni evento provider bumppa lastActivity dello stream — StaleStream non falcia più i turni tool-heavy
+- **server** · handler di segnale early — un SIGTERM durante l'init non uccide più il processo con 143
+- **chat** · reattach a due fasi — scan muto della coda dello store, attach live solo dal turno aperto
+- **board** · elimina lo scroll-escape che nasconde il drawer TaskDetail su mobile
+- **browser** · navigate MIRATO alla pane target — con gli split le pane browser navigavano in lockstep
+- **board** · Rifiuta/Approva prendono la nota scritta + composer del drawer auto-grow
+- **chat** · stream degli args parziali durante la generazione dell'input del tool
+- **browser** · screenshot su file + path, mai base64 nel contesto
+- **board** · la deep-link /task/<id> apre il drawer anche a boot freddo (corsa con l'hydrate)
+- **browser** · typing echo live nel co-browse — rrweb sampling.input 'last'→'all'
+- **webrtc** · reap del sidecar orfano prima di respawnare — stop all'accumulo CPU
+- **browser** · localhost non-framable → DOM co-browse, non iframe bianco
+- **browser** · bridge di input robusto su WKWebView — stop ai link che scappano nel browser di sistema
+- **worktree-gc** · reap i branch squash-landed, non solo gli antenati
+- **tauri** · il nav-guard non apre più i link del browser pane in Dia
+- **chat** · la chat non perde piu' il messaggio — finalizzazione turno solida
+- **chat** · niente piu' tool 'running' all'infinito quando il turno muore
+- **chat** · pulizia al boot dei tool 'running' orfani (spinner infinito)
+- **chat** · finalizza anche i tool 'pending' orfani (oltre a 'running')
+- **chat** · finalizza i tool orfani anche nella colonna blocks (spinner infinito)
+- **browser** · cattura input nel frame principale per il co-browse DOM (WKWebView-safe)
+- **pwa** · self-heal dei bundle stantii (fine di "index non trovato")
+- **chat** · il watchdog non uccide più un turno vivo (parità CLI)
+- **chat** · slash /model, /effort, /reasoning su claude-code (niente più 400)
+- **browser** · il pane nativo non si conta come viewer (stop al reset ogni 2s)
+- **chat** · il turno foreground sopravvive al restart del server (reload-survival)
+- **sidebar** · ordina i terminal Claude Code per attività reale, non createdAt
+- **panes** · chiusura browser cross-device propagata live (tab non resta sulla PWA)
+- **chat** · fold del riassunto di auto-compaction (gestione a livello UI)
+- **panes** · anche la chiusura browser GLOBALE scrive il tombstone cross-device
+- **chat** · un solo indicatore di turno (gate sull'ultimo messaggio)
+- **chat** · il topic si aggiorna quando si scrive, non solo su rename/archivio
+- **chat** · re-ancora lo scroll al cambio altezza del composer e fix clip shimmer
+- **terminal** · l'attività ricalcolata al riavvio usa l'mtime del transcript, non ora
+- **sessions** · riconcilia al boot le phase "working" orfane, niente più chat ferme un'ora
+- **claude-code** · il reaper di inattività non uccide più un turno vivo
+- **claude-code** · il timeout del turno è per inattività, non a muro dei 30min
+- **desktop** · chiedi l'Accessibility una sola volta, non a ogni avvio
+- **chat** · la chat non perde l'aggancio allo scroll durante lo streaming
+- **chat** · il topic si aggiorna a fine turno, non solo su POST utente
+- **chat** · lo scroll-up in streaming rilascia subito il pin (niente trappola in fondo)
+- **terminal** · mostra overlay 'Sessione terminata' + Riprendi invece di pane vuota
+- **terminal** · guardia eta' >10s per l'overlay 'Sessione terminata'
+- **chat** · sveglia il topic quando un sotto-agente MCP termina
+- **sidebar** · allinea il tempo di chat e progetti su updatedAt (coerenza)
+- **sidebar** · mostra "agg. X fa" sulla riga progetto (era l'unica senza)
+- **chat** · il sotto-agente sveglia la chat col risultato reale, anche via /stop
+- **subagent** · il seed del prompt verifica la consegna e ri-invia se swallowed
+- **subagent** · il seed verifica l'ECHO del prompt nel composer e ri-digita
+- **chat** · il thread non si tronca più con radici duplicate
+- **chat** · riallinea il thread della pane aperta su topic:updated
+- **chat** · carica l'intero thread (limite 500) invece dei soli ultimi 100
+- **chat** · il thread caricato è SEMPRE completo, niente tetto fisso
+- **chat** · niente divider di compattazione duplicati che spezzano la chat
+- **worktree** · reap dimentica le sessioni Claude dei topic legati (no orfani-da-reap)
+- **sessions** · spegni il fantasma 'tocca a te' quando la sessione è dimenticata
+
+### Prestazioni
+- **chat** · coalescing per-frame dei delta live + clamp degli output enormi
+
+### Sotto il cofano
+- **panes** · regressione — la finestra detached non scrive MAI il pane-store condiviso
+- **board** · BOARD-13 — Rifiuta con nota porta la nota nel thread e il composer auto-cresce
+- **chat** · fix purezza ElapsedTimer (lint) + archive openspec chat-tool-experience
+- **board** · allinea BOARD-11 al link path-based e rendi BOARD-14 robusto all'ordine
+- **board** · E2E 'Apri nel workspace' + allinea BOARD-11 al deep-link path-based
+- **openspec** · proposta chat-claude-code-parity — la chat come rimpiazzo pieno di Claude Code CLI
+- **openspec** · aggiunge CHAT-PERF-01 (perf streaming) ed estende le card tipizzate ai tool oggi unknown
+- **browser** · proposta openspec host-nativo + co-browse cross-device, con spike motore
+- **browser** · Fase 1 — decisione substrato host nativo + piano esecutivo file-level
+- **browser** · registra il flip default nativo anticipato in Fase 1
+- **e2e** · harness due-device + regressione chiusura browser cross-device
+- **chat** · rimuove la preview dei comandi sotto il wrap azioni
+- **e2e** · regressione finestra history — topic >100 msg carica la testa
+
+## 2.1.126 — 2026-07-20
+
+### Correzioni
+- **chat** · le chat sopravvivono a hot-reload e auto-compact — detach nel broker + reattach al boot + watchdog liveness
+- **browser** · enableDomMode cavalca la prima navigazione — niente video forzato quando set_render e nav arrivano insieme
+- **chat** · sweep di boot selettivo — riadotta solo i turni a metà, reap-a i figli broker idle/orfani
+- **chat** · il segnale mid-turn dello sweep va catturato PRIMA del reset dei partial al boot
+- **chat** · il reset dei partial al boot risparmia le sessioni con figlio vivo nel broker
+- **panes** · finestra detached read-only verso il pane-store condiviso
+
+## 2.1.125 — 2026-07-20
+
+### Correzioni
+- **browser** · createContext single-flight — la race al primo tocco orfanava il context col recorder DOM
+
+## 2.1.124 — 2026-07-20
+
+### Correzioni
+- **browser** · il DOM mode regge late-joiner e reconnect — takeFullSnapshot su recorder vivo + bundle idempotente
+
+## 2.1.123 — 2026-07-20
+
+### Novità
+- **browser** · il mirror DOM è nativamente interattivo — selezione testo, hover, scroll locale istantaneo
+
+## 2.1.122 — 2026-07-20
+
+### Correzioni
+- **board** · drawer espanso full-screen se troppo stretto, due colonne senza tagli
+
+## 2.1.121 — 2026-07-20
+
+### Novità
+- **board** · lightbox per l'evidenza di review (immagine + video) sovrafinestra
+- **board** · drawer a due colonne responsive (wide desktop)
+- **board** · ID del task copiabile nella card, dopo il progetto
+- **board** · ID memorabile (slug) nella card E nel drawer, allineato + copiabile
+
+### Correzioni
+- **board** · drawer non più schiacciato — info scrollabile + preview modesta
+- **board** · chiudere una browser-tab di un task si propaga cross-device
+- **browser** · nascondi il cursore replay di rrweb in modalità DOM — niente dot che rincorre il mouse (feel nativo, non streaming)
+
+## 2.1.120 — 2026-07-20
+
+### Novità
+- **browser** · auto-fallback a DOM quando il video WebRTC fallisce cross-device
+- **browser** · sessione condivisa + DOM di default su Mac (Opzione A)
+- **browser** · sposta lo switch Nativo↔Server nel menu ⋯ (non è "Condividi")
+- **board** · video-evidenza di review (clip Playwright/spec-flow), non solo screenshot
+
+### Correzioni
+- **board** · ritira anche la tab stranded su /login quando manca lo screenshot
+- **board** · un task in review non è mai 'working' → niente doppio input feedback
+- **tauri** · ⌘R ricarica l'app anche con focus in un pane/terminale
+- **board** · l'agente non propone più 'Landa e pubblica' — publish separato (protocollo #6)
+
+## 2.1.119 — 2026-07-20
+
+### Novità
+- **board** · anteprima della consegna anche nel drawer del task — immagine intera (object-contain), click per aprirla piena
+- **kanban** · review-ready previews — live preview server + screenshot evidence per task
+- **browser** · protocollo canale DOM — varianti set_render/render_mode/dom_event additive (T1 stadio A)
+- **browser** · canale DOM lato server — inietta rrweb on-demand, fan-out dom_event, bootstrap late-join (T1 stadio B)
+- **browser** · DOM co-browse lato client — Replayer rrweb nativo, toggle DOM/video, fallback su errore video, input gated agent-lock (T1 stadio C)
+
+### Correzioni
+- **board** · includi i file untracked nella diff di review del task
+- **reload** · banner su bundle bloccato, chip versione a runtime, apply SW in waiting
+- **desktop** · getMediaUrl assoluto via serverHttpBase — <img> non passa dal fetch shim
+- **browser** · rrweb DOM revocabile — stop recording quando nessuno guarda, niente addInitScript permanente (review commit B)
+- **browser** · maschera esplicita dei campi password nel DOM stream (hardening review)
+- **browser** · inietta rrweb via CDP Runtime.evaluate (esente da CSP) — la modalità DOM restava su video sui siti con Content-Security-Policy
+- **board** · review parte dallo screenshot, non dal dev-server login-gated
+
+### Sotto il cofano
+- **cobrowse** · DOM streaming rrweb — browser vero non video, riusabile co-op+multi-sessione
+- **cobrowse** · live-check del broker — fan-out, gate co-op, isolamento multi-sessione (7/7 verde)
+- **data** · media di Topics sotto ~/.topics (legacy ~/.openclaw in fallback)
+- **browser** · DOM co-browse verificato — server browser reale (bootstrap+incrementali+revoca) + e2e client (ricostruzione nativa+input); buffer dom_event pre-mount (T1 stadio D)
+
+## 2.1.118 — 2026-07-20
+
+### Correzioni
+- **mobile** · niente split nei progetti su mobile — flatten dei gruppi in una tab-strip unica
+- **shell** · Cmd+R/Reload ricarica la finestra FOCUSSATA, non sempre 'main'
+
+### Sotto il cofano
+- **mobile** · guard — un progetto collassa in una tab-strip unica su telefono
+
+## 2.1.117 — 2026-07-20
+
+### Novità
+- **board** · anteprima della consegna sulla card — preview_image (migration 055) + thumbnail allowlist-gated
+
+### Correzioni
+- **browser** · il select-element (Cmd+Shift+E) mappa sulla superficie <video> WebRTC, non sull'<img> rimosso
+
+### Sotto il cofano
+- **browser** · allinea la suite E2E alla superficie <video> WebRTC + stato condiviso a due viewer
+
+## 2.1.116 — 2026-07-19
+
+### Novità
+- **browser** · toggle 'Condividi sessione' sul Mac — la pane passa dalla WKWebView nativa allo stream server-side che telefono/web vedono live (stessa sessione)
+
+## 2.1.115 — 2026-07-19
+
+### Novità
+- **statusbar** · badge 'auto' quando il dev-reload è attivo (senza popup)
+- **board** · card — cluster agent in alto a dx, priorità inline, checklist in review
+- **browser** · protocollo signaling WebRTC (webrtc_offer/answer/ice) su /ws/browser
+- **browser** · sidecar webrtc-bridge di produzione (attach-to-target, track condivisa, keepalive)
+- **browser** · broker server WebRTC — spawn lazy del sidecar + relay SDP/ICE su /ws/browser
+- **browser** · render path WebRTC client — <video> shared-session, negozia su WS, fallback JPEG (opt-in)
+- **browser** · WebRTC unico transport (default-ON, zero JPEG) — iframe dove frameable, video altrimenti, errore+Riprova
+
+### Correzioni
+- **browser** · il pane streaming (web/mobile) naviga su initialUrl quando il contesto server è vuoto
+- **browser** · nascondi il badge 'Live' quando la pagina è in errore
+- **browser** · togli la chip 'Live' e non seminare url locali morte
+- **board** · de-affolla il cluster in alto a dx della card
+- **browser** · keyframe WebRTC su timer wall-clock (1s) — pagine statiche non restavano nere (fame di IDR a conteggio frame)
+- **browser** · negozia WebRTC su nav/url, non sul primo frame JPEG — evita spinner infinito 'Avvio sessione condivisa'
+- **webrtc** · risolvi il deadlock del sidecar che wedgiava la sessione condivisa
+
+### Sotto il cofano
+- **dev** · proxy target di Vite configurabile via VITE_PROXY_TARGET
+- **dev** · script build:client:watch per rebuild client gestito (Processi Topics)
+- **browser** · misura tetto fps CDP screencast (90+fps, no docker WebRTC-over-CDP)
+- **browser** · client CDP in Rust — screencast ack-gated a 60fps (stage 1 sidecar WebRTC)
+- **browser** · transport WebRTC H.264 end-to-end (webrtc-rs+openh264, no docker) — validato
+- **browser** · prova fan-out N-viewer WebRTC (stessa sessione condivisa) — validato N=2,3
+
+## 2.1.114 — 2026-07-19
+
+### Novità
+- **board** · l'agente può proporre anche "Landa e pubblica" (merge + push/deploy)
+
+### Prestazioni
+- **browser** · pausa lo screencast headless quando il pane web è in iframe-mode
+
+## 2.1.113 — 2026-07-19
+
+### Novità
+- **browser** · discover installed Chrome/Dia extensions for the Chromium sidecar
+- **browser** · il sidecar Chromium carica le estensioni installate dell'utente (Opzione 1)
+- **browser** · attiva l'engine switch lato server dietro flag TOPICS_CHROMIUM_ENGINE
+- **browser** · toggle Native↔Chromium nel pane web + remount sull'engine switch
+- **board** · scorpora Approva dal landing; l'agente propone "Landa su main", tu decidi
+
+### Correzioni
+- **security** · SSRF guard on framing probe + force-download untrusted browser downloads
+- **browser** · drop download links whose href isn't under /media/browser/downloads/
+- **dispatch** · mirror del commento anche in auto-consegna a review senza commento fresco
+- **dispatch** · l'agente è obbligato a commentare a ogni consegna, niente più mirror finto
+
+### Sotto il cofano
+- **browser** · guida di attivazione drop-in dell'engine switch (parte LIVE, task 54601eeb)
+- **browser** · la guida engine switch riflette steps 1-3 cablati (flag off), resta solo il LIVE
+
+## 2.1.112 — 2026-07-19
+
+### Novità
+- **browser** · T2 — native iframe render mode for framable sites (CodePen-style)
+- **board** · conteggio messaggi umani sulla card (interazioni nel thread, esclusa l'AI)
+
+## 2.1.111 — 2026-07-19
+
+### Novità
+- **server** · broker ai-bridge default-on (opt-out), off solo su Windows
+- **board** · sessione = lavoro (Passaggi + reasoning coerente con la chat), riga-modalità sul composer
+- **dispatch** · a fine turno l'agent lascia sempre un commento di consegna
+- **board** · orario ultimo aggiornamento sul task + colonna review ordinata per aggiornamento
+- **notify** · il click sulla notifica di completamento apre il task
+- **browser** · native-grade web streaming pane — responsive viewport+HiDPI, WS reconnect, console/download
+
+### Correzioni
+- **board** · nascondi il composer anche mentre scrivi nella quick-reply della card
+- **board** · le colonne arrivano fino in fondo (via desktop e mobile)
+- **board** · nascondi i turni umani/dispatcher dai Passaggi della sessione
+- **board** · il composer del task resta sopra la tastiera su mobile
+
+### Sotto il cofano
+- **spike** · neko/WebRTC co-op transport evaluation + LAN PoC artifacts
+- **spike** · neko/WebRTC co-op transport decision doc (moved from docs/, which is gitignored)
+
+## 2.1.110 — 2026-07-19
+
+### Correzioni
+- **board** · niente tasto espandi sul drawer mobile + 'Board' compatto su phone
+- **board** · nascondi il composer 'Descrivi un task' quando un task è aperto
+- **board** · una navigazione fallita non azzera più l'URL seminato della tab
+
+## 2.1.109 — 2026-07-18
+
+### Novità
+- **board** · drawer mobile = full-overlay sopra la topbar + swipe-to-close
+
+### Correzioni
+- **board** · l'output consegnato è una normale tab browser, non 'Output'
+
+## 2.1.108 — 2026-07-18
+
+### Novità
+- **board** · header responsive + colonna Review più larga anche su mobile
+- **board** · scroll-snap delle colonne a tutti i breakpoint (anche desktop)
+- **board** · steering del task in corso + stato allineato al progetto + accordion spazio di lavoro
+
+## 2.1.107 — 2026-07-18
+
+### Novità
+- **board** · nascondi sezioni vuote + menu opzioni ⋯ nel drawer
+
+## 2.1.106 — 2026-07-18
+
+### Novità
+- **board** · Kanban mobile = carosello scroll-snap, review non più sticky
+
+### Sotto il cofano
+- **board** · accordion del drawer coerenti (Descrizione/Sottotask/Modifiche)
+
+## 2.1.105 — 2026-07-18
+
+### Novità
+- **board** · descrizione e sottotask collassabili, Modifiche fuori dalla chat
+
+## 2.1.104 — 2026-07-18
+
+### Sotto il cofano
+- **board** · il drawer replica il layout della card
+
+## 2.1.103 — 2026-07-18
+
+### Sotto il cofano
+- **board** · header del drawer a una riga come la card
+
+## 2.1.102 — 2026-07-18
+
+### Correzioni
+- **board** · il drawer del task scrolla e i chip dell'header vanno a capo
+
+## 2.1.101 — 2026-07-18
+
+### Novità
+- **board** · il drawer del task usa UNA sola GroupLayout (una tab bar sola)
+
+## 2.1.100 — 2026-07-18
+
+### Correzioni
+- **board** · la striscia sotto la descrizione mostra solo le schede chiuse
+
+## 2.1.99 — 2026-07-18
+
+### Novità
+- **board** · store task-scoped per il layout browser + soft-close delle tab
+- **board** · browser del task sul motore di layout reale + anteprima riapribile
+- **board** · striscia browser sempre presente sotto la descrizione con + come entry point utente
+
+### Correzioni
+- **desktop** · auto-update salta i build debug (no swap del cargo run con la release)
+
+### Sotto il cofano
+- **openspec** · proponi task-browser-real-layout (tabbar browser sul motore di layout reale)
+- **dispatcher** · rimuovi il segnale morto 'fuzzy' dal model-picker
+
+## 2.1.98 — 2026-07-18
+
+### Novità
+- **browser** · registro engine per-pane — acquire/release ref-counted del sidecar (server-half dell'engine switch)
+- **board** · tab browser di proprietà del task nel drawer (dietro flag)
+- **board** · multi-tab per il browser del task (+ / chiudi / attivo)
+- **board** · browser di proprietà del task — fork agente + label inventario
+- **desktop** · auto-update silenzioso opt-in per la shell in dev locale
+
+### Correzioni
+- **board** · tab Output non più bianca su URL irraggiungibile + pagina demo
+- **browser** · chiudi le pane aperte da un terminale (no più ghost)
+
+### Sotto il cofano
+- **browser** · catalogo performance del pane (subtask #4) grounded sul codice
+
+## 2.1.97 — 2026-07-18
+
+### Novità
+- **sessions** · reaper per sessioni headless abbandonate — running→dormant senza segnale PTY
+- **board** · path-based deep-links /task/<uuid> (drop ?task=slug~uuid)
+- **dispatch** · gate di quiescenza — restart pianificati non tagliano turni in volo
+- **ai-bridge** · daemon broker a pipe pulite con store durevole offset-addressable
+- **ai-bridge** · client singleton verso il daemon (spawn/attach/write/signal/kill)
+- **ai-bridge** · provider dietro flag TOPICS_AI_BRIDGE — turni via broker
+- **ai-bridge** · reattach a metà turno nel provider (4 casi)
+- **ai-bridge** · cablaggio reattach — reconcile, chat route, runHeadlessReattach
+- **worktree** · GC periodico dei worktree — fix all'origine del pile-up
+- **server** · niente auto-restart su approve; hot-reload graceful opt-in
+
+### Correzioni
+- **dispatch** · il reap su 'nothing' salta i worktree con modifiche non committate
+- **tauri** · stop global ⌘-tap monitor crashing on every focus-out
+- **dispatch** · coaching allegati dice la dir giusta (~/.openclaw/media, non uploads)
+- **board** · deep-link ?task= affidabile + URL che riflette il drawer
+- **board** · ~ separator literal nel link ?task= (niente %7E)
+- **dispatch** · pavimento a sonnet nel model-picker — haiku solo giudice, mai esecutore
+- **ai-bridge** · dispose() disarma l'auto-reconnect (no respawn del daemon al teardown)
+- **ai-bridge** · EBADF store-write — chiudi il fd in onDead, non in kill; gitignore store dir
+- **provider** · spawn la sessione nel cwd del topic, non in HOME
+- **chat** · interruzione/exit puliti non sono errori (come Claude Code)
+- **board** · colonna Review sticky con backdrop opaco su mobile
+- **claude-code** · sessione CLI persa non è più un crash-loop del dispatch
+
+### Prestazioni
+- route per-token deltas to topic subscribers, memo Card, delta-scan localhost
+
+### Sotto il cofano
+- auto-regen hooks + graph-age in the context hint
+- install hooks into shared .git/hooks (robust vs global/broken hooksPath override)
+- show model once, inside the time/effort chip
+- **ai-bridge** · isola TOPICS_AI_BRIDGE_SOCKET nel test-server (come il PTY)
+- **prod** · source ~/.topics-server-env se presente (flag locali per-macchina, non nel repo)
+- env audit Fase A: dedupe alias, rimuovi PTY bridge Node legacy, docs/ENV.md
+- dead-code sweep — knip config + report, remove converters.ts & duplicate toolIcon.ts
+- env audit Fase B: promuovi toggle comportamento a Settings store + UI
+- void→.catch(log) sui path umani + warn throttled sui catch load-bearing
+- syncWS LWW gate + claude-code per-session serial queue
+- **board** · estrai il cluster TaskDetail + Card/Composer/Picker da KanbanBoardPane
+
+## 2.1.96 — 2026-07-17
+
+### Correzioni
+- **client** · stop al loop di reload da index cacheato — reload cache-busted + cap tentativi
+
+## 2.1.95 — 2026-07-17
+
+### Correzioni
+- **provider** · complete() non restituisce più lo stream-json grezzo come risposta
+
+## 2.1.94 — 2026-07-17
+
+### Correzioni
+- **dispatch** · il self-restart post-landing aspetta che la coda merge si svuoti
+
+## 2.1.93 — 2026-07-17
+
+### Novità
+- **scripts** · watch-board-tasks — watcher dei task board per sessioni Claude Code
+- **tauri** · global right-⌘ tap focuses the task composer
+- **dispatch** · radici della consegna — gate commit su review, reap worktree post-merge, landing area-aware
+
+## 2.1.92 — 2026-07-17
+
+### Correzioni
+- **dispatch** · parseTier non è più haiku-biased — match esatto, poi prima occorrenza
+
+## 2.1.91 — 2026-07-17
+
+### Correzioni
+- **dispatch** · il reject resetta il budget tentativi (nuovo ciclo di lavoro)
+
+## 2.1.90 — 2026-07-17
+
+### Novità
+- **board** · UN solo cap globale specificato (auto o numero), via il cap per-progetto
+
+## 2.1.89 — 2026-07-17
+
+### Novità
+- **browser** · sidecar Chromium on-demand — backbone dell'engine switch del pane
+
+### Correzioni
+- **board** · il chevron settings è attaccato al testo 'Board generale', nudo
+
+## 2.1.88 — 2026-07-17
+
+### Novità
+- **dispatch** · approve → merge su main + rebuild client se tocca client/
+- **board** · hotkey Cmd+Shift+; per aprire il task composer
+- **board** · il tap del ⌘ destro apre il task composer (sostituisce ⌘⇧;)
+
+### Correzioni
+- **board** · search e chip filtro alla STESSA altezza (h-6 esplicita)
+- sticky review column con max-h-screen su mobile
+- **board** · larghezze colonne kanban di nuovo FISSE su desktop (w-72/w-80)
+- **board** · search a larghezza fissa (niente allargamento al focus) + dropdown globale = solo chevron
+
+### Sotto il cofano
+- Responsive design: Kanban sticky columns + mobile layout
+
+## 2.1.87 — 2026-07-16
+
+### Sotto il cofano
+- **board** · via la pill 'agent: on/off' (duplicava il dropdown) + search alta come i chip
+
+## 2.1.86 — 2026-07-16
+
+### Correzioni
+- **routes** · /api/system/dispatch-capacity era irraggiungibile (dead code)
+
+## 2.1.85 — 2026-07-16
+
+### Novità
+- **board** · cap agent GLOBALE (machine-wide) + dropdown settings su ogni header
+
+## 2.1.84 — 2026-07-16
+
+### Novità
+- **voice** · scaffolding task vocali — dialog + status bar + store (WIP)
+
+### Correzioni
+- **terminal** · crea il socket set se manca invece di perdere la connessione
+
+### Sotto il cofano
+- **tauri-browser** · handler WS nominati + removeEventListener in cleanup
+
+## 2.1.83 — 2026-07-17
+
+### Novità
+- **board** · il composer si allunga al focus (min-h 4.5rem), non resta a 1 riga
+
+### Correzioni
+- **desktop** · la finestra non perde più la posizione a relaunch/aggiornamento — geometria in punti LOGICI + save su ExitRequested
+
+### Sotto il cofano
+- **project-icon** · resolver condiviso reattivo — una probe per path, tutte le superfici insieme
+
+## 2.1.82 — 2026-07-17
+
+### Correzioni
+- **project-icon** · recovery via fetch→blob quando la <img> fallisce ma fetch passa
+
+### Sotto il cofano
+- **project-icon** · log [icon] con ua/referer/sec-fetch-dest per diagnosi requester
+
+## 2.1.81 — 2026-07-17
+
+### Novità
+- **chat** · lo scroll delle chat sopravvive al reload — chiave device-local + preserve nell'hydrate
+
+### Correzioni
+- **project-icon** · purge 'none' persistito subito + TTL breve sui none non verificati
+
+## 2.1.80 — 2026-07-17
+
+### Novità
+- **composer** · preserva cursore/selezione oltre l'hot reload — chat + board
+- **project-icon** · favicon data-URI inline + fuzzy scan nomi brand
+
+### Correzioni
+- **dispatch** · al riavvio del server i task working RIPRENDONO la stessa sessione, non ripartono da zero
+
+## 2.1.79 — 2026-07-16
+
+### Sotto il cofano
+- **project-icon** · via il monogramma — solo icona reale o zero ingombro
+
+## 2.1.78 — 2026-07-16
+
+### Sotto il cofano
+- **board** · filtri con i picker Menu del composer, via l'opzione auto
+- **sidebar** · e2e icone progetto (monogramma + favicon reale) + testid sul monogramma
+
+## 2.1.77 — 2026-07-16
+
+### Novità
+- **board** · cap agent 'Auto' dimensionato dalle risorse macchina
+- **project-icon** · monogramma deterministico per progetti senza favicon
+
+## 2.1.76 — 2026-07-16
+
+### Sotto il cofano
+- **layout** · rimuovi dead code ProjectWindow/ProjectHeader
+
+## 2.1.75 — 2026-07-16
+
+### Correzioni
+- **project-icon** · risoluzione favicon estesa + stop cache 'none' persistita
+
+## 2.1.74 — 2026-07-16
+
+### Novità
+- **board** · selettore modello nel dettaglio task + header card ripulito
+
+## 2.1.73 — 2026-07-16
+
+### Novità
+- **board** · filtri inline nella top bar (via l'imbuto)
+
+## 2.1.72 — 2026-07-16
+
+### Novità
+- **board** · diff unificato stile GitHub su Pubblica e sui task
+
+### Correzioni
+- **dispatch** · standard auto opus-first nel classificatore modelli
+
+## 2.1.71 — 2026-07-16
+
+### Novità
+- **board** · icona 'consegnato' + chip modello reale sui task
+- **board** · controllo 'Pubblica' — push/deploy per-progetto dalla board
+- **board** · standard modello per-board + anteprima commit su Pubblica
+
+### Correzioni
+- **panes** · persisti la tab Board — 'board'/'kanban' mancavano dalla whitelist sanitize
+- **board** · il modello sul task risolve sempre dal topic se non pinnato
+
+## 2.1.70 — 2026-07-16
+
+### Correzioni
+- **version** · il chip mostra la versione del CLIENT in esecuzione, non della shell
+
+## 2.1.69 — 2026-07-16
+
+### Correzioni
+- **board** · le card non sforano piu la colonna con token lunghi
+
+## 2.1.68 — 2026-07-16
+
+### Correzioni
+- **ci** · sana i lint client che tenevano rosso il job 'check'
+
+## 2.1.67 — 2026-07-16
+
+### Correzioni
+- **board** · la route board settings persiste dispatchAutoMerge
+- **dispatch** · auto-heal dei binding morti — un task in todo legato a un topic reaped riparte
+
+### Sotto il cofano
+- **ws** · allinea il contratto REGISTERED_INBOUND_TYPES a ui:bundle-rev
+
+## 2.1.66 — 2026-07-16
+
+### Novità
+- **board** · auto-merge opt-in su Approva (programmatico + AI sui conflitti)
+
+## 2.1.65 — 2026-07-16
+
+### Correzioni
+- **cmd-palette** · 'Apri Progetto' apre il picker, non onOpenProject senza path
+
+## 2.1.64 — 2026-07-15
+
+### Novità
+- **board** · filtri Kanban + header task ridisegnato
+
+## 2.1.62 — 2026-07-15
+
+### Correzioni
+- **desktop** · hot-reload solido — niente SW sotto Tauri + no-store sul disk-serve
+- **desktop** · hot-reload deterministico su ogni launch (login-item incluso)
+
+## 2.1.60 — 2026-07-15
+
+### Sotto il cofano
+- **git** · ignora artefatti runtime del worktree (.topics-daemon, ui-state-backups)
+
+## 2.1.59 — 2026-07-15
+
+### Correzioni
+- **board** · togli robottino inline + include WIP task-surface (altra sessione)
+
+## 2.1.58 — 2026-07-15
+
+### Novità
+- **board** · piano leggibile + task senza progetto girano di nuovo, senza label
+
+## 2.1.57 — 2026-07-15
+
+### Correzioni
+- **dispatch** · niente catch-all 'generale' e niente plan-first automatico
+
+## 2.1.55 — 2026-07-15
+
+### Novità
+- **chat** · Context Inspector come popover sul composer (era pannello laterale)
+- **board** · metriche live sulle card — modello · tempo-esecuzione · token
+- **dispatch** · chip 'fallito'/'da sistemare' distinti dallo stop; restart non brucia il retry budget
+- **board** · toggle 'piano prima' su task esistente (PATCH planFirst)
+- **dispatch** · un task lavorato ma non consegnato va in review, non 'fallito'
+- **board** · tab 'Piano' nel task + descrizioni md formattate + tempo live coi secondi
+- **dispatch** · ottimizzazione consumo token — MCP snella, envelope lean, retry cap 2
+
+### Correzioni
+- **board** · kanban pulito — selettore senza plumbing interno, catch-all standalone al primo livello
+- **daemon** · server singleton solido — worktree isolato + porta esclusiva
+- **board** · anteprima card senza markdown grezzo
+- **board** · la card renderizza il markdown del commento agent (era grezzo)
+- **server** · index.html con Cache-Control no-store (desktop non più stantìo)
+- **board** · card senza taglio/fade + testo domanda leggibile
+- **board** · moveToProject azzera lo stato di dispatch stantìo
+- **dispatch** · agent catch-all trova il proprio task via topic legato, non via cwd
+- **board** · nascondi la label 'senza progetto' sulle card
+
+### Sotto il cofano
+- Project selector: enrich descriptions, fix layout shift, separate Open/Create buttons
+
+## 2.1.54 — 2026-07-14
+
+### Novità
+- **board** · workspace per-task splittabile (Stage 1) + deep-link apribile
+
+### Correzioni
+- **db** · persisti Topic.standalone (migration 044) — non era MAI salvato
+
+## 2.1.53 — 2026-07-14
+
+### Novità
+- **dispatcher** · 'modello auto' = classificatore LLM veloce, non più default fisso
+
+## 2.1.52 — 2026-07-14
+
+### Novità
+- **board** · tab-sessione temporanea (preview) + sessioni catch-all standalone, mai sotto un 'generale' fantasma
+
+## 2.1.51 — 2026-07-14
+
+### Novità
+- **board** · Esc chiude il drawer, review espansa non taglia la board, link al task copiabile
+
+### Sotto il cofano
+- **e2e** · BOARD-11 — Esc chiude il drawer + copy-link deep-link
+
+## 2.1.50 — 2026-07-14
+
+### Sotto il cofano
+- **design** · input-glass meno chiaro (bianco 3.5% dark / 35% light)
+
+## 2.1.49 — 2026-07-14
+
+### Correzioni
+- **design** · input = vetro CHIARO, non glass-surface scuro
+
+## 2.1.48 — 2026-07-14
+
+### Novità
+- **design** · anche la bolla input chat nel tier vetro
+
+## 2.1.47 — 2026-07-14
+
+### Novità
+- **design** · chat topics + kanban nel tier frosted — via lo sfondo opaco, ereditano la vibrancy
+
+## 2.1.46 — 2026-07-14
+
+### Novità
+- **dev-reload** · bundle rev — reload solo su cambio reale + freshness check alla connessione WS
+
+### Correzioni
+- **board** · drawer come fratello di layout — la kanban si stringe e scrolla, mai tagliata; card cliccata tenuta in vista
+
+## 2.1.45 — 2026-07-14
+
+### Correzioni
+- **board** · URL assoluti verso l'opener esterno — via il 'browser topics' fantasma
+
+### Sotto il cofano
+- **links** · assolutizzazione in openExternalOnce — un punto solo per tutti i chiamanti
+
+## 2.1.44 — 2026-07-14
+
+### Correzioni
+- **board** · anteprima chiudibile, PDF visibile (viewer non sandboxato per /api/media), consegne autoconsistenti
+
+## 2.1.43 — 2026-07-14
+
+### Correzioni
+- **board** · tasti espandi/chiudi sempre visibili nel drawer stretto; link esterni via opener Tauri
+
+## 2.1.42 — 2026-07-14
+
+### Novità
+- **board** · gli allegati sono l'output — anteprima a destra, click in-app
+
+### Correzioni
+- **board** · allegati agent mai zittiti + apri-sessione dalla board generale + review 32rem
+
+## 2.1.41 — 2026-07-14
+
+### Novità
+- **board** · draft persistiti lato server — composer e risposte nel drawer
+
+## 2.1.40 — 2026-07-14
+
+### Correzioni
+- **board** · review card a tutta larghezza, descrizione e ultima parola più leggibili
+
+## 2.1.39 — 2026-07-14
+
+### Correzioni
+- **board** · via il pallino-priorità dallo slot fisso; target minimi per tasti e icone
+
+## 2.1.38 — 2026-07-14
+
+### Novità
+- **board** · colonna Review larga + backoff sui turni morti all'istante
+
+## 2.1.37 — 2026-07-14
+
+### Novità
+- **board** · mai 'senza progetto' — l'auto ricade nel catch-all 'generale'
+
+## 2.1.36 — 2026-07-14
+
+### Correzioni
+- **board** · task senza progetto in Todo — chip ambra 'assegna un progetto per partire'
+
+## 2.1.35 — 2026-07-14
+
+### Correzioni
+- **board** · refetch al risveglio della finestra — il ticker non conta più le ore di sleep
+
+## 2.1.34 — 2026-07-13
+
+### Correzioni
+- **board** · i chip auto dicono DI COSA sono auto; via 'Nessun progetto' dal picker
+
+## 2.1.33 — 2026-07-13
+
+### Novità
+- **board** · progetto 'Auto' + chip compatti + composer più largo
+
+## 2.1.32 — 2026-07-13
+
+### Novità
+- **board** · priorità come concetto vero — coda per priorità, selettori, 'automatica' valutata dall'agent
+
+### Correzioni
+- **board** · 'Intelligenza automatica' al posto di 'Auto', via footer modello, flush cache icone v4
+
+## 2.1.31 — 2026-07-13
+
+### Sotto il cofano
+- **ui** · niente monogramma lettera — solo favicon/standard reali o nulla
+
+## 2.1.30 — 2026-07-13
+
+### Novità
+- **board** · task annidati a cascata illimitata + commenti agent brevi
+- **ui** · ogni progetto ha sempre un'icona — favicon/manifest reale o monogramma
+- **board** · step checklist dell'agent + superficie di review del task (KANBAN-08/09)
+- **board** · consegna mai muta — agent → review richiede un suo commento
+- **board** · feedback UI del dettaglio — StatusIcon Linear-style, identità agent neutra, loading ovunque, drawer live
+- **board** · thread per step — rispondere su un sottotask ri-kicka l'agent
+- **board** · step-add = assegnazione, resume bufferizzato mid-turn, edit inline, errori nel drawer
+- **board** · selettore progetto nell'intestazione del task — sposta, apri, nuovo
+- **board** · 'serve te' vs 'finito (AI)' + review actions nella zona domande, header arioso
+- **board** · composer flottante + stop dell'agent + plan-first + sessione inline
+- **board** · allegati nei commenti task — stessa pipeline della chat
+- **board** · interruttore di start globale + composer con selettore progetto Menu
+- **board** · storico stato nel thread, selettore stato nel drawer, effort agent (tempo+token), DnD posizionale
+- **board** · anteprima live dello streaming nel drawer mentre l'agent lavora
+- **board** · continuità sessione su timeout, dipendenze blocked-by, model per-task
+- **board** · composer con autocomplete progetto e modello, deps UI, markdown, favicon
+- **board** · task senza progetto + icona progetto sempre visibile (monogramma)
+
+### Correzioni
+- **session-tracking** · AskUserQuestion/ExitPlanMode nel tail JSONL = ambra, mai spinner
+- **ui+server** · tab chat come le altre (brand provider, no icona decorativa) + favicon progetti aperti
+- **board** · dispatch funzionante sui progetti reali + feedback visibile ovunque
+- **board** · claim senza placeholder topic — la FK su assigned_topic_id lo vietava
+- **context** · awareness block punta al worktree per i topic worktree-bound
+- **ui** · niente icona sulle chat topic — brand solo sui terminali Claude Code/Codex
+- **board** · question quick-reply solido (formato server-side) + utility tab in sidebar
+- **board** · commento dal drawer su review agent-driven = risposta (reject+resume)
+- **board** · iframe output senza allow-same-origin (sandbox bypass verso l'app)
+- **ui** · bump icon cache v2->v3 — flush stale 'none' che nascondevano favicon vere
+- **board** · messaggi agent senza card né titolo, edit inline senza layout shift
+- **ui** · version popover non esce più dallo schermo (clamp left nel viewport)
+- **sidebar** · mai PUT prima dell'idratazione — un client fresco azzerava i pin di tutti
+- **ws** · stream:end schema fedele — messageId opzionale (+reason/topicId/usage)
+- **sidebar** · click su un browser dentro un progetto ora focussa la SUA tab
+- **chat** · soft-timeout stream 120s → 60s per feedback più rapido
+- **board** · allegati filtrati sull'allowlist di /api/media in SCRITTURA
+- **board+core** · resolver progetti anti-husk, ragionamento a fette nel drawer, API no-store
+- **board** · il selettore progetto non collassa più il composer (WebKit)
+- **board** · i sottotask non sono card (feed root-only) e mai dispatch-eligible; chip pulito su done
+- **dispatch+boot** · retry budget azzerato dal drag umano in Todo; niente più vite build al boot
+- **board** · drag affidabile — la card sorgente non vola più, overlay in portal
+- **board** · drop mirato — pointer-first collision (colonna vuota non perde più contro le card vicine)
+- **board** · padding bilanciato nel composer collassato
+- **board** · anteprima streaming SUL blocco sessione, non sotto lo spinner
+- **board** · topic agent nascono chiusi — niente tab auto in tabbar
+
+### Sotto il cofano
+- **board** · e2e robusti — probe dei trigger +, exact-match Approva, timeout cold-start
+- **openspec** · stato kanban-agent-authoring aggiornato post fix FK + isolamento worktree
+- **openspec** · stato aggiornato — nesting, question server-side, comment cap, sidebar utility
+- **ui** · niente monogramma progetti — icona reale (favicon/manifest) o nulla, mai forzata
+- **openspec** · anteprima live dello streaming nel delta KANBAN-09
+
+## 2.1.29 — 2026-07-12
+
+### Correzioni
+- **browser** · broadcast nav/response su ogni page load, non solo nav client (#26)
+
+## 2.1.28 — 2026-07-12
+
+### Correzioni
+- **browser** · il contesto ricreato riapre l'ultima pagina, non about:blank (#25)
+
+## 2.1.27 — 2026-07-12
+
+### Correzioni
+- **web** · parity sidebar Fissati + sanitize sidebar-state + tastiera mobile (#24)
+
+## 2.1.26 — 2026-07-12
+
+### Correzioni
+- **db** · saveSingleTopic non cancella più il mapping --resume della chat (#23)
+
+## 2.1.25 — 2026-07-12
+
+### Correzioni
+- **browser** · niente flash dei pane nativi all'apertura di un dropdown (#22)
+
+## 2.1.24 — 2026-07-12
+
+### Correzioni
+- **chat** · render + tool UX unificata, modello per-topic allo spawn, tracking live e pane-sync causale (#21)
+
+## 2.1.23 — 2026-07-12
+
+### Novità
+- **chat** · selettore effort per-topic + tool MCP per guidare le chat Topics (#20)
+
+## 2.1.22 — 2026-07-12
+
+### Prestazioni
+- **sidebar** · pane browser nativo sulla slide via Core Animation, un solo IPC (#19)
+
+## 2.1.21 — 2026-07-11
+
+### Sotto il cofano
+- Perf deep-audit: event loop, leak, re-render, katex lazy, hardening Rust (#18)
+
+## 2.1.20 — 2026-07-11
+
+### Correzioni
+- **updater** · suppress the toast while the VersionPopover is open (#17)
+
+## 2.1.19 — 2026-07-11
+
+### Sotto il cofano
+- Backlog sweep: palette jump-to-message, Tauri SIGABRT firewall, dead code (#16)
+
+## 2.1.18 — 2026-07-11
+
+### Correzioni
+- **browser** · focus hook v3 — event-driven focus-acquiring click detection (#15)
+
+## 2.1.17 — 2026-07-11
+
+### Correzioni
+- **client** · retry del fetch topics anche su WebKit — 'Load failed' ora matcha (#14)
+
+## 2.1.16 — 2026-07-11
+
+### Correzioni
+- **ux** · sweep live — board fantasma chiudibile, focus browser al primo click, countdown visibile (#13)
+
+## 2.1.15 — 2026-07-11
+
+### Correzioni
+- **panes** · move-to-project scrive il tombstone — la tab spostata non resta duplicata (#12)
+
+## 2.1.14 — 2026-07-11
+
+### Novità
+- **chat+browser** · conversation pack + nav-error nativi + fix Add-pane su client vuoto (#10)
+
+## 2.1.13 — 2026-07-11
+
+### Novità
+- **chat+providers** · Esc interrompe lo streaming + effort-tier badge nel picker (#9)
+
+## 2.1.12 — 2026-07-10
+
+### Novità
+- **chat+browser** · rendering parity (syntax/KaTeX/Mermaid) + chat-ux reliability + remote pane close (#8)
+
+## 2.1.11 — 2026-07-10
+
+### Novità
+- **kanban** · task auto-dispatch — drag→todo runs a task-scoped agent, answer from the board (#7)
+
+## 2.1.10 — 2026-07-10
+
+### Sotto il cofano
+- **release** · 3-stage tauri-release (create → build → publish) + auto-ship every merge
+
+## 2.1.9 — 2026-07-10
+
+### Sotto il cofano
+- ship releases via scripts/ship.sh (local tag push), drop dead RELEASE_PAT branch
+
+## 2.1.8 — 2026-07-10
+
+### Sotto il cofano
+- **auto-bump** · togli il match [skip-bump] che falsa-skippa gli squash-merge
+
+## 2.1.7 — 2026-07-10
+
+### Novità
+- **kanban** · board generale + agent authoring, native Tauri notify/clipboard, auto-bump, de-brand login-state (#6)
+
+## 2.1.6 — 2026-07-09
+
+### Correzioni
+- **tauri** · banner fallback via signed terminal-notifier when UN is denied
+- **tauri** · gate apply_traffic_lights to macOS so Windows/Linux compile
+- **lint** · clear the 18 react-hooks v7 errors so the CI check gate goes green
+- **e2e** · green sidebar, command-palette, agent-management specs
+- **browser,e2e** · sync url on WS connect + de-flake browser-cluster e2e
+- **layout** · id fantasma non-UUID scatena storm analyze + undo evince bystander
+- **browser** · riapri la tab browser pinnata di progetto dentro il progetto, con URL
+- **browser** · pin di progetto riapre nel progetto con url via store origine durevole
+- **sidebar** · il pin browser di progetto chiuso resta annidato nel progetto e mantiene il titolo
+- **terminal** · reopen di una Claude Code dormiente riusa la sessione via revive
+
+### Sotto il cofano
+- unbreak main gate — skip node-pty's Bun postinstall + stub sidecars for cargo check
+- fix Linux Chromium resolution — headed binary is at depth 3
+
+## 2.1.5 — 2026-07-07
+
+### Novità
+- **updater** · anchor the update toast above the version chip
+- **terminal** · standalone PTY bridge as a Rust sidecar (fresh-install terminals)
+
+### Correzioni
+- **tauri** · traffic lights now hide immediately when the logo menu closes
+- **terminal** · sweep auto-names live Claude sessions even without a hook
+- **tauri** · traffic lights reappear on logo click with a browser pane open
+- **tauri** · tighten traffic-light spacing to native macOS pitch
+- **pinning** · Fissa works for browser tabs — one canonical pin key for all types
+- **tauri** · tighten traffic-light pitch a touch more (20→18pt)
+- **pinning** · show the Fissato pin glyph on browser sidebar rows + all tabs
+- **tauri** · browser_open no longer aborts on a not-yet-loaded pane
+- **pinning** · align the browser sidebar pin glyph with chat/terminal rows
+- **tauri** · vertically center the traffic lights on the app's 40px titlebar
+- **terminal** · open shell/claude-code tabs on a fresh install
+- **tauri** · deliver macOS banners via UNUserNotificationCenter
+- **tauri** · surface UN authorization outcome; document macOS 26 signing requirement
+
+## 2.1.4 — 2026-07-06
+
+### Novità
+- **aura** · speed tracks token throughput + feather the outer edge
+- **ui** · unified popover foundation — Menu primitive + useDismissable + placement
+- **aura** · blurred glow band along the wave (no framed corners, softer)
+- **aura** · fill window-edge → wave (soft vignette), not just a band
+- **layout** · 'Reimposta pannelli' collapses the standalone grid to one tabbed cell
+- **layout** · add 'Disponi automaticamente' — auto-tile panes into a balanced grid
+- **layout** · drop UX v2 phase 1 — relative drop zones + label-free gutters + center-merge primitive
+- **layout** · drop UX v2 phase 2 — every position works on both surfaces
+
+### Correzioni
+- **sidebar** · sync browser row title with the tab via pane store
+- **aura** · geometric soft-falloff (no per-frame blur) + pause only when hidden
+- **aura** · smooth the haze — 16 nested contours, adaptive to aura count
+- **browser** · preserve OS focus during agent act (no focus theft)
+- **browser** · grace-defer native close so auto-split remount reuses the view
+- **aura** · fill to square canvas edge, let host round the corner
+- **aura** · kill banding — half-res, 14 layers, firmer blur
+- **sidebar** · portal cursor context menus + add browser row right-click menu
+- **aura** · dither the falloff — kill 8-bit gradient banding
+- **sidebar** · legibility on the attention fill + unify the chat-row loader
+- **aura** · smooth corners (no offset-inversion notch) + drop dither
+- **layout** · 'Reimposta pannelli' from the header menu resets the standalone grid
+- **layout** · 'Reimposta pannelli' re-equalises a dragged single-row standalone split
+- **layout** · global 'Reimposta pannelli' flattens every surface with a split
+- **aura** · scale-proportional geometry + calm corners (soft-clamp)
+- **aura** · calm corners — fade the wave to 0 near each corner
+- **security** · timing-safe gateway-token checks + narrow Vite allowedHosts
+- **correctness** · guard autoBind crash + drop duplicate terminal-reload overlay
+- **chat** · release mic on unmount, surface upload failures, OverflowMenu→Menu
+- **git/editor** · confirm destructive actions, guard diff race, correct stop arg
+- **modals/menus** · guard failed saves, role=dialog, measured menu geometry
+- **browser** · scope download queue per pane, memoize native handle, gate debug
+- **layout** · set dropEffect='move' on the PaneTabBar container dragover
+- **layout** · register topic:switch pane, purge closed project/terminal panes
+- **tauri** · gate self-test IPC commands to debug, drop dead dep + capability
+- **tauri** · unregister live-resize observer when a detach window closes
+- **diff** · render Aider blocks for extensionless files
+- **chat** · abort provider on stream timeout + make finalizeStream idempotent
+- **chat** · re-read Plan Mode on topic switch
+- **server** · route agent thinking/thought deltas (were unreachable dead code)
+- **server** · stop isStreaming() orphaning stale partial messages
+- **server** · type-guard topic name + system-message content
+- **client** · guard log-poll overlap and cap paused activity buffer
+- **server** · swallow fire-and-forget push rejections
+- **client** · register project panes in validation effect so the tab actually opens
+- **client** · mic stays hot after End Call, useMobile listener leak, close-panel double-click
+- **tauri** · browser_open reuse skips the navigate when already at that URL
+- **client** · stream catchup no longer bleeds a prior turn's tool card into a new bubble
+- **server** · owner-scope native-executor unregister (reconnect race dropped fresh registration)
+- **server** · defer screencast start so a native-pane registration cancels it (phantom Chromium leak)
+- **scripts** · ai-review-screenshots.sh died on its own zsh shebang (bashisms in the pair loop)
+- **server** · type-guard heartbeat body (half-written session row on bad bind types)
+- **server** · identity-guard the delayed SIGKILL in killRunningScript (PID reuse)
+- **client** · six component bugs from the components-A sweep
+- **server** · refuse Chrome-cookie decryption when sanitization empties the domain filter
+- **server** · owner-scope codex per-session cleanup (overlapping turns corrupted state)
+- **server** · worktree delete — prune when dir is gone, unwatch git dir, un-break queue GC
+- **server** · clear the context-snapshot ring when a topic is deleted
+- **server** · LRU-cap the transcript-title scan caches
+- **server** · clear the 30-min message timer + detect stderr patterns on the accumulated tail
+- **server** · log usage-file corruption instead of silently zeroing the day
+- **client** · five hook bugs from the layout/hooks sweep
+- **client** · nine Chat/Project bugs from the components-B sweep
+- **perf** · statusbar tells the truth about app weight + CPU under Tauri
+- **tauri** · re-anchor the window on-screen on every bring-to-front path
+
+### Prestazioni
+- **aura** · render the blurred wave via a low-res canvas (real soft blur, 60fps)
+- **server+client** · kill hot-path table-scans, blocking IO and resource leaks
+- **chat** · ref-stable onCopy/onTogglePin so MessageBubble memo holds while streaming
+- **chat** · memo ChatPane so a stream chunk in one pane skips re-rendering idle panes
+
+### Sotto il cofano
+- **ui** · route worst-offender menus through the Menu primitive (phase 1)
+- **ui** · unify sidebar + context-menu dismissal on useDismissable (phase 2)
+- **ui** · unify chat pickers/mentions on useDismissable + add listbox ARIA (phase 3)
+- **ui** · remove dead overlay-menu path + converge last menus (phase 4)
+- **dead-code** · remove unused agent-epoch-store module + test
+- **e2e** · run the real E2E suite in CI, dedup layout helpers, isolate env
+- **api** · drop dead client API namespaces + their exclusive types
+- **state** · dedup sync backoff, register ui-state:patch, drop dead legacy fields
+- add 2026-07-06 consolidation audit (fixes applied + deferred items)
+- **browser** · excise dead Electron-CDP path (~1.2k LOC)
+- **api** · drop dead Kanban/Board types + demo mocks
+- **e2e** · drop dead "kanban board renders" spec
+- **audit** · record D1/D3/E3 closed, A1/A2/E6 deferred
+- **audit** · record bug-hunt fan-out — 2 confirmed fixes, rest rejected
+- **audit** · record second bug-hunt tornata — 11 confirmed fixes
+- **audit** · tornata 3 in progress — 13 fixes committed, surfaces + rejections recorded
+- **e2e** · drop-zones v2 spec + de-flake grid-split; role=menu on the tab context menu
+- **audit** · record drop UX v2 (relative zones, center merge, stack-above) + E2E de-flake
+- **layout** · align dropFeedback gutter test with the v2 idle-hairline contract
+- **audit** · tornata 3 complete — c2/c4 batches close the full-surface sweep (27 bugs + drop UX v2)
+- **ws** · lock ui-state:patch into the inbound registry contract
+- **release** · 2.1.4
+
+## 2.1.3 — 2026-07-04
+
+### Novità
+- **server** · SDK-passthrough control tools + shared switch/create-topic cores
+- **context** · openclaw decision gate — skip control-tool blocks + log degradation
+- **sidebar** · add "Reimposta pannelli" to the Topics ▾ menu
+- **pane-sync** · mirror close-tombstones cross-device via ui_state
+- **tabs** · consistent tab names — browser page title, unified fallbacks
+- **tabs** · rename chat and browser tabs from the tab context menu
+- **terminal** · auto-name Codex sessions from the rollout, Shell from cwd
+- **aura** · activity-driven SVG wave replaces working-aura orbiters
+
+### Correzioni
+- **browser/tabs** · stop cross-surface browser dup + closed-tab resurrection
+- **ui-state** · stop orphan-cleanup from wiping a project's own tabs on boot
+- **layout** · give flattenGridRows the liveItemKeys union its group twin has
+- **spaces** · gate the create-cap on LIVE space count, not raw registry size
+- **server** · make move-to-project pane splice an atomic read-modify-write
+- **layout** · stop split-down from wiping existing rows when source isn't materialized
+- **spaces** · make cross-device space delete an absorbing latch
+- **spaces** · drop deleted space's grid overlay from localStorage
+- **browser** · snap pane zoom to a round ladder + single source of truth
+- **browser** · harden engine recovery, click fidelity, project url + trim observe context
+- **browser** · settle after act/open + warn when refs shift (action→result fidelity)
+- **tauri** · concurrent proxy startup + per-window vibrancy state
+- **browser** · park native pane at real size, not 1×1 (fixes unsized viewport)
+- **browser** · update title/url/favicon for background (hidden) native tabs
+
+### Prestazioni
+- **terminal** · drop dead per-chunk work from the streaming path
+- **session-state** · coalesce session:state frames to one commit per frame
+- **browser** · cap the observe snapshot with a total-size budget
+
+### Sotto il cofano
+- **server** · control-tool unit + MCP handler + move-to-project idempotency
+- **e2e** · port cloud-session-project-open header to the open_project tool/endpoint
+- **openspec** · archive replace-markers-with-tools + tauri-browser-agent-parity
+- remove orphaned coachmarks + dead webhooks stack
+- **pane-store** · delete the dead `projects` subsystem + splitGroup action
+- remove dead isElectron branches (Electron archived in v2.0.0)
+- sweep confirmed dead code (barrels, dupes, unused exports)
+- remove orphaned coachmarks.test.ts (useCoachmarks deleted in v-cleanup)
+- **server** · remove dead /api/spaces route (no client consumers)
+- **layout** · remove dead addSoloCell footgun helper
+- **layout** · correct stale SplitTree header (it IS the live split renderer)
+- **client** · remove dead Electron IPC surface (window.electronAPI)
+- **cleanup** · drop inert Electron E2E mocks + apply live-space gate to PaneTabBar
+- **layout** · cut the unwired layoutTree edit engine
+- **layout** · remove the dead splitMap prop plumbing
+- **layout** · dedup the drag-image pill into spawnDragGhost
+- **browser** · poll in-flight guards, reap unregister, drop dead exports
+- **release** · 2.1.3
+
+## 2.1.2 — 2026-07-03
+
+### Novità
+- **ui** · git build-sha in the version popover — freshness at a glance
+
+### Correzioni
+- **panes** · open_project from a terminal tab now actually shows the project
+- **tauri** · floating card rounds only the webview's BOTTOM corners
+- **server** · harness markup never becomes a session title
+- **tauri** · browser corners round ONLY at window corners, floating included
+- **tauri-browser** · only steal tab focus on a REAL click into the pane
+- **tauri** · corner-flush tolerance = window radius; flush math vs the HOSTING window
+- **tauri** · clip native panes to the window during live resize
+- **tauri** · persist + restore window position across displays
+- **tauri** · clip the REMOTE content layer — mask subview layers too
+- **build** · ESM import for execSync — the build sha was silently empty
+- **server** · reflect requested headers in desktop CORS preflight
+
+## 2.1.1 — 2026-07-03
+
+### Novità
+- **ui** · working aura v3 — animated colored inner shadow, not a border
+- **ui** · non-uniform aura motion — counter-wheel + irregular breathe
+- **notifications** · OS banners for terminal Claude sessions
+- **context-menu** · wire terminal-tab rename, sidebar pop-out, align project menu
+- **ui** · aura v4 — organic, non-repeating motion (Siri-like randomness)
+- **ui** · aura v5 — real waves, born/swelling/dissolving along the edge
+- **ui** · aura v7 — depth waves: the glow's reach undulates along the edge
+- **ui** · aura v8 — full-perimeter depth waves
+- **ui** · aura v9 — traveling waves: rotating uneven conic band + fast swells
+- **dev** · bundle hot-delivery — rebuilt /public auto-reloads open windows
+- **ui** · aura v11 — true perimeter orbiters + tighter, faster v10 tuning
+- **ui** · aura v12 — one continuous traveling wave, no discrete dots
+
+### Correzioni
+- **sidecar** · isolate + disable the PTY bridge in standalone mode
+- **journal** · disable gateway sync in standalone mode (no ConnectionRefused spam)
+- **ci** · first cross-platform Tauri build — cfg-gate Reopen, drop broken Apple signing
+- **ci** · NO_STRIP for linuxdeploy — the bun sidecar doesn't survive strip
+- **shell** · retry the external-server probe before sidecar fallback
+- **ci** · Linux ships deb+rpm — AppImage's linuxdeploy chokes on the sidecar
+- **ui** · restore the aura wrapper + masked band rules eaten by the v5 rewrite
+- **tauri** · modals occlude native browser panes structurally via MODAL_PANEL
+- **panes** · dedup terminal tabs via a single cross-surface session locator
+- **test** · durability test leaked its fetch stub into the whole bun-test process
+- **panes** · reap dead terminal tabs from restored project layouts on restart
+- **tauri** · match browser-pane corner radius to the host OS window radius
+- **notifications** · gate banner focus-suppression on window OS focus, not just active tab
+- **sidebar** · Fissa entry for terminal rows + tab-bar context menus
+- **aura** · working ring only on confirmed-active phase, never on create/attach
+- **tauri** · round ALL browser-pane corners to the card radius in floating splits
+
+### Prestazioni
+- **ui** · aura band disc rasterized at pane size, GPU-scaled 2.4x
+- **server** · incremental transcript-title scan — read only appended bytes
+
+### Sotto il cofano
+- **db** · drift gate for the embedded-migrations manifest
+- **terminal** · standalone PTY-bridge gate unit test + TOPICS_EMBEDDED alias
+- **types** · React 19 RefObject over deprecated MutableRefObject
+- **ws** · lock ui:bundle-updated into the inbound registry contract
+- **e2e** · checklist UI verification — sidebar resize/border, focus-existing-tab, context menus, Spazi, modal-over-pane invariant
+
+## 2.1.0 — 2026-07-02
+
+### Novità
+- **ui** · Apple-Intelligence working glow on active chats
+- **layout** · 'Reimposta pannelli' — flatten splits back to first level
+- **shell** · 'Reimposta pannelli' in the app menu + Electron-parity traffic lights
+- **spaces** · Spazi — workspace groups for app-level tabs
+- **shell** · installed-app hot-reload — disk-served /public with auto-reload
+- **sidebar** · Fissati — Arc/Dia-style pinning for chats and projects
+- **windows** · pop-out to real OS windows with cross-window presence
+- **ui** · make the working glow actually pop — two-comet ring + breathing halo
+- **terminal** · auto-name Claude Code chat tabs from the session topic
+- **tauri** · self-contained release with bundled server sidecar + auto-update
+
+### Correzioni
+- **ui** · sidebar resize grab band + activity subline spacing
+- **panes** · closed tabs stay closed after reload, for every pane kind
+- **split** · coherent split system across every surface and group kind
+- **mcp** · open_project and create_project work from terminal Claude tabs
+- **sidebar** · resize drag froze the instant the pointer crossed a native browser pane
+- **sidebar** · resize handle at the real sidebar edge, not x=0
+- **ui** · working glow on terminal Claude panes, not just chats
+- **shell** · traffic lights must never vanish — fail-safe reposition
+- **status** · AskUserQuestion and ExitPlanMode read as 'your turn', not 'working'
+- **sidebar** · closing a pinned chat archives it — kills the resurrection loop
+- **sync** · project pane channel writes are now durable — no more dead-id tabs
+- **panes** · durable per-id tombstones — closing 50+ tabs can't resurrect old ones
+- **sidebar** · no resting edge line on the resize handle
+- **daemon** · treat a pre-boot lock as stale even if its pid is now alive
+
+### Prestazioni
+- **ui** · idle-prefetch the ⌘K palette chunk + contain:layout on split cards
+
+### Sotto il cofano
+- **electron** · archive the Electron shell — v2 is Tauri-only
+- **ws** · contract locks updated for the presence protocol
+- **ws** · outbound lock — presence:windows joins the 82-type set
+
+## 2.0.0 — 2026-07-02
+
+### Novità
+- **status** · show live Claude Code agent count in the status bar
+- **porting** · Tier-1 native shell + local-serve architecture
+- **porting** · CEF spike crate + confirm cef-rs builds on macOS
+- **browser** · glass chrome, edge-to-edge view, inline dev controls, responsive resize mode
+- **status** · version popover with auto-update box + fix refresh spinner
+- **tauri** · Topics renders natively + connects to data server (Tier-1)
+- **tauri** · Electron-parity window chrome — frameless titlebar, vibrancy, floating splits
+- **browser** · toolbar inherits window vibrancy (cell bg transparent)
+- **status** · align memory to macOS footprint (≈ Activity Monitor)
+- **tauri** · window drag + on-demand traffic lights (Electron chrome parity)
+- **tauri** · native browser pane (multi-webview) + dropdown occlusion + floating transparency
+- **tauri** · per-region floating vibrancy (frosted cards + clear gaps)
+- **tauri** · force-show traffic lights in fullscreen (no-exit-trap)
+- **layout** · pure n-ary split-tree engine (layoutTree) — P2 foundation
+- **tauri** · native folder picker (selectDirectory via tauri-plugin-dialog)
+- **tauri** · native theme sync (set_theme — NSWindow appearance + vibrancy re-tint)
+- **layout** · legacy PanelGridRow[]/GroupLayoutRow[] -> layoutTree adapters (P2)
+- **layout** · tree -> legacy reverse adapters + round-trip fidelity tests (P2)
+- **layout** · split controller geometry helpers — dropZone + pxToWeightDelta (P2)
+- **tauri** · system tray with Show/Quit (baseline)
+- **tauri** · hide-to-tray on window close (+ ⌘Q-safe quit)
+- **layout** · <SplitTree> recursive renderer + <Divider> (P2, additive)
+- **layout** · useSplitController hook — completes the P2 component layer
+- **tauri** · View menu zoom in/out/reset (⌘=/⌘-/⌘0)
+- **tauri** · Help menu — Topics on GitHub (opener)
+- **layout** · splitTreeEngine setting (experimental, off) + Settings toggle
+- **layout** · wire splitTreeEngine into PanelGrid (behind flag)
+- **layout** · remove artificial pane-count cap + sharper split previews
+- **tauri** · native completion notifications (parity)
+- **tauri** · persist window size/position across launches (parity)
+- **tauri** · auto-updater infrastructure (plugin + signed-release config)
+- **tauri** · dev hot-reload — watch /public, reload webview (Electron parity)
+- **floating-splits** · wider stacco between floating cards (2px → 6px gap)
+- **terminal** · azione "Ricarica" nel menu tab per riavviare una sessione in-place
+- **tauri** · native autoresizing frost cover during resize gestures
+- **terminal** · overlay "Riavvio…" durante il reload (niente flash grigio)
+- **terminal** · overlay "Sessione scaduta" con id/info + tasto Ricarica inline
+- **tauri** · always-on-top global shortcut (Cmd/Ctrl+Alt+T) — Electron parity
+- **tauri** · add View ▸ Always on Top menu item for discoverability
+- **layout** · opt-in overlay sidebar — true zero-frame-drop toggle (Settings ▸ Appearance)
+- **tauri** · overlay sidebar default → zero frame-drop sul toggle
+- **tauri** · browser_eval_js — read-side agent primitive for native pane (no CEF)
+- **tauri** · full browser chrome + real nav/state on the native pane
+- **tauri** · browser console capture → real console badge on the pane
+- **tauri** · browser device/responsive emulation (UA + letterbox)
+- **tauri** · find-in-page match counts on the browser pane
+- **tauri** · DevTools (Web Inspector) toggle on the browser pane
+- **tauri** · select-element (Cmd+Shift+E) on the browser pane
+- **tauri** · browser downloads → DownloadStrip on the native pane
+- **tauri** · agent activity pill on the browser pane
+- **tauri** · opt-in streaming browser → agent can drive the pane on Tauri
+- **tauri** · native-pane agent-delegation core (transport seam + dispatch guard)
+- **tauri** · native-pane agent delegation — WS wiring + client executor + e2e
+- **tauri-browser** · native browser_screenshot (WKWebView takeSnapshot → base64 PNG)
+- **tauri** · persist window size + round browser-pane corners + AppKit focus reclaim
+- **tauri** · wire the auto-updater on Tauri (was dead despite full Rust infra)
+- **browser** · controllo agente nativo sul pane Tauri (observe/act/extract)
+- **browser** · Phase 2 — vision read_screen/point sul pane Tauri nativo
+- **browser** · Phase 4 — scheme-guard LFI + history dropdown sul pane Tauri
+- **settings** · notifyEvenWhenFocused on by default
+- **layout** · wire project GroupLayout to the split-tree engine (behind flag)
+- **browser** · surface `untrusted` on native-pane browser_act results
+- **tauri** · set a Content-Security-Policy + add a headless browser/perf self-test
+- **vibrancy** · frost the browser address bar + instant tab geometry
+- **browser** · browser_upload — agent uploads a local file to a page file input
+- **browser** · browser_status — real url/title/viewport/loading for the agent
+- **tauri** · "Open at Login" (autostart) — Electron parity
+- **tauri** · dynamic dock badge + menu-bar tray glyph from attention total
+- **tauri** · clickable tray menu — jump to any topic needing you
+- **browser** · async browser_eval on the native pane via callAsyncJavaScript
+- **browser** · real system-browser handoff + honest native-pane op hint
+- **status** · tiered session status — amber "act now" vs blue "done", legible fills, live activity feed
+- **tauri** · window.open in-place navigation, per-topic cookie isolation, WKHTTPCookieStore commands
+- **browser** · save/load/import login state on the Tauri native pane
+
+### Correzioni
+- **porting** · desktop server is HTTPS/WSS (trusted Armonia Local CA), not http
+- **status** · agent count from real loading signals + de-dup dropdown memory
+- **status** · breathing room above the system panel + drop dead row hovers
+- **status** · cut the confusing/contradictory numbers (WS, Tab aperti, PC load)
+- **browser** · transparent address bar at rest
+- **browser** · toolbar inherits window vibrancy (no own background)
+- **status** · align CPU/memory tiles, restore honest "Tab aperti" + update chip
+- **status** · refresh counter resets after spin + ticks live
+- **browser** · don't make the native-browser cell transparent (it blanks the view)
+- **status** · label memory honestly as RSS (vs Activity Monitor footprint)
+- **browser** · reap idle Chromium + arm context reaper at creation
+- **browser** · single-flight ensureBrowser launch
+- **tauri** · unfreeze split-out browser tabs + usable browser placeholder
+- **browser** · keep split-out browser tab draggable + cleaner drag ghost
+- **tauri** · remove env-gated dev eval hook (dynamic-code-eval finding)
+- **tauri** · restore native vibrancy + make sidebar topbar draggable
+- **tauri** · P0 stop-the-bleeding — nav-guard, ⌘W, single-instance, SSE, drag-drop, perf
+- **tauri** · vibrancy renders — drop negative layer.zPosition (excluded it from behind-window blur)
+- **tauri** · show project actions in the add-menu under Tauri (isElectron→isDesktop)
+- **layout** · harden splitTreeEngine per adversarial review
+- **tauri** · version popover shows real OS, not 'Web' (platform via UA fallback)
+- **layout** · thread onEqualize into recursive SplitTree (column dbl-click-equalize)
+- **tauri** · real HW-acceleration detection (was hard-coded OFF → false FPS alarm)
+- **tauri** · HW-accel status without a WebGL probe (was killing vibrancy)
+- **tauri** · vibrancy restored — robust isTauri gate + synchronous first paint
+- **tauri** · ⌘R / ⌘⇧R reload via renderer (native menu accelerator is swallowed by WKWebView)
+- **tauri** · frost tracks sidebar collapse live (was lagging → stale grey edge)
+- **tauri** · rAF-track the frost (was setTimeout-debounced → lagged every resize)
+- **tauri** · restore frost (revert rAF debounce) + isolated window-resize live-track
+- **tauri** · track window-edge resize natively (reflow frost from AppKit's resize delivery)
+- **tauri** · window-resize frost cover (native, sized each Resized step)
+- **tauri** · vibrancy/chrome commands die once browser panes mount (multi-webview)
+- **tauri** · pane "tutte grigie" — frost-cover non sollevato su Resized spurio
+- **tauri** · tab drag ghost rendered as a file in WKWebView
+- **tauri** · fit terminals AFTER revealing them, not while content-visibility:hidden
+- **tauri-browser** · native-pane occlusion/perf/focus — structural, no hide-kludges
+- **tauri-sidebar** · overlay-only on desktop-Tauri — kill the terminal-blank kludge
+- **tauri** · round window content corners for native browser panes; keep sidebar strip
+- **tauri** · dismiss FPS panel on collapse, track native pane in slide, show WebKit scrollbars
+- **tauri** · ref-count terminal resize brackets; correct stale reclaim comment
+- **layout** · de-stale useSplitController.close; document the engine resize floor
+- **sidebar** · balance the resize bracket across a rapid collapse→expand burst
+- **sidebar** · FLIP animates only on collapse/expand toggle, not on width resize
+- **sidebar** · store + cancel the FLIP Play rAF (robustness, from adversarial review)
+- **dnd** · WKWebView non chiude più il pane droppato su uno split
+- **terminal** · DOM renderer on Tauri — @xterm/addon-canvas crashes on xterm v6
+- **dnd** · WKWebView dropEffect close-bug fix + drop obsolete [dnd-debug] logs
+- **browser** · sync-hide native view on dragstart + gate screencast on pane visibility
+- **browser** · la barra indirizzi eredita la vibrancy
+- **tauri** · browser self-occlusion freeze, floating-splits divider seam, embed-model docs
+- **security** · token-gate /api/terminal/sessions/:id/send and /buffer
+- **tauri** · restore the verified CSP (was nulled as an incident precaution)
+- **tauri-browser** · activate a native pane's tab when you click inside it
+- **browser** · React-controlled fill/type + clear/triple_click, one action source
+- **browser** · per-session browser panes + don't swallow session-initiated opens
+- **browser** · navigate force-opened browser panes on Tauri (initialUrl seed)
+- **focus** · faster browser-pane focus-on-click + standard tab-cycle shortcuts
+- **focus** · forward app shortcuts to renderer when a browser pane holds focus (Tauri)
+- **vibrancy** · sync sidebar frost with the collapse/expand slide (Tauri)
+- **sync** · reconnect the WS immediately on foreground so mobile re-syncs at once
+- **tauri** · dock-icon reopen + persist always-on-top (Electron parity)
+- **split** · let a tab drop onto a pane's inner edge that abuts a divider
+- **browser** · raise agent vision budget 5→20 + reset it per navigation
+- **status** · tighten the activity subline under the row name
+- **notifications** · OS system banner only for actionable events, not every turn-end
+- **notifications** · drop in-app toasts, OS banner on action-required OR finish
+- **server** · 409 on project-name collision, 400 on switch to archived topic
+- **panes** · pop-out never destroys the pane when window.open fails
+
+### Prestazioni
+- **tauri** · browser panes show a placeholder instead of streaming
+- **layout** · DOM-direct divider drag in SplitTree (zero re-render, top UX)
+- **tauri** · kill implicit CA animations on vibrancy reconcile (sidebar-toggle FPS)
+- **tauri** · native CAAnimation for the sidebar frost (kill the 5-step follow stutter)
+- **layout** · dedup drop-target state on dragover (kill laggy drop-area previews)
+- **tauri** · kill sidebar-toggle jank from DOM-terminal reflow (WebKit)
+- **tauri** · coalesce xterm fit() across the sidebar slide (on top of content-visibility)
+- **client** · migrate WS schemas zod → zod/mini (~14KB gz off the bundle)
+- **tauri** · gate browser screencast frames on pane visibility
+- **sidebar** · startTransition the toggle → zero dropped frames at the click
+- **tauri** · restore sidebar push-and-reclaim without the terminal-reflow freeze
+- **tauri** · adaptive synchronised sidebar push + floating-splits gap match
+- **tauri** · skip redundant bounds re-pushes; bound download set; harden locks
+- **tauri** · only poll the VISIBLE browser pane for url/title/console
+- **sidebar** · FLIP the push so the slide is 60fps with N live terminals (no snap)
+- **sidebar** · round the FLIP invert delta to whole px (native-pane edge anti-jitter)
+- **sidebar** · empirical layout-cost proof of the FLIP + performance contract
+- **sidebar** · composited FPS verified lock-proof (FLIP 0 dropped frames vs old all-dropped)
+- **sidebar** · real-WebKit verification of the FLIP layout cost (lock-proof)
+
+### Sotto il cofano
+- **porting** · resolve D1 (native CEF browser), D2 (native pty), D3 (PWA)
+- **porting** · confirm cef-rs crate feasibility for D1 native browser
+- **porting** · record verified local-serve architecture + Tier-1 progress
+- **porting** · reclassify D2 native pty to Tier 2 (terminals stay server-served in Tier 1)
+- **porting** · record CEF macOS .app-bundle blocker (dedicated session needed)
+- **porting** · route openExternalOnce through the shell bridge
+- **porting** · record Tier-1 core end-to-end validation (~90MB, data flowing)
+- **porting** · CEF macOS spike GREEN — engine builds+runs+renders (real Chromium)
+- **porting** · concrete CEF<->Tauri integration design (all APIs confirmed)
+- **status** · de-dup + de-noise the status-bar panel (audit follow-up)
+- **tauri-migration** · overnight autonomous loop — backlog + protocol + deadline
+- **tauri** · add Tauri release pipeline (tauri-action, universal mac + win + linux)
+- **layout** · P2 split-system integration guide
+- **tauri** · correct the misleading .tauri-mac / vibrancy comment in index.html
+- **layout** · nested-path + collapse + deep-normalize edge cases for layoutTree
+- overnight migration — FINAL SUMMARY (loop ended 10:02)
+- **layout** · golden geometry gate — adapters+computeRects reproduce legacy flex pixels
+- **layout** · make stack-fullness tests track MAX_STACK_DEPTH (not hardcoded 4)
+- **layout** · move resizeWeights into splitController + test it
+- Day 2 — split engine wired into PanelGrid + reviewed
+- conclusion ledger — verifiable parity done, blocked items + why
+- updater + window-state infra done; remaining updater release steps
+- split UX polished (DOM-direct divider, sub-stack decision)
+- **tauri** · real Topics app icon (was a placeholder mark)
+- **browser** · document the load-bearing RawCdpPage→Page cast + why PageLike is deferred
+- **claude-tasks-sync** · clarify the poll is a correctness backstop, not a fallback
+- **terminal** · extract the idempotency cache into a tested pure module
+- **terminal** · record the 2026-06-28 Canvas-renderer measurement + why DOM stays
+- **tauri** · verify native-pane delegation through the REAL dispatcher
+- **tauri** · extract + unit-test server.ts's WS delegation-frame handler
+- **tauri-browser** · headless proof of the screenshot NSImage→PNG chain
+- **tauri-browser** · native-delegate round-trip over a REAL WebSocket
+- **client** · add build:watch script (Tauri /public hot-reload loop)
+- **tauri** · env-gated sidebar FPS self-test — measure the toggle on a real WKWebView
+- **tauri** · report xterm/pane counts in the FPS self-test (heavy-case context)
+- **tauri** · rAF-driven split-resize FPS probe + fit corner-demo on primary display
+- **tauri** · split-resize FPS probe measures STEADY STATE (warm-up excluded)
+- **tauri** · align PORTING-PLAN with shipped reality (audit 2026-06-29)
+- **tauri** · correct audit's browser-pane durability claim (keep-alive ladder)
+- **tauri** · §8 — deferred audit follow-ups with entry-points + required verification
+- **tauri** · mark §8 poll-gating done
+- **tauri** · correct useTauriBrowser capability header to match reality
+- **tauri** · §8b — FLIP push live-verification checklist (headline FPS + native-pane tracking)
+- **tauri** · §8b — floating-frost composes with FLIP (sidebar-width trigger preserved, lockstep)
+- **tauri** · §8b — FLIP mechanism empirically verified lock-proof
+- **tauri** · §8b — concrete FLIP live-verification run sequence (rebuild + FPS_SELFTEST)
+- **tauri** · §7b — security config audit; csp:null is the only §7 gap + candidate CSP
+- fix(dnd)+chore: close two more WKWebView dropEffect gaps; drop stale canvas comments
+- **tauri** · regenerate app icons + add android/ios icon sets
+- **settings** · de-flag sidebar + Tauri browser to one solid path each
+- **layout** · golden-geometry gate + unify split-tree floor to 0.1
+- **browser** · drop dead geometry-agnostic isOccluded/getOverlayRects
+- **layout** · de-flag split-tree engine — make it the default, delete legacy
+- **layout** · unify the shipped split-tree builder + make the golden gate test it
+- **tauri** · focus the window before FPS/split self-tests + report minFrameMs
+- green the suite — align dropFeedback + browser_act specs with shipped behavior
+- **tauri** · empirical headless frame-budget probe (TOPICS_COST_SELFTEST)
+- **tauri** · drop the CSP — it was unverified against terminal panes
+- **porting** · correct browser agent parity 5/13 → 10/13
+- **tauri** · drop the CSP again — it breaks live text rendering in WKWebView
+- **desktop** · externalize index.html boot scripts to /boot.js
+- **scripts** · remove orphaned one-off scripts, annotate start-electron-only.sh
+- fix stale claims (AI_PROVIDER default, dev workflow), archive completed migration docs
+- **openspec** · archive 3 completed changes, truth-up replace-markers tasks
+- **unit** · fix stale expectations, anchor test globs, strip tests from staged server-dist
+- **types** · hoist user-input wire envelopes into shared/types
+
+## 0.1.0 — 2026-06-25
+
+### Novità
+- add server routes for activity, agents, checkpoints, journal, memory, usage, and more
+- refactor layout to pane/group architecture
+- enhance chat with plan mode, memory, checkpoints, and offline queue
+- add sidebar panels, agents/context/journal views, usage tracking UI
+- update shared components, modals, browser, terminal, and App.tsx
+- add dev:server and dev:client scripts
+- polish tab bar styling and panel layout
+- refactor sidebar tools into dropdown menu
+- improve chat resilience and instant auto-name
+- resilient streaming with in-memory buffer
+- add multi-row/column grid layout with VS Code-style splits
+- resilient chat with draft persistence, SSE dedup, and stream catchup
+- expandable PlanView with markdown and unified overflow menu
+- streaming indicators in sidebar and multi-topic context tracking
+- cross-group DnD, edge-drop splits, context rings, and tab polish
+- AI-powered auto-naming via gateway LLM call
+- wire cross-window streaming and polish sidebar resize
+- fixed-width tabs and cross-group tab DnD
+- migrate storage to SQLite and add abort endpoint
+- per-session abort controllers and stop streaming
+- sidebar Topics dropdown menu and tools panel
+- terminal reconnection and session management
+- DOM-level grid resize for fluid dragging
+- browser isolation - a11y snapshots, cookie persistence, selector actions, context indicator
+- browser isolation per topic via BrowserService + CDP
+- restructure Processes sidebar — scripts API, process log pane, ports in System Status
+- make keyboard shortcuts electron-aware
+- show git status colors in file explorer
+- split staged/unstaged in git changes, add remote management
+- add project status indicators to sidebar and tab bar
+- refactor browser panel to screenshot-based CDP viewer
+- add message branching (edit & branch navigation)
+- add Web Push Notifications
+- PWA auto-update banner + service worker versioning
+- show build timestamp in sidebar status bar
+- refresh/update button in sidebar status bar
+- mobile bottom bar + compact sidebar for tablet/mobile
+- move tab bar to bottom on mobile/tablet (flex-col-reverse), keep top on desktop (lg:flex-col)
+- Electron — replace BrowserView with main window, add dev mode identity
+- draft panes, agent spawn cards, browser sidebar, and layout improvements
+- add TLS support, dev-mode proxy, and build infrastructure
+- improve PWA for mobile Safari — icons, safe areas, theme colors
+- gateway WebSocket integration and server-side UI state sync
+- persist terminal sessions across restarts, add mobile touch keys
+- chat message queuing, retry on error, tool result streaming
+- file explorer multi-select, drag-drop, batch git ops, editor UX
+- sub-agent polling via JSONL, gateway streaming, process log persistence
+- layout cross-tab sync, touch sidebar, empty-state UX, project layout persistence
+- uniform sidebar accordions — chevron after label, file toolbar
+- tab bar portal menu, floating add button, sidebar overlay layout
+- redesign toast notifications — portal, compact style, expose context
+- pinned active topics when project/section collapsed in sidebar
+- terminal paste-image, explicit git push remote/branch, stream cleanup
+- auto-open project pane when terminal cwd matches known project
+- show project name badge on terminal sidebar items
+- cross-device panel sync via server + WS
+- render MEDIA markers inline in message content
+- FileSearch arrow-key navigation and command palette entry
+- always inject project awareness context + prefer HTTP streaming
+- **01-02** · create API fixtures module for test data setup/teardown
+- **01-01** · create dnd, scroll, and ws domain-specific helper modules
+- **01-02** · create 11 page object fixtures and composition entrypoint
+- **01-03** · add structural data-testid attributes to React components
+- **01-03** · add infra validation spec and conventions doc
+- **02-01** · add data-testid and aria-label for chat E2E test locators
+- **02-01** · create SSE mock helpers and test upload fixture
+- **02-04** · add message action toolbar tests with hover, copy, and pin verification
+- **02-02** · rewrite core chat E2E tests with SSE mocks and ChatPage fixture
+- **02-05** · add chat input feature tests and update createTopic fixture
+- **03-01** · add delete confirmation dialog and system prompt/context files to modals
+- **03-01** · convert sidebar drag-reorder from native HTML5 DnD to dnd-kit
+- **03-02** · create TopicManagementPage fixture and extend API fixtures
+- **03-02** · add topic management E2E tests with 7 passing CRUD tests
+- **03-03** · add E2E tests for topic settings, folders, unread, color, and drag-reorder
+- **04-01** · add command palette E2E tests covering CMD-01, CMD-02, CMD-03, CMD-06, CMD-07
+- **04-02** · add file search, message search, and shortcuts modal tests
+- **05-01** · add data-testid attributes to all Board components
+- **05-01** · extend KanbanPage fixture and API fixtures with approval/memory helpers
+- **05-02** · add kanban board E2E tests for KANBAN-01 through 05 and KANBAN-10
+- **05-03** · add KANBAN-06 through 09 E2E tests with TDZ and fixture fixes
+- add Playwright global setup for E2E test isolation
+- **06-01** · add data-testid attributes to 8 file-related components
+- **06-01** · add file explorer fixture and test scaffold with git repo setup
+- **06-02** · implement FILE-01 through FILE-06 E2E tests
+- **06-03** · implement FILE-07 through FILE-09 E2E tests
+- **07-01** · add data-testid attributes and enhance terminal fixture + API helpers
+- **07-01** · add TERM-01, TERM-02, TERM-05 terminal E2E tests
+- **07-02** · add TERM-03 reconnect and TERM-04 multi-instance E2E tests
+- **08-01** · add data-testid attributes and extend DashboardPage fixture
+- **08-01** · add dashboard E2E tests DASH-01 through DASH-05
+- **08-02** · add activity feed SSE and journal pane E2E tests (DASH-06, DASH-07)
+- **09-01** · expand agent fixture with mock data and page object methods
+- **09-01** · add E2E tests for AGENT-01 through AGENT-04
+- **09-02** · add E2E tests for AGENT-05, AGENT-06, AGENT-07
+- **10-01** · add data-testid attributes and expand context/settings fixtures
+- **10-01** · add E2E tests for CTX-01 through CTX-07
+- **10-02** · add settings panel E2E tests (SET-01 through SET-04)
+- **11-01** · extend layout fixture with project, sidebar, and context menu helpers
+- **11-01** · add layout-navigation tests for LAYOUT-01 through LAYOUT-05
+- **11-02** · add LAYOUT-06 and LAYOUT-07 E2E tests
+- **12-01** · add cross-feature interaction E2E tests
+- **12-02** · add CROSS-02, CROSS-06, CROSS-07 cross-feature E2E tests
+- **quick-260329-2cs** · isolate E2E tests on dedicated server port 3334
+- isolated test server on HTTP port 3334 with seed data
+- **quick-260329-evh** · fix sidebar, system, and mobile-responsive tests for isolated server
+- **quick-260329-evh** · fix panels, grid-split, context-and-layout, and mobile tests
+- **260329-hkn** · add WS subscriptions to AgentSpawnCard and BrowserSidebarControl
+- **260329-hkn** · optimize SessionHistory polling and reduce dashboard interval
+- add x-openclaw-scopes header to gateway API calls
+- **14-01** · add dashboard:updated WS broadcasts to boards.ts and agent-heartbeat.ts
+- **14-01** · add cron:updated WS broadcasts to cron.ts
+- **16-01** · add Split Right and Split Down context menu for grid panel splitting
+- **17-01** · add data-testid attributes to MessageParts.tsx tool call components
+- **17-01** · add data-testid attributes to MessageContent.tsx media/attachment components
+- **17-02** · extend SSE helpers with tool call and media mock functions
+- **18-01** · add WS subscription to useDashboard + fix auto-refresh label
+- **19-01** · add sample spec annotation to first chat test
+- **19-02** · add spec-coverage.ts traceability matrix script
+- **20-02** · write topics spec TOPIC-01 CRUD & Lifecycle section
+- **20-01** · write chat spec CHAT-01 and CHAT-02 sections
+- **20-02** · add TOPIC-02 Organization section to topics spec
+- **20-01** · complete chat spec with CHAT-03 and CHAT-04 sections
+- **21-01** · write kanban board behavioral spec with 35 GIVEN/WHEN/THEN scenarios
+- **21-03** · write agent monitoring behavioral spec with 32 scenarios
+- **21-02** · write layout behavioral spec with 36 GIVEN/WHEN/THEN scenarios
+- **22-03** · add context and memory behavioral spec
+- **22-02** · write terminal behavioral spec with 17 GIVEN/WHEN/THEN scenarios
+- **22-02** · write dashboard behavioral spec with 26 GIVEN/WHEN/THEN scenarios
+- **22-03** · add command palette and settings behavioral spec
+- **22-01** · write files and git behavioral spec
+- **23-02** · annotate 91 layout tests with spec requirement IDs
+- **23-02** · annotate 30 file/kanban/cross-feature tests with spec IDs
+- **23-01** · annotate chat, agents, topics, and sidebar tests with spec IDs
+- **23-01** · annotate terminal, dashboard, commands, and context tests with spec IDs
+- **23** · add missing spec annotations to 11 tests across 5 files
+- **24-02** · add 10 kanban gap closure tests (KANBAN-11 to KANBAN-20)
+- **24-02** · add 4 agent gap closure tests (AGENT-08 to AGENT-11)
+- **24-03** · add 10 file explorer and git gap closure tests (FILE-10 to FILE-19)
+- **24-03** · add 5 command palette gap closure tests and CMD-01 annotations
+- **24-01** · add 8 dashboard gap closure tests with spec annotations
+- **24-01** · add 5 terminal gap closure tests with spec annotations
+- **openspec** · archive complete-spec-coverage — 17 specs, 35 requirements, 556 scenarios
+- **26** · wire CronJobsPanel + build WebhooksPanel into sidebar toolbar
+- **27-01** · add infra fixture with mock helpers for cron, webhooks, remote, system panels
+- **27-02** · create browser/process fixture with mock helpers
+- **27-02** · add 13 E2E tests for ScriptRunner, BrowserSidebarControl, RemoteBrowserPanel
+- **files** · add Show in Finder context menu and root-level file creation
+- **layout** · sync project layout from server on load with tab-sync E2E tests
+- **layout** · add server-sync on load to PanelGrid (grid rows, solo topics)
+- add performance spec + CLS tests + fix white flash
+- add visual stability testing — screenshot diff + DOM mutation monitoring
+- auto-run AI visual review after every test run
+- terminal session resume on server restart
+- /project slash command for chat-based project management
+- crash recovery, always-on-top toggle, persistent preferences
+- add Open Project folder picker from command palette
+- external file drop, terminal improvements, sidebar & layout refinements
+- traffic lights hover, empty dir upload, file explorer UX polish
+- external file drop with folder support, toast feedback, and visual indicators
+- PTY bridge daemon with Unix socket for session persistence
+- traffic lights tied to Topics dropdown, viewport overlay mode
+- unified tab notification badges with sidebar sort
+- multi-provider AI abstraction (OpenClaw + Claude)
+- **electron** · open external URLs in system browser
+- **editor** · add PDF/HTML/media viewer support in both FilePane and EditorTabs
+- **tabs** · tab persistence, recently closed (Cmd+Shift+T), and UI undo (Cmd+Z)
+- **dnd** · allow drag-split for all pane types, not just chat/project
+- **open-project** · open directory as project tab from Claude Code or sidebar
+- **command-palette** · show recently closed tabs in Cmd+K
+- **providers** · add claude-code CLI provider
+- **terminal** · add Resume button for ended claude-code sessions
+- **editor** · render raw HTML in MD preview via rehype-raw
+- **terminal** · enable iOS-style touch-scroll with momentum on mobile
+- **layout** · drop-between divider with widened hit-zone (#7)
+- **layout** · split-down inserts row adjacent to source, not at the bottom (#8)
+- **layout** · per-cell vertical sub-stack ('split-down' lands under source column) (#9)
+- **layout** · tri-state focus visualization for project tabs
+- **providers** · multi-provider picker + Codex/OpenAI auto-detect + diagnostics (#16)
+- **providers** · cross-window picker sync, tool-call rows, codex hardening
+- **messages** · chronological content-blocks timeline + provider history
+- **db** · add projects + worktrees tables, topics.worktree_id FK (016-018)
+- **types** · add Project + Worktree types and naming generator
+- **services** · ProjectStore, WorktreeStore, WorktreeManager + AppContext wiring
+- **routes** · /api/projects + /api/worktrees with WS broadcasts
+- **topics** · bind worktree_id at create/update + cwd resolution
+- **git-watcher** · support git worktrees + optional worktreeId broadcast
+- **client** · Project + Worktree types, API client, useProjects/useWorktrees hooks
+- **modals** · worktree picker in New Topic + read-only worktree section in Topic Settings
+- **types** · WSProjectMessage + WSWorktreeMessage discriminated union
+- **daemon** · Phase B — singleton lock + state file + control HTTP + LaunchAgent IPC
+- **topics** · Phase C — initial message queue (TOPIC-IM-01)
+- **machines** · Phase D — multi-machine domain + heartbeat ticker
+- **updater** · Phase E — electron-updater + sticky "Restart to Update" toast
+- **ux** · Phase F — no-flash boot 3rd layer + scoped notifications + caffeinate
+- **design** · Phase G — 3-layer token system + window chrome polish + animation set
+- **cli** · Phase H — minimal `topics` CLI binary
+- **polish** · close out deferred items from Phase A→H
+- **client** · Things3-style pending-action countdown for soft-destructive ops
+- **client** · context ring in chat input, global ⌘1-9 across all tabs, claude-code model selector
+- **providers** · persist claude-code session id for --resume + codex history continuity
+- **panes** · inline countdown ring on tab/sidebar — drop the bottom-right toast
+- **panes** · extend countdown to terminal/browser sidebar; skip read-only tabs; remove redundant 'Open as project' icon
+- **30-01** · add Topic.browserState type + remove 19 orphan browser IPC handlers
+- **30-01** · browser-state-store pure module + bun:test coverage
+- **30-01** · BrowserService persistence + runtime Chromium path + explicit targetId Map
+- **30-02** · WS protocol envelope + /ws/browser/:contextId upgrade handler
+- **30-02** · real CDP screencast + Playwright dispatchInput in BrowserService
+- **30-02** · WS-first useRemoteBrowser + connection indicator + click ripple
+- **30-03** · add browser tool definitions + Moondream client + handler skeleton
+- **30-03** · implement BrowserService observe/annotate helpers + handler bodies + WS broadcast registry
+- **30-03** · expose 6 browser agent tool endpoints under /api/browsers/:id/agent/*
+- **30-03** · KILL OpenClaw browser bridge -- remove browserTargetIdCache + isolation injection from topics.ts
+- **30-04** · provider tool format adapters + browser_* dispatcher
+- **30-04** · forward browserTools through claude + openai providers
+- **30-04** · wire browser_* dispatcher into topics.ts onToolStart
+- **30-04** · take_control + agent overlay + URL history + localhost iframe
+- **30-04** · SelectElementOverlay backend + chat:insert-text bridge
+- **30-04** · /browser slash command + sidebar tab card + listener
+- **30-05** · add Phase 30 perf spec section + perf-baseline.json
+- **30-05** · fill BrowserProcessPageV2 fixture body + 5 helpers
+- **30.1-01** · expose browserNative IPC bridge in Electron preload
+- **30.1-01** · add BrowserNativeManager + 8 IPC handlers in Electron main
+- **30.1-01** · server CDP probe + browser-cdp-dispatcher
+- **30.1-01** · wire CDP dispatcher into tool handler + REST endpoints
+- **30.1-01** · client-side useNativeBrowser hook + Electron render branch
+- **30.1-polish** · DevTools toggle button + Cmd+Opt+I shortcut for native browser
+- **30.1-overlay** · transparent BrowserWindow for menus above WebContentsView
+- **notifications** · topic completion toast + native desktop alerts
+- **panes** · top-level "split right/down" works with a single tab
+- **panes** · keep-alive ladder for top-level (StandaloneChatGroup)
+- **history** · buildProviderHistory helper — DB as conversation source of truth
+- **30.1-polish** · Chrome-parity UX (A.1-A.5 + B.1-B.2)
+- **openclaw** · forward conversation history so the gateway can rehydrate
+- **30.1-polish** · permissions + downloads + select-element + reflow (C+D+E)
+- **panes** · pulse terminal tabs while their pty is producing output
+- **agents** · per-tool detail rendering + sub-agent visibility
+- **context** · canonical envelope types + provider strategy registry
+- **context** · assembleTopicContext + 27 unit tests
+- **context** · adaptEnvelope + composeSystemMessages + regression test
+- **context** · in-memory snapshot ring (5 envelopes per topic)
+- **context** · preview & snapshots endpoints
+- **client** · canonical envelope inspector view
+- **chat** · unified composer button with smart stop/queue/send toggle
+- **chat** · ask-user-tool — pause stream, show form, resume on submit
+- **ws** · Zod validation for /ws/browser/:contextId protocol — WS-01 partial
+- **schemas** · Zod schema for ToolCallDetail union — NORM-01 foundation
+- **ws** · Zod validation for /ws main channel inbound — WS-01 extension
+- **chat** · wire parseToolCallDetail at renderer boundary — NORM-01 live
+- **ws** · welcome/hello handshake with version + capabilities — WS-02
+- **db** · sanitize ToolCallDetail at hydration boundary — NORM-01 complete
+- **agents** · explicit FSM module for agent sessions + profiles — AGENT-01 foundation
+- **v3** · WS-04 contract test + AGENT-FSM adoption at heartbeat checker
+- **agents** · extend FSM adoption to profile updates — AGENT-01 complete
+- **ws** · outbound emit-side Zod validation registry — WS-01 outbound
+- **ws** · expand outbound registry to 37 types — domain broadcast coverage
+- **ws** · outbound registry FULL coverage — 87 types, WS-01 complete
+- **v3** · outbound 100% + client inbound + AGENT-02 epoch + AGENT-04 NaN fix
+- **claude-code** · topics-app MCP server bridges open_browser_pane to CLI
+- **activity** · expose /api/activity/log query endpoint
+- **chat** · /project slash command — create / open / info
+- **electron** · global keyboard shortcut for Always-on-Top
+- **notifications** · cover all tab types + fix dead chat-notif path
+- **master-topic** · Agent Teams Master mode + kanban jump-to-tab
+- **browser** · bidirectional chat↔browser focus + pre-shift on tab close
+- **claude-sessions** · canonical lifecycle tracker for Claude Code sessions
+- **claude-sessions** · live phase indicator on chat tabs
+- **master** · rename ARCHIVIA→COMPLETA + surface Claude Code terminals in Master
+- **loading** · aggregate streaming signal onto project tab + sidebar row
+- **tabs** · roll child loading + notifications up to the project tab
+- **tabs** · loading spinners for browser + agent tabs, rolled up to project
+- **notifications** · wire Claude session states into the badge system
+- **server** · central pty activity tracking for terminal/claude-code sessions
+- **mcp** · Phase-1 CLI bridge tools — processes & tasks, project-scoped
+- **master** · pure parser for the ## Next proposal contract
+- **master** · ingest endpoint — proposals become persistent kanban cards
+- **master** · kanban proposal cards + ingest trigger on reply end
+- **ui** · terminal→browser pane, deferred terminal close, cool palette pass
+- **status** · Claude session phase tracking + Electron tray
+- **processes** · surface Claude-launched dev servers in Processes panel
+- **master** · terminal buffer scrape for ## Next (subscription-safe ingest)
+- **master** · terminal-Master wiring — role prompt + buffer-scrape ingest
+- **master** · session control — read/write/close MCP tools + live PTY test
+- **desktop** · cross-platform packaging + in-app auto-update
+- **master** · free periodic attention monitor (model-free ping)
+- **master** · surface master:digest as a toast + monitor API
+- **master** · monitor on/off toggle next to the sidebar Master button
+- **landing** · Aurora OS promo site for topics.armonia.io
+- **landing** · faithful real-app hero, richer texture, SVG icons, OS-first download, no em dashes
+- **landing** · use the real app UI screenshot + GitHub icon + fix OS hint
+- **landing** · interactive React demo replaces the screenshot
+- **landing** · realistic app demo — faithful dark IDE chrome, generic data
+- **status** · unify tab/sidebar/project notifications + loading into one model
+- **landing** · hero uses the REAL app components (mock data)
+- **landing** · hero demo IS the real app (mock backend, generic data)
+- **landing** · feature Claude Code sessions + 2×2 split, fix NaNd build chip
+- **landing** · hero shows TWO projects open at once (the multi-project figata)
+- **landing** · 3 projects open, no git tab, processes visible, one done
+- **selection** · one neutral "selected" surface for tab bar + sidebar
+- **sidebar** · light the active inner tab of a focused project, not just the folder
+- **master** · pimp the Master pane — identity + starter prompts + proposals
+- **board** · pure recommendation + autopilot engine for the Agents Board
+- **master** · bindable auto-pilot via Claude Code /loop
+- **landing** · hero mockup shows 3 open projects + browser preview
+- **landing** · render hero app at a larger logical viewport (bigger-screen feel)
+- **landing** · restore hover straighten on hero, minus the zoom
+- **board** · Agents Board section — status + preview + action + Autopilot
+- **sidebar+tabs** · card rows, split mini-map, project-tab parity, icon allowlist
+- **landing** · refresh demo to latest board/Master/tab design + fix terminal logo
+- **quick-260606-1uk** · Settings showBoard/showMaster + total Board/Master opt-out
+- **quick-260606-1uk** · header reorg — drop icons + SidebarControls, move into Topics ▾
+- **quick-260606-1uk** · inline live search next to Topics ▾
+- **grid** · double-click a divider to equalize the split (1/n)
+- **electron** · keep traffic lights visible in full-screen
+- **electron** · opt into macOS notch safe-area
+- **ui** · frosted-glass popovers + GridLoader working-indicator
+- **sync** · cross-device project tab identity via ui_state + additive union hydration
+- **sessions** · track topic-less terminal Claude sessions + pty-idle reaper/revive
+- **notifications** · native OS banners + pty-finished safety net
+- **landing** · ghost-cursor demo session + gap-free mascot + page refresh
+- **panes** · unified add-tab menus, Claude/Codex agent picker, sidebar actions
+- **header** · icon-only Search twin of the + button; New… palette moves to ⌘N
+- **updater** · self-managed mac auto-update for unsigned builds
+- **panes** · ⇧⌘T reopen-closed-tab, ⌘K history unification, fix reopen swap
+- **scripts** · signed Topics Host launcher to anchor macOS TCC for computer-use
+- **landing** · tease the demo above the fold, refined type, fix 'for you' badge
+- **scripts** · Topics Host self-requests Screen Recording + Accessibility (TCC)
+- **cloud** · cloud sessions open & nest into Topics projects
+- **cloud** · open any cloud session as a first-class interactive chat
+- **browser** · split beside chat on session-open, reuse if open, tab cue
+- **cloud** · conversational project placement + cloud identity + hardening
+- **cloud** · cloud cue in ⌘K + sessionKey shape guard on adopt
+- **layout** · split a project tab into a single column (cellStacks), not a full-width row
+- **layout** · floating-splits — desktop-only detached rounded panels
+- **layout** · floating-splits — transparent window so gaps show the real desktop
+- **layout** · per-region native vibrancy — frosted panels + clear-desktop gaps
+- **layout** · live vibrancy tracking during divider resize
+- **ws** · per-topic delta subscription — server scaffolding (P6, step 1/3)
+- **browser** · import_chrome — seed the native pane from the user's real Chrome logins
+- **layout** · weight project cells by internal splits on equalize
+- **agent-control** · move_session_to_project MCP tool + move-to-project endpoint
+- **signals** · blue "awaiting feedback" tab/row for stopped chats
+- **browser** · expose pane observe/act via MCP + persist the CDP target map
+- **signals** · extend awaiting-feedback blue to terminal + project tabs
+- **signals** · awaiting-feedback = solid electric-blue tab background
+- **browser** · drive the pane from a terminal session, not just a chat topic
+- **browser** · vendor Jarvis ref-based snapshot/diff engine + ops surface
+- **browser** · unify agent tool surface to Jarvis parity (snapshot/diff + full interaction)
+- **browser** · add browser_read_screen (vision->text via Moondream)
+- **browser** · login sharing — browser_save_state/load_state (Jarvis interop)
+- **browser** · block file://chrome:// for agent navigation (browser_open)
+- **orchestrator** · MCP tools for a Claude session to spawn & drive sub-agents
+- **browser** · non-shifting agent-activity pill with live action description
+- **tools** · migrate claude-code topic/project control from markers to MCP tools
+- **browser** · close the browser pane when the page calls window.close()
+- **tools** · wire codex onto topics MCP + make topic/project/browser prompts tool-only
+- **perf** · live FPS history + PC/Topics perf diagnostics in status bar
+- **browser** · dev toolbar — pretty URL, zoom, device, quick console, history menu
+- **browser** · render ⌘K above the native browser via an overlay-host window
+- **ui** · unified popover design-system + responsive browser address bar
+- **splits** · auto-rebalance the outer grid when an inner project split changes
+- **splits** · auto-equalize project-internal splits + weighted vertical balance
+- **perf** · real total app memory + CPU in status bar (not just server RSS)
+- **porting** · Tier-1 Tauri spike + low-footprint porting plan
+
+### Correzioni
+- remove unused variable warnings for production build
+- UI polish — sidebar streaming stop, message layout, system status
+- SW network-first strategy to prevent stale module errors on refresh
+- eliminate skeleton flash with synchronous cache init
+- use Playwright ariaSnapshot() instead of deprecated accessibility API
+- ports always visible, no sub-accordion for scripts, tab opens only on running click
+- show active ports in Processes sidebar section
+- per-process ports, persist script state across server restarts
+- remove loading spinner from ScriptRunner
+- fetch scripts and running state together to avoid idle flash
+- remove Suspense spinners from Files and Tasks sections
+- eagerly import FileExplorer and TaskBoard in sidebar
+- show minimal spinner in ScriptRunner while loading
+- improve scrollbar behavior and simplify kbd styling
+- swap time and archive button on hover in topic items
+- handle detached HEAD state in git status and branch list
+- improve script stop reliability and zombie detection
+- improve streaming performance and markdown rendering
+- wire editMessage/switchBranch through App and PanelGrid
+- TS errors for production build, rebuild public/
+- prevent horizontal overflow on mobile chat
+- chat input overflow on mobile, prevent horizontal scroll
+- responsive tabs on mobile, prevent overflow/clipping
+- force cache clear + hard reload on refresh button
+- move refresh button next to build timestamp, fix nested button
+- allow horizontal scroll on tab bar (mobile touch), remove global overflow-x-hidden
+- textarea clipping at tablet/medium widths
+- add min-w-0 + overflow-hidden at all flex levels to prevent content overflow on iPad/tablet
+- inline code and long paths overflow in message bubbles
+- force max-width calc(100vw) on message bubbles mobile + overflow-hidden on message list
+- message bubble max-width uses calc(100vw - 5rem) on mobile to account for sidebar
+- force overflow-x hidden on html/body/root, constrain all child widths
+- tab bar overflow-visible → overflow-x-auto, tabs scroll without pushing content wider
+- add min-w-0 to ProjectWindow root flex container
+- add min-w-0 to StandaloneChatGroup + GroupLayout containers — fixes mobile overflow
+- move safe-area-inset-bottom from form to ChatPane container, remove extra line under textarea
+- disable pinch-to-zoom on mobile (user-scalable=no, maximum-scale=1)
+- remove safe-area padding from ChatPane, set dark background on html/body to prevent white flash on overscroll
+- force 100dvh + maxHeight on root container for iOS PWA viewport
+- lock html/body/#root to 100dvh + overflow:hidden — prevent page scroll on iOS PWA
+- use fixed inset-0 instead of h-screen/100dvh — fixes iPad PWA dead space below textarea (also fixed duplicate style prop override)
+- inline style position:fixed + bump CACHE_VERSION to 3 to force PWA update
+- add min-h-0 to ChatPane, change PanelGrid to overflow-hidden — prevent content from exceeding viewport height on iPad
+- use safe-area-inset on fixed container edges — iPad PWA safe area fix
+- revert to inset:0, remove viewport-fit=cover — eliminate safe area gaps on iPad
+- compact sidebar header on mobile — smaller buttons (w-8), shorter header (h-11), consistent font size
+- normalize mobile sizes to match desktop — remove all oversized mobile-only padding, buttons, margins
+- compact sidebar items — h-11/44px → h-8/32px, text-13px → text-12px on mobile
+- normalize ALL remaining mobile-oversized elements — buttons, icons, padding unified with desktop sizes
+- compact project sidebar — file items 44px→28px, section headers h-10→h-8, close button w-9→w-7
+- add 70px left padding to sidebar header for macOS traffic lights (Electron frameless window)
+- change status-bar-style from black-translucent to default — keeps system bar separate from app content on iPad
+- try black status-bar-style for proper iPad safe area separation
+- restore viewport-fit=cover + black-translucent, use safe-area-inset-top to push content below iPad system bar
+- revert tab bar to top position always — ensures header visible under iPad system bar for projects
+- always show top bar even when no tabs open — empty state with header + sidebar toggle
+- uniform tab sizes (minWidth 120px), normalize tab bar button sizes
+- hook resilience — agent cache, topic fetch timeout, WS cleanup
+- SSE tool call status — send tool_result and contentOffset inline
+- terminal WebSocket auto-reconnect on HMR/server restart
+- **02** · fix SSE route pattern regression from parallel worktree merge
+- **03** · preserve treeitem role and remove aria-disabled from dnd-kit sortable attributes
+- **03-04** · fix renderLevel root-level sort and add visual DOM order assertion to TOPIC-12
+- **03-04** · rewrite TOPIC-11 test to use context menu color UI instead of API bypass
+- **03** · fix failing E2E tests — fixture roles, WS intercept, drag scroll
+- **05** · fix KANBAN-03 cross-column move test — use API move + reload verification
+- remove duplicate globalSetup in playwright.config.ts + cleanup worktrees
+- **02-06** · fix SSE helper route pattern from **/chat/** to **/api/chat
+- **02** · correct SSE route pattern to **/api/chat/* for session key paths
+- **02** · dual SSE+history mock for chat tests — root cause: history wipe
+- **13** · fix 4 failing chat E2E tests and harden test infrastructure
+- **15-01** · resolve CommandPalette projectPath for project panes
+- **15-03** · stabilize E2E tests — fix wrong ports, seed test data, fix history mocks
+- **16** · remove topics-only guard from split handlers — allow any pane type
+- **16** · enable drag-to-split for all top-level pane types
+- restore tab drag-reorder in split grid layout
+- resolve pane ID collisions, O(n²) group sync, and stale callback refs
+- resolve PanelGrid and GroupLayout robustness issues
+- resolve state architecture issues in layout system
+- **18-02** · fix context toggle race, budget bar NaN, and file search regex crash
+- **18-03** · fix BreadcrumbNav cache, EditorTabs race, ScriptRunner closure, verify SessionHistory filter
+- skip no-op tab reorder when dropped at same position
+- grid split edge cases — guard non-topic splits, add unsolo, enforce limits
+- enforce grid split limits + add comprehensive layout edge case E2E tests
+- **24** · fix 4 failing gap closure tests (DASH-08, DASH-12, FILE-11)
+- **openspec** · convert agents spec to valid OpenSpec format
+- **openspec** · convert chat spec to valid OpenSpec format
+- **openspec** · convert topics spec to valid OpenSpec format
+- **openspec** · convert context and commands specs to valid OpenSpec format
+- **openspec** · convert files spec to valid OpenSpec format
+- **openspec** · convert kanban spec to valid OpenSpec format
+- **openspec** · update coverage script regex for new heading format
+- **openspec** · convert terminal spec to valid OpenSpec format
+- **openspec** · convert layout spec to valid OpenSpec format
+- **openspec** · convert dashboard spec to valid OpenSpec format
+- **openspec** · convert all specs to valid OpenSpec format and update coverage regex
+- **25-01** · EditorTabs abort cleanup, App.tsx validation guard and ref sync
+- **25-01** · PanelGrid resize uses data-attribute selectors instead of sibling navigation
+- **28** · correct spec annotation IDs for coverage tracking
+- **chat** · improve stream reliability with timeout, error propagation, and stale cleanup
+- **chat** · unblock tool call events for HTTP fallback sessions
+- **gateway** · auto-sync token, circuit breaker, real-time status broadcast
+- **gateway** · add full operator scopes, clean up debug logging
+- **gateway** · use webchat client ID, register handler before sendChat
+- **chat** · re-enable WS chat path for tool call visibility
+- **chat** · skip message:new WS broadcast for own SSE sessions
+- **chat** · use HTTP for chat, WS only for tool events (hybrid approach)
+- **chat** · always register WS tool handler in HTTP path
+- **chat** · enable WS path + always register tool handler
+- **chat** · strip internal markers before broadcasting in WS path
+- **chat** · tighten topic auto-switch rules to prevent false positives
+- adapt performance test selectors to Topics HTML
+- eliminate flash/flicker on load — inline critical CSS + localStorage pre-render
+- resolve visual stability bugs — topic switch, page load, sidebar toggle
+- AI review delegates to OpenClaw instead of direct API calls
+- robust Chromium cleanup — teardown kills by user-data-dir, setup has signal handlers for crash
+- gateway health check uses GET / instead of session_status
+- allow project tabs to split alongside via DnD and context menu
+- pass terminal type through project pane pipeline
+- sidebar tab-sync — only show items with open tabs
+- persist project tab sync in sidebar across reloads
+- suppress repeated git/status 400 for non-git paths
+- return 200 for non-git paths in git/status API
+- show project terminals under their project in sidebar
+- match terminals to most specific project path
+- show all project topics when project tab is open
+- show all project children when project tab is open
+- merge callback + persisted panes for project sidebar sync
+- always focus project tab when clicking project in sidebar
+- prevent tab reorder from triggering grid-level edge splits
+- split pane guards and dropdown positioning
+- auto-sync active terminals as project sub-tabs
+- prevent file drop from navigating away in Electron
+- prevent background windows from overriding shared terminal size
+- terminal touch detection and toolbar types
+- tab DnD cross-group indicator and stale edge split zone
+- prevent topic tabs from being dropped during HMR/page reload
+- **electron** · prevent multiple instances via single-instance lock
+- **electron** · exec Electron binary directly for launchd parentage
+- **quick-260410-f5b** · only pass sidebar toggle to top-left panel
+- **quick-260410-f5b** · reorder JSX so toggle button wins Electron drag region
+- **quick-260410-f5b** · reorder tabbar/toggle JSX in 6 header branches
+- **quick-260410-f5b** · symmetric tab padding when no sidebar overlay
+- **notifications** · detect session completion via active→idle transition
+- **topics** · system-message endpoint now increments unread count
+- **project-window** · guard against transient empty topicIds wiping chat tabs
+- **undo** · move reopen-closed-tab listener after callback definition
+- **project-window** · don't persist empty openChatTopicIds before initial sync
+- **dnd** · allow terminal/browser/session-viewer tabs to split via context menu
+- **topics** · add updateUnreadCount to all stream:end paths
+- **project-window** · suppress persistence until chat sync completes
+- **terminal** · open links via shell.openExternal in Electron
+- **tabs** · anchor pane context menu to tab position and portal it
+- **editor** · resolve relative image paths in MD preview
+- **editor** · MD preview images render GitHub-style + allow sibling media
+- **pane-store** · close audit-found correctness gaps in layout reducer (#2)
+- **terminal** · clickable wrapped URLs + restore GUI session for `open`
+- **layout** · split bugs — stale focus highlight + collapsed split-down row (#3)
+- **layout** · wire groupIsFocused on GroupLayout's PaneTabBar (#4)
+- **layout** · preserve grid layout across reload (race with pane hydrate) (#6)
+- **layout** · hoist split-substack hooks above empty-state early return (#10)
+- **layout** · split-down survives reload (close persistence race + sync closure bug) (#11)
+- **layout** · drag-drop reliability + structural cleanup (#12)
+- **build** · drop unused isNativeApp + align popClosedTab return type
+- **panels** · register pane entity in store before pushing into openPanels
+- **layout** · click on pane content focuses its group
+- **panels** · preserve focused tab across reload + click-to-focus in standalone group
+- **layout** · forgiving split-drop + pre-hydrate focus guard
+- **layout** · always preventDefault on tab dragover so split drop fires
+- **persistence** · include activeChatTopicId in project save effect deps
+- **layout** · dim project group focus ring when project isn't App-focused
+- **panels** · cmd+W closes focused inner sub-tab before App-level pane
+- **panels** · scope ⌘1-9 sub-tab shortcut to the App-focused group only
+- **panels** · reopen-closed for project panes + recent projects in cmd+K
+- **panels** · tombstone closed terminal sessions so reload can't resurrect them
+- **server** · solid PTY-bridge lifecycle (single-instance, ack, watchdog)
+- **server** · don't keep claude-code sessions that fail to launch as 'dormant'
+- **panels** · top-bar utility tabs no longer leak as 'Topic not found' inside projects
+- **panels** · App-level draft creation no longer absorbed by focused project
+- **sync** · cross-window topic+message sync, device-local drafts
+- post-merge rebuild storm + accidental ui_state wipe
+- **server** · boot-time cleanup of orphan topic refs in ui_state
+- **client** · break Effect 7 ↔ HYDRATE ping-pong with PURGE_ORPHAN_PANE
+- **server** · augment PATH and allocate PTY for /api/scripts/run
+- **server** · set npm_config_yes for spawned scripts
+- **client** · register project pane in store before opening (Open as project)
+- **providers** · recompute default when openclaw gateway is offline
+- **electron** · always open link clicks in the system browser
+- **client** · land App-level panes in group:default by default (cmd+K focus snap-back)
+- **client** · always write project layout to localStorage, gate only server PUT
+- **server** · atomic saveSingleTopic, FK CASCADE on claude_code_sessions, server-validated /chat/abort wipe
+- **chat** · clear tool spinners — dedup cumulative tool_use snapshots from claude-code provider
+- **browser-service** · auto-discover Chromium when bundled path missing
+- **30.1-polish** · hide WebContentsView when DOM overlay is shown
+- **electron** · force "+" tab button clickable in drag region
+- **panes** · project tabs/terminals actually close after the soft countdown
+- **30.1-overlay** · theme matching + position alignment
+- **panes** · keep-alive panes + history-fetch dedup so tab switch doesn't reload
+- **30.1-devtools** · dock DevTools inside Topics window by default
+- **30.1-lifecycle** · cleanup orphan WebContentsView + robust split layout
+- **panes** · keep-alive uses stableKey + always renders active pane
+- **30.1-dnd** · persist WebContentsView across React DnD remount
+- **30.1-dnd** · hide WebContentsView during global drag operations
+- **30.1-persist** · persist browser pane in store so it survives reload
+- **providers** · claude before openclaw — drop the openclaw default fallback
+- **chat** · rebuild provider history from the DB, not the client POST body
+- **claude-code** · replay DB history when --resume is forced to wipe a session
+- **30.1-e2e** · browser-* suite green — DATA_DIR isolation + close race
+- **panes** · keep-alive hides browser WebContentsView reliably
+- **panes** · re-measure browser bounds on transitionend (split / reflow)
+- **browser** · three concrete bugs around split, sidebar label, close
+- **browser** · three more sync bugs around split, sidebar, reload
+- **panes** · restore icon polish in <PaneAddMenu> — mobile size + per-pane accent
+- **panes** · revert per-pane colour tint in <PaneAddMenuItems>
+- **panes** · curated item order in <PaneAddMenu> matches pre-unification
+- **panes** · brand-tint every menu icon + unify trigger across all 3 callsites
+- **panes** · brand-tint Electron overlay menu to match web portal
+- **stream** · resilient timeout — survive long sub-agent waits, recover after silence
+- **claude-code** · real-time onToolResult — process user events with tool_result blocks
+- **electron** · make updates fully opt-in (no surprise downloads/installs)
+- **refresh** · kill three sources of "the app refreshes by itself"
+- **electron** · asset watcher default OFF — opt-in via TOPICS_AUTO_RELOAD=1
+- **electron** · asset watcher default ON again, opt-OUT via TOPICS_AUTO_RELOAD=0
+- **prod** · single-instance lock for start-prod.sh
+- **chat** · defense-in-depth against history wipe on stop
+- **types** · WS message union refactor — restore literal narrowing, unblock build
+- **tests** · unit suite goes 396/0 green, no more cross-test contamination
+- **chat** · stream:catchup carries toolCalls + blocks for mid-stream attach (#17)
+- **ui** · sidebar↔topbar pending-action sync — countdowns mirrored everywhere
+- **chat** · close tool→pane loop + harden marker strip against chunk splits
+- **project-window** · wire browser:navigate + browser:open-and-navigate listener
+- **project-window** · tear down browser context server-side when pane closes
+- **cmd-n** · scope new chat to focused project + place pane in focused group
+- **tabs** · faster close countdown (3s→1.5s) + accent color for project tabs
+- **activity-monitor** · persist event buffer across server restarts
+- **audit** · correct dishonest task markings + scan integration tests
+- **streaming** · drop stale activeStreams entries to prevent ghost catchup
+- **electron** · poll index.html with fs.watchFile for reliable prod reloads
+- **tabs** · uniform soft-close affordance for every pane type
+- **tabs** · already-active sessions now light topic rows + tab bars
+- **tabs** · hydrate already-streaming sessions so topic rows + tabs show spinner
+- **tabs** · set projectPath on top-level project panes so tab indicators render
+- **tabs** · terminal tab shows its own loading spinner
+- **sidebar** · terminal/claude-code session rows show loading spinner
+- **panes** · standalone Claude Code tab stays standalone — no home-as-project catch-all
+- **ui** · bug-fix pass — DnD scoping, phase-authoritative loading, reload persistence
+- **ui** · free ⌘⇧T from the browser + make tab DnD previews self-clearing
+- **master** · run Master on claude-code provider (subscription), not claude-code-team
+- **master** · don't hard-fail Master creation on provider availability
+- **layout** · three split/clone bugs — home catch-all, mixed-group new chat, no-solo terminals
+- **mcp** · use https base-url for topics MCP gateway when TLS enabled
+- **e2e** · isolate PTY bridge so tests never kill live sessions
+- **layout** · scope pane DnD feedback + file-open to the owning window
+- **build** · move mac entitlements out of gitignored build/ dir
+- **build** · unblock mac (unsigned) + linux deb release
+- **build** · remove invalid '//' key from mac config (broke electron-builder schema for all platforms)
+- **build** · build each mac arch on its native runner
+- **master** · open Master as a terminal TAB, not a chat pane
+- **landing** · remove real app screenshot (contained private project names)
+- **landing** · emulate macOS vibrancy in hero so it matches the real app
+- **sidebar** · Claude Code terminal rows use chat selection semantics
+- **release** · strip node_modules symlinks for universal merge — v1.0.2
+- **release** · x64ArchFiles for universal merge — v1.0.3
+- **sidebar+landing** · project sidebar sections shrink instead of overlapping
+- **landing** · scale hero to 2 open projects (3 was too cramped at hero size)
+- **selection** · clean fill, no ring/shadow — stop open rows looking selected
+- **master** · tab icon (crown) + hide from sidebar list + tab-style shortcuts
+- **landing** · drop hero hover zoom/tilt — it made the scaled demo jump
+- **master** · single 'open-master' path — no more chat-master fallback
+- **landing** · static hero tilt, hover glows instead of re-tilting
+- **board** · Board full-width like Master + agents shown as kanban columns
+- **landing** · kill the real zoom/crop — legacy .window-real :hover transform
+- **grid** · preserve manual row heights on add + enforce split limits in project
+- **grid** · sanitize persisted project layout on load + guard NaN cell width
+- **grid** · clamp divider to edge (no dead-zone) + unify min pane size + cache size
+- **grid** · keep divider drag tracking over iframe/native browser panes
+- **landing** · clean full-block Claude mascot in correct brand orange; hide Board/Master in demo
+- **hooks** · drop dead _SafeArea* helpers; hoist TimeSeriesChart callbacks
+- **hooks** · real correctness fixes surfaced by react-hooks rules
+- **sidebar** · remove stray loading spinner next to the search launcher
+- **hooks** · POST over HTTPS to the TLS-only :3333
+- **mobile** · edge-to-edge safe-area + theme-color sync + touch terminal resize
+- **infra** · keep PTYs alive across server restarts; make start-prod kill-safe
+- **purge** · remove archived/deleted chats from every ui_state shape
+- **loading** · ground loading signals in real activity, not spurious events
+- **panes** · route panes created from a solo cell's + into that cell
+- **layout** · harden split/closed-tab/sync state machines (audit HIGHs)
+- **resize** · drag slop, lost-mouseup recovery, full overlay protocol everywhere
+- **state** · boot-window pane survival, terminal reopen meta, sync dedupe guards
+- **project** · ghost panes, double-commits, browser context lifetime, focus rule
+- **grid** · primary-tab extraction, cell re-key in place, stacked-pane drags, persisted-layout sanitizing
+- **links** · dedupe external-link opens; reconcile PTYs on bridge reconnect
+- **codex** · resolve the Codex.app binary for PTY panes + CLI 0.131 usage fields
+- **landing** · render the demo mascot seam-free via cell background fill
+- **landing** · real Claude Code logo seam-free via Canvas renderer + faster cursor
+- **electron** · always open a window + tray, even if the bundled server is slow/blocked
+- **sidebar** · list project terminals only while their tab is open
+- **panes** · converge open tabs across clients by UNION on hydrate
+- **terminal** · lossless reattach via the authoritative session list
+- **pty** · force a UTF-8 locale so accented output doesn't mojibake
+- **terminal** · coalesce xterm fit during split-drag to kill per-frame flicker
+- **ui** · kill reload flash — instant initial tab-scroll + cached favicon slots
+- **client** · unblock tsc -b — silence TS6 baseUrl deprecation
+- **signals** · don't badge a still-working Claude terminal as finished
+- **ui** · only one tab reads as selected in a split (soft → outline)
+- **unread** · clear unread optimistically on focus to stop badge flicker
+- **layout** · dedup panes/groups at render + hydrate (no duplicate windows)
+- **signals** · stop false-positive loading/notifications on resize & tab-open
+- **chat** · self-heal a chat spinner stuck after a lost stream:end
+- **browser** · stop native browser panes opening white on session-open
+- **layout** · floating-splits — reveal real vibrancy + flush window edges
+- **layout** · floating-splits — flush edges in the standalone grid too
+- **context** · stop PROJECT_* markers leaking into LLM history; centralize marker grammar (audit P4)
+- **server** · burn down 6 server type errors; ratchet baseline 34→28 (audit P3)
+- **e2e** · unblock E2E collection — context-settings injected `require` in ESM scope
+- **server** · narrow zod result via `in` so formatZodIssues type-checks; ratchet 28→27
+- **server** · enable strictNullChecks; ratchet baseline 27→19 (audit P3)
+- **server** · correct context-analyze warnings type to match client + runtime (audit P3)
+- **server** · type finalMessages as ChatMessage[]; ratchet 18→14 (audit P3)
+- **server** · tidy ask-user type-guard + gateway httpStatus union access; ratchet 14→11
+- **server** · clear remaining type errors — server typecheck now 0; ratchet is a hard gate (audit P3)
+- **server** · tear down leaked timers/watchers on shutdown (audit P8)
+- **git** · stop trimming porcelain XY status — fixes staged/unstaged misclassification (audit)
+- **usage** · pricing fuzzy-match billed short model names at the wrong rate (audit)
+- **providers** · scope abort(sessionKey) to one session, not all in-flight streams (audit)
+- **voice** · validate voiceId, unpredictable STT tmp dir, TTS length cap (security review)
+- **server** · register voiceRouter in the dispatch chain (re-apply, lost to shared index)
+- **layout** · clear dragActive on stopPropagation'd split drops (stuck "Full-width row" strip)
+- **layout** · keep project split dividers visible in floating-splits mode
+- **tabs** · ⇧⌘T no longer reopens two tabs in Electron
+- **claude** · start Topics-spawned sessions at the shell effort tier (ultracode)
+- **server** · bind dual-stack (::) so nothing can squat localhost:3333
+- **ws** · emit undefined (not null) sourceClientId on ui-state broadcasts
+- **ci** · hoist dragActive state above its first use in GroupLayout (eslint error)
+- **ci** · guard the beforeunload hook against a partial-window test env
+- **ui** · stop project favicons vanishing after a server blip (poisoned icon cache)
+- **release** · sync electron-app lockfile + correct author email
+- audit high-value bugs — topic:switch focus-steal, browser screencast leak, git mislabel
+- **server** · close audit robustness gaps — timeouts, timer leaks, undrained stderr
+- **ws** · align WS contract types/schemas with the real wire (kill gate-invisible drift)
+- **client** · streaming hot-path waste, redundant polling, IPC listener leak, grid cap
+- **electron** · trust loopback cert hosts + only kill caffeinate on a real quit
+- validate CODEX_APPROVAL_MODE + make useWSSubscription stale-closure-proof
+- **electron** · default-deny sensitive browser permissions + add a consent bar
+- **browser** · per-context screencast fan-out + heartbeat the browser WS sockets
+- **electron** · bundled-server crash-restart + plist XML-escape + non-orphaning prod script
+- curated low-severity hardening (a11y, leaks, release safety)
+- **client** · weighted-equalize reads weights lazily + NewTopicModal poll cancels on unmount
+- **electron** · set-bounds no-op on missing view + recover off-screen window
+- **server** · plug CDP/timer/map leaks found by audit sweep
+- **client** · preserve drafts/split config on hydrate + ghost cleanup + O(n) reorder
+- **electron** · no-op nav IPC handlers on a stale native-browser view
+- **browser** · flush caches on teardown + settle after load_state + quiet WS log
+- **prod** · stop the production server reloading on every server/ source edit
+- **browser** · persist+restore browser tab URL like a chat tab
+- **prod** · stop the production renderer reloading on every client/ source edit
+- **electron** · keep the vibrancy window painting across display + sleep/wake
+- **client** · stop per-render effect churn + handle push-init rejection (audit #2)
+- **browser** · persist tab URL deterministically at open (not just onUrlChange)
+- **vibrancy** · pin per-region frost behind content (z-order) — fixes blank panes
+- **electron** · scheme-guard the native browser view against agent-driven file://
+- **browser** · solid project + standalone browser-tab behavior (URL seed + dedup)
+- **server** · write mutable state to a writable dir so a downloaded app boots
+- **server** · don't exit when GATEWAY_TOKEN is absent — the gateway is optional
+- **server** · bind all IPv4 in the packaged app so 127.0.0.1 reaches the server
+- **browser** · mirror Jarvis handle-sanitize for shared login-state interop
+- **electron** · clear a stale server holding :3333 before spawning (self-heal EADDRINUSE)
+- **terminal** · find user-installed `claude`/`codex` via the login-shell PATH
+- **browser** · drive the real native pane from MCP, not a Playwright phantom
+- **vibrancy** · make per-region frost transparent to the cursor (hitTest nil)
+- **browser** · bind project browser pane to its own contextId + allow CDP origin
+- **browser** · raw-CDP dispatcher so browser_* drives the native pane under Bun
+- **browser** · eval returns the expression value + stop the per-tool-call view flash
+- **browser** · native tab survives refresh + caps moondream read_screen loop
+- **browser** · keepalive heartbeat keeps the native pane's CDP target alive between MCP turns
+- **browser** · don't reap the native pane when the window is hidden (about:blank/localStorage loss)
+- **dnd** · one clear drop indicator + unmistakable split targets
+- **dnd** · split preview is pure fill — drop the seam line (one indicator)
+- **browser** · never silently drive the off-screen Playwright phantom in the desktop app
+- **browser** · force a VISIBLE pane open when open_browser_pane mounted nothing
+- **dnd** · make the full-width-row drop zone discoverable
+- **sidebar** · list project-internal browser panes too (not just top-level)
+- **sidebar** · nest project-internal browser panes UNDER their project
+- **browser** · rebind a project's shared browser pane to the caller's contextId
+- **browser** · persist project browser panes across app reload
+- **dnd** · insert divider clears the cell region (no double preview)
+- **browser** · stop force-open from duplicating a project-owned browser pane
+- **orchestrator** · hard-gate /agents/* on GATEWAY_TOKEN (close unauth RCE)
+- **perf** · stop FPS monitor double-counting (~200fps) on status-bar open
+- **browser** · hide native pane while overlays are open (⌘K, modals, toolbar dropdowns)
+- **splits** · visible hover handle on resize dividers
+- **splits** · make resize handles hittable on hover (clip fix)
+- **splits** · always-visible resize handles (floating mode)
+- **codex** · persist draft-chat provider pick + stop 1h sweep deleting dormant codex
+- **splits** · divider z-50 so hover wins over pane content (revert always-on)
+- **splits** · faint resting seam for top-level dividers in floating mode
+- **codex** · make codex PTY sessions persist + resume across restart
+- **browser** · route toolbar dropdowns through the native overlay menu
+- **splits** · soften floating-mode resting seam to barely-visible
+- **pty** · anchor spawned PTYs to the real $HOME, not a sandbox HOME
+- **tray** · self-heal stale Claude status glyph via periodic re-sync
+- **splits** · flex-grow project columns, dedup project browser, hide resting divider seam
+- **browser** · self-heal reaped native views + stop get-cdp-target-id log flood
+- **lint** · clear the eslint error blocking CI on main
+- **splits** · weight outer equalize by the ACTIVE project in a multi-tab cell
+- **splits** · center the divider hover bar + kill the post-hover black flash
+- **perf** · make status-bar diagnostics honest (build-time, heap, buckets, CPU)
+
+### Prestazioni
+- server-side caching, WS broadcasts, and git file watcher
+- **topics** · replace single-topic loadTopics() N+1 scans with indexed lookups (audit P7)
+- **server** · batch-load topic relations + bound gitStatusCache (audit #2)
+- **render** · kill per-frame main-thread work from vibrancy observer + awaiting-pulse
+- **browser** · cache targetId->Page to kill per-op CDP walk churn
+- **dnd** · DOM-direct sub-stack divider resize (live, no re-render)
+- **anim** · pause CSS animations while the window is backgrounded
+- **terminal** · blur the Copy button only on hover, not at rest
+- **css** · drop static will-change:width on .sidebar-transition
+
+### Sotto il cofano
+- Initial commit — Topics companion app for OpenClaw
+- update types, dependencies, and design system tokens
+- simplify UI, add restart confirm, fix browser pane handling
+- Revert "feat: mobile bottom bar + compact sidebar for tablet/mobile"
+- Revert "fix: add 70px left padding to sidebar header for macOS traffic lights (Electron frameless window)"
+- back to inset:0 without viewport-fit=cover — iPad topbar is not a safe area
+- remove unused SVG files for Vite and React from client and public directories
+- remove dead components and unused hooks
+- normalize icon sizes and clean up unused imports
+- shared WS-driven hooks for scripts, git, context, and agents
+- remove obsolete agent autonomy RFC document
+- extract renderProjectHeader for consistent sidebar project rows
+- gitignore staging env, certs, local db, test artifacts
+- add project research (stack, features, architecture, pitfalls)
+- **01-01** · eliminate waitForTimeout and networkidle from helpers.ts
+- **02-03** · add markdown and plan mode rendering tests
+- **02-03** · add spawn card and diff block rendering tests
+- track chat.spec.ts before worktree merge
+- combine chat.spec.ts from parallel worktrees (02-02 + 02-03 + 02-04)
+- **quick-260329-2cs** · remove 30 agent worktrees and add cleanup script
+- **02-06** · add CHAT-14 auto-scroll on new streamed message test
+- **15-01** · add E2E test for CommandPalette projectPath in project context
+- **16-02** · add E2E tests for grid panel splitting via context menu
+- **17-02** · add E2E tests for tool call and attachment rendering
+- **18-03** · add E2E tests for FIX-06/07/08/09 regressions
+- **18-01** · add E2E tests for Dashboard WS refresh and label fix
+- **18-02** · add E2E tests for FIX-03 toggle race, FIX-04 NaN budget, FIX-05 regex crash
+- **18** · mark phase 18 complete — all UX regression fixes verified
+- add E2E tests for layout edge cases (24 scenarios)
+- **19-01** · initialize OpenSpec with Claude Code skills
+- resolve merge conflicts from parallel executors
+- **25-02** · add E2E regression tests for phase 25 fixes
+- **27** · E2E tests for infra features — 30 tests across 7 panels
+- **27** · mark phase 27 complete + planning artifacts
+- **28-01** · add CHAT-05 checkpoint timeline E2E tests
+- **28-01** · add CMD-02 push notifications and FILE-03 context menu E2E tests
+- **28-02** · extend dashboard tests with DASH-02/03 deeper coverage
+- **28-02** · extend kanban and agent tests with KANBAN-03/04 and AGENT-03 coverage
+- real E2E tests for tool call and media rendering (no mocks)
+- clean up diagnostic logging from tool call pipeline investigation
+- remove diagnostic logging from gateway event investigation
+- remove Spaces spec (redundant with Projects feature)
+- remove empty test helpers barrel file
+- convert Electron app from JavaScript to TypeScript
+- redesign sidebar with unified timeline and extracted components
+- cleanup unused imports and fix theme parsing
+- add external file drop E2E spec
+- split persistence — layout local-only, tab identity server-synced
+- add tab notification badges change proposal and phase 29
+- **ui** · simplify connection status indicator
+- **electron** · remove global shortcut for always-on-top toggle
+- Phase 30: Unified pane state + tab-system reliability fixes (#1)
+- **layout** · remove pendingSplitRef dead code (#5)
+- **ProjectWindow** · split god-component into 4 hooks (#13)
+- **StandaloneChatGroup** · split into 3 hooks (#14)
+- **App** · split god-component into 4 hooks (#15)
+- **types** · WSMessage discriminated union + post-review fixes
+- **types** · remove `as any` from blocks/sendOptions/stream:end
+- **phase-a** · add-project-worktree-domain change proposal
+- **integration** · Phase A end-to-end domain coverage (11 cases)
+- **phase-a** · mark tasks complete + flag e2e/build deferrals
+- **phase-a** · VERIFICATION.md — green/deferred status report
+- **e2e** · worktree-domain.spec.ts + 25 do-not-break walkthrough
+- PHASE-A-TO-H-SUMMARY.md — end-to-end migration map
+- relocate repo to ~/Projects/topics-app (out of OpenClaw workspace)
+- **electron** · sync package-lock with electron-updater dep
+- **panes** · retire wrong-shape project-layout sync + wire close-now on standalone tabs
+- **panes** · Things3-style empty-circle + L→R progress fill on tab/sidebar/project
+- **30-01** · add Wave-0 stubs for BROWSER-CHAT-01 persistence
+- **30-02** · wave-0 stubs for BROWSER-CHAT-02 WS streaming
+- **30-03** · add Wave-0 stubs for browser agent control (5 test.fixme)
+- **30-04** · wave-0 stub browser-tab-open.spec.ts (6 test.fixme)
+- **30-05** · fill browser-persistence.spec (BROWSER-CHAT-01)
+- **30-05** · fill browser-ws-streaming.spec (BROWSER-CHAT-02)
+- **30-05** · fill browser-agent-control.spec (BROWSER-CHAT-03)
+- **30-05** · fill browser-tab-open.spec (BROWSER-CHAT-04)
+- **30-05** · adapt phase 27 browser-process.spec to WS-first arch
+- **30.1-01** · browser-electron-native spec scaffold
+- Revert "fix(30.1-polish): hide WebContentsView when DOM overlay is shown"
+- **panes** · unify "+" / add-pane menu — single shared component
+- **panes** · cleanup pass after the keep-alive / browser refactor
+- **panes** · one canonical <PaneAddMenu> — true single source of truth
+- **panes** · migrate the third add-menu (App "New" sidebar header) to <PaneAddMenu>
+- **agents** · tool-detail normalizer suite
+- **openspec** · topic-context-canonical change
+- **context** · topics.ts uses canonical envelope; analyze becomes wrapper
+- **openspec** · ask-user-tool-input change proposal
+- **heartbeat** · add last_seen_at to in-memory schema — eliminate log noise
+- **worktree** · await materialisation in integration test — kill cleanup race
+- **browser-tool-dispatcher** · add unit coverage
+- **useChat** · consolidate marker strip into cleanInvisibleMarkers helper
+- **stream** · extract computeCleanBroadcastDelta + lock contract with 14 unit tests
+- **openspec** · archive 7 completed changes
+- **openspec** · close 3 deferred tasks in add-project-worktree-domain
+- **openspec** · archive terminal-session-resume (all tasks verified)
+- **openspec** · archive chat-fast-mode (41/41 verified in code)
+- **openspec** · archive 5 implemented phase changes
+- **openspec** · archive tab-system-reliability (audit-resolved)
+- **openspec** · archive sidebar-redesign (23/23 verified in code)
+- **openspec** · archive add-project-worktree-domain (61/61 resolved)
+- **openspec** · archive tab-drag-fix-and-nested-grid (deferred refactor)
+- **openspec** · promote 9 add-project-worktree-domain tasks DONE
+- **openspec** · close last 2 add-project-worktree-domain tasks
+- **openspec** · close 9 carry-over tasks in 2026-03-31-complete-spec-coverage
+- 100% spec coverage + deflake panels file-explorer test
+- **repo** · gitignore generated UAT artifacts + tune Master prompt
+- **claude-phase** · single shared indicator across tabs + sidebar
+- **streaming** · single context + canonical indicators across surfaces
+- **streaming** · absorb terminal into context, drop deprecated props
+- **shared** · NotificationBadge widget + basename() utility + getProjectLabel
+- **contexts** · TopicsContext for topics + terminalSessions + workspaceProjects
+- **layout** · extract LazyPane suspense wrapper
+- **panes** · registry-driven close handlers in usePaneLifecycle
+- **types** · shared/types.ts as single source for client+server unions
+- **server** · adopt rowToMemory converter + drop local slugify dup
+- **hooks** · useWSSubscription + adopt useRefMirror at remaining sites
+- **tests** · shared integration helpers — setupTestDataDir + createTestAppContext
+- **signals** · unify all tab loading + notification signals behind one store
+- **openspec** · propose refactor-master-into-kanban change
+- **master** · extract ingest core to testable module + integration test
+- **openspec** · record implementation status for refactor-master-into-kanban
+- **openspec** · supersede with interactive-claude-primitive (subscription-safe Master)
+- **security** · sanitize repo for public release
+- **master** · dispatch round-trip for write/close session tools + status
+- download-first README + legal files for public release
+- **master** · monitor is user-controlled, never auto-started
+- reframe Topics as a Claude Code / agent workspace + Cursor alternative
+- **deploy** · vercel.json — serve landing/ as static site
+- **e2e** · assert notification badge parity between tab bar and sidebar
+- **release** · universal macOS build (x86_64+arm64), drop dead macos-13 Intel job
+- v1.0.1 — universal macOS build
+- **contributing** · add Releasing guide (universal macOS build)
+- **openspec** · retire agent-conductor integration (project archived)
+- **master** · remove dead MasterBoardStrip + chat-master ingest
+- **openspec** · mark interactive-claude-primitive approved (implemented)
+- **board** · one kanban per surface — agents move to the Agents pane
+- **sidebar** · replace inline topic search with ⌘K launcher
+- remove Master/Board subsystem + move connection status to status bar
+- **cleanup** · remove dead orphan modules + stale board test
+- **deps** · drop unused client deps (codemirror meta, autoprefixer)
+- **lint** · honour the _-prefix unused convention in eslint config
+- **cleanup** · remove dead exports + genuine unused vars
+- **lint** · allow intentional empty catch blocks
+- **lint** · lint-tail cleanup + fix dead always-true guard
+- **types** · replace no-explicit-any with precise types (46 files)
+- **lint** · scope react-hooks compiler rules to the project's setup
+- **lint** · drive client to zero eslint problems
+- **hooks** · register only the 5 load-bearing session events
+- **tracker** · remove the unwired terminal-session tracking path
+- **tabs/sidebar** · trailing-edge loading, hover-reveal close, project split-minimap
+- **master** · remove dead Master leftovers after the feature was dropped
+- **loading** · unify GridLoader with SplitMiniMap grammar
+- **release** · auto-tag + dispatch release on main version bump — v1.1.0
+- bump checkout/setup-node to Node-24-ready majors
+- **landing** · rebuild demo bundle on the final client
+- **landing** · rebuild demo bundle with the audit fixes
+- **release** · v1.1.1 — 30 audit fixes (resize/state/project/grid) + ⌘N add palette, icon-only Search
+- **landing** · rebuild demo bundle with the header/shortcut polish
+- **sidebar** · share row padding/inset constants with the tab bar
+- **sidebar** · one ROW_INSET on every axis, matching the tab bar
+- **landing** · rebuild demo bundle with the merged link/padding work
+- **release** · v1.1.2 — external-link dedupe, PTY-bridge reconcile, sidebar/tab-bar padding unification
+- **release** · v1.1.3 — mac auto-update without Apple signing
+- **updater** · drop dead macUpdateTmpDir (staging is sibling-based now)
+- **landing** · use the real Claude Code logo as the demo mascot
+- **release** · v1.1.4 — Codex.app PTY resolution + real demo mascot
+- **release** · v1.1.5 — installed app always opens + is quittable from the tray
+- **ui** · restore soft-fill for the dimmed-active tab
+- **cloud** · verify FE open+nest and Cloud badge against the built client
+- **audit** · apply 124 verified safe-auto fixes from full monorepo audit
+- add push/PR quality gate + unblock the client build typecheck (audit P3)
+- **server** · add server tsconfig + typecheck ratchet (audit P3, part 2)
+- remove dead Kanban E2E suite (audit P9, test footprint)
+- add Playwright spec-collection gate (catches transpile/import breakage)
+- **client** · remove dead board/task API clients (audit P9, client dead code)
+- **client** · remove dead boards/approvals/tags API clients (audit P9, cont.)
+- **client** · delete dead AgentCard component (audit P9, client dead code)
+- remove dead board fixtures (createTask/createApproval/createBoardMemory) (audit P9)
+- **server** · remove dead legacy task routes + helpers from topics.ts (audit P9-server)
+- **client** · remove dead agentActionsApi (audit P9, client dead code)
+- **server** · delete the dormant agent-api board router (758 LOC) — LIVE-verified (audit P9-server)
+- **ws** · drop 17 dead outbound types + fix inbound variant count (audit P9/P6)
+- **server** · extract remote-access/tunnel endpoints into a router (audit, god-file)
+- **server** · extract auto-name handler into a sub-router via dep-injection (audit, god-file)
+- **server** · extract media + upload endpoints into a router (audit, god-file)
+- **server** · extract the /api/history handler into a router (audit, god-file)
+- **server** · extract switch-branch into a branches router (audit, god-file)
+- **server** · extract message-edit + streamEditResponse into a router (audit, god-file)
+- **server** · drop now-unused createBranchMessage from topics ctx destructure
+- **server** · drop dead imports + now-unused ctx destructure from topics router
+- **server** · extract the ~1500-line /api/chat streaming engine to chat.ts
+- **review** · fix 3 low-severity doc-accuracy findings from the session review
+- **mcp** · add shipped import_chrome tool to tools/list expectations
+- **e2e** · cover double-click-to-equalize on a split divider (GRID-07)
+- **e2e** · cover vertical double-click-to-equalize (GRID-08)
+- **e2e** · make screenshot-evidence specs assert real behavior (kill green-but-empty)
+- **types** · narrow SidebarTab to 'remote' + clarify WSMessage catch-all docs
+- **lint+test** · zero eslint warnings + fix the test-isolation window polluter
+- **release** · v1.2.0
+- **cleanup** · delete confirmed-dead exports (zero consumers)
+- typecheck Electron main on every PR + assert production strip before release
+- **ws** · update outbound-registry contract to the corrected wire types
+- **e2e** · harden two green-but-empty split assertions
+- **e2e** · cover unarchive round-trip + fix stale palette placeholder
+- **mcp** · add browser_observe + browser_act to tools/list expectations
+- **browser** · E2E for unified surface + login-state; fast-fail stale refs
+- **terminal** · record why the DOM renderer is the deliberate, verified choice
+- **release** · v1.2.1 — fix fresh-machine startup hang (writable data dir)
+- **release** · v1.2.2 — gateway-token no longer blocks clean-machine startup
+- **release** · v1.2.3 — bind all IPv4 so 127.0.0.1 reaches the bundled server
+- **release** · v1.2.4 — self-heal EADDRINUSE by clearing a stale :3333 holder
+- **release** · v1.2.5 — Claude/Codex tabs resolve the CLI via login-shell PATH
+- **markers** · delete the stream-marker grammar/detect/strip pipeline
+- **ws** · register browser:force-open in the outbound contract guard
+- **release** · v1.3.0 — session orchestrator, browser self-heal + dev toolbar, FPS monitor, markers→MCP
+

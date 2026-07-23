@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, RefreshCw, Check, AlertCircle, Rocket } from 'lucide-react';
+import { Download, RefreshCw, Check, AlertCircle, Rocket, Sparkles, ChevronRight } from 'lucide-react';
 import { useUpdater } from '@/lib/updater';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useDismissable } from '@/hooks/useDismissable';
@@ -33,6 +33,7 @@ export function VersionPopover({
   buildDate,
   buildSha,
   onClose,
+  onOpenChangelog,
 }: {
   anchorEl: HTMLElement | null;
   /** The running CLIENT bundle version (moves on every deploy). */
@@ -46,6 +47,8 @@ export function VersionPopover({
    *  signal: the semver only moves on release bumps. */
   buildSha?: string;
   onClose: () => void;
+  /** Open the full "Novità" changelog modal (and close this popover). */
+  onOpenChangelog: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Ref view of the raw anchor element so it counts as "inside" for dismissal
@@ -111,6 +114,19 @@ export function VersionPopover({
         {isDesktop && shellVersion && shellVersion !== appVersion && (
           <div className="flex justify-between"><span>App nativa</span><span className="text-app-text-secondary tabular-nums">v{shellVersion}</span></div>
         )}
+      </div>
+
+      {/* Novità — opens the full navigable changelog modal */}
+      <div className="border-t border-app-border pt-2.5">
+        <button
+          onClick={onOpenChangelog}
+          data-testid="changelog-open"
+          className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+        >
+          <Sparkles size={12} />
+          <span>Novità di questa versione</span>
+          <ChevronRight size={12} className="ml-auto" />
+        </button>
       </div>
 
       {/* Auto-update box */}

@@ -1230,11 +1230,13 @@ const server = Bun.serve<WSData>({
       const file = Bun.file(join(PUBLIC_DIR, pathname));
       if (await file.exists()) return new Response(file, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
-    if (method === "GET" && (pathname.startsWith("/assets/") || pathname.startsWith("/icons/") || pathname === "/vite.svg" || pathname === "/manifest.json" || pathname === "/manifest-dev.json" || pathname === "/sw.js")) {
+    if (method === "GET" && (pathname.startsWith("/assets/") || pathname.startsWith("/icons/") || pathname === "/vite.svg" || pathname === "/manifest.json" || pathname === "/manifest-dev.json" || pathname === "/sw.js" || pathname === "/changelog.json")) {
       const filePath = join(PUBLIC_DIR, pathname);
       const file = Bun.file(filePath);
       if (await file.exists()) {
-        const cacheControl = pathname === "/manifest.json" || pathname === "/manifest-dev.json" || pathname === "/sw.js" ? "no-cache" : "public, max-age=31536000, immutable";
+        // /changelog.json changes every release → no-cache like the manifests, so
+        // the in-app "Novità" modal never renders a stale history after an update.
+        const cacheControl = pathname === "/manifest.json" || pathname === "/manifest-dev.json" || pathname === "/sw.js" || pathname === "/changelog.json" ? "no-cache" : "public, max-age=31536000, immutable";
         return new Response(file, { headers: { "Content-Type": getMimeType(filePath), "Cache-Control": cacheControl } });
       }
     }
