@@ -1,6 +1,46 @@
 [
   {
-    "version": "2.1.127",
+    "version": "2.2.0",
+    "date": "2026-07-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri",
+          "en": "markdown re-parse O(n^2) fixed + no more spurious notification-permission prompt on Tauri",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "test/lint: riallinea 12 test-drift al contratto corrente + lint 0 errori",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.1.129",
+    "date": "2026-07-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "reset del toggle 'Sotto il cofano' nel click handler, non in un effect (lint react-hooks/set-state-in-effect)",
+          "en": "reset the 'Under the hood' toggle in the click handler, not in an effect (lint react-hooks/set-state-in-effect)",
+          "scope": "changelog",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.1.128",
     "date": "2026-07-23",
     "sections": {
       "new": [
@@ -138,42 +178,6 @@
         }
       ],
       "fixes": [
-        {
-          "it": "settle di 10s dopo il SIGTERM di hot-reload — mai più SIGTERM al server durante l'init",
-          "en": "10s settle after hot-reload's SIGTERM — never SIGTERM the server during init again",
-          "scope": "start-prod",
-          "breaking": false
-        },
-        {
-          "it": "ogni evento provider bumppa lastActivity dello stream — StaleStream non falcia più i turni tool-heavy",
-          "en": "every provider event bumps the stream's lastActivity — StaleStream no longer cuts down tool-heavy turns",
-          "scope": "chat",
-          "breaking": false
-        },
-        {
-          "it": "handler di segnale early — un SIGTERM durante l'init non uccide più il processo con 143",
-          "en": "early signal handler — a SIGTERM during init no longer kills the process with 143",
-          "scope": "server",
-          "breaking": false
-        },
-        {
-          "it": "reattach a due fasi — scan muto della coda dello store, attach live solo dal turno aperto",
-          "en": "two-phase reattach — silent scan of the store queue, live attach only from the open turn",
-          "scope": "chat",
-          "breaking": false
-        },
-        {
-          "it": "elimina lo scroll-escape che nasconde il drawer TaskDetail su mobile",
-          "en": "remove the scroll-escape that hides the TaskDetail drawer on mobile",
-          "scope": "board",
-          "breaking": false
-        },
-        {
-          "it": "navigate MIRATO alla pane target — con gli split le pane browser navigavano in lockstep",
-          "en": "TARGETED navigate to the target pane — with splits, browser panes were navigating in lockstep",
-          "scope": "browser",
-          "breaking": false
-        },
         {
           "it": "Rifiuta/Approva prendono la nota scritta + composer del drawer auto-grow",
           "en": "Reject/Approve pick up the written note + drawer composer auto-grow",
@@ -491,12 +495,6 @@
       ],
       "internal": [
         {
-          "it": "regressione — la finestra detached non scrive MAI il pane-store condiviso",
-          "en": "",
-          "scope": "panes",
-          "breaking": false
-        },
-        {
           "it": "BOARD-13 — Rifiuta con nota porta la nota nel thread e il composer auto-cresce",
           "en": "",
           "scope": "board",
@@ -566,6 +564,60 @@
           "it": "regressione finestra history — topic >100 msg carica la testa",
           "en": "",
           "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.1.127",
+    "date": "2026-07-20",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "settle di 10s dopo il SIGTERM di hot-reload — mai più SIGTERM al server durante l'init",
+          "en": "10s settle after hot-reload's SIGTERM — never SIGTERM the server during init again",
+          "scope": "start-prod",
+          "breaking": false
+        },
+        {
+          "it": "ogni evento provider bumppa lastActivity dello stream — StaleStream non falcia più i turni tool-heavy",
+          "en": "every provider event bumps the stream's lastActivity — StaleStream no longer cuts down tool-heavy turns",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "handler di segnale early — un SIGTERM durante l'init non uccide più il processo con 143",
+          "en": "early signal handler — a SIGTERM during init no longer kills the process with 143",
+          "scope": "server",
+          "breaking": false
+        },
+        {
+          "it": "reattach a due fasi — scan muto della coda dello store, attach live solo dal turno aperto",
+          "en": "two-phase reattach — silent scan of the store queue, live attach only from the open turn",
+          "scope": "chat",
+          "breaking": false
+        },
+        {
+          "it": "elimina lo scroll-escape che nasconde il drawer TaskDetail su mobile",
+          "en": "remove the scroll-escape that hides the TaskDetail drawer on mobile",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "navigate MIRATO alla pane target — con gli split le pane browser navigavano in lockstep",
+          "en": "TARGETED navigate to the target pane — with splits, browser panes were navigating in lockstep",
+          "scope": "browser",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "regressione — la finestra detached non scrive MAI il pane-store condiviso",
+          "en": "",
+          "scope": "panes",
           "breaking": false
         }
       ]

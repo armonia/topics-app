@@ -1,6 +1,34 @@
 [
   {
-    "version": "2.1.127",
+    "version": "2.2.0",
+    "date": "2026-07-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "markdown re-parse O(n^2) fixed + no more spurious notification-permission prompt on Tauri",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.1.129",
+    "date": "2026-07-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "reset the 'Under the hood' toggle in the click handler, not in an effect (lint react-hooks/set-state-in-effect)",
+          "scope": "changelog"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.1.128",
     "date": "2026-07-23",
     "sections": {
       "new": [
@@ -94,30 +122,6 @@
         }
       ],
       "fixes": [
-        {
-          "text": "10s settle after hot-reload's SIGTERM — never SIGTERM the server during init again",
-          "scope": "start-prod"
-        },
-        {
-          "text": "every provider event bumps the stream's lastActivity — StaleStream no longer cuts down tool-heavy turns",
-          "scope": "chat"
-        },
-        {
-          "text": "early signal handler — a SIGTERM during init no longer kills the process with 143",
-          "scope": "server"
-        },
-        {
-          "text": "two-phase reattach — silent scan of the store queue, live attach only from the open turn",
-          "scope": "chat"
-        },
-        {
-          "text": "remove the scroll-escape that hides the TaskDetail drawer on mobile",
-          "scope": "board"
-        },
-        {
-          "text": "TARGETED navigate to the target pane — with splits, browser panes were navigating in lockstep",
-          "scope": "browser"
-        },
         {
           "text": "Reject/Approve pick up the written note + drawer composer auto-grow",
           "scope": "board"
@@ -329,6 +333,40 @@
           "scope": "chat"
         }
       ]
+    }
+  },
+  {
+    "version": "2.1.127",
+    "date": "2026-07-20",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "10s settle after hot-reload's SIGTERM — never SIGTERM the server during init again",
+          "scope": "start-prod"
+        },
+        {
+          "text": "every provider event bumps the stream's lastActivity — StaleStream no longer cuts down tool-heavy turns",
+          "scope": "chat"
+        },
+        {
+          "text": "early signal handler — a SIGTERM during init no longer kills the process with 143",
+          "scope": "server"
+        },
+        {
+          "text": "two-phase reattach — silent scan of the store queue, live attach only from the open turn",
+          "scope": "chat"
+        },
+        {
+          "text": "remove the scroll-escape that hides the TaskDetail drawer on mobile",
+          "scope": "board"
+        },
+        {
+          "text": "TARGETED navigate to the target pane — with splits, browser panes were navigating in lockstep",
+          "scope": "browser"
+        }
+      ],
+      "perf": []
     }
   },
   {
