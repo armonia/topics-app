@@ -28,6 +28,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useToast } from '../components/Shared/Toast';
 
 export type PendingActionKind =
   | 'close-tab'
@@ -99,6 +100,12 @@ export function PendingActionProvider({
   useLayoutEffect(() => { entriesRef.current = entries; });
   // Per-key commit timers so cancels are cheap (no need to scan).
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Surface commit failures. This provider always mounts INSIDE ToastProvider
+  // (App.tsx), so useToast() is safe here. Held in a ref so the commit callbacks
+  // stay dependency-stable while still reaching the latest toast fn.
+  const toast = useToast();
+  const toastRef = useRef(toast);
+  useLayoutEffect(() => { toastRef.current = toast; });
 
   const clearTimer = useCallback((key: string) => {
     const t = timers.current.get(key);
@@ -153,8 +160,13 @@ export function PendingActionProvider({
       Promise.resolve()
         .then(() => committed!.commit())
         .catch((err) => {
-          // Soft-destructive — never crash the app on commit failure.
+          // Soft-destructive — never crash the app on commit failure, but the
+          // user MUST be told: the item ALREADY looks archived/closed (the UI
+          // updated optimistically the moment they ticked), so a silent failure
+          // leaves the client showing "done" while the server disagrees, with no
+          // recovery path. Surface it so they can retry / reload.
           console.warn('[PendingAction] commit failed:', err);
+          toastRef.current.error(`Non è stato possibile completare l'azione su «${committed!.label}» — riprova.`);
         });
     }
   }, [clearTimer]);
