@@ -25,9 +25,18 @@
         {
           "text": "scheme guard on ALL browser navigations (LFI/SSRF)",
           "scope": "security"
+        },
+        {
+          "text": "gate /media/ too — blocks token-less remote reads of ~/.topics/media files",
+          "scope": "security"
         }
       ],
-      "perf": []
+      "perf": [
+        {
+          "text": "syntax highlighting deferred while streaming + dnd-kit code-split into its own chunk",
+          "scope": "client"
+        }
+      ]
     }
   },
   {

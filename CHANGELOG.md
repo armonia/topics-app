@@ -12,9 +12,18 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **ux** · ContextMenu topic in IT + verbo unico "Archivia" + via console.log diagnostici
 - **ux** · toast d'errore sul fallimento-commit di archive/close (PendingAction)
 - **security** · scheme-guard su TUTTI i navigate del browser (LFI/SSRF)
+- **security** · gate anche /media/ (read remota-senza-token dei file ~/.topics/media)
+
+### Prestazioni
+- **client** · hljs highlight deferito in streaming + split chunk dnd-kit
 
 ### Sotto il cofano
 - test/lint: riallinea 12 test-drift al contratto corrente + lint 0 errori
+- **changelog** · includi i fix 2.2 post-bump (ux + sicurezza) con EN
+- test/fix(suite): unit-suite deterministica e verde (2804/0), niente hang
+- **lint** · azzera i 17 warning eslint del client (0 warning, 0 errori)
+- **e2e** · allinea topic-management alle label IT del ContextMenu (2.2)
+- **e2e** · fix branch-nav — semina radici-sorella con parentId:null esplicito
 
 ## 2.1.129 — 2026-07-23
 
