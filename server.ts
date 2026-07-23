@@ -75,7 +75,7 @@ import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./server/services/app-settings";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
-import { evaluateAuth, isLoopbackAddress } from "./server/lib/auth-gate";
+import { evaluateAuth, isLoopbackAddress, isAuthGatedPath } from "./server/lib/auth-gate";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { createProjectsRouter } from "./server/routes/projects";
@@ -1149,15 +1149,19 @@ const server = Bun.serve<WSData>({
       return new Response("Not Found", { status: 404 });
     }
 
-    // ── Auth gate (S1/S2 hardening) — guards /api, /ws, /preview. LOOPBACK is
-    // trusted (the local shell reaches :3333 via its own :13333 proxy; desktop
-    // web/dev are same-machine), a REMOTE peer must present the pairing token
-    // (the daemon state-file token), and a MUTATING request or WS upgrade
-    // carrying a FOREIGN Origin is blocked (a website the owner visits can CSRF
-    // the loopback server). OPTIONS preflight is exempt (answered below). The
-    // state file is read ONLY for the rare non-loopback request, so the local
-    // app pays nothing. Recovery hatch: TOPICS_AUTH_OFF=1 + kickstart.
-    if (method !== "OPTIONS" && (isApiRequest || pathname.startsWith("/ws/") || pathname.startsWith("/preview/"))) {
+    // ── Auth gate (S1/S2 hardening) — guards /api, /ws, /preview, /media.
+    // LOOPBACK is trusted (the local shell reaches :3333 via its own :13333
+    // proxy; desktop web/dev are same-machine), a REMOTE peer must present the
+    // pairing token (the daemon state-file token), and a MUTATING request or WS
+    // upgrade carrying a FOREIGN Origin is blocked (a website the owner visits
+    // can CSRF the loopback server). OPTIONS preflight is exempt (answered
+    // below). The state file is read ONLY for the rare non-loopback request, so
+    // the local app pays nothing. Recovery hatch: TOPICS_AUTH_OFF=1 + kickstart.
+    // NOTE: `/media/` (top-level file server for ~/.topics/media — agent
+    // screenshots, browser downloads, task preview media) is gated alongside
+    // `/preview/` so a remote LAN peer can't read those files without the token;
+    // loopback (the local app) still pays nothing.
+    if (method !== "OPTIONS" && isAuthGatedPath(pathname)) {
       const ip = server.requestIP(req)?.address ?? null;
       const loopback = isLoopbackAddress(ip);
       const decision = evaluateAuth({

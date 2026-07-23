@@ -48,6 +48,23 @@ export type AuthResult = { allow: true } | { allow: false; status: number; reaso
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/**
+ * The paths the gate protects: the API, WS upgrades, and the two file-serving
+ * roots (`/preview/…` absolute-path reads and `/media/…` for ~/.topics/media —
+ * agent screenshots, browser downloads, task preview media). Everything else
+ * (the SPA bundle, health checks) is public. Kept here next to `evaluateAuth`
+ * so "what is gated" and "how the gate decides" can't drift apart, and so both
+ * are unit-testable without booting the server.
+ */
+export function isAuthGatedPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/ws/") ||
+    pathname.startsWith("/preview/") ||
+    pathname.startsWith("/media/")
+  );
+}
+
 /** Loopback in both v4 and v6 shapes (incl. the v4-mapped-v6 form Bun can hand back). */
 export function isLoopbackAddress(ip: string | null): boolean {
   if (!ip) return false;
