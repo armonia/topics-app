@@ -3,12 +3,37 @@
     "version": "2.2.0",
     "date": "2026-07-23",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "it": "auth-gate su /api,/ws,/preview — loopback-trusted + token + anti-CSRF",
+          "en": "auth-gate on /api,/ws,/preview — loopback-trusted + pairing token + anti-CSRF",
+          "scope": "security",
+          "breaking": false
+        }
+      ],
       "fixes": [
         {
           "it": "perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri",
           "en": "markdown re-parse O(n^2) fixed + no more spurious notification-permission prompt on Tauri",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ContextMenu topic in IT + verbo unico \"Archivia\" + via console.log diagnostici",
+          "en": "topic context menu localized + single \"Archive\" verb + diagnostic console.logs removed",
+          "scope": "ux",
+          "breaking": false
+        },
+        {
+          "it": "toast d'errore sul fallimento-commit di archive/close (PendingAction)",
+          "en": "error toast when an archive/close commit fails (PendingAction)",
+          "scope": "ux",
+          "breaking": false
+        },
+        {
+          "it": "scheme-guard su TUTTI i navigate del browser (LFI/SSRF)",
+          "en": "scheme guard on ALL browser navigations (LFI/SSRF)",
+          "scope": "security",
           "breaking": false
         }
       ],
