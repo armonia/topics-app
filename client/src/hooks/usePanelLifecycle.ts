@@ -971,14 +971,49 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   // ---- 11-16. Per-cluster WS subscriptions (CRITIQUE C6) ----
 
-  // WS Cluster 1: topic sync
+  // Per-session debounce for out-of-band thread reconciles (see Cluster 1).
+  const threadReconcileTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // WS Cluster 1: topic sync + open-pane thread reconcile.
+  //
+  // `topic:updated` rides along with EVERY out-of-band thread change: a Path-B
+  // sub-agent exit appending its result, a cross-window turn finalizing, a
+  // server-side repair. The single `message:new` that usually accompanies it
+  // keeps most panes in sync — but that broadcast is fire-and-forget (a dropped
+  // frame loses the append), and it can't repair a thread whose *linearization*
+  // changed under an already-mounted pane (the pane keeps a stale/truncated
+  // cache with nothing to heal it until the user reopens it or the WS
+  // reconnects). That was exactly the "chat looks cut in half" failure.
+  //
+  // So: whenever a topic we have OPEN gets a `topic:updated`, reconcile its
+  // thread against the server. `loadHistory` MERGES (server truth + local-only
+  // messages), so it's safe/idempotent; it also early-returns while we're the
+  // one streaming, and we skip our own live stream up front. Debounced per
+  // session so a finalize burst collapses to one fetch.
   useEffect(() => {
-    return onWSMessage((msg) => {
+    const unsub = onWSMessage((msg) => {
       if (msg.type === 'topic:archived' || msg.type === 'topic:updated' || msg.type === 'topic:created') {
         if (msg.topic) applyTopicFromWS(msg.topic);
       }
+      if (msg.type === 'topic:updated' && msg.topic?.sessionKey) {
+        const t = msg.topic;
+        if (!openPanelsRef.current.includes(t.id)) return;
+        if (isOwnStream(t.sessionKey)) return;
+        const timers = threadReconcileTimersRef.current;
+        const pending = timers.get(t.sessionKey);
+        if (pending) clearTimeout(pending);
+        timers.set(t.sessionKey, setTimeout(() => {
+          timers.delete(t.sessionKey);
+          loadHistory(t.sessionKey);
+        }, 400));
+      }
     });
-  }, [onWSMessage, applyTopicFromWS]);
+    return () => {
+      unsub();
+      for (const timer of threadReconcileTimersRef.current.values()) clearTimeout(timer);
+      threadReconcileTimersRef.current.clear();
+    };
+  }, [onWSMessage, applyTopicFromWS, openPanelsRef, isOwnStream, loadHistory]);
 
   // WS Cluster 2: message sync (notifications, media, clear, agents-spawned)
   useEffect(() => {
