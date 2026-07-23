@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { evaluateAuth, isLoopbackAddress, isLocalOrigin, type AuthInput } from "./auth-gate";
+import { evaluateAuth, isLoopbackAddress, isLocalOrigin, isAuthGatedPath, type AuthInput } from "./auth-gate";
 
 const TOKEN = "a".repeat(64);
 
@@ -27,6 +27,34 @@ describe("auth-gate · isLoopbackAddress", () => {
   it("rejects LAN / public / null", () => {
     for (const ip of ["192.168.1.42", "10.0.0.3", "8.8.8.8", "::ffff:192.168.1.1", null]) {
       expect(isLoopbackAddress(ip)).toBe(false);
+    }
+  });
+});
+
+describe("auth-gate · isAuthGatedPath", () => {
+  it("gates the API, WS upgrades, and BOTH file-serving roots (/preview, /media)", () => {
+    for (const p of [
+      "/api/topics",
+      "/api/files/save",
+      "/api/media?path=/etc/passwd",
+      "/ws/terminal/abc",
+      "/preview/Users/x/secret.pdf",
+      "/media/browser/downloads/report.pdf",
+      "/media/agent-screenshots/x.png",
+    ]) {
+      expect(isAuthGatedPath(p)).toBe(true);
+    }
+  });
+  it("leaves the public SPA / health surface open", () => {
+    for (const p of ["/", "/index.html", "/assets/index-abc.js", "/health", "/favicon.ico"]) {
+      expect(isAuthGatedPath(p)).toBe(false);
+    }
+  });
+  it("does not gate look-alike prefixes that aren't the real roots", () => {
+    // guards against a `/mediafoo` or `/previews` bypass illusion — the trailing
+    // slash in the prefixes means only the actual roots match.
+    for (const p of ["/mediafoo", "/preview", "/apix", "/media", "/websocket"]) {
+      expect(isAuthGatedPath(p)).toBe(false);
     }
   });
 });
