@@ -86,7 +86,7 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
     <div
       ref={menuRef}
       role="menu"
-      aria-label={`Actions for ${topic.name}`}
+      aria-label={`Azioni per ${topic.name}`}
       className={`fixed ${POPOVER_SURFACE} min-w-[200px]`}
       style={{
         left: pos?.left ?? x,
@@ -98,8 +98,8 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
     >
       {subMenu === 'none' && (
         <>
-          <MenuItem icon={PenLine} label="Rename" onClick={() => setSubMenu('rename')} />
-          <MenuItem icon={Palette} label="Change color" onClick={() => setSubMenu('color')} />
+          <MenuItem icon={PenLine} label="Rinomina" onClick={() => setSubMenu('rename')} />
+          <MenuItem icon={Palette} label="Cambia colore" onClick={() => setSubMenu('color')} />
           {onTogglePin && (
             <MenuItem
               icon={isPinned ? PinOff : Pin}
@@ -117,17 +117,17 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
           {onAssignAgents && (
             <>
               <div className="border-t border-app-border my-1" />
-              <MenuItem icon={Bot} label="Assign Agents" onClick={() => { onAssignAgents(topic.id, topic.name); onClose(); }} />
+              <MenuItem icon={Bot} label="Assegna agenti" onClick={() => { onAssignAgents(topic.id, topic.name); onClose(); }} />
             </>
           )}
           <div className="border-t border-app-border my-1" />
-          <MenuItem icon={Trash2} label="Archive / Delete" onClick={() => setSubMenu('confirm-delete')} danger />
+          <MenuItem icon={Trash2} label="Archivia" onClick={() => setSubMenu('confirm-delete')} danger />
         </>
       )}
 
       {subMenu === 'rename' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Rename topic</div>
+          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Rinomina topic</div>
           <input
             ref={inputRef}
             type="text"
@@ -137,21 +137,21 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
             className="w-full px-2 py-1.5 border border-app-border-light rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-primary bg-surface dark:bg-elevated text-app-text transition-colors"
           />
           <div className="flex justify-end gap-2 mt-2">
-            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Cancel</button>
-            <button onClick={handleRename} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">Save</button>
+            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Annulla</button>
+            <button onClick={handleRename} className="text-[12px] bg-primary text-white px-3 py-1 rounded-lg hover:bg-primary-hover transition-colors">Salva</button>
           </div>
         </div>
       )}
 
       {subMenu === 'color' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Choose color</div>
+          <div className="text-[11px] font-semibold text-app-text-muted mb-2">Scegli colore</div>
           <div className="grid grid-cols-5 gap-2">
             {COLOR_OPTIONS.map((color) => (
               <button
                 key={color}
                 onClick={() => handleColorChange(color)}
-                aria-label={`Color ${color}`}
+                aria-label={`Colore ${color}`}
                 className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-transform hover:scale-110 ${
                   topic.color === color ? 'border-[#1a1a1a] dark:border-[#e5e5e5] scale-110' : 'border-transparent'
                 }`}
@@ -164,13 +164,13 @@ export function ContextMenu({ x, y, topic, onClose, onUpdate, onDelete, onAssign
 
       {subMenu === 'confirm-delete' && (
         <div className="p-3">
-          <div className="text-[11px] font-semibold text-red-600 mb-2">Delete topic?</div>
+          <div className="text-[11px] font-semibold text-red-600 mb-2">Archiviare il topic?</div>
           <p className="text-[12px] text-app-text-secondary mb-3">
-            Are you sure you want to delete <strong>{topic.name}</strong>? This will archive the topic.
+            Vuoi archiviare <strong>{topic.name}</strong>? Verrà spostato tra gli archiviati (puoi riaprirlo quando vuoi).
           </p>
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Cancel</button>
-            <button onClick={handleDelete} className="text-[12px] bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition-colors">Delete</button>
+            <button onClick={onClose} className="text-[12px] text-app-text-muted hover:text-app-text px-2 py-1 transition-colors">Annulla</button>
+            <button onClick={handleDelete} className="text-[12px] bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 transition-colors">Archivia</button>
           </div>
         </div>
       )}
