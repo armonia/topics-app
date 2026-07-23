@@ -1520,51 +1520,87 @@ function cascadeKillChildren(parentSessionKey: string) {
  *  signal, then write the prompt and (after a beat) a lone CR. Fire-and-forget:
  *  the child runs async; the parent reads its output via read_agent. */
 async function seedAgentPrompt(childId: string, prompt: string): Promise<void> {
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   const READY_HINTS = ["for shortcuts", "│ >", "╭─", "Bypassing", "Welcome to Claude"];
-  let lastLen = -1;
-  let stableCount = 0;
-  let ready = false;
+  // A distinctive fingerprint of the prompt AS IT RENDERS in the composer, robust
+  // to line-wrapping: strip ANSI/box-drawing/whitespace so a prompt reflowed
+  // across the input box's bordered lines still matches contiguously.
+  const echoProbe = stripForEcho(prompt).slice(0, 20);
+
+  // --- Readiness: wait for the input box to be drawn (best-effort, ~8s cap). ---
+  let lastLen = -1, stableCount = 0;
   for (let i = 0; i < 40; i++) {
-    await new Promise(r => setTimeout(r, 200));
+    await sleep(200);
     if (!sessions.has(childId)) return; // child died before we could seed
     const buf = await getTerminalBuffer(childId);
-    if (buf && READY_HINTS.some(h => buf.includes(h))) { ready = true; break; }
-    // Fallback readiness: output present and length stable across 2 polls.
-    if (buf.length > 0 && buf.length === lastLen) {
-      if (++stableCount >= 2) { ready = true; break; }
-    } else {
-      stableCount = 0;
-    }
+    if (buf && READY_HINTS.some(h => buf.includes(h))) break;
+    if (buf.length > 0 && buf.length === lastLen) { if (++stableCount >= 2) break; }
+    else stableCount = 0;
     lastLen = buf.length;
   }
   if (!sessions.has(childId)) return;
-  // Even if we never detected a hint, send anyway after the cap — better to try
-  // than to silently strand the sub-agent with no prompt.
-  void ready;
-  // Type the prompt once, then submit + VERIFY it was accepted, re-submitting if
-  // not. A single fire-and-forget Enter is fragile: the TUI can swallow it
-  // (bracketed-paste mode after a long paste, a first-run "trust this folder"
-  // dialog, or a readiness misfire), leaving the sub-agent idle FOREVER with no
-  // transcript — a chat that delegated to it then hangs waiting for a result
-  // that never comes. Acceptance = the child's transcript now exists (its first
-  // user turn got written), which also adopts the real session id early.
-  noteTerminalInput(childId);
-  sendToBridge({ type: "write", id: childId, data: prompt });
-  for (let attempt = 0; attempt < 3; attempt++) {
+
+  // --- Phase 1: get the prompt TEXT actually into the composer. ---
+  // The fragile part: a `write` sent before claude has installed its raw-mode
+  // input handler (still spawning / loading MCP servers) is dropped on the floor
+  // — nothing lands in the box, and no amount of later Enters can submit an empty
+  // composer, so the sub-agent sits idle FOREVER and the chat that delegated to
+  // it hangs waiting for a result that never comes (the ~1h55 freeze). So we type
+  // and then VERIFY the text echoed back, re-typing (only when it's absent) until
+  // it sticks. We never re-type once it's present, to avoid a doubled turn.
+  let echoed = false;
+  for (let attempt = 0; attempt < 6 && !echoed; attempt++) {
     if (!sessions.has(childId)) return;
-    await new Promise(r => setTimeout(r, attempt === 0 ? 200 : 400));
+    const seen = stripForEcho(await getTerminalBuffer(childId));
+    if (!seen.includes(echoProbe)) {
+      noteTerminalInput(childId);
+      sendToBridge({ type: "write", id: childId, data: prompt });
+    }
+    for (let i = 0; i < 6; i++) { // ~1.8s for the echo to render
+      await sleep(300);
+      if (!sessions.has(childId)) return;
+      if (stripForEcho(await getTerminalBuffer(childId)).includes(echoProbe)) { echoed = true; break; }
+    }
+  }
+  if (!echoed) {
+    // Never confirmed the echo (unusual composer, or a buffer we can't scrape).
+    // Fire it blind so we still try rather than strand the agent, then submit.
+    noteTerminalInput(childId);
+    sendToBridge({ type: "write", id: childId, data: prompt });
+    await sleep(300);
+  }
+
+  // --- Phase 2: submit and CONFIRM acceptance; re-Enter only (never re-type). ---
+  // Acceptance = the child's transcript now exists (claude wrote the opening user
+  // turn), which also adopts the real claude-minted session id early. Re-Entering
+  // (not re-typing) is safe against duplicating the turn if an Enter was swallowed
+  // (bracketed-paste mode) while the composer still holds our text.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (!sessions.has(childId)) return;
     noteTerminalInput(childId);
     sendToBridge({ type: "write", id: childId, data: "\r" });
-    // Poll ~6s for the prompt to land (transcript appears). If it does, done.
-    for (let i = 0; i < 12; i++) {
-      await new Promise(r => setTimeout(r, 500));
+    for (let i = 0; i < 12; i++) { // ~6s
+      await sleep(500);
       const child = sessions.get(childId);
       if (!child) return;
-      if (childPromptAccepted(child)) return;
+      if (childPromptAccepted(child)) return; // ✅ landed
     }
-    // Still nothing — the Enter was likely swallowed; loop re-submits it.
   }
-  console.warn(`[Terminal] seedAgentPrompt: ${childId} never acknowledged its prompt after 3 submits`);
+  console.warn(`[Terminal] seedAgentPrompt: ${childId} never acknowledged its prompt (echoed=${echoed})`);
+}
+
+/** Normalize terminal text for echo-matching: drop ANSI escape sequences,
+ *  box-drawing glyphs and ALL whitespace, lowercased — so a prompt wrapped across
+ *  the composer's bordered lines collapses back to a contiguous string we can
+ *  substring-match against the prompt's own fingerprint. */
+function stripForEcho(s: string): string {
+  return s
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI sequences
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC sequences
+    .replace(/\x1b[()][0-9A-B]/g, "") // charset selects
+    .replace(/[─-╿▀-▟]/g, "") // box drawing + block elements
+    .replace(/\s+/g, "")
+    .toLowerCase();
 }
 
 /** True once a sub-agent has actually accepted its prompt — i.e. claude wrote the
