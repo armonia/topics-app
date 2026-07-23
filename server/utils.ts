@@ -677,16 +677,24 @@ export function createAppContext(baseDir: string): AppContext {
       children.sort((a: any, b: any) => (a.branch_index || 0) - (b.branch_index || 0));
     }
 
-    // Walk from root(s) following active branches
+    // Walk from root(s) following active branches. Recursive descent (was an
+    // iterative single-spine walk): at each level it follows the ONE active
+    // branch, but if two+ siblings share that same branch_index it includes
+    // ALL of them instead of silently keeping the first and dropping the rest.
+    // That duplicate-index state is invalid — the real edit/regenerate flow
+    // (createBranchMessage) always assigns a fresh MAX+1 index — but a raw DB
+    // seed or a botched migration can produce it (e.g. two parent-less roots),
+    // and the old walk rendered the thread TRUNCATED. Normal and edit-branch
+    // data have exactly one child per active level, so their output is
+    // byte-identical to before.
     const thread: StoredMessage[] = [];
-    let currentParentId: string | null = null;
     // Guard against a corrupt chain (cyclic or self-referential parent_id)
-    // looping forever — bail the first time we'd revisit a node.
+    // looping forever — skip the first time we'd revisit a node.
     const visited = new Set<string>();
 
-    while (true) {
+    const walk = (currentParentId: string | null): void => {
       const children = childrenMap.get(currentParentId);
-      if (!children || children.length === 0) break;
+      if (!children || children.length === 0) return;
 
       // Determine which branch to follow
       let activeBranchIndex = 0;
@@ -697,22 +705,34 @@ export function createAppContext(baseDir: string): AppContext {
         if (active) activeBranchIndex = active.active_branch_index;
       }
 
-      // Find the child at this branch index
-      const selectedChild = children.find((c: any) => (c.branch_index || 0) === activeBranchIndex) || children[0];
-      if (visited.has(selectedChild.id)) {
-        console.warn(`[loadActiveThread] Cyclic message chain detected for ${sessionKey} at ${selectedChild.id} — truncating thread`);
-        break;
+      // Children on the active branch — normally exactly one. `children` is
+      // sorted by branch_index (stable over the sort_order load order), so
+      // any duplicates come out in chronological order. Fall back to the first
+      // child if the active index matches nothing (stale active_branches row).
+      let selected = children.filter((c: any) => (c.branch_index || 0) === activeBranchIndex);
+      if (selected.length === 0) selected = [children[0]];
+      if (selected.length > 1) {
+        console.warn(`[loadActiveThread] ${sessionKey}: ${selected.length} siblings share branch_index ${activeBranchIndex} under ${currentParentId ?? '__root__'} — including all to avoid truncating the thread`);
       }
-      visited.add(selectedChild.id);
-      const msg = rowToMessage(selectedChild);
 
-      // Annotate with sibling info for the client
-      msg.siblingCount = children.length;
-      msg.activeBranchIndex = selectedChild.branch_index || 0;
+      for (const selectedChild of selected) {
+        if (visited.has(selectedChild.id)) {
+          console.warn(`[loadActiveThread] Cyclic message chain detected for ${sessionKey} at ${selectedChild.id} — truncating thread`);
+          continue;
+        }
+        visited.add(selectedChild.id);
+        const msg = rowToMessage(selectedChild);
 
-      thread.push(msg);
-      currentParentId = selectedChild.id;
-    }
+        // Annotate with sibling info for the client
+        msg.siblingCount = children.length;
+        msg.activeBranchIndex = selectedChild.branch_index || 0;
+
+        thread.push(msg);
+        walk(selectedChild.id);
+      }
+    };
+
+    walk(null);
 
     return thread;
   }
