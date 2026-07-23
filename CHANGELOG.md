@@ -2,7 +2,20 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.1.127 — 2026-07-23
+## 2.2.0 — 2026-07-23
+
+### Correzioni
+- perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri
+
+### Sotto il cofano
+- test/lint: riallinea 12 test-drift al contratto corrente + lint 0 errori
+
+## 2.1.129 — 2026-07-23
+
+### Correzioni
+- **changelog** · reset del toggle 'Sotto il cofano' nel click handler, non in un effect (lint react-hooks/set-state-in-effect)
+
+## 2.1.128 — 2026-07-23
 
 ### Novità
 - **board** · preview di review garantita — il server promuove l'evidenza del commento di consegna
@@ -29,12 +42,6 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **changelog** · changelog per-versione — modale in-app (IT) + pagina sul sito (EN)
 
 ### Correzioni
-- **start-prod** · settle di 10s dopo il SIGTERM di hot-reload — mai più SIGTERM al server durante l'init
-- **chat** · ogni evento provider bumppa lastActivity dello stream — StaleStream non falcia più i turni tool-heavy
-- **server** · handler di segnale early — un SIGTERM durante l'init non uccide più il processo con 143
-- **chat** · reattach a due fasi — scan muto della coda dello store, attach live solo dal turno aperto
-- **board** · elimina lo scroll-escape che nasconde il drawer TaskDetail su mobile
-- **browser** · navigate MIRATO alla pane target — con gli split le pane browser navigavano in lockstep
 - **board** · Rifiuta/Approva prendono la nota scritta + composer del drawer auto-grow
 - **chat** · stream degli args parziali durante la generazione dell'input del tool
 - **browser** · screenshot su file + path, mai base64 nel contesto
@@ -91,7 +98,6 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **chat** · coalescing per-frame dei delta live + clamp degli output enormi
 
 ### Sotto il cofano
-- **panes** · regressione — la finestra detached non scrive MAI il pane-store condiviso
 - **board** · BOARD-13 — Rifiuta con nota porta la nota nel thread e il composer auto-cresce
 - **chat** · fix purezza ElapsedTimer (lint) + archive openspec chat-tool-experience
 - **board** · allinea BOARD-11 al link path-based e rendi BOARD-14 robusto all'ordine
@@ -104,6 +110,19 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · harness due-device + regressione chiusura browser cross-device
 - **chat** · rimuove la preview dei comandi sotto il wrap azioni
 - **e2e** · regressione finestra history — topic >100 msg carica la testa
+
+## 2.1.127 — 2026-07-20
+
+### Correzioni
+- **start-prod** · settle di 10s dopo il SIGTERM di hot-reload — mai più SIGTERM al server durante l'init
+- **chat** · ogni evento provider bumppa lastActivity dello stream — StaleStream non falcia più i turni tool-heavy
+- **server** · handler di segnale early — un SIGTERM durante l'init non uccide più il processo con 143
+- **chat** · reattach a due fasi — scan muto della coda dello store, attach live solo dal turno aperto
+- **board** · elimina lo scroll-escape che nasconde il drawer TaskDetail su mobile
+- **browser** · navigate MIRATO alla pane target — con gli split le pane browser navigavano in lockstep
+
+### Sotto il cofano
+- **panes** · regressione — la finestra detached non scrive MAI il pane-store condiviso
 
 ## 2.1.126 — 2026-07-20
 
