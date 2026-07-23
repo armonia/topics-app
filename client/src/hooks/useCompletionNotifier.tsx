@@ -4,6 +4,7 @@ import { useWSSubscription } from './useWSSubscription';
 import { useRefMirror } from './useRefMirror';
 import { useSignalsStore } from '../state/signals';
 import { notifyNative } from '../lib/shell/app';
+import { shellKind } from '../lib/shell';
 import { decideTerminalBanner, terminalPanelId, isTabActivelyVisible } from '../lib/notify/terminalNotify';
 
 interface CompletionNotifierProps {
@@ -140,7 +141,15 @@ export function useCompletionNotifier({
   // Prime OS-notification permission once on mount. In the Electron main window
   // the default session already reports 'granted'; in a browser tab this raises
   // the one-time prompt so later completions can surface a system banner.
+  //
+  // NOT under Tauri: there the native `notify` command owns delivery AND its own
+  // UNUserNotification authorization — the WKWebView web Notification permission
+  // is never used for delivery, and (unlike a real browser) its `permission`
+  // does NOT persist across launches, so requesting it re-raised the prompt on
+  // EVERY app start for nothing. That spurious repeat is the "chiede sempre i
+  // permessi" symptom; skip the web prompt entirely in the native shell.
   useEffect(() => {
+    if (shellKind === 'tauri') return;
     try {
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         Notification.requestPermission().catch(() => {});

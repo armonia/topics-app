@@ -15,7 +15,7 @@
  * behaviour as mermaid's code-block placeholder; once loaded, the modules are
  * cached and every subsequent mount renders math synchronously.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { PluggableList } from 'unified';
@@ -59,14 +59,25 @@ export function ChatMarkdown({ components, children }: { components: Components;
     return () => { alive = false; };
   }, [needsMath, mathMods]);
 
+  // react-markdown re-parses `children` from scratch on EVERY render (no internal
+  // memoization). A completed message re-renders whenever a sibling/parent updates,
+  // so without this memo every such render re-runs the full remark/rehype AST build
+  // — O(messages × content) on any unrelated state change, and O(n²) as a message
+  // streams. Memoize on the real inputs: the chat hot path passes the module-const
+  // `markdownComponents` (stable ref), so this hits on every render where the text
+  // hasn't changed. (Board call sites pass a fresh `{}` and simply never hit — no
+  // regression, they're not a hot path.)
   const withMath = needsMath && mathMods;
-  return (
-    <ReactMarkdown
-      remarkPlugins={withMath ? [remarkGfm, mathMods.remark] : BASE_REMARK}
-      rehypePlugins={withMath ? [mathMods.rehype] : BASE_REHYPE}
-      components={components}
-    >
-      {children}
-    </ReactMarkdown>
+  return useMemo(
+    () => (
+      <ReactMarkdown
+        remarkPlugins={withMath ? [remarkGfm, mathMods!.remark] : BASE_REMARK}
+        rehypePlugins={withMath ? [mathMods!.rehype] : BASE_REHYPE}
+        components={components}
+      >
+        {children}
+      </ReactMarkdown>
+    ),
+    [children, components, withMath, mathMods],
   );
 }
