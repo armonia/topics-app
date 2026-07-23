@@ -28,7 +28,7 @@ test.describe("Tab Sync & Persistence", () => {
     expect(labelsBefore.length).toBeGreaterThanOrEqual(1);
 
     // Reload the page
-    await page.reload({ waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "load" });
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
       state: "visible",
       timeout: 15000,
@@ -74,7 +74,7 @@ test.describe("Tab Sync & Persistence", () => {
     await tabSyncPage.waitForSyncPut("pane-store-v2");
 
     // Reload
-    await page.reload({ waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "load" });
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
       state: "visible",
       timeout: 15000,
