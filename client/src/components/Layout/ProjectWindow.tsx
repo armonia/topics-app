@@ -451,9 +451,9 @@ export function ProjectWindowPane({
     }
   }, [
     topics, focusedPanelId, projectPath, wrapperPaneId,
-    getSessionMessages, isSessionLoading, isSessionStreaming, stopSession,
+    getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession,
     sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
-    handleOpenFile, pinPaneById, onFocusPanel, browserNavigate, chatSync.reopenTopic,
+    handleOpenFile, pinPaneById, onFocusPanel, browserNavigate, chatSync.reopenTopic, updatePane,
   ]);
 
   return (

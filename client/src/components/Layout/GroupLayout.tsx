@@ -160,7 +160,9 @@ export function GroupLayout({
     return initial;
   });
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- accumulates visited-pane history across renders (keep-alive); can't be derived purely in render. Guarded by `changed` and returns `prev` when nothing changed, so it converges and never loops.
+    // Accumulates visited-pane history across renders (keep-alive); can't be
+    // derived purely in render. Guarded by `changed` and returns `prev` when
+    // nothing changed, so it converges and never loops.
     setVisitedKeys((prev) => {
       const next = new Set(prev);
       let changed = false;

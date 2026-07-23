@@ -152,7 +152,6 @@ function ChatPaneComponent({
   useEffect(() => {
     try { setPlanMode(localStorage.getItem(`planMode:${topic.id}`) === 'true'); }
     catch { setPlanMode(false); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic.id]);
   // Fast Mode toggle (openspec change `chat-fast-mode`). Two sources of truth:
   //   1. `topic.fastMode` (server, persisted, synced cross-window via WS).

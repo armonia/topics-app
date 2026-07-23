@@ -791,7 +791,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (isMobile) {
       setSidebarCollapsed(true);
     }
-  }, [isMobile, setSidebarCollapsed, openPanelsRef, owningRenderedProject, closedTabs, removeClosedTab]);
+  }, [isMobile, setSidebarCollapsed, openPanelsRef, topicsRef, owningRenderedProject, closedTabs, removeClosedTab]);
 
   // Server fallback for open_browser_pane: when the normal broadcast
   // (browser:navigate / browser:open-near-pane) mounted NO visible pane in any
@@ -991,6 +991,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // one streaming, and we skip our own live stream up front. Debounced per
   // session so a finalize burst collapses to one fetch.
   useEffect(() => {
+    // Capture the (stable, never-reassigned) timers Map once so the cleanup
+    // clears exactly the map this effect wrote to — the react-hooks ref-in-
+    // cleanup gotcha, even though here the ref identity can't actually change.
+    const timers = threadReconcileTimersRef.current;
     const unsub = onWSMessage((msg) => {
       if (msg.type === 'topic:archived' || msg.type === 'topic:updated' || msg.type === 'topic:created') {
         if (msg.topic) applyTopicFromWS(msg.topic);
@@ -999,7 +1003,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         const t = msg.topic;
         if (!openPanelsRef.current.includes(t.id)) return;
         if (isOwnStream(t.sessionKey)) return;
-        const timers = threadReconcileTimersRef.current;
         const pending = timers.get(t.sessionKey);
         if (pending) clearTimeout(pending);
         timers.set(t.sessionKey, setTimeout(() => {
@@ -1010,8 +1013,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
     return () => {
       unsub();
-      for (const timer of threadReconcileTimersRef.current.values()) clearTimeout(timer);
-      threadReconcileTimersRef.current.clear();
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
     };
   }, [onWSMessage, applyTopicFromWS, openPanelsRef, isOwnStream, loadHistory]);
 
@@ -1305,7 +1308,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (autoFocus) setFocusedPanelId(topicId);
     setPreviewPanelId(mode === 'preview' ? topicId : null);
     setNextPanelMode(mode === 'below' ? 'below' : 'side');
-  }, [openPanels, previewPanelId, isMobile, topics, archiveTopic]);
+  }, [openPanels, previewPanelId, isMobile, topics, archiveTopic, setSidebarCollapsed]);
 
   // Open a TOPIC as a chat tab from any surface (e.g. the global board's task
   // drawer "apri la sessione" — its hosts have no openPanel in scope). Same

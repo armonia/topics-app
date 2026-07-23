@@ -2294,7 +2294,6 @@ export function PanelGrid({
       onPendingBrowserPaneConsumed, onOpenBrowserContextIds, promoteDraft,
       draftMeta, handleSplitPane, handleUnsoloTopic,
       canFlattenGrid, handleResetGridLayout,
-      hasGridSplit, splitRowWidths, gridRowHeights,
       handleMergeIntoCell, handlePersistPoolReorder, handlePersistCellOrder,
       onClosePanelImmediate, onToggleFissato, isFissato,
     ],

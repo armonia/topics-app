@@ -514,6 +514,10 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
       if (blank) browser.navigate(initialUrl!);
     }, 400);
     return () => clearTimeout(t);
+    // Fine-grained on the specific browser fields this seed reacts to — depending
+    // on the whole `browser` object would re-run (and risk a re-seed) on every
+    // unrelated browser-state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browser.connected, browser.url, initialUrl, browser.navigate]);
 
   // React to external navigateUrl prop
@@ -541,6 +545,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     if (autoDomForUrlRef.current === url) return; // already auto-tried this page
     autoDomForUrlRef.current = url;
     browser.setRenderMode('dom');
+    // Fine-grained on the specific browser fields the auto-fallback watches;
+    // the whole `browser` object would over-trigger the one-shot switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [browser.webrtcError, browser.renderMode, browser.url, browser.setRenderMode]);
 
   // Notify parent of URL changes + record in per-topic history.

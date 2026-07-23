@@ -197,7 +197,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       setTask(task); setComments(comments); setChildren(children ?? []);
     } catch { /* closed or gone */ }
   }, [projectId, taskId]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
+  // fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { load(); }, [load, bump]);
   // Wake-up refresh (same rationale as the board's): an open drawer coming back
   // from sleep would keep yesterday's chip/ticker until some WS event lands.
@@ -409,8 +409,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 
   // Eager, not lazy: the chip needs the real path for its favicon (and an
   // accurate label) the moment the drawer opens, not only after the user
-  // clicks "Sposta su…" once.
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
+  // clicks "Sposta su…" once. (fetch-on-mount: setState lands after the await.)
   useEffect(() => { boardApi.projects().then(setProjects).catch(() => setProjects([])); }, []);
   const openProjMenu = () => setProjMenuOpen(true);
   const currentProject = projects?.find((p) => p.projectId === task?.projectId) ?? null;
