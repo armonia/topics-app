@@ -608,8 +608,13 @@ test.describe("Message Branching", () => {
         timestamp: new Date(base - 4000).toISOString(),
       });
       // Branch 1 (sibling root): the edited user message + its assistant reply.
+      // parentId: null is REQUIRED — without it the seed endpoint defaults the
+      // parent to the previous message (a0), chaining u1 into the thread instead
+      // of forking a second root, and loadActiveThread then reports siblingCount=1
+      // (no branch arrows). Explicit null forks the genuine two-root shape an edit
+      // of the first user message produces.
       const u1 = await seedMessage(request, {
-        sessionKey: sk, role: "user", branchIndex: 1,
+        sessionKey: sk, role: "user", branchIndex: 1, parentId: null,
         content: "Edited message for branching",
         timestamp: new Date(base - 3000).toISOString(),
       });

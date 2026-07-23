@@ -23,7 +23,11 @@ export interface SeedMessageOpts {
   media?: string[];
   thinking?: string;
   id?: string;
-  parentId?: string;
+  /** Parent message id. Omit → the seed endpoint defaults it to the session's
+   *  LAST message (keeps linear threads linked). Pass `null` EXPLICITLY to force
+   *  a real root (parent_id NULL) — needed to seed sibling-root edit branches;
+   *  omitting it would instead chain the message onto the previous one. */
+  parentId?: string | null;
   /** Branch index for sibling messages under the same parent (default 0). */
   branchIndex?: number;
   timestamp?: string;
