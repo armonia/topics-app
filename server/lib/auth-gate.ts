@@ -49,19 +49,33 @@ export type AuthResult = { allow: true } | { allow: false; status: number; reaso
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
- * The paths the gate protects: the API, WS upgrades, and the two file-serving
- * roots (`/preview/…` absolute-path reads and `/media/…` for ~/.topics/media —
- * agent screenshots, browser downloads, task preview media). Everything else
- * (the SPA bundle, health checks) is public. Kept here next to `evaluateAuth`
- * so "what is gated" and "how the gate decides" can't drift apart, and so both
- * are unit-testable without booting the server.
+ * True for a WebSocket-upgrade path. The PRIMARY client socket is the bare `/ws`
+ * (no trailing slash — useWebSocket.ts opens `${base}/ws`); the terminal/browser
+ * sockets live under `/ws/…`. Both the gate and the CSRF check MUST agree on
+ * this or one endpoint slips through: keying only on `/ws/` (with slash) left
+ * the bare `/ws` — the socket that streams ui-state + live chat — ungated. One
+ * shared predicate so the two can never drift.
+ */
+export function isWebSocketPath(pathname: string): boolean {
+  return pathname === "/ws" || pathname.startsWith("/ws/");
+}
+
+/**
+ * The paths the gate protects: the API, WS upgrades (`/ws` + `/ws/…`), and the
+ * file-serving roots — `/preview/…` (absolute-path reads), `/media/…`
+ * (~/.topics/media: agent screenshots, browser downloads, task preview media),
+ * and `/uploads/…` (user-uploaded attachments/screenshots). Everything else (the
+ * SPA bundle, health checks) is public. Kept here next to `evaluateAuth` so
+ * "what is gated" and "how the gate decides" can't drift apart, and so both are
+ * unit-testable without booting the server.
  */
 export function isAuthGatedPath(pathname: string): boolean {
   return (
     pathname.startsWith("/api/") ||
-    pathname.startsWith("/ws/") ||
+    isWebSocketPath(pathname) ||
     pathname.startsWith("/preview/") ||
-    pathname.startsWith("/media/")
+    pathname.startsWith("/media/") ||
+    pathname.startsWith("/uploads/")
   );
 }
 
@@ -122,7 +136,7 @@ export function evaluateAuth(i: AuthInput): AuthResult {
   }
 
   // CSRF: block a mutating request / WS upgrade carrying a foreign Origin.
-  const isWsUpgrade = i.pathname.startsWith("/ws/");
+  const isWsUpgrade = isWebSocketPath(i.pathname);
   if ((MUTATING.has(i.method) || isWsUpgrade) && i.origin) {
     const allowed = isLocalOrigin(i.origin) || (i.allowedOrigins?.includes(i.origin) ?? false);
     if (!allowed) {
