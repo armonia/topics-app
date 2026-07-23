@@ -125,7 +125,12 @@ describe("ai-bridge daemon", () => {
     expect(list.sessions.some((s: any) => s.id === id && s.alive)).toBe(true);
 
     c.send({ type: "kill", id });
+    // `killed` is only the ACK that teardown was INITIATED (SIGTERM sent). The
+    // session is removed from the map in onDead, which fires when the child
+    // actually exits — so wait for the `exit` frame (broadcast immediately
+    // before `sessions.delete`) before listing, or the list races the reap.
     await c.next((m) => m.type === "killed" && m.id === id);
+    await c.next((m) => m.type === "exit" && m.id === id);
 
     c.send({ type: "list" });
     const list2 = await c.next((m) => m.type === "list");
