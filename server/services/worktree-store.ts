@@ -92,6 +92,10 @@ export function createWorktreeStore(db: Database): WorktreeStore {
       `SELECT name FROM worktrees WHERE project_id = ?`,
     ),
     deleteRow: db.prepare(`DELETE FROM worktrees WHERE id = ?`),
+    forgetBoundSessions: db.prepare(
+      `DELETE FROM claude_code_sessions
+         WHERE session_key IN (SELECT session_key FROM topics WHERE worktree_id = ?)`,
+    ),
   };
 
   function rowToWorktree(row: any): Worktree {
@@ -225,6 +229,19 @@ export function createWorktreeStore(db: Database): WorktreeStore {
       return row ? rowToWorktree(row) : null;
     },
     delete(id) {
+      // Un worktree reapato porta via il suo checkout — la cwd della sessione
+      // Claude che ci girava. Un topic legato a questo worktree conserva una riga
+      // claude_code_sessions il cui transcript vive nella project-dir derivata dal
+      // worktree; sparito il checkout, un `--resume` lì è condannato e il topic si
+      // congela sull'ultimo turno (orfano-da-reap: vedi l'incidente "quadra").
+      // Dimentichiamo quelle sessioni nello STESSO passo in cui muore il binding
+      // (la FK azzera worktree_id): il turno successivo nasce fresco nel progetto
+      // base, seedato col recap della history dal DB — esattamente come la
+      // lost-session recovery. Deve girare PRIMA del delete della riga, altrimenti
+      // la FK ha già azzerato worktree_id e la subquery non trova nulla. La chat
+      // visibile e il transcript su disco restano intatti; cade solo il puntatore
+      // (ormai non resumabile) alla sessione.
+      stmts.forgetBoundSessions.run(id);
       const result = stmts.deleteRow.run(id);
       return result.changes > 0;
     },
