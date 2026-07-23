@@ -152,15 +152,15 @@ test.describe("Topic Management", () => {
     // Open context menu via right-click
     const menu = await topicPage.openContextMenu(/E2E-Disposable/);
 
-    // Click "Archive / Delete" menu item
-    await topicPage.clickMenuItem(menu, /Archive/);
+    // Click "Archivia" menu item (IT UI)
+    await topicPage.clickMenuItem(menu, /Archivia/);
 
     // Confirmation submenu appears with topic name
-    await expect(menu.getByText(/Delete topic/)).toBeVisible({ timeout: 3000 });
+    await expect(menu.getByText(/Archiviare il topic/)).toBeVisible({ timeout: 3000 });
     await expect(menu).toContainText("E2E-Disposable");
 
-    // Click "Delete" to confirm archival
-    await menu.locator("button", { hasText: "Delete" }).click();
+    // Click "Archivia" to confirm archival
+    await menu.locator("button", { hasText: "Archivia" }).click();
 
     // Topic should disappear from active list
     await expect(topicPage.findTopic(/E2E-Disposable/)).toBeHidden({
@@ -241,8 +241,8 @@ test.describe("Topic Management", () => {
       new RegExp(`E2E-Gamma-${TS}`)
     );
 
-    // Click "Rename"
-    await topicPage.clickMenuItem(menu, /Rename/);
+    // Click "Rinomina" (IT UI)
+    await topicPage.clickMenuItem(menu, /Rinomina/);
 
     // Rename submenu appears with input pre-filled with current name
     const input = menu.locator("input[type='text']");
@@ -252,8 +252,8 @@ test.describe("Topic Management", () => {
     const newName = `E2E-Renamed-${TS}`;
     await input.fill(newName);
 
-    // Click Save
-    await menu.locator("button", { hasText: "Save" }).click();
+    // Click Salva (IT UI)
+    await menu.locator("button", { hasText: "Salva" }).click();
 
     // Verify renamed topic appears
     await expect(topicPage.findTopic(new RegExp(newName))).toBeVisible({
@@ -285,27 +285,27 @@ test.describe("Topic Management", () => {
       timeout: 10000,
     });
 
-    // Open context menu and click Archive / Delete
+    // Open context menu and click Archivia (IT UI)
     let menu = await topicPage.openContextMenu(/E2E-DeleteMe/);
-    await topicPage.clickMenuItem(menu, /Archive/);
+    await topicPage.clickMenuItem(menu, /Archivia/);
 
     // Verify confirmation shows topic name (per D-06)
     await expect(menu).toContainText("E2E-DeleteMe");
-    await expect(menu).toContainText("Delete topic");
+    await expect(menu).toContainText("Archiviare il topic?");
 
-    // Click Cancel -- topic should remain visible
-    await menu.locator("button", { hasText: "Cancel" }).click();
+    // Click Annulla -- topic should remain visible
+    await menu.locator("button", { hasText: "Annulla" }).click();
 
     // Menu closes (Cancel calls onClose), topic still visible
     await expect(topicPage.findTopic(/E2E-DeleteMe/)).toBeVisible({
       timeout: 5000,
     });
 
-    // Re-open context menu and this time confirm delete
+    // Re-open context menu and this time confirm archival
     menu = await topicPage.openContextMenu(/E2E-DeleteMe/);
-    await topicPage.clickMenuItem(menu, /Archive/);
+    await topicPage.clickMenuItem(menu, /Archivia/);
     await expect(menu).toContainText("E2E-DeleteMe");
-    await menu.locator("button", { hasText: "Delete" }).click();
+    await menu.locator("button", { hasText: "Archivia" }).click();
 
     // Topic should disappear
     await expect(topicPage.findTopic(/E2E-DeleteMe/)).toBeHidden({
@@ -412,11 +412,11 @@ test.describe("Topic Management — Fissati archive interplay", () => {
     await topicPage.clickMenuItem(pinMenu, /^Fissa$/);
     await expect(row).toHaveAttribute("data-pinned", "true", { timeout: 5000 });
 
-    // Explicit archive via the context menu (Archive / Delete → confirm).
+    // Explicit archive via the context menu (Archivia → confirm, IT UI).
     const menu = await topicPage.openContextMenu(new RegExp(name));
-    await topicPage.clickMenuItem(menu, /Archive/);
-    await expect(menu.getByText(/Delete topic/)).toBeVisible({ timeout: 3000 });
-    await menu.locator("button", { hasText: "Delete" }).click();
+    await topicPage.clickMenuItem(menu, /Archivia/);
+    await expect(menu.getByText(/Archiviare il topic/)).toBeVisible({ timeout: 3000 });
+    await menu.locator("button", { hasText: "Archivia" }).click();
 
     // The topic IS archived server-side (explicit archive is not blocked by
     // the pin — only the close-tab funnel is)…
