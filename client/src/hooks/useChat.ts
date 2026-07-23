@@ -12,6 +12,17 @@ const CACHE_PREFIX = 'messages-cache-';
 const CACHE_MAX_MESSAGES = 50;
 const QUEUE_KEY = 'messages-outbound-queue';
 
+// How many messages to pull per history fetch. The server returns the LAST
+// `limit` messages of the linearized thread (history.ts `sliced.slice(-limit)`)
+// and hard-clamps the value to 500. The old value here was 100, so any topic
+// past 100 messages loaded only its most recent 100 — its head silently
+// vanished and the chat rendered "tagliata" (starting mid-conversation), with
+// no way to recover the beginning. There is no scroll-up pagination, so this
+// window IS the whole visible thread: pin it to the server's own ceiling (500)
+// so every real chat loads complete. (>500-message threads still need proper
+// load-older pagination — tracked as follow-up; no current chat is close.)
+const HISTORY_FETCH_LIMIT = 500;
+
 // Auto-clear stuck streams after 3 minutes of no activity. Module-scoped
 // constant — no per-render identity, so it's not a hook dependency.
 const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -1094,7 +1105,7 @@ export function useChat() {
 
       // Reload full history to sync server-generated IDs and branching metadata
       try {
-        const historyResponse = await chatApi.getHistory(sessionKey, { limit: 100 });
+        const historyResponse = await chatApi.getHistory(sessionKey, { limit: HISTORY_FETCH_LIMIT });
         const chatMessages: ChatMessage[] = historyResponse.messages
           .filter(msg => !isContextMessage(msg.content))
           .map(msg => ({
@@ -1293,7 +1304,7 @@ export function useChat() {
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       
-      const response = await chatApi.getHistory(sessionKey, { limit: 100 });
+      const response = await chatApi.getHistory(sessionKey, { limit: HISTORY_FETCH_LIMIT });
 
       const chatMessages: ChatMessage[] = response.messages
         .filter(msg => !isContextMessage(msg.content))
@@ -1433,7 +1444,7 @@ export function useChat() {
 
       // Reload the full thread from server (the edit endpoint created the branch)
       // We do this to get the updated thread with the new branch
-      const historyResponse = await chatApi.getHistory(sessionKey, { limit: 100 });
+      const historyResponse = await chatApi.getHistory(sessionKey, { limit: HISTORY_FETCH_LIMIT });
       const chatMessages: ChatMessage[] = historyResponse.messages
         .filter(msg => !isContextMessage(msg.content))
         .map(msg => ({
