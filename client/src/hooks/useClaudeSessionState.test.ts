@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'bun:test';
-import { mergeSessionState } from './useClaudeSessionState';
+import {
+  mergeSessionState,
+  isPhaseReverifyCandidate,
+  REVERIFY_BUSY_STALE_MS,
+  REVERIFY_SETTLED_STALE_MS,
+} from './useClaudeSessionState';
 import type { ClaudeSessionState, ClaudeSessionPhase } from '../types';
 
 // Fixture builder — only the fields the rev/phase guard reads matter.
@@ -58,5 +63,35 @@ describe('mergeSessionState — rev/phase monotonicity guard (coalescing correct
     expect(m.get('k1')?.rev).toBe(3);
     expect(m.get('k1')?.phase).toBe('tool-running');
     expect(m.get('k2')?.rev).toBe(1);
+  });
+});
+
+describe('isPhaseReverifyCandidate — heal phantom phases via a lazy re-fetch', () => {
+  const NOW = 1_000_000_000;
+
+  it('busy spinner (running) is suspect after the short busy window', () => {
+    expect(isPhaseReverifyCandidate('running', NOW - REVERIFY_BUSY_STALE_MS, NOW)).toBe(true);
+    expect(isPhaseReverifyCandidate('tool-running', NOW - REVERIFY_BUSY_STALE_MS, NOW)).toBe(true);
+    expect(isPhaseReverifyCandidate('starting', NOW - REVERIFY_BUSY_STALE_MS, NOW)).toBe(true);
+  });
+
+  it('a still-fresh busy spinner is NOT re-verified (a long tool call is alive)', () => {
+    expect(isPhaseReverifyCandidate('running', NOW - (REVERIFY_BUSY_STALE_MS - 1), NOW)).toBe(false);
+  });
+
+  it('awaiting-user (the quadra phantom) is re-verified only after the long settled window', () => {
+    // Just past the busy window it is STILL left alone — an open "your turn" you
+    // stepped away from must not thrash the server every couple of minutes.
+    expect(isPhaseReverifyCandidate('awaiting-user', NOW - REVERIFY_BUSY_STALE_MS, NOW)).toBe(false);
+    // Only once it has sat silent for the full settled window is it treated as a
+    // possible phantom worth a snapshot check (present → kept, absent → dropped).
+    expect(isPhaseReverifyCandidate('awaiting-user', NOW - REVERIFY_SETTLED_STALE_MS, NOW)).toBe(true);
+    expect(isPhaseReverifyCandidate('awaiting-user', NOW - (REVERIFY_SETTLED_STALE_MS - 1), NOW)).toBe(false);
+  });
+
+  it('calm/terminal phases are never re-verified (their row is not a phantom)', () => {
+    for (const p of ['completed', 'dormant', 'paused', 'awaiting-approval', 'error'] as ClaudeSessionPhase[]) {
+      expect(isPhaseReverifyCandidate(p, NOW - REVERIFY_SETTLED_STALE_MS * 10, NOW)).toBe(false);
+    }
   });
 });

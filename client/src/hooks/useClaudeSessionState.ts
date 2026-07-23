@@ -59,6 +59,43 @@ export function mergeSessionState(
   return next;
 }
 
+/** Spinner phases whose terminating transition we may have missed → suspect fast. */
+const REVERIFY_BUSY_PHASES = new Set(['running', 'tool-running', 'starting']);
+/**
+ * Settled phases that paint a PERSISTENT sidebar/tab fill yet never self-heal:
+ * `awaiting-user` ("your turn") is deliberately never demoted (it legitimately
+ * lasts as long as you're away). But when the server FORGETS its session (the
+ * orphaned-transcript reconcile deletes the row) a client that missed the
+ * terminating frame keeps the fill FOREVER — a phantom (the quadra freeze). Not
+ * demotable locally (a real "your turn" would vanish); it can only heal by
+ * re-verifying against the snapshot, so it belongs to the re-fetch gate, not the
+ * local-demote gate.
+ */
+const REVERIFY_SETTLED_PHASES = new Set(['awaiting-user']);
+export const REVERIFY_BUSY_STALE_MS = 2 * 60_000;   // busy spinner silent this long → verify
+export const REVERIFY_SETTLED_STALE_MS = 30 * 60_000; // settled fill silent this long → verify
+
+/**
+ * Should this session's phase be RE-VERIFIED against the authoritative server
+ * snapshot (a bootstrap re-fetch)? Re-fetching is how a PHANTOM heals: present
+ * in the snapshot → kept, absent → dropped. A busy spinner is suspect after a
+ * short silence (2 min); a settled "your turn" fill is checked far more lazily
+ * (30 min) so an open turn you left on purpose isn't re-fetched every few
+ * minutes — only a genuinely-abandoned phantom is. The caller applies the
+ * per-session cooldown; this is the pure staleness/phase gate (unit-tested).
+ */
+export function isPhaseReverifyCandidate(
+  phase: ClaudeSessionState['phase'],
+  lastUpdateMs: number,
+  nowMs: number,
+): boolean {
+  const busy = REVERIFY_BUSY_PHASES.has(phase);
+  const settled = REVERIFY_SETTLED_PHASES.has(phase);
+  if (!busy && !settled) return false;
+  const staleMs = busy ? REVERIFY_BUSY_STALE_MS : REVERIFY_SETTLED_STALE_MS;
+  return nowMs - lastUpdateMs >= staleMs;
+}
+
 export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseClaudeSessionStateResult {
   const [sessions, setSessions] = useState<Map<string, ClaudeSessionState>>(() => new Map());
   const [hydrated, setHydrated] = useState(false);
@@ -209,9 +246,7 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
   // re-fetch per BUSY_RECHECK_MS.
   useEffect(() => {
     const STALE_MS = 30 * 60_000;        // abandoned attention phase → dormant
-    const BUSY_STALE_MS = 2 * 60_000;    // spinner phase silent this long → suspect
-    const BUSY_RECHECK_MS = 3 * 60_000;  // ...re-verify vs server at most this often
-    const BUSY_PHASES = new Set(['running', 'tool-running', 'starting']);
+    const BUSY_RECHECK_MS = 3 * 60_000;  // re-verify a suspect session vs server at most this often
     const lastRecheck = new Map<string, number>();
     let cancelRefetch: (() => void) | undefined;
     const sweep = () => {
@@ -230,12 +265,13 @@ export function useClaudeSessionState(opts: UseClaudeSessionStateOptions): UseCl
         }
         return changed && next ? next : prev;
       });
-      // (2) re-fetch server truth for stale spinner phases (never demote here).
+      // (2) re-fetch server truth for stale spinner + phantom "your turn" phases
+      // (never demote here — see isPhaseReverifyCandidate). Cooldown-guarded so
+      // one stuck session triggers at most one re-fetch per BUSY_RECHECK_MS.
       let needsRefetch = false;
       for (const [key, st] of sessionsRef.current) {
-        if (!BUSY_PHASES.has(st.phase)) continue;
         const last = st.updatedAt || st.phaseUpdatedAt || 0;
-        if (now - last < BUSY_STALE_MS) continue;
+        if (!isPhaseReverifyCandidate(st.phase, last, now)) continue;
         if (now - (lastRecheck.get(key) ?? 0) < BUSY_RECHECK_MS) continue;
         lastRecheck.set(key, now);
         needsRefetch = true;

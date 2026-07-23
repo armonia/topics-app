@@ -2171,6 +2171,17 @@ function reconcileOrphanedTranscripts(): void {
     )
       continue;
     // Provably unresumable: the transcript isn't where `--resume` will look.
+    // Broadcast a terminal `session:state` (dormant) BEFORE deleting the row —
+    // noteDormant reads the row from the DB, so it must run while it still
+    // exists. This is what clears the PHANTOM in a long-lived client: `stream:end`
+    // only quiets the in-chat streaming spinner (signals.ts); the sidebar/tab
+    // phase (running / "your turn" fill) lives in the session-state map and is
+    // cleared only by a fresh `session:state` or a re-bootstrap. Without this a
+    // client that missed the terminating frame shows the topic "stuck working"
+    // until it happens to reload — exactly the quadra symptom. dormant renders as
+    // no-fill/no-spinner (idle), and the row is deleted right after so the next
+    // bootstrap drops the session entirely and the next turn spawns fresh.
+    claudeSessionTracker.noteDormant(row.csid);
     try {
       ctx.db.run("DELETE FROM claude_code_sessions WHERE session_key = ?", [row.sk]);
     } catch (err) {
