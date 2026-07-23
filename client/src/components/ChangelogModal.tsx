@@ -67,9 +67,10 @@ export function ChangelogModal({
 
   const active = useMemo(() => data?.find((v) => v.version === selected) ?? null, [data, selected]);
 
-  // Reset internal-toggle + scroll on version change.
+  // Scroll the content back to top on version change (DOM side-effect). The
+  // internal-toggle is reset in the rail click handler, not here, to avoid a
+  // setState-in-effect cascade.
   useEffect(() => {
-    setShowInternal(false);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   }, [selected]);
 
@@ -118,7 +119,7 @@ export function ChangelogModal({
                   <button
                     key={v.version}
                     data-testid={`changelog-version-${v.version}`}
-                    onClick={() => setSelected(v.version)}
+                    onClick={() => { setSelected(v.version); setShowInternal(false); }}
                     className={`w-full text-left px-3 py-1.5 flex items-center gap-1.5 transition-colors ${
                       isSel ? 'bg-primary/10 text-app-text' : 'text-app-text-secondary hover:bg-app-hover'
                     }`}
