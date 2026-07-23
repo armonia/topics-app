@@ -10,6 +10,7 @@ import { useFps, useFpsActive } from '@/lib/fpsMonitor';
 import { usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { PerfSection } from './PerfSection';
 import { VersionPopover } from './VersionPopover';
+import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
 import { isDesktop } from '@/lib/shell';
@@ -221,6 +222,8 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
 
   // Version chip → info + auto-update popover.
   const [showVersionPopover, setShowVersionPopover] = useState(false);
+  // The full "Novità" changelog modal, opened from the popover.
+  const [showChangelog, setShowChangelog] = useState(false);
   // Anchor captured at click (not read from a ref during render) so the popover
   // positions against the live button without tripping react-hooks/refs.
   const [versionAnchor, setVersionAnchor] = useState<HTMLButtonElement | null>(null);
@@ -476,7 +479,12 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
           buildDate={BUILD_TIME ? formatBuildDate(BUILD_TIME) : ''}
           buildSha={BUILD_SHA}
           onClose={() => setShowVersionPopover(false)}
+          onOpenChangelog={() => { setShowVersionPopover(false); setShowChangelog(true); }}
         />
+      )}
+
+      {showChangelog && (
+        <ChangelogModal currentVersion={appVersion} onClose={() => setShowChangelog(false)} />
       )}
     </>
   );
