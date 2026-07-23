@@ -98,6 +98,11 @@ export default defineConfig({
           'markdown': ['react-markdown', 'remark-gfm'],
           'editor': ['@codemirror/view', '@codemirror/state', '@codemirror/language', '@codemirror/commands', '@codemirror/theme-one-dark'],
           'icons': ['lucide-react'],
+          // dnd-kit is pulled into the EAGER main chunk by the sidebar's
+          // TopicItem (useSortable), not just the lazy KanbanBoardPane. Split it
+          // so it downloads in parallel and caches independently of the churny
+          // app entry chunk (it's a stable dependency that rarely changes).
+          'dnd-kit': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
         },
       },
     },
