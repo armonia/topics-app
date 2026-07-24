@@ -598,4 +598,29 @@ test.describe("Sidebar — Project icons", () => {
       .toBeGreaterThan(0);
     await expect(row.getByTestId("project-monogram")).toHaveCount(0);
   });
+
+  test("SIDEBAR-WINDOWS: a detached window's presence renders the 'Finestre aperte' section", async ({ page }) => {
+    // The native OS detach can't run headless, but the section is WS-driven:
+    // inject a `presence:windows` frame carrying one DETACHED window (a windowId
+    // other than this tab's own → computeDetachedWindows includes it) and assert
+    // the sidebar section appears. Proxy the real socket, then push the frame.
+    await page.routeWebSocket(/ws/, (ws) => {
+      const server = ws.connectToServer();
+      server.onMessage((msg) => ws.send(msg));
+      ws.onMessage((msg) => server.send(msg));
+      setTimeout(() => {
+        ws.send(JSON.stringify({
+          type: "presence:windows",
+          windows: [
+            { windowId: "e2e-other-window", clientId: "e2e-c1", windowLabel: "detach-e2e", detached: true, topicIds: ["e2e-detached-topic"] },
+          ],
+        }));
+      }, 1200);
+    });
+    await goToApp(page);
+
+    const section = page.getByTestId("sidebar-detached-windows");
+    await expect(section, "the detached-windows section renders from live presence").toBeVisible({ timeout: 10000 });
+    await expect(section).toContainText("Finestre aperte");
+  });
 });
