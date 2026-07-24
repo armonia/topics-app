@@ -872,6 +872,42 @@ test.describe("Grid Split System", () => {
       await page.keyboard.press('Escape');
     });
 
+    test("GRID-GROUP: dropping a sidebar topic onto a pane opens & groups it (raggruppa da sidebar)", async ({ page, request }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (sidebar-drop group)" });
+      const idA = splitTopicIds[0];
+      // A FRESH sidebar-only topic (raw POST — NOT seeded into openPanels/pane-
+      // store like createTopic does), so it starts CLOSED and can't be residue.
+      const dropName = `E2E-DropGroup-${Date.now()}`;
+      const res = await request.post("http://localhost:13334/api/topics", { data: { name: dropName }, ignoreHTTPSErrors: true });
+      const idDrop = ((await res.json()) as { id: string }).id;
+
+      // Ensure topic A is open so there's a target cell (its own tab).
+      await page.request.put("http://localhost:13334/api/ui-state/panels", { data: { openPanels: [idA] } }).catch(() => {});
+      await page.goto("/");
+      await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
+      const cell = page.locator('[role="main"] [draggable="true"]').first();
+      await cell.waitFor({ state: "visible", timeout: 10000 });
+
+      expect((await getVisibleTabLabels(page)).some(l => l.includes(dropName)), 'fresh topic must NOT be a tab yet').toBe(false);
+
+      // Synthesize the sidebar drag's DROP onto the pane cell: a PANEL_ID(idDrop)
+      // payload dragged onto the cell must OPEN the topic and add it as a tab
+      // (grouping it into the main pool). Dispatched on a child inside the cell so
+      // the cell's capture-phase drag handlers fire (they key on PANEL_ID).
+      await cell.evaluate((el, topicId) => {
+        const dt = new DataTransfer();
+        dt.setData('application/x-panel-id', topicId);
+        for (const type of ['dragenter', 'dragover', 'drop'] as const) {
+          el.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+        }
+      }, idDrop);
+
+      await expect
+        .poll(async () => (await getVisibleTabLabels(page)).some(l => l.includes(dropName)), { timeout: 6000 })
+        .toBe(true);
+      await deleteTopic(request, idDrop).catch(() => {});
+    });
+
     test("GRID-10: 'Reimposta pannelli' flattens a project window's internal splits", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (flatten, project)" });
       await goToApp(page);

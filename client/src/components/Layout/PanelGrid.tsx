@@ -1322,7 +1322,12 @@ export function PanelGrid({
   const handleGridItemDragOverCapture = useCallback((rowIdx: number, colIdx: number) => (e: React.DragEvent) => {
     const isGridDrag = e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM);
     const isTabDrag = e.dataTransfer.types.includes(DND_TYPES.PANE_TAB);
-    if (!isGridDrag && !isTabDrag) return;
+    // A drag straight from the sidebar tree carries PANEL_ID only (no GRID_ITEM,
+    // no PANE_TAB): dropping it onto a cell OPENS the topic and MERGES it into
+    // that cell's group ("raggruppa da sidebar"). Whole-cell merge target — no
+    // edge/split semantics — so it stays out of the fragile tab-split path.
+    const isSidebarDrag = !isGridDrag && !isTabDrag && e.dataTransfer.types.includes(DND_TYPES.PANEL_ID);
+    if (!isGridDrag && !isTabDrag && !isSidebarDrag) return;
 
     // A PANE_TAB drag from a PROJECT window carries that project's scope. Every
     // tab drag also carries PANEL_ID (for the standalone edge-split), so PANEL_ID
@@ -1356,6 +1361,16 @@ export function PanelGrid({
       setGridDropTarget(target);
       gridDropTargetRef.current = target;
     };
+
+    // Sidebar drag: paint a whole-cell merge preview (reusing the tab
+    // center-merge look) and stop here — the drop opens the topic and merges it
+    // into this cell's group. No edge/split for sidebar drags.
+    if (isSidebarDrag) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      commitTarget({ rowIdx, colIdx, zone: 'center', centerSide: undefined, isTab: true });
+      return;
+    }
 
     // The tab bar owns its own band: a PANE_TAB dragged ANYWHERE over a tab bar
     // (including its left/right corners, where detectDropZone returns 'left'/
@@ -1565,6 +1580,24 @@ export function PanelGrid({
     // The drag landed on an in-app target — the dragend pop-out must NOT treat
     // it as a drag-out-of-window (which would close the pane after the split).
     dropConsumedRef.current = true;
+
+    // Sidebar drag (PANEL_ID only — no GRID_ITEM, no PANE_TAB): OPEN the topic
+    // into the workspace, GROUPING it as a tab in the main standalone group.
+    // Routed through the `topics:open-topic` event → openPanel, which REGISTERS
+    // the chat pane in the pane-store (a bare setOpenPanels/onOpenPanelAt does
+    // NOT — REORDER_PANES then drops the unregistered id and nothing renders).
+    // If it landed on a split (solo) cell, also merge it into THAT cell's group.
+    if (!effectiveKey && !sourcePaneTab && sourceTopicId) {
+      const landedKey = gridRowsRef.current[dropTarget.rowIdx]?.itemKeys[dropTarget.colIdx];
+      const mergeInto = landedKey?.startsWith('solo:') && landedKey.slice('solo:'.length) !== sourceTopicId
+        ? landedKey.slice('solo:'.length)
+        : undefined;
+      window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: sourceTopicId, mergeInto } }));
+      setDraggingGridKey(null);
+      setGridDropTarget(null);
+      gridDropTargetRef.current = null;
+      return;
+    }
 
     // Tab drag → create a solo standalone item at the target position
     if (!effectiveKey && sourcePaneTab && sourceTopicId) {
