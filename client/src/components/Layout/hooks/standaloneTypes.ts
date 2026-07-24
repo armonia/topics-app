@@ -138,6 +138,7 @@ export interface UsePaneLifecycleHandlers {
   handleOpenSessionViewer: (sessionKey: string) => void;
   handleSettings: (paneId: string) => void;
   handlePopOut: (paneId: string) => void;
+  handlePopOutGroup: (topicIds: string[]) => void;
   handleSplitRight: (paneId: string) => void;
   handleSplitDown: (paneId: string) => void;
   handleDetach: ((paneId: string) => void) | undefined;

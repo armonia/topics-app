@@ -24,7 +24,7 @@ import { canSplitPane, standaloneSplitSurface } from '../splitRules';
 import { clearBrowserSpawner } from '../../../state/browserSpawner';
 import { normalizeTerminalAgent } from '../../../lib/terminalAgents';
 import type { UsePaneLifecycleArgs, UsePaneLifecycleReturn } from './standaloneTypes';
-import { popOutTopic } from '../../../lib/popOutTopic';
+import { popOutTopic, popOutTopics } from '../../../lib/popOutTopic';
 
 /**
  * Per-pane-kind close-side-effect descriptor. Keeps handleClosePane +
@@ -207,6 +207,17 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     });
   }, [onClosePanel]);
 
+  // Pop the WHOLE group out into ONE window ("stacca il gruppo"): detach all its
+  // topics together, then close the source panes only if a window actually
+  // opened (same contract as handlePopOut, but for the group).
+  const handlePopOutGroup = useCallback((topicIds: string[]) => {
+    const ids = topicIds.filter(Boolean);
+    if (ids.length === 0) return;
+    void popOutTopics(ids).then((opened) => {
+      if (opened) for (const id of ids) onClosePanel(id);
+    });
+  }, [onClosePanel]);
+
   // Determine if a pane can be split into its own grid cell — delegated to
   // the SHARED canSplitPane rule (splitRules.ts), the single source of truth
   // both surfaces' menus, drags and handlers gate on:
@@ -288,6 +299,7 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
       handleOpenSessionViewer,
       handleSettings,
       handlePopOut,
+      handlePopOutGroup,
       handleSplitRight,
       handleSplitDown,
       handleDetach,

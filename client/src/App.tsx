@@ -49,6 +49,7 @@ import { useBrowserContexts } from './hooks/useBrowserContexts';
 import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
+import { DetachedWindowsSection } from './components/Sidebar/DetachedWindowsSection';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
@@ -982,6 +983,7 @@ function App() {
             bottom SidebarStatusBar — see <SidebarStatusBar dataNotice={…} />. */}
 
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
+          <DetachedWindowsSection topics={topics} onReopenTopic={(id) => handleTopicClick(id)} />
           <ErrorBoundary fallbackMessage="Sidebar error">
           {topicsLoading && Object.keys(topics).length === 0 ? (
             <div className="overflow-y-auto sidebar-scroll"><SkeletonTopicList count={5} /></div>

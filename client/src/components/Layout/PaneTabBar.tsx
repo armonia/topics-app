@@ -128,6 +128,9 @@ interface PaneTabBarProps {
   nonClosablePaneIds?: Set<string>;
   onSettings?: (paneId: string) => void;
   onPopOut?: (paneId: string) => void;
+  /** Pop the WHOLE group (all its tabs) out into ONE window ("stacca il gruppo").
+   *  Offered only on a real group (more than one tab). */
+  onPopOutGroup?: () => void;
   onStopStreaming?: (paneId: string) => void;
   onPinPane?: (paneId: string) => void;
   /**
@@ -168,7 +171,7 @@ interface PaneTabBarProps {
   addMenuScope?: PaneScope;
 }
 
-export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds }: PaneTabBarProps) {
+export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseImmediate, onAddPane, availableTypes, groupType: _groupType, groupId, onNewChat, onReorderPanes, onCrossGroupDrop, onEdgeSplitDrop, dndScope, className, contextPercent: _contextPercent, onContextRingClick: _onContextRingClick, onCloseOthers, onDetach, onReattach, onSplitRight, onSplitDown, onResetLayout, canMoveToSpace, onRenameChat, onRenameBrowser, onSettings, onPopOut, onPopOutGroup, onStopStreaming, onPinPane, onToggleFissato, isFissato, projectStatus: _projectStatus, tabNotifications, hasLeftOverlay, groupIsFocused = true, groupIsAppFocused, addMenuScope = 'project', nonClosablePaneIds }: PaneTabBarProps) {
   // Default groupIsAppFocused to groupIsFocused so non-project callers
   // (StandaloneChatGroup) keep the existing two-state behavior.
   const isAppFocused = groupIsAppFocused ?? groupIsFocused;
@@ -1249,6 +1252,16 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   </button>
                 );
               })()}
+              {onPopOutGroup && panes.length > 1 && (
+                <button
+                  onClick={() => { onPopOutGroup!(); setCtxMenu(null); }}
+                  className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
+                  title="Stacca l'intero gruppo (tutte le schede) in una finestra separata"
+                >
+                  <ExternalLink size={14} />
+                  <span className="flex-1 text-left">Stacca il gruppo in una nuova finestra</span>
+                </button>
+              )}
             </>
           )}
           {onDetach && (
