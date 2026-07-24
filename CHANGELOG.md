@@ -6,6 +6,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Novità
 - **security** · auth-gate su /api,/ws,/preview — loopback-trusted + token + anti-CSRF
+- **ux** · presenza finestre in sidebar + "Stacca il gruppo in una nuova finestra"
 
 ### Correzioni
 - perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri
@@ -15,6 +16,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **security** · gate anche /media/ (read remota-senza-token dei file ~/.topics/media)
 - **security** · gate il WS PRIMARIO /ws (+ /uploads) — era ungated (leak chat/ui-state su LAN)
 - **ux** · "Sposta nello Spazio" riabilita "Principale" + barra Spazi segue il floating
+- **ux** · raggruppa da sidebar — ripristina il drag + apri/registra il topic droppato
 
 ### Prestazioni
 - **client** · hljs highlight deferito in streaming + split chunk dnd-kit
@@ -30,6 +32,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · reload usa waitUntil:'load', non 'networkidle' (app chatty con WS/SSE)
 - **e2e** · command-palette usa goToApp + open() deterministico (era 7+ fail)
 - **e2e** · BOARD-01 asserisce il dropdown dispatch, non la pill rimossa
+- **changelog** · rigenera 2.2 col fix sicurezza /ws + fix UX sposta-spazio/barra-Spazi
 
 ## 2.1.129 — 2026-07-23
 

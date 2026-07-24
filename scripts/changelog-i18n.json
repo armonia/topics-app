@@ -1497,5 +1497,7 @@
   "gate anche /media/ (read remota-senza-token dei file ~/.topics/media)": "gate /media/ too — blocks token-less remote reads of ~/.topics/media files",
   "hljs highlight deferito in streaming + split chunk dnd-kit": "syntax highlighting deferred while streaming + dnd-kit code-split into its own chunk",
   "gate il WS PRIMARIO /ws (+ /uploads) — era ungated (leak chat/ui-state su LAN)": "gate the PRIMARY /ws socket (+ /uploads) — was ungated (chat/ui-state leak on LAN)",
-  "\"Sposta nello Spazio\" riabilita \"Principale\" + barra Spazi segue il floating": "\"Move to Space\" re-enables \"Main\" + the Spaces bar follows the floating design"
+  "\"Sposta nello Spazio\" riabilita \"Principale\" + barra Spazi segue il floating": "\"Move to Space\" re-enables \"Main\" + the Spaces bar follows the floating design",
+  "presenza finestre in sidebar + \"Stacca il gruppo in una nuova finestra\"": "open windows shown in the sidebar + \"Detach the group into a new window\"",
+  "raggruppa da sidebar — ripristina il drag + apri/registra il topic droppato": "group from the sidebar — restore the drag + open/register the dropped topic"
 }
