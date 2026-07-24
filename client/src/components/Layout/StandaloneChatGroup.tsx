@@ -396,7 +396,7 @@ export function StandaloneChatGroup({
   const { settingsTopicId, setSettingsTopicId } = lifecycle;
   const {
     handleReorderPanes, handlePinPane, handleAddPane, handleClosePane,
-    handleStopStreaming, handleOpenSessionViewer, handleSettings, handlePopOut,
+    handleStopStreaming, handleOpenSessionViewer, handleSettings, handlePopOut, handlePopOutGroup,
     handleSplitRight, handleSplitDown, handleDetach, handleUnsolo,
     handleCloseOthers,
   } = lifecycle.handlers;
@@ -589,6 +589,8 @@ export function StandaloneChatGroup({
       onCloseOthers={handleCloseOthers}
       onSettings={handleSettings}
       onPopOut={handlePopOut}
+      // "Stacca il gruppo": pop ALL the group's chat topics out into ONE window.
+      onPopOutGroup={() => handlePopOutGroup(panes.filter(p => p.type === 'chat' && p.topicId).map(p => p.topicId!))}
       // Tab-level rename parity with terminals: chat tabs go through the
       // canonical topic-update path (optimistic + persisted + broadcast);
       // browser tabs pin pane.title (titleSource='user') so the page-title
