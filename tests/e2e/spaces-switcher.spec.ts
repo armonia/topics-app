@@ -142,4 +142,29 @@ test.describe.serial("Spaces (Spazi) switcher", () => {
       "tab B (Principale) is hidden while Spazio 2 is active",
     ).toHaveCount(0);
   });
+
+  test("SPACE-04: from a non-default space, the 'Principale' move-back target is ENABLED", async ({ page }) => {
+    await openTwoStandaloneTabs(page);
+
+    // Move tab A into a new space and switch to it.
+    const tabA = page.locator(`[data-pane-id="${idA}"]`).first();
+    await tabA.click({ button: "right" });
+    await page.getByText("Sposta nello Spazio", { exact: true }).click();
+    await page.getByText("Nuovo Spazio", { exact: true }).click();
+    const switcher = page.getByTestId("space-switcher");
+    await expect(switcher).toBeVisible({ timeout: 3000 });
+    await switcher.getByRole("tab", { name: /Spazio 2/ }).click();
+    const tabAinSpace = page.locator(`[data-pane-id="${idA}"]`).first();
+    await expect(tabAinSpace, "tab A is now visible in Spazio 2").toBeVisible({ timeout: 5000 });
+
+    // Reopen its menu → "Sposta nello Spazio". The "Principale" row must be
+    // ENABLED so you can move the tab BACK. The bug: the submenu read the pane
+    // from a reconstructed array with no spaceId, so resolvePaneSpace always
+    // returned Principale → the "Principale" row was ALWAYS disabled.
+    await tabAinSpace.click({ button: "right" });
+    await page.getByText("Sposta nello Spazio", { exact: true }).click();
+    const principaleEntry = page.getByRole("button", { name: "Principale", exact: true });
+    await expect(principaleEntry, "the Principale move-back row must render").toBeVisible({ timeout: 3000 });
+    await expect(principaleEntry, "and it must be ENABLED (fixable move-back)").toBeEnabled();
+  });
 });
