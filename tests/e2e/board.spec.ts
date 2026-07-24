@@ -110,7 +110,7 @@ test.describe("Kanban board", () => {
     await seedProjectPane(page.request, PROJECT_PATH).catch(() => {});
   });
 
-  test("BOARD-01: project board renders 5 columns + dispatch pill (agent: off)", async ({ page }) => {
+  test("BOARD-01: project board renders 5 columns + dispatch settings (auto-dispatch off)", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     await page.goto("/");
     await openProjectBoard(page);
@@ -118,9 +118,15 @@ test.describe("Kanban board", () => {
     for (const status of ["backlog", "todo", "in_progress", "review", "done"]) {
       await expect(page.getByTestId(`kanban-column-${status}`)).toBeVisible();
     }
-    // The feedback that was missing: the header must SAY dispatch is off.
-    await expect(page.getByTestId("board-dispatch-pill")).toBeVisible();
-    await expect(page.getByTestId("board-dispatch-pill")).toContainText("agent: off");
+    // The "agent: off" pill was removed (refactor 75712097 — it duplicated the
+    // dropdown); dispatch now lives in the header's GlobalSettingsMenu. Verify
+    // that control is present and that auto-dispatch defaults OFF.
+    const dispatchMenu = page.getByTitle(/Impostazioni dispatch/);
+    await expect(dispatchMenu).toBeVisible();
+    await dispatchMenu.click();
+    const autoDispatch = page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox");
+    await expect(autoDispatch).toBeVisible();
+    await expect(autoDispatch).not.toBeChecked();
   });
 
   test("BOARD-02: inline create adds a card to the column", async ({ page }) => {
