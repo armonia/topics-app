@@ -1568,6 +1568,18 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
   border-radius: var(--float-radius);
   box-shadow: none;
 }
+/* The Spazi switcher bar is chrome (a tablist), not a [data-split-card], so it
+ * matched neither selector above — in floating mode it stayed square, full-bleed
+ * and carried its bottom hairline while every pane below it floated with a gap +
+ * 10px radius, so it read as "una barra sopra che non segue il floating". Give
+ * it the same float treatment: a gap around it, the shared radius, and drop the
+ * full-width divider (a floating chip has no bottom border). Floating mode only —
+ * the non-floating top-bar look is unchanged. */
+.floating-splits [data-testid="space-switcher"] {
+  margin: var(--float-gap) calc(2 * var(--float-gap));
+  border-radius: var(--float-radius);
+  border-bottom: none;
+}
 /* When the sidebar is COLLAPSED (inline `width: 0px`) drop its gap margin so no
  * empty strip lingers on the left — the content sits flush to the edge. */
 .floating-splits [role="navigation"][aria-label="Topics sidebar"][style*="width: 0px"] {

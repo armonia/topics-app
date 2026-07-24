@@ -1166,7 +1166,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 </button>
               )}
               {showMoveToSpace && (() => {
-                const ctxPane = panes.find(p => p.id === ctxMenu.paneId);
+                // Read the AUTHORITATIVE store pane, not the `panes` prop: the
+                // latter is reconstructed from ids in StandaloneChatGroup and
+                // never copies `spaceId`, so resolvePaneSpace(ctxPane) always
+                // returned DEFAULT_SPACE_ID → the "Principale" row was ALWAYS
+                // disabled, so a pane in another Space could never be moved back
+                // to Principale ("non mi fa selezionare il progetto principale").
+                const ctxPane = usePaneStore.getState().panes[ctxMenu.paneId] ?? panes.find(p => p.id === ctxMenu.paneId);
                 const currentSpace = resolvePaneSpace(ctxPane, spacesRegistry);
                 const targets: { id: string; name: string }[] = [
                   { id: DEFAULT_SPACE_ID, name: DEFAULT_SPACE_LABEL },
