@@ -7,6 +7,10 @@
         {
           "text": "auth-gate on /api,/ws,/preview — loopback-trusted + pairing token + anti-CSRF",
           "scope": "security"
+        },
+        {
+          "text": "open windows shown in the sidebar + \"Detach the group into a new window\"",
+          "scope": "ux"
         }
       ],
       "fixes": [
@@ -36,6 +40,10 @@
         },
         {
           "text": "\"Move to Space\" re-enables \"Main\" + the Spaces bar follows the floating design",
+          "scope": "ux"
+        },
+        {
+          "text": "group from the sidebar — restore the drag + open/register the dropped topic",
           "scope": "ux"
         }
       ],
