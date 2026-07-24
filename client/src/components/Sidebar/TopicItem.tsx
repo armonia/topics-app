@@ -8,6 +8,7 @@ import { PendingActionRing } from '@/components/Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '@/components/Shared/PendingActionProgressOverlay';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { DND_TYPES } from '@/lib/dndTypes';
 import { useTopicLoading, useTopicAttentionTier } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { SessionActivity } from '@/components/Shared/SessionActivity';
@@ -145,11 +146,34 @@ export const TopicItem = memo(function TopicItem({
     onArchive?.(topic.id, !topic.archived);
   }, [topic.id, topic.archived, onArchive]);
 
+  // Native HTML5 drag SOURCE for the sidebar row (restores the drag that a
+  // dnd-kit migration + DndContext removal left dead — see PanelGrid's sidebar
+  // drop path). Carries PANEL_ID so the grid's cell drop-targets can OPEN the
+  // topic and MERGE it into the group it's dropped on ("raggruppa da sidebar").
+  const handleDragStart = useCallback((e: React.DragEvent) => {
+    e.dataTransfer.setData(DND_TYPES.PANEL_ID, topic.id);
+    e.dataTransfer.effectAllowed = 'move';
+    // Compact drag ghost (matches the pre-regression look).
+    const ghost = document.createElement('div');
+    ghost.style.cssText =
+      'position:fixed;left:-9999px;top:-9999px;display:flex;align-items:center;' +
+      'padding:6px 12px;border-radius:8px;font:500 13px/1 Inter,system-ui,sans-serif;' +
+      'color:#fff;white-space:nowrap;pointer-events:none;' +
+      'background:color-mix(in srgb, var(--primary) 90%, transparent);' +
+      'box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+    ghost.textContent = topic.name;
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+    requestAnimationFrame(() => { try { document.body.removeChild(ghost); } catch { /* already gone */ } });
+  }, [topic.id, topic.name]);
+
   return (
     <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
+      draggable={!isArchived}
+      onDragStart={handleDragStart}
       role="treeitem"
       aria-selected={isFocused}
       aria-expanded={hasChildren ? isExpanded : undefined}

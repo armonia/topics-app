@@ -1357,13 +1357,23 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       const id = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
       if (id) void archiveTopic(id, false);
     };
+    // "raggruppa da sidebar": a topic dropped from the sidebar tree onto the
+    // standalone grid opens here as a permanent tab. Goes through openPanel (NOT
+    // a bare setOpenPanels) so the chat pane is REGISTERED in the pane-store —
+    // otherwise REORDER_PANES drops the unregistered id and nothing renders.
+    const onOpenTopic = (e: Event) => {
+      const id = (e as CustomEvent<{ topicId?: string }>).detail?.topicId;
+      if (id) openPanel(id, 'permanent');
+    };
     window.addEventListener('topic-archive-on-close', onArchive);
     window.addEventListener('topic-unarchive-on-open', onUnarchive);
+    window.addEventListener('topics:open-topic', onOpenTopic);
     return () => {
       window.removeEventListener('topic-archive-on-close', onArchive);
       window.removeEventListener('topic-unarchive-on-open', onUnarchive);
+      window.removeEventListener('topics:open-topic', onOpenTopic);
     };
-  }, [archiveTopic, topicsRef]);
+  }, [archiveTopic, topicsRef, openPanel]);
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     // A deliberate tab switch releases any pending deep-link focus intent, so a
