@@ -1495,5 +1495,7 @@
   "Zod validation for /ws main channel inbound — WS-01 extension": "Zod validation for /ws main channel inbound — WS-01 extension",
   "Zod validation for /ws/browser/:contextId protocol — WS-01 partial": "Zod validation for /ws/browser/:contextId protocol — WS-01 partial",
   "gate anche /media/ (read remota-senza-token dei file ~/.topics/media)": "gate /media/ too — blocks token-less remote reads of ~/.topics/media files",
-  "hljs highlight deferito in streaming + split chunk dnd-kit": "syntax highlighting deferred while streaming + dnd-kit code-split into its own chunk"
+  "hljs highlight deferito in streaming + split chunk dnd-kit": "syntax highlighting deferred while streaming + dnd-kit code-split into its own chunk",
+  "gate il WS PRIMARIO /ws (+ /uploads) — era ungated (leak chat/ui-state su LAN)": "gate the PRIMARY /ws socket (+ /uploads) — was ungated (chat/ui-state leak on LAN)",
+  "\"Sposta nello Spazio\" riabilita \"Principale\" + barra Spazi segue il floating": "\"Move to Space\" re-enables \"Main\" + the Spaces bar follows the floating design"
 }

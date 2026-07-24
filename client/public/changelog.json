@@ -1,7 +1,7 @@
 [
   {
     "version": "2.2.0",
-    "date": "2026-07-23",
+    "date": "2026-07-24",
     "sections": {
       "new": [
         {
@@ -40,6 +40,18 @@
           "it": "gate anche /media/ (read remota-senza-token dei file ~/.topics/media)",
           "en": "gate /media/ too — blocks token-less remote reads of ~/.topics/media files",
           "scope": "security",
+          "breaking": false
+        },
+        {
+          "it": "gate il WS PRIMARIO /ws (+ /uploads) — era ungated (leak chat/ui-state su LAN)",
+          "en": "gate the PRIMARY /ws socket (+ /uploads) — was ungated (chat/ui-state leak on LAN)",
+          "scope": "security",
+          "breaking": false
+        },
+        {
+          "it": "\"Sposta nello Spazio\" riabilita \"Principale\" + barra Spazi segue il floating",
+          "en": "\"Move to Space\" re-enables \"Main\" + the Spaces bar follows the floating design",
+          "scope": "ux",
           "breaking": false
         }
       ],
@@ -82,6 +94,30 @@
         },
         {
           "it": "fix branch-nav — semina radici-sorella con parentId:null esplicito",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "rigenera 2.2 coi fix hardening (sicurezza /media + perf hljs/dnd-kit)",
+          "en": "",
+          "scope": "changelog",
+          "breaking": false
+        },
+        {
+          "it": "reload usa waitUntil:'load', non 'networkidle' (app chatty con WS/SSE)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "command-palette usa goToApp + open() deterministico (era 7+ fail)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "BOARD-01 asserisce il dropdown dispatch, non la pill rimossa",
           "en": "",
           "scope": "e2e",
           "breaking": false
