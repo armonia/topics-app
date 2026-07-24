@@ -2,7 +2,7 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.0 — 2026-07-23
+## 2.2.0 — 2026-07-24
 
 ### Novità
 - **security** · auth-gate su /api,/ws,/preview — loopback-trusted + token + anti-CSRF
@@ -13,6 +13,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **ux** · toast d'errore sul fallimento-commit di archive/close (PendingAction)
 - **security** · scheme-guard su TUTTI i navigate del browser (LFI/SSRF)
 - **security** · gate anche /media/ (read remota-senza-token dei file ~/.topics/media)
+- **security** · gate il WS PRIMARIO /ws (+ /uploads) — era ungated (leak chat/ui-state su LAN)
+- **ux** · "Sposta nello Spazio" riabilita "Principale" + barra Spazi segue il floating
 
 ### Prestazioni
 - **client** · hljs highlight deferito in streaming + split chunk dnd-kit
@@ -24,6 +26,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **lint** · azzera i 17 warning eslint del client (0 warning, 0 errori)
 - **e2e** · allinea topic-management alle label IT del ContextMenu (2.2)
 - **e2e** · fix branch-nav — semina radici-sorella con parentId:null esplicito
+- **changelog** · rigenera 2.2 coi fix hardening (sicurezza /media + perf hljs/dnd-kit)
+- **e2e** · reload usa waitUntil:'load', non 'networkidle' (app chatty con WS/SSE)
+- **e2e** · command-palette usa goToApp + open() deterministico (era 7+ fail)
+- **e2e** · BOARD-01 asserisce il dropdown dispatch, non la pill rimossa
 
 ## 2.1.129 — 2026-07-23
 

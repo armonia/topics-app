@@ -1,7 +1,7 @@
 [
   {
     "version": "2.2.0",
-    "date": "2026-07-23",
+    "date": "2026-07-24",
     "sections": {
       "new": [
         {
@@ -29,6 +29,14 @@
         {
           "text": "gate /media/ too — blocks token-less remote reads of ~/.topics/media files",
           "scope": "security"
+        },
+        {
+          "text": "gate the PRIMARY /ws socket (+ /uploads) — was ungated (chat/ui-state leak on LAN)",
+          "scope": "security"
+        },
+        {
+          "text": "\"Move to Space\" re-enables \"Main\" + the Spaces bar follows the floating design",
+          "scope": "ux"
         }
       ],
       "perf": [
