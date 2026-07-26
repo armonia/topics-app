@@ -1500,5 +1500,6 @@
   "\"Sposta nello Spazio\" riabilita \"Principale\" + barra Spazi segue il floating": "\"Move to Space\" re-enables \"Main\" + the Spaces bar follows the floating design",
   "presenza finestre in sidebar + \"Stacca il gruppo in una nuova finestra\"": "open windows shown in the sidebar + \"Detach the group into a new window\"",
   "i gruppi di questa finestra in sidebar, con \"Stacca\" per gruppo": "this window's groups in the sidebar, each with its own \"Detach\"",
+  "il gruppo E' la finestra — sezione \"Finestre\" unica in sidebar": "a group IS a window — one unified \"Windows\" section in the sidebar",
   "raggruppa da sidebar — ripristina il drag + apri/registra il topic droppato": "group from the sidebar — restore the drag + open/register the dropped topic"
 }

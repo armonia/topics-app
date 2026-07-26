@@ -8,6 +8,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **security** · auth-gate su /api,/ws,/preview — loopback-trusted + token + anti-CSRF
 - **ux** · presenza finestre in sidebar + "Stacca il gruppo in una nuova finestra"
 - **ux** · i gruppi di questa finestra in sidebar, con "Stacca" per gruppo
+- **ux** · il gruppo E' la finestra — sezione "Finestre" unica in sidebar
 
 ### Correzioni
 - perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri
@@ -38,6 +39,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · SPACE-04 verifica il ritorno a "Principale" abilitato (fix #3)
 - **e2e** · SIDEBAR-WINDOWS verifica il render della sezione presenza finestre (#4a)
 - **ux** · elimina il double-fire di topics:open-topic + dedup finestre-staccate
+- **changelog** · rigenera con i gruppi in sidebar (IT + EN)
 
 ## 2.1.129 — 2026-07-23
 

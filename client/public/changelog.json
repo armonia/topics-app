@@ -21,6 +21,12 @@
           "en": "this window's groups in the sidebar, each with its own \"Detach\"",
           "scope": "ux",
           "breaking": false
+        },
+        {
+          "it": "il gruppo E' la finestra — sezione \"Finestre\" unica in sidebar",
+          "en": "a group IS a window — one unified \"Windows\" section in the sidebar",
+          "scope": "ux",
+          "breaking": false
         }
       ],
       "fixes": [
@@ -168,6 +174,12 @@
           "it": "elimina il double-fire di topics:open-topic + dedup finestre-staccate",
           "en": "",
           "scope": "ux",
+          "breaking": false
+        },
+        {
+          "it": "rigenera con i gruppi in sidebar (IT + EN)",
+          "en": "",
+          "scope": "changelog",
           "breaking": false
         }
       ]
