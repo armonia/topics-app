@@ -200,20 +200,28 @@ test.describe("Kanban board", () => {
     await expect(reviewCol.getByText(text)).not.toBeVisible();
   });
 
-  test("BOARD-06: dispatch pill IS the global start toggle (click flips on/off)", async ({ page }) => {
+  test("BOARD-06: auto-dispatch is a GLOBAL toggle (flips on/off and round-trips)", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-07" });
     await page.goto("/");
     await openProjectBoard(page);
 
-    // The pill is the GLOBAL switch: clicking it toggles auto-dispatch for
-    // every board (controlled state — assert after the PATCH round-trip).
-    const pill = page.getByTestId("board-dispatch-pill");
-    await expect(pill).toContainText("agent: off");
-    await pill.click();
-    await expect(pill).toContainText("agent: on");
+    // The "agent: off" pill this test used to click was removed in refactor
+    // 75712097 (it duplicated the dropdown) — same stale-selector fix BOARD-01
+    // already got. The BEHAVIOUR under test is unchanged: one GLOBAL switch for
+    // every board, whose state survives the PATCH round-trip.
+    const dispatchMenu = page.getByTitle(/Impostazioni dispatch/);
+    await expect(dispatchMenu).toBeVisible({ timeout: 10000 });
+    await dispatchMenu.click();
+    const autoDispatch = page.locator("label", { hasText: "Auto-dispatch" }).getByRole("checkbox");
+    await expect(autoDispatch).toBeVisible({ timeout: 5000 });
+    await expect(autoDispatch, "the test env starts manual").not.toBeChecked();
+
+    await autoDispatch.click();
+    await expect(autoDispatch, "the flip is controlled state, not optimistic UI").toBeChecked({ timeout: 5000 });
+
     // Restore: the whole test env must stay manual for the other tests.
-    await pill.click();
-    await expect(pill).toContainText("agent: off");
+    await autoDispatch.click();
+    await expect(autoDispatch).not.toBeChecked({ timeout: 5000 });
   });
 
   test("BOARD-08: a question comment renders formatted in the drawer (no raw fences)", async ({ page }) => {
