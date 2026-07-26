@@ -216,7 +216,7 @@ test.describe("Project Tabs", () => {
       await expect(menu).toBeVisible({ timeout: 5000 });
       const closeBtn = menu
         .locator("button")
-        .filter({ hasText: /^Close/ })
+        .filter({ hasText: /^Chiudi/ })
         .first();
       await closeBtn.click();
 
@@ -362,7 +362,7 @@ test.describe("Project Tabs", () => {
       await expect(menu).toBeVisible({ timeout: 5000 });
       const splitBtn = menu
         .locator("button")
-        .filter({ hasText: /Split Right/ })
+        .filter({ hasText: /Dividi a destra/ })
         .first();
 
       if ((await splitBtn.count()) > 0) {

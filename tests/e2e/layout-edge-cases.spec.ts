@@ -203,7 +203,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     await waitForTabs(page, 3);
 
     // Split first topic right (creates solo column)
-    await rightClickTabAndSelect(page, 0, "Split Right");
+    await rightClickTabAndSelect(page, 0, "Dividi a destra");
     await expect.poll(() => countColDividers(page), { timeout: 5000 }).toBeGreaterThanOrEqual(1);
 
     // Now split another topic down — find a remaining tab in standalone
@@ -213,7 +213,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     const menu = page.locator('[role="menu"]');
     await expect(menu).toBeVisible({ timeout: 3000 });
 
-    const splitDown = menu.getByText("Split Down", { exact: true });
+    const splitDown = menu.getByText("Dividi in basso", { exact: true });
     if (await splitDown.isVisible().catch(() => false)) {
       await splitDown.click();
       await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBeGreaterThanOrEqual(1);
@@ -263,7 +263,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     // Split a 5th topic right via context menu on standalone's tab.
     // The artificial 4-pane cap was removed (`2582ce0e`: MAX_COLS_PER_ROW is
     // now a 32-col runaway backstop, not a UX limit) — the split SUCCEEDS.
-    await rightClickTabAndSelect(page, 0, "Split Right");
+    await rightClickTabAndSelect(page, 0, "Dividi a destra");
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(5);
     // No pane lost in the move.
     expect((await getVisibleTabLabels(page)).length).toBe(5);
@@ -312,7 +312,7 @@ test.describe("B: Asymmetric Grid Layouts", () => {
     // are 32-slot runaway backstops now) — and Split Down stacks the new
     // cell UNDER the source cell's column (cellStacks), it doesn't add a
     // top-level row. The split SUCCEEDS: one more tab bar, no pane lost.
-    await rightClickTabAndSelect(page, 0, "Split Down");
+    await rightClickTabAndSelect(page, 0, "Dividi in basso");
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(5);
     expect((await getVisibleTabLabels(page)).length).toBe(5);
   });
@@ -443,7 +443,7 @@ test.describe("D: Split Type Guards", () => {
     expect(barsBefore).toBe(1);
 
     // Right-click the TERMINAL tab (index 1) and click Split Right
-    await rightClickTabAndSelect(page, 1, "Split Right");
+    await rightClickTabAndSelect(page, 1, "Dividi a destra");
 
     // The terminal lands in its own cell beside the pool
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(2);
@@ -465,7 +465,7 @@ test.describe("D: Split Type Guards", () => {
 
     // Split the utility tab (index 1) — utility panes are splittable now
     // (splitRules.ts: pool surface, no per-type carve-outs).
-    await rightClickTabAndSelect(page, 1, "Split Right");
+    await rightClickTabAndSelect(page, 1, "Dividi a destra");
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(2);
     // Both panes still present.
     expect(await countTabs(page)).toBe(2);
@@ -477,8 +477,8 @@ test.describe("D: Split Type Guards", () => {
     await seedAndLoad(page, [idA, idB]);
     await waitForTabs(page, 2);
 
-    const hasSplitRight = await rightClickTabHasOption(page, 0, "Split Right");
-    const hasSplitDown = await rightClickTabHasOption(page, 0, "Split Down");
+    const hasSplitRight = await rightClickTabHasOption(page, 0, "Dividi a destra");
+    const hasSplitDown = await rightClickTabHasOption(page, 0, "Dividi in basso");
 
     expect(hasSplitRight, "Topic tab should have Split Right").toBe(true);
     expect(hasSplitDown, "Topic tab should have Split Down").toBe(true);
@@ -700,7 +700,7 @@ test.describe("G: Persistence Edge Cases", () => {
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(1);
 
     // 3. Re-split via context menu — standalone still has A and C
-    await rightClickTabAndSelect(page, 0, "Split Right");
+    await rightClickTabAndSelect(page, 0, "Dividi a destra");
     // A should be solo now, C stays in standalone -> 2 tab bars
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBeGreaterThanOrEqual(2);
 
@@ -750,7 +750,7 @@ test.describe("H: Mixed Pane Types in Split", () => {
     // First: verify topic tab has split option
     await seedAndLoad(page, [idA]);
     await waitForTabs(page, 1);
-    const topicHasSplit = await rightClickTabHasOption(page, 0, "Split Right");
+    const topicHasSplit = await rightClickTabHasOption(page, 0, "Dividi a destra");
     expect(topicHasSplit, "Topic tab should have Split Right").toBe(true);
 
     // Second: splitting the ONLY pane of the pool (a lone terminal) is the
@@ -762,7 +762,7 @@ test.describe("H: Mixed Pane Types in Split", () => {
     await seedAndLoad(page, [termPaneId]);
     await waitForTabs(page, 1);
 
-    await rightClickTabAndSelect(page, 0, "Split Right");
+    await rightClickTabAndSelect(page, 0, "Dividi a destra");
     await page.waitForTimeout(1000);
     expect(await countTabBars(page)).toBe(1);
     expect(await countTabs(page)).toBe(1);
@@ -781,7 +781,7 @@ test.describe("H: Mixed Pane Types in Split", () => {
     await waitForTabs(page, 3);
 
     // Split first topic
-    await rightClickTabAndSelect(page, 0, "Split Right");
+    await rightClickTabAndSelect(page, 0, "Dividi a destra");
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBeGreaterThanOrEqual(2);
 
     // Terminal should still be visible in the main area. Assert by the pane's
@@ -806,7 +806,7 @@ test.describe("I: Full Lifecycle Regression", () => {
     await waitForTabs(page, 5);
 
     // Split first topic right
-    await rightClickTabAndSelect(page, 0, "Split Right");
+    await rightClickTabAndSelect(page, 0, "Dividi a destra");
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBeGreaterThanOrEqual(2);
 
     // Try to split another topic down
@@ -815,7 +815,7 @@ test.describe("I: Full Lifecycle Regression", () => {
       await tabs.nth(0).click({ button: "right" });
       const menu = page.locator('[role="menu"]');
       if (await menu.isVisible().catch(() => false)) {
-        const splitDown = menu.getByText("Split Down", { exact: true });
+        const splitDown = menu.getByText("Dividi in basso", { exact: true });
         if (await splitDown.isVisible().catch(() => false)) {
           await splitDown.click();
         } else {
@@ -837,16 +837,16 @@ test.describe("I: Full Lifecycle Regression", () => {
       }
     }
 
-    // Close tabs until only 1 per group remains using Close Others
+    // Close tabs until only 1 per group remains using "Chiudi le altre"
     const firstTab = page.locator('[role="main"] [draggable="true"]').first();
     if (await firstTab.isVisible().catch(() => false)) {
       await firstTab.click({ button: "right" });
       const menu = page.locator('[role="menu"]');
       if (await menu.isVisible().catch(() => false)) {
-        const closeOthers = menu.getByText("Close Others", { exact: true });
+        const closeOthers = menu.getByText("Chiudi le altre", { exact: true });
         if (await closeOthers.isVisible().catch(() => false)) {
           await closeOthers.click();
-          // Close Others drains the FOCUSED GROUP to one tab; a split cell
+          // "Chiudi le altre" drains the FOCUSED GROUP to one tab; a split cell
           // that survived above keeps its own tab — allow for it. 10s: the
           // batch close may ride the soft-close countdown.
           await expect.poll(() => countTabs(page), { timeout: 10000 }).toBeLessThanOrEqual(2);
@@ -940,7 +940,7 @@ test.describe("J: Reimposta pannelli (flatten)", () => {
     const hasReset = await rightClickTabHasOption(page, 0, "Reimposta pannelli");
     expect(hasReset, "flat layout must not offer Reimposta pannelli").toBe(false);
     // Sanity: the menu did open and carries the usual entries.
-    const hasSplitRight = await rightClickTabHasOption(page, 0, "Split Right");
+    const hasSplitRight = await rightClickTabHasOption(page, 0, "Dividi a destra");
     expect(hasSplitRight).toBe(true);
   });
 

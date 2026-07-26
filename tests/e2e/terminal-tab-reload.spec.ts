@@ -137,7 +137,7 @@ test.describe.serial("Terminal tab reload", () => {
       await chatTab.waitFor({ state: "visible", timeout: 10_000 });
       await chatTab.click({ button: "right" });
       // The menu opens (a known item is present) but the reload item is NOT.
-      await expect(page.getByText("Close now")).toBeVisible();
+      await expect(page.getByText("Chiudi ora")).toBeVisible();
       await expect(page.getByTitle(/^Riavvia la sessione/)).toHaveCount(0);
     } finally {
       await deleteTopic(request, chat.id);

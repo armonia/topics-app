@@ -202,7 +202,7 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
         const cls = await measureCLS(page, async () => {
           await tab.click({ button: 'right' });
           await page.waitForTimeout(200);
-          const splitOption = page.getByText('Split Right', { exact: true });
+          const splitOption = page.getByText('Dividi a destra', { exact: true });
           if (await splitOption.count() > 0) {
             await splitOption.click();
             await page.waitForTimeout(500);

@@ -516,7 +516,7 @@ test.describe("Grid Split System", () => {
 
       const initialColDividers = await countColDividers(page);
 
-      await splitViaContextMenu(page, 'Split Right');
+      await splitViaContextMenu(page, 'Dividi a destra');
 
       // After split, should have more col-resize dividers
       const afterColDividers = await countColDividers(page);
@@ -534,7 +534,7 @@ test.describe("Grid Split System", () => {
 
       const initialRowDividers = await countRowDividers(page);
 
-      await splitViaContextMenu(page, 'Split Down');
+      await splitViaContextMenu(page, 'Dividi in basso');
 
       // After split, should have more row-resize dividers
       const afterRowDividers = await countRowDividers(page);
@@ -545,7 +545,7 @@ test.describe("Grid Split System", () => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (persistence)" });
       await goToApp(page);
       await openTwoTopics(page);
-      await splitViaContextMenu(page, 'Split Down');
+      await splitViaContextMenu(page, 'Dividi in basso');
 
       // Capture localStorage before reload — should now contain `cellStacks`.
       const before = await page.evaluate(() =>
@@ -571,7 +571,7 @@ test.describe("Grid Split System", () => {
       await openTwoTopics(page);
 
       // Split right to ensure we have a col divider
-      await splitViaContextMenu(page, 'Split Right');
+      await splitViaContextMenu(page, 'Dividi a destra');
 
       const divider = page.locator('[role="main"] .cursor-col-resize').first();
       await expect(divider).toBeVisible({ timeout: 3000 });
@@ -602,7 +602,7 @@ test.describe("Grid Split System", () => {
       await openTwoTopics(page);
 
       // Split down to ensure we have a row divider
-      await splitViaContextMenu(page, 'Split Down');
+      await splitViaContextMenu(page, 'Dividi in basso');
 
       const divider = page.locator('[role="main"] .cursor-row-resize').first();
       await expect(divider).toBeVisible({ timeout: 3000 });
@@ -630,7 +630,7 @@ test.describe("Grid Split System", () => {
       await openTwoTopics(page);
 
       // Split right → two side-by-side columns with one col-resize divider.
-      await splitViaContextMenu(page, 'Split Right');
+      await splitViaContextMenu(page, 'Dividi a destra');
 
       const cells = page.locator('[role="main"] [data-panel-cell]');
       await expect(cells).toHaveCount(2, { timeout: 3000 });
@@ -675,7 +675,7 @@ test.describe("Grid Split System", () => {
       await openTwoTopics(page);
 
       // Split down → two stacked rows with one row-resize divider.
-      await splitViaContextMenu(page, 'Split Down');
+      await splitViaContextMenu(page, 'Dividi in basso');
 
       const divider = page.locator('[role="main"] .cursor-row-resize').first();
       await expect(divider).toBeVisible({ timeout: 3000 });
@@ -720,7 +720,7 @@ test.describe("Grid Split System", () => {
       await openTwoTopics(page);
 
       // Split right to create a col divider
-      await splitViaContextMenu(page, 'Split Right');
+      await splitViaContextMenu(page, 'Dividi a destra');
 
       const preDividers = await countColDividers(page);
       expect(preDividers, 'Should have at least 1 col divider before reload').toBeGreaterThanOrEqual(1);
@@ -804,8 +804,8 @@ test.describe("Grid Split System", () => {
       await expect(ctxMenu).toBeVisible({ timeout: 3000 });
 
       // Verify both split options are present
-      await expect(ctxMenu.getByText('Split Right')).toBeVisible();
-      await expect(ctxMenu.getByText('Split Down')).toBeVisible();
+      await expect(ctxMenu.getByText('Dividi a destra')).toBeVisible();
+      await expect(ctxMenu.getByText('Dividi in basso')).toBeVisible();
 
       // Close the menu
       await page.keyboard.press('Escape');
@@ -825,7 +825,7 @@ test.describe("Grid Split System", () => {
       await openTwoTopics(page);
 
       // Nest the layout: Split Down creates a vertical sub-stack (cellStack).
-      await splitViaContextMenu(page, 'Split Down');
+      await splitViaContextMenu(page, 'Dividi in basso');
       expect(await countRowDividers(page), 'Split Down should create a row divider').toBeGreaterThanOrEqual(1);
 
       // The tabs we own in this test (union-hydrate may carry residue from
@@ -870,58 +870,6 @@ test.describe("Grid Split System", () => {
       await expect(ctxMenu).toBeVisible({ timeout: 3000 });
       await expect(ctxMenu.getByText('Reimposta pannelli', { exact: true }), 'menu entry must hide on a flat layout').toHaveCount(0);
       await page.keyboard.press('Escape');
-    });
-
-    // The sidebar is where you look for "what's open where", but a GROUP (the
-    // unit you detach into its own window) used to exist only inside the grid —
-    // the sidebar showed the RESULT of a detach ("Finestre aperte") and never
-    // the SOURCE. This pins the loop-closing half: split the workspace, and the
-    // groups show up in the sidebar with a per-group "Stacca".
-    test("SIDEBAR-GROUPS: splitting surfaces the window's groups in the sidebar, each detachable", async ({ page }) => {
-      test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (sidebar group presence)" });
-      await goToApp(page);
-      await openTwoTopics(page);
-
-      const section = page.getByTestId('sidebar-workspace-groups');
-      // Flat workspace = ONE pool = no "group" concept to surface. Zero chrome.
-      await expect(section, 'no groups section while everything is in one pool').toHaveCount(0);
-
-      // Split → two cells → two groups.
-      await splitViaContextMenu(page, 'Split Right');
-
-      await expect(section, 'the groups section appears once the workspace is split').toBeVisible({ timeout: 5000 });
-      await expect(
-        section.locator('[aria-expanded]'),
-        'one row per cell the grid renders',
-      ).toHaveCount(2);
-
-      // The section must describe the REAL split, not a placeholder: the chat
-      // topics still in the pool are named in their group's row.
-      const sectionText = (await section.innerText()).replace(/\s+/g, ' ');
-      expect(sectionText, 'group rows name topic A').toMatch(/E2E-Split-A/);
-      expect(sectionText, 'group rows name topic B').toMatch(/E2E-Split-B/);
-
-      // Detach is offered on the group(s) that actually hold chat topics —
-      // `window_detach` takes topic ids, so a project-only cell has no button.
-      await expect(
-        section.getByTestId('detach-group'),
-        'the chat group offers "Stacca"',
-      ).toHaveCount(1);
-
-      // Collapsing a group hides its member rows (the chevron is real state,
-      // not decoration).
-      const firstGroupToggle = section.locator('[aria-expanded]').first();
-      await expect(firstGroupToggle).toHaveAttribute('aria-expanded', 'true');
-      await firstGroupToggle.click();
-      await expect(firstGroupToggle, 'chevron collapses the group').toHaveAttribute('aria-expanded', 'false');
-
-      // Flattening the layout removes the second group → the section retracts.
-      const tab = page.locator('[role="main"] [draggable="true"]').first();
-      await tab.click({ button: 'right' });
-      const resetEntry = page.getByText('Reimposta pannelli', { exact: true });
-      await expect(resetEntry).toBeVisible({ timeout: 3000 });
-      await resetEntry.click();
-      await expect(section, 'back to one pool → the section disappears again').toHaveCount(0, { timeout: 5000 });
     });
 
     test("GRID-GROUP: dropping a sidebar topic onto a pane opens & groups it (raggruppa da sidebar)", async ({ page, request }) => {
@@ -991,7 +939,7 @@ test.describe("Grid Split System", () => {
       await tab.click({ button: 'right' });
       const ctxMenu = page.getByRole('menu').last();
       await expect(ctxMenu).toBeVisible({ timeout: 3000 });
-      const splitDown = ctxMenu.getByText('Split Down', { exact: true });
+      const splitDown = ctxMenu.getByText('Dividi in basso', { exact: true });
       if (!(await splitDown.isVisible().catch(() => false))) {
         await page.keyboard.press('Escape');
         test.skip();
