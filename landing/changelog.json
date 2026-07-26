@@ -15,6 +15,10 @@
         {
           "text": "this window's groups in the sidebar, each with its own \"Detach\"",
           "scope": "ux"
+        },
+        {
+          "text": "a group IS a window — one unified \"Windows\" section in the sidebar",
+          "scope": "ux"
         }
       ],
       "fixes": [
