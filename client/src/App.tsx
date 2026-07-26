@@ -60,6 +60,7 @@ import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middlewa
 import { usePaneStore } from './state/pane/store';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
+import { useExternalSessionsSync } from './state/externalSessions';
 import { useAgentActivityCounts } from './state/signals';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { RESTING_SURFACE, ROW_INSET } from './lib/selectionStyles';
@@ -425,6 +426,10 @@ function App() {
   // in its task's in-drawer group, never the global layout. App-level so it's
   // captured whichever drawer is open. See useTaskBrowserTabsSync.
   useTaskBrowserTabsSync(onWSMessage);
+
+  // External Claude sessions (bare terminal `claude` outside Topics) — feeds
+  // the sidebar's per-project "attività esterna" badge. Read-only overlay.
+  useExternalSessionsSync(onWSMessage);
 
   // Wire up chat stream handler to WebSocket (enables cross-window streaming)
   useEffect(() => {

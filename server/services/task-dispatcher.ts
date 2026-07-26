@@ -133,6 +133,16 @@ export interface DispatcherDeps {
    * are trusted as-is (the pre-existing behaviour).
    */
   topicExists?: (topicId: string) => boolean;
+  /**
+   * Live Claude activity on this repo path that Topics does NOT manage (a bare
+   * terminal session — see external-session-scanner.ts). When present and
+   * non-null, tick HOLDS the board's todos (chip 'queued' + one system note)
+   * instead of claiming: dispatching an agent onto a repo a human is already
+   * editing makes the two trample each other on main. The periodic reconcile
+   * re-ticks, so dispatch resumes by itself once the repo goes quiet. Absent
+   * (tests/degraded) ⇒ no guard, old behaviour.
+   */
+  externallyBusy?: (path: string) => { count: number; lastActivityAt: number } | null;
   /** Broadcast a WS message so live boards reflect chip/state changes. */
   broadcast: (message: object) => void;
   log?: (msg: string, err?: unknown) => void;
@@ -228,6 +238,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   // Pending debounced launches, keyed by taskId (the grace window).
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Tasks already told "il repo è occupato da una sessione esterna" during the
+  // CURRENT hold episode — cleared when the repo frees, so a later hold can
+  // note again without spamming one comment per 10s reconcile poll.
+  const externallyHeldNoted = new Set<string>();
   // In-flight launches, keyed by taskId — presence means "a turn is running or
   // being set up for this task"; keeps reconcile/tick from double-launching.
   const inFlight = new Map<string, { sessionKey: string }>();
@@ -836,6 +850,37 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         } catch { /* task may have moved */ }
       }
       return;
+    }
+
+    // "Repo occupato" guard: live Claude activity on this path that Topics does
+    // NOT manage (a bare terminal session) → HOLD instead of claim. The todos
+    // stay in todo with the 'queued' chip, so the periodic reconcile keeps
+    // re-ticking this board and dispatch resumes by itself once the external
+    // session goes quiet. One system note per hold episode, not per poll.
+    if (deps.externallyBusy && todos.length > 0) {
+      let busy: { count: number; lastActivityAt: number } | null = null;
+      try { busy = deps.externallyBusy(resolved.path); } catch { busy = null; }
+      if (busy) {
+        for (const t of todos) {
+          if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
+          if (!externallyHeldNoted.has(t.id)) {
+            externallyHeldNoted.add(t.id);
+            const n = busy.count;
+            try {
+              emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED }));
+              deps.svc.addComment({
+                taskId: t.id, author: "system",
+                content:
+                  `Dispatch in attesa: su questo repo ${n === 1 ? "c'è una sessione Claude esterna attiva" : `ci sono ${n} sessioni Claude esterne attive`} ` +
+                  "(aperta fuori da Topics). Il task parte da solo appena il repo torna libero.",
+              });
+            } catch { /* task may have moved */ }
+          }
+        }
+        return;
+      }
+      // Repo free again: forget the episode so a FUTURE hold notes again.
+      for (const t of todos) externallyHeldNoted.delete(t.id);
     }
 
     // Effective concurrency cap for this tick: ONE machine-wide budget counted

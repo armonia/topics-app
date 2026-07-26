@@ -996,3 +996,67 @@ describe("priority", () => {
     expect(auto.priorityAuto).toBe(true);
   });
 });
+
+describe("external-session guard", () => {
+  it("HOLDS a todo when the repo has a live external Claude session (chip queued + one note)", async () => {
+    let busy: { count: number; lastActivityAt: number } | null = { count: 2, lastActivityAt: Date.now() };
+    const h = harness({ externallyBusy: () => busy });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");                 // never claimed
+    expect(t.dispatchState).toBe("queued");        // visible hold, not a silent skip
+    expect(h.turns.length).toBe(0);
+    const notes = h.db.prepare("SELECT content FROM task_comments WHERE task_id = 't1'").all() as { content: string }[];
+    expect(notes.length).toBe(1);
+    expect(notes[0].content).toContain("2 sessioni Claude esterne");
+
+    // Second tick while STILL busy: no duplicate note (one per hold episode).
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect((h.db.prepare("SELECT COUNT(*) c FROM task_comments WHERE task_id = 't1'").get() as { c: number }).c).toBe(1);
+
+    // Repo frees → the next tick dispatches normally.
+    busy = null;
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(1);
+  });
+
+  it("notes AGAIN on a NEW hold episode after the repo freed in between", async () => {
+    let busy: { count: number; lastActivityAt: number } | null = { count: 1, lastActivityAt: Date.now() };
+    const h = harness({ externallyBusy: () => busy });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    // Global cap 1: on the free tick t1 is claimed, t2 stays in todo — the
+    // surviving todo is the one that can experience a SECOND hold episode.
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+    seedTask(h.db, { id: "t2", status: "todo" });
+
+    await h.dispatcher.tick(PID); await flush();   // hold #1 → both noted
+    busy = null;
+    await h.dispatcher.tick(PID); await flush();   // free: episodes cleared, t1 claimed (cap 1)
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.task("t2")!.status).toBe("todo");
+    // Different count → different wording, so the svc's 10s comment dedupe
+    // (same author+content) can't mask the second note.
+    busy = { count: 3, lastActivityAt: Date.now() };
+    await h.dispatcher.tick(PID); await flush();   // hold #2 → t2 noted a second time
+    const c = (h.db.prepare("SELECT COUNT(*) c FROM task_comments WHERE task_id = 't2'").get() as { c: number }).c;
+    expect(c).toBe(2);
+  });
+
+  it("no guard dep = old behaviour (dispatches even with sessions around)", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.status).toBe("in_progress");
+  });
+});

@@ -74,6 +74,8 @@ import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./server/services/app-settings";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
+import { createExternalSessionScanner } from "./server/lib/external-session-scanner";
+import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isLoopbackAddress, isAuthGatedPath } from "./server/lib/auth-gate";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
@@ -329,6 +331,31 @@ rebuildSummary();
 // openspec/changes/claude-session-tracker.
 const claudeSessionTracker = createClaudeSessionTracker({ db: ctx.db, broadcast: ctx.broadcastToAll, ptyIdleMs: getClaudeSessionPtyIdleMs });
 
+// External-session visibility — Claude Code sessions started OUTSIDE Topics
+// (bare terminal `claude` on any repo) surface via an mtime sweep of
+// ~/.claude/projects. Read-only overlay: /api/external-sessions + the
+// `external-sessions:state` WS frame, plus the dispatcher's "repo occupato"
+// guard. Sessions Topics owns are excluded by csid (DB rows + tracker), and
+// Topics-launched flows without a row (worktree agents, tmp scratchpads) by
+// cwd root.
+const externalSessionScanner = createExternalSessionScanner({
+  knownSessionIds: () => {
+    const ids = new Set<string>();
+    try {
+      const rows = ctx.db
+        .prepare("SELECT claude_session_id FROM claude_code_sessions WHERE claude_session_id IS NOT NULL")
+        .all() as { claude_session_id: string }[];
+      for (const r of rows) ids.add(r.claude_session_id);
+    } catch { /* table missing in exotic states → no exclusions from DB */ }
+    for (const s of claudeSessionTracker.listSessions()) {
+      if (s.claudeSessionId) ids.add(s.claudeSessionId);
+    }
+    return ids;
+  },
+  ignoredCwdRoots: [join(homedir(), ".topics", "worktrees"), "/tmp", "/private/tmp", "/private/var"],
+  broadcast: ctx.broadcastToAll,
+});
+
 // Shared-session WebRTC transport broker (spawns the Rust sidecar lazily on first
 // offer; no-op when its binary is missing → clients fall back to the JPEG stream).
 const webrtcBridge = createWebrtcBridge();
@@ -472,6 +499,11 @@ let previewManager: PreviewManager | undefined;
 
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
+  // "Repo occupato" guard: a live Claude session started OUTSIDE Topics on the
+  // resolved project path holds dispatch (chip 'queued' + one system note);
+  // the 10s reconcile poll retries, so the board resumes by itself once the
+  // external session goes quiet.
+  externallyBusy: (path) => externalSessionScanner.busyInfo(path),
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
   // the dead link so the task runs again.
@@ -804,6 +836,8 @@ claudeSessionTracker.recoverFromJsonl().catch((err) => {
 });
 claudeSessionTracker.startReaper();
 claudeSessionTracker.startJsonlTail();
+externalSessionScanner.start();
+const externalSessionsRouter = createExternalSessionsRouter(externalSessionScanner);
 const projectsRouter = createProjectsRouter(ctx);
 const worktreesRouter = createWorktreesRouter(ctx);
 const machinesRouter = createMachinesRouter(ctx);
@@ -1385,6 +1419,7 @@ const server = Bun.serve<WSData>({
         || await providersRouter(req, url, pathname, method)
         || await appSettingsRouter(req, url, pathname, method)
         || await claudeHooksRouter(req, url, pathname, method)
+        || await externalSessionsRouter(req, url, pathname, method)
 ;
 
       if (response) {

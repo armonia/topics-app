@@ -20,6 +20,7 @@ import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpin
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
 import { useAttentionSignals, signalsActions, useTerminalAttentionTier, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
+import { useExternalSessionsStore, externalSessionsForProject } from '@/state/externalSessions';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
@@ -194,6 +195,10 @@ export function TopicTree({
   // colour of its loudest child.
   const inputTopics = useSignalsStore((s) => s.awaitingInputTopics);
   const inputTermIds = useSignalsStore((s) => s.claudePhaseAwaitingInputTermIds);
+  // Claude sessions running OUTSIDE Topics (bare terminal `claude`) — the
+  // per-project "attività esterna" badge is read-only awareness, deliberately
+  // separate from the attention tier (it demands nothing from the user).
+  const externalSessions = useExternalSessionsStore((s) => s.sessions);
 
   const toggleProject = useCallback((projectId: string) => {
     onToggleProject(prev => {
@@ -543,6 +548,10 @@ export function TopicTree({
     // blue-on-blue, the exact illegibility this redesign removes.
     const projTier = projectAttentionTier(pp, topics, terminalSessions, awaitingTopics, awaitingTermIds, inputTopics, inputTermIds);
     const projOnFill = !isProjectFocused && projTier !== null;
+    // Claude sessions alive on this repo but NOT managed by Topics — surfaced
+    // as a quiet count so an "idle-looking" project with three bare-terminal
+    // sessions reads as the busiest one, not the stillest.
+    const extSessions = externalSessionsForProject(externalSessions, pp);
 
     return (
       <div key={item.id}>
@@ -613,6 +622,22 @@ export function TopicTree({
                 window has nothing to orient against. Lives on the sidebar row
                 only (user preference), never on the top tab bar. */}
             <ProjectSplitMiniMap projectPath={pp} onFill={projOnFill} />
+            {/* External-session count — Claude running on this repo OUTSIDE
+                Topics (bare terminal). Awareness only: muted, non-clickable,
+                never an attention fill (nothing here is waiting on the user). */}
+            {extSessions.length > 0 && (
+              <span
+                className={`flex items-center gap-0.5 flex-shrink-0 ml-1 ${projOnFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`}
+                title={`${extSessions.length === 1 ? 'Una sessione Claude attiva' : `${extSessions.length} sessioni Claude attive`} fuori da Topics:\n${extSessions
+                  .map((s) => `· ${s.title ?? s.claudeSessionId.slice(0, 8)} — ${Math.max(0, Math.round((Date.now() - s.lastActivityAt) / 60000))} min fa`)
+                  .join('\n')}`}
+                aria-label={`${extSessions.length} sessioni Claude esterne attive`}
+                data-testid={`external-sessions-badge-${item.name}`}
+              >
+                <Activity size={11} />
+                <span className="text-[10px] font-medium tabular-nums">{extSessions.length}</span>
+              </span>
+            )}
             {/* Pin glyph — trailing rail, before the loader/badge (same fixed
                 Pin → … → NotificationBadge order as the chat rows). Inherits
                 the on-fill treatment on attention fills, never a hardcoded
