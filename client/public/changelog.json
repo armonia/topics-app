@@ -1,7 +1,7 @@
 [
   {
     "version": "2.2.0",
-    "date": "2026-07-24",
+    "date": "2026-07-26",
     "sections": {
       "new": [
         {
@@ -13,6 +13,12 @@
         {
           "it": "presenza finestre in sidebar + \"Stacca il gruppo in una nuova finestra\"",
           "en": "open windows shown in the sidebar + \"Detach the group into a new window\"",
+          "scope": "ux",
+          "breaking": false
+        },
+        {
+          "it": "i gruppi di questa finestra in sidebar, con \"Stacca\" per gruppo",
+          "en": "this window's groups in the sidebar, each with its own \"Detach\"",
           "scope": "ux",
           "breaking": false
         }
@@ -138,6 +144,30 @@
           "it": "rigenera 2.2 col fix sicurezza /ws + fix UX sposta-spazio/barra-Spazi",
           "en": "",
           "scope": "changelog",
+          "breaking": false
+        },
+        {
+          "it": "rigenera con i fix UI (raggruppa da sidebar, presenza finestre + stacca gruppo)",
+          "en": "",
+          "scope": "changelog",
+          "breaking": false
+        },
+        {
+          "it": "SPACE-04 verifica il ritorno a \"Principale\" abilitato (fix #3)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "SIDEBAR-WINDOWS verifica il render della sezione presenza finestre (#4a)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "elimina il double-fire di topics:open-topic + dedup finestre-staccate",
+          "en": "",
+          "scope": "ux",
           "breaking": false
         }
       ]

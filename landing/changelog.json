@@ -1,7 +1,7 @@
 [
   {
     "version": "2.2.0",
-    "date": "2026-07-24",
+    "date": "2026-07-26",
     "sections": {
       "new": [
         {
@@ -10,6 +10,10 @@
         },
         {
           "text": "open windows shown in the sidebar + \"Detach the group into a new window\"",
+          "scope": "ux"
+        },
+        {
+          "text": "this window's groups in the sidebar, each with its own \"Detach\"",
           "scope": "ux"
         }
       ],
