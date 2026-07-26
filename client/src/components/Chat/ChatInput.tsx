@@ -11,6 +11,7 @@ import { useContextFileTokens } from './useContextFileTokens';
 import { basename } from '../../lib/path-utils';
 import { topicsApi, uploadApi, slashCommandsApi, type CustomSlashCommand } from '../../lib/api';
 import { MentionAutocomplete } from './MentionAutocomplete';
+import { SessionConfigPopover } from './SessionConfigPopover';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { ContextRing } from '../Shared/ContextRing';
 import { useContextInspector } from '../../hooks/useContextInspector';
@@ -1059,6 +1060,17 @@ export function ChatInput({
                     onOpenSettings={onOpenSettings}
                   />
                 )}
+                {/* The knobs you change MID conversation, in their own surface:
+                    effort used to be buried under a "Provider & model" trigger,
+                    and autonomy (the permission mode) was reachable only from
+                    the settings modal behind a tab right-click. */}
+                <SessionConfigPopover
+                  topic={topic}
+                  effort={effort ?? null}
+                  onEffortChange={onEffortChange}
+                  effortSupported={!!onEffortChange}
+                  onUpdateTopic={onUpdateTopic}
+                />
               </div>
 
               {/* Right: voice + send. flex-shrink-0: Send/Stop must never be

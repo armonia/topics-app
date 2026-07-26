@@ -941,4 +941,46 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
       await deleteTopic(request, topic.id);
     }
   });
+
+  // The knobs you change MID conversation now have their own surface in the
+  // composer. Before, effort sat inside the provider/model popover (behind a
+  // trigger labelled "Provider & model", under a provider search field) and
+  // AUTONOMIA — the permission mode — was reachable only from the topic
+  // settings modal, itself only reachable from a tab right-click.
+  test("CHAT-CONFIG: composer exposes effort + autonomy inline, and they persist", async ({ page, request }) => {
+    const topic = await createTopic(request, `E2E-Config-${Date.now()}`);
+    try {
+      await goToApp(page);
+      await openTopic(page, new RegExp(topic.name));
+
+      const trigger = page.getByTestId("chat-session-config");
+      await expect(trigger, "the composer offers a config control").toBeVisible({ timeout: 10_000 });
+      await trigger.click();
+
+      const panel = page.getByTestId("chat-session-config-panel");
+      await expect(panel).toBeVisible({ timeout: 5_000 });
+
+      // AUTONOMIA is the one that used to be modal-only — set it from here and
+      // assert it round-trips to the server, not just to the DOM.
+      await panel.getByTestId("session-autonomy-yolo").click();
+      await expect
+        .poll(async () => {
+          const res = await request.get("http://localhost:13334/api/topics");
+          const body = await res.json();
+          return body?.topics?.[topic.id]?.autonomyLevel;
+        }, { message: "autonomy set from the composer is persisted", timeout: 5_000 })
+        .toBe("yolo");
+
+      // …and it survives a reload, reopened from the same control.
+      await page.reload({ waitUntil: "load" });
+      await openTopic(page, new RegExp(topic.name));
+      await page.getByTestId("chat-session-config").click();
+      await expect(
+        page.getByTestId("session-autonomy-yolo"),
+        "the persisted level is the selected one after reload",
+      ).toHaveClass(/bg-primary/, { timeout: 5_000 });
+    } finally {
+      await deleteTopic(request, topic.id);
+    }
+  });
 });
