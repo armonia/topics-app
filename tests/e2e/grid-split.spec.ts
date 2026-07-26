@@ -872,6 +872,58 @@ test.describe("Grid Split System", () => {
       await page.keyboard.press('Escape');
     });
 
+    // The sidebar is where you look for "what's open where", but a GROUP (the
+    // unit you detach into its own window) used to exist only inside the grid —
+    // the sidebar showed the RESULT of a detach ("Finestre aperte") and never
+    // the SOURCE. This pins the loop-closing half: split the workspace, and the
+    // groups show up in the sidebar with a per-group "Stacca".
+    test("SIDEBAR-GROUPS: splitting surfaces the window's groups in the sidebar, each detachable", async ({ page }) => {
+      test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (sidebar group presence)" });
+      await goToApp(page);
+      await openTwoTopics(page);
+
+      const section = page.getByTestId('sidebar-workspace-groups');
+      // Flat workspace = ONE pool = no "group" concept to surface. Zero chrome.
+      await expect(section, 'no groups section while everything is in one pool').toHaveCount(0);
+
+      // Split → two cells → two groups.
+      await splitViaContextMenu(page, 'Split Right');
+
+      await expect(section, 'the groups section appears once the workspace is split').toBeVisible({ timeout: 5000 });
+      await expect(
+        section.locator('[aria-expanded]'),
+        'one row per cell the grid renders',
+      ).toHaveCount(2);
+
+      // The section must describe the REAL split, not a placeholder: the chat
+      // topics still in the pool are named in their group's row.
+      const sectionText = (await section.innerText()).replace(/\s+/g, ' ');
+      expect(sectionText, 'group rows name topic A').toMatch(/E2E-Split-A/);
+      expect(sectionText, 'group rows name topic B').toMatch(/E2E-Split-B/);
+
+      // Detach is offered on the group(s) that actually hold chat topics —
+      // `window_detach` takes topic ids, so a project-only cell has no button.
+      await expect(
+        section.getByTestId('detach-group'),
+        'the chat group offers "Stacca"',
+      ).toHaveCount(1);
+
+      // Collapsing a group hides its member rows (the chevron is real state,
+      // not decoration).
+      const firstGroupToggle = section.locator('[aria-expanded]').first();
+      await expect(firstGroupToggle).toHaveAttribute('aria-expanded', 'true');
+      await firstGroupToggle.click();
+      await expect(firstGroupToggle, 'chevron collapses the group').toHaveAttribute('aria-expanded', 'false');
+
+      // Flattening the layout removes the second group → the section retracts.
+      const tab = page.locator('[role="main"] [draggable="true"]').first();
+      await tab.click({ button: 'right' });
+      const resetEntry = page.getByText('Reimposta pannelli', { exact: true });
+      await expect(resetEntry).toBeVisible({ timeout: 3000 });
+      await resetEntry.click();
+      await expect(section, 'back to one pool → the section disappears again').toHaveCount(0, { timeout: 5000 });
+    });
+
     test("GRID-GROUP: dropping a sidebar topic onto a pane opens & groups it (raggruppa da sidebar)", async ({ page, request }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01 (sidebar-drop group)" });
       const idA = splitTopicIds[0];
