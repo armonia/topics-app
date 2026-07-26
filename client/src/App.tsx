@@ -50,6 +50,7 @@ import { useClosedTabs, createPaneId } from './state/pane/adapters';
 
 import { TopicTree } from './components/Sidebar/TopicTree';
 import { DetachedWindowsSection } from './components/Sidebar/DetachedWindowsSection';
+import { WorkspaceGroupsSection } from './components/Sidebar/WorkspaceGroupsSection';
 import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
@@ -64,7 +65,7 @@ import { useAgentActivityCounts } from './state/signals';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { RESTING_SURFACE, ROW_INSET } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
-import { popOutTopic } from './lib/popOutTopic';
+import { popOutTopic, popOutTopics } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar } from './components/Sidebar/SidebarStatusBar';
@@ -605,6 +606,19 @@ function App() {
     handleClosePanel(topicId);
   }, [handleClosePanel]);
 
+  // Detach a whole group from the SIDEBAR. Same contract as the tab-bar's
+  // "Stacca il gruppo": close the source panes ONLY when a window actually
+  // opened (popOutTopics returns false when it merely focused an existing
+  // window, or when the shell blocked it — closing then would destroy the tabs
+  // with nowhere to go).
+  const handleDetachGroupFromSidebar = useCallback((topicIds: string[]) => {
+    const ids = topicIds.filter(Boolean);
+    if (ids.length === 0) return;
+    void popOutTopics(ids).then((opened) => {
+      if (opened) for (const id of ids) handleClosePanelImmediate(id);
+    });
+  }, [handleClosePanelImmediate]);
+
   const handleClosePanelDeferred = useCallback((topicId: string, onCommit?: () => void) => {
     const topic = topics[topicId];
     const label = topic?.name || topicId.replace(/^[a-z]+:/, '') || 'Tab';
@@ -984,6 +998,11 @@ function App() {
 
         <div ref={sidebarContentRef} className="flex-1 flex flex-col min-h-0" data-testid="sidebar-topic-list">
           <DetachedWindowsSection topics={topics} onReopenTopic={(id) => handleTopicClick(id)} />
+          <WorkspaceGroupsSection
+            topics={topics}
+            onTopicClick={(id) => handleTopicClick(id)}
+            onDetachGroup={handleDetachGroupFromSidebar}
+          />
           <ErrorBoundary fallbackMessage="Sidebar error">
           {topicsLoading && Object.keys(topics).length === 0 ? (
             <div className="overflow-y-auto sidebar-scroll"><SkeletonTopicList count={5} /></div>
