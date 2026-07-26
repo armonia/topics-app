@@ -30,7 +30,7 @@ import { getTerminalSessionFromPaneId } from '../../state/pane/adapters';
 import { useSignalsStore, projectAttentionTier } from '../../state/signals';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { SELECTED_SURFACE, RESTING_SURFACE, ROW_INSET } from '../../lib/selectionStyles';
-import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_ITEM, POPOVER_MARGIN, POPOVER_ITEM_DANGER, POPOVER_DIVIDER, Z_POPOVER } from '../../lib/popoverStyles';
 import { clearPanelGridStorage } from './usePanelGridPersistence';
 import {
   DEFAULT_SPACE_LABEL,
@@ -90,6 +90,10 @@ function spaceAttentionTier(
   }
   return hasDone ? 'done' : null;
 }
+
+/** This menu's own min-width — lets the horizontal clamp work without a
+ *  measure-then-place pass (keep in lockstep with the min-w-[170px] below). */
+const MENU_MIN_W = 170;
 
 interface ChipMenuState {
   spaceId: string;
@@ -211,8 +215,21 @@ export function SpaceSwitcher() {
       {chipMenu && menuSpace && !menuSpace.deleted && createPortal(
         <div
           ref={menuRef}
-          className={`fixed ${POPOVER_SURFACE} min-w-[170px]`}
-          style={{ top: chipMenu.y, left: chipMenu.x, zIndex: Z_POPOVER }}
+          // Opened at raw cursor coords with no bound at all: right-clicking a
+          // chip near the right or bottom edge pushed the menu off-screen. Clamp
+          // both axes to the shared POPOVER_MARGIN (MENU_MIN_W is this menu's
+          // own min-width, so the horizontal clamp needs no measurement) and let
+          // it scroll rather than overflow.
+          className={`fixed ${POPOVER_SURFACE} min-w-[170px] overflow-y-auto overscroll-contain`}
+          style={{
+            top: chipMenu.y,
+            left: Math.max(
+              POPOVER_MARGIN,
+              Math.min(chipMenu.x, window.innerWidth - MENU_MIN_W - POPOVER_MARGIN),
+            ),
+            maxHeight: `calc(100vh - ${chipMenu.y + POPOVER_MARGIN}px)`,
+            zIndex: Z_POPOVER,
+          }}
         >
           {renameDraft !== null ? (
             <form
