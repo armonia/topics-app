@@ -1077,6 +1077,24 @@ export interface WSSessionStateMessage {
   state: ClaudeSessionState;
 }
 
+/** A Claude Code session running OUTSIDE Topics (bare terminal `claude`),
+ *  detected by the server's mtime sweep of ~/.claude/projects. Read-only
+ *  overlay: Topics observes it but does not manage it. */
+export interface ExternalClaudeSession {
+  claudeSessionId: string;
+  jsonlPath: string;
+  /** Encoded cwd dir name under ~/.claude/projects (fallback key when cwd is null). */
+  dirName: string;
+  cwd: string | null;
+  title: string | null;
+  lastActivityAt: number;
+}
+
+export interface WSExternalSessionsMessage {
+  type: 'external-sessions:state';
+  sessions: ExternalClaudeSession[];
+}
+
 /** A board task just ENTERED review — the end-of-task cue. Emitted IN ADDITION
  *  to (not instead of) `task:updated`, only on the transition edge, so the
  *  completion notifier fires exactly once per delivery. `taskId` makes the OS
@@ -1147,7 +1165,8 @@ export type WSMessage =
   | WSWorktreeMessage
   | WSMachineMessage
   | WSTaskReviewReadyMessage
-  | WSSessionStateMessage;
+  | WSSessionStateMessage
+  | WSExternalSessionsMessage;
 // (Historical note: an earlier shape included `WSUnknownMessage` as a
 // union member, whose `type: string` widened the union's `type` to plain
 // `string` and broke literal narrowing across every handler. Keeping the
