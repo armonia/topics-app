@@ -18,7 +18,7 @@ async function countTabBars(page: Page): Promise<number> {
 
 /** Collapse sidebar sections to save space */
 async function collapseSidebarSections(page: Page) {
-  for (const name of [/Terminals section/, /Browser section/, /Projects section/]) {
+  for (const name of [/sezione Terminali/, /sezione Browser/, /sezione Progetti/]) {
     const btn = page.getByRole("button", { name });
     if ((await btn.count()) > 0) {
       const expanded = await btn.getAttribute("aria-expanded");
@@ -70,7 +70,7 @@ async function openTwoTopics(page: Page, topicIds: string[]) {
 /** Open a project in the sidebar */
 async function openProjectInSidebar(page: Page, name: string | RegExp) {
   const projectsSection = page.getByRole("button", {
-    name: /Projects section/,
+    name: /sezione Progetti/,
   });
   if ((await projectsSection.count()) > 0) {
     const expanded = await projectsSection.getAttribute("aria-expanded");

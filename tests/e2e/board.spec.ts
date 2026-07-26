@@ -49,7 +49,7 @@ async function apiCreateTask(
 
 /** Open the e2e project window by clicking its sidebar row (project-tabs pattern). */
 async function openTestProject(page: Page) {
-  const projectsSection = page.getByRole("button", { name: /Projects section/ });
+  const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
   if ((await projectsSection.count()) > 0) {
     const expanded = await projectsSection.getAttribute("aria-expanded");
     if (expanded === "false") await projectsSection.click();
@@ -241,23 +241,30 @@ test.describe("Kanban board", () => {
     await expect(drawer.getByText("```question")).not.toBeVisible();
   });
 
-  test("BOARD-09: the open Board generale tab gets a sidebar row like every other tab", async ({ page }) => {
+  // ONE row, not two: the board has a dedicated top-of-tree row (with the open
+  // task count), so buildSidebarItems no longer also emits a generic utility row
+  // for it — opening the board used to produce two identical "Board generale"
+  // entries. The dedicated row is tab-aware, which is what this test pins.
+  test("BOARD-09: the open Board generale tab has exactly ONE sidebar row, and it is selected", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
     await resetPaneStore(page.request, []).catch(() => {});
     await page.goto("/");
-
-    // Not open yet → no row.
-    await expect(page.getByTestId("sidebar-utility-board")).not.toBeVisible();
 
     // Open from the standalone "+" menu.
     await page.getByTestId("pane-add-menu-trigger").first().click();
     await page.getByTestId("pane-add-menu-board").click();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 
-    // The tab now has a first-class sidebar row, focused.
-    const row = page.getByTestId("sidebar-utility-board");
+    // The tab has a first-class sidebar row, focused…
+    const row = page.getByTestId("sidebar-board-generale");
     await expect(row).toBeVisible({ timeout: 10000 });
     await expect(row).toHaveAttribute("aria-selected", "true");
+    // …and it is the ONLY one: no second, generic utility row underneath.
+    await expect(row, "the board must not get a duplicate sidebar row").toHaveCount(1);
+    await expect(
+      page.getByTestId("sidebar-utility-board"),
+      "the generic utility row is suppressed for the board",
+    ).toHaveCount(0);
   });
 
   test("BOARD-12: a persisted Board generale pane survives hydrate/render (persistence regression)", async ({ page }) => {
@@ -285,7 +292,7 @@ test.describe("Kanban board", () => {
     await expect(page.locator('[data-pane-id="__board__"]')).toBeVisible({ timeout: 10000 });
     // ...and it gets its first-class sidebar row like every other open tab
     // (focus-independent proof the pane entity is live, not a stranded ref).
-    await expect(page.getByTestId("sidebar-utility-board")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("sidebar-board-generale")).toBeVisible({ timeout: 10000 });
   });
 
   test("BOARD-10: nested subtasks — quick-add in drawer, counter chip, done gate", async ({ page }) => {

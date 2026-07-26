@@ -144,7 +144,7 @@ test.describe("Panels & Views", () => {
     // Sidebar sections only render in GROUPED view (default is timeline) and
     // only when non-empty. A browser row is emitted for every open `browser:`
     // pane (buildSidebarItems:512 — no live context required), so seeding a
-    // browser pane populates the Browsers section. viewMode is server-persisted,
+    // browser pane populates the sezione Browser. viewMode is server-persisted,
     // so grouped mode must be set on the server (see terminal test above).
     await setGroupedView(request);
     await resetPaneStore(request, ["browser:e2e-panel-browser"]);

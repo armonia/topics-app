@@ -46,9 +46,9 @@ test.describe("Project Tabs", () => {
   /** Open the e2e project by clicking its sidebar button.
    *  Uses a unique root path so it gets its own standalone button. */
   async function openTestProject(page: import("@playwright/test").Page) {
-    // Expand Projects section
+    // Expand sezione Progetti
     const projectsSection = page.getByRole("button", {
-      name: /Projects section/,
+      name: /sezione Progetti/,
     });
     if ((await projectsSection.count()) > 0) {
       const expanded = await projectsSection.getAttribute("aria-expanded");

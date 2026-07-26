@@ -83,7 +83,7 @@ import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
 import { initVapid } from "./server/push-service";
 import { startHeartbeatChecker } from "./server/agent-heartbeat";
-import { startDevBundleReload } from "./server/lib/dev-bundle-reload";
+import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -1259,6 +1259,10 @@ const server = Bun.serve<WSData>({
           .replace(/\/icons\/icon-192\.png/g, '/icons/icon-192-dev.png')
           .replace('href="/manifest.json"', 'href="/manifest-dev.json"');
       }
+      // Stamp the rev this HTML represents so the client never has to re-derive
+      // it from its own DOM (which drifts as Vite injects lazy-chunk preloads —
+      // the phantom "nuova versione disponibile" loop).
+      html = stampBundleRev(html, readBundleRev(PUBLIC_DIR));
       // no-STORE, not no-cache: the app shell must never sit in a cache. With
       // `no-cache` WKWebView still served a stale index.html after a deploy
       // (revalidation didn't fire reliably), so the desktop kept booting the
@@ -1407,6 +1411,7 @@ const server = Bun.serve<WSData>({
           .replace(/\/icons\/icon-192\.png/g, '/icons/icon-192-dev.png')
           .replace('href="/manifest.json"', 'href="/manifest-dev.json"');
       }
+      html = stampBundleRev(html, readBundleRev(PUBLIC_DIR));
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
     }
 

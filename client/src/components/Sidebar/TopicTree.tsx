@@ -58,11 +58,15 @@ const TYPE_ICONS = {
   utility: Wrench,
 } as const;
 
+// Section headings for the by-type view. All Italian: they used to read
+// "Projects / Chats / Terminals / Browsers / Strumenti" — four English labels
+// next to one Italian one, in the same tree as the Italian "Finestre" and
+// "Fissati" sections.
 const TYPE_LABELS: Record<SidebarItem['type'], string> = {
-  project: 'Projects',
-  chat: 'Chats',
-  terminal: 'Terminals',
-  browser: 'Browsers',
+  project: 'Progetti',
+  chat: 'Chat',
+  terminal: 'Terminali',
+  browser: 'Browser',
   utility: 'Strumenti',
 };
 
@@ -123,6 +127,9 @@ export interface TopicTreeProps {
   /** Active (non-done) task count across all projects. When > 0, a
    *  "Board generale" row is shown above the Fissati block. */
   boardTaskCount?: number;
+  /** True while the Board generale tab is open — makes the row tab-aware (it is
+   *  the ONLY sidebar row for the board, so it must show selection like a tab). */
+  boardOpen?: boolean;
   /** Opens the global board pane (the '__board__' utility tab). */
   onOpenBoard?: () => void;
 }
@@ -167,6 +174,7 @@ export function TopicTree({
   pinnedItems = [],
   onTogglePin,
   boardTaskCount = 0,
+  boardOpen = false,
   onOpenBoard,
 }: TopicTreeProps) {
   // Claude "yolo" toggle state lives inside <PaneAddMenu> now (via
@@ -747,7 +755,7 @@ export function TopicTree({
           <button
             onClick={() => toggleSection(sectionKey)}
             aria-expanded={!isCollapsed}
-            aria-label={`${label} section`}
+            aria-label={`sezione ${label}`}
             className="flex items-center gap-2 flex-1 h-full text-left"
             style={{ paddingLeft: 12 }}
           >
@@ -791,20 +799,32 @@ export function TopicTree({
         className="flex-1 min-h-0 overflow-y-auto sidebar-scroll"
         style={{ paddingBlock: ROW_INSET - 1 }}
       >
-        {/* Board generale — a fast-access row above the Fissati block, shown
-            only when there is active (non-done) work across all projects. */}
-        {boardTaskCount > 0 && onOpenBoard && (
+        {/* Board generale — THE single sidebar row for the board, above the
+            Fissati block. Shown when there is active (non-done) work across all
+            projects OR while its tab is open, so an open board is never without
+            a sidebar presence (the guarantee the generic utility row used to
+            provide before it was suppressed as a duplicate — see
+            buildSidebarItems §5b). Being the only row, it is tab-aware:
+            aria-selected + a selected surface while open, exactly like the tab
+            rows below. Position is fixed at the top either way, so opening the
+            board never makes its row jump. */}
+        {(boardTaskCount > 0 || boardOpen) && onOpenBoard && (
           <button
             type="button"
             onClick={onOpenBoard}
             data-testid="sidebar-board-generale"
-            className="w-full flex items-center gap-1.5 px-3 h-8 mb-1 select-none text-app-text hover:bg-app-hover transition-colors"
+            aria-selected={boardOpen}
+            className={`w-full flex items-center gap-1.5 px-3 h-8 mb-1 select-none text-app-text transition-colors ${
+              boardOpen ? SELECTED_SURFACE : 'hover:bg-app-hover'
+            }`}
           >
             <LayoutGrid size={13} className="flex-shrink-0 text-emerald-400" />
             <span className="text-[12px] font-medium flex-1 text-left">Board generale</span>
-            <span className="ml-auto min-w-[16px] h-[16px] flex items-center justify-center bg-emerald-500 text-white text-[9px] font-bold rounded-full leading-none px-1">
-              {boardTaskCount}
-            </span>
+            {boardTaskCount > 0 && (
+              <span className="ml-auto min-w-[16px] h-[16px] flex items-center justify-center bg-emerald-500 text-white text-[9px] font-bold rounded-full leading-none px-1">
+                {boardTaskCount}
+              </span>
+            )}
           </button>
         )}
         {viewMode === 'timeline' ? (

@@ -7,7 +7,7 @@ import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fix
 //
 // PROCESS-01..05  PASS         ScriptRunner unchanged by phase 30
 // BROWSER-01      REMOVED      Replaced by BROWSER-CHAT-04 (browser-tab-open.spec.ts).
-//                              The legacy "Browser section" sidebar control was
+//                              The legacy "sezione Browser" sidebar control was
 //                              retired in phase 30-04 in favor of the per-topic
 //                              browser pane (mounted via /browser slash command
 //                              or browser:open-and-navigate CustomEvent).
@@ -17,7 +17,7 @@ import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fix
 //                              flow; covered by BROWSER-CHAT-04 indirectly.
 // BROWSER-04..08  REWRITTEN    Mount RemoteBrowserPanel via the new
 //                              browser:open-and-navigate CustomEvent flow (the
-//                              "Browser section" sidebar control is gone).
+//                              "sezione Browser" sidebar control is gone).
 //                              Behavior contracts (toolbar, URL bar, ready
 //                              state, screenshot rendering) preserved.
 
@@ -198,7 +198,7 @@ test.describe("ScriptRunner", () => {
 
 // ── BrowserSidebarControl Tests (BROWSER-01..03: REMOVED in plan 30-05) ──
 //
-// REMOVED in plan 30-05: the legacy "Browser section" sidebar control was
+// REMOVED in plan 30-05: the legacy "sezione Browser" sidebar control was
 // retired in phase 30-04. Per-topic browser panes are now created via the
 // /browser slash command (BROWSER-CHAT-04) and the per-topic
 // browser:open-and-navigate CustomEvent flow. Coverage moved to:

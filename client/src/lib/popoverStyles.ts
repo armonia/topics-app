@@ -29,6 +29,15 @@
  * Values are deliberately high (9998–10000) to clear the app's ad-hoc `z-[100]`
  * / `z-[60]` chrome; a popover must float over everything except a modal.
  */
+/**
+ * Viewport inset every floating surface must stay within. It is the default of
+ * `computeMenuPosition` (lib/popoverPosition.ts); exported here so the popovers
+ * that position themselves by hand clamp to the SAME edge instead of each
+ * inventing a number (or, as several did, not clamping at all and running off
+ * the screen).
+ */
+export const POPOVER_MARGIN = 8;
+
 export const Z_POPOVER = 9999;
 export const Z_CONTEXT_MENU = 9999; // same plane as popovers, by design
 export const Z_MODAL = 10000; // dialogs / command palette — above popovers

@@ -5,7 +5,7 @@ import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
 import { useDismissable } from '@/hooks/useDismissable';
-import { Z_POPOVER } from '@/lib/popoverStyles';
+import { POPOVER_MARGIN, POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { useFps, useFpsActive } from '@/lib/fpsMonitor';
 import { usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { PerfSection } from './PerfSection';
@@ -274,7 +274,17 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
-      <div className="flex items-center gap-2 min-h-7 border-t border-app-border flex-shrink-0 bg-app-bg" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      {/* flex-wrap + gap-y: in DEV the right cluster grows by two chips ("dev"
+          and the build-age "12m") on top of "v2.2.x" and the refresh button,
+          while the left readout gains CPU/fps — together they ask for ~310px of
+          a ~244px sidebar. The container was `nowrap`, so the ONLY flexible item
+          (the left button) absorbed the whole overflow and hard-clipped its own
+          readouts mid-glyph — no ellipsis, no wrap, just a severed "60fp".
+          Wrapping lets the right cluster drop to its own line instead: it is
+          `flex-shrink-0`, so it moves rather than squeezes, and the left readout
+          keeps its full width. min-h-7 stays a FLOOR, so one line still looks
+          identical to before — this only spends height when it must. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-h-7 py-0.5 border-t border-app-border flex-shrink-0 bg-app-bg" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
@@ -450,13 +460,21 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
       {showStatusDropdown && statusBtnRef.current && createPortal(
         <div
           ref={statusDropdownRef}
-          className="glass-surface border border-app-border rounded-lg shadow-lg min-w-[320px]"
+          // POPOVER_PANEL instead of a verbatim copy of its class string, and a
+          // height cap: this panel is anchored to the BOTTOM bar and grows
+          // upward (PerfSection + the lazy SystemStatusPanel), with no max-h it
+          // ran straight off the TOP of the viewport on a short window and the
+          // overflowing rows were simply unreachable. Cap to the space actually
+          // available above the button and scroll inside.
+          className={`${POPOVER_PANEL} min-w-[320px] overflow-y-auto overscroll-contain`}
           style={{
             position: 'fixed',
             // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read: getBoundingClientRect against the live button node positions the fixed dropdown above it
             bottom: window.innerHeight - statusBtnRef.current.getBoundingClientRect().top + 4,
             // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read for horizontal placement
-            left: statusBtnRef.current.getBoundingClientRect().left,
+            left: Math.max(POPOVER_MARGIN, statusBtnRef.current.getBoundingClientRect().left),
+            // eslint-disable-next-line react-hooks/refs -- same anchor-geometry read: the cap is "everything above the button, minus a margin"
+            maxHeight: statusBtnRef.current.getBoundingClientRect().top - 4 - POPOVER_MARGIN,
             zIndex: Z_POPOVER,
           }}
         >

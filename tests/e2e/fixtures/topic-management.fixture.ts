@@ -58,11 +58,11 @@ export class TopicManagementPage {
     return this.page.getByRole("dialog");
   }
 
-  /** Open the new topic modal via the Chats section "New chat" button */
+  /** Open the new topic modal via the sezione Chat "New chat" button */
   async openNewTopicModal() {
-    // Hover on the Chats section header to reveal the "+" button
+    // Hover on the sezione Chat header to reveal the "+" button
     const chatsHeader = this.page.getByRole("button", {
-      name: /Chats section/,
+      name: /sezione Chat/,
     });
     await chatsHeader.hover();
     // Click the "New chat" button that appears on hover

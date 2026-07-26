@@ -113,12 +113,37 @@ export function computeDetachedTopicMap(
   return map;
 }
 
-/** All DETACHED windows other than `selfWindowId` (drives DetachedWindowMarker). */
+/** All DETACHED windows other than `selfWindowId` (drives DetachedWindowMarker,
+ *  the in-grid "this lives in another window" card). */
 export function computeDetachedWindows(
   windows: Record<string, PresenceWindow>,
   selfWindowId: string,
 ): PresenceWindow[] {
   return Object.values(windows).filter((w) => w.detached && w.windowId !== selfWindowId);
+}
+
+/**
+ * EVERY other window — detached or not — for the sidebar's "Finestre" section.
+ *
+ * Distinct from computeDetachedWindows on purpose: that one answers "which
+ * popped-out windows hold this topic", so it filters `detached`. This one
+ * answers "where is my stuff open", which must include the MAIN window too —
+ * otherwise a detached window's own sidebar lists its siblings but silently
+ * omits the window it was torn off from (the section would claim to show all
+ * windows while hiding the most important one).
+ *
+ * Ordered: the non-detached (main) window first, then detached ones, so the
+ * list reads root-first instead of in Object.values insertion order.
+ */
+export function computeOtherWindows(
+  windows: Record<string, PresenceWindow>,
+  selfWindowId: string,
+): PresenceWindow[] {
+  const others = Object.values(windows).filter((w) => w.windowId !== selfWindowId);
+  return [
+    ...others.filter((w) => !w.detached),
+    ...others.filter((w) => w.detached),
+  ];
 }
 
 // ── React hooks (thin wrappers over the pure selectors) ──────────────────────
@@ -133,4 +158,10 @@ export function useDetachedTopicMap(): Map<string, { windowId: string; windowLab
 export function useDetachedWindows(): PresenceWindow[] {
   const windows = useWindowPresenceStore((s) => s.windows);
   return useMemo(() => computeDetachedWindows(windows, ownWindowId()), [windows]);
+}
+
+/** See computeOtherWindows — every other window, main included. */
+export function useOtherWindows(): PresenceWindow[] {
+  const windows = useWindowPresenceStore((s) => s.windows);
+  return useMemo(() => computeOtherWindows(windows, ownWindowId()), [windows]);
 }

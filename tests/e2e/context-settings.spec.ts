@@ -483,9 +483,9 @@ test.describe("Context, Memory & Settings", () => {
         timeout: 15_000,
       });
 
-      // Ensure Chats section is expanded
+      // Ensure sezione Chat is expanded
       const chatsSection = page.getByRole("button", {
-        name: /Chats section/,
+        name: /sezione Chat/,
       });
       if ((await chatsSection.count()) > 0) {
         const isExpanded =

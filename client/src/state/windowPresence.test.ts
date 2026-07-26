@@ -11,6 +11,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   computeDetachedTopicMap,
   computeDetachedWindows,
+  computeOtherWindows,
   useWindowPresenceStore,
   type PresenceWindow,
 } from './windowPresence';
@@ -75,6 +76,43 @@ describe('computeDetachedWindows', () => {
   test('empty when no other detached window exists', () => {
     const windows = byId(win({ windowId: 'w2', detached: false, topicIds: ['b'] }));
     expect(computeDetachedWindows(windows, 'self')).toEqual([]);
+  });
+});
+
+describe('computeOtherWindows', () => {
+  // The sidebar's "Finestre" section must list where things are open. Reusing
+  // computeDetachedWindows there hid the MAIN window from a detached window's
+  // own sidebar — it lists siblings but not the window it was torn off from.
+  test('includes the NON-detached (main) window, unlike computeDetachedWindows', () => {
+    const windows = byId(
+      win({ windowId: 'self', detached: true, topicIds: ['a'] }),
+      win({ windowId: 'main', detached: false, topicIds: ['b'] }),
+      win({ windowId: 'w3', detached: true, topicIds: ['c'] }),
+    );
+    expect(computeDetachedWindows(windows, 'self').map((w) => w.windowId)).toEqual(['w3']);
+    expect(computeOtherWindows(windows, 'self').map((w) => w.windowId)).toEqual(['main', 'w3']);
+  });
+
+  test('always excludes self', () => {
+    const windows = byId(
+      win({ windowId: 'self', detached: false, topicIds: ['a'] }),
+      win({ windowId: 'w2', detached: true, topicIds: ['b'] }),
+    );
+    expect(computeOtherWindows(windows, 'self').map((w) => w.windowId)).toEqual(['w2']);
+  });
+
+  test('orders the main window(s) before the detached ones', () => {
+    const windows = byId(
+      win({ windowId: 'd1', detached: true, topicIds: ['a'] }),
+      win({ windowId: 'main', detached: false, topicIds: ['b'] }),
+      win({ windowId: 'd2', detached: true, topicIds: ['c'] }),
+    );
+    expect(computeOtherWindows(windows, 'self').map((w) => w.windowId)).toEqual(['main', 'd1', 'd2']);
+  });
+
+  test('empty when this is the only window', () => {
+    const windows = byId(win({ windowId: 'self', detached: false, topicIds: ['a'] }));
+    expect(computeOtherWindows(windows, 'self')).toEqual([]);
   });
 });
 

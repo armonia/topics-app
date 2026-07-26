@@ -1033,6 +1033,7 @@ function App() {
             pinnedItems={sidebar.pinnedItems}
             onTogglePin={handleTogglePin}
             boardTaskCount={boardTaskCount}
+            boardOpen={openPanels.includes('__board__')}
             onOpenBoard={() => handleOpenAsPage('board')}
           />
           )}
@@ -1181,7 +1182,12 @@ function App() {
             {sidebar.viewMode === 'timeline'
               ? <LayoutGrid size={isMobile ? 18 : 14} />
               : <List size={isMobile ? 18 : 14} />}
-            <span className="flex-1 text-left">{sidebar.viewMode === 'timeline' ? 'Vista a gruppi' : 'Vista timeline'}</span>
+            {/* "Vista per tipo", NOT "Vista a gruppi": this buckets the tree by
+                ITEM TYPE (progetti / chat / terminali / …). A "gruppo" in this
+                app is a WINDOW — the unit that detaches — so calling a
+                type-bucketed tree "a gruppi" made two unrelated things share a
+                word (the "non capisco spazi e gruppi" confusion). */}
+            <span className="flex-1 text-left">{sidebar.viewMode === 'timeline' ? 'Vista per tipo' : 'Vista timeline'}</span>
           </button>
           {/* "Reimposta pannelli" — same per-window action the ⌘K palette and
               the tab-bar context menu expose (the shared 'topics:reset-split-

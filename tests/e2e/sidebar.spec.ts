@@ -153,14 +153,14 @@ test.describe("Sidebar — Unified Timeline", () => {
     const topicsMenuBtn = page.locator('button[title="Settings & Tools"]');
     await topicsMenuBtn.click();
 
-    // Timeline → grouped: the menu row reads "Vista a gruppi".
-    const groupedToggle = page.getByRole("button", { name: "Vista a gruppi" });
+    // Timeline → grouped: the menu row reads "Vista per tipo".
+    const groupedToggle = page.getByRole("button", { name: "Vista per tipo" });
     await expect(groupedToggle).toBeVisible({ timeout: 5000 });
     await groupedToggle.click();
 
     // In grouped view, collapsible section headers should appear
     await expect(
-      page.getByRole("button", { name: /Chats section/ })
+      page.getByRole("button", { name: /sezione Chat/ })
     ).toBeVisible({ timeout: 3000 });
 
     // The menu stays open and the same row now reads "Vista timeline".
@@ -172,7 +172,7 @@ test.describe("Sidebar — Unified Timeline", () => {
 
     // Section headers should be gone
     await expect(
-      page.getByRole("button", { name: /Chats section/ })
+      page.getByRole("button", { name: /sezione Chat/ })
     ).toBeHidden({ timeout: 3000 });
   });
 
@@ -246,7 +246,7 @@ test.describe("Sidebar — Unified Timeline", () => {
       page.getByRole("button", { name: "Mostra archiviati" })
     ).toBeVisible({ timeout: 3000 });
     await expect(
-      page.getByRole("button", { name: "Vista a gruppi" })
+      page.getByRole("button", { name: "Vista per tipo" })
     ).toBeVisible({ timeout: 3000 });
   });
 
@@ -602,11 +602,18 @@ test.describe("Sidebar — Project icons", () => {
   // A "group" in this app is a WINDOW — the unit that pops out and lives on as
   // its own OS window — not an intra-window split cell. The sidebar's Finestre
   // section is that model made visible: this window plus every other one.
-  test("SIDEBAR-WINDOWS: another window's presence renders the 'Finestre' section (this window + the other)", async ({ page }) => {
+  test("SIDEBAR-WINDOWS: presence renders every window — this one, the main one, and a detached one", async ({ page }) => {
     // The native OS detach can't run headless, but the section is WS-driven:
-    // inject a `presence:windows` frame carrying one DETACHED window (a windowId
-    // other than this tab's own → computeDetachedWindows includes it) and assert
-    // the sidebar section appears. Proxy the real socket, then push the frame.
+    // inject a `presence:windows` frame and assert what the sidebar makes of it.
+    // TWO peers on purpose:
+    //   - a DETACHED one WITH a Tauri label → a real OS window, focusable ("Vai")
+    //   - a NON-detached one WITHOUT a label → the main window / a web tab.
+    // The second is the regression guard: the section used to be built on
+    // computeDetachedWindows, which filters `detached`, so a detached window's
+    // own sidebar listed its siblings but silently hid the window it was torn
+    // off from. It must appear, and — having no OS label — must NOT offer "Vai"
+    // (a button that instead reopened its topics HERE would move work, not
+    // navigate to it).
     await page.routeWebSocket(/ws/, (ws) => {
       const server = ws.connectToServer();
       server.onMessage((msg) => ws.send(msg));
@@ -616,6 +623,7 @@ test.describe("Sidebar — Project icons", () => {
           type: "presence:windows",
           windows: [
             { windowId: "e2e-other-window", clientId: "e2e-c1", windowLabel: "detach-e2e", detached: true, topicIds: ["e2e-detached-topic"] },
+            { windowId: "e2e-main-window", clientId: "e2e-c2", detached: false, topicIds: ["e2e-main-topic"] },
           ],
         }));
       }, 1200);
@@ -626,16 +634,20 @@ test.describe("Sidebar — Project icons", () => {
     await expect(section, "the windows section renders from live presence").toBeVisible({ timeout: 10000 });
     await expect(section).toContainText("Finestre");
 
-    // BOTH windows are rows: this one is named explicitly (so "where am I" is
-    // answerable), the foreign one carries the "Vai" focus affordance.
-    await expect(section, "this window is listed too, not just the foreign one").toContainText("Questa finestra");
+    // This window is named explicitly, so "where am I" is answerable…
+    await expect(section, "this window is listed too, not just the foreign ones").toContainText("Questa finestra");
+    // …and the non-detached peer is surfaced as the main window, not hidden.
+    await expect(section, "the NON-detached peer must be listed").toContainText("Finestra principale");
     await expect(
       section.locator('[aria-expanded]'),
-      "one row per window: this one + the detached one",
-    ).toHaveCount(2);
+      "one row per window: this one + the main one + the detached one",
+    ).toHaveCount(3);
+
+    // "Vai" is offered only where it can actually raise an OS window: the
+    // labelled detached peer. Not for this window, not for the unlabelled one.
     await expect(
       section.getByTestId("focus-window"),
-      "only the OTHER window offers 'Vai' (you cannot focus the window you're in)",
+      "only the labelled OS window offers 'Vai'",
     ).toHaveCount(1);
   });
 });
