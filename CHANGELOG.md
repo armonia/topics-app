@@ -2,11 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.2.0 — 2026-07-24
+## 2.2.0 — 2026-07-26
 
 ### Novità
 - **security** · auth-gate su /api,/ws,/preview — loopback-trusted + token + anti-CSRF
 - **ux** · presenza finestre in sidebar + "Stacca il gruppo in una nuova finestra"
+- **ux** · i gruppi di questa finestra in sidebar, con "Stacca" per gruppo
 
 ### Correzioni
 - perf re-parse markdown O(n^2) + stop prompt notifiche spurio su Tauri
@@ -33,6 +34,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · command-palette usa goToApp + open() deterministico (era 7+ fail)
 - **e2e** · BOARD-01 asserisce il dropdown dispatch, non la pill rimossa
 - **changelog** · rigenera 2.2 col fix sicurezza /ws + fix UX sposta-spazio/barra-Spazi
+- **changelog** · rigenera con i fix UI (raggruppa da sidebar, presenza finestre + stacca gruppo)
+- **e2e** · SPACE-04 verifica il ritorno a "Principale" abilitato (fix #3)
+- **e2e** · SIDEBAR-WINDOWS verifica il render della sezione presenza finestre (#4a)
+- **ux** · elimina il double-fire di topics:open-topic + dedup finestre-staccate
 
 ## 2.1.129 — 2026-07-23
 
