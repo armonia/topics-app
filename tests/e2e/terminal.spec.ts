@@ -57,9 +57,9 @@ test.describe.serial("Terminal", () => {
   ) {
     await goToApp(page);
 
-    // Expand the Projects section if collapsed
+    // Expand the sezione Progetti if collapsed
     const projectsSection = page.getByRole("button", {
-      name: /Projects section/,
+      name: /sezione Progetti/,
     });
     if ((await projectsSection.count()) > 0) {
       const expanded = await projectsSection.getAttribute("aria-expanded");
@@ -361,9 +361,9 @@ test.describe("Terminal Reconnect", () => {
     // Navigate and open terminal
     await goToApp(page);
 
-    // Expand Projects section if collapsed
+    // Expand sezione Progetti if collapsed
     const projectsSection = page.getByRole("button", {
-      name: /Projects section/,
+      name: /sezione Progetti/,
     });
     if ((await projectsSection.count()) > 0) {
       const expanded = await projectsSection.getAttribute("aria-expanded");
@@ -493,9 +493,9 @@ test.describe("Terminal Multi-Instance", () => {
     test.info().annotations.push({ type: "spec", description: "TERM-01" });
     await goToApp(page);
 
-    // Expand Projects section if collapsed
+    // Expand sezione Progetti if collapsed
     const projectsSection = page.getByRole("button", {
-      name: /Projects section/,
+      name: /sezione Progetti/,
     });
     if ((await projectsSection.count()) > 0) {
       const expanded = await projectsSection.getAttribute("aria-expanded");

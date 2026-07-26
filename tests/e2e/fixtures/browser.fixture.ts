@@ -216,12 +216,12 @@ export class BrowserProcessPage {
   // ── Navigation Helpers ──
 
   /**
-   * Open a project topic via the Projects section, then expand Processes.
+   * Open a project topic via the sezione Progetti, then expand Processes.
    * Project topics appear in the "Projects" sidebar section, not in Chats treeitems.
    */
   async openProjectAndProcesses(projectNamePattern: RegExp) {
-    // Expand Projects section if collapsed
-    const projectsSection = this.page.getByRole("button", { name: /Projects section/ });
+    // Expand sezione Progetti if collapsed
+    const projectsSection = this.page.getByRole("button", { name: /sezione Progetti/ });
     if (await projectsSection.count() > 0) {
       const expanded = await projectsSection.getAttribute("aria-expanded");
       if (expanded === "false") {
@@ -253,7 +253,7 @@ export class BrowserProcessPage {
    * Expand the Browser sidebar section.
    */
   async expandBrowserSection() {
-    const browserBtn = this.page.getByRole("button", { name: "Browser section" });
+    const browserBtn = this.page.getByRole("button", { name: "sezione Browser" });
     await browserBtn.waitFor({ state: "visible", timeout: 10000 });
     const isExpanded = await browserBtn.getAttribute("aria-expanded");
     if (isExpanded !== "true") {
@@ -280,7 +280,7 @@ export class BrowserProcessPage {
   }
 
   get browserSectionButton() {
-    return this.page.getByRole("button", { name: "Browser section" });
+    return this.page.getByRole("button", { name: "sezione Browser" });
   }
 
   get urlInput() {

@@ -58,15 +58,15 @@ async function openTopicViaSearch(
   }
 }
 
-/** Ensure the Chats section is expanded and find a topic in the sidebar.
+/** Ensure the sezione Chat is expanded and find a topic in the sidebar.
  *  Note: dnd-kit's useSortable overrides role="treeitem" with role="button"
  *  on sortable topic items, so we search for buttons in the sidebar. */
 async function ensureTopicVisible(
   page: import("@playwright/test").Page,
   name: RegExp
 ) {
-  // Ensure Chats section is expanded
-  const chatsSection = page.getByRole("button", { name: /Chats section/ });
+  // Ensure sezione Chat is expanded
+  const chatsSection = page.getByRole("button", { name: /sezione Chat/ });
   if ((await chatsSection.count()) > 0) {
     const expanded = await chatsSection.getAttribute("aria-expanded");
     if (expanded === "false") {
@@ -228,20 +228,20 @@ test.describe("Topic Management - Settings & Organization", () => {
     test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
     // Default sidebar viewMode is 'timeline' → no section-header buttons. Seed
     // grouped view so the collapsible section headers render (beforeAll creates
-    // 3 chats, so the Chats section exists).
+    // 3 chats, so the sezione Chat exists).
     await page.addInitScript(() => localStorage.setItem('topics-sidebar-state', JSON.stringify({ viewMode: 'grouped', expandedNodes: [], showArchived: false, pinnedItems: [] })));
     // useSidebarState fetches the server `sidebar-state` on mount and OVERRIDES
     // the localStorage seed above (isFromServerRef). The shared test DB usually
     // holds a `timeline` value, so seed grouped on the SERVER too — otherwise no
-    // section headers render and the "Chats section" button never appears.
+    // section headers render and the "sezione Chat" button never appears.
     await page.request.put("http://localhost:13334/api/ui-state/sidebar-state", {
       data: { viewMode: "grouped", showArchived: false, expandedNodes: [], pinnedItems: [] },
     });
     await goToApp(page);
 
-    // Locate the Chats section button
+    // Locate the sezione Chat button
     const projectsBtn = page
-      .getByRole("button", { name: /Chats section/ })
+      .getByRole("button", { name: /sezione Chat/ })
       .first();
     await expect(projectsBtn).toBeVisible({ timeout: 10000 });
 
@@ -304,8 +304,8 @@ test.describe("Topic Management - Settings & Organization", () => {
     // Navigate to the app
     await goToApp(page);
 
-    // Ensure Chats section is expanded
-    const chatsSection = page.getByRole("button", { name: /Chats section/ });
+    // Ensure sezione Chat is expanded
+    const chatsSection = page.getByRole("button", { name: /sezione Chat/ });
     if ((await chatsSection.count()) > 0) {
       const expanded = await chatsSection.getAttribute("aria-expanded");
       if (expanded === "false") {

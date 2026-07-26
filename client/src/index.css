@@ -1575,8 +1575,18 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
  * it the same float treatment: a gap around it, the shared radius, and drop the
  * full-width divider (a floating chip has no bottom border). Floating mode only —
  * the non-floating top-bar look is unchanged. */
+/* Margins, derived — NOT eyeballed. The strip lives OUTSIDE [data-split-surface],
+ * so it never gets the `-1 * gap` pull-out that lands the edge cards flush at the
+ * wrapper's 0…W. Giving it a horizontal margin therefore insets it for real: the
+ * previous `calc(2 * gap)` made it 8px narrower than every pane under it, with a
+ * band of bare vibrancy down each side that exists nowhere else ("non prende
+ * tutta la larghezza"). Zero side margin = flush 0…W, exactly like the cards.
+ * Vertically: top 0 aligns with the sidebar (fixed, inset-y-0); bottom
+ * `2 * gap` is the canonical distance between two floating surfaces — a card
+ * contributes only 1×gap per side, so the old `gap` top+bottom left just 2px
+ * against the 4px used everywhere else ("neanche la distanza giusta"). */
 .floating-splits [data-testid="space-switcher"] {
-  margin: var(--float-gap) calc(2 * var(--float-gap));
+  margin: 0 0 calc(2 * var(--float-gap)) 0;
   border-radius: var(--float-radius);
   border-bottom: none;
 }

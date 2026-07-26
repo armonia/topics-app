@@ -620,6 +620,15 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     if (!isUtilityPanelId(paneId)) continue;
     const utilType = parseUtilityPanelType(paneId);
     if (!utilType) continue;
+    // 'board' is the ONE utility with a dedicated sidebar row of its own (the
+    // "Board generale" shortcut at the top of the tree, which also carries the
+    // open-task count). Emitting a generic row here too gave it TWO identical
+    // "Board generale" entries the moment you opened it — one pinned at the
+    // top, one appended at the bottom / in Strumenti ("non ha bisogno di avere
+    // anche una ulteriore tab sotto"). The dedicated row is tab-aware, so it
+    // covers what this loop existed to guarantee: an open tab is visible in the
+    // sidebar.
+    if (utilType === 'board') continue;
     const config = getPaneConfig(utilType as PaneType);
     items.push({
       id: paneId,

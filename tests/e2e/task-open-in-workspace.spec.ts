@@ -48,7 +48,7 @@ async function apiCreateTask(
 
 /** Open the e2e project window by clicking its sidebar row (project-tabs pattern). */
 async function openTestProject(page: Page) {
-  const projectsSection = page.getByRole("button", { name: /Projects section/ });
+  const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
   if ((await projectsSection.count()) > 0) {
     const expanded = await projectsSection.getAttribute("aria-expanded");
     if (expanded === "false") await projectsSection.click();

@@ -160,9 +160,9 @@ export class ContextPage {
    * open the context inspector by clicking the ring or button.
    */
   async openContextInspector() {
-    // Ensure Chats section is expanded
+    // Ensure sezione Chat is expanded
     const chatsSection = this.page.getByRole("button", {
-      name: /Chats section/,
+      name: /sezione Chat/,
     });
     if ((await chatsSection.count()) > 0) {
       const isExpanded = await chatsSection.getAttribute("aria-expanded");

@@ -13,7 +13,8 @@ interface FakeState {
   replaceCalls: string[];
   dispatched: string[];
   sessionStore: Record<string, string>;
-  scripts: string[]; // src values the DOM "exposes"
+  /** content of the <meta name="topics-bundle-rev"> stamp; null = unstamped. */
+  metaRev: string | null;
 }
 
 let fake: FakeState;
@@ -34,10 +35,12 @@ function installFakeWindow(state: FakeState) {
     sessionStorage,
     history: { replaceState: (_s: unknown, _t: string, _u: string) => {}, state: null },
     document: {
-      querySelectorAll: (_sel: string) =>
-        state.scripts.map((src) => ({
-          getAttribute: (name: string) => (name === "src" ? src : null),
-        })),
+      // The client reads ONE stamped value now. Modelling the meta (instead of
+      // a bag of <script src>) is the point: the old DOM scrape is what drifted.
+      querySelector: (sel: string) =>
+        sel.includes("topics-bundle-rev") && state.metaRev !== null
+          ? { getAttribute: (name: string) => (name === "content" ? state.metaRev : null) }
+          : null,
     },
     addEventListener(kind: string, cb: AnyFn) { (listeners[kind] ||= []).push(cb); },
     removeEventListener(kind: string, cb: AnyFn) {
@@ -57,7 +60,7 @@ function installFakeWindow(state: FakeState) {
 }
 
 beforeEach(() => {
-  fake = { replaceCalls: [], dispatched: [], sessionStore: {}, scripts: ["/assets/index-ABC123.js"] };
+  fake = { replaceCalls: [], dispatched: [], sessionStore: {}, metaRev: "/assets/index-ABC123.js" };
   installFakeWindow(fake);
 });
 
@@ -85,8 +88,8 @@ describe("devBundleReload — prompt, never auto-reload", () => {
     const { dispatchFrame } = await import("./wsFrameBus");
     const stop = initDevBundleReload();
     try {
-      // Server rev equals our own DOM-derived entry rev (the regex keeps the
-      // `.js` — the char class includes `.`), so this window is fresh.
+      // Server rev equals the rev stamped into the HTML we booted with, so
+      // this window is fresh.
       dispatchFrame({ type: "ui:bundle-rev", rev: "/assets/index-ABC123.js" });
       expect(fake.dispatched.length).toBe(0);
       expect(fake.replaceCalls.length).toBe(0);
@@ -105,5 +108,44 @@ describe("devBundleReload — prompt, never auto-reload", () => {
     reloadForNewBundle();
     reloadForNewBundle();
     expect(fake.replaceCalls.length).toBe(3);
+  });
+
+  // ── Regression: the phantom "nuova versione disponibile" loop ──────────────
+  // The rev used to be re-derived by scraping every /assets/index-* out of the
+  // LIVE DOM. Vite's preload helper appends <link rel="modulepreload"> tags for
+  // lazy chunks at runtime, and several of those chunks are themselves named
+  // index-* (any lazy module whose file is index.js). So the client's set grew
+  // past index.html's and the comparison could NEVER match — a permanent stale
+  // signal on the freshest possible build, returning on every reconnect, which
+  // no reload could clear. Reading the single stamped value is what fixes it.
+  test("a matching rev stays silent even though the page loaded lazy index-* chunks", async () => {
+    const { initDevBundleReload } = await import("./devBundleReload");
+    const { dispatchFrame } = await import("./wsFrameBus");
+    // The document has since pulled in lazy chunks that are ALSO named index-*.
+    // Under the old DOM scrape this window reported a different rev and nagged
+    // forever; the stamp is unaffected by anything injected after boot.
+    const stop = initDevBundleReload();
+    try {
+      dispatchFrame({ type: "ui:bundle-rev", rev: "/assets/index-ABC123.js" });
+      expect(fake.dispatched.length).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  test("an UNSTAMPED document opts out entirely (Tauri embedded/disk bundle)", async () => {
+    // No meta → this window did not boot from our server, so reloading can
+    // never make it converge. It must not prompt at all.
+    fake.metaRev = null;
+    const { initDevBundleReload } = await import("./devBundleReload");
+    const { dispatchFrame } = await import("./wsFrameBus");
+    const stop = initDevBundleReload();
+    try {
+      dispatchFrame({ type: "ui:bundle-updated", rev: "/assets/index-TOTALLY-OTHER.js" });
+      expect(fake.dispatched.length).toBe(0);
+      expect(fake.replaceCalls.length).toBe(0);
+    } finally {
+      stop();
+    }
   });
 });

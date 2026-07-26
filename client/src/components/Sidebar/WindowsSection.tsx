@@ -7,41 +7,25 @@
 // in two is still one window, and showing cells here made the sidebar describe
 // geometry instead of the thing the user reasons about.
 //
-// Rows: this window first (its topics, from the live local layout), then every
-// OTHER window from the WS presence channel. Click a foreign window → focus it
-// natively; if it's gone / on another machine, fall back to reopening its
-// topics here.
+// Rows: this window first, then EVERY other one (main window included, not just
+// detached ones — see computeOtherWindows). Click a foreign window → focus it
+// natively when it's a real OS window; if it's gone / on another machine, fall
+// back to reopening its topics here.
+//
+// ONE RULE for every row: a window is described by the CHAT TOPICS it holds.
+// That is exactly what the presence channel reports (usePanelLifecycle's
+// `presenceTopicIds` strips project/terminal/browser/draft pane ids), so
+// applying the same filter to our own row keeps every row comparable instead of
+// making "this window" the only one that also lists panes.
 //
 // Zero chrome when there is nothing to disambiguate: with a single window the
 // section renders nothing (the tree below already lists those topics).
 import { useState } from 'react';
 import { AppWindow, ChevronDown, ChevronRight, Monitor } from 'lucide-react';
-import { capNamesLabel, focusOrReopenDetachedWindow } from '@/lib/detachedWindow';
-import { getProjectPathFromPaneId } from '@/state/pane/adapters';
-import { usePaneStore } from '@/state/pane/store';
-import { useDetachedWindows } from '@/state/windowPresence';
+import { focusOrReopenDetachedWindow, topicNamesLabel } from '@/lib/detachedWindow';
+import { useOtherWindows } from '@/state/windowPresence';
 import { useWorkspaceGroups } from '@/state/workspaceGroups';
-import type { Pane } from '@/state/pane/types';
 import type { Topic } from '@/types';
-
-/** Readable name for any pane a window holds — a chat topic, or a project /
- *  terminal / browser / utility pane (which have no Topic record). */
-function paneDisplayName(
-  id: string,
-  topics: Record<string, Topic>,
-  panes: Record<string, Pane>,
-): string {
-  const t = topics[id];
-  if (t) return t.name || t.icon || id;
-  const title = panes[id]?.title;
-  if (title) return title;
-  const projectPath = getProjectPathFromPaneId(id);
-  if (projectPath) return projectPath.split('/').filter(Boolean).pop() || 'Progetto';
-  if (id.startsWith('terminal:')) return 'Terminale';
-  if (id.startsWith('browser:')) return 'Browser';
-  if (id.startsWith('utility:')) return 'Strumento';
-  return id;
-}
 
 interface WindowsSectionProps {
   topics: Record<string, Topic>;
@@ -53,32 +37,41 @@ interface WindowsSectionProps {
 
 export function WindowsSection({ topics, onTopicClick, onReopenTopic }: WindowsSectionProps) {
   const groups = useWorkspaceGroups();
-  const detached = useDetachedWindows();
-  const panes = usePaneStore((s) => s.panes);
+  const others = useOtherWindows();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  // With no other window there is nothing to place — stay invisible rather than
+  // Nothing else is open → nothing to place. Stay invisible rather than
   // duplicate the whole tree under a "this window" heading.
-  if (detached.length === 0) return null;
+  if (others.length === 0) return null;
 
-  // Every pane this window holds, across all its cells: the window IS the unit,
-  // so the split geometry is flattened away on purpose.
-  const localIds = groups.flatMap((g) => g.paneIds);
+  // Every CHAT topic this window holds, across all its cells: the window is the
+  // unit, so the split geometry is flattened away on purpose, and non-topic
+  // panes are filtered exactly as the presence announce filters them.
+  const localTopicIds = groups.flatMap((g) => g.paneIds).filter((id) => !!topics[id]);
 
   const rows = [
     {
       id: 'self',
       label: 'Questa finestra',
-      paneIds: localIds,
+      topicIds: localTopicIds,
       isSelf: true,
       onActivate: undefined as (() => void) | undefined,
     },
-    ...detached.map((w) => ({
+    ...others.map((w) => ({
       id: w.windowId,
-      label: capNamesLabel(w.topicIds.map((id) => paneDisplayName(id, topics, panes))) || 'Finestra',
-      paneIds: w.topicIds,
+      // A non-detached peer is the window everything was torn off from; naming
+      // it by its topics would read like just another cluster.
+      label: w.detached
+        ? topicNamesLabel(w.topicIds, topics) || 'Finestra'
+        : 'Finestra principale',
+      topicIds: w.topicIds,
       isSelf: false,
-      onActivate: () => focusOrReopenDetachedWindow(w, onReopenTopic),
+      // Only a real OS window (Tauri label) can be raised. A peer without one
+      // (a browser tab, another device) gets no "Vai" — offering a button that
+      // silently reopened its topics HERE would move work, not navigate to it.
+      onActivate: w.windowLabel
+        ? () => focusOrReopenDetachedWindow(w, onReopenTopic)
+        : undefined,
     })),
   ];
 
@@ -98,7 +91,7 @@ export function WindowsSection({ topics, onTopicClick, onReopenTopic }: WindowsS
                   onClick={() => setCollapsed((c) => ({ ...c, [row.id]: !isCollapsed }))}
                   className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left"
                   aria-expanded={!isCollapsed}
-                  title={`${row.paneIds.length} schede in questa finestra`}
+                  title={`${row.topicIds.length} chat in questa finestra`}
                 >
                   {isCollapsed ? (
                     <ChevronRight size={12} className="flex-shrink-0 text-app-text-tertiary" />
@@ -122,20 +115,17 @@ export function WindowsSection({ topics, onTopicClick, onReopenTopic }: WindowsS
               </div>
               {!isCollapsed && (
                 <div className="flex flex-col">
-                  {row.paneIds.map((id) => (
+                  {row.topicIds.map((id) => (
                     <button
                       key={id}
                       onClick={() => {
-                        if (row.isSelf) {
-                          if (topics[id]) onTopicClick(id);
-                        } else {
-                          row.onActivate?.();
-                        }
+                        if (row.isSelf) onTopicClick(id);
+                        else row.onActivate?.();
                       }}
                       className="flex w-full items-center gap-2 rounded-md py-1 pl-7 pr-2 text-left text-[12px] text-app-text-secondary transition-colors hover:bg-app-hover hover:text-app-text"
                     >
                       <span className="min-w-0 flex-1 truncate">
-                        {paneDisplayName(id, topics, panes)}
+                        {topics[id]?.name || topics[id]?.icon || id}
                       </span>
                     </button>
                   ))}

@@ -146,7 +146,11 @@ export function SpaceSwitcher() {
 
   return (
     <div
-      className="flex items-center gap-1 h-8 border-b border-app-border bg-surface flex-shrink-0 overflow-x-auto app-drag-region"
+      // chrome-glass, NOT bg-surface: every peer chrome row (the pane tab bars,
+      // the sidebar) is frosted, so an opaque strip read as a flat slab wedged
+      // between two sheets of glass — the "non è coerente col resto" half of the
+      // report. Same token they use, no new values.
+      className="flex items-center gap-1 h-8 border-b border-app-border chrome-glass flex-shrink-0 overflow-x-auto app-drag-region"
       style={{ paddingLeft: ROW_INSET, paddingRight: ROW_INSET }}
       data-testid="space-switcher"
       role="tablist"

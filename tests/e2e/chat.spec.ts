@@ -662,7 +662,7 @@ test.describe.serial("Chat Input Features", () => {
   let topicName: string;
 
   test.beforeAll(async ({ request }) => {
-    // Create topic without projectPath (appears in Chats section)
+    // Create topic without projectPath (appears in sezione Chat)
     topicName = "Input Feature Test " + Date.now();
     const topic = await createTopic(request, topicName);
     topicId = topic.id;
@@ -759,7 +759,7 @@ test.describe.serial("Chat Input Features", () => {
     await expect(fileSuggestions.first()).toBeVisible({ timeout: 5_000 });
     expect(await fileSuggestions.count()).toBeGreaterThan(0);
 
-    // Clean up: remove projectPath so topic stays in Chats section for next tests
+    // Clean up: remove projectPath so topic stays in sezione Chat for next tests
     await patchTopic(request, topicId, { projectPath: "" });
   });
 

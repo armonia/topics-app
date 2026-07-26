@@ -9,7 +9,7 @@ export class FileExplorerPage {
 
   /**
    * Navigate to a project's file explorer by:
-   * 1. Opening the app and expanding the Projects section
+   * 1. Opening the app and expanding the sezione Progetti
    * 2. Clicking the project header to open the project pane
    * 3. Optionally clicking a child topic to create a pane group
    * 4. Waiting for the file tree to become visible
@@ -29,9 +29,9 @@ export class FileExplorerPage {
     await seedProjectPane(this.page.request, projectPath).catch(() => {});
     await goToApp(this.page);
 
-    // Expand the Projects section if collapsed
+    // Expand the sezione Progetti if collapsed
     const projectsSection = this.page.getByRole("button", {
-      name: /Projects section/,
+      name: /sezione Progetti/,
     });
     if ((await projectsSection.count()) > 0) {
       const expanded = await projectsSection.getAttribute("aria-expanded");

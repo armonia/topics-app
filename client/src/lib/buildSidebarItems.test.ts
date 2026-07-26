@@ -542,16 +542,32 @@ describe("buildSidebarItems — utility tabs (tab-driven, same rule as everythin
       ...base,
       workspaceProjects: [],
       terminalSessions: [],
+      openPanels: ["__dashboard__"],
+      projectOpenPanes: {},
+    });
+    const dash = items.find((i) => i.id === "__dashboard__");
+    expect(dash).toBeTruthy();
+    expect(dash!.type).toBe("utility");
+    expect(dash!.name).toBe("Dashboard");
+    expect(dash!.icon).toBeTruthy();
+  });
+
+  // The board is the ONE utility with a dedicated sidebar row of its own (the
+  // "Board generale" shortcut at the top of the tree, which also carries the
+  // open-task count). Emitting a generic row here as well gave it TWO identical
+  // "Board generale" entries as soon as you opened it — one pinned at the top,
+  // one appended at the bottom / in Strumenti.
+  test("the BOARD is excluded — it has its own dedicated row, a generic one would duplicate it", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      terminalSessions: [],
       openPanels: ["__board__", "__dashboard__"],
       projectOpenPanes: {},
     });
-    const board = items.find((i) => i.id === "__board__");
-    expect(board).toBeTruthy();
-    expect(board!.type).toBe("utility");
-    expect(board!.name).toBe("Board generale");
-    expect(board!.icon).toBe("Kanban");
-    const dash = items.find((i) => i.id === "__dashboard__");
-    expect(dash?.name).toBe("Dashboard");
+    expect(items.find((i) => i.id === "__board__")).toBeUndefined();
+    // …while the other utilities still get theirs.
+    expect(items.find((i) => i.id === "__dashboard__")).toBeTruthy();
   });
 
   test("a closed utility tab has no row (the sidebar mirrors open tabs)", () => {
@@ -570,11 +586,11 @@ describe("buildSidebarItems — utility tabs (tab-driven, same rule as everythin
       ...base,
       workspaceProjects: [],
       terminalSessions: [],
-      openPanels: ["__board__"],
+      openPanels: ["__dashboard__"],
       projectOpenPanes: {},
     });
     const groups = groupSidebarItems(items);
-    expect(groups.utility.map((i) => i.id)).toEqual(["__board__"]);
+    expect(groups.utility.map((i) => i.id)).toEqual(["__dashboard__"]);
   });
 });
 

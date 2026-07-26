@@ -478,10 +478,10 @@ test.describe("Grid Split System", () => {
       await page.waitForTimeout(800);
     }
 
-    /** Collapse Terminals and Browser sections to make room for Chats topics */
+    /** Collapse Terminals and sezione Browsers to make room for Chats topics */
     async function collapseSidebarSections(page: Page) {
-      // Collapse Terminals section if expanded
-      const terminalsBtn = page.getByRole("button", { name: /Terminals section/ });
+      // Collapse sezione Terminali if expanded
+      const terminalsBtn = page.getByRole("button", { name: /sezione Terminali/ });
       if (await terminalsBtn.count() > 0) {
         const expanded = await terminalsBtn.getAttribute("aria-expanded");
         if (expanded === "true") {
@@ -489,8 +489,8 @@ test.describe("Grid Split System", () => {
           await page.waitForTimeout(300);
         }
       }
-      // Collapse Browser section if expanded
-      const browserBtn = page.getByRole("button", { name: /Browser section/ });
+      // Collapse sezione Browser if expanded
+      const browserBtn = page.getByRole("button", { name: /sezione Browser/ });
       if (await browserBtn.count() > 0) {
         const expanded = await browserBtn.getAttribute("aria-expanded");
         if (expanded === "true") {
@@ -498,8 +498,8 @@ test.describe("Grid Split System", () => {
           await page.waitForTimeout(300);
         }
       }
-      // Collapse Projects section if expanded
-      const projectsBtn = page.getByRole("button", { name: /Projects section/ });
+      // Collapse sezione Progetti if expanded
+      const projectsBtn = page.getByRole("button", { name: /sezione Progetti/ });
       if (await projectsBtn.count() > 0) {
         const expanded = await projectsBtn.getAttribute("aria-expanded");
         if (expanded === "true") {
@@ -745,8 +745,8 @@ test.describe("Grid Split System", () => {
       await goToApp(page);
       await collapseSidebarSections(page);
 
-      // Expand Projects section to find the e2e project
-      const projectsBtn = page.getByRole("button", { name: /Projects section/ });
+      // Expand sezione Progetti to find the e2e project
+      const projectsBtn = page.getByRole("button", { name: /sezione Progetti/ });
       if (await projectsBtn.count() > 0) {
         const expanded = await projectsBtn.getAttribute("aria-expanded");
         if (expanded === "false") {
@@ -914,7 +914,7 @@ test.describe("Grid Split System", () => {
       await collapseSidebarSections(page);
 
       // Open the self-provisioned project (same flow as GRID-05).
-      const projectsBtn = page.getByRole("button", { name: /Projects section/ });
+      const projectsBtn = page.getByRole("button", { name: /sezione Progetti/ });
       if (await projectsBtn.count() > 0) {
         const expanded = await projectsBtn.getAttribute("aria-expanded");
         if (expanded === "false") {

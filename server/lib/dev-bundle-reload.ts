@@ -71,16 +71,14 @@ export function startDevBundleReload(opts: {
 
 /**
  * The bundle revision = the sorted content-hashed ENTRY asset names index.html
- * references (`/assets/index-DWT3PvQi.css,/assets/index-Dra_ZXl3.js`). The
- * client derives ITS OWN rev from its live <script>/<link> tags, so the two
- * sides compare the same thing without any extra manifest file.
+ * references (`/assets/index-DWT3PvQi.css,/assets/index-Dra_ZXl3.js`).
  *
- * ONLY `index-*` on purpose: Vite's preload helper injects <link> tags for
- * lazy chunks at runtime, so the client DOM accumulates /assets/ names that
- * index.html doesn't have — comparing the full set would drift into false
- * mismatches. The entry hash already transitively covers every chunk (a chunk
- * content change renames it, which changes its importer's bytes, up the chain
- * to the entry).
+ * ONLY `index-*` on purpose: the entry hash transitively covers every chunk (a
+ * chunk content change renames it, which changes its importer's bytes, up the
+ * chain to the entry), so the entry names alone identify the build.
+ *
+ * The client no longer re-derives this from its live DOM — see
+ * `stampBundleRev` below and `client/src/lib/devBundleReload.ts`.
  */
 export function readBundleRev(publicDir: string): string {
   try {
@@ -90,4 +88,33 @@ export function readBundleRev(publicDir: string): string {
   } catch {
     return "";
   }
+}
+
+/** The meta tag name carrying the rev of the bundle a window BOOTED with. */
+export const BUNDLE_REV_META = "topics-bundle-rev";
+
+/**
+ * Stamp the served index.html with the rev it represents.
+ *
+ * WHY THIS EXISTS — the update-notice loop. The client used to re-derive its
+ * own rev by scraping every `/assets/index-*` out of the LIVE DOM. But Vite's
+ * preload helper appends `<link rel="modulepreload">` tags for LAZY chunks at
+ * runtime, and several of those chunks are themselves named `index-*` (a lazy
+ * module whose file is `index.js` — hast-util, micromark, CodeMirror…). The
+ * moment the app rendered a markdown message or opened an editor, the DOM held
+ * 5-6 `index-*` names while index.html referenced 2 — so the comparison could
+ * NEVER match. Result: a permanent phantom "nuova versione disponibile" that
+ * came back on every reconnect and every rebuild, and which no reload could
+ * clear because nothing was actually stale.
+ *
+ * Stamping the value the server itself computed removes the derivation (and
+ * therefore the whole class of drift): both sides now read ONE number. A window
+ * with no stamp — the Tauri shell serving its embedded/disk bundle without
+ * going through us — can't converge by reloading anyway, so the client treats a
+ * missing meta as "this check does not apply here" instead of nagging forever.
+ */
+export function stampBundleRev(html: string, rev: string): string {
+  if (!rev) return html;
+  const tag = `<meta name="${BUNDLE_REV_META}" content="${rev}">`;
+  return html.includes("<head>") ? html.replace("<head>", `<head>${tag}`) : `${tag}${html}`;
 }

@@ -1286,10 +1286,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <button
                 onClick={() => { onReattach(ctxMenu.paneId); setCtxMenu(null); }}
                 className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
-                title="Chiude lo split e riporta la tab nel gruppo principale"
+                title="Chiude lo split e riporta la scheda nel pannello principale"
               >
                 <Combine size={14} />
-                <span>Riporta nel gruppo</span>
+                <span>Riporta nel pannello principale</span>
               </button>
             </>
           )}

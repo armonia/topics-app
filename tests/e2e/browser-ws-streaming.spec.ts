@@ -22,7 +22,7 @@ const PERF = JSON.parse(readFileSync(PERF_PATH, "utf-8")).browser_ws_streaming a
  * `/browser <url>` slash command). Resolves once the browser-connection
  * indicator becomes visible.
  *
- * Phase 30-04 retired the legacy "Browser section" sidebar control; tests
+ * Phase 30-04 retired the legacy "sezione Browser" sidebar control; tests
  * MUST mount the panel via this CustomEvent now.
  */
 async function mountBrowserPane(

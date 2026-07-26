@@ -198,7 +198,7 @@ test.describe.serial("Terminal tab reload", () => {
 async function navigateAndOpenTerminal(page: Page, terminalPage: TerminalPage) {
   await goToApp(page);
 
-  const projectsSection = page.getByRole("button", { name: /Projects section/ });
+  const projectsSection = page.getByRole("button", { name: /sezione Progetti/ });
   if ((await projectsSection.count()) > 0) {
     const expanded = await projectsSection.getAttribute("aria-expanded");
     if (expanded === "false") await projectsSection.click();
