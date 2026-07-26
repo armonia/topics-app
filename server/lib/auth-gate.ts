@@ -85,9 +85,9 @@ export function isLoopbackAddress(ip: string | null): boolean {
   const a = ip.toLowerCase();
   return (
     a === "::1" ||
-    a === "::ffff:127.0.0.1" ||
     a === "localhost" ||
     /^127\./.test(a) ||
+    // v4-mapped-v6 loopback (::ffff:127.0.0.1 and the rest of ::ffff:127.0.0.0/8)
     /^::ffff:127\./.test(a)
   );
 }
@@ -101,13 +101,12 @@ export function isLocalOrigin(origin: string): boolean {
   } catch {
     return false;
   }
-  // URL() strips the brackets from an IPv6 host, so compare the bare form too.
+  // URL() strips the brackets from an IPv6 host, so compare the bare `::1`.
   return (
     host === "localhost" ||
     host === "127.0.0.1" ||
     host === "::1" ||
-    host === "[::1]" ||
-    host === "tauri.localhost" ||
+    host === "tauri.localhost" || // the app's real WKWebView origin on Windows/Linux
     host.endsWith(".localhost")
   );
 }

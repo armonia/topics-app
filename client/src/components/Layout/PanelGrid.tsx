@@ -1583,16 +1583,14 @@ export function PanelGrid({
 
     // Sidebar drag (PANEL_ID only — no GRID_ITEM, no PANE_TAB): OPEN the topic
     // into the workspace, GROUPING it as a tab in the main standalone group.
-    // Routed through the `topics:open-topic` event → openPanel, which REGISTERS
-    // the chat pane in the pane-store (a bare setOpenPanels/onOpenPanelAt does
-    // NOT — REORDER_PANES then drops the unregistered id and nothing renders).
-    // If it landed on a split (solo) cell, also merge it into THAT cell's group.
+    // Routed through the shared `topics:open-topic` event with an explicit
+    // `mode: 'permanent'`, which the canonical listener (usePanelLifecycle)
+    // turns into openPanel — the funnel that REGISTERS the chat pane in the
+    // pane-store (a bare setOpenPanels/onOpenPanelAt does NOT — REORDER_PANES
+    // then drops the unregistered id and nothing renders). The `permanent` opt-in
+    // keeps this drop a commitment while the board's peek stays a preview.
     if (!effectiveKey && !sourcePaneTab && sourceTopicId) {
-      const landedKey = gridRowsRef.current[dropTarget.rowIdx]?.itemKeys[dropTarget.colIdx];
-      const mergeInto = landedKey?.startsWith('solo:') && landedKey.slice('solo:'.length) !== sourceTopicId
-        ? landedKey.slice('solo:'.length)
-        : undefined;
-      window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: sourceTopicId, mergeInto } }));
+      window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: sourceTopicId, mode: 'permanent' } }));
       setDraggingGridKey(null);
       setGridDropTarget(null);
       gridDropTargetRef.current = null;
