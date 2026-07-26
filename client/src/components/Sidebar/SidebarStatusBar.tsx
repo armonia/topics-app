@@ -274,17 +274,15 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
       {/* Horizontal inset = ROW_INSET (was px-3): the bottom bar lines up with
           the sidebar cards, the header, and the tab strip — one inset on every
           sidebar axis. */}
-      {/* flex-wrap + gap-y: in DEV the right cluster grows by two chips ("dev"
-          and the build-age "12m") on top of "v2.2.x" and the refresh button,
-          while the left readout gains CPU/fps — together they ask for ~310px of
-          a ~244px sidebar. The container was `nowrap`, so the ONLY flexible item
-          (the left button) absorbed the whole overflow and hard-clipped its own
-          readouts mid-glyph — no ellipsis, no wrap, just a severed "60fp".
-          Wrapping lets the right cluster drop to its own line instead: it is
-          `flex-shrink-0`, so it moves rather than squeezes, and the left readout
-          keeps its full width. min-h-7 stays a FLOOR, so one line still looks
-          identical to before — this only spends height when it must. */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-h-7 py-0.5 border-t border-app-border flex-shrink-0 bg-app-bg" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      {/* ONE line, always. In dev this bar used to demand ~310px of a ~244px
+          sidebar (the right cluster gained a "dev" badge AND a build-age chip,
+          the left readout gained CPU + fps), and since the container is nowrap
+          the only flexible item — the left readout — absorbed all of it and
+          hard-clipped mid-glyph. Wrapping to a second line fixed the clipping
+          but looked worse, so the crowding is removed at the SOURCE instead:
+          the two dev chips are merged into one, and the left readout truncates
+          with an ellipsis rather than being severed. */}
+      <div className="flex items-center gap-2 min-h-7 border-t border-app-border flex-shrink-0 bg-app-bg" style={{ paddingInline: ROW_INSET, paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {/* Gateway status */}
         <button
           ref={statusBtnRef}
@@ -301,7 +299,10 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
                 gatewayOnline ? 'bg-emerald-500' : 'bg-red-500'
               }`} />
               <Wifi size={10} className={gatewayOnline ? 'text-emerald-500' : 'text-red-500'} />
-              <span className={gatewayOnline ? 'text-app-text-secondary' : 'text-red-500'}>
+              {/* The only elastic child: on a narrow sidebar THIS is what gives
+                  way, with an ellipsis, so the numeric readouts to its right
+                  (MB / CPU / fps) stay whole instead of being cut mid-digit. */}
+              <span className={`min-w-0 truncate ${gatewayOnline ? 'text-app-text-secondary' : 'text-red-500'}`}>
                 {gatewayOnline ? 'Online' : 'Offline'}
               </span>
               {/* Latency lives only in the dropdown Gateway row, next to its
@@ -316,7 +317,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
           )}
           {totalMemMB !== null && (
             <span
-              className={`text-app-text-muted tabular-nums ${memHigh ? 'text-amber-500' : ''}`}
+              className={`flex-shrink-0 text-app-text-muted tabular-nums ${memHigh ? 'text-amber-500' : ''}`}
               title={memTitle}
             >
               {totalMemMB}MB
@@ -328,14 +329,14 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
               measure. It's the shell process alone (WKWebView content excluded). */}
           {perf && perf.cpu.total > 0 && (
             <span
-              className={`text-app-text-muted tabular-nums ${perf.cpu.total > 100 ? 'text-amber-500' : ''}`}
+              className={`flex-shrink-0 text-app-text-muted tabular-nums ${perf.cpu.total > 100 ? 'text-amber-500' : ''}`}
               title={`CPU processo shell di Topics: ${perf.cpu.total}%${isPartialMem ? ' — non include i processi WKWebView dei pannelli' : ''} · può superare 100% (per core)`}
             >
               {perf.cpu.total}%
             </span>
           )}
           {fps > 0 && (
-            <span className={`text-app-text-muted tabular-nums ${fps < 30 ? 'text-red-500' : fps < 50 ? 'text-amber-500' : ''}`}>{fps}fps</span>
+            <span className={`flex-shrink-0 text-app-text-muted tabular-nums ${fps < 30 ? 'text-red-500' : fps < 50 ? 'text-amber-500' : ''}`}>{fps}fps</span>
           )}
         </button>
 
@@ -410,12 +411,16 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
               v{appVersion}
             </button>
           )}
+          {/* In dev the build age rides INSIDE this badge ("dev · 12m") instead
+              of costing a second chip plus its gap — the two always appeared
+              together, and separating them is what tipped the bar past the
+              sidebar width. */}
           {isDev && (
             <span
               className="px-1 rounded bg-amber-500/15 text-amber-500 font-medium text-[10px] leading-tight"
-              title="Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce."
+              title={`Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.${lastChangeTime ? ` Ultimo aggiornamento codice: ${formatBuildTime(lastChangeTime)} fa.` : ''}`}
             >
-              dev
+              dev{lastChangeTime ? ` · ${formatBuildTime(lastChangeTime)}` : ''}
             </span>
           )}
           {/* Quiet "auto-update" badge: the server has dev bundle hot-delivery ON
@@ -435,9 +440,9 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
           {/* Relative "X fa" = last local update. Shown in dev (HMR-tracked) and
               for a recent local build (the desktop app runs the built bundle even
               while developing). Hidden on a stale shipped release. */}
-          {(isDev || buildIsRecent) && (
-            <span title={`Ultimo aggiornamento codice: ${lastChangeTime ? formatBuildTime(lastChangeTime) + ' fa' : 'dev'}`}>
-              {lastChangeTime ? formatBuildTime(lastChangeTime) : 'dev'}
+          {!isDev && buildIsRecent && lastChangeTime && (
+            <span title={`Ultimo aggiornamento codice: ${formatBuildTime(lastChangeTime)} fa`}>
+              {formatBuildTime(lastChangeTime)}
             </span>
           )}
           <button
