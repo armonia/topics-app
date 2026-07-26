@@ -140,8 +140,19 @@ test.describe.serial("Chat", () => {
       // Wait for messages to load
       await expect(page.locator(".message-content").first()).toBeVisible({ timeout: 15_000 });
 
-      // Scroll the Virtuoso scroller to the top
-      const scroller = page.locator("[data-virtuoso-scroller]").first();
+      // Scope the scroller to THIS topic's pane. `.first()` was order-dependent:
+      // run alone there is one chat pane and it picks the right one, but in a
+      // full-suite run an earlier spec leaves another chat open in the shared
+      // workspace, so `.first()` could scroll a DIFFERENT pane — the seeded list
+      // never moved and the button never appeared. Green in isolation, red in
+      // sequence, with nothing wrong in the app.
+      // MessageList labels its scroll container per topic
+      // (`aria-label="Messages for <name>"`), which is the only topic-scoped
+      // anchor around the list — use it instead of a global `.first()`.
+      const scroller = page
+        .locator(`[aria-label="Messages for ${sbTopicName}"] [data-virtuoso-scroller]`)
+        .first();
+      await expect(scroller, "this topic's own scroller is mounted").toBeVisible({ timeout: 10_000 });
       await scroller.evaluate((el) => { el.scrollTop = 0; });
 
       // Scroll-to-bottom button should appear
