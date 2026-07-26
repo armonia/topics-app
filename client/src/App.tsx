@@ -32,7 +32,7 @@ import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
 import { openTaskFromUrl, currentTaskTarget } from './lib/openTaskLink';
 import { useDismissable } from './hooks/useDismissable';
-import { POPOVER_SURFACE, POPOVER_PANEL, Z_POPOVER } from './lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from './lib/popoverStyles';
 
 // Tauri-on-macOS chrome parity: like Electron, the traffic lights are HIDDEN by
 // default and revealed only while the Topics menu is open (the Rust shell hides
@@ -1164,8 +1164,20 @@ function App() {
       {showTopicsMenu && createPortal(
         <div
           ref={topicsDropdownRef}
-          className={`${POPOVER_SURFACE} min-w-[200px]`}
-          style={{ position: 'fixed', top: topicsMenuPos.top, left: topicsMenuPos.left, zIndex: Z_POPOVER }}
+          // Height cap + scroll, and a left clamp. This menu opened at
+          // `trigger.bottom + 4` with NO bound of any kind: it has ~12 rows and
+          // simply ran off the bottom on a short window, with the overflowing
+          // rows unreachable. Capping to the space actually below the trigger
+          // (and clamping the left edge to the shared POPOVER_MARGIN) keeps
+          // every row reachable without a measure-then-place pass.
+          className={`${POPOVER_SURFACE} min-w-[200px] overflow-y-auto overscroll-contain`}
+          style={{
+            position: 'fixed',
+            top: topicsMenuPos.top,
+            left: Math.max(POPOVER_MARGIN, topicsMenuPos.left),
+            maxHeight: `calc(100vh - ${topicsMenuPos.top + POPOVER_MARGIN}px)`,
+            zIndex: Z_POPOVER,
+          }}
         >
           {/* Sidebar controls relocated from the old <SidebarControls> row. */}
           <button
@@ -1285,13 +1297,17 @@ function App() {
       {expandedTool === 'remote' && topicsMenuRef.current && createPortal(
         <div
           ref={remoteAccessDropdownRef}
-          className={`${POPOVER_PANEL} min-w-[300px]`}
+          // Same cap as the Topics menu above: RemoteAccessPanel is a tall
+          // panel with no max-h of its own, opening at the same unbounded
+          // coordinates — it ran off the bottom edge.
+          className={`${POPOVER_PANEL} min-w-[300px] overflow-y-auto overscroll-contain`}
           style={{
             position: 'fixed',
             // Anchored to the Topics ▾ menu (its trigger is now the menu item),
             // opening at the same spot as the Topics dropdown.
             top: topicsMenuPos.top,
-            left: topicsMenuPos.left,
+            left: Math.max(POPOVER_MARGIN, topicsMenuPos.left),
+            maxHeight: `calc(100vh - ${topicsMenuPos.top + POPOVER_MARGIN}px)`,
             zIndex: Z_POPOVER,
           }}
         >
