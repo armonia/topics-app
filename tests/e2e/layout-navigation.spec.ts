@@ -48,11 +48,11 @@ test.describe("Layout & Navigation", () => {
     // Right-click first tab and verify context menu items
     await layoutPage.rightClickTab(0);
     const items = await layoutPage.getContextMenuItems();
-    expect(items.some((t) => t.includes("Close"))).toBeTruthy();
+    expect(items.some((t) => t.includes("Chiudi"))).toBeTruthy();
 
-    // Close via context menu "Close" button (first button in menu)
+    // Close via context menu "Chiudi …" button (first button in menu)
     const menu = page.locator('[role="menu"]').first();
-    const closeBtn = menu.locator("button").filter({ hasText: /^Close/ }).first();
+    const closeBtn = menu.locator("button").filter({ hasText: /^Chiudi/ }).first();
     await closeBtn.click();
 
     // Verify context menu dismissed

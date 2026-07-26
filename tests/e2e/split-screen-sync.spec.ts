@@ -134,7 +134,7 @@ test.describe("Split Screen Sync & Correctness", () => {
     const initialColDividers = await countColDividers(page);
     const initialTabBars = await countTabBars(page);
 
-    await splitViaContextMenu(page, "Split Right");
+    await splitViaContextMenu(page, "Dividi a destra");
 
     const afterColDividers = await countColDividers(page);
     expect(afterColDividers).toBeGreaterThan(initialColDividers);
@@ -154,7 +154,7 @@ test.describe("Split Screen Sync & Correctness", () => {
 
     const initialRowDividers = await countRowDividers(page);
 
-    await splitViaContextMenu(page, "Split Down");
+    await splitViaContextMenu(page, "Dividi in basso");
 
     const afterRowDividers = await countRowDividers(page);
     expect(afterRowDividers).toBeGreaterThan(initialRowDividers);
@@ -169,7 +169,7 @@ test.describe("Split Screen Sync & Correctness", () => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     await openTwoTopics(page, topicIds);
 
-    await splitViaContextMenu(page, "Split Right");
+    await splitViaContextMenu(page, "Dividi a destra");
 
     const preDividers = await countColDividers(page);
     expect(preDividers).toBeGreaterThanOrEqual(1);
@@ -260,7 +260,7 @@ test.describe("Split Screen Sync & Correctness", () => {
       await expect(menu).toBeVisible({ timeout: 5000 });
       const splitBtn = menu
         .locator("button")
-        .filter({ hasText: /Split Right/ })
+        .filter({ hasText: /Dividi a destra/ })
         .first();
 
       if ((await splitBtn.count()) > 0) {
@@ -414,7 +414,7 @@ test.describe("Split Screen Sync & Correctness", () => {
       await expect(menu).toBeVisible({ timeout: 3000 });
       let splitRightBtn = menu
         .locator("button")
-        .filter({ hasText: /Split Right/ })
+        .filter({ hasText: /Dividi a destra/ })
         .first();
       if ((await splitRightBtn.count()) > 0) {
         await splitRightBtn.click();
@@ -429,7 +429,7 @@ test.describe("Split Screen Sync & Correctness", () => {
         await expect(menu).toBeVisible({ timeout: 3000 });
         const splitDownBtn = menu
           .locator("button")
-          .filter({ hasText: /Split Down/ })
+          .filter({ hasText: /Dividi in basso/ })
           .first();
         if ((await splitDownBtn.count()) > 0) {
           await splitDownBtn.click();
@@ -542,14 +542,14 @@ test.describe("Split Screen Sync & Correctness", () => {
     await page.waitForTimeout(800);
 
     // Split Down first to create 2 rows
-    await splitViaContextMenu(page, "Split Down");
+    await splitViaContextMenu(page, "Dividi in basso");
     const rowDividers = await countRowDividers(page);
     expect(rowDividers).toBeGreaterThanOrEqual(1);
 
     // Now Split Right on one of the remaining tabs to create a column within a row
     const tabs = page.locator('[role="main"] [draggable="true"]');
     if ((await tabs.count()) >= 2) {
-      await splitViaContextMenu(page, "Split Right", 0);
+      await splitViaContextMenu(page, "Dividi a destra", 0);
     }
 
     // Verify both row and column dividers coexist

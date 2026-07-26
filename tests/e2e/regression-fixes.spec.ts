@@ -205,7 +205,7 @@ test.describe("PanelGrid: resize works after split", () => {
     // role="menu" (PaneTabBar.tsx). Target the menu role.
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible({ timeout: 3000 });
-    const splitBtn = menu.getByText("Split Right", { exact: true });
+    const splitBtn = menu.getByText("Dividi a destra", { exact: true });
     await expect(splitBtn).toBeVisible({ timeout: 3000 });
     await splitBtn.click();
 

@@ -142,8 +142,8 @@ test.describe("Topic Management - Settings & Organization", () => {
     // Right-click using dispatchEvent to avoid DOM detachment
     await topicTabText.dispatchEvent("contextmenu");
 
-    // Wait for and click "Settings" in the tab context menu
-    const settingsMenuItem = page.locator('button').filter({ hasText: /^Settings$/ });
+    // Wait for and click "Impostazioni" in the tab context menu
+    const settingsMenuItem = page.locator('button').filter({ hasText: /^Impostazioni$/ });
     await expect(settingsMenuItem).toBeVisible({ timeout: 3000 });
     await settingsMenuItem.click();
 
@@ -208,7 +208,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     const topicTabReload = mainAreaReload.getByText(new RegExp(`E2E-Alpha-${TS}`)).first();
     await expect(topicTabReload).toBeVisible({ timeout: 3000 });
     await topicTabReload.dispatchEvent("contextmenu");
-    const settingsMenuReload = page.locator('button').filter({ hasText: /^Settings$/ });
+    const settingsMenuReload = page.locator('button').filter({ hasText: /^Impostazioni$/ });
     await expect(settingsMenuReload).toBeVisible({ timeout: 3000 });
     await settingsMenuReload.click();
     await expect(page.getByRole("dialog")).toBeVisible({ timeout: 5000 });
@@ -350,38 +350,49 @@ test.describe("Topic Management - Settings & Organization", () => {
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible({ timeout: 5000 });
 
-    // Click "Change color" menuitem to open color submenu
-    await menu.getByRole("menuitem", { name: /Change color/i }).click();
+    // Click "Cambia colore" menuitem to open color submenu
+    await menu.getByRole("menuitem", { name: /Cambia colore/i }).click();
 
     // Wait for color submenu to appear
-    await expect(menu.getByText("Choose color")).toBeVisible({ timeout: 3000 });
+    await expect(menu.getByText("Scegli colore")).toBeVisible({ timeout: 3000 });
 
     // Click the green color swatch (#059669 = rgb(5, 150, 105))
-    await menu.getByRole("button", { name: "Color #059669" }).click();
+    await menu.getByRole("button", { name: "Colore #059669" }).click();
 
     // Context menu should auto-close (handleColorChange calls onClose)
     await expect(menu).toBeHidden({ timeout: 3000 });
 
-    // Click the topic to focus it (shows accent border with topic color)
-    const betaAfterColor = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
-    await betaAfterColor.click();
+    // The colour is DATA, not a sidebar decoration: the redesign dropped the
+    // coloured accent from the tree row (nothing under components/Sidebar reads
+    // `topic.color` any more — it feeds the pane/settings surfaces instead), so
+    // asserting a tinted svg in the row tested an affordance that no longer
+    // exists. What the feature must still guarantee is that the pick STICKS.
+    // GET /api/topics returns `{ topics: Record<id, Topic>, … }` — a keyed map.
+    const colorOf = async () => {
+      const res = await page.request.get("http://localhost:13334/api/topics");
+      const body = await res.json();
+      return body?.topics?.[betaId]?.color;
+    };
+    await expect.poll(colorOf, {
+      message: "the picked colour is persisted server-side",
+      timeout: 5000,
+    }).toBe("#059669");
 
-    // Verify topic color: #059669 = rgb(5, 150, 105). Post-redesign the color
-    // lives on the TopicIcon svg via inline style, not a colored accent div.
-    const accentBorder = betaAfterColor.locator('svg[style*="color"]').first();
-    await expect(accentBorder).toBeVisible({ timeout: 5000 });
-    await expect(accentBorder).toHaveCSS("color", "rgb(5, 150, 105)");
-
-    // Reload and verify persistence
+    // …and that it survives a reload: reopening the submenu shows THAT swatch
+    // as the selected one (ContextMenu marks `topic.color === color` with the
+    // scale-110 ring), which is the user-visible proof the value round-tripped.
     await page.reload();
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     const betaAfterReload = await ensureTopicVisible(page, new RegExp(`E2E-Beta-${TS}`));
-
-    // Click to focus again to show the accent border
-    await betaAfterReload.click();
-    const accentAfterReload = betaAfterReload.locator('svg[style*="color"]').first();
-    await expect(accentAfterReload).toBeVisible({ timeout: 5000 });
-    await expect(accentAfterReload).toHaveCSS("color", "rgb(5, 150, 105)");
+    await betaAfterReload.click({ button: "right" });
+    const menuAfterReload = page.getByRole("menu");
+    await expect(menuAfterReload).toBeVisible({ timeout: 5000 });
+    await menuAfterReload.getByRole("menuitem", { name: /Cambia colore/i }).click();
+    await expect(menuAfterReload.getByText("Scegli colore")).toBeVisible({ timeout: 3000 });
+    await expect(
+      menuAfterReload.getByRole("button", { name: "Colore #059669" }),
+      "the previously picked swatch is marked selected after reload",
+    ).toHaveClass(/scale-110/);
   });
 
   // Manual topic drag-reorder was dropped in the redesign (no DndContext / no

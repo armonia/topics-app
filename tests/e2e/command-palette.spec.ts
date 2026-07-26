@@ -648,11 +648,11 @@ test.describe("Command Palette", () => {
     ]);
     await goToApp(page);
 
-    // Nest the layout via the tab context menu (Split Down → vertical stack).
+    // Nest the layout via the tab context menu (Dividi in basso → vertical stack).
     const tab = page.locator('[role="main"] [draggable="true"]').first();
     await expect(tab).toBeVisible({ timeout: 10000 });
     await tab.click({ button: "right" });
-    const splitDown = page.getByText("Split Down", { exact: true });
+    const splitDown = page.getByText("Dividi in basso", { exact: true });
     await expect(splitDown).toBeVisible({ timeout: 3000 });
     await splitDown.click();
     await expect

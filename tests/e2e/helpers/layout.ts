@@ -25,8 +25,8 @@ export async function getVisibleTabLabels(page: Page): Promise<string[]> {
 }
 
 /**
- * Right-click the tab at `tabIndex` (default: first) and pick "Split Right"/
- * "Split Down" from its context menu.
+ * Right-click the tab at `tabIndex` (default: first) and pick "Dividi a destra"/
+ * "Dividi in basso" from its context menu.
  *
  * `waitMs` is a post-split settle delay before the caller's next assertion —
  * copies of this helper used 1000ms or 1500ms depending on the spec; kept as
@@ -35,7 +35,7 @@ export async function getVisibleTabLabels(page: Page): Promise<string[]> {
  */
 export async function splitViaContextMenu(
   page: Page,
-  direction: "Split Right" | "Split Down",
+  direction: "Dividi a destra" | "Dividi in basso",
   tabIndex = 0,
   waitMs = 1000,
 ) {

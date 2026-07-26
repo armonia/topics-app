@@ -366,11 +366,11 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     await expectServerPin(request, t.id, true);
 
     // Close the tab through the SAME user-close funnel Cmd+W reaches
-    // (right-click → "Close now" bypasses the 3s countdown deterministically).
+    // (right-click → "Chiudi ora" bypasses the 3s countdown deterministically).
     const paneTab = page.getByTestId(`pane-tab-${t.id}`);
     await expect(paneTab).toBeVisible({ timeout: 5000 });
     await paneTab.click({ button: "right" });
-    await page.getByRole("button", { name: /Close now/ }).click();
+    await page.getByRole("button", { name: /Chiudi ora/ }).click();
     await expect(paneTab).toBeHidden({ timeout: 5000 });
 
     // Pinned ⇒ the row PERSISTS, but the topic DOES archive on close. The
@@ -410,7 +410,7 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     // Close again, then UNPIN while closed → row disappears AND the topic
     // archives (2-state fallback: no phantom non-archived tab-less topic).
     await page.getByTestId(`pane-tab-${t.id}`).click({ button: "right" });
-    await page.getByRole("button", { name: /Close now/ }).click();
+    await page.getByRole("button", { name: /Chiudi ora/ }).click();
     await expect(page.getByTestId(`pane-tab-${t.id}`)).toBeHidden({ timeout: 5000 });
 
     await row.click({ button: "right" });
@@ -459,9 +459,9 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     await expect(paneTab).toBeVisible({ timeout: 10000 });
     await expectServerPin(request, t.id, true);
 
-    // Close the tab (Close now → deterministic, bypasses the countdown).
+    // Close the tab (Chiudi ora → deterministic, bypasses the countdown).
     await paneTab.click({ button: "right" });
-    await page.getByRole("button", { name: /Close now/ }).click();
+    await page.getByRole("button", { name: /Chiudi ora/ }).click();
     await expect(paneTab).toBeHidden({ timeout: 5000 });
 
     // Let the archive + pane-store PUT settle before reloading.
@@ -519,7 +519,7 @@ test.describe("Sidebar — Fissati (pinning)", () => {
     const projectPaneTab = page.getByTestId(`pane-tab-project:${encodeURIComponent(projectPath)}`);
     await expect(projectPaneTab).toBeVisible({ timeout: 5000 });
     await projectPaneTab.click({ button: "right" });
-    await page.getByRole("button", { name: /Close now/ }).click();
+    await page.getByRole("button", { name: /Chiudi ora/ }).click();
     await expect(projectPaneTab).toBeHidden({ timeout: 5000 });
     await expect(pinnedSection.getByTestId("project-toggle-e2e-pin-project")).toBeVisible({ timeout: 5000 });
 
@@ -599,7 +599,10 @@ test.describe("Sidebar — Project icons", () => {
     await expect(row.getByTestId("project-monogram")).toHaveCount(0);
   });
 
-  test("SIDEBAR-WINDOWS: a detached window's presence renders the 'Finestre aperte' section", async ({ page }) => {
+  // A "group" in this app is a WINDOW — the unit that pops out and lives on as
+  // its own OS window — not an intra-window split cell. The sidebar's Finestre
+  // section is that model made visible: this window plus every other one.
+  test("SIDEBAR-WINDOWS: another window's presence renders the 'Finestre' section (this window + the other)", async ({ page }) => {
     // The native OS detach can't run headless, but the section is WS-driven:
     // inject a `presence:windows` frame carrying one DETACHED window (a windowId
     // other than this tab's own → computeDetachedWindows includes it) and assert
@@ -619,8 +622,20 @@ test.describe("Sidebar — Project icons", () => {
     });
     await goToApp(page);
 
-    const section = page.getByTestId("sidebar-detached-windows");
-    await expect(section, "the detached-windows section renders from live presence").toBeVisible({ timeout: 10000 });
-    await expect(section).toContainText("Finestre aperte");
+    const section = page.getByTestId("sidebar-windows");
+    await expect(section, "the windows section renders from live presence").toBeVisible({ timeout: 10000 });
+    await expect(section).toContainText("Finestre");
+
+    // BOTH windows are rows: this one is named explicitly (so "where am I" is
+    // answerable), the foreign one carries the "Vai" focus affordance.
+    await expect(section, "this window is listed too, not just the foreign one").toContainText("Questa finestra");
+    await expect(
+      section.locator('[aria-expanded]'),
+      "one row per window: this one + the detached one",
+    ).toHaveCount(2);
+    await expect(
+      section.getByTestId("focus-window"),
+      "only the OTHER window offers 'Vai' (you cannot focus the window you're in)",
+    ).toHaveCount(1);
   });
 });

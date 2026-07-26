@@ -371,7 +371,7 @@ test.describe("Topic Management", () => {
 // ── Fissati (pinning) × archive interplay ──────────────────────────────────────
 //
 // Closing a pinned chat's tab does NOT archive it (covered in sidebar.spec.ts
-// PIN-1 — the "Close now" path exercises the same handleClosePanel funnel
+// PIN-1 — the "Chiudi ora" path exercises the same handleClosePanel funnel
 // Cmd+W reaches). Here: the EXPLICIT archive action still archives a pinned
 // chat, but the row stays listed (the pinnedIds escape bypasses the archived
 // filter), and reopening self-heals the archived flag.
