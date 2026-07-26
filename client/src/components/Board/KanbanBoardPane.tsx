@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
@@ -140,6 +140,42 @@ function PublishControl() {
         </>
       )}
     </div>
+  );
+}
+
+/** Visible overload signal in the board header. The dispatch cap is advisory
+ *  when set to a fixed number (a human can knowingly run more agents than the
+ *  machine recommends) — but the only place that recommendation lived was the
+ *  /api/system/dispatch-capacity JSON and the settings popover. This surfaces it
+ *  where the human already is: a pill that lights up when the 1-min load average
+ *  approaches/exceeds the core count. It never blocks dispatch — it just makes
+ *  "the box is on its knees" impossible to miss. Polls every 15s (cheap probe). */
+function OverloadBadge() {
+  const [cap, setCap] = useState<DispatchCapacity | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const tick = () => boardApi.dispatchCapacity().then((c) => { if (alive) setCap(c); }).catch(() => { /* optional */ });
+    tick();
+    const id = setInterval(tick, 15000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  if (!cap) return null;
+  // load1 vs cores is the honest live saturation signal (see dispatch-capacity.ts).
+  const ratio = cap.cores > 0 ? cap.load1 / cap.cores : 0;
+  if (ratio < 0.9) return null; // healthy — say nothing
+  const severe = ratio >= 1.3;
+  const cls = severe
+    ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30'
+    : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
+  return (
+    <span
+      className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${cls}`}
+      title={`Load ${cap.load1.toFixed(1)} su ${cap.cores} core — la macchina è sotto carico. Consigliati ${cap.recommended} agent in parallelo${severe ? '. Valuta se fermare qualche agente.' : '.'}`}
+    >
+      <AlertTriangle className="h-3 w-3" />
+      {severe ? 'Carico critico' : 'Carico alto'}
+      <span className="text-neutral-500">· max {cap.recommended}</span>
+    </span>
   );
 }
 
@@ -730,6 +766,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           <span className="text-xs font-semibold text-neutral-200">Board<span className="hidden sm:inline"> generale</span></span>
         )}
         <GlobalSettingsMenu />
+        <OverloadBadge />
         <div className="ml-2 min-w-0">
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
