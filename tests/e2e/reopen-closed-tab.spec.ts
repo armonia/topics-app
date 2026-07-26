@@ -40,8 +40,21 @@ async function seedTwoTabs(
     projects: {},
     groupOrder: ["group:default"],
     closedStack: [],
+    // Must OUT-RANK whatever is already stored: the pane snapshot is merged
+    // under an LWW gate on lastSeq, so a hard-coded `1` silently loses against
+    // any state a previous spec left behind — the seed appeared to be written
+    // and the tests then ran against a foreign workspace (this file asserts
+    // "exactly 2 tabs", which is why it went red only in a full-suite run).
+    // Read the live seq and bump it, exactly like resetPaneStore does.
     lastSeq: 1,
   };
+  const cur = await request
+    .get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true })
+    .catch(() => null);
+  if (cur?.ok()) {
+    const body = (await cur.json().catch(() => null)) as { value?: { lastSeq?: number } } | null;
+    snapshot.lastSeq = (body?.value?.lastSeq ?? 0) + 1;
+  }
   await request.put(`${BASE}/api/ui-state/pane-store-v2`, { data: snapshot, ignoreHTTPSErrors: true });
   await request.put(`${BASE}/api/ui-state/panels`, {
     data: { openPanels: [t1.id, t2.id] },
