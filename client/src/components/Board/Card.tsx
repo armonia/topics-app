@@ -12,6 +12,7 @@ import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
 import { fmtMs, fmtLive, fmtTok, fmtModel, fmtUpdatedAt } from './format';
 import { StatusIcon, DispatchChip, TaskIdChip } from './atoms';
+import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
 export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, onError, onRefetch, onOpenTopic, tasksById, projectPathById, liveById }: {
@@ -447,20 +448,20 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
           <button
             role="menuitem"
             onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpen(task.id); }}
-            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+            className={POPOVER_ITEM}
           ><ClipboardList className="h-3.5 w-3.5 text-neutral-400" /> Apri</button>
           {task.assignedTopicId && onOpenTopic && (
             <button
               role="menuitem"
               onClick={(e) => { e.stopPropagation(); setCtxMenu(null); onOpenTopic(task.assignedTopicId!); }}
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+              className={POPOVER_ITEM}
             ><ArrowUpRight className="h-3.5 w-3.5 text-neutral-400" /> Apri tab agent</button>
           )}
-          <div className="my-1 border-t border-white/10" />
+          <div className={POPOVER_DIVIDER} />
           <button
             role="menuitem"
             onClick={(e) => { e.stopPropagation(); setCtxMenu(null); archive(); }}
-            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-rose-300 hover:bg-rose-500/10"
+            className={POPOVER_ITEM_DANGER}
           ><Trash2 className="h-3.5 w-3.5" /> Archivia</button>
         </ContextMenuPortal>
       )}

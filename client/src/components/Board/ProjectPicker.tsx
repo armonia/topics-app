@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Check, Loader2, Plus, Sparkles } from 'lucide-react';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import type { BoardProjectRef } from '../../lib/board';
+import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 
 /**
  * Menu content shared by every "pick a project" surface (the composer's
@@ -83,7 +84,7 @@ export function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, on
               disabled={disabled}
               onClick={() => onPick(p)}
               title={p.path}
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+              className={`${POPOVER_ITEM} disabled:opacity-40`}
             >
               <ProjectFavicon path={p.path} size={13} />
               <span className="min-w-0 flex-1 truncate">{p.name}</span>
@@ -94,12 +95,12 @@ export function ProjectPickerBody({ projects, selectedId, isDisabled, onPick, on
       </div>
       {showCreate && (
         <>
-          <div className="my-1 border-t border-white/10" />
+          <div className={POPOVER_DIVIDER} />
           <button
             role="option" aria-selected={false} disabled={busy}
             onClick={() => onCreate(query.trim())}
             title={`Crea il progetto "${query.trim()}" nel workspace`}
-            className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+            className={`${POPOVER_ITEM} disabled:opacity-40`}
           >{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Crea &quot;{query.trim()}&quot;…</button>
         </>
       )}

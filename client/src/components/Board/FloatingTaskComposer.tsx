@@ -8,6 +8,7 @@ import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/compos
 import { COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
 import { autoGrow, friendlyModelLabel } from './format';
 import { ProjectPickerBody } from './ProjectPicker';
+import { POPOVER_ITEM } from '@/lib/popoverStyles';
 
 /**
  * The "dai questo all'agent" entry point: a floating input at the bottom of
@@ -285,7 +286,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
               role="option" aria-selected={model === null}
               onClick={() => { setModel(null); setModelOpen(false); }}
               title="Lascia scegliere il provider"
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+              className={POPOVER_ITEM}
             >
               <span className="min-w-0 flex-1">Intelligenza automatica</span>
               {model === null && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
@@ -294,7 +295,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
               <button
                 key={m} role="option" aria-selected={model === m}
                 onClick={() => { setModel(m); setModelOpen(false); }}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                className={POPOVER_ITEM}
               >
                 <span className="min-w-0 flex-1 truncate">{friendlyModelLabel(m)}</span>
                 {model === m && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
@@ -317,7 +318,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
               role="option" aria-selected={prio === null}
               onClick={() => { setPrio(null); setPrioOpen(false); }}
               title="La valuta l'agent al primo turno; la coda serve prima le priorità alte"
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+              className={POPOVER_ITEM}
             >
               <span className="h-1.5 w-1.5 shrink-0 rounded-full border border-neutral-500" />
               <span className="min-w-0 flex-1">Automatica</span>
@@ -327,7 +328,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError }: 
               <button
                 key={p} role="option" aria-selected={prio === p}
                 onClick={() => { setPrio(p); setPrioOpen(false); }}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                className={POPOVER_ITEM}
               >
                 <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
                 <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>

@@ -9,7 +9,7 @@ import { BranchList } from '../Git/BranchList';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useGitStatus, gitCache } from '../../hooks/useGitStatus';
 import { useToast } from '../Shared/Toast';
-import { POPOVER_SURFACE, POPOVER_PANEL, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_CONTEXT_MENU, Z_POPOVER } from '@/lib/popoverStyles';
 import { useDismissable } from '../../hooks/useDismissable';
 import { MODAL_PANEL } from '@/lib/modalStyles';
 import { SELECTED_SURFACE, SELECTED_SURFACE_SOFT } from '@/lib/selectionStyles';
@@ -794,10 +794,19 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
         {showBranches && branchBtnRef.current && createPortal(
           <div
             ref={branchDropdownRef}
-            className={`fixed w-52 max-h-[220px] overflow-y-auto ${POPOVER_PANEL}`}
+            className={`fixed w-52 overflow-y-auto overscroll-contain ${POPOVER_PANEL}`}
             style={{
               top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
-              left: branchBtnRef.current.getBoundingClientRect().left,
+              // Clamp both axes. The width is fixed (w-52 = 208px) so the
+              // horizontal clamp needs no measurement; the height takes the
+              // TIGHTER of its design cap and the room actually left below the
+              // trigger, so a button near the bottom edge scrolls instead of
+              // spilling off-screen.
+              left: Math.max(
+                POPOVER_MARGIN,
+                Math.min(branchBtnRef.current.getBoundingClientRect().left, window.innerWidth - 208 - POPOVER_MARGIN),
+              ),
+              maxHeight: `min(220px, calc(100vh - ${branchBtnRef.current.getBoundingClientRect().bottom + 4 + POPOVER_MARGIN}px))`,
               zIndex: Z_POPOVER,
             }}
           >
@@ -1118,10 +1127,15 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
       {showBranches && branchBtnRef.current && createPortal(
         <div
           ref={branchDropdownRef}
-          className={`fixed w-56 max-h-[320px] overflow-y-auto ${POPOVER_PANEL}`}
+          className={`fixed w-56 overflow-y-auto overscroll-contain ${POPOVER_PANEL}`}
           style={{
             top: branchBtnRef.current.getBoundingClientRect().bottom + 4,
-            left: branchBtnRef.current.getBoundingClientRect().left,
+            // Same clamp as the compact variant above (w-56 = 224px here).
+            left: Math.max(
+              POPOVER_MARGIN,
+              Math.min(branchBtnRef.current.getBoundingClientRect().left, window.innerWidth - 224 - POPOVER_MARGIN),
+            ),
+            maxHeight: `min(320px, calc(100vh - ${branchBtnRef.current.getBoundingClientRect().bottom + 4 + POPOVER_MARGIN}px))`,
             zIndex: Z_POPOVER,
           }}
         >
