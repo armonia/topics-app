@@ -500,8 +500,10 @@ const CodeBlock = memo(function CodeBlock({ children, className }: { children: R
     [deferredContent, language, showLineNumbers, hljsReady],
   );
   // Only trust the highlighted HTML when it was built from exactly what we're
-  // about to render; otherwise fall back to plain current text.
-  const shownHtml = highlightedHtml !== null && deferredContent === displayContent ? highlightedHtml : null;
+  // about to render; otherwise fall back to plain current text. (highlightedHtml
+  // may itself be null before hljs loads — passing it straight through is fine,
+  // the consumer treats a null shownHtml as "render plain".)
+  const shownHtml = deferredContent === displayContent ? highlightedHtml : null;
 
   return (
     <div className="code-block-wrapper">

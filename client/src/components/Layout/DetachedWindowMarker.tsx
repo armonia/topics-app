@@ -12,7 +12,7 @@ import { AppWindow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { POPOVER_SURFACE } from '@/lib/popoverStyles';
 import { SELECTED_SURFACE } from '@/lib/selectionStyles';
-import { tauriInvoke } from '@/lib/shell/tauri';
+import { detachedWindowLabel, focusOrReopenDetachedWindow } from '@/lib/detachedWindow';
 import { useDetachedWindows } from '@/state/windowPresence';
 import type { Topic } from '@/types';
 
@@ -23,8 +23,6 @@ interface DetachedWindowMarkerProps {
   onReopenTopic: (topicId: string) => void;
 }
 
-const MAX_SHOWN = 3;
-
 export function DetachedWindowMarker({ topics, onReopenTopic }: DetachedWindowMarkerProps) {
   const windows = useDetachedWindows();
   if (windows.length === 0) return null;
@@ -32,31 +30,11 @@ export function DetachedWindowMarker({ topics, onReopenTopic }: DetachedWindowMa
   return (
     <div className="flex flex-col gap-1.5 px-2 pb-2">
       {windows.map((w) => {
-        const names = w.topicIds
-          .map((id) => topics[id]?.name || topics[id]?.icon || id)
-          .filter(Boolean);
-        const shown = names.slice(0, MAX_SHOWN);
-        const extra = names.length - shown.length;
-        const label = shown.join(', ') + (extra > 0 ? ` +${extra}` : '');
-
-        const onClick = () => {
-          if (w.windowLabel) {
-            void tauriInvoke<boolean>('window_focus_label', { label: w.windowLabel })
-              .then((focused) => {
-                if (!focused) for (const id of w.topicIds) onReopenTopic(id);
-              })
-              .catch(() => {
-                for (const id of w.topicIds) onReopenTopic(id);
-              });
-            return;
-          }
-          for (const id of w.topicIds) onReopenTopic(id);
-        };
-
+        const label = detachedWindowLabel(w, topics);
         return (
           <button
             key={w.windowId}
-            onClick={onClick}
+            onClick={() => focusOrReopenDetachedWindow(w, onReopenTopic)}
             className={cn(
               POPOVER_SURFACE,
               'py-0 flex items-center gap-2 h-11 px-3 text-left transition-colors',
