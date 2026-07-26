@@ -26,6 +26,7 @@ import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Column } from './Card';
 import { TaskDetail, BoardSettingsPanel } from './TaskDetail';
+import { POPOVER_ITEM } from '@/lib/popoverStyles';
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -228,7 +229,7 @@ function FilterOption({ selected, onClick, dot, label, title }: {
   return (
     <button
       role="option" aria-selected={selected} onClick={onClick} title={title}
-      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+      className={POPOVER_ITEM}
     >
       {dot}
       <span className="min-w-0 flex-1 truncate">{label}</span>

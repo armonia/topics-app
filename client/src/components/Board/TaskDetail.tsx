@@ -18,6 +18,7 @@ import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
 import { GroupLayout } from '../Layout/GroupLayout';
 import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurface } from './useTaskBrowserGroupLayout';
+import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 
 /** Feature flag (per-client kill-switch): the task's browser lives as a
  *  task-owned tiling group driven by the app's real GroupLayout engine (split /
@@ -730,7 +731,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               key={s} role="option" aria-selected={s === task?.status}
               disabled={busy}
               onClick={() => changeStatus(s)}
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+              className={`${POPOVER_ITEM} disabled:opacity-40`}
             >
               <StatusIcon status={s} className="h-3.5 w-3.5" />
               <span className="min-w-0 flex-1">{STATUS_LABEL[s]}</span>
@@ -755,7 +756,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <button
                 role="menuitem" disabled={busy} onClick={togglePlanFirst}
                 title="L'agent consegna un piano da approvare PRIMA di implementare"
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                className={`${POPOVER_ITEM} disabled:opacity-40`}
               >
                 <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
                 <span className="min-w-0 flex-1">Piano prima</span>
@@ -763,7 +764,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               </button>
               <button
                 role="menuitem" onClick={() => { setOptionsMenuOpen(false); openBlockerMenu(); }}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                className={POPOVER_ITEM}
               >
                 <Lock className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
                 <span className="min-w-0 flex-1 truncate">{blockerTask ? `Bloccato da: ${blockerTask.text}` : 'Bloccato da…'}</span>
@@ -773,17 +774,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 <button
                   role="menuitem" disabled={busy} onClick={toggleReuseContext}
                   title="Quando parte, l'agent riceve il contesto della sessione del task bloccante invece di uno start a freddo"
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                  className={`${POPOVER_ITEM} disabled:opacity-40`}
                 >
                   <Bot className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
                   <span className="min-w-0 flex-1">Riusa il contesto del bloccante</span>
                   {task.reuseBlockerContext && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
                 </button>
               )}
-              <div className="my-1 border-t border-white/10" />
+              <div className={POPOVER_DIVIDER} />
               <button
                 role="menuitem" onClick={() => { setOptionsMenuOpen(false); setSubtasksOpen(true); setSubtaskComposerOpen(true); }}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                className={POPOVER_ITEM}
               ><Plus className="h-3.5 w-3.5 shrink-0 text-neutral-400" /> Aggiungi sottotask</button>
             </Menu>
           )}
@@ -888,12 +889,12 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 listLabel="Sposta su…"
                 headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-[10px] leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
               />
-              <div className="my-1 border-t border-white/10" />
+              <div className={POPOVER_DIVIDER} />
               <button
                 role="menuitem" disabled={!currentProject}
                 onClick={doOpenProject}
                 title={currentProject ? `Apri la finestra di ${currentProject.name}` : 'Percorso del progetto non risolvibile'}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                className={`${POPOVER_ITEM} disabled:opacity-40`}
               ><ArrowUpRight className="h-3.5 w-3.5" /> Apri progetto</button>
             </Menu>
             {/* Title — FULL width (the dispatch state moved up to the project
@@ -944,7 +945,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                       key={p} role="option" aria-selected={p === task?.priority}
                       disabled={busy}
                       onClick={() => changePriority(p)}
-                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                      className={`${POPOVER_ITEM} disabled:opacity-40`}
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[p]}`} />
                       <span className="min-w-0 flex-1">{PRIORITY_LABEL[p]}</span>
@@ -970,7 +971,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <button
                     role="option" aria-selected={!task?.model} disabled={busy}
                     onClick={() => changeModel(null)}
-                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                    className={`${POPOVER_ITEM} disabled:opacity-40`}
                   >
                     <Sparkles className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
                     <span className="min-w-0 flex-1">Auto <span className="text-neutral-500">(opus-first)</span></span>
@@ -980,7 +981,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     <button
                       key={m} role="option" aria-selected={m === task?.model} disabled={busy}
                       onClick={() => changeModel(m)}
-                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+                      className={`${POPOVER_ITEM} disabled:opacity-40`}
                     >
                       <span className="min-w-0 flex-1">{friendlyModelLabel(m)}</span>
                       {m === task?.model && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
@@ -995,7 +996,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   <button
                     role="option" aria-selected={!task.blockedByTaskId}
                     onClick={() => pickBlocker(null)}
-                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                    className={POPOVER_ITEM}
                   >
                     <span className="min-w-0 flex-1">Nessuno</span>
                     {!task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}
@@ -1009,7 +1010,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                       <button
                         key={t.id} role="option" aria-selected={t.id === task.blockedByTaskId}
                         onClick={() => pickBlocker(t.id)}
-                        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-neutral-200 hover:bg-white/10"
+                        className={POPOVER_ITEM}
                       >
                         <span className="min-w-0 flex-1 truncate">{t.text}</span>
                         {t.id === task.blockedByTaskId && <Check className="h-3 w-3 shrink-0 text-emerald-400" />}

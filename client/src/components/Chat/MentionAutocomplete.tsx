@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
 import { useDismissable } from '@/hooks/useDismissable';
-import { Z_POPOVER } from '@/lib/popoverStyles';
+import { POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from '@/lib/popoverStyles';
 
 interface MentionAutocompleteProps {
   query: string;
@@ -19,6 +19,9 @@ const ROLE_COLORS: Record<string, string> = {
   worker: 'bg-blue-500/15 text-blue-600 dark:text-blue-400',
   specialist: 'bg-purple-500/15 text-purple-600 dark:text-purple-400',
 };
+
+/** Own max-width — lets the horizontal clamp work without measuring. */
+const MAX_W = 260;
 
 export function MentionAutocomplete({ query, onSelect, onClose, position, inputRef }: MentionAutocompleteProps) {
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
@@ -95,12 +98,18 @@ export function MentionAutocomplete({ query, onSelect, onClose, position, inputR
     <div
       ref={menuRef}
       role="listbox"
-      className="fixed glass-surface border border-app-border rounded-lg shadow-lg overflow-hidden"
+      // POPOVER_PANEL instead of a verbatim copy of its class string, plus the
+      // clamps this never had: it was placed at raw caret-derived coordinates
+      // with no bound on either axis and no height cap, so a composer near the
+      // right or bottom edge pushed the list off-screen. MAX_W is its own
+      // max-width, so the horizontal clamp needs no measurement.
+      className={`fixed ${POPOVER_PANEL} overflow-y-auto overscroll-contain`}
       style={{
         top: position.top,
-        left: position.left,
+        left: Math.max(POPOVER_MARGIN, Math.min(position.left, window.innerWidth - MAX_W - POPOVER_MARGIN)),
         minWidth: '180px',
-        maxWidth: '260px',
+        maxWidth: `${MAX_W}px`,
+        maxHeight: `calc(100vh - ${position.top + POPOVER_MARGIN}px)`,
         zIndex: Z_POPOVER,
       }}
     >
