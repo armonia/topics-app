@@ -1,7 +1,7 @@
 import { mkdirSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic, seedProjectPane } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, seedProjectPane, resetPaneStore } from "./helpers/api-fixtures";
 import { countColDividers, getVisibleTabLabels, splitViaContextMenu } from "./helpers/layout";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -457,6 +457,12 @@ test.describe("Grid Split System", () => {
     /** Open two topics so both appear as tabs */
     async function openTwoTopics(page: Page) {
       const [idA, idB] = splitTopicIds;
+      // 0. Make the pane-store AUTHORITATIVE for this spec. Without it the file
+      // inherited whatever workspace the previous spec left behind (the store
+      // UNIONs on hydrate), so these tests saw foreign panes and their
+      // "the first/only tab" assumptions broke — green alone, red in a full
+      // suite run. Same pattern spaces-switcher.spec uses, which is stable.
+      await resetPaneStore(page.request, [idA, idB]).catch(() => {});
       // 1. Seed server state with both panels open
       await Promise.all([
         page.request.put("http://localhost:13334/api/ui-state/panels", {
