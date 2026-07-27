@@ -138,7 +138,30 @@ export async function seedTopicIntoSidebar(request: APIRequestContext, topicId: 
       }
       if (!snapshot.panes) snapshot.panes = {};
       if (!snapshot.panes[topicId]) {
-        snapshot.panes[topicId] = { id: topicId, type: 'chat', title: '', topicId };
+        // `openedAt` is NOT decoration — it is the causal half of the close
+        // protocol. The client's hydrate runs a tombstone strip that deletes
+        // any pane whose id carries a close marker UNLESS the pane was opened
+        // after it (reducers/panes.ts: `openedAt > tombstones[id]`). The real
+        // OPEN_PANE stamps it; a seed without it is silently stripped the
+        // moment the topic has ever been closed/archived — which is routine,
+        // since closing a chat tab archives the topic (2-state model). Stamp
+        // it here so this helper stands in for a genuine open.
+        snapshot.panes[topicId] = { id: topicId, type: 'chat', title: '', topicId, openedAt: Date.now() };
+      } else if (typeof snapshot.panes[topicId].openedAt !== 'number') {
+        snapshot.panes[topicId].openedAt = Date.now();
+      }
+      // The other half of OPEN_PANE's contract (`retractStaleMarker`): a reopen
+      // RETRACTS the close claim. Without this the marker outlives the reopen
+      // and every subsequent hydrate strips the tab again.
+      if (snapshot.tombstones && typeof snapshot.tombstones === 'object') {
+        for (const key of Object.keys(snapshot.tombstones)) {
+          if (key === topicId || key.endsWith(`:${topicId}`)) delete snapshot.tombstones[key];
+        }
+      }
+      if (Array.isArray(snapshot.closedStack)) {
+        snapshot.closedStack = snapshot.closedStack.filter(
+          (r: any) => !(r && (r.id === topicId || r.pane?.id === topicId || r.pane?.topicId === topicId)),
+        );
       }
       if (!Array.isArray(snapshot.groupOrder)) snapshot.groupOrder = ['group:default'];
       if (!snapshot.groupOrder.includes('group:default')) snapshot.groupOrder.unshift('group:default');

@@ -50,6 +50,9 @@ import { timingSafeEqualStr } from "../utils";
  * bug). Now the shared snapshot is purged too, with a fresh server_seq so LWW
  * treats the removal as newer than any pre-purge client write.
  */
+/** Mirror of the client's `TOMBSTONES_MAX` (client/src/state/pane/types.ts). */
+const TOMBSTONES_MAX = 500;
+
 export function removeTopicFromUiStateValue(parsed: any, topicId: string): boolean {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
   let changed = false;
@@ -105,13 +108,77 @@ export function removeTopicFromUiStateValue(parsed: any, topicId: string): boole
     if (parsed.closedStack.length !== before) changed = true;
   }
 
+  // Durable close MARKER for every pane we just deleted. Deleting the entry is
+  // NOT enough: the client's HYDRATE_FROM_SNAPSHOT does a cross-client UNION
+  // (reducers/panes.ts — "we let the closedStack TOMBSTONE channel carry
+  // removals"), so a pane that a live client still holds locally and that the
+  // incoming snapshot merely OMITS is kept, not dropped — a bare deletion is
+  // structurally indistinguishable from "this peer never knew about it". So the
+  // purge was silently undone: the archived chat rode the client's next
+  // debounced PUT straight back into the shared snapshot (measured: server
+  // purge at seq N, resurrection at seq N+1 ~1s later), and the re-add was then
+  // mistaken for a preview-navigation, which closed a BYSTANDER tab.
+  // `tombstones` is the map that union actually consults; its causal guard
+  // (`openedAt > closedAt`) keeps a genuine later reopen alive, so stamping now
+  // can't kill a tab the user re-opens afterwards.
+  if (removedPaneIds.size > 0) {
+    if (!parsed.tombstones || typeof parsed.tombstones !== "object" || Array.isArray(parsed.tombstones)) {
+      parsed.tombstones = {};
+    }
+    const closedAt = Date.now();
+    for (const pid of removedPaneIds) parsed.tombstones[pid] = closedAt;
+    // Mirror the client's TOMBSTONES_MAX cap (state/pane/types.ts) so a
+    // long-lived DB can't grow the map without bound: keep the newest ids.
+    const ids = Object.keys(parsed.tombstones);
+    if (ids.length > TOMBSTONES_MAX) {
+      const keep = new Set(
+        ids.sort((a, b) => (parsed.tombstones[b] ?? 0) - (parsed.tombstones[a] ?? 0)).slice(0, TOMBSTONES_MAX),
+      );
+      for (const id of ids) if (!keep.has(id)) delete parsed.tombstones[id];
+    }
+    changed = true;
+  }
+
   return changed;
 }
 
-function purgeTopicFromUiState(
+/**
+ * Retract the durable close markers this topic's panes may carry — the exact
+ * inverse of the tombstone stamping in `removeTopicFromUiStateValue`.
+ *
+ * Required for symmetry: the client's hydrate runs a BIDIRECTIONAL tombstone
+ * strip (reducers/panes.ts), so a pane listed in the incoming snapshot is
+ * DELETED whenever a live tombstone claims its id. Stamping on archive without
+ * retracting on unarchive therefore makes the reopen invisible — the chat comes
+ * back in the topic list but its tab is stripped on every hydrate, forever.
+ * Matches both pane-id encodings for a chat: the raw topic id
+ * (`createPaneId('chat', id) === id`) and any `<prefix>:<topicId>` form.
+ */
+export function retractTopicTombstoneFromUiStateValue(parsed: any, topicId: string): boolean {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+  const tomb = parsed.tombstones;
+  if (!tomb || typeof tomb !== "object" || Array.isArray(tomb)) return false;
+  let changed = false;
+  for (const key of Object.keys(tomb)) {
+    if (key === topicId || key.endsWith(`:${topicId}`)) {
+      delete tomb[key];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/**
+ * Apply `mutate` to every ui_state record, persisting + broadcasting only the
+ * ones it actually changed. Shared by the archive purge and the unarchive
+ * retraction so both inherit the same seq allocation and locking discipline.
+ */
+function mutateAllUiState(
   db: import("bun:sqlite").Database,
   broadcastToAll: (msg: any) => void,
+  label: string,
   topicId: string,
+  mutate: (parsed: any, topicId: string) => boolean,
 ): { ok: true } | { ok: false; error: string } {
   // Phase 30 PANE-02 invariant: every ui_state write must allocate a fresh
   // server_seq so cross-device LWW treats this purge as newer than any
@@ -139,7 +206,7 @@ function purgeTopicFromUiState(
       for (const row of rows) {
         let parsed: any;
         try { parsed = JSON.parse(row.value); } catch { continue; }
-        if (!removeTopicFromUiStateValue(parsed, topicId)) continue;
+        if (!mutate(parsed, topicId)) continue;
         const next = JSON.stringify(parsed);
         const nextSeq = maxSeq + (++i);
         db.run(
@@ -163,7 +230,7 @@ function purgeTopicFromUiState(
     // caller can surface it to the client (500) instead of returning 200 OK
     // while the server state is incoherent.
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[topics] purgeTopicFromUiState failed for topicId=${topicId}:`, { error: message, stack: err instanceof Error ? err.stack : undefined });
+    console.error(`[topics] ${label} failed for topicId=${topicId}:`, { error: message, stack: err instanceof Error ? err.stack : undefined });
     return { ok: false, error: message };
   }
   for (const b of broadcasts) {
@@ -176,6 +243,29 @@ function purgeTopicFromUiState(
     });
   }
   return { ok: true };
+}
+
+/** Archive/delete: strip the topic from every ui_state record + tombstone it. */
+function purgeTopicFromUiState(
+  db: import("bun:sqlite").Database,
+  broadcastToAll: (msg: any) => void,
+  topicId: string,
+): { ok: true } | { ok: false; error: string } {
+  return mutateAllUiState(db, broadcastToAll, "purgeTopicFromUiState", topicId, removeTopicFromUiStateValue);
+}
+
+/**
+ * Unarchive: retract the close markers left by the purge. Best-effort by
+ * design — unlike the purge, a failure here can't leave the topic in a
+ * half-archived state, so it must never turn a successful unarchive into a
+ * 500. The retraction is idempotent, so the next unarchive retries it.
+ */
+function restoreTopicInUiState(
+  db: import("bun:sqlite").Database,
+  broadcastToAll: (msg: any) => void,
+  topicId: string,
+): void {
+  mutateAllUiState(db, broadcastToAll, "restoreTopicInUiState", topicId, retractTopicTombstoneFromUiStateValue);
 }
 
 export function createTopicsRouter(ctx: AppContext, browserService?: BrowserService): RouteHandler {
@@ -1250,6 +1340,11 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           if (!purgeResult.ok) {
             return json({ error: "topic archived but ui_state purge failed", details: purgeResult.error, topic }, 500);
           }
+        } else {
+          // Unarchive is a REOPEN: retract the close markers the purge left, or
+          // the client's hydrate strip would delete the tab on every load and
+          // the chat would be permanently un-openable.
+          restoreTopicInUiState(ctx.db, broadcastToAll, params.id);
         }
         return json(topic);
       }
@@ -1295,6 +1390,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
           if (!purgeResult.ok) {
             purgeFailures.push({ topicId: topic.id, error: purgeResult.error });
           }
+        } else {
+          // Bulk UNarchive — same reopen symmetry as the single-topic DELETE.
+          restoreTopicInUiState(ctx.db, broadcastToAll, topic.id);
         }
       }
       // Bug #12: surface any purge failure in the response body (partial-fail
