@@ -40,16 +40,24 @@ test.describe("Chat slash commands (claude-code)", () => {
     await runCmd(chatPage, page, "/model claude-opus-4-8");
     await expect(page.locator("body")).toContainText(/Modello impostato: claude-opus-4-8/i, { timeout: 10_000 });
     await expect(page.locator("body")).not.toContainText(/not supported by this provider/i);
-    await page.waitForTimeout(5500); // banner auto-dismisses after 5s
 
+    // Niente attesa dell'auto-dismiss del banner (erano 2 x 5,5 s = 11 s): ogni
+    // comando ha un messaggio DIVERSO, quindi il banner precedente non puo'
+    // far passare l'asserzione successiva.
     // /effort — persists the per-topic effort tier, no 400.
     await runCmd(chatPage, page, "/effort high");
     await expect(page.locator("body")).toContainText(/Effort impostato: high/i, { timeout: 10_000 });
-    await page.waitForTimeout(5500);
 
-    // /reasoning — redirects to /effort instead of the old hard 400.
+    // /reasoning — redirects to /effort instead of the old hard 400. Si asserisce
+    // il messaggio ESATTO del server (topics.ts: "Su claude-code il ragionamento
+    // si regola con l'effort…"), non un generico /effort/i: quello matchava anche
+    // il banner "Effort impostato" appena mostrato, ed e' proprio la ragione per
+    // cui serviva la pausa. L'asserzione specifica non ha quel problema.
     await runCmd(chatPage, page, "/reasoning");
-    await expect(page.locator("body")).toContainText(/effort/i, { timeout: 10_000 });
+    await expect(page.locator("body")).toContainText(
+      /il ragionamento si regola con l'effort/i,
+      { timeout: 10_000 },
+    );
     await expect(page.locator("body")).not.toContainText(/not supported by this provider/i);
   });
 });

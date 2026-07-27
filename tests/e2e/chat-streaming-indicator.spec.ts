@@ -104,6 +104,14 @@ test.describe("Chat streaming indicator", () => {
     await expect(scroller).toBeVisible({ timeout: 10_000 });
 
     // Scroll up to the top so we are genuinely NOT at the bottom.
+    //
+    // NON convertire queste due pause in un expect.poll sulla distanza dal
+    // fondo: provato, e il test diventa rosso 3 volte su 3 (contro 3 verdi su 3
+    // qui). Lo scroll e' ANIMATO: il poll ritorna appena la distanza supera la
+    // soglia, cioe' a scroll ancora IN VOLO, e l'animazione residua poi combatte
+    // con lo snap-to-bottom del messaggio in arrivo (misurato: 543 px dal fondo
+    // invece di <150). Qui la pausa non serve ad ARRIVARE, serve ad ASSESTARE —
+    // ed e' l'unico caso in questo file in cui non e' sostituibile.
     await scroller.click();
     await page.keyboard.press("Home");
     await page.waitForTimeout(800);
