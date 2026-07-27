@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { goToApp, openTopic } from "./helpers";
 import {
   createTopic,
@@ -10,6 +11,8 @@ import {
 import { mockOpenClawAvailable, openTopicsMenuItem } from "./helpers/openclaw";
 
 const BASE_URL = "http://localhost:13334";
+const PROJECT_DIR = "/tmp/e2e-panels";
+const PROJECT_FILE = "e2e-marker.txt";
 
 // Full sidebar-state payload — every legacy field is included so the server's
 // migration path (which fires when viewMode is absent) can't reset viewMode.
@@ -42,9 +45,14 @@ let projectTopicId: string | null = null;
 
 test.describe("Panels & Views", () => {
   test.beforeAll(async ({ request }) => {
+    // La cartella del progetto deve ESISTERE sul disco: il file explorer legge
+    // il FS vero e senza di essa rende "directory not found" — cioe' il test si
+    // reggeva su un pannello vuoto. Un file dentro gli da' qualcosa da mostrare.
+    mkdirSync(PROJECT_DIR, { recursive: true });
+    writeFileSync(`${PROJECT_DIR}/${PROJECT_FILE}`, "seed\n");
     // Create a project-linked topic so the "Projects" section has an entry
     const topic = await createTopic(request, "E2E-PanelProject", {
-      projectPath: "/tmp/e2e-panels",
+      projectPath: PROJECT_DIR,
     });
     projectTopicId = topic.id;
   });
@@ -61,14 +69,19 @@ test.describe("Panels & Views", () => {
     await mockOpenClawAvailable(page);
     await goToApp(page);
     await openTopicsMenuItem(page, "Activity");
-    // Don't use networkidle — SSE activity stream keeps connection open
-    await page.waitForTimeout(2000);
-
-    const mainContent = await page.locator('[role="main"]').textContent();
-    expect(
-      mainContent!.includes("Live") || mainContent!.includes("Digest") ||
-      mainContent!.includes("Activity") || mainContent!.includes("heartbeat")
-    ).toBeTruthy();
+    // Niente networkidle: lo stream SSE dell'activity tiene la connessione
+    // aperta per sempre. Ma nemmeno una pausa fissa: si POLLA la condizione
+    // finale, che ritorna appena il pannello ha renderizzato invece di pagare
+    // sempre il caso peggiore (ed e' piu' forte — se non arriva mai, fallisce
+    // dicendo cosa aspettava, invece di un opaco "length > 5").
+    await expect
+      .poll(
+        async () => /Live|Digest|Activity|heartbeat/.test(
+          (await page.locator('[role="main"]').textContent()) ?? "",
+        ),
+        { timeout: 10000 },
+      )
+      .toBe(true);
   });
 
   test("agents panel shows content", async ({ page }) => {
@@ -77,9 +90,12 @@ test.describe("Panels & Views", () => {
     await mockOpenClawAvailable(page);
     await goToApp(page);
     await openTopicsMenuItem(page, /Agents/);
-    await page.waitForTimeout(1500);
-
-    expect((await page.locator('[role="main"]').textContent())!.length).toBeGreaterThan(5);
+    await expect
+      .poll(
+        async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
+        { timeout: 10000 },
+      )
+      .toBeGreaterThan(5);
   });
 
   test("multi-pane layout with Add Pane", async ({ page }) => {
@@ -90,9 +106,13 @@ test.describe("Panels & Views", () => {
     const addPaneBtn = page.getByRole("button", { name: /Add pane/ });
     if (await addPaneBtn.count() > 0) {
       await addPaneBtn.first().click();
-      await page.waitForTimeout(1500);
     }
-    expect((await page.locator('[role="main"]').textContent())!.length).toBeGreaterThan(10);
+    await expect
+      .poll(
+        async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
+        { timeout: 10000 },
+      )
+      .toBeGreaterThan(10);
   });
 
   test("dashboard digest tab", async ({ page }) => {
@@ -101,12 +121,13 @@ test.describe("Panels & Views", () => {
     await mockOpenClawAvailable(page);
     await goToApp(page);
     await openTopicsMenuItem(page, "Activity");
-    await page.waitForTimeout(1500);
-
+    // Il pannello Activity e' montato quando ha del testo: si aspetta QUELLO,
+    // non un tempo. Il click sul Digest non ha bisogno di una pausa dopo —
+    // il passo successivo (openTopic) porta le proprie attese condizionali.
     const digestTab = page.locator("text=Digest");
+    await digestTab.first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
     if (await digestTab.count() > 0) {
       await digestTab.first().click();
-      await page.waitForTimeout(1500);
     }
 
     // Navigate back to chat and wait for input to be ready
@@ -157,10 +178,12 @@ test.describe("Panels & Views", () => {
       await expect(browserSection.first()).toBeVisible({ timeout: 10000 });
 
       await browserSection.first().click();
-      await page.waitForTimeout(1500);
-
-      const bodyText = await page.locator("body").textContent();
-      expect(bodyText!.includes("browser") || bodyText!.includes("Browser")).toBeTruthy();
+      await expect
+        .poll(
+          async () => /[Bb]rowser/.test((await page.locator("body").textContent()) ?? ""),
+          { timeout: 10000 },
+        )
+        .toBe(true);
     } finally {
       await resetPaneStore(request, []);
       await resetTimelineView(request);
@@ -173,17 +196,24 @@ test.describe("Panels & Views", () => {
     const remoteBtn = page.getByRole("button", { name: /Remote Access/i });
     if (await remoteBtn.count() > 0) {
       await remoteBtn.click();
-      await page.waitForTimeout(1500);
-      expect((await page.locator('[role="main"]').textContent())!.length).toBeGreaterThan(5);
+      await expect
+        .poll(
+          async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
+          { timeout: 10000 },
+        )
+        .toBeGreaterThan(5);
     }
   });
 
-  test("file explorer opens project topics", async ({ page, request }) => {
+  test("opening a project shows its file explorer", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
-    // The project row is derived from OPEN panes, so this test used to pass only
-    // on panes left behind by whatever ran before it: the two tests above end
-    // with resetPaneStore([]) and it went red right after them. Seed its own
-    // tab instead of inheriting someone else's state.
+    // Il nome vecchio era "file explorer opens project topics" e il corpo cercava
+    // un getByRole("treeitem") con "E2E-PanelProject" NELLA SIDEBAR. Non esiste:
+    // cliccare il progetto apre la FINESTRA progetto, e le sue chat sono tab
+    // dentro quella finestra, non treeitem della sidebar. La ricerca scadeva
+    // sempre (10s) e il catch la ingoiava, cadendo su un fallback che apriva
+    // "Web Search Test" — cioe' il test verde non ha mai verificato un progetto.
+    // Ora asserisce cio' che il click produce davvero, ed e' 10s piu' veloce.
     if (projectTopicId) await resetPaneStore(request, [projectTopicId]);
     await goToApp(page);
     // Use the project-linked topic we created (folder name = "e2e-panels")
@@ -191,31 +221,12 @@ test.describe("Panels & Views", () => {
     await expect(projectBtn).toBeVisible({ timeout: 10000 });
     await projectBtn.click();
 
-    // Wait for the project's child topics to populate rather than relying on a
-    // fixed sleep. The target topic name "E2E-PanelProject" is seeded by the
-    // beforeAll fixture and must appear under the project before we proceed.
-    const targetTopic = page.getByRole("treeitem").filter({ hasText: "E2E-PanelProject" }).first();
-    let clicked = false;
-    try {
-      await expect(targetTopic).toBeVisible({ timeout: 10000 });
-      await targetTopic.click();
-      // Wait for the chat surface to settle (any rendered text in main pane).
-      await expect.poll(
-        async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
-        { timeout: 5000 }
-      ).toBeGreaterThan(10);
-      clicked = true;
-    } catch {
-      // Fall back to the generic Web Search Test topic if the seeded one is
-      // missing for any reason (DB reset between fixtures, etc.).
-    }
-    if (!clicked) {
-      await openTopic(page, /Web Search Test/);
-      await expect.poll(
-        async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
-        { timeout: 5000 }
-      ).toBeGreaterThan(10);
-    }
+    // La finestra progetto e' aperta quando rende il suo file explorer sul
+    // contenuto REALE della cartella: il file seminato in beforeAll.
+    const main = page.locator('[role="main"]');
+    await expect(main.getByText("Files", { exact: true }).first()).toBeVisible({ timeout: 10000 });
+    await expect(main.getByText(PROJECT_FILE).first()).toBeVisible({ timeout: 10000 });
+    await expect(main).not.toContainText("directory not found");
   });
 
   test("command palette opens with Cmd+K", async ({ page }) => {
@@ -234,7 +245,6 @@ test.describe("Panels & Views", () => {
     const searchInput = page.locator('[role="dialog"] input, [class*="modal"] input');
     if (await searchInput.count() > 0) {
       await searchInput.first().fill("new");
-      await page.waitForTimeout(300);
     }
 
     await page.keyboard.press("Escape");
