@@ -325,12 +325,7 @@ test.describe("Panel validation: archived topic panels are removed", () => {
         data: { order: [topic.id], pinned: [topic.id] },
       });
 
-      const panelsFetch = page.waitForResponse(
-        (r) => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-        { timeout: 10000 }
-      ).catch(() => {});
       await page.goto("/");
-      await panelsFetch;
       await page.waitForSelector('[aria-label="Topics sidebar"]', {
         state: "visible",
         timeout: 15000,
