@@ -110,21 +110,37 @@ export function deriveAwaitingInputTopics(
   return ids;
 }
 
+/** Pure: topic ids whose bound Claude session is in 'watching' phase
+ *  (Monitor/background-task armed). Used to mute the aura ring. */
+export function deriveWatchingTopics(
+  topics: Record<string, Topic>,
+  claudeSessions: ReadonlyMap<string, ClaudeSessionState>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const t of Object.values(topics)) {
+    const st = t.sessionKey ? claudeSessions.get(t.sessionKey) : undefined;
+    if (st && st.phase === 'watching') ids.add(t.id);
+  }
+  return ids;
+}
+
 /** Phases that mean "Claude is actively working".
  *
  *  The loading rule is a UNION, so it stays correct even where Claude Code
  *  hooks don't fire reliably (the phase machine then simply stays idle and
  *  contributes nothing):
- *    loading = ptyBusy OR phase is running/tool-running
+ *    loading = ptyBusy OR phase is running/tool-running/watching
  *  - ptyBusy (cosmetic-filtered, so the colour-only `/goal` statusline pulse
  *    doesn't count) is the always-available "something is happening" signal.
  *  - phase running/tool-running adds coverage when hooks DO fire (e.g. a quiet
  *    tool call that produces no pty output for a while).
+ *  - phase watching means a Monitor/background-task is armed, waiting for an event.
  *  Crucially, an absent/stale phase never HIDES real pty activity — that was the
  *  flaw of the earlier suppression model when hooks were silent. */
 export const ACTIVE_CLAUDE_PHASES: ReadonlySet<ClaudeSessionPhase> = new Set<ClaudeSessionPhase>([
   'running',
   'tool-running',
+  'watching',
 ]);
 
 /** Phases where the session is CONFIDENTLY idle, so the pty heuristic is
@@ -178,6 +194,9 @@ interface SignalsState {
   // a strict subset of claudePhaseAwaitingTermIds. Amber fill (act now); the
   // rest of the awaiting set is calm blue (done-unseen). By terminal session id.
   claudePhaseAwaitingInputTermIds: Set<string>;
+  // claude-code terminals in 'watching' phase (Monitor armed). Drives muted aura.
+  // By terminal session id.
+  claudePhaseWatchingTermIds: Set<string>;
   // attention inputs
   claudeAttentionTopics: Set<string>;   // chat Claude awaiting-*/error
   // chat Claude parked awaiting human input (awaiting-user/-approval/paused) —
@@ -187,6 +206,9 @@ interface SignalsState {
   // chat topics in the LOUD 'input' tier (awaiting-approval) — subset of
   // awaitingFeedbackTopics. Amber fill; the rest is calm blue done-unseen.
   awaitingInputTopics: Set<string>;
+  // chat topics whose Claude session is in 'watching' phase (Monitor armed).
+  // Drives muted aura mode (softer ring vs full-bright loading).
+  watchingTopics: Set<string>;
   terminalFinishedIds: Set<string>;     // claude-code finished a turn, until the user looks
   terminalReloadingIds: Set<string>;    // a terminal is restarting (Ricarica), until it reconnects
   // "What is this session doing right now" — a compact descriptor keyed by
@@ -210,7 +232,7 @@ interface SignalsState {
   markTerminalReloading: (id: string) => void;
   clearTerminalReloading: (id: string) => void;
   reconcileTerminals: (roster: TerminalRosterEntry[]) => void;
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>) => void;
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>, watching: Set<string>) => void;
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => void;
   setSessionLastActivity: (activity: Map<string, number>) => void;
 }
@@ -241,7 +263,7 @@ export interface TerminalRosterEntry {
   busy?: boolean;
 }
 
-type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'agentActiveTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics';
+type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'agentActiveTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics' | 'watchingTopics';
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return false;
@@ -347,9 +369,11 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   claudePhaseRestingTermIds: new Set(),
   claudePhaseAwaitingTermIds: new Set(),
   claudePhaseAwaitingInputTermIds: new Set(),
+  claudePhaseWatchingTermIds: new Set(),
   claudeAttentionTopics: new Set(),
   awaitingFeedbackTopics: new Set(),
   awaitingInputTopics: new Set(),
+  watchingTopics: new Set(),
   terminalFinishedIds: new Set(),
   terminalReloadingIds: new Set(),
   sessionActivity: new Map(),
@@ -401,18 +425,20 @@ export const useSignalsStore = create<SignalsState>((set) => ({
       return { terminalBusyIds: busy, terminalFinishedIds: finished };
     }),
 
-  setClaudePhaseTerminals: (active, resting, awaiting, awaitingInput) =>
+  setClaudePhaseTerminals: (active, resting, awaiting, awaitingInput, watching) =>
     set((s) => {
       const activeChanged = !setsEqual(active, s.claudePhaseActiveTermIds);
       const restingChanged = !setsEqual(resting, s.claudePhaseRestingTermIds);
       const awaitingChanged = !setsEqual(awaiting, s.claudePhaseAwaitingTermIds);
       const awaitingInputChanged = !setsEqual(awaitingInput, s.claudePhaseAwaitingInputTermIds);
-      if (!activeChanged && !restingChanged && !awaitingChanged && !awaitingInputChanged) return s;
+      const watchingChanged = !setsEqual(watching, s.claudePhaseWatchingTermIds);
+      if (!activeChanged && !restingChanged && !awaitingChanged && !awaitingInputChanged && !watchingChanged) return s;
       return {
         ...(activeChanged ? { claudePhaseActiveTermIds: active } : {}),
         ...(restingChanged ? { claudePhaseRestingTermIds: resting } : {}),
         ...(awaitingChanged ? { claudePhaseAwaitingTermIds: awaiting } : {}),
         ...(awaitingInputChanged ? { claudePhaseAwaitingInputTermIds: awaitingInput } : {}),
+        ...(watchingChanged ? { claudePhaseWatchingTermIds: watching } : {}),
       };
     }),
 
@@ -455,6 +481,7 @@ export const signalsActions = {
   setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
   setAwaitingInputTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingInputTopics', ids),
+  setWatchingTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('watchingTopics', ids),
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => useSignalsStore.getState().setSessionActivity(activity),
   setSessionLastActivity: (activity: Map<string, number>) => useSignalsStore.getState().setSessionLastActivity(activity),
   setBrowserBusy: (paneId: string, busy: boolean) => useSignalsStore.getState().setBrowserBusy(paneId, busy),
@@ -464,7 +491,7 @@ export const signalsActions = {
   markTerminalReloading: (id: string) => useSignalsStore.getState().markTerminalReloading(id),
   clearTerminalReloading: (id: string) => useSignalsStore.getState().clearTerminalReloading(id),
   reconcileTerminals: (roster: TerminalRosterEntry[]) => useSignalsStore.getState().reconcileTerminals(roster),
-  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting, awaiting, awaitingInput),
+  setClaudePhaseTerminals: (active: Set<string>, resting: Set<string>, awaiting: Set<string>, awaitingInput: Set<string>, watching: Set<string>) => useSignalsStore.getState().setClaudePhaseTerminals(active, resting, awaiting, awaitingInput, watching),
 };
 
 /**
@@ -544,9 +571,10 @@ export interface TerminalRosterTypeEntry {
 
 /**
  * Partition claude-code terminal sessions by phase, for terminalLoadingFrom:
- *   - active:  phase ∈ {running, tool-running} → drives the spinner.
+ *   - active:  phase ∈ {running, tool-running, watching} → drives the spinner/ring.
  *   - resting: phase ∈ RESTING_CLAUDE_PHASES (confidently idle) → suppresses the
  *              pty heuristic (the session isn't working; pty is idle paint).
+ *   - watching: phase === 'watching' (Monitor armed) — subset of active.
  * A claude-code session with no phase entry yet — OR one still at `starting` —
  * appears in NEITHER set, so pty drives it (union fallback). That keeps the
  * spinner honest for sessions that work while pinned at `starting` (hooks never
@@ -555,7 +583,7 @@ export interface TerminalRosterTypeEntry {
 export function derivePhaseTerminals(
   roster: TerminalRosterTypeEntry[],
   byCsid: Map<string, TerminalPhaseLite>,
-): { active: Set<string>; resting: Set<string>; awaiting: Set<string>; awaitingInput: Set<string> } {
+): { active: Set<string>; resting: Set<string>; awaiting: Set<string>; awaitingInput: Set<string>; watching: Set<string> } {
   const active = new Set<string>();
   const resting = new Set<string>();
   // `awaiting` is a SUBSET of `resting` (AWAITING_FEEDBACK_PHASES ⊂
@@ -564,12 +592,17 @@ export function derivePhaseTerminals(
   const awaiting = new Set<string>();
   // `awaitingInput` ⊂ `awaiting`: the LOUD amber tier (awaiting-approval only).
   const awaitingInput = new Set<string>();
+  // `watching` ⊂ `active`: phase === 'watching' (Monitor armed).
+  const watching = new Set<string>();
   for (const ts of roster) {
     if (ts.type !== 'claude-code' && ts.type !== 'claude-code-team') continue;
     if (!ts.claudeSessionId) continue;
     const st = byCsid.get(ts.claudeSessionId);
     if (!st) continue;
-    if (ACTIVE_CLAUDE_PHASES.has(st.phase)) active.add(ts.id);
+    if (ACTIVE_CLAUDE_PHASES.has(st.phase)) {
+      active.add(ts.id);
+      if (st.phase === 'watching') watching.add(ts.id);
+    }
     else if (RESTING_CLAUDE_PHASES.has(st.phase)) {
       resting.add(ts.id);
       if (AWAITING_FEEDBACK_PHASES.has(st.phase)) awaiting.add(ts.id);
@@ -577,7 +610,7 @@ export function derivePhaseTerminals(
     }
     // `starting` / unknown → neither set → pty heuristic decides.
   }
-  return { active, resting, awaiting, awaitingInput };
+  return { active, resting, awaiting, awaitingInput, watching };
 }
 
 /**
@@ -821,6 +854,13 @@ export function useTopicLoading(topicId: string | undefined): boolean {
   );
 }
 
+/** A topic's Claude session is in 'watching' phase (Monitor/background-task armed,
+ *  awaiting an event). The aura should be muted (softer) when watching vs full-bright
+ *  when actively working. */
+export function useTopicWatching(topicId: string | undefined): boolean {
+  return useSignalsStore((s) => !!topicId && s.watchingTopics?.has(topicId));
+}
+
 /** The attention TIER of a chat topic's Claude session, or null. 'input' (amber,
  *  act now) when awaiting a permission; 'done' (blue, look when ready) when the
  *  turn finished/paused. The surface colour is chosen from this — see
@@ -864,6 +904,12 @@ export function useSessionActivity(subjectId: string | undefined): SessionActivi
  *  finished instead of vanishing back to createdAt. */
 export function useSessionLastActivity(): Map<string, number> {
   return useSignalsStore((s) => s.sessionLastActivity);
+}
+
+/** A terminal session's Claude session is in 'watching' phase (Monitor armed).
+ *  The ring should be muted when watching. By terminal session id. */
+export function useTerminalWatching(sessionId: string | undefined): boolean {
+  return useSignalsStore((s) => !!sessionId && s.claudePhaseWatchingTermIds.has(sessionId));
 }
 
 /** A terminal session is loading when its claude phase is active, or (for

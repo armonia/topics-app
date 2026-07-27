@@ -306,6 +306,79 @@ describe('applyHook — phase transitions', () => {
   });
 });
 
+describe('applyHook — Monitor lifecycle (watching phase + monitorArmed flag)', () => {
+  it('MonitorArmed moves to watching and sets the armed flag', () => {
+    const s0 = freshState({ phase: 'running', rev: 1, lastTool: { name: 'Bash', startedAt: T0 } });
+    const s1 = applyHook(s0, hook('MonitorArmed'), T0 + TICK);
+    expect(s1.phase).toBe('watching');
+    expect(s1.monitorArmed).toBe(true);
+    expect(s1.lastTool).toBeUndefined();
+    expect(s1.rev).toBe(2);
+  });
+
+  it('Stop keeps the session in watching while a monitor is armed', () => {
+    // The monitor is armed DURING the turn, then Stop fires. Without the flag,
+    // Stop would clobber watching → awaiting-user (ring off). The flag guards it.
+    let s = freshState({ phase: 'running', rev: 1 });
+    s = applyHook(s, hook('MonitorArmed'), T0 + TICK);
+    expect(s.phase).toBe('watching');
+    s = applyHook(s, hook('Stop'), T0 + 2 * TICK);
+    expect(s.phase).toBe('watching');
+    expect(s.monitorArmed).toBe(true);
+  });
+
+  it('Stop ends in watching even when work continued after arming', () => {
+    // Arm early, keep working (tool-running), then Stop → still watching.
+    let s = freshState({ phase: 'running', rev: 1 });
+    s = applyHook(s, hook('MonitorArmed'), T0 + TICK);
+    s = applyHook(s, hook('PreToolUse', { tool_name: 'Bash' }), T0 + 2 * TICK);
+    expect(s.phase).toBe('tool-running');
+    expect(s.monitorArmed).toBe(true);
+    s = applyHook(s, hook('Stop'), T0 + 3 * TICK);
+    expect(s.phase).toBe('watching');
+  });
+
+  it('MonitorClosed from watching returns to awaiting-user and clears the flag', () => {
+    let s = freshState({ phase: 'running', rev: 1 });
+    s = applyHook(s, hook('MonitorArmed'), T0 + TICK);
+    s = applyHook(s, hook('MonitorClosed'), T0 + 2 * TICK);
+    expect(s.phase).toBe('awaiting-user');
+    expect(s.monitorArmed).toBe(false);
+  });
+
+  it('MonitorClosed while live (already running) just drops the flag, keeps phase', () => {
+    // The monitor fired and woke a turn (running) before closing — don't yank it
+    // back to awaiting-user; only clear the armed flag.
+    let s = freshState({ phase: 'watching', rev: 3, monitorArmed: true });
+    s = applyHook(s, hook('UserPromptSubmit'), T0 + TICK); // woken → running
+    expect(s.phase).toBe('running');
+    expect(s.monitorArmed).toBe(true); // still armed across the woken turn
+    s = applyHook(s, hook('MonitorClosed'), T0 + 2 * TICK);
+    expect(s.phase).toBe('running');
+    expect(s.monitorArmed).toBe(false);
+  });
+
+  it('MonitorArmed does not override awaiting-approval, but still arms the flag', () => {
+    // A pending permission outranks a background watch: stay amber, but remember
+    // the monitor so a later Stop parks in watching, not awaiting-user.
+    const s0 = freshState({
+      phase: 'awaiting-approval', rev: 2,
+      pendingApproval: { kind: 'bash', prompt: 'run?', requestedAt: T0 },
+    });
+    const s1 = applyHook(s0, hook('MonitorArmed'), T0 + TICK);
+    expect(s1.phase).toBe('awaiting-approval');
+    expect(s1.monitorArmed).toBe(true);
+    expect(s1.pendingApproval).toBeDefined();
+  });
+
+  it('SessionStart clears a stale armed flag', () => {
+    const s0 = freshState({ phase: 'watching', rev: 5, monitorArmed: true });
+    const s1 = applyHook(s0, hook('SessionStart'), T0 + TICK);
+    expect(s1.phase).toBe('starting');
+    expect(s1.monitorArmed).toBe(false);
+  });
+});
+
 describe('applyJsonlEvent — replay path', () => {
   it('user event moves to running', () => {
     const s0 = freshState({ phase: 'starting', rev: 0 });

@@ -7,7 +7,7 @@ import { useEffect } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
 import type { AgentSession } from '../hooks/useAgents';
 import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, useSignalsStore, type TerminalPhaseLite } from './signals';
-import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics } from './signals';
+import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics, deriveWatchingTopics } from './signals';
 
 interface Args {
   topics: Record<string, Topic>;
@@ -50,6 +50,11 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
   useEffect(() => {
     signalsActions.setAwaitingFeedbackTopics(deriveAwaitingFeedbackTopics(topics, claudeSessions));
     signalsActions.setAwaitingInputTopics(deriveAwaitingInputTopics(topics, claudeSessions));
+  }, [topics, claudeSessions]);
+
+  // Claude "watching" phases (Monitor armed) → muted aura by topic.
+  useEffect(() => {
+    signalsActions.setWatchingTopics(deriveWatchingTopics(topics, claudeSessions));
   }, [topics, claudeSessions]);
 
   // "What is each session doing" → the activity map (keyed by topicId/terminalId).
@@ -140,7 +145,7 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
   }, [onWSMessage]);
 
   // Phase-driven loading for claude-code terminals. The phase is authoritative
-  // when known: an active phase (running/tool-running) drives the spinner, while
+  // when known: an active phase (running/tool-running/watching) drives the spinner/ring, while
   // a resting phase (awaiting-user/paused/completed/…) SUPPRESSES the pty
   // heuristic. `starting` is NOT resting — a session can work while pinned there
   // (hooks never advanced it), so pty drives it; this is the fix for "sessions
@@ -149,8 +154,8 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
   useEffect(() => {
     const byCsid = new Map<string, TerminalPhaseLite>();
     for (const st of claudeSessions.values()) byCsid.set(st.claudeSessionId, { phase: st.phase });
-    const { active, resting, awaiting, awaitingInput } = derivePhaseTerminals(terminalSessions, byCsid);
-    signalsActions.setClaudePhaseTerminals(active, resting, awaiting, awaitingInput);
+    const { active, resting, awaiting, awaitingInput, watching } = derivePhaseTerminals(terminalSessions, byCsid);
+    signalsActions.setClaudePhaseTerminals(active, resting, awaiting, awaitingInput, watching);
   }, [terminalSessions, claudeSessions]);
 
   // Reconcile busy/finished against the authoritative session roster. The

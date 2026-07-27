@@ -15,8 +15,8 @@ const phases = (entries: Array<[string, TerminalPhaseLite]>): Map<string, Termin
   new Map(entries);
 
 describe("derivePhaseTerminals — active / resting partition", () => {
-  test("running / tool-running are active (not resting)", () => {
-    for (const p of ["running", "tool-running"] as const) {
+  test("running / tool-running / watching are active (not resting)", () => {
+    for (const p of ["running", "tool-running", "watching"] as const) {
       const { active, resting } = derivePhaseTerminals(
         roster([["t1", "claude-code", "c1"]]),
         phases([["c1", { phase: p }]]),
@@ -136,9 +136,31 @@ describe("terminalRingFrom — the STRICT working-aura signal", () => {
   });
 });
 
+describe("derivePhaseTerminals watching partition", () => {
+  test("watching phase is active (part of the spinner/ring signal)", () => {
+    const { active, resting, watching } = derivePhaseTerminals(
+      roster([["t1", "claude-code", "c1"]]),
+      phases([["c1", { phase: "watching" }]]),
+    );
+    expect([...active]).toEqual(["t1"]);
+    expect([...resting]).toEqual([]);
+    expect([...watching]).toEqual(["t1"]);
+  });
+
+  test("watching is a subset of active", () => {
+    // watching terminates ONLY on MonitorClosed (→awaiting-user), never on
+    // ptyBusy/phase-resting, so it's ALWAYS active when present.
+    const { active, watching } = derivePhaseTerminals(
+      roster([["t1", "claude-code", "c1"]]),
+      phases([["c1", { phase: "watching" }]]),
+    );
+    expect(watching.size > 0 && active.has([...watching][0])).toBe(true);
+  });
+});
+
 describe("phase classification sets — loading vs attention buckets", () => {
-  test("running / tool-running are the only ACTIVE (loading) phases", () => {
-    expect([...ACTIVE_CLAUDE_PHASES].sort()).toEqual(["running", "tool-running"]);
+  test("running / tool-running / watching are the ACTIVE (loading) phases", () => {
+    expect([...ACTIVE_CLAUDE_PHASES].sort()).toEqual(["running", "tool-running", "watching"]);
   });
 
   test("awaiting-* and error are NOTABLE (attention) — and a phase is never both", () => {
