@@ -1489,6 +1489,36 @@ export function PanelGrid({
     };
   }, [gridDropTargetRef, fullRowDropRef]);
 
+  // Belt-and-suspenders: a `tabDragActive`/`isAnyDragActive` flag that never saw
+  // its `dragend`/`drop` (WKWebView can drop both when a native browser view is
+  // under the release point, or on an off-window drop) leaves the full-width row
+  // strips mounted as live pointer-events:auto hit targets over the first row's
+  // tab bar — swallowing clicks and tab-move drops. HTML5 DnD suppresses pointer
+  // events during the drag, so the first `pointermove` with no button (or any
+  // `pointerup`/blur) proves the gesture is over. Mirrors GroupLayout's guard.
+  useEffect(() => {
+    if (!tabDragActive && !isAnyDragActive) return;
+    const clear = () => {
+      setGridDropTarget(null);
+      gridDropTargetRef.current = null;
+      setDraggingGridKey(null);
+      setIsAnyDragActive(false);
+      setEmptyDragOver(false);
+      setTabDragActive(false);
+      setFullRowDrop(null);
+      fullRowDropRef.current = null;
+    };
+    const onMove = (e: PointerEvent) => { if ((e.buttons & 1) === 0) clear(); };
+    window.addEventListener('pointerup', clear, true);
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('blur', clear);
+    return () => {
+      window.removeEventListener('pointerup', clear, true);
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('blur', clear);
+    };
+  }, [tabDragActive, isAnyDragActive, gridDropTargetRef, fullRowDropRef]);
+
   const handleGridItemDropCapture = useCallback((
     e: React.DragEvent,
     /**
