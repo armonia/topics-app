@@ -52,6 +52,28 @@ function resolveChromiumPath(): string {
 
 let serverProcess: ChildProcess | null = null;
 
+/**
+ * ms-playwright Chromium PIDs that were ALREADY running when this run started —
+ * i.e. someone else's (another repo's E2E run, a debug browser). Recorded so the
+ * emergency kill below can spare them.
+ */
+let foreignChromiumPids: Set<string> = new Set();
+
+/** PIDs of every ms-playwright Chromium currently alive, machine-wide. */
+function listPlaywrightChromiumPids(): string[] {
+  try {
+    return execSync(
+      'ps ax -o pid=,command= | grep "ms-playwright" | grep -Ei "chromium|chrome" | grep -v grep | awk \'{ print $1 }\'',
+    )
+      .toString()
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 async function waitForServer(_url: string, timeoutMs = 30000): Promise<void> {
   const net = await import("net");
   const start = Date.now();
@@ -140,6 +162,15 @@ async function startTestServer(): Promise<void> {
 async function globalSetup() {
   // Disable TLS verification for localhost self-signed certs
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+  // Snapshot foreign Chromiums BEFORE we launch any of our own, so the
+  // emergency kill can tell them apart (see emergencyCleanup).
+  foreignChromiumPids = new Set(listPlaywrightChromiumPids());
+  if (foreignChromiumPids.size) {
+    console.log(
+      `[global-setup] ${foreignChromiumPids.size} pre-existing Playwright Chromium process(es) — not ours, will be spared on cleanup.`,
+    );
+  }
 
   // Phase 30.1 polish — propagate DATA_DIR to the Playwright runner so specs
   // that need to read files written by the test server (e.g.
@@ -375,7 +406,15 @@ function emergencyCleanup() {
   } catch {}
   try {
     execSync(`lsof -ti :${TEST_SERVER_PORT} 2>/dev/null | xargs kill 2>/dev/null || true`);
-    execSync('ps aux | grep -E "chromium|Chromium" | grep "ms-playwright" | grep -v grep | awk \'{ print $2 }\' | xargs kill -9 2>/dev/null || true');
+    // Kill only the Chromiums THIS run is responsible for. The previous version
+    // killed every ms-playwright Chromium on the machine, which reaches across
+    // repos: a concurrent E2E run in another project (and its results) died
+    // whenever this suite crashed or was interrupted. Anything already alive at
+    // globalSetup time is by definition not ours — spare it.
+    const ours = listPlaywrightChromiumPids().filter(
+      (pid) => !foreignChromiumPids.has(pid) && /^\d+$/.test(pid),
+    );
+    if (ours.length) execSync(`kill -9 ${ours.join(" ")} 2>/dev/null || true`);
   } catch {}
 }
 process.on('SIGINT', emergencyCleanup);
