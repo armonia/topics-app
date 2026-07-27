@@ -40,6 +40,7 @@
  * this viewer's input, mirroring the pixel path's take-control model.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/rrweb.min.css';
 
@@ -100,6 +101,12 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
   const touchRef = useRef<{ x: number; y: number; travel: number } | null>(null);
   // Option/Alt held → let the user select + copy natively in the mirror iframe.
   const [selecting, setSelecting] = useState(false);
+  // Has the replayer painted anything yet? The root is `bg-white`, so before the
+  // first rrweb event this component IS a blank white box — indistinguishable
+  // from a broken pane when the transport is down (the only other signal is the
+  // toolbar's connection chip). Nobody upstream can answer this: the panel only
+  // knows the socket state, not whether pixels landed. So we own it here.
+  const [painted, setPainted] = useState(false);
   const selectingRef = useRef(false);
   useEffect(() => { selectingRef.current = selecting; }, [selecting]);
   const navGuardAbortRef = useRef<AbortController | null>(null);
@@ -375,6 +382,7 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
           attachNavGuard();
         });
         started = true;
+        setPainted(true);
         applyScale();
         attachNavGuard();
         return;
@@ -396,6 +404,8 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
       acc.timer = null;
       try { replayerRef.current?.destroy(); } catch { /* already gone */ }
       replayerRef.current = null;
+      // The replayer took the reconstructed DOM with it — we're a blank box again.
+      setPainted(false);
     };
   }, [registerDomSink, applyScale, attachNavGuard]);
 
@@ -451,6 +461,25 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
           className="absolute top-2 left-1/2 -translate-x-1/2 z-[3] px-2 py-0.5 rounded-full bg-black/70 text-white text-[11px] font-medium pointer-events-none select-none"
         >
           Selezione testo · ⌥ per tornare
+        </div>
+      )}
+
+      {/* Nothing reconstructed yet — say so instead of showing a white void. This
+          covers both the healthy first moments (snapshot in flight) and the broken
+          case (transport down, auto-reconnect backing off): from here the two are
+          the same state, "no surface yet", and the toolbar chip is what tells
+          connected from disconnected. It never returns once painted: on a later
+          drop the last reconstructed DOM stays on screen, which beats covering
+          usable content with a spinner. */}
+      {!painted && (
+        <div
+          data-testid="browser-dom-negotiating"
+          className="absolute inset-0 z-[4] flex items-center justify-center pointer-events-none select-none"
+        >
+          <div className="text-center">
+            <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
+            <p className="text-[12px] text-app-text-muted">Avvio sessione condivisa…</p>
+          </div>
         </div>
       )}
 

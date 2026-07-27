@@ -905,6 +905,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
             </div>
           </div>
         ) : (browser.webrtcActive || browser.renderMode === 'dom') ? null : (
+          // DOM mode renders nothing HERE on purpose: DomCoBrowse above owns this
+          // state, because only it knows whether the replayer has actually painted.
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
