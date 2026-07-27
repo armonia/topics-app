@@ -392,6 +392,48 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // Drop a pending thaw timer on unmount.
   useEffect(() => () => { if (thawTimerRef.current) clearTimeout(thawTimerRef.current); }, []);
 
+  // ── Native visibility (NOT geometry) ──────────────────────────────────────
+  // Parking a pane off-screen AT FULL SIZE — what `applyBounds`/`setBounds` do
+  // above — hides it from the user but not from WebKit: visibility is derived
+  // from the view's hidden flag and window occlusion, never from its position or
+  // rect. So every background pane stayed a fully live page — rAF firing, timers
+  // unthrottled, whole render tree retained. Measured with ~20 panes open: 20
+  // live WebContent processes holding 6374 MB of footprint against ~130 MB
+  // actually resident, the OS having compressed the difference. Paging that back
+  // in is what made the UI stutter, and it is why the pane count showed up as an
+  // FPS problem rather than just a memory one.
+  //
+  // `browser_set_visible` calls setHidden:, flipping WebKit's
+  // ActivityState::IsVisible → the page goes to visibilityState "hidden": rAF
+  // stops, timers throttle, memory becomes reclaimable. What Safari does to
+  // background tabs.
+  //
+  // EXCEPT when an agent is driving this pane. A hidden NSView can't be
+  // snapshotted, and background panes are exactly where agent-driven
+  // screenshot/read_screen ops run (the `browser_op` delegation below), so a pane
+  // that's agent-active — or has a delegated op in flight — stays live even while
+  // off-screen. It's parked at x=-100000, so "live" here never means "visible".
+  const nativeVisibleRef = useRef(true);
+  const agentOpsInFlightRef = useRef(0);
+  // Read inside the WS effect (deps [id]) without re-subscribing it per change.
+  const isVisibleRef = useRef(isVisible);
+  isVisibleRef.current = isVisible;
+  const agentActiveRef = useRef(agentActive);
+  agentActiveRef.current = agentActive;
+
+  /** Returns true if this call actually changed the native visibility. */
+  const setNativeVisible = useCallback(async (visible: boolean): Promise<boolean> => {
+    if (!openedRef.current || nativeVisibleRef.current === visible) return false;
+    nativeVisibleRef.current = visible;
+    await tauriInvoke('browser_set_visible', { id, visible }).catch(() => {});
+    return true;
+  }, [id]);
+
+  useEffect(() => {
+    if (!ready) return;
+    void setNativeVisible(isVisible || agentActive || agentOpsInFlightRef.current > 0);
+  }, [ready, isVisible, agentActive, setNativeVisible]);
+
   // Create the native webview once per contextId; close on unmount. (Electron
   // keeps the view durable across unmount; for Tier-1 we close — simpler, and a
   // re-mount just re-opens. Revisit if tab-switch churn proves costly.)
@@ -731,10 +773,28 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       try { raw = JSON.parse(typeof e.data === 'string' ? e.data : ''); } catch { return; }
       const m = raw as { type?: string; opId?: string; tool?: string; args?: unknown; active?: boolean; action?: string };
       if (m && m.type === 'browser_op' && typeof m.opId === 'string' && typeof m.tool === 'string') {
-        void executeNativeBrowserOp(id, m.tool, m.args, tauriInvoke)
+        // A background pane is hidden (see setNativeVisible), and a hidden NSView
+        // can't be snapshotted or laid out — so wake it for the duration of the
+        // op. It stays parked off-screen throughout, so nothing appears to the
+        // user. The settle gives WebKit a beat to paint the newly-unhidden view
+        // before a screenshot op reads it, which would otherwise come back blank.
+        agentOpsInFlightRef.current += 1;
+        void setNativeVisible(true)
+          .then(async (woke) => {
+            if (woke) await new Promise((r) => setTimeout(r, 150));
+            return executeNativeBrowserOp(id, m.tool!, m.args, tauriInvoke);
+          })
           .then((out) => {
             if (closed) return;
             try { ws?.send(JSON.stringify({ type: 'browser_op_result', opId: m.opId, ...out })); } catch { /* ignore */ }
+          })
+          .finally(() => {
+            agentOpsInFlightRef.current -= 1;
+            // Last op out re-hides, unless the pane became genuinely visible or
+            // the agent formally attached in the meantime.
+            if (agentOpsInFlightRef.current === 0 && !isVisibleRef.current && !agentActiveRef.current) {
+              void setNativeVisible(false);
+            }
           });
         return;
       }
@@ -756,7 +816,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
         try { ws.close(); } catch { /* ignore */ }
       }
     };
-  }, [id]);
+    // setNativeVisible is useCallback([id]), so it never re-opens the socket on
+    // its own — isVisible/agentActive are read through refs for that reason.
+  }, [id, setNativeVisible]);
 
   // Zoom via injected CSS (WKWebView has no JS zoom API; document zoom is the
   // portable stop-gap). The percentage is snapped to a fixed Chrome-style ladder
