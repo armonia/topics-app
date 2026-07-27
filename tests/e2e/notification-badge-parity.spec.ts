@@ -55,7 +55,7 @@ test.describe("Notification badge parity (tab bar ≡ sidebar)", () => {
     // Reset the authoritative pane channel to EXACTLY these two topics — legacy
     // openPanels is UNIONED with pane-store-v2 on hydrate, so stale panes from
     // the shared test DB otherwise leak in as extra tabs and shift the badges.
-    await resetPaneStore(page.request, [topicA.id, topicB.id]).catch(() => {});
+    await resetPaneStore(page.request, [topicA.id, topicB.id]);
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
       state: "visible",

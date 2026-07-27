@@ -36,7 +36,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
   // `page.locator('[data-testid="tool-call-row-…"]')` queries can only ever
   // resolve inside this topic's pane.
   test.beforeEach(async ({ request }) => {
-    await resetPaneStore(request, [topicId]).catch(() => {});
+    await resetPaneStore(request, [topicId]);
   });
 
   test("renders ReasoningRow + ToolCallRow + footer in order", async ({ page, request }) => {

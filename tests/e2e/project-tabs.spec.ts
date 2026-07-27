@@ -39,7 +39,7 @@ test.describe("Project Tabs", () => {
     // but this spec's topic is PROJECT-LINKED, and usePanelLifecycle purges
     // project-linked topic ids from the open set, so seeding the topic never
     // surfaces the row. Seed the project pane itself, exactly like the UI does.
-    await resetPaneStore(page.request, []).catch(() => {});
+    await resetPaneStore(page.request, []);
     await seedProjectPane(page.request, PROJECT_PATH).catch(() => {});
   });
 

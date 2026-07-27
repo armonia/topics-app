@@ -25,7 +25,7 @@ export class FileExplorerPage {
     // exactly like the UI does when you open a project. Note: a single open
     // project still legitimately renders two file trees (sidebar + files pane) —
     // the `fileTree` getter scopes to the first to stay strict-mode safe.
-    await resetPaneStore(this.page.request, []).catch(() => {});
+    await resetPaneStore(this.page.request, []);
     await seedProjectPane(this.page.request, projectPath).catch(() => {});
     await goToApp(this.page);
 

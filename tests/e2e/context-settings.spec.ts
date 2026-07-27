@@ -11,7 +11,7 @@ test.describe("Context, Memory & Settings", () => {
     // in on hydrate) don't tile alongside this topic — otherwise the chat-input
     // context ring resolves to a HIDDEN background pane and openContextInspector
     // times out. Exactly this topic → one visible chat pane → one visible ring.
-    await resetPaneStore(request, [contextPage.topicId!]).catch(() => {});
+    await resetPaneStore(request, [contextPage.topicId!]);
 
     // Register mocks BEFORE navigation
     await contextPage.mockContextAnalyze();

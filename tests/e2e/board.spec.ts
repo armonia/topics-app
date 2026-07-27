@@ -291,7 +291,7 @@ test.describe("Kanban board", () => {
   // entries. The dedicated row is tab-aware, which is what this test pins.
   test("BOARD-09: the open Board generale tab has exactly ONE sidebar row, and it is selected", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-01" });
-    await resetPaneStore(page.request, []).catch(() => {});
+    await resetPaneStore(page.request, []);
     await page.goto("/");
 
     // Open from the standalone "+" menu.
@@ -418,7 +418,7 @@ test.describe("Kanban board", () => {
     await apiCreateTask(page.request, { text: a, status: "todo" });
     await apiCreateTask(page.request, { text: b, status: "todo" }, otherId);
 
-    await resetPaneStore(page.request, []).catch(() => {});
+    await resetPaneStore(page.request, []);
     await page.goto("/");
 
     // Standalone tab bar "+" → Board generale (the entry this change adds).

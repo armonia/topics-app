@@ -68,7 +68,7 @@ test.describe("File Explorer & Git", () => {
     // sidebar only surfaces the project row while its pane is open OR a child
     // topic has an open tab, so an empty store would hide the project header
     // gotoProject clicks). gotoProject then opens exactly one project pane.
-    if (topicId) await resetPaneStore(request, [topicId]).catch(() => {});
+    if (topicId) await resetPaneStore(request, [topicId]);
   });
 
   test.afterAll(async ({ request }) => {

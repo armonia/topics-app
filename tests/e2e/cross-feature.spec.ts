@@ -123,7 +123,7 @@ test.describe("Cross-Feature Interactions", () => {
     try {
       // Clear panes leaked by earlier specs so exactly one chat pane (hence one
       // Message-input textarea) exists after openTopic.
-      await resetPaneStore(page.request, []).catch(() => {});
+      await resetPaneStore(page.request, []);
       await goToApp(page);
 
       // Dismiss any dialogs/palettes

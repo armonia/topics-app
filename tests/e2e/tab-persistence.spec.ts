@@ -34,7 +34,7 @@ async function goWithPanels(page: import("@playwright/test").Page, panels: strin
   // tabs — and a low inner lastSeq lets them outrank this seed. Reset the
   // AUTHORITATIVE pane channel to EXACTLY these panels so the reload renders a
   // deterministic tab set.
-  await resetPaneStore(page.request, panels).catch(() => {});
+  await resetPaneStore(page.request, panels);
   await page.goto("/");
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 }

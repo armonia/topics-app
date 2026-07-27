@@ -95,7 +95,7 @@ test.describe("Sessioni Claude fuori dalla kanban", () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await resetPaneStore(page.request, []).catch(() => {});
+    await resetPaneStore(page.request, []);
     await seedProjectPane(page.request, PROJECT_PATH).catch(() => {});
   });
 
