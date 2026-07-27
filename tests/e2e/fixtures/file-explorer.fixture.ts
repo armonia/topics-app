@@ -1,6 +1,6 @@
 import { test as base, type Page } from "@playwright/test";
 import { goToApp } from "../helpers";
-import { resetPaneStore, seedProjectPane } from "../helpers/api-fixtures";
+import { resetPaneStore, resetProjectPanes, seedProjectPane } from "../helpers/api-fixtures";
 
 export class FileExplorerPage {
   constructor(private page: Page) {}
@@ -25,7 +25,14 @@ export class FileExplorerPage {
     // exactly like the UI does when you open a project. Note: a single open
     // project still legitimately renders two file trees (sidebar + files pane) —
     // the `fileTree` getter scopes to the first to stay strict-mode safe.
+    //
+    // Si azzera anche il layout INTERNO del progetto: `topics-project-panes-<hash>`
+    // e' una ui_state a se' e SOPRAVVIVE a resetPaneStore, quindi gli editor
+    // aperti da un test precedente si riaprivano nel test dopo. Sintomo:
+    // FIX-08 andava in strict-mode violation perche' `[data-testid="breadcrumb-nav"]`
+    // risolveva a DUE pane (package.json rimasto aperto da FILE-14, piu' il suo).
     await resetPaneStore(this.page.request, []);
+    await resetProjectPanes(this.page.request, projectPath);
     await seedProjectPane(this.page.request, projectPath).catch(() => {});
     await goToApp(this.page);
 
