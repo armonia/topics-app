@@ -403,6 +403,7 @@ describe("handleMessage", () => {
       "create_task",
       "get_task",
       "update_task",
+      "wait_for_condition",
       "comment_task",
       "move_session_to_project",
       "spawn_agent",

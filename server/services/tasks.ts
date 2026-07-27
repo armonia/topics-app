@@ -89,6 +89,10 @@ export interface Task {
   dispatchState: string | null;
   dispatchAttempts: number;
   dispatchError: string | null;
+  /** Agent-declared external-condition wait: while this timestamp is in the
+   *  future the task sits in `todo` (chip `waiting`) and is NOT dispatch-eligible;
+   *  the tick re-claims it once the window passes. null = no wait. */
+  dispatchDeferredUntil: string | null;
   /** Parent task (nested subtask, unlimited depth). Set at creation only. */
   parentTaskId: string | null;
   /** Reviewable output (http/https URL) shown in the task's review panel. */
@@ -418,6 +422,14 @@ export interface TaskService {
    *   the restart-orphan requeue so a server restart never erodes the retry budget.
    */
   release(args: { taskId: string; requeue: boolean; reason?: string; by?: string; parkState?: string | null; rollbackAttempt?: boolean }): Task;
+  /**
+   * Agent-declared external-condition wait: release the slot and put the task
+   * back in `todo` with chip `waiting` and a `dispatch_deferred_until` window,
+   * so it is NOT re-claimed until the window passes (then the tick re-dispatches
+   * it fresh). Distinct from a review hand-off: it produced no deliverable, it is
+   * just waiting — the note explains for what. `minutes` is clamped to [1, 1440].
+   */
+  deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
   bindTopic(args: { taskId: string; topicId: string }): Task;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
@@ -528,6 +540,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       dispatchState: r.dispatch_state ?? null,
       dispatchAttempts: r.dispatch_attempts ?? 0,
       dispatchError: r.dispatch_error ?? null,
+      dispatchDeferredUntil: r.dispatch_deferred_until ?? null,
       parentTaskId: r.parent_task_id ?? null,
       outputUrl: r.output_url ?? null,
       previewImage: r.preview_image ?? null,
@@ -1096,12 +1109,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         `UPDATE tasks
             SET assigned_agent_id = ?, status = 'in_progress',
                 in_progress_at = ?, dispatch_state = 'starting',
-                dispatch_attempts = dispatch_attempts + 1, dispatch_error = NULL, updated_at = ?
+                dispatch_attempts = dispatch_attempts + 1, dispatch_error = NULL,
+                dispatch_deferred_until = NULL, updated_at = ?
           WHERE id = ? AND status = 'todo' AND assigned_topic_id IS NULL AND dispatch_attempts < ?
+            AND (dispatch_deferred_until IS NULL OR dispatch_deferred_until <= ?)
             AND (blocked_by_task_id IS NULL OR EXISTS (
                   SELECT 1 FROM tasks bk
                    WHERE bk.id = tasks.blocked_by_task_id AND (bk.status = 'done' OR bk.archived = 1)))`,
-      ).run(agentId ?? null, ts, ts, taskId, maxAttempts);
+      ).run(agentId ?? null, ts, ts, taskId, maxAttempts, ts);
       if (res.changes !== 1) return null; // lost the race / not todo / attempts exhausted
       logStatus(taskId, "todo", "in_progress", "dispatcher");
       return rowToTask(getTaskRow(taskId));
@@ -1156,6 +1171,31 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             status = ?, dispatch_state = ?, dispatch_error = ?, updated_at = ? WHERE id = ?`,
       ).run(status, state, reason ?? null, ts, taskId);
       if (row.status !== status) logStatus(taskId, row.status, status, by ?? "dispatcher");
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    deferForWait({ taskId, reason, minutes, by }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      const mins = clampInt(minutes ?? 15, 1, 1440);
+      const ts = now();
+      const until = new Date(Date.parse(ts) + mins * 60_000).toISOString();
+      const note =
+        (reason && reason.trim() ? `In attesa: ${reason.trim()}. ` : "In attesa di una condizione esterna. ") +
+        `Rilascio lo slot, il task torna in coda e riprovo tra ~${mins} min.`;
+      // Note first (author = the agent by default) so the "perché è fermo" trail
+      // survives clearing the topic link.
+      try { this.addComment({ taskId, author: by ?? "agent", content: note }); } catch { /* dedupe/best-effort */ }
+      // Back to todo, slot freed (topic/agent cleared), chip `waiting`, and a
+      // deferral window that keeps it out of the claim until it elapses. No
+      // attempt is consumed here — waiting is not a failure (the fresh re-claim
+      // bumps the attempt, which naturally bounds an endlessly-waiting task).
+      db.prepare(
+        `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+            status = 'todo', dispatch_state = 'waiting', dispatch_error = ?,
+            dispatch_deferred_until = ?, updated_at = ? WHERE id = ?`,
+      ).run(note, until, ts, taskId);
+      if (row.status !== "todo") logStatus(taskId, row.status, "todo", by ?? "agent");
       return rowToTask(getTaskRow(taskId));
     },
 
