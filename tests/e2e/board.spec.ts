@@ -70,16 +70,27 @@ async function openProjectBoard(page: Page) {
   // project window's) and their DOM order is not guaranteed. Only the project
   // scope lists the "Board" (kanban) entry, so probe triggers until the item
   // shows, closing wrong menus with Escape.
+  // VISIBLE triggers only, and never block on one. A leftover pane from an
+  // earlier spec (the workspace is shared across the run) contributes a trigger
+  // that is in the DOM but not on screen; clicking it used to hang on
+  // "visible, enabled and stable" until the whole 60s test budget was gone —
+  // which is how this file went red in a full-suite run while passing alone.
   const triggers = page.getByTestId("pane-add-menu-trigger");
   const count = await triggers.count();
   const item = page.getByTestId("pane-add-menu-kanban");
+  let opened = false;
   for (let i = count - 1; i >= 0; i--) {
-    await triggers.nth(i).click();
-    const found = await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false);
-    if (found) break;
+    const t = triggers.nth(i);
+    if (!(await t.isVisible().catch(() => false))) continue;
+    const clicked = await t.click({ timeout: 3000 }).then(() => true, () => false);
+    if (!clicked) continue;
+    if (await item.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false)) {
+      opened = true;
+      break;
+    }
     await page.keyboard.press("Escape");
-    if (i === 0) throw new Error("no + menu with a Board (kanban) entry found");
   }
+  if (!opened) throw new Error("no + menu with a Board (kanban) entry found");
   await item.click();
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
@@ -88,6 +99,16 @@ test.describe("Kanban board", () => {
   // First test after a cold test-server boot can burn >30s on sidebar +
   // project-window + pane mounts alone; give the whole flow headroom.
   test.describe.configure({ timeout: 60_000 });
+
+  // Hermetic workspace for EVERY test in this file, before the page loads.
+  // resetPaneStore was called by only 4 individual tests; the others inherited
+  // whatever panes an earlier spec had left open, so the project window was not
+  // the visible one and its "+" (the only trigger exposing the Board entry) was
+  // off-screen — openProjectBoard then found nothing. Exactly the 4 tests that
+  // did NOT reset were the 4 that went red in a full-suite run.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, []).catch(() => {});
+  });
 
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
