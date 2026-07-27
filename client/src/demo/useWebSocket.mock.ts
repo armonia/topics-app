@@ -21,4 +21,3 @@ export function useWebSocket() {
   }));
   return api;
 }
-export default useWebSocket;
