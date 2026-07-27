@@ -238,23 +238,34 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
           if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
         }
-        if (res.touchedClient) {
-          const t2 = svc.get(taskId, { projectId })?.task;
-          if (t2) broadcastToAll({ type: "task:updated", projectId, task: t2 });
-          const build = await autoMerge.buildClient(res.repoPath);
+        if (res.landedNotLive) {
+          // Landed on main, but the shared checkout (the live server's cwd) is parked
+          // on another branch — so the code is on main yet NOT running. Say it loudly:
+          // rebuilding/relaunching off the shared checkout would build the WRONG branch,
+          // so we skip those steps and tell the human exactly what to do to activate it.
           svc.addComment({
             taskId, author: "system",
-            content: build.code === 0
-              ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
-              : `Build client fallita (exit ${build.code}) — lancia \`bun run build:client\` a mano.`,
+            content: `⚠️ Landato su main ma NON ancora attivo: il server di produzione gira dal checkout fermo su '${res.checkoutBranch}', non su main. Per attivarlo riporta quel checkout su main (git switch main) oppure fai girare il server da un checkout dedicato su main.`,
           });
-          if (build.code !== 0) console.error("[land] build:client failed for", taskId, build.stderr.slice(-2000));
-        }
-        if (res.touchedNative) {
-          svc.addComment({ taskId, author: "system", content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch)." });
-        }
-        if (res.touchedServer) {
-          svc.addComment({ taskId, author: "system", content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale)." });
+        } else {
+          if (res.touchedClient) {
+            const t2 = svc.get(taskId, { projectId })?.task;
+            if (t2) broadcastToAll({ type: "task:updated", projectId, task: t2 });
+            const build = await autoMerge.buildClient(res.repoPath);
+            svc.addComment({
+              taskId, author: "system",
+              content: build.code === 0
+                ? "Client ricostruito: la modifica è visibile (hard refresh se non appare)."
+                : `Build client fallita (exit ${build.code}) — lancia \`bun run build:client\` a mano.`,
+            });
+            if (build.code !== 0) console.error("[land] build:client failed for", taskId, build.stderr.slice(-2000));
+          }
+          if (res.touchedNative) {
+            svc.addComment({ taskId, author: "system", content: "Il landing tocca desktop-tauri/: per vederlo nel shell nativo serve un rebuild dell'app (cargo build + relaunch)." });
+          }
+          if (res.touchedServer) {
+            svc.addComment({ taskId, author: "system", content: "Il landing tocca il server: andrà live al prossimo reload del server (hot-reload watch attivo, o riavvio manuale)." });
+          }
         }
       } else if (res.status === "nothing") {
         if (opts?.deleteTaskWorktree) {
@@ -270,7 +281,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           'Il merge automatico del tuo branch su main è andato in conflitto. Porta main dentro il tuo branch (git merge main, oppure rebase), risolvi i conflitti, poi rimetti in review con update_task(status="review").',
         ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
       } else if (res.status === "skipped") {
-        svc.addComment({ taskId, author: "system", content: `Merge automatico saltato: ${res.reason}.` });
+        svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main — risolvi e rilancia "Landa su main".` });
       }
       const updated = svc.get(taskId, { projectId })?.task;
       if (updated) broadcastToAll({ type: "task:updated", projectId, task: updated });
