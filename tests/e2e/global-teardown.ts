@@ -42,17 +42,33 @@ async function globalTeardown() {
 
   console.log("[global-teardown] Test server stopped.");
 
-  // Kill ALL orphaned Chromium processes from Playwright test runs
-  // These use a specific user-data-dir that identifies them as Playwright-spawned
+  // Reap Chromiums orphaned by THIS run — never anyone else's.
+  //
+  // This used to kill every ms-playwright/mcp-chrome Chromium on the machine, on
+  // every single run (not just crashes). That reaches well outside the project:
+  // a concurrent E2E run in another repo lost its browsers and its results, and
+  // `mcp-chrome` is the user's own claude-in-chrome window. global-setup snapshots
+  // the PIDs alive before we launch anything and hands them over in
+  // __FOREIGN_CHROMIUM_PIDS; whatever was already running is by definition not
+  // ours, so it is spared. Everything else is still reaped hard.
   try {
+    const spared = new Set(
+      (process.env.__FOREIGN_CHROMIUM_PIDS || "").split(",").filter(Boolean),
+    );
     const chromiumPids = execSync(
-      'ps aux | grep -E "chromium|Chromium" | grep "ms-playwright\|mcp-chrome" | grep -v grep | awk \'{ print $2 }\' 2>/dev/null || true'
+      'ps ax -o pid=,command= | grep -E "ms-playwright|mcp-chrome" | grep -Ei "chromium|chrome" | grep -v grep | awk \'{ print $1 }\' 2>/dev/null || true'
     ).toString().trim();
-    if (chromiumPids) {
-      execSync(`kill -9 ${chromiumPids.split('\n').join(' ')} 2>/dev/null || true`);
-      console.log(`[global-teardown] Killed ${chromiumPids.split('\n').length} orphaned Chromium processes`);
+    const ours = chromiumPids
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((pid) => /^\d+$/.test(pid) && !spared.has(pid));
+    if (ours.length) {
+      execSync(`kill -9 ${ours.join(' ')} 2>/dev/null || true`);
+      console.log(`[global-teardown] Killed ${ours.length} orphaned Chromium process(es) from this run` +
+        (spared.size ? `; spared ${spared.size} pre-existing` : ""));
     } else {
-      console.log("[global-teardown] No orphaned Chromium processes found.");
+      console.log("[global-teardown] No orphaned Chromium processes found." +
+        (spared.size ? ` (${spared.size} pre-existing spared)` : ""));
     }
   } catch {}
 

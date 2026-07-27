@@ -53,17 +53,21 @@ function resolveChromiumPath(): string {
 let serverProcess: ChildProcess | null = null;
 
 /**
- * ms-playwright Chromium PIDs that were ALREADY running when this run started —
- * i.e. someone else's (another repo's E2E run, a debug browser). Recorded so the
- * emergency kill below can spare them.
+ * Chromium PIDs that were ALREADY running when this run started — i.e. someone
+ * else's: another repo's E2E run, the user's claude-in-chrome browser, a debug
+ * window. Recorded so neither the emergency kill nor global-teardown reaps them.
  */
 let foreignChromiumPids: Set<string> = new Set();
 
-/** PIDs of every ms-playwright Chromium currently alive, machine-wide. */
+/**
+ * PIDs of every Chromium our cleanup code considers fair game, machine-wide.
+ * MUST stay in sync with the match used by global-teardown.ts — the whole point
+ * is that the "spare" snapshot and the kill see the same population.
+ */
 function listPlaywrightChromiumPids(): string[] {
   try {
     return execSync(
-      'ps ax -o pid=,command= | grep "ms-playwright" | grep -Ei "chromium|chrome" | grep -v grep | awk \'{ print $1 }\'',
+      'ps ax -o pid=,command= | grep -E "ms-playwright|mcp-chrome" | grep -Ei "chromium|chrome" | grep -v grep | awk \'{ print $1 }\'',
     )
       .toString()
       .split("\n")
@@ -166,9 +170,13 @@ async function globalSetup() {
   // Snapshot foreign Chromiums BEFORE we launch any of our own, so the
   // emergency kill can tell them apart (see emergencyCleanup).
   foreignChromiumPids = new Set(listPlaywrightChromiumPids());
+  // global-teardown.ts runs in this same process but as a separate module, so
+  // it can't see the Set — hand the list over via env, as we already do for
+  // __TEST_SERVER_PID.
+  process.env.__FOREIGN_CHROMIUM_PIDS = [...foreignChromiumPids].join(",");
   if (foreignChromiumPids.size) {
     console.log(
-      `[global-setup] ${foreignChromiumPids.size} pre-existing Playwright Chromium process(es) — not ours, will be spared on cleanup.`,
+      `[global-setup] ${foreignChromiumPids.size} pre-existing Chromium process(es) — not ours, will be spared on cleanup.`,
     );
   }
 
