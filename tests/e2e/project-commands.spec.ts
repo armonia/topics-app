@@ -46,7 +46,7 @@ async function openTopicAnywhere(
 
   if (!found) {
     // Try expanding sezione Chat
-    const chatsBtn = page.getByRole("button", { name: /Chats/ });
+    const chatsBtn = page.getByRole("button", { name: "sezione Chat" });
     if (await chatsBtn.isVisible().catch(() => false)) {
       await chatsBtn.click().catch(() => {});
       await page.getByRole("treeitem").first().waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
