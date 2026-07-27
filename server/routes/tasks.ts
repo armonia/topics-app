@@ -1006,6 +1006,34 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       } catch (e) { return fail(e); }
     }
 
+    // POST /api/sessions/:sessionKey/tasks/:taskId/defer
+    // The dispatched agent DECLARES an external-condition wait: release the slot,
+    // park the task back in todo with a note + `waiting` chip + retry window. The
+    // dispatcher owns the state mutation (and clears any pending grace timer);
+    // when it's absent (degraded host) the service still parks the task directly.
+    const deferRoute = matchRoute(pathname, "/api/sessions/:sessionKey/tasks/:taskId/defer");
+    if (deferRoute && method === "POST") {
+      const sk = decodeURIComponent(deferRoute.sessionKey);
+      const sess = resolveSession(sk);
+      if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const body = (await readJSON(req)) as any;
+      if (typeof body?.reason !== "string" || !body.reason.trim()) {
+        return json({ error: "'reason' (string) is required", code: "invalid_input" }, 400);
+      }
+      // Same project guard as every other agent write: only defer a task on this
+      // session's board.
+      const owned = svc.get(deferRoute.taskId, { projectId: sess.projectId })?.task;
+      if (!owned) return json({ error: "task not found", code: "not_found" }, 404);
+      const minutes = typeof body?.minutes === "number" && Number.isFinite(body.minutes) ? body.minutes : undefined;
+      try {
+        const task = dispatcher
+          ? dispatcher.deferWait(deferRoute.taskId, body.reason, minutes)
+          : svc.deferForWait({ taskId: deferRoute.taskId, reason: body.reason, minutes, by: "agent" });
+        if (!dispatcher) broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
+        return json(task);
+      } catch (e) { return fail(e); }
+    }
+
     // GET/PATCH /api/sessions/:sessionKey/tasks/:taskId
     const item = matchRoute(pathname, "/api/sessions/:sessionKey/tasks/:taskId");
     if (item) {

@@ -216,6 +216,20 @@ const TOOLS = [
     },
   },
   {
+    name: "wait_for_condition",
+    description:
+      "Declare that YOUR task must WAIT for an external condition (a service to come back, machine load to drop, a time window) instead of holding your dispatch slot with a poller. The task goes back to the queue (todo) with your reason as a note and a 'waiting' chip, your slot is freed for other tasks, and the system re-dispatches this task automatically after `minutes`. Use this INSTEAD of sleeping/polling; do NOT move a waiting task to 'review' — it produced nothing yet.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Your task id." },
+        reason: { type: "string", description: "What you are waiting for (shown as the note on the card)." },
+        minutes: { type: "number", description: "Retry-after window in minutes (default 15, clamped 1–1440)." },
+      },
+      required: ["task_id", "reason"],
+    },
+  },
+  {
     name: "comment_task",
     description:
       "Add a comment to a task's discussion thread (progress notes, questions, handoff). Signed as this agent server-side. To ask the human a decision, pass `options`: content becomes the question and the board renders one quick-reply button per option — then move the task to status 'review' so the human sees it.",
@@ -1061,6 +1075,25 @@ export async function callGetTask(
   return parts.join("\n");
 }
 
+export async function callWaitForCondition(
+  args: ParsedArgs,
+  toolArgs: { task_id?: unknown; reason?: unknown; minutes?: unknown },
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (typeof toolArgs?.task_id !== "string" || !toolArgs.task_id) {
+    throw new Error("wait_for_condition: 'task_id' (string) is required");
+  }
+  if (typeof toolArgs?.reason !== "string" || !toolArgs.reason.trim()) {
+    throw new Error("wait_for_condition: 'reason' (string) is required");
+  }
+  const reqBody: Record<string, unknown> = { reason: toolArgs.reason };
+  if (typeof toolArgs.minutes === "number" && Number.isFinite(toolArgs.minutes)) reqBody.minutes = toolArgs.minutes;
+  const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks/${encodeURIComponent(toolArgs.task_id)}/defer`;
+  const res = await httpJson<{ dispatchDeferredUntil?: string }>(args, "POST", path, reqBody, fetchImpl);
+  const until = res?.dispatchDeferredUntil ? ` until ${res.dispatchDeferredUntil}` : "";
+  return `task ${toolArgs.task_id} released to the queue, waiting${until}. It will be re-dispatched automatically. Your turn is done — do not move it to review.`;
+}
+
 export async function callCommentTask(
   args: ParsedArgs,
   toolArgs: { task_id?: unknown; content?: unknown; mentions?: unknown; options?: unknown; media?: unknown },
@@ -1121,6 +1154,7 @@ const TOOL_HANDLERS: Record<
   get_task: (a, t) => callGetTask(a, t),
   update_task: (a, t) => callUpdateTask(a, t),
   comment_task: (a, t) => callCommentTask(a, t),
+  wait_for_condition: (a, t) => callWaitForCondition(a, t),
   move_session_to_project: (a, t) => callMoveToProject(a, t as { project_path?: unknown }),
   spawn_agent: (a, t) => callSpawnAgent(a, t as { prompt?: unknown; name?: unknown; cwd?: unknown }),
   send_to_agent: (a, t) => callSendToAgent(a, t as { agent_id?: unknown; input?: unknown }),
