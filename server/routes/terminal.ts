@@ -1511,35 +1511,36 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
   return child;
 }
 
-/** Hard-gate the /agents/* routes on the gateway token, exactly like the
- *  import-chrome / ref-based browser-bridge endpoints (topics.ts:1554,1600).
+/** Hard-gate the /agents/* routes and the raw terminal send/buffer routes.
  *  spawn_agent launches `claude --dangerously-skip-permissions` with a
  *  caller-supplied prompt — arbitrary code execution — and the server binds
  *  0.0.0.0, so an UNGUARDED route would be unauthenticated RCE for any LAN
- *  peer / local process. The MCP bridge always forwards the token (it's spawned
- *  with --gateway-token whenever the server has one), so the legit path keeps
- *  working. When GATEWAY_TOKEN is unset the whole surface is DISABLED (401) —
- *  the orchestrator is off rather than open, the same trade-off the other
- *  sensitive MCP-bridge endpoints already make. The ownership guard on
- *  send/read/stop is defence-in-depth ON TOP of this, never instead of it. */
+ *  peer / local process.
+ *
+ *  Two credentials are accepted, either one suffices:
+ *   1. The native Topics agent token (`X-Agent-Token`, pbkdf2-sha256 hash in
+ *      agent_profiles) — the PRIMARY path. Restricted to lead-role profiles:
+ *      driving a terminal is a board-lead capability, not a worker's. This is
+ *      self-contained (no external dependency) so terminal control keeps
+ *      working even with no OpenClaw around.
+ *   2. The shared GATEWAY_TOKEN (`x-gateway-token`) — kept for backward
+ *      compatibility with the MCP bridge, but no longer REQUIRED. OpenClaw is
+ *      dismissed; we must not depend on its secret for a core function.
+ *
+ *  The ownership guard on send/read/stop is defence-in-depth ON TOP of this,
+ *  never instead of it. */
 function agentAuthOk(req: Request): boolean {
-  const expected = process.env.GATEWAY_TOKEN;
-  if (expected && timingSafeEqualStr(req.headers.get("x-gateway-token") || "", expected)) return true;
-
-  // Second door: Topics' OWN identity. The gateway token is read from
-  // ~/.openclaw/openclaw.json when absent from .env (server.ts) — so without this
-  // branch, controlling sessions depends on a system that has been retired, and
-  // dies with it. `authenticateAgent` is the app's native scheme (agent_profiles +
-  // X-Agent-Token, pbkdf2). Restricted to LEAD profiles on purpose: behind these
-  // routes sits spawn_agent, which launches `claude --dangerously-skip-permissions`,
-  // so a worker token must not reach it. Ownership guards on send/read/stop stay
-  // in place on top of this, never instead of it.
+  // Native agent auth (Topics-owned): a valid X-Agent-Token for a lead profile.
   try {
-    const auth = authenticateAgent(req, getDatabase() as unknown as Parameters<typeof authenticateAgent>[1]);
-    return !!auth?.isLead;
-  } catch {
-    return false;
+    const auth = authenticateAgent(req, getDatabase());
+    if (auth && (auth.isLead || auth.agent.role === "lead")) return true;
+  } catch {}
+  // Legacy gateway token (retro-compat; unset ⇒ this path simply doesn't match).
+  const expected = process.env.GATEWAY_TOKEN;
+  if (expected && timingSafeEqualStr(req.headers.get("x-gateway-token") || "", expected)) {
+    return true;
   }
+  return false;
 }
 
 /** Kill every live child of a parent that just exited/was deleted. Children are
