@@ -9,8 +9,10 @@ import { openTaskInApp } from '../openTaskLink';
 export async function openExternal(url: string): Promise<void> {
   switch (shellKind) {
     case 'tauri':
-      // tauri-plugin-opener
-      await tauriInvoke('plugin:opener|open_url', { url });
+      // Native `open_external` command, NOT tauri-plugin-opener: the plugin's
+      // open_url leaks a zombie process per call (it drops the spawned Child
+      // without waiting). See the command's doc comment in src-tauri/src/lib.rs.
+      await tauriInvoke('open_external', { url });
       return;
     default:
       window.open(url, '_blank', 'noopener,noreferrer');
