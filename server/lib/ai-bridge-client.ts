@@ -83,12 +83,19 @@ export class AiBridgeClient {
       // process.execPath is the same bun the server runs under. augmentPath so a
       // launchd-minimal PATH still resolves `claude` for the children later.
       try { fs.mkdirSync(this.storeDir, { recursive: true }); } catch { /* best effort */ }
+      // Daemon stderr → a log file in the store dir, never "inherit": an
+      // inherited fd survives in the detached daemon and holds OUR stderr open,
+      // so a piped parent (test runner, `| tee`) never sees EOF and hangs. The
+      // file fd is ours to close as soon as the child owns a copy.
+      let logFd: number | null = null;
+      try { logFd = fs.openSync(join(this.storeDir, "daemon.log"), "a"); } catch { /* log is optional */ }
       const child = spawn(
         process.execPath,
         [resolve(import.meta.dir, "../ai-bridge.mjs"), "--socket", this.socketPath, "--store-dir", this.storeDir],
-        { detached: true, stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, PATH: augmentPath() } },
+        { detached: true, stdio: ["ignore", "ignore", logFd ?? "ignore"], env: { ...process.env, PATH: augmentPath() } },
       );
       child.unref();
+      if (logFd !== null) { try { fs.closeSync(logFd); } catch { /* already closed */ } }
       const deadline = Date.now() + 3000;
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 100));
