@@ -37,12 +37,19 @@ function argOf(flag) {
 const socketPath = argOf('--socket') || getDefaultSocketPath();
 const pidPath = socketPath.replace(/\.sock$/, '.pid');
 const storeDir = argOf('--store-dir') || path.join('/tmp', `topics-ai-bridge-store-${hashCwd()}`);
+// PID of the server that spawned us, for the orphan monitor. NOT derivable from
+// process.ppid here — Bun never refreshes it after reparenting to init (see the
+// monitor in start()). Absent when the daemon is started by hand.
+const parentPid = Number(argOf('--parent-pid')) || null;
 // A single turn's NDJSON is normally well under this; a run that blows past it is
 // pathological → we emit `error` and the server falls back to a fresh turn.
 const MAX_STORE_BYTES = 64 * 1024 * 1024;
 const KILL_GRACE_MS = 3_000;
 const RETENTION_MS = 6 * 60 * 60_000; // sweep dead session files older than 6h
 const SWEEP_EVERY_MS = 10 * 60_000;
+// Retire a daemon nobody is using. Generous: it applies even with a LIVE parent,
+// and a server sitting between turns holds no client connection.
+const IDLE_EXIT_MS = 30 * 60_000;
 
 function hashCwd() {
   return createHash('md5').update(process.cwd()).digest('hex').slice(0, 8);
@@ -360,14 +367,26 @@ async function start() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  // Survive server restarts (identical to pty-bridge): once orphaned (PPID=1)
-  // exit only if NO server reconnects within the grace window — a reconnecting
-  // server keeps the surviving `claude` children alive, which is the whole point.
-  const initialPpid = process.ppid;
-  const ORPHAN_GRACE_MS = 90_000;
+  // Survive server restarts (same intent as pty-bridge): once the spawner is
+  // gone, exit only if NO server reconnects within the grace window — a
+  // reconnecting server keeps the surviving `claude` children alive, which is
+  // the whole point of being detached.
+  //
+  // Orphanhood is decided on `--parent-pid`, NOT on `process.ppid`: under Bun
+  // (which is what `ai-bridge-client.ts` spawns us with) `process.ppid` is
+  // captured once and never refreshed after reparenting to init, so the
+  // `process.ppid === 1` test this monitor used to do was never true and the
+  // monitor never fired. pty-bridge.mjs got away with the same code only
+  // because it runs under node, where ppid does update; bridge.rs calls
+  // libc::getppid() per tick. `--parent-pid` needs no runtime to cooperate.
+  // Env override exists so the test can exercise the real monitor without
+  // sitting through 90s; production never sets it.
+  const ORPHAN_GRACE_MS = Number(process.env.TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS) || 90_000;
   let orphanDeadline = null;
   setInterval(() => {
-    const orphaned = process.ppid === 1 && initialPpid !== 1;
+    // No --parent-pid (hand-started daemon): nothing to outlive, the idle
+    // timeout below is the only thing that will ever retire us.
+    const orphaned = parentPid !== null && !pidAlive(parentPid);
     if (!orphaned) { orphanDeadline = null; return; }
     if (clients.size > 0) {
       if (orphanDeadline !== null) { console.error('[AI Bridge] Server reconnected after parent death — staying alive, sessions preserved.'); orphanDeadline = null; }
@@ -376,12 +395,29 @@ async function start() {
     const now = Date.now();
     if (orphanDeadline === null) {
       orphanDeadline = now + ORPHAN_GRACE_MS;
-      console.error(`[AI Bridge] Parent died (was ${initialPpid}), no server connected — exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects.`);
+      console.error(`[AI Bridge] Parent died (was ${parentPid}), no server connected — exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects.`);
     } else if (now >= orphanDeadline) {
       console.error('[AI Bridge] No server reconnected within grace — shutting down.');
       shutdown('ORPHAN_ABANDONED');
     }
   }, 5000).unref();
+
+  // Backstop for daemons no parent check can ever retire: a crashed/timed-out
+  // `bun test` never runs its afterAll, and its socket path embeds the test
+  // runner's PID, so nothing will reconnect to that path — ever. Same for a
+  // daemon whose worktree was reaped by worktree-gc (the socket path hashes the
+  // cwd). Those were the bulk of the 28 strays found in the wild, and their
+  // signature is exactly this: no sessions, no clients, indefinitely.
+  //
+  // Deliberately much longer than ORPHAN_GRACE_MS: this fires on a LIVE parent
+  // too, so it must never race a server that is merely idle between turns.
+  let idleSince = Date.now();
+  setInterval(() => {
+    if (clients.size > 0 || sessions.size > 0) { idleSince = Date.now(); return; }
+    if (Date.now() - idleSince < IDLE_EXIT_MS) return;
+    console.error(`[AI Bridge] Idle ${IDLE_EXIT_MS / 60_000}min with no clients and no sessions — shutting down.`);
+    shutdown('IDLE');
+  }, 60_000).unref();
 }
 
 start();

@@ -159,3 +159,68 @@ describe("ai-bridge daemon", () => {
     c.close(); c2.close();
   });
 });
+
+// The daemon is spawned detached and unref'd, so nothing in the OS will ever
+// clean it up: retiring itself is its ONLY exit path. This used to be broken
+// silently — the monitor tested `process.ppid === 1`, which Bun never updates
+// after reparenting — and abandoned daemons piled up for days.
+describe("ai-bridge orphan monitor", () => {
+  /** Poll until `pred` holds or the deadline passes. */
+  async function until(pred: () => boolean, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (pred()) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return pred();
+  }
+
+  test("a daemon whose --parent-pid is dead shuts down once no client is connected", async () => {
+    const sock = join(tmpdir(), `ai-bridge-orphan-${process.pid}.sock`);
+    const store = mkdtempSync(join(tmpdir(), "ai-bridge-orphan-store-"));
+    // A PID that is certainly dead: spawn something trivial and reap it.
+    const corpse = Bun.spawn(["/usr/bin/true"], { stdout: "ignore", stderr: "ignore" });
+    await corpse.exited;
+    const deadPid = corpse.pid;
+
+    const orphan = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
+        "--socket", sock, "--store-dir", store, "--parent-pid", String(deadPid)],
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000" } },
+    );
+    try {
+      expect(await until(() => existsSync(sock), 10_000)).toBe(true);
+      // Monitor ticks every 5s, then a 1s grace: 20s is ample headroom.
+      let exited = false;
+      void orphan.exited.then(() => { exited = true; });
+      expect(await until(() => exited, 20_000)).toBe(true);
+      // A clean shutdown() unlinks its socket; a stale one would strand it.
+      expect(existsSync(sock)).toBe(false);
+    } finally {
+      try { orphan.kill(); } catch { /* already gone — that's the pass case */ }
+      try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }, 40_000);
+
+  test("a daemon with a LIVE parent stays up", async () => {
+    const sock = join(tmpdir(), `ai-bridge-live-${process.pid}.sock`);
+    const store = mkdtempSync(join(tmpdir(), "ai-bridge-live-store-"));
+    // Our own PID is alive by definition.
+    const daemon2 = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
+        "--socket", sock, "--store-dir", store, "--parent-pid", String(process.pid)],
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000" } },
+    );
+    try {
+      expect(await until(() => existsSync(sock), 10_000)).toBe(true);
+      let exited = false;
+      void daemon2.exited.then(() => { exited = true; });
+      // Well past two monitor ticks + grace: it must still be there.
+      await new Promise((r) => setTimeout(r, 12_000));
+      expect(exited).toBe(false);
+    } finally {
+      try { daemon2.kill(); } catch { /* ignore */ }
+      try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }, 40_000);
+});
