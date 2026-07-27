@@ -995,4 +995,72 @@ describe("priority", () => {
     expect(h2.turns[0].content).not.toContain("Priorità automatica");
     expect(auto.priorityAuto).toBe(true);
   });
+
+  describe("external-session guard", () => {
+    const intruder = [{ cwd: "/Users/x/Projects/alpha", branch: "main" }];
+
+    it("REFUSES in-place dispatch while a bare terminal session works the repo", async () => {
+      const h = harness({ externalSessionsAt: () => intruder });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+      seedTask(h.db, { id: "t1", status: "todo" });
+
+      await h.dispatcher.tick(PID);
+      await flush();
+
+      const t = h.task("t1")!;
+      expect(t.status).toBe("backlog");
+      expect(t.dispatchState).toBe("blocked");
+      expect(t.dispatchError).toContain("sessione Claude esterna viva");
+      expect(t.dispatchError).toContain("/Users/x/Projects/alpha");
+      expect(h.turns.length).toBe(0);
+    });
+
+    it("in-place dispatch on a FREE repo is untouched by the guard", async () => {
+      const h = harness({ externalSessionsAt: () => [] });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+      seedTask(h.db, { id: "t1", status: "todo" });
+
+      await h.dispatcher.tick(PID);
+      await flush();
+
+      expect(h.task("t1")!.status).toBe("in_progress");
+      expect(h.turns.length).toBe(1);
+    });
+
+    it("worktree dispatch PROCEEDS but warns in the thread (isolated files, contended branch)", async () => {
+      const h = harness({ externalSessionsAt: () => intruder });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true });
+      seedTask(h.db, { id: "t1", status: "todo" });
+
+      await h.dispatcher.tick(PID);
+      await flush();
+
+      expect(h.task("t1")!.status).toBe("in_progress");
+      expect(h.turns.length).toBe(1);
+      const notes = h.svc.get("t1")!.comments.filter((c) => c.author === "system");
+      expect(notes.some((c) => c.content.includes("sessione Claude esterna viva"))).toBe(true);
+    });
+
+    it("no warning when the repo is free", async () => {
+      const h = harness({ externalSessionsAt: () => [] });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true });
+      seedTask(h.db, { id: "t1", status: "todo" });
+
+      await h.dispatcher.tick(PID);
+      await flush();
+
+      expect(h.svc.get("t1")!.comments.some((c) => c.content.includes("esterna"))).toBe(false);
+    });
+
+    it("a throwing probe never blocks dispatch (fail-open on a broken census)", async () => {
+      const h = harness({ externalSessionsAt: () => { throw new Error("fs gone"); } });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+      seedTask(h.db, { id: "t1", status: "todo" });
+
+      await h.dispatcher.tick(PID);
+      await flush();
+
+      expect(h.task("t1")!.status).toBe("in_progress");
+    });
+  });
 });
