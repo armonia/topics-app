@@ -74,6 +74,16 @@ export interface ProjectWindowPaneProps {
   onActiveTopicChange?: (topicId: string | null) => void;
   // Report all open pane IDs inside this project (for sidebar filtering)
   onOpenPanesChange?: (paneIds: string[]) => void;
+  /**
+   * Is this project window the ACTIVE top-level tab? The host keeps every
+   * visited window mounted behind `display:none`, and a hidden DOM subtree is
+   * invisible to the panes inside it: without this flag the window kept telling
+   * its own active pane "you are visible", so a background project's browser
+   * pane stayed an unhidden WKWebView — a live page burning rAF and RAM behind
+   * a tab nobody is looking at — and its terminal stayed on the foreground
+   * poll cadence. Defaults true so a host that never hides is unaffected.
+   */
+  isVisible?: boolean;
 }
 
 export function ProjectWindowPane({
@@ -83,7 +93,7 @@ export function ProjectWindowPane({
   sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
   pendingPane, pendingTerminalSessionId, pendingTerminalType, onPendingPaneConsumed, onNewChat,
   pendingFocusTopicId, pendingFocusTargetGroupId, onPendingFocusConsumed,
-  onActiveTopicChange, onOpenPanesChange,
+  onActiveTopicChange, onOpenPanesChange, isVisible: windowVisible = true,
 }: ProjectWindowPaneProps) {
   // Load persisted state (fast-paint from localStorage; server fetch triggers onUpdate)
   const loaded = useProjectPersistenceLoad({ projectPath });
@@ -293,6 +303,13 @@ export function ProjectWindowPane({
 
 
   const renderPane = useCallback((pane: Pane, isFocused: boolean, isVisible: boolean) => {
+    // `isVisible` from GroupLayout means "active tab of its group" — it knows
+    // nothing about the tab strip ABOVE this window. `onScreen` is the real
+    // thing: active tab here AND this whole window on screen. Only the panes
+    // that own an OS-level view (browser) or a cadence (terminal) use it —
+    // navigation stays on `isVisible`, because a background window must still
+    // be able to open and drive a browser pane for its agent.
+    const onScreen = isVisible && windowVisible;
     switch (pane.type) {
       case 'chat': {
         const topic = pane.topicId ? topics[pane.topicId] : null;
@@ -350,7 +367,10 @@ export function ProjectWindowPane({
               // registration). Fall back to projectPath only for a legacy pane id
               // with no encoded context.
               contextId={getBrowserContextFromPaneId(pane.id) ?? projectPath}
-              isVisible={isVisible}
+              // `onScreen`, not `isVisible`: the native view has to be hidden
+              // when this WINDOW is behind another top-level tab too, not only
+              // when the pane is behind a sibling tab in its own group.
+              isVisible={onScreen}
               // Restore the project browser tab to its last page after a restart
               // (mount-only). pane.url round-trips via projectLayoutSync. Guard
               // with isRealUrl so a persisted chrome-error: page doesn't restore.
@@ -378,7 +398,7 @@ export function ProjectWindowPane({
         if (!sessionId) return null;
         return (
           <LazyPane>
-            <SingleTerminalPane sessionId={sessionId} isActive={isVisible} />
+            <SingleTerminalPane sessionId={sessionId} isActive={onScreen} />
           </LazyPane>
         );
       }
@@ -454,6 +474,7 @@ export function ProjectWindowPane({
     getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession,
     sendMessage, editMessage, regenerateMessage, deleteMessage, switchBranch, loadHistory, chatError, sendWS, onWSMessage, onUpdateTopic,
     handleOpenFile, pinPaneById, onFocusPanel, browserNavigate, chatSync.reopenTopic, updatePane,
+    windowVisible,
   ]);
 
   return (
