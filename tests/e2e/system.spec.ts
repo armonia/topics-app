@@ -29,9 +29,11 @@ test.describe("System & Infrastructure", () => {
     expect(text!.length).toBeGreaterThan(0);
 
     await statusBtn.click();
-    // Don't use networkidle — SSE/WS connections prevent idle state
-    await page.waitForTimeout(2000);
-    expect((await page.locator("body").textContent())!.length).toBeGreaterThan(50);
+    // Niente networkidle (SSE/WS non lo raggiungono mai) e nemmeno una pausa
+    // fissa: si polla la condizione finale, che ritorna appena e' vera.
+    await expect
+      .poll(async () => ((await page.locator("body").textContent()) ?? "").length, { timeout: 10000 })
+      .toBeGreaterThan(50);
   });
 
   test("Cmd+K opens palette, Escape closes", async ({ page }) => {
@@ -123,9 +125,9 @@ test.describe("System & Infrastructure", () => {
   test("error recovery — invalid route + invalid API", async ({ page }) => {
     // Navigate to non-existent route
     await page.goto("/nonexistent-page");
-    await page.waitForTimeout(1000);
-    const bodyText = await page.locator("body").textContent();
-    expect(bodyText!.length).toBeGreaterThan(0);
+    await expect
+      .poll(async () => ((await page.locator("body").textContent()) ?? "").length, { timeout: 10000 })
+      .toBeGreaterThan(0);
 
     // Go back and verify app works
     await goToApp(page);
