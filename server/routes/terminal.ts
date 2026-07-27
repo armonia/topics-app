@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import { spawn } from "child_process";
-import { resolve, basename } from "path";
+import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
 import { getDatabase } from "../db";
 import { createHash } from "crypto";
@@ -359,6 +359,22 @@ function getSocketPath(): string {
 const SOCKET_PATH = getSocketPath();
 
 /**
+ * Append-only stderr sink for the detached bridge, parked next to its socket so
+ * a test/prod instance keeps its own (the socket path already encodes the data
+ * instance). Returns null if the file can't be opened — losing the bridge's log
+ * is survivable, failing to spawn the bridge is not.
+ */
+function openBridgeLog(): number | null {
+  try {
+    const dir = dirname(SOCKET_PATH);
+    fs.mkdirSync(dir, { recursive: true });
+    return fs.openSync(join(dir, `${basename(SOCKET_PATH, ".sock")}.log`), "a");
+  } catch {
+    return null;
+  }
+}
+
+/**
  * A bundled PTY bridge the compiled sidecar can spawn on a virgin install (where
  * there's no external bridge and Bun itself can't run node-pty): a self-contained
  * **Rust** bridge binary shipped as a Tauri sidecar, pointed at via
@@ -442,12 +458,19 @@ export async function ensureBridge(): Promise<void> {
     const bb = bundledBridge();
     const cmd = bb?.cmd ?? "node";
     const baseArgs = bb?.args ?? [resolve(import.meta.dir, "../pty-bridge.mjs")];
+    // Bridge stderr goes to a LOG FILE, never 'inherit'. Inheriting makes
+    // `detached` a lie: the bridge outlives us still holding OUR stderr open,
+    // so anything reading this process through a pipe (`| tee`, a test runner)
+    // never sees EOF and hangs until killed. A file fd is ours to close the
+    // moment the child has it.
+    const logFd = openBridgeLog();
     const child = spawn(cmd, [...baseArgs, "--socket", SOCKET_PATH], {
       detached: true,
-      stdio: ['ignore', 'ignore', 'inherit'],
+      stdio: ['ignore', 'ignore', logFd ?? 'ignore'],
       env: { ...process.env, PATH: augmentPath() },
     });
     child.unref();
+    if (logFd !== null) { try { fs.closeSync(logFd); } catch { /* already closed */ } }
 
     // Wait for bridge to create socket (poll up to 3 seconds)
     const deadline = Date.now() + 3000;

@@ -18,8 +18,8 @@ import { spawn, spawnSync, type ChildProcess } from "child_process";
 import net from "net";
 import { createInterface } from "readline";
 import { createHash } from "crypto";
-import { existsSync } from "fs";
-import { resolve } from "path";
+import { existsSync, openSync, closeSync } from "fs";
+import { resolve, dirname, basename, join } from "path";
 
 /** Callbacks for one peer (one RTCPeerConnection), routed back to its WS. */
 export interface PeerHandlers {
@@ -192,10 +192,16 @@ export function createWebrtcBridge(): WebrtcBridge {
         // exits) so it can't race — and can't hit the process we're about to spawn.
         reapOrphanBridges();
         // The sidecar removes a stale socket file before binding (main.rs), so no unlink here.
-        child = spawn(bin, ["--socket", SOCK], { detached: true, stdio: ["ignore", "ignore", "inherit"] });
+        // stderr → log file, never "inherit": the sidecar is detached and outlives
+        // us, and an inherited fd would keep OUR stderr open in it — a piped parent
+        // would then never see EOF. Our copy of the fd closes right after the spawn.
+        let logFd: number | null = null;
+        try { logFd = openSync(join(dirname(SOCK), `${basename(SOCK, ".sock")}.log`), "a"); } catch { /* log is optional */ }
+        child = spawn(bin, ["--socket", SOCK], { detached: true, stdio: ["ignore", "ignore", logFd ?? "ignore"] });
         child.on("exit", () => { child = null; });
         child.on("error", () => { child = null; });
         child.unref();
+        if (logFd !== null) { try { closeSync(logFd); } catch { /* already closed */ } }
       }
       for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 100));
