@@ -129,10 +129,18 @@ test.describe("Checklist UI verification", () => {
     // Il test è proprio sul CONTEGGIO delle tab: con le pane lasciate aperte dai
     // file precedenti (il pane-store è uno solo per tutta la suite seriale) la
     // barra va in overflow e la tab appena aperta può restare fuori dalla parte
-    // visibile → `toBeVisible()` rosso pur essendoci una sola tab. Il test apre
-    // da sé il topic dalla sidebar, quindi si parte da workspace vuoto.
+    // visibile → `toBeVisible()` rosso pur essendoci una sola tab.
+    //
+    // Si resetta a `[topicId]`, NON a `[]`. Azzerare del tutto toglieva anche la
+    // pane di QUESTA topic, e nella sidebar unificata una chat standalone non
+    // archiviata senza tab (né notifica, né pin, né detach) viene saltata —
+    // `buildSidebarItems.ts` §5, `if (!hasTab && notificationCount === 0 && …)
+    // continue`. Restava quindi un workspace vuoto in cui la riga da cliccare
+    // non esisteva proprio: il test moriva sul `waitForTopicVisible`, prima
+    // ancora di arrivare all'invariante che verifica. È anche la lettura fedele
+    // del titolo — «una topic GIÀ APERTA» significa che una tab ce l'ha.
     test.beforeEach(async ({ request }) => {
-      await resetPaneStore(request, []);
+      await resetPaneStore(request, [topicId]);
     });
 
     test("CHK4-01: clicking a topic already open in the sidebar does NOT add a second tab", async ({ page }) => {
@@ -180,7 +188,18 @@ test.describe("Checklist UI verification", () => {
       if (topicId) await deleteTopic(request, topicId);
     });
 
-    test("CHK10-01: sidebar row right-click offers Rename + 'Apri in nuova finestra' (pop-out)", async ({ page }) => {
+    // Stessa ragione del blocco Point 4: la riga di sidebar esiste solo finché la
+    // topic ha una tab aperta, e il seed fatto nel `beforeAll` può essere
+    // scavalcato dal beacon di `pagehide` della pagina del test PRECEDENTE (che
+    // flusha il proprio snapshot a pagina che si smonta, quindi DOPO il seed).
+    // Rifare il seed qui — attraverso `resetPaneStore`, che aspetta lo store
+    // quieto e verifica di essere rimasto l'ultimo scrittore — lo mette a valle
+    // di quel flush invece che a monte.
+    test.beforeEach(async ({ request }) => {
+      await resetPaneStore(request, [topicId]);
+    });
+
+    test("CHK10-01: sidebar row right-click offers Rinomina + 'Apri in nuova finestra' (pop-out)", async ({ page }) => {
       await goToApp(page);
       await waitForTopicVisible(page, topicId);
 
@@ -188,12 +207,18 @@ test.describe("Checklist UI verification", () => {
       await expect(row).toBeVisible();
       await row.click({ button: "right" });
 
-      // The ContextMenu portal is a role="menu" with aria-label "Actions for …".
-      const menu = page.getByRole("menu", { name: /Actions for/ });
+      // Etichette in ITALIANO, e non è un adattamento del test al codice: il
+      // menu era EN dentro un'app IT-first e si contraddiceva pure (voce
+      // "Archive/Delete" → conferma "Delete topic?" che però archiviava). È
+      // stato tradotto di proposito in b7793380, insieme al verbo unico
+      // "Archivia". Questo test è del 3 luglio, la traduzione del 23: asseriva
+      // "Actions for" / "Rename" su una UI che non li dice più da un mese —
+      // rosso per test STALE, non per un bug dell'app.
+      const menu = page.getByRole("menu", { name: /Azioni per/ });
       await expect(menu, "topic row context menu must open").toBeVisible({ timeout: 3000 });
 
       await expect(
-        menu.getByRole("menuitem", { name: "Rename" }),
+        menu.getByRole("menuitem", { name: "Rinomina" }),
         "Rename entry must be present",
       ).toBeVisible();
       await expect(
@@ -203,7 +228,7 @@ test.describe("Checklist UI verification", () => {
 
       // Exercise Rename: opening the inline editor must reveal a text input
       // prefilled with the current name (proves the submenu wires up).
-      await menu.getByRole("menuitem", { name: "Rename" }).click();
+      await menu.getByRole("menuitem", { name: "Rinomina" }).click();
       const input = menu.locator('input[type="text"]');
       await expect(input, "rename editor input must appear").toBeVisible({ timeout: 2000 });
       await expect(input).toHaveValue(/CHK10-Menu-/);
