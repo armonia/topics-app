@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -24,6 +24,13 @@ test.describe("Chat scroll behavior", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // Lo scroller virtualizzato viene preso con `.first()`: con le pane dei file
+  // precedenti ancora aperte (pane-store unico per la suite seriale) il primo
+  // scroller può essere quello di UN'ALTRA chat. Reset al topic seminato qui.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("auto-scrolls to bottom when new message arrives and user is at bottom", async ({ page, request }) => {

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 /**
  * Slice 5 verification — per-topic model persistence + cross-window sync.
@@ -22,6 +22,13 @@ test.describe.serial("Topic model persistence + cross-window sync", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // Il picker è per-pane e i test qui lo leggono senza scoping: le pane
+  // lasciate aperte dai file precedenti (pane-store unico per la suite) lo
+  // renderebbero ambiguo. Reset al solo topic seminato dal beforeAll.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("PATCH /api/topics/:id accepts model + round-trips through GET", async ({ request }) => {

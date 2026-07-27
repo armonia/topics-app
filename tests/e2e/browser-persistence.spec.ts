@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, closeAllBrowserContexts } from "./helpers/api-fixtures";
 import { readFile } from "fs/promises";
 import { join, resolve as resolvePath } from "path";
 
@@ -23,6 +23,11 @@ function sanitize(topicId: string): string {
 function storagePathFor(ctxId: string): string {
   return join(BROWSER_STATE_DIR, sanitize(ctxId), "storage.json");
 }
+
+// Chi sporca pulisce: vedi la docstring di `closeAllBrowserContexts`.
+test.afterAll(async ({ request }) => {
+  await closeAllBrowserContexts(request);
+});
 
 test.describe("BROWSER-CHAT-01 persistence", () => {
   test.beforeEach(({}, testInfo) => {
@@ -76,10 +81,21 @@ test.describe("BROWSER-CHAT-01 persistence", () => {
         headers: { "Content-Type": "application/json" },
       });
       expect(reopenRes.ok()).toBe(true);
-      const reopenBody = (await reopenRes.json()) as { data?: string; error?: string };
+      // NON `data` (base64): dallo screenshot-su-file l'endpoint torna un PATH.
+      // Il base64 inline costava ~5.6k token inservibili per immagine nel
+      // contesto dell'agente ed era la causa degli stall "Response stalled
+      // mid-stream" — asserire di nuovo `data` significherebbe reintrodurlo.
+      // Contratto: server/browser-tools-handler.ts:570-599.
+      const reopenBody = (await reopenRes.json()) as {
+        path?: string;
+        bytes?: number;
+        error?: string;
+      };
       expect(reopenBody.error).toBeUndefined();
-      expect(typeof reopenBody.data).toBe("string");
-      expect(reopenBody.data!.length).toBeGreaterThan(50);
+      expect(typeof reopenBody.path).toBe("string");
+      expect(reopenBody.bytes ?? 0).toBeGreaterThan(0);
+      const shot = await readFile(reopenBody.path!);
+      expect(shot.length).toBe(reopenBody.bytes);
 
       // 5. Topic.browserState.url should reflect last navigation (best-effort
       // soft assertion). Only some topics receive the upsert (depends on the

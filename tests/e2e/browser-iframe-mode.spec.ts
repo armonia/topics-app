@@ -1,6 +1,12 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible, resetPaneStore } from "./helpers/api-fixtures";
+import {
+  createTopic,
+  deleteTopic,
+  waitForTopicVisible,
+  resetPaneStore,
+  closeAllBrowserContexts,
+} from "./helpers/api-fixtures";
 
 /**
  * T2 — native <iframe> render mode (CodePen-style) for the WEB pane.
@@ -39,6 +45,11 @@ async function mockFramable(page: import("@playwright/test").Page, framable: boo
     });
   });
 }
+
+// Chi sporca pulisce: vedi la docstring di `closeAllBrowserContexts`.
+test.afterAll(async ({ request }) => {
+  await closeAllBrowserContexts(request);
+});
 
 test.describe("T2 iframe render mode", () => {
   test.beforeEach(async ({ request }) => {
@@ -114,6 +125,7 @@ test.describe("T2 iframe render mode", () => {
 
       // An agent takes over → the pane must switch to the streamed headless
       // (agents can't reach into a cross-origin iframe).
+      await browserProcessPageV2.waitForWsConnected();
       browserProcessPageV2.broadcastAgentActive(true);
       await expect(iframe).toHaveCount(0, { timeout: 8000 });
       // Streamed headless is now the render — the shared-session <video> surface
@@ -150,6 +162,7 @@ test.describe("T2 iframe render mode", () => {
       await expect.poll(() => pollStreams().some((m) => m.active === false), { timeout: 8000 }).toBe(true);
 
       // Agent attaches → back to the stream → resume the screencast.
+      await browserProcessPageV2.waitForWsConnected();
       browserProcessPageV2.broadcastAgentActive(true);
       await expect.poll(() => pollStreams().some((m) => m.active === true), { timeout: 8000 }).toBe(true);
     } finally {

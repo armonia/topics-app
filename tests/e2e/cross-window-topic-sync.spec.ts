@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { goToApp, ensureTopicVisible } from "./helpers";
-import { createTopic, deleteTopic, seedProjectInnerChats } from "./helpers/api-fixtures";
+import {
+  createTopic,
+  deleteTopic,
+  resetPaneStore,
+  seedProjectInnerChats,
+} from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -23,6 +28,16 @@ const BASE = "http://localhost:13334";
  */
 test.describe.serial("Cross-window topic + message sync", () => {
   const projectPath = "/tmp/topics-test-data";
+
+  // Ogni test qui apre DUE contesti sullo stesso server, e il pane-store è uno
+  // solo per tutta la suite seriale: con le pane dei file precedenti ancora
+  // aperte le due finestre nascono già piene, la barra dei tab va in overflow e
+  // il tab appena creato (New Chat / la chat sincronizzata) non è più visibile.
+  // I test seminano da sé ciò che gli serve — createTopic apre il tab e il test
+  // del progetto riscrive per intero il layout interno con seedProjectInnerChats.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, []);
+  });
 
   test("topic:created broadcast surfaces topic in other window's sidebar", async ({
     browser,

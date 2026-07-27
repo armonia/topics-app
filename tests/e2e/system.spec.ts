@@ -1,9 +1,17 @@
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { mockOpenClawAvailable } from "./helpers/openclaw";
 
 test.describe("System & Infrastructure", () => {
+  // Metà dei test qui prende il composer con un locator STRICT
+  // (`textbox` / Message input): il pane-store è UNO per tutta la suite
+  // seriale, quindi le chat lasciate aperte dai file precedenti lo fanno
+  // risolvere a più elementi. Ogni test riapre da sé il topic che gli serve.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, []);
+  });
+
   test("WebSocket connects and shows status", async ({ page }) => {
     // The Online/Offline label on the status button renders only when openclaw
     // is available (SidebarStatusBar: `openclawAvailable ? … : dot-only`); the

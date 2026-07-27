@@ -1,6 +1,12 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible, resetPaneStore } from "./helpers/api-fixtures";
+import {
+  createTopic,
+  deleteTopic,
+  waitForTopicVisible,
+  resetPaneStore,
+  closeAllBrowserContexts,
+} from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -30,6 +36,13 @@ async function mountBrowserPaneViaEvent(
   );
   await expect(page.locator('[data-testid="browser-url-input"]').first()).toBeVisible({ timeout: 10000 });
 }
+
+// Chi sporca pulisce: qui si aprono contesti browser server-side, che non
+// vivono in una ui_state e sopravvivono a `resetPaneStore` (vedi la docstring
+// di `closeAllBrowserContexts`).
+test.afterAll(async ({ request }) => {
+  await closeAllBrowserContexts(request);
+});
 
 test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05)", () => {
   // Reset pane-store-v2 before each test so a browser pane left over from a
@@ -265,6 +278,10 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       // Initially hidden.
       await expect(overlay).toBeHidden();
 
+      // Il pane deve essersi collegato alla WS mockata PRIMA di trasmettere,
+      // altrimenti il broadcast parte nel vuoto (vedi waitForWsConnected).
+      await browserProcessPageV2.waitForWsConnected();
+
       // Inject agent_active=true via mock WS — overlay must appear within ~5s.
       browserProcessPageV2.broadcastAgentActive(true);
       await expect(overlay).toBeVisible({ timeout: 5000 });
@@ -291,6 +308,10 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
       await mountBrowserPaneViaEvent(page, topic.id);
+
+      // Il pane deve essersi collegato alla WS mockata PRIMA di trasmettere,
+      // altrimenti il broadcast parte nel vuoto (vedi waitForWsConnected).
+      await browserProcessPageV2.waitForWsConnected();
 
       // Inject agent_active=true via mock WS.
       browserProcessPageV2.broadcastAgentActive(true);
@@ -418,30 +439,62 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
     }
   });
 
-  test("BROWSER-CHAT-04: localhost URLs render via iframe fallback [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  // Questo test asseriva il CONTRARIO: "localhost URLs render via iframe
+  // fallback", cioe' il force-frame incondizionato di localhost. Quel
+  // comportamento e' stato RIMOSSO di proposito — RemoteBrowserPanel.tsx:602
+  // lo dice per esteso: un'app di sviluppo locale che manda X-Frame-Options /
+  // frame-ancestors (Quadra su :3100 → SAMEORIGIN) si caricava BIANCA
+  // nell'iframe, e leggeva come "il browser non fa nulla, resta bianco". Oggi
+  // `useIframe = !isTauri && url && !agentActive && browser.framable`
+  // (RemoteBrowserPanel.tsx:616): localhost NON e' piu' un caso speciale,
+  // passa dalla stessa sonda /api/browsers/framable di ogni altro URL, e se
+  // non e' framabile cade sulla superficie in streaming / co-browse DOM.
+  //
+  // Il test resta, girato al contrario: e' la guardia che impedisce di
+  // reintrodurre il force-frame. Non e' un doppione di
+  // browser-iframe-mode.spec.ts ("non-framable URL → screenshot stream") —
+  // li' l'URL e' example.com e si verifica la sonda in generale; qui il punto
+  // e' proprio che l'host sia localhost, l'unico che prima scavalcava la sonda.
+  test("BROWSER-CHAT-04: localhost NON e' piu' force-framed — segue la sonda framable [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockWebrtcPeer(); // superficie di stream = <video> WebRTC
     await browserProcessPageV2.mockBrowserContexts([]);
-    // Localhost path: the panel's early-return iframe doesn't actually
-    // request snapshots. We still mount the pane via the CustomEvent.
     await browserProcessPageV2.mockRemoteBrowserPane({
       connected: true,
       url: "http://localhost:3333",
-      hasScreenshot: false,
+      hasScreenshot: true,
+    });
+    // Registrata per ULTIMA: i mock sopra usano glob piu' larghi su
+    // "api/browsers" che matchano anche questo path, e Playwright da
+    // precedenza all'ultima rotta registrata (stessa nota in
+    // browser-iframe-mode.spec.ts).
+    await page.route(/\/api\/browsers\/framable/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ framable: false }),
+      });
     });
 
-    const topic = await createTopic(request, `E2E-LocalhostIframe-${Date.now()}`);
+    const topic = await createTopic(request, `E2E-LocalhostNoForceFrame-${Date.now()}`);
     try {
       await goToApp(page);
       await waitForTopicVisible(page, topic.id);
-      // Use the slash command path — usePaneOrdering rewrites localhost to
-      // window.location.hostname so the iframe loads same-origin.
       await mountBrowserPaneViaEvent(page, topic.id, "http://localhost:3333");
 
-      const iframe = page.locator('[data-testid="browser-iframe"]');
-      await expect(iframe).toBeVisible({ timeout: 10000 });
-      // Verify it IS an iframe element (not an img).
-      const tag = await iframe.evaluate((el) => el.tagName);
-      expect(tag.toLowerCase()).toBe("iframe");
+      // Il pane e' davvero su localhost (altrimenti l'asserzione sotto sarebbe
+      // vera per il motivo sbagliato: un pane vuoto non ha iframe comunque).
+      // Si guarda il TITOLO DEL TAB, non `browser-url-input`: quell'input resta
+      // vuoto finche' non arriva la nav-info dal WS, che qui e' mockato — vedi
+      // il fix di fetchInfo() in ws.onopen. Il titolo invece deriva dall'URL
+      // del pane, quindi mostra l'host da subito.
+      await expect(page.getByRole("tab", { name: /localhost/ }).first()).toBeVisible({
+        timeout: 10000,
+      });
+      // Nessun iframe: e' esattamente il force-frame che non deve tornare.
+      await expect(page.locator('[data-testid="browser-iframe"]')).toHaveCount(0);
+      // E si cade sulla superficie in streaming, non su un pane morto.
+      await expect(page.locator('[data-testid="browser-webrtc-video"]')).toBeVisible({ timeout: 10000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

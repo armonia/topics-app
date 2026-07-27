@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 /**
  * Interface-level handling of the CLI auto-compaction recap: a message whose
@@ -25,6 +25,13 @@ test.describe("Chat compaction summary fold", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // Le pane lasciate aperte dai file precedenti montano altre chat: la history
+  // mockata qui vale per questo topic, ma i marker si cercherebbero in un DOM
+  // che ne contiene anche altre. Reset al solo topic di questo file.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("folds the compaction recap; before-content stays visible; expands on click", async ({ page, chatPage }) => {

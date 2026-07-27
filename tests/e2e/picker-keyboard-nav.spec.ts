@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 /**
  * Slice 6 verification — picker keyboard nav.
@@ -26,6 +26,13 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // Idem provider-picker.spec.ts: il picker è per-pane, quindi le pane lasciate
+  // aperte dai file precedenti rendono ambiguo `getByTestId`. Reset al solo
+  // topic di questo file.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("ArrowDown/Enter selects the second row", async ({ page, request }) => {

@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTestChat, openTopic, ensureTopicVisible } from "./helpers";
 import { mockChatStream, unmockChatStream } from "./helpers/sse-helpers";
@@ -21,10 +21,7 @@ test.describe.serial("Chat", () => {
     }
   });
 
-  test("sends message and sees streamed response", async ({
-    page,
-    chatPage,
-  }) => {
+  test("sends message and sees streamed response", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-01" });
     await goToApp(page);
     // Close any open dialogs/palettes
@@ -493,8 +490,11 @@ test.describe("Chat — Rich Content Rendering", () => {
     // legitimately render twice — assert the first (strict-mode safe).
     await expect(page.getByText("src/app.ts").first()).toBeVisible({ timeout: 15_000 });
 
-    // Assert Apply and Reject buttons are visible (DiffBlock action buttons)
-    await expect(page.getByRole("button", { name: /Apply/ })).toBeVisible({ timeout: 5_000 });
+    // Assert Apply and Reject buttons are visible (DiffBlock action buttons).
+    // `.first()` per la STESSA ragione dichiarata tre righe sopra: i due diff
+    // renderizzati (history mock + streamed send) portano due Apply, e senza
+    // `.first()` lo strict mode fa esplodere il locator.
+    await expect(page.getByRole("button", { name: /Apply/ }).first()).toBeVisible({ timeout: 5_000 });
   });
 });
 

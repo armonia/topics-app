@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 /**
  * Slice 4 verification — the killer test.
@@ -23,6 +23,13 @@ test.describe.serial("Providers snapshot sync (cross-window)", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // I test cross-window di questo file leggono il picker (uno per pane chat):
+  // con le pane dei file precedenti ancora aperte — il pane-store è unico per
+  // tutta la suite seriale — il locator risolve a più elementi.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("snapshot REST returns valid shape", async ({ request }) => {

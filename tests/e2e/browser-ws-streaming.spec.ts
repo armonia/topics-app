@@ -1,6 +1,12 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible, resetPaneStore } from "./helpers/api-fixtures";
+import {
+  createTopic,
+  deleteTopic,
+  waitForTopicVisible,
+  resetPaneStore,
+  closeAllBrowserContexts,
+} from "./helpers/api-fixtures";
 import { readFileSync } from "fs";
 import { resolve as resolvePath } from "path";
 
@@ -47,6 +53,11 @@ async function mountBrowserPane(
     timeout: 10000,
   });
 }
+
+// Chi sporca pulisce: vedi la docstring di `closeAllBrowserContexts`.
+test.afterAll(async ({ request }) => {
+  await closeAllBrowserContexts(request);
+});
 
 test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
   // Reset pane-store-v2 BEFORE each test so a browser pane left over from a

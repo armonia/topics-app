@@ -1,5 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
+import { projectPanesKey } from "../../../shared/project-keys";
 
 const BASE = "http://localhost:13334";
 
@@ -315,6 +316,35 @@ export async function resetPaneStore(
 }
 
 /**
+ * Chiude TUTTI i contesti browser vivi nel test server.
+ *
+ * I contesti NON stanno in una ui_state: vivono nel processo del server, quindi
+ * `resetPaneStore` — che riscrive `pane-store-v2` — non li tocca nemmeno di
+ * striscio. Restando vivi vengono ripescati da ogni client che si connette dopo
+ * (`useBrowserContexts.ts` → GET /api/browser/status → `buildSidebarItems` +
+ * pane montate) e si accumulano per TUTTA la suite seriale: nella run
+ * consolidata del 2026-07-27 due contesti aperti al test #69 erano ancora lì al
+ * #114, dove facevano esplodere in strict-mode locator di file che col browser
+ * non c'entrano nulla (`chat.spec.ts`, 4 tab residue).
+ *
+ * Chi sporca pulisce: va chiamato in `afterAll` dei file che CREANO contesti,
+ * invece di far difendere tutti gli altri.
+ */
+export async function closeAllBrowserContexts(request: APIRequestContext): Promise<void> {
+  const res = await request.get(`${BASE}/api/browser/status`);
+  if (!res.ok()) return;
+  const body = (await res.json()) as { details?: Array<{ id?: string }> };
+  await Promise.all(
+    (body.details ?? [])
+      .map((c) => c.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0)
+      .map((id) =>
+        request.delete(`${BASE}/api/browsers/${encodeURIComponent(id)}`).catch(() => {}),
+      ),
+  );
+}
+
+/**
  * Open a PROJECT WINDOW tab for `projectPath` by seeding the `project:<path>`
  * pane into openPanels + pane-store-v2.
  *
@@ -345,8 +375,21 @@ export async function seedProjectPane(
       });
     }
   } catch { /* ignore */ }
-  // Authoritative pane-store — append.
-  try {
+  // Authoritative pane-store — append, THROUGH `seedPaneStore`.
+  //
+  // Era un PUT NUDO (leggi-modifica-riscrivi senza quiet-wait e senza
+  // verificare che la scrittura sopravvivesse), cioe' esattamente cio' che il
+  // docstring di `seedPaneStore` vieta. Effetto misurato: un beacon tardivo
+  // della pagina del test PRECEDENTE — che sta ancora smontando mentre il
+  // beforeEach del successivo semina — atterrava sopra il seed e cancellava il
+  // pane del progetto. Il test partiva quindi con un workspace VUOTO, dove
+  // l'unico "+" raggiungibile e' quello STANDALONE (che non espone la voce
+  // Board): e' la ragione per cui i 7 test di board.spec.ts erano rossi al
+  // primo tentativo e verdi solo al retry.
+  //
+  // `build()` viene ri-eseguito a ogni tentativo, quindi il read-modify-write
+  // rilegge lo store che sta emendando invece di riapplicare una copia stantia.
+  await seedPaneStore(request, async () => {
     const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
     let snapshot: any = null;
     if (cur.ok()) {
@@ -354,9 +397,7 @@ export async function seedProjectPane(
       if (body?.value && typeof body.value === "object" && "groups" in body.value) snapshot = body.value;
     }
     if (!snapshot) {
-      snapshot = {
-        panes: {}, groups: {}, projects: {}, groupOrder: ["group:default"], closedStack: [], lastSeq: 0,
-      };
+      snapshot = { panes: {}, groups: {}, projects: {}, groupOrder: ["group:default"], closedStack: [] };
     }
     if (!snapshot.groups["group:default"]) {
       snapshot.groups["group:default"] = { id: "group:default", paneIds: [], splitRatio: 1, splitAxis: "horizontal" };
@@ -365,12 +406,8 @@ export async function seedProjectPane(
       snapshot.groups["group:default"].paneIds.push(paneId);
     }
     snapshot.panes[paneId] = snapshot.panes[paneId] || paneRecordForId(paneId);
-    snapshot.lastSeq = (snapshot.lastSeq ?? 0) + 1;
-    await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
-      data: snapshot,
-      ignoreHTTPSErrors: true,
-    });
-  } catch { /* ignore */ }
+    return snapshot; // `lastSeq` lo fornisce seedPaneStore dal valore live
+  });
   return paneId;
 }
 
@@ -450,21 +487,21 @@ async function removeTopicFromSidebar(request: APIRequestContext, topicId: strin
   } catch { /* ignore */ }
 
   // --- Phase 30 pane-store-v2 snapshot ---
-  try {
-    const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
-    if (!cur.ok()) return;
-    const body = (await cur.json()) as { value?: any };
-    const snap = body?.value;
-    if (!snap || typeof snap !== 'object') return;
-
+  // Lo strip passa da `seedPaneStore` come ogni altra scrittura sullo store:
+  // un PUT nudo che perde la corsa contro un beacon tardivo lascia il pane
+  // orfano dentro lo snapshot — cioe' esattamente la contaminazione che questa
+  // funzione esiste per prevenire, e che poi il file successivo paga.
+  //
+  // Il GET di sondaggio resta: se non c'e' nulla da togliere si esce senza
+  // scrivere, cosi' il quiet-wait di seedPaneStore non si paga sul percorso
+  // comune (deleteTopic gira a ogni afterAll).
+  const stripFrom = (snap: any): boolean => {
     let changed = false;
-    // Remove pane entry keyed by topic id
-    if (snap.panes && snap.panes[topicId]) {
+    if (snap?.panes && snap.panes[topicId]) {
       delete snap.panes[topicId];
       changed = true;
     }
-    // Scrub the id from every group's paneIds
-    if (snap.groups && typeof snap.groups === 'object') {
+    if (snap?.groups && typeof snap.groups === 'object') {
       for (const g of Object.values(snap.groups) as any[]) {
         if (Array.isArray(g?.paneIds) && g.paneIds.includes(topicId)) {
           g.paneIds = g.paneIds.filter((x: string) => x !== topicId);
@@ -472,13 +509,24 @@ async function removeTopicFromSidebar(request: APIRequestContext, topicId: strin
         }
       }
     }
-    if (changed) {
-      snap.lastSeq = (snap.lastSeq ?? 0) + 1;
-      await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
-        data: snap,
-        ignoreHTTPSErrors: true,
-      });
-    }
+    return changed;
+  };
+
+  try {
+    const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+    if (!cur.ok()) return;
+    const body = (await cur.json()) as { value?: any };
+    const snap = body?.value;
+    if (!snap || typeof snap !== 'object') return;
+    if (!stripFrom(structuredClone(snap))) return; // niente da togliere
+
+    await seedPaneStore(request, async () => {
+      const fresh = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+      const value = fresh.ok() ? ((await fresh.json()) as { value?: any })?.value : null;
+      const target = value && typeof value === 'object' ? value : snap;
+      stripFrom(target);
+      return target;
+    });
   } catch { /* ignore */ }
 }
 
@@ -611,29 +659,39 @@ export async function deleteAllTerminalSessions(request: APIRequestContext): Pro
  * stay persisted under this key and get union-added back into a fresh page, so
  * a test that opens N terminals sees N + <stale> tabs. Any test asserting an
  * exact terminal-tab count on a shared project (e.g. /tmp) must clear this key
- * first. The hash matches client `projectHash` in
- * client/src/state/pane/adapters/projectLayoutSync.ts.
+ * first. La chiave arriva da `shared/project-keys.ts`, unica sorgente dell'hash.
  */
 export async function resetProjectPanes(
   request: APIRequestContext,
   projectPath: string,
 ): Promise<void> {
-  await request.put(`${BASE}/api/ui-state/${projectPanesKey(projectPath)}`, {
-    data: { nonChatPanes: [], openChatTopicIds: [] },
-    ignoreHTTPSErrors: true,
-  });
-}
-
-/** Compute the persisted per-project pane-layout ui-state key for `projectPath`.
- *  Must match client `projectHash` in
- *  client/src/state/pane/adapters/projectLayoutSync.ts. */
-function projectPanesKey(projectPath: string): string {
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = projectPath.charCodeAt(i) + ((hash << 5) - hash);
-    hash = hash & hash;
+  const key = projectPanesKey(projectPath);
+  // Si RILEGGE per verificare che l'azzeramento sia sopravvissuto, come fa
+  // `seedPaneStore` per il canale globale. Anche questa chiave e' esposta alla
+  // stessa corsa: il client la riscrive con un debounce di 500 ms
+  // (projectLayoutSync.SYNC_DEBOUNCE_MS), quindi la pagina del test PRECEDENTE
+  // puo' flushare il proprio valore — con dentro i pane ancora aperti —
+  // subito DOPO il nostro PUT, e il progetto tornerebbe a idratarsi sporco.
+  // Un PUT nudo qui non e' verificabile: fallisce in silenzio e il sintomo
+  // compare solo molto piu' avanti nel test.
+  //
+  // `{ nonChatPanes: [], openChatTopicIds: [] }` e non `{}`: il client SCARTA
+  // un valore il cui `nonChatPanes` non e' un array
+  // (projectLayoutSync.applyServerValue), quindi `{}` non azzererebbe nulla.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await request.put(`${BASE}/api/ui-state/${key}`, {
+      data: { nonChatPanes: [], openChatTopicIds: [] },
+      ignoreHTTPSErrors: true,
+    });
+    await new Promise((r) => setTimeout(r, 60));
+    const res = await request.get(`${BASE}/api/ui-state/${key}`, { ignoreHTTPSErrors: true });
+    if (!res.ok()) return; // chiave mai scritta: non c'e' niente da azzerare
+    const value = ((await res.json()) as { value?: { nonChatPanes?: unknown[]; openChatTopicIds?: unknown[] } })?.value;
+    const empty =
+      (value?.nonChatPanes?.length ?? 0) === 0 && (value?.openChatTopicIds?.length ?? 0) === 0;
+    if (empty) return;
   }
-  return `topics-project-panes-${Math.abs(hash).toString(36)}`;
+  throw new Error(`resetProjectPanes: ${key} non resta vuoto (qualcuno ci riscrive sopra)`);
 }
 
 /**

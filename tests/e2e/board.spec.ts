@@ -13,7 +13,7 @@
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, resetPaneStore, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 
 const BASE = "http://localhost:13334";
@@ -60,7 +60,12 @@ async function openTestProject(page: Page) {
     .first();
   await expect(btn).toBeVisible({ timeout: 10000 });
   await btn.click();
-  await expect(page.locator('[data-testid="panel-tab-bar"]').first()).toBeVisible({ timeout: 10000 });
+  // Ancora sulla FINESTRA DI PROGETTO, non su `panel-tab-bar`: quella testid la
+  // porta anche la barra standalone, quindi l'asserzione passava con il
+  // workspace vuoto e non provava nulla — poi openProjectBoard falliva piu'
+  // avanti con "no + menu with a Board (kanban) entry found", a 10 s di
+  // distanza dal punto in cui il problema era gia' visibile.
+  await expect(page.getByTestId("project-window")).toBeVisible({ timeout: 10000 });
 }
 
 /** Open the project board pane via the project window's "+" menu. */
@@ -100,16 +105,6 @@ test.describe("Kanban board", () => {
   // project-window + pane mounts alone; give the whole flow headroom.
   test.describe.configure({ timeout: 60_000 });
 
-  // Hermetic workspace for EVERY test in this file, before the page loads.
-  // resetPaneStore was called by only 4 individual tests; the others inherited
-  // whatever panes an earlier spec had left open, so the project window was not
-  // the visible one and its "+" (the only trigger exposing the Board entry) was
-  // off-screen — openProjectBoard then found nothing. Exactly the 4 tests that
-  // did NOT reset were the 4 that went red in a full-suite run.
-  test.beforeEach(async ({ request }) => {
-    await resetPaneStore(request, []).catch(() => {});
-  });
-
   test.beforeAll(async ({ request }) => {
     mkdirSync(PROJECT_PATH, { recursive: true });
     writeFileSync(`${PROJECT_PATH}/package.json`, JSON.stringify({ name: "e2e-board" }, null, 2));
@@ -126,9 +121,29 @@ test.describe("Kanban board", () => {
     rmSync(PROJECT_PATH, { recursive: true, force: true });
   });
 
+  // Workspace ermetico per OGNI test: si azzerano ENTRAMBI i canali di stato,
+  // poi si riapre solo la finestra del progetto e2e.
+  //
+  // Servono entrambi perche' sono due cose diverse. `resetPaneStore` azzera lo
+  // store GLOBALE dei pane; il layout INTERNO della finestra di progetto e'
+  // invece una chiave `ui_state` a se' (`topics-project-panes-<hash>`), vive
+  // sul SERVER e sopravvive sia al reset globale sia a un context Playwright
+  // nuovo. Il "+" del progetto filtra via i tipi di pane SINGLETON gia'
+  // presenti nel gruppo (useProjectLayout.availableTypesForGroup), quindi la
+  // board lasciata li' dentro da un test faceva sparire la voce "Board" a
+  // quello dopo. Provato: lo screenshot del fallimento mostra i tab
+  // `Topics · Board Test · Files · Processes · Board Test` — gia' aperta, DUE
+  // volte — e l'errore era il fuorviante "no + menu with a Board (kanban)
+  // entry found".
+  //
+  // Niente `.catch(() => {})` sui reset/seed: un seed che non attecchisce deve
+  // far fallire il beforeEach, dove il problema e' leggibile, invece di
+  // riemergere 10 s dopo travestito da elemento mancante. (C'erano anche due
+  // beforeEach separati con lo stesso reset: fusi qui.)
   test.beforeEach(async ({ page }) => {
-    await resetPaneStore(page.request, []).catch(() => {});
-    await seedProjectPane(page.request, PROJECT_PATH).catch(() => {});
+    await resetPaneStore(page.request, []);
+    await resetProjectPanes(page.request, PROJECT_PATH);
+    await seedProjectPane(page.request, PROJECT_PATH);
   });
 
   test("BOARD-01: project board renders 5 columns + dispatch settings (auto-dispatch off)", async ({ page }) => {

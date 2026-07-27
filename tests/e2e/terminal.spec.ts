@@ -6,6 +6,7 @@ import {
   listTerminalSessions,
   deleteTerminalSession,
   deleteAllTerminalSessions,
+  resetPaneStore,
   resetProjectPanes,
 } from "./helpers/api-fixtures";
 import { goToApp } from "./helpers";
@@ -18,8 +19,15 @@ import { goToApp } from "./helpers";
 // TERM-04 count 3–6 tabs instead of 2. Reset the shared /tmp project layout +
 // kill all live sessions before EVERY test in this file so each starts from a
 // known-empty terminal state (retry-safe: beforeEach re-runs on each attempt).
+// Il reset per-progetto sopra non basta: una pane terminale aperta al livello
+// GLOBALE da un altro file (il pane-store è uno solo per tutta la suite seriale)
+// sopravvive, e `navigateAndOpenTerminal` vede `xtermAlreadyVisible` → riusa una
+// shell morta invece di aprirne una. Sulle tab bar in più, poi, il `.last()` di
+// TERM-04/TERM-08 finisce sul gruppo sbagliato. Ogni test qui apre da sé finestra
+// progetto e shell partendo dalla sidebar, quindi non c'è nulla da preservare.
 test.beforeEach(async ({ request }) => {
   await deleteAllTerminalSessions(request);
+  await resetPaneStore(request, []);
   await resetProjectPanes(request, "/tmp");
 });
 

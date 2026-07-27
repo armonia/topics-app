@@ -1,5 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
+import { closeAllBrowserContexts } from "./helpers/api-fixtures";
+
+// Chi sporca pulisce: vedi la docstring di `closeAllBrowserContexts`.
+test.afterAll(async ({ request }) => {
+  await closeAllBrowserContexts(request);
+});
 
 /**
  * Shared browser session — "condivisi nello stato tra Mac app e PWA".

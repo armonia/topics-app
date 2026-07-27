@@ -1,7 +1,13 @@
 import { expect } from "@playwright/test";
 import { test, MOCK_RUNNING_SCRIPTS, MOCK_BROWSER_CONTEXTS } from "./fixtures/browser.fixture";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, seedPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
+import {
+  createTopic,
+  deleteTopic,
+  resetPaneStore,
+  seedPaneStore,
+  waitForTopicVisible,
+} from "./helpers/api-fixtures";
 
 // ── Phase 27 -> Phase 30 disposition map (per plan 30-05 Task 6, I11 strategy) ──
 //
@@ -61,6 +67,19 @@ test.describe("ScriptRunner", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId).catch(() => {});
+  });
+
+  // Il pane-store è UNO per tutta la suite seriale: una finestra progetto
+  // lasciata aperta da un altro file monta una SECONDA ProjectSidebar, e allora
+  // `openProjectAndProcesses` espande il "Processes" sbagliato (`.first()`)
+  // mentre `scriptRunner` — locator STRICT, senza `.first()` — risolve a due
+  // elementi. Ogni test qui apre da sé il progetto dalla sidebar.
+  // `[topicId]` e non `[]`: la riga del progetto nella sidebar è guidata dalle
+  // TAB APERTE, non dall'elenco dei topic (api-fixtures.ts, docstring di
+  // `seedProjectPane`). Con lo store vuoto sparisce anche il progetto e
+  // `openProjectAndProcesses` va in timeout cercandone il bottone.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   // PROCESS-01: PASS — ScriptRunner unchanged by phase 30.

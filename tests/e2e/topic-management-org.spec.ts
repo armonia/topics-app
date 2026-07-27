@@ -104,6 +104,14 @@ test.describe("Topic Management - Settings & Organization", () => {
     await deleteTopic(request, gammaId).catch(() => {});
   });
 
+  // Il reset era in UN solo test (TOPIC-10, sotto): serve a tutti. Il pane-store
+  // è UNO per l'intera suite seriale, e questi test contano/riordinano righe
+  // nella sidebar, che elenca una chat standalone solo se ha un tab aperto —
+  // quindi si riparte esattamente dai tre topic del beforeAll, né più né meno.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [alphaId, betaId, gammaId]);
+  });
+
   test("TOPIC-07: topic settings modal with system prompt and context files", async ({
     page,
   }) => {
@@ -299,7 +307,9 @@ test.describe("Topic Management - Settings & Organization", () => {
     // so the injected unread:updated would never paint. With this reset, clicking
     // Beta activates Beta and leaves Alpha an INACTIVE tab (still a sidebar row),
     // which is the precondition the badge assertion needs.
-    await resetPaneStore(page.request, [alphaId, betaId]).catch(() => {});
+    // Niente `.catch`: un reset che fallisce in silenzio si traveste da
+    // asserzione rotta dieci secondi dopo.
+    await resetPaneStore(page.request, [alphaId, betaId]);
 
     // Navigate to the app
     await goToApp(page);

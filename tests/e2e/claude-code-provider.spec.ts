@@ -13,7 +13,7 @@ import {
   mockChatStreamWithToolCalls,
   unmockChatStream,
 } from "./helpers/sse-helpers";
-import { createTopic, deleteTopic, patchTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -31,6 +31,13 @@ test.describe.serial("Claude Code Provider", () => {
     if (testTopicId) {
       await deleteTopic(request, testTopicId);
     }
+  });
+
+  // Il pane-store è condiviso da tutta la suite seriale: senza reset la chat di
+  // questo file convive con quelle lasciate aperte dai file precedenti e i
+  // locator della chat (composer, tool card) risolvono a più elementi.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [testTopicId]);
   });
 
   // --- CCPROV-01: Provider Lifecycle ---
