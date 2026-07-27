@@ -224,23 +224,15 @@ test.describe("ScriptRunner", () => {
 //   - tests/e2e/browser-tab-open.spec.ts (BROWSER-CHAT-04)
 //   - tests/e2e/browser-persistence.spec.ts (DELETE /api/browsers/:id)
 //
-// The describe block below preserves the test names as REMOVED markers so
-// `grep "BROWSER-0[123]:"` still finds documented dispositions.
-test.describe("BrowserSidebarControl (REMOVED in plan 30-05)", () => {
-  // BROWSER-01: REMOVED — context list rendered by retired sidebar; coverage
-  // moved to browser-tab-open.spec.ts (BROWSER-CHAT-04).
-  test.skip("BROWSER-01: Context list renders with titles (REMOVED in plan 30-05)", async () => {});
-
-  // BROWSER-02: REMOVED — DELETE /api/browsers/:id covered by
-  // browser-persistence.spec.ts (BROWSER-CHAT-01 calls DELETE to flush
-  // storage.json before assertion).
-  test.skip("BROWSER-02: Close browser context sends DELETE (REMOVED in plan 30-05)", async () => {});
-
-  // BROWSER-03: REMOVED — empty-state UX no longer applies; sidebar control is
-  // gone. The new Topic-level browser pane handles its own ready/disconnect
-  // states (BROWSER-04..07 below).
-  test.skip("BROWSER-03: Empty state shows message (REMOVED in plan 30-05)", async () => {});
-});
+// Per-ID disposition (this comment IS the record — empty `test.skip` bodies
+// used to stand in for it, but a permanently-skipped no-op is not a test):
+//   BROWSER-01 (context list renders with titles) → browser-tab-open.spec.ts
+//     (BROWSER-CHAT-04).
+//   BROWSER-02 (close context sends DELETE) → browser-persistence.spec.ts
+//     (BROWSER-CHAT-01 calls DELETE to flush storage.json before asserting).
+//   BROWSER-03 (empty state shows message) → no successor: the empty-state UX
+//     doesn't apply once the sidebar control is gone. The Topic-level browser
+//     pane owns its own ready/disconnect states (BROWSER-04..07 below).
 
 // ── RemoteBrowserPanel Tests (BROWSER-04..08: REWRITTEN — mount via CustomEvent) ──
 //
@@ -366,7 +358,6 @@ test.describe("RemoteBrowserPanel", () => {
   //   - tests/e2e/browser-ws-streaming.spec.ts (test 5: connection
   //     indicator transitions live -> fallback -> disconnected)
   // Original test was: assert "No browser session" message when REST 404.
-  test.skip("BROWSER-06: No session state shows disconnect message (REMOVED in plan 30-05)", async () => {});
 
   // BROWSER-07: REWRITTEN — ready state asserted on connected-but-no-URL flow.
   test("BROWSER-07: Browser ready state with no URL", async ({

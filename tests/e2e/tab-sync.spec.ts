@@ -475,8 +475,6 @@ test.describe("Preview Tab Behavior", () => {
   });
 });
 
-test.describe("Stale Session Recovery", () => {
-  // Obsolete architecture — panels are owned by pane-store-v2 now; the
-  // topics-open-panels/panels authority this asserted was removed in the redesign.
-  test.skip("STALE-01: server state overrides stale localStorage on load", async () => {});
-});
+// STALE-01 ("server state overrides stale localStorage on load") was dropped
+// with the architecture it tested: panels are owned by pane-store-v2 now, and
+// the topics-open-panels/panels authority it asserted no longer exists.

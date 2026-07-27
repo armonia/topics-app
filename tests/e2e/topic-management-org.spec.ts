@@ -15,7 +15,6 @@ import {
   resetPaneStore,
 } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
-import { dndReorder } from "./helpers/dnd-helpers";
 
 const TS = Date.now();
 
@@ -405,89 +404,10 @@ test.describe("Topic Management - Settings & Organization", () => {
     ).toHaveClass(/scale-110/);
   });
 
-  // Manual topic drag-reorder was dropped in the redesign (no DndContext / no
-  // /api/topics/reorder client call). Skipped as removed-feature; restore
-  // verbatim if reorder is re-wired.
-  test.skip("TOPIC-12: drag-reorder using dnd-helpers persists across reload", async ({
-    page, request,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "TOPIC-02" });
-    await goToApp(page);
-
-    // Ensure test topics are visible in sidebar and scrolled into view
-    const alpha = await ensureTopicVisible(page, new RegExp(`E2E-Alpha-${TS}`));
-    const gamma = await ensureTopicVisible(page, new RegExp(`E2E-Gamma-${TS}`));
-    // Scroll both elements into viewport for mouse events to work
-    await alpha.scrollIntoViewIfNeeded();
-    await gamma.scrollIntoViewIfNeeded();
-
-    // Helper to get VISUAL order of our E2E test topics (sorted by Y position)
-    // dnd-kit uses CSS transforms, so DOM order differs from visual order
-    const getTopicOrder = async () => {
-      return page.evaluate((ts) => {
-        const sidebar = document.querySelector('[aria-label="Topics sidebar"]');
-        if (!sidebar) return [];
-        const all = sidebar.querySelectorAll('[aria-label]');
-        const topics: { name: string; y: number }[] = [];
-        for (const el of all) {
-          const label = el.getAttribute('aria-label') || '';
-          if (label.startsWith('E2E-') && label.includes(ts)) {
-            const rect = el.getBoundingClientRect();
-            topics.push({ name: label, y: rect.y });
-          }
-        }
-        // Sort by visual Y position (top to bottom)
-        return topics.sort((a, b) => a.y - b.y).map(t => t.name);
-      }, `${TS}`);
-    };
-
-    const initialOrder = await getTopicOrder();
-    expect(initialOrder.length).toBeGreaterThanOrEqual(3);
-
-    // Set up a response listener BEFORE the drag to verify API call fires
-    const reorderPromise = page.waitForResponse(
-      (resp) => resp.url().includes("/api/topics/reorder") && resp.status() === 200,
-      { timeout: 10000 }
-    );
-
-    // Perform drag: move Alpha below Gamma using dnd-helpers (per D-09)
-    await dndReorder(page, alpha, gamma, "below");
-
-    // Verify the reorder API was called successfully
-    const reorderResponse = await reorderPromise;
-    expect(reorderResponse.ok()).toBeTruthy();
-
-    // Verify visual DOM order changed after drag
-    const postDragOrder = await getTopicOrder();
-    expect(postDragOrder).not.toEqual(initialOrder);
-
-    // Assert Alpha now appears after Gamma visually
-    const alphaIdx = postDragOrder.findIndex(n => n.includes('Alpha'));
-    const gammaIdx = postDragOrder.findIndex(n => n.includes('Gamma'));
-    expect(alphaIdx).toBeGreaterThan(gammaIdx);
-
-    // Verify the reorder was persisted server-side
-    // Use API to check that sortOrder values were set
-    const topicsResp = await request.get("http://localhost:13334/api/topics", {
-      ignoreHTTPSErrors: true,
-    });
-    const topicsData = await topicsResp.json() as { topics: Record<string, { sortOrder?: number }> };
-    const alphaSortOrder = topicsData.topics[alphaId]?.sortOrder;
-    const gammaSortOrder = topicsData.topics[gammaId]?.sortOrder;
-    // After drag-reorder, the sortOrder values should have been updated
-    // (the exact new order depends on drag behavior, but sortOrders should be distinct)
-    expect(alphaSortOrder).toBeDefined();
-    expect(gammaSortOrder).toBeDefined();
-    expect(alphaSortOrder).not.toBe(gammaSortOrder);
-
-    // Reload and verify visual order persists
-    await page.reload();
-    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 15000 });
-    await ensureTopicVisible(page, new RegExp(`E2E-Alpha-${TS}`));
-
-    const postReloadOrder = await getTopicOrder();
-    const alphaIdxReload = postReloadOrder.findIndex(n => n.includes('Alpha'));
-    const gammaIdxReload = postReloadOrder.findIndex(n => n.includes('Gamma'));
-    expect(alphaIdxReload).toBeGreaterThan(gammaIdxReload);
-  });
+  // TOPIC-12 ("drag-reorder using dnd-helpers persists across reload") was
+  // deleted with the feature: manual topic drag-reorder is gone from the UI
+  // (no DndContext in the sidebar, and `topicsApi.reorder` has zero callers).
+  // The POST /api/topics/reorder route still exists server-side but is
+  // unreachable from the client. Restore from git history if reorder is
+  // re-wired.
 });

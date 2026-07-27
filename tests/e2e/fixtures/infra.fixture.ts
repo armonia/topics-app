@@ -36,33 +36,6 @@ export const MOCK_CRON_JOBS = [
   },
 ];
 
-export const MOCK_WEBHOOKS = [
-  {
-    id: "wh-1",
-    name: "Deploy Hook",
-    url: "https://hooks.example.com/deploy",
-    secret: "whsec_abc123",
-    events: ["topic.created", "topic.updated", "chat.message"],
-    active: true,
-    retryCount: 3,
-    timeoutMs: 5000,
-    createdAt: "2026-03-20T10:00:00Z",
-    updatedAt: "2026-03-25T14:30:00Z",
-  },
-  {
-    id: "wh-2",
-    name: "Audit Logger",
-    url: "https://audit.example.com/log",
-    secret: "whsec_def456",
-    events: [],
-    active: false,
-    retryCount: 1,
-    timeoutMs: 3000,
-    createdAt: "2026-03-22T08:00:00Z",
-    updatedAt: "2026-03-22T08:00:00Z",
-  },
-];
-
 export const MOCK_TUNNEL_ACTIVE = {
   active: true,
   url: "https://test.ts.net",
@@ -148,16 +121,6 @@ export class InfraPage {
       .waitFor({ state: "visible", timeout: 10_000 });
   }
 
-  /**
-   * The Webhooks panel was removed from the client (no component, no menu
-   * entry). The "Webhooks Panel" describe in infra-panels.spec.ts is
-   * `test.describe.skip`-ped; this stub only exists so those skipped bodies
-   * still typecheck. If you un-skip them, restore the UI first.
-   */
-  async openWebhooksPanel(): Promise<never> {
-    throw new Error("WebhooksPanel was removed from the client (no UI to open).");
-  }
-
   // --- Mock methods (call BEFORE page.goto) ---
 
   async mockCronJobs(jobs = MOCK_CRON_JOBS) {
@@ -215,93 +178,6 @@ export class InfraPage {
       } else if (method === "DELETE") {
         const id = url.split("/").pop();
         currentJobs = currentJobs.filter((j) => j.id !== id);
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-  }
-
-  async mockWebhooks(webhooks = MOCK_WEBHOOKS) {
-    let currentWebhooks = [...webhooks];
-
-    await this.page.route("**/api/webhooks", async (route) => {
-      const method = route.request().method();
-      if (method === "GET") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ webhooks: currentWebhooks }),
-        });
-      } else if (method === "POST") {
-        const body = route.request().postDataJSON();
-        const newWebhook = {
-          id: "wh-new-" + Date.now(),
-          name: body.name,
-          url: body.url,
-          secret: "whsec_new",
-          events: body.events || [],
-          active: body.active ?? true,
-          retryCount: 3,
-          timeoutMs: 5000,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        currentWebhooks = [newWebhook, ...currentWebhooks];
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(newWebhook),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-
-    await this.page.route("**/api/webhooks/*/test", async (route) => {
-      if (route.request().method() === "POST") {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ status: "success" }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
-
-    await this.page.route("**/api/webhooks/*", async (route) => {
-      const method = route.request().method();
-      const url = route.request().url();
-
-      // Skip /test endpoint
-      if (url.includes("/test")) {
-        await route.fallback();
-        return;
-      }
-
-      if (method === "PATCH") {
-        const body = route.request().postDataJSON();
-        const id = url.split("/").pop();
-        const updated = currentWebhooks.find((w) => w.id === id);
-        if (updated) {
-          Object.assign(updated, body);
-        }
-        currentWebhooks = currentWebhooks.map((w) =>
-          w.id === id ? { ...w, ...body } : w
-        );
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(updated || body),
-        });
-      } else if (method === "DELETE") {
-        const id = url.split("/").pop();
-        currentWebhooks = currentWebhooks.filter((w) => w.id !== id);
         await route.fulfill({
           status: 200,
           contentType: "application/json",
