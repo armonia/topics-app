@@ -26,6 +26,7 @@
     "test:cli": "bun test tests/integration/cli-topics.test.ts",
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
     "check:any": "bun run scripts/check-any.ts",
+    "check:deadcode": "bunx --bun knip",
     "typecheck:server": "bun run scripts/typecheck-server.ts",
     "hooks:install": "bun run scripts/install-claude-hooks.ts install",
     "hooks:uninstall": "bun run scripts/install-claude-hooks.ts uninstall",

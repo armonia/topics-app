@@ -1,0 +1,59 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      // `!` = "this IS an entrypoint, even though nothing imports it".
+      // Everything marked so is reached from OUTSIDE the import graph:
+      // a shell command, a launchd job, or Claude Code's hook settings.
+      "entry": [
+        "server.ts",
+        "server/ai-bridge.mjs!", // spawned as a detached daemon
+        "server/pty-bridge.mjs!", // idem
+        "cli/topics.ts!", // the `topics` CLI binary
+        // scripts/hooks/* are invoked by Claude Code as `bun <path>` from its
+        // settings, never imported — hence `**`, not `scripts/*.ts`.
+        "scripts/**/*.ts!",
+        "server/db/seed.ts!", // one-shot JSON→SQLite migration, run by hand
+        "server/**/*.test.ts",
+        "tests/**/*.{test,spec}.ts"
+      ],
+      "project": [
+        "server/**/*.{ts,mjs}",
+        "shared/**/*.ts",
+        "cli/**/*.ts",
+        "scripts/**/*.ts",
+        "server.ts"
+      ],
+      // Only e2e specs need an explicit ignore: they ARE matched by the
+      // `tests/**` entry above but pull in browser-only helpers we don't want
+      // knip resolving. Everything else (public/, landing/, desktop-tauri/,
+      // openspec/, videos/, performance/, .reference/) already falls outside
+      // `project` and needs no listing.
+      "ignore": ["tests/e2e/**"]
+    },
+    "client": {
+      "entry": [
+        "src/main.tsx",
+        "vite.config.ts",
+        "vite.demo.config.ts",
+        "vite.landing.config.ts",
+        "src/demo/**/*.{ts,tsx}!",
+        "src/**/*.{test,spec}.{ts,tsx}"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        // Deliberately kept unwired — see the note in GlobalSettings.tsx.
+        "src/hooks/usePushNotifications.ts"
+      ]
+    }
+  },
+  "ignoreBinaries": ["playwright", "eslint", "spec-flow", "pkill"],
+  "ignoreDependencies": [],
+  // Components declared AND consumed inside their own file (a local card
+  // registry, the sub-components of one screen) are exported only so the file
+  // reads as a set of named units. Without this knip flags ~150 of them and
+  // the report becomes noise nobody reads.
+  "ignoreExportsUsedInFile": true,
+  "bun": false,
+  "playwright": false
+}
