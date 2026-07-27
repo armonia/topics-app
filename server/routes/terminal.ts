@@ -8,6 +8,7 @@ import net from "net";
 import fs from "fs";
 import { augmentPath, realHome } from "../utils/path-env";
 import { timingSafeEqualStr } from "../utils";
+import { authenticateAgent } from "../middleware/agent-auth";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveClaudeBin } from "../lib/claude-bin";
 import { discoverCodexSessionId, codexRolloutExists, codexRolloutPath } from "../lib/codex-session";
@@ -1500,8 +1501,22 @@ function resolveOwnedChild(parentSessionKey: string, agentId: string): TerminalS
  *  send/read/stop is defence-in-depth ON TOP of this, never instead of it. */
 function agentAuthOk(req: Request): boolean {
   const expected = process.env.GATEWAY_TOKEN;
-  if (!expected) return false;
-  return timingSafeEqualStr(req.headers.get("x-gateway-token") || "", expected);
+  if (expected && timingSafeEqualStr(req.headers.get("x-gateway-token") || "", expected)) return true;
+
+  // Second door: Topics' OWN identity. The gateway token is read from
+  // ~/.openclaw/openclaw.json when absent from .env (server.ts) — so without this
+  // branch, controlling sessions depends on a system that has been retired, and
+  // dies with it. `authenticateAgent` is the app's native scheme (agent_profiles +
+  // X-Agent-Token, pbkdf2). Restricted to LEAD profiles on purpose: behind these
+  // routes sits spawn_agent, which launches `claude --dangerously-skip-permissions`,
+  // so a worker token must not reach it. Ownership guards on send/read/stop stay
+  // in place on top of this, never instead of it.
+  try {
+    const auth = authenticateAgent(req, getDatabase() as unknown as Parameters<typeof authenticateAgent>[1]);
+    return !!auth?.isLead;
+  } catch {
+    return false;
+  }
 }
 
 /** Kill every live child of a parent that just exited/was deleted. Children are
