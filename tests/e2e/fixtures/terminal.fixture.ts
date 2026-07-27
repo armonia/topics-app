@@ -4,8 +4,6 @@ export class TerminalPage {
   constructor(private page: Page) {}
 
   get panel() { return this.page.locator('[data-testid="terminal-panel"]'); }
-  get emptyState() { return this.page.locator('[data-testid="terminal-empty-state"]'); }
-  get tabBar() { return this.page.locator('[data-testid="terminal-tab-bar"]'); }
   // Inactive panes stay MOUNTED with display:none, so a bare `.xterm-rows`
   // (or `.first()`) can resolve to a hidden leftover pane. Scope to :visible so
   // locators always land on the terminal that's actually on screen.

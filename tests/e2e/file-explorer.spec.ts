@@ -669,31 +669,11 @@ test.describe("File Explorer & Git", () => {
     expect(hasMergeView || editorCount >= 2).toBeTruthy();
   });
 
-  test("FILE-08: script runner lists scripts from package.json", async ({
-    fileExplorerPage,
-    page,
-  }) => {
-    test.info().annotations.push({ type: "spec", description: "FILE-01" });
-    await fileExplorerPage.gotoProject(tmpDir, topicName);
-
-    // Click the Processes section button to expand it (no aria-expanded attribute)
-    const processesBtn = page.locator("button", { hasText: "Processes" });
-    await expect(processesBtn).toBeVisible({ timeout: 5000 });
-    await processesBtn.click();
-
-    // Wait for the script runner component to be visible
-    const scriptRunner = page.locator('[data-testid="script-runner"]');
-    await expect(scriptRunner).toBeVisible({ timeout: 10000 });
-
-    // Assert that scripts from package.json are listed: "dev", "build", "test"
-    // The beforeAll setup created a package.json with these scripts
-    await expect(scriptRunner.locator("span", { hasText: "dev" }).first()).toBeVisible();
-    await expect(scriptRunner.locator("span", { hasText: "build" }).first()).toBeVisible();
-    await expect(scriptRunner.locator("span", { hasText: "test" }).first()).toBeVisible();
-
-    // Do NOT click Play/Run buttons -- per D-11, don't execute scripts (side effects)
-    // Just verify the list renders with the correct script names
-  });
+  // FILE-08 ("script runner lists scripts from package.json") viveva qui ed era
+  // il doppione esatto di FILE-03-03 in file-context-menu.spec.ts: stesso
+  // percorso utente, stesso testid, stesse tre asserzioni. Tenuto l'originale,
+  // che sta nel file tematicamente giusto (File Context Menu & Script Runner) e
+  // usa `getByText(..., { exact: true })` invece di `hasText` parziale.
 
   test("FILE-09: process list renders", async ({
     fileExplorerPage,

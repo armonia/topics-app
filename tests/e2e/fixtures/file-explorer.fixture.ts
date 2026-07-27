@@ -151,12 +151,6 @@ export class FileExplorerPage {
     return this.scriptRunner.locator("div", { hasText: name });
   }
 
-  // --- Process List ---
-
-  get processList() {
-    return this.page.locator('[data-testid="process-list"]');
-  }
-
   // --- Sidebar Section Expansion ---
 
   async expandSection(name: string) {
