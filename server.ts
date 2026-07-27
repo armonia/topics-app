@@ -31,7 +31,9 @@ import { createAgentsRouter } from "./server/routes/agents";
 import { createCheckpointsRouter } from "./server/routes/checkpoints";
 import { createOpenClawContextRouter } from "./server/routes/openclaw-context";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
-import { createTaskService } from "./server/services/tasks";
+import { createTaskService, projectIdForPath } from "./server/services/tasks";
+import { createExternalSessionsService } from "./server/services/external-sessions";
+import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { computeDispatchCapacity } from "./server/services/dispatch-capacity";
 import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-automerge";
@@ -470,6 +472,23 @@ const transcriptUsageReader = createTranscriptUsageReader();
 // calls it lazily at review-time, so the late binding is safe.
 let previewManager: PreviewManager | undefined;
 
+// Census of the Claude sessions Topics did NOT start (bare `claude` in a
+// terminal). Two consumers: the board badge ("questo progetto è vivo anche
+// senza card") and the dispatcher guard below, which refuses to drop an agent
+// into a directory somebody is already working in. The tracker roster is the
+// ownership signal — anything it knows is ours, by definition.
+const externalSessions = createExternalSessionsService({
+  knownSessionIds: () => claudeSessionTracker.listSessions().map((s) => s.claudeSessionId),
+  candidatePaths: () =>
+    buildProjectCandidates({
+      projectStore: ctx.projectStore,
+      workspaceDir: DISPATCH_WORKSPACE_DIR,
+      extraPaths: dispatchExtraPaths,
+    }).map((c) => c.path),
+  projectIdFor: projectIdForPath,
+  broadcast: ctx.broadcastToAll,
+});
+
 const taskDispatcher = createTaskDispatcher({
   svc: dispatcherSvc,
   // Self-heal dead bindings: a todo task linked to a topic that was reaped
@@ -517,6 +536,9 @@ const taskDispatcher = createTaskDispatcher({
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
   recommendedCap: () => computeDispatchCapacity().recommended,
+  // Don't drop an agent into a repo somebody is already working by hand.
+  externalSessionsAt: (path) =>
+    externalSessions.activeAt(path).map((s) => ({ cwd: s.cwd, branch: s.branch })),
   resolveProject: (projectId) => {
     const c = resolveProjectPath(
       projectId,
@@ -880,6 +902,11 @@ const devBundleReload = startDevBundleReload({
 // Init activity monitor (watches gateway log files)
 const activityMonitor = new ActivityMonitor();
 const activityRouter = createActivityRouter(ctx, activityMonitor);
+
+// External-session census: poll + broadcast so a `claude` started in iTerm
+// surfaces on the board within ~20s without any client polling.
+const externalSessionsRouter = createExternalSessionsRouter(ctx, externalSessions);
+externalSessions.start();
 
 // Init journal collector (polls gateway for daily summaries)
 const journalCollector = new JournalCollector(ctx.STATE_DIR, ctx.GATEWAY_URL, ctx.GATEWAY_TOKEN);
@@ -1370,6 +1397,7 @@ const server = Bun.serve<WSData>({
         || await memoryRouter(req, url, pathname, method)
         || await usageRouter(req, url, pathname, method)
         || await activityRouter(req, url, pathname, method)
+        || await externalSessionsRouter(req, url, pathname, method)
         || await agentsRouter(req, url, pathname, method)
         || await checkpointsRouter(req, url, pathname, method)
         || await journalRouter(req, url, pathname, method)
