@@ -46,33 +46,8 @@ export function detectShell(): ShellKind {
 }
 
 export const shellKind: ShellKind = detectShell();
-export const isElectron = shellKind === 'electron';
+// isElectron e il probe `capabilities` (nativeBrowser/nativeTerminal/nativeOverlay/
+// perfMetrics/autoUpdate) sono stati rimossi: nessun callsite li importava — i
+// branch desktop-vs-web nel resto del client discriminano già con isTauri/isDesktop.
 export const isTauri = shellKind === 'tauri';
 export const isDesktop = shellKind !== 'web';
-
-/** Capability probe — lets feature code ask "can the host do X here?" instead of
- *  branching on `shellKind`. Browser panes + native pty are desktop-only and
- *  degrade to a fallback UI on web/mobile (PORTING-PLAN.md §2 parity matrix). */
-export const capabilities = {
-  /** Embedded browser pane — a real child WKWebView per pane on the Tauri shell
-   *  (see RemoteBrowserPanel's Tauri path); web falls back to screenshot streaming. */
-  get nativeBrowser(): boolean {
-    return isTauri;
-  },
-  /** Native pseudo-terminal (pty). Desktop only. */
-  get nativeTerminal(): boolean {
-    return isDesktop;
-  },
-  /** Native overlay menus/modals (Tauri webview). */
-  get nativeOverlay(): boolean {
-    return isTauri;
-  },
-  /** Per-process perf metrics (CPU/GPU/memory). Desktop only. */
-  get perfMetrics(): boolean {
-    return isTauri;
-  },
-  /** Auto-update channel. Desktop only (web is always-fresh). */
-  get autoUpdate(): boolean {
-    return isDesktop;
-  },
-} as const;
