@@ -1026,6 +1026,76 @@ fn set_theme(app: tauri::AppHandle, theme: String) {
     let _ = (app, theme);
 }
 
+/// Reaps detached children so they never linger as zombies.
+///
+/// `std::process::Child`'s `Drop` deliberately does NOT wait, so every
+/// `.spawn()` whose handle is dropped leaves a `<defunct>` entry owned by this
+/// process until it exits. That is a slow leak with a steady driver behind it:
+/// the notification helper (`macos_notifications::post_via_helper`) fires on
+/// every session state change, which measured ~50 zombies/hour on a normal day
+/// and had accumulated 285 of them in one 6-hour run. Zombies hold a PID slot
+/// each, so the process table fills up machine-wide, not just for Topics.
+///
+/// A single background thread owns every handed-off child. It blocks on the
+/// channel while it has nothing to watch (zero cost at rest) and polls with
+/// `try_wait` while it does — never blocking on one long-lived child (a
+/// `terminal-notifier` banner lives as long as it is on screen) in a way that
+/// would stall the reaping of the others. Deliberately not `SIGCHLD → SIG_IGN`:
+/// that is process-global and would break `tauri-plugin-shell`'s sidecar
+/// reaper, which waits on its own children.
+mod child_reaper {
+    use std::process::Child;
+    use std::sync::mpsc::{channel, Sender};
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Duration;
+
+    /// How often pending children are polled for exit. Coarse on purpose: these
+    /// are fire-and-forget helpers, latency to notice their exit is irrelevant.
+    const POLL: Duration = Duration::from_millis(500);
+
+    static REAPER: OnceLock<Mutex<Sender<Child>>> = OnceLock::new();
+
+    /// Hand a spawned child over to be waited on. Non-blocking.
+    pub fn reap(child: Child) {
+        let tx = REAPER.get_or_init(|| {
+            let (tx, rx) = channel::<Child>();
+            std::thread::Builder::new()
+                .name("child-reaper".into())
+                .spawn(move || {
+                    let mut pending: Vec<Child> = Vec::new();
+                    loop {
+                        if pending.is_empty() {
+                            // Nothing to watch: sleep on the channel.
+                            match rx.recv() {
+                                Ok(c) => pending.push(c),
+                                // Sender lives in a `static`, so this is
+                                // unreachable in practice; exit rather than spin.
+                                Err(_) => return,
+                            }
+                        } else {
+                            while let Ok(c) = rx.try_recv() {
+                                pending.push(c);
+                            }
+                            // `Err` means the child was already reaped or is
+                            // unwaitable — either way stop tracking it.
+                            pending.retain_mut(|c| matches!(c.try_wait(), Ok(None)));
+                            if !pending.is_empty() {
+                                std::thread::sleep(POLL);
+                            }
+                        }
+                    }
+                })
+                .expect("spawn child-reaper thread");
+            Mutex::new(tx)
+        });
+        if let Ok(tx) = tx.lock() {
+            // Send failure would mean the reaper thread died; dropping the child
+            // here is the pre-existing behaviour, not a regression.
+            let _ = tx.send(child);
+        }
+    }
+}
+
 /// Native banner delivery via the modern `UserNotifications` framework.
 ///
 /// The plugin path (tauri-plugin-notification → notify-rust → mac-notification-sys)
@@ -1110,7 +1180,9 @@ mod macos_notifications {
             std::process::id(),
             NOTIF_SEQ.fetch_add(1, Ordering::Relaxed)
         );
-        let _ = std::process::Command::new(bin)
+        // Hand the child to the reaper: this fires on every session state
+        // change, and a dropped-unwaited `Child` is a permanent zombie.
+        if let Ok(child) = std::process::Command::new(bin)
             .arg("-title")
             .arg(pad(title))
             .arg("-message")
@@ -1121,7 +1193,10 @@ mod macos_notifications {
             .arg("io.armonia.topics.tauri")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .spawn();
+            .spawn()
+        {
+            super::child_reaper::reap(child);
+        }
     }
 
     struct DelegateIvars {
@@ -1332,6 +1407,66 @@ fn notify(app: tauri::AppHandle, title: String, body: String, task_id: Option<St
     let _ = &task_id;
     use tauri_plugin_notification::NotificationExt;
     let _ = app.notification().builder().title(title).body(body).show();
+}
+
+/// Hand a URL to the OS default browser, without leaking a zombie.
+///
+/// Replaces `tauri-plugin-opener`'s `open_url` for the shell's external-link
+/// path. That plugin routes to `open::that_detached`, which double-forks in
+/// `pre_exec` and then DROPS the `Child` (`open-5.3.5/src/lib.rs:380`): the
+/// intermediate child `_exit(0)`s immediately and stays `<defunct>` forever,
+/// one zombie per link opened. Same launcher command, but the handle goes to
+/// `child_reaper` instead of the floor. The plugin stays registered — the
+/// download strip's `reveal_item_in_dir` still uses it.
+///
+/// Only `http`/`https`/`mailto` are accepted. Without that check this command
+/// would be a "run anything" primitive reachable from the webview, since the
+/// launchers below hand their argument to the OS to interpret.
+fn validate_external_url(url: &str) -> Result<(), String> {
+    let lower = url.to_ascii_lowercase();
+    if ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|p| lower.starts_with(p))
+    {
+        Ok(())
+    } else {
+        Err(format!("unsupported URL scheme: {url}"))
+    }
+}
+
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    validate_external_url(&url)?;
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("/usr/bin/open");
+        c.arg(&url);
+        c
+    };
+    #[cfg(target_os = "linux")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(&url);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        // `start` is a cmd builtin, not an executable. The empty "" is the
+        // window title it would otherwise eat the URL as.
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", &url]);
+        c
+    };
+
+    let child = cmd
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    child_reaper::reap(child);
+    Ok(())
 }
 
 /// Write a PNG image to the system clipboard natively via `NSPasteboard`.
@@ -5931,10 +6066,9 @@ pub fn run() {
                     }
                 }
                 "help-github" => {
-                    use tauri_plugin_opener::OpenerExt;
-                    let _ = app
-                        .opener()
-                        .open_url("https://github.com/armonia/topics-app", None::<&str>);
+                    // Same reaped path the client's openExternal takes — the
+                    // plugin's opener leaks a zombie per call (see open_external).
+                    let _ = open_external("https://github.com/armonia/topics-app".to_string());
                 }
                 "check-updates" => {
                     // Hand off to the client's updater flow (reuses updater_check +
@@ -6601,6 +6735,7 @@ pub fn run() {
             set_traffic_lights,
             set_theme,
             notify,
+            open_external,
             set_clipboard_image,
             set_app_status,
             vibrancy_set_regions,
@@ -6678,6 +6813,114 @@ pub fn run() {
                 kill_sidecar();
             }
         });
+}
+
+#[cfg(test)]
+mod child_reaper_tests {
+    use super::{child_reaper, validate_external_url};
+    use std::time::{Duration, Instant};
+
+    /// Is `pid` a zombie? `ps -o state=` reports `Z` for a defunct child. Only
+    /// meaningful while the child is still OUR child (i.e. unreaped).
+    #[cfg(unix)]
+    fn is_zombie(pid: u32) -> bool {
+        std::process::Command::new("ps")
+            .args(["-o", "state=", "-p", &pid.to_string()])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().starts_with('Z'))
+            .unwrap_or(false)
+    }
+
+    /// The whole point of the reaper: a short-lived child that nobody waits on
+    /// must NOT be left `<defunct>`. Without `reap()` this pid stays a zombie
+    /// for the lifetime of the process and the assertion below never clears.
+    #[cfg(unix)]
+    #[test]
+    fn reaps_a_finished_child_instead_of_leaving_a_zombie() {
+        let child = std::process::Command::new("/usr/bin/true")
+            .spawn()
+            .expect("spawn /usr/bin/true");
+        let pid = child.id();
+        child_reaper::reap(child);
+
+        // The reaper polls on a 500ms cadence; allow a few cycles on a loaded box.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if !is_zombie(pid) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!("pid {pid} is still a zombie: the reaper never waited on it");
+    }
+
+    /// A long-lived child must not stall the reaping of others queued behind it
+    /// — that regression would reintroduce the leak under any real banner load.
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_child_does_not_block_reaping_the_others() {
+        let slow = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn sleep");
+        let slow_pid = slow.id();
+        child_reaper::reap(slow);
+
+        let quick = std::process::Command::new("/usr/bin/true")
+            .spawn()
+            .expect("spawn /usr/bin/true");
+        let quick_pid = quick.id();
+        child_reaper::reap(quick);
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut reaped = false;
+        while Instant::now() < deadline {
+            if !is_zombie(quick_pid) {
+                reaped = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // Don't leave a 30s sleep behind whichever way the assertion goes.
+        let _ = std::process::Command::new("kill")
+            .args(["-9", &slow_pid.to_string()])
+            .status();
+        assert!(reaped, "the quick child was starved behind the slow one");
+    }
+
+    /// `open_external` hands its argument to an OS launcher, so anything that is
+    /// not a web/mail URL must be refused before it gets there. Tested on the
+    /// pure check rather than the command: calling the command with a URL that
+    /// PASSES would really open a browser window.
+    #[test]
+    fn rejects_non_web_schemes() {
+        for bad in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "/Applications/Calculator.app",
+            "ftp://example.com",
+            " https://example.com", // leading space defeats a naive prefix check
+            "",
+        ] {
+            assert!(
+                validate_external_url(bad).is_err(),
+                "{bad} should have been rejected"
+            );
+        }
+    }
+
+    /// Scheme matching is case-insensitive: `HTTPS://` is a valid URL.
+    #[test]
+    fn accepts_web_schemes_case_insensitively() {
+        for good in ["http://", "https://", "HTTPS://", "MailTo:"] {
+            let url = format!("{good}example.com");
+            assert!(
+                validate_external_url(&url).is_ok(),
+                "{url} should have passed the scheme check"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
