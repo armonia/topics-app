@@ -112,7 +112,7 @@ describe("MCP stdio server (subprocess)", () => {
       "browser_save_state", "browser_load_state", "browser_status", "browser_upload",
       "run_script", "list_processes",
       "read_process_output", "stop_process",
-      "list_tasks", "create_task", "get_task", "update_task", "comment_task",
+      "list_tasks", "create_task", "get_task", "update_task", "wait_for_condition", "comment_task",
       "move_session_to_project",
       "spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent",
       "switch_topic", "new_topic", "create_project", "open_project",
