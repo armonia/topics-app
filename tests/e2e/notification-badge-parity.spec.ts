@@ -8,9 +8,10 @@
 import { test, expect } from "@playwright/test";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
 const TS = Date.now();
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 let topicA: { id: string; name: string };
 let topicB: { id: string; name: string };

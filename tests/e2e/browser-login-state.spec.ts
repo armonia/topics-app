@@ -7,8 +7,9 @@
  */
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 const HEADERS = { "Content-Type": "application/json" };
 
 test.describe("Browser login-state sharing (save_state / load_state)", () => {

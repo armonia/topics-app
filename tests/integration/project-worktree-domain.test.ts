@@ -146,7 +146,7 @@ describe("Phase A · Project + Worktree domain", () => {
       const branch = execFileSync("git", ["branch", "--show-current"], {
         cwd: ready.absPath, encoding: "utf-8",
       }).trim();
-      expect(branch).toBe(ready.branchName);
+      expect(branch).toBe(ready.branchName!);
 
       const removed = await ctx.worktreeManager.delete(ready.id);
       expect(removed).toBe(true);

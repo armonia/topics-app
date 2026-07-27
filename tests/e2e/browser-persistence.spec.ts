@@ -1,19 +1,16 @@
 import { test, expect } from "@playwright/test";
 import { createTopic, deleteTopic, closeAllBrowserContexts } from "./helpers/api-fixtures";
 import { readFile } from "fs/promises";
-import { join, resolve as resolvePath } from "path";
+import { join } from "path";
+import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
-// Phase 30.1 polish — server/browser-state-store.ts now resolves BASE_DIR
-// as `process.env.DATA_DIR ? join(DATA_DIR, "browser-state") : join(cwd, "data", "browser-state")`.
-// global-setup.ts propagates DATA_DIR=/tmp/topics-test-data to the runner so this
-// resolves to the same directory the test server writes to. Falling back to
-// `<repoRoot>/data/browser-state` matches the production default for solo runs.
-const REPO_ROOT = resolvePath(__dirname, "../..");
-const BROWSER_STATE_DIR = process.env.DATA_DIR
-  ? join(process.env.DATA_DIR, "browser-state")
-  : join(REPO_ROOT, "data", "browser-state");
+// Phase 30.1 polish — server/browser-state-store.ts resolves BASE_DIR as
+// `process.env.DATA_DIR ? join(DATA_DIR, "browser-state") : join(cwd, "data", "browser-state")`,
+// e la DATA_DIR del server di test è quella dello shard (helpers/test-server.ts),
+// non un percorso fisso: con più shard in parallelo ognuno scrive nella sua.
+const BROWSER_STATE_DIR = join(E2E_DATA_DIR, "browser-state");
 
 // B1 FIX: mirror server/browser-state-store.ts:16-19 sanitize regex.
 function sanitize(topicId: string): string {

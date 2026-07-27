@@ -9,8 +9,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, createTerminalSession, deleteTerminalSession, resetPaneStore } from "./helpers/api-fixtures";
 import { countColDividers, getVisibleTabLabels } from "./helpers/layout";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 // ─── Shared Helpers ──────────────────────────────────────────────────────────
 

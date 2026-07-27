@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/topic-management.fixture";
 import { createTopic, patchTopic, cleanupAll, resetPaneStore } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
 test.describe("Topic Management", () => {
   const TS = Date.now();
@@ -74,7 +75,7 @@ test.describe("Topic Management", () => {
     ).toBeVisible({ timeout: 10000 });
 
     // Clean up: find the created topic via API
-    const response = await request.get("http://localhost:13334/api/topics", {
+    const response = await request.get(`${E2E_BASE}/api/topics`, {
       ignoreHTTPSErrors: true,
     });
     const data = (await response.json()) as {
@@ -229,7 +230,7 @@ test.describe("Topic Management", () => {
     await expect
       .poll(
         async () => {
-          const res = await request.get("http://localhost:13334/api/topics", {
+          const res = await request.get(`${E2E_BASE}/api/topics`, {
             ignoreHTTPSErrors: true,
           });
           const data = await res.json();
@@ -369,7 +370,7 @@ test.describe("Topic Management", () => {
     ).toBeVisible({ timeout: 10000 });
 
     // Clean up: find the created topic via API
-    const response = await request.get("http://localhost:13334/api/topics", {
+    const response = await request.get(`${E2E_BASE}/api/topics`, {
       ignoreHTTPSErrors: true,
     });
     const topicData = (await response.json()) as {
@@ -390,7 +391,7 @@ test.describe("Topic Management", () => {
 // chat, but the row stays listed (the pinnedIds escape bypasses the archived
 // filter), and reopening self-heals the archived flag.
 test.describe("Topic Management — Fissati archive interplay", () => {
-  const BASE = "http://localhost:13334";
+  const BASE = E2E_BASE;
   const pinIds: string[] = [];
 
   test.beforeAll(async ({ request }) => {

@@ -3,6 +3,7 @@ import { test } from "./fixtures/command-palette.fixture";
 import { createTopic, cleanupAll, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { ensureTopicVisible, goToApp } from "./helpers";
+import { E2E_BASE } from "./helpers/test-server";
 
 test.describe("Command Palette", () => {
   const TS = Date.now();
@@ -643,7 +644,7 @@ test.describe("Command Palette", () => {
     page,
   }) => {
     test.info().annotations.push({ type: "spec", description: "CMD-01 (flatten)" });
-    const BASE = "http://localhost:13334";
+    const BASE = E2E_BASE;
     const [idA, idB] = topicIds;
 
     // Seed two open panels in one standalone group, flat layout.

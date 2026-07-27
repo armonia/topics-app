@@ -1,8 +1,9 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
 import { projectPanesKey } from "../../../shared/project-keys";
+import { E2E_BASE } from "./test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 // --- Topic fixtures ---
 

@@ -6,8 +6,9 @@
  */
 import { expect, type Page } from "@playwright/test";
 import { seedTopicIntoSidebar, unarchiveTopic } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE_URL = "http://localhost:13334";
+const BASE_URL = E2E_BASE;
 
 /** Read the authoritative pane-store and report whether group:default already
  *  contains every id — i.e. whether our seed is (still) the last write to win. */

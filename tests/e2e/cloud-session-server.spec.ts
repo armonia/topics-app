@@ -1,7 +1,7 @@
 /**
  * Server-side end-to-end verification for the cloud-session ↔ project work.
  *
- * Runs against the real test server (:13334), which executes the actual server
+ * Runs against the real test server, which executes the actual server
  * code — no client build needed. Captures server→client broadcasts via a real
  * WebSocket opened from a browser page.
  *
@@ -14,8 +14,9 @@
 import { test, expect } from "./fixtures/test-fixtures";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync } from "fs";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 /** Open a passive WS to the test server inside the page and collect frames. */
 async function captureFrames(page: import("@playwright/test").Page) {

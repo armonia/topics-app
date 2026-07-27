@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { closeAllBrowserContexts } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
 // Chi sporca pulisce: vedi la docstring di `closeAllBrowserContexts`.
 test.afterAll(async ({ request }) => {
@@ -31,7 +32,7 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
     const ctx = `e2e-shared-${Date.now()}`;
     // A server-local URL: the test server serves its own root, so the headless
     // page's `load` fires (→ nav broadcast) with zero external network.
-    const navUrl = `${baseURL ?? "http://localhost:13334"}/`;
+    const navUrl = `${baseURL ?? E2E_BASE}/`;
 
     const result = await page.evaluate(
       async ({ ctx, navUrl }) => {
@@ -97,7 +98,7 @@ test.describe("Shared browser session — state fan-out (Mac ↔ PWA)", () => {
   test("the viewer-count endpoint tracks streaming viewers of a context", async ({ page, request, baseURL }) => {
     await goToApp(page);
     const ctx = `e2e-viewers-${Date.now()}`;
-    const base = baseURL ?? "http://localhost:13334";
+    const base = baseURL ?? E2E_BASE;
     const viewersUrl = `${base}/api/browsers/${encodeURIComponent(ctx)}/viewers`;
 
     const readCount = async (): Promise<number> => {

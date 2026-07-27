@@ -7,9 +7,10 @@ import {
 import { spawn, execSync } from "child_process";
 import { resolve } from "path";
 import net from "net";
+import { E2E_BASE, E2E_PORT, testServerEnv } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
-const TEST_PORT = 13334;
+const BASE = E2E_BASE;
+const TEST_PORT = E2E_PORT;
 
 /** Wait for the test server to be reachable on its port */
 async function waitForServer(timeoutMs = 30000): Promise<void> {
@@ -54,26 +55,21 @@ async function killServer(): Promise<void> {
   throw new Error("Server did not stop within 10s");
 }
 
-/** Start the test server (same env as global-setup).
- *  TOPICS_PTY_SOCKET is REQUIRED here: without it the restarted server derives
- *  its bridge socket from cwd = the PRODUCTION bridge, and its reconcile kills
- *  the dev server's live Claude PTYs (knocking real sessions dormant). The
- *  start-test-server.sh script now also defaults this, but we set it explicitly
- *  so the isolation is visible at the call site and independent of the script. */
+/** Riavvia il server di test con lo STESSO ambiente con cui è nato.
+ *
+ *  L'ambiente arriva da `testServerEnv()` — la stessa funzione che usa
+ *  global-setup — perché la copia scritta a mano qui era già divergente: non
+ *  passava né TOPICS_HOME né OPENCLAW_DIR, quindi il server ripartiva MENO
+ *  isolato di come era partito, leggendo la config OpenClaw dell'utente vero.
+ *  In particolare TOPICS_PTY_SOCKET è indispensabile: senza, il server deriva
+ *  il socket del bridge dalla cwd = il bridge di PRODUZIONE, e il suo reconcile
+ *  ammazza le PTY Claude vive del server di sviluppo. */
 function startServer(): void {
   const scriptPath = resolve(__dirname, "../../scripts/start-test-server.sh");
   const proc = spawn("bash", [scriptPath], {
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
-    env: {
-      ...process.env,
-      BUN_PORT: String(TEST_PORT),
-      DATA_DIR: "/tmp/topics-test-data",
-      NO_TLS: "1",
-      TOPICS_PTY_SOCKET: "/tmp/topics-pty-bridge-e2e-test.sock",
-      GATEWAY_TOKEN: process.env.GATEWAY_TOKEN || "test-token",
-      GATEWAY_URL: process.env.GATEWAY_URL || "http://127.0.0.1:18789",
-    },
+    env: { ...process.env, ...testServerEnv(TEST_PORT) },
   });
   // Detach so the test doesn't hang waiting for the child
   proc.unref();

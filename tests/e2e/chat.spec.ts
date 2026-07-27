@@ -4,6 +4,7 @@ import { goToApp, openTestChat, openTopic, ensureTopicVisible } from "./helpers"
 import { mockChatStream, unmockChatStream } from "./helpers/sse-helpers";
 import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
+import { E2E_BASE } from "./helpers/test-server";
 
 test.describe.serial("Chat", () => {
   let testTopicId: string;
@@ -125,7 +126,7 @@ test.describe.serial("Chat", () => {
     const sbTopicName = `chat-sb-${Date.now()}`;
     const sbTopic = await createTopic(request, sbTopicName);
     for (let i = 0; i < 20; i++) {
-      await request.post(`http://localhost:13334/api/topics/${sbTopic.id}/system-message`, {
+      await request.post(`${E2E_BASE}/api/topics/${sbTopic.id}/system-message`, {
         data: { content: `Seed ${i + 1}: ${"Lorem ipsum dolor sit amet. ".repeat(3)}` },
         ignoreHTTPSErrors: true,
       });
@@ -553,7 +554,7 @@ test.describe("Message Action Toolbar", () => {
     await expect(pinBtnAfterPin).toHaveClass(/(?<!hover:)text-yellow-500/, { timeout: 5_000 });
 
     // API verification: pinnedMessages array should contain the message ID
-    const topicRes = await request.get("http://localhost:13334/api/topics", {
+    const topicRes = await request.get(`${E2E_BASE}/api/topics`, {
       ignoreHTTPSErrors: true,
     });
     const topicsData = await topicRes.json();
@@ -578,7 +579,7 @@ test.describe("Message Action Toolbar", () => {
     await expect(pinBtnAfterUnpin).not.toHaveClass(/(?<!hover:)text-yellow-500/, { timeout: 5_000 });
 
     // API verification: pinnedMessages array should be empty after unpin
-    const topicRes2 = await request.get("http://localhost:13334/api/topics", {
+    const topicRes2 = await request.get(`${E2E_BASE}/api/topics`, {
       ignoreHTTPSErrors: true,
     });
     const topicsData2 = await topicRes2.json();
@@ -692,7 +693,7 @@ test.describe.serial("Chat Input Features", () => {
     // exactly ONE pane via openTopic.
     await resetPaneStore(request, []);
     await request
-      .put(`http://localhost:13334/api/ui-state/panels`, { data: { openPanels: [] }, ignoreHTTPSErrors: true })
+      .put(`${E2E_BASE}/api/ui-state/panels`, { data: { openPanels: [] }, ignoreHTTPSErrors: true })
       .catch(() => {});
   });
 
@@ -976,7 +977,7 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
       await panel.getByTestId("session-autonomy-yolo").click();
       await expect
         .poll(async () => {
-          const res = await request.get("http://localhost:13334/api/topics");
+          const res = await request.get(`${E2E_BASE}/api/topics`);
           const body = await res.json();
           return body?.topics?.[topic.id]?.autonomyLevel;
         }, { message: "autonomy set from the composer is persisted", timeout: 5_000 })

@@ -7,8 +7,9 @@
  */
 import { test, expect } from '@playwright/test';
 import { createTopic, deleteTopic, resetPaneStore } from './helpers/api-fixtures';
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = 'http://localhost:13334';
+const BASE = E2E_BASE;
 
 /**
  * Right edge (x + width) of the app-level sidebar, or 0 when it can't be measured.

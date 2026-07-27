@@ -1,6 +1,7 @@
 import { test, expect } from "./fixtures/test-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 test.describe("PANE server migration (012): payload_version + server_seq", () => {
   test("PUT /api/ui-state/:key stamps payload_version=2 and increments server_seq", async ({ request }) => {
@@ -292,7 +293,6 @@ test.describe("PANE server migration (012): broadcast shape & sourceClientId (fi
     const timeoutMs = opts.timeoutMs ?? 5_000;
     // `BASE` is http://…; the WS endpoint is ws://…/ws (same host/port).
     const wsUrl = BASE.replace(/^http/, "ws") + "/ws";
-    // @ts-expect-error — bun/node WebSocket is global
     const ws = new WebSocket(wsUrl);
     const frames: any[] = [];
     await new Promise<void>((resolve, reject) => {
