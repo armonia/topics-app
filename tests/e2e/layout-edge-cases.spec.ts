@@ -67,12 +67,7 @@ async function seedAndLoad(page: Page, panelIds: string[], opts?: { gridRows?: u
   }, { panels: panelIds, grid: gridData });
 
   // 3. Now navigate to the app — it will read localStorage for grid state
-  const panelsFetch = page.waitForResponse(
-    r => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-    { timeout: 10000 }
-  ).catch(() => {});
   await page.goto("/");
-  await panelsFetch;
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 }
 
@@ -539,12 +534,7 @@ test.describe("E: Un-solo Mechanism", () => {
       localStorage.setItem("topics-panel-grid-layout:space:default", empty);
     });
 
-    const panelsFetch = page.waitForResponse(
-      r => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-      { timeout: 10000 }
-    ).catch(() => {});
     await page.goto("/");
-    await panelsFetch;
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await waitForTabs(page);
 
@@ -636,12 +626,7 @@ test.describe("G: Persistence Edge Cases", () => {
     expect(beforeRowDivs).toBe(1);
 
     // Reload — localStorage preserves the layout
-    const panelsFetch = page.waitForResponse(
-      r => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-      { timeout: 10000 }
-    ).catch(() => {});
     await page.goto("/");
-    await panelsFetch;
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await waitForTabs(page);
 
@@ -667,12 +652,7 @@ test.describe("G: Persistence Edge Cases", () => {
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBe(1);
 
     // Reload
-    const panelsFetch = page.waitForResponse(
-      r => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-      { timeout: 10000 }
-    ).catch(() => {});
     await page.goto("/");
-    await panelsFetch;
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await waitForTabs(page);
 
@@ -705,12 +685,7 @@ test.describe("G: Persistence Edge Cases", () => {
     await expect.poll(() => countTabBars(page), { timeout: 5000 }).toBeGreaterThanOrEqual(2);
 
     // 4. Reload
-    const panelsFetch = page.waitForResponse(
-      r => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-      { timeout: 10000 }
-    ).catch(() => {});
     await page.goto("/");
-    await panelsFetch;
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await waitForTabs(page);
 
@@ -860,12 +835,7 @@ test.describe("I: Full Lifecycle Regression", () => {
     expect(finalCount).toBeGreaterThanOrEqual(1);
 
     // Reload
-    const panelsFetch = page.waitForResponse(
-      r => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-      { timeout: 10000 }
-    ).catch(() => {});
     await page.goto("/");
-    await panelsFetch;
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
     await expect(page.locator('[role="main"]')).toBeVisible();
@@ -915,12 +885,7 @@ test.describe("J: Reimposta pannelli (flatten)", () => {
 
     // Reload — the collapsed layout persists through the existing persistence
     // helper (usePanelGridPersistence); asserted via the UI, not a raw key.
-    const panelsFetch = page.waitForResponse(
-      r => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-      { timeout: 10000 }
-    ).catch(() => {});
     await page.goto("/");
-    await panelsFetch;
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
     await waitForTabs(page, 4);
     await expect.poll(() => countRowDividers(page), { timeout: 5000 }).toBe(0);

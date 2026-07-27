@@ -35,12 +35,7 @@ async function goWithPanels(page: import("@playwright/test").Page, panels: strin
   // AUTHORITATIVE pane channel to EXACTLY these panels so the reload renders a
   // deterministic tab set.
   await resetPaneStore(page.request, panels).catch(() => {});
-  const panelsFetch = page.waitForResponse(
-    (r) => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-    { timeout: 10000 }
-  ).catch(() => {});
   await page.goto("/");
-  await panelsFetch;
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 }
 
@@ -54,12 +49,7 @@ test.describe("Tab Persistence", () => {
     await expect(tab).toBeVisible({ timeout: 10000 });
 
     // Reload the page
-    const panelsFetch = page.waitForResponse(
-      (r) => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-      { timeout: 10000 }
-    ).catch(() => {});
     await page.reload();
-    await panelsFetch;
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
     // Tab must still be present after reload
@@ -75,12 +65,7 @@ test.describe("Tab Persistence", () => {
     await expect(page.locator(`[data-pane-id="${topicB.id}"]`)).toBeVisible({ timeout: 10000 });
 
     // Reload
-    const panelsFetch = page.waitForResponse(
-      (r) => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-      { timeout: 10000 }
-    ).catch(() => {});
     await page.reload();
-    await panelsFetch;
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
     // Both must survive
@@ -100,12 +85,7 @@ test.describe("Tab Persistence", () => {
     });
 
     // Reload — validation should remove the archived topic's tab
-    const panelsFetch = page.waitForResponse(
-      (r) => r.url().includes("/api/ui-state/panels") && r.status() === 200,
-      { timeout: 10000 }
-    ).catch(() => {});
     await page.reload();
-    await panelsFetch;
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
 
     // topicA should survive, topicB should be gone
