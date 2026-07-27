@@ -36,6 +36,7 @@ import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg } from '../../lib/paneCellBg';
+import { PaneKeepAlive } from './PaneKeepAlive';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -836,17 +837,16 @@ export function StandaloneChatGroup({
             visitedPanes.map((pane) => {
               const isPaneActive = pane.id === activePaneId;
               return (
-                <div
+                <PaneKeepAlive
                   // `stableKey` (when set by the pane reducer) survives
                   // PANE_ID_REMAP — same pattern as PaneTabBar's tab DOM
                   // and GroupLayout's keep-alive wrapper.
                   key={stableKeyOf(pane)}
+                  isVisible={isPaneActive}
                   className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
-                  style={{ display: isPaneActive ? 'flex' : 'none' }}
-                  aria-hidden={!isPaneActive}
                 >
                   {renderPaneBody(pane, isPaneActive)}
-                </div>
+                </PaneKeepAlive>
               );
             })
           )}

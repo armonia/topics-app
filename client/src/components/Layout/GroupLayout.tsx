@@ -8,6 +8,7 @@ import { spawnDragGhost } from './dragGhost';
 import { equalizeWidths, weightedWidths } from './gridWidths';
 import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTypes';
 import { paneCellBg } from '../../lib/paneCellBg';
+import { PaneKeepAlive } from './PaneKeepAlive';
 import { canSplitPane } from './splitRules';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -902,18 +903,17 @@ export function GroupLayout({
             return visiblePanes.map((pane) => {
               const isPaneActive = pane.id === group.activePaneId;
               return (
-                <div
+                <PaneKeepAlive
                   key={stableKeyOf(pane)}
+                  isVisible={isPaneActive}
                   // Cell background tier (paneCellBg): `project`/`terminal`
                   // fully transparent (they frost themselves), chat + kanban
                   // in the frosted tier (`pane-frost`), the rest opaque
                   // `bg-surface` so dense text stays crisp over the vibrancy.
                   className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
-                  style={{ display: isPaneActive ? 'flex' : 'none' }}
-                  aria-hidden={!isPaneActive}
                 >
                   {renderPane(pane, isFocusedGroup && isPaneActive, isPaneActive)}
-                </div>
+                </PaneKeepAlive>
               );
             });
           })()}
@@ -1082,14 +1082,13 @@ export function GroupLayout({
             .map((pane) => {
               const isPaneActive = pane.id === activePaneId;
               return (
-                <div
+                <PaneKeepAlive
                   key={stableKeyOf(pane)}
+                  isVisible={isPaneActive}
                   className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
-                  style={{ display: isPaneActive ? 'flex' : 'none' }}
-                  aria-hidden={!isPaneActive}
                 >
                   {renderPane(pane, isPaneActive, isPaneActive)}
-                </div>
+                </PaneKeepAlive>
               );
             })}
         </div>
