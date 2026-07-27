@@ -1,8 +1,4 @@
-// Nessun confronto in costante di tempo: il token non viene MAI comparato in
-// JS — si cerca il suo hash PBKDF2 in SQLite (`WHERE agent_token_hash = ?`),
-// quindi `timingSafeEqual` era un import senza consumatori, non una difesa
-// rimossa.
-import { pbkdf2Sync } from "crypto";
+import { pbkdf2Sync, randomBytes, timingSafeEqual } from "crypto";
 import type { Database } from "bun:sqlite";
 
 const SALT = "topix-agent-salt";
@@ -70,4 +66,14 @@ export function authenticateAgent(
  */
 export function hashToken(token: string): string {
   return pbkdf2Sync(token, SALT, ITERATIONS, KEY_LENGTH, DIGEST).toString("hex");
+}
+
+/**
+ * Mint a new agent token. Returns { token, hash }.
+ * Store the hash in DB, give the token to the agent.
+ */
+export function mintAgentToken(): { token: string; hash: string } {
+  const token = `topix_${randomBytes(32).toString("hex")}`;
+  const hash = hashToken(token);
+  return { token, hash };
 }

@@ -60,9 +60,11 @@ interface AuraWaveProps {
   activityId?: string;
   /** Corner radius to match the host pane (defaults to 16). */
   radius?: number;
+  /** If true, reduce opacity + amplitude (watching phase: Monitor armed, not actively working). */
+  muted?: boolean;
 }
 
-export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps) {
+export function AuraWave({ activityId, radius = DEFAULT_RADIUS, muted = false }: AuraWaveProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const baseRef = useRef<SVGPathElement>(null);
@@ -159,7 +161,10 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
     let energy = 0;
     let dispArr: Float64Array | null = null;
     const TWO = Math.PI * 2;
-    const layerAlpha = 1 - Math.pow(0.25, 1 / LAYERS); // per-ring, ~0.75 cumulative at the border
+    // For muted (watching) phase: reduce per-ring opacity to ~0.5 cumulative
+    // at the border (vs ~0.75 normally), making the wave more subtle.
+    const baseAlpha = muted ? 1 - Math.pow(0.5, 1 / LAYERS) : 1 - Math.pow(0.25, 1 / LAYERS);
+    const layerAlpha = baseAlpha;
 
     const draw = (): void => {
       const NS = P.length;
@@ -168,7 +173,9 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS }: AuraWaveProps)
       const backMin = Math.min(bw, bh);
       const eased = energy * energy * (3 - 2 * energy);
       const ampMul = 0.85 + 0.35 * eased;
-      const A = backMin * AMP_FRAC * ampMul;
+      // For muted (watching) phase: reduce amplitude by 50% to make the wave subtler
+      const ampFrac = muted ? AMP_FRAC * 0.5 : AMP_FRAC;
+      const A = backMin * ampFrac * ampMul;
       const inset = backMin * INSET_FRAC + backMin * INSET_SWELL_FRAC * Math.sin(W_INSET * phSlow);
       const blurB = Math.max(3, backMin * BLUR_FRAC);
       const k1 = (TWO * H1) / NS;

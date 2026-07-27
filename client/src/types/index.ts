@@ -1025,7 +1025,8 @@ export type ClaudeSessionPhase =
   | 'paused'
   | 'completed'
   | 'error'
-  | 'dormant';
+  | 'dormant'
+  | 'watching';
 
 /**
  * The two visual tiers of "a session needs you", split so the UI can paint them
@@ -1067,6 +1068,9 @@ export interface ClaudeSessionState {
   lastHookAt?: number;
   rev: number;
   error?: ClaudeSessionError;
+  /** True while a background Monitor/watch is armed — see server state doc.
+   *  Broadcast for parity; the UI drives the ring off `phase === 'watching'`. */
+  monitorArmed?: boolean;
   updatedAt: number;
 }
 

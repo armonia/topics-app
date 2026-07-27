@@ -17,16 +17,17 @@ export type ClaudeSessionPhase =
   | 'paused'
   | 'completed'
   | 'error'
-  | 'dormant';
+  | 'dormant'
+  | 'watching';
 
 export const ALL_PHASES: ReadonlyArray<ClaudeSessionPhase> = [
   'starting', 'running', 'tool-running', 'awaiting-user',
-  'awaiting-approval', 'paused', 'completed', 'error', 'dormant',
+  'awaiting-approval', 'paused', 'completed', 'error', 'dormant', 'watching',
 ];
 
 const TERMINAL_PHASES = new Set<ClaudeSessionPhase>(['completed', 'error']);
 const ACTIVE_PHASES = new Set<ClaudeSessionPhase>([
-  'starting', 'running', 'tool-running', 'awaiting-user', 'awaiting-approval',
+  'starting', 'running', 'tool-running', 'awaiting-user', 'awaiting-approval', 'watching',
 ]);
 
 export function isTerminalPhase(p: ClaudeSessionPhase): boolean {
@@ -93,6 +94,22 @@ export interface ClaudeSessionState {
   lastHookAt?: number;
   rev: number;
   error?: ClaudeSessionError;
+  /**
+   * True while a Monitor/watch is armed in the background for this session.
+   * Set by MonitorArmed, cleared by MonitorClosed / SessionStart / SessionEnd.
+   * Its whole job is to survive the `Stop` that fires when the turn ends AFTER
+   * the monitor was armed: without it, Stop would clobber `watching` back to
+   * `awaiting-user` (ring off) even though the monitor is still watching. So the
+   * flag decouples "a monitor is armed" (a turn-spanning fact) from the phase
+   * (a per-moment snapshot) — the monitor may be armed mid-turn while Claude
+   * keeps working, and only the flag remembers it at Stop time.
+   *
+   * Deliberately NOT persisted (no DB column): it only matters for a LIVE
+   * session's next Stop, and a session already in `watching` reloads as
+   * `watching` from the phase column after a restart. `rowToState` leaves it
+   * undefined; the in-memory state carries it for the lifetime that matters.
+   */
+  monitorArmed?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -129,11 +146,13 @@ export type HookEventName =
   | 'PostToolUse'
   | 'Notification'
   | 'Stop'
-  | 'SubagentStop';
+  | 'SubagentStop'
+  | 'MonitorArmed'
+  | 'MonitorClosed';
 
 export const KNOWN_HOOK_EVENTS: ReadonlyArray<HookEventName> = [
   'SessionStart', 'SessionEnd', 'UserPromptSubmit', 'PreToolUse',
-  'PostToolUse', 'Notification', 'Stop', 'SubagentStop',
+  'PostToolUse', 'Notification', 'Stop', 'SubagentStop', 'MonitorArmed', 'MonitorClosed',
 ];
 
 export function isKnownHookEvent(name: string): name is HookEventName {
@@ -213,12 +232,15 @@ export function applyHook(
   switch (hook.hook_event_name) {
     case 'SessionStart':
       // Re-fire of SessionStart can happen on `--resume`. Reset transient
-      // fields but keep cumulative metadata (rev, offset).
+      // fields but keep cumulative metadata (rev, offset). A fresh/resumed
+      // session has no armed monitor yet — clear the flag so a stale one from a
+      // prior incarnation can't pin `watching` on the next Stop.
       return transition(base, {
         phase: 'starting',
         pendingApproval: undefined,
         lastTool: undefined,
         error: undefined,
+        monitorArmed: false,
         jsonlPath: typeof hook.transcript_path === 'string' ? hook.transcript_path : prev.jsonlPath,
       }, now);
 
@@ -303,8 +325,13 @@ export function applyHook(
     }
 
     case 'Stop':
+      // Turn ended. If a Monitor is still armed, the session is not idle — it's
+      // parked WATCHING for a background event, so keep the ring on. Otherwise
+      // the turn simply finished → awaiting-user. This is the guard that makes
+      // 'watching' survive: the monitor is armed DURING the turn (MonitorArmed),
+      // then Stop fires; without consulting the flag, Stop would clobber it.
       return transition(base, {
-        phase: 'awaiting-user',
+        phase: prev.monitorArmed ? 'watching' : 'awaiting-user',
         pendingApproval: undefined,
         lastTool: undefined,
       }, now);
@@ -313,9 +340,44 @@ export function applyHook(
       // Subagent completions are recorded but don't move the parent's phase.
       return base;
 
+    case 'MonitorArmed':
+      // A Monitor/watch is now active in the background. Remember it (monitorArmed)
+      // so the Stop that ends this turn keeps the session in 'watching' instead of
+      // dropping to awaiting-user. Do NOT clobber awaiting-approval: a pending
+      // permission is a stronger "needs you" signal than a background watch, so
+      // only flip the phase to 'watching' when we aren't blocked on the human.
+      // 'watching' is semi-active — it shows the ring (unlike resting awaiting-user)
+      // without implying Claude is currently producing output. Clears transient
+      // tool state as the session is parked.
+      if (prev.phase === 'awaiting-approval') {
+        return transition(base, { monitorArmed: true }, now);
+      }
+      return transition(base, {
+        phase: 'watching',
+        monitorArmed: true,
+        pendingApproval: undefined,
+        lastTool: undefined,
+      }, now);
+
+    case 'MonitorClosed':
+      // The Monitor/watch was closed (completed, cancelled, or timed out). Clear
+      // the armed flag. If we were WATCHING, the session is now idle → awaiting-user;
+      // otherwise the phase already reflects live work (a woken turn), so leave it
+      // and just drop the flag.
+      if (prev.phase === 'watching') {
+        return transition(base, {
+          phase: 'awaiting-user',
+          monitorArmed: false,
+          pendingApproval: undefined,
+          lastTool: undefined,
+        }, now);
+      }
+      return transition(base, { monitorArmed: false }, now);
+
     case 'SessionEnd':
       return transition(base, {
         phase: 'completed',
+        monitorArmed: false,
         pendingApproval: undefined,
         lastTool: undefined,
       }, now);
@@ -771,6 +833,7 @@ interface Transition {
   lastTool?: ActiveTool | undefined;
   jsonlPath?: string;
   error?: ClaudeSessionError | undefined;
+  monitorArmed?: boolean;
 }
 
 function transition(
@@ -786,8 +849,9 @@ function transition(
   const toolChanged = 'lastTool' in delta && !toolsEqual(delta.lastTool, base.lastTool);
   const jsonlChanged = delta.jsonlPath !== undefined && delta.jsonlPath !== base.jsonlPath;
   const errorChanged = 'error' in delta && !errorsEqual(delta.error, base.error);
+  const monitorChanged = 'monitorArmed' in delta && !!delta.monitorArmed !== !!base.monitorArmed;
 
-  if (!phaseChanged && !approvalChanged && !toolChanged && !jsonlChanged && !errorChanged) {
+  if (!phaseChanged && !approvalChanged && !toolChanged && !jsonlChanged && !errorChanged && !monitorChanged) {
     return base;
   }
 
@@ -799,6 +863,7 @@ function transition(
     lastTool: 'lastTool' in delta ? delta.lastTool : base.lastTool,
     jsonlPath: delta.jsonlPath ?? base.jsonlPath,
     error: 'error' in delta ? delta.error : base.error,
+    monitorArmed: 'monitorArmed' in delta ? delta.monitorArmed : base.monitorArmed,
     rev: base.rev + 1,
     updatedAt: now,
   };
