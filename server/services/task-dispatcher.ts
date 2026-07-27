@@ -154,6 +154,14 @@ export interface TaskDispatcher {
   onEnterTodo(projectId: string, taskId: string): void;
   /** Human moved a task OUT of todo before it claimed → cancel the pending launch. */
   onLeaveTodo(taskId: string): void;
+  /**
+   * The dispatched agent DECLARED an external-condition wait (wait_for_condition):
+   * park the task back in todo with a `waiting` chip + note + deferral window so
+   * it releases its slot instead of holding it. The live turn is still winding
+   * down; onTurnEnd sees the `waiting` chip and leaves it be, and the periodic
+   * tick re-dispatches once the window elapses. Returns the updated task.
+   */
+  deferWait(taskId: string, reason: string, minutes?: number): Task;
   /** A task reached `done` → nudge the todos it was blocking (they are now claimable). */
   onBlockerDone(taskId: string): void;
   /**
@@ -198,6 +206,11 @@ const CHIP_DELIVERED = "delivered";
 //              (no worktree, project path unresolvable) → amber "da sistemare".
 const CHIP_FAILED = "failed";
 const CHIP_BLOCKED = "blocked";
+// The agent DECLARED an external-condition wait (wait_for_condition): the task is
+// back in `todo`, its slot freed, and a deferral window keeps it out of the claim
+// until it elapses — then the tick re-dispatches it. It never produced output, so
+// it must never read as a delivery.
+const CHIP_WAITING = "waiting";
 // The two states that mean "a dispatch turn is genuinely live" — reconcile only
 // requeues orphans in these states, so a human dragging a review/done task into
 // In Progress (dispatch_state null/needs_input) is never falsely "orphaned".
@@ -351,6 +364,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `- Se c'è qualcosa da far navigare/testare al reviewer dal vivo (dev server, pagina, report): update_task(task_id="${task.id}", output_url=<url http(s)>) — appare nel pannello di review. NB: il dev server dell'agente è effimero e muore a fine sessione, quindi l'output_url NON è evidenza durevole: la prova che resta è l'anteprima (screenshot/video), l'output_url è solo un extra dal vivo.`,
         `- Alla consegna, PRIMA di spostare in review: UN commento di sintesi con comment_task (1-2 frasi: cosa hai fatto QUESTO turno, dove guardare). Il server rifiuta la review se in questo turno non hai ancora commentato.`,
         `- SE hai committato codice sul tuo branch (lavoro landabile), in quel commento di consegna offri SOLO l'opzione: comment_task(..., options=["${LAND_ACTION_LABEL}"]). Se l'umano la sceglie, il SISTEMA fa il merge LOCALE su main (nessun push). Tu NON fare mai git merge/push a mano. La pubblicazione online (push + deploy) è un passo SEPARATO, deciso ed eseguito dall'umano dal controllo "Pubblica" della board con anteprima del diff — NON proporla, non è un'opzione del task. NON offrire l'opzione senza codice committato (una domanda, un piano, lavoro solo-headless).`,
+        `- Se devi ASPETTARE una condizione esterna (un servizio che torna su, il carico macchina che scende, una finestra oraria): NON dormire con un poller tenendo occupato lo slot. Dichiara l'attesa con wait_for_condition(task_id="${task.id}", reason=<cosa aspetti>, minutes=<quanto riprovare, default 15>): il task torna in coda con la nota, lo slot si libera per altri, e il sistema lo ri-dispaccia da solo quando scade la finestra. NON è una consegna: non mandarlo in review "vuoto".`,
         `- Quando il lavoro è completo sposta il task in \`review\` con: update_task(task_id="${task.id}", status="review"). NON puoi portarlo a \`done\` (serve l'ok umano).`,
         "- Se ti serve una decisione umana per procedere:",
         `  1. comment_task(task_id="${task.id}", content=<la domanda in una riga>, options=[<opzione 1>, <opzione 2>, ...])`,
@@ -564,6 +578,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       setTimeout(() => { void resume(taskId, queued.join("\n")); }, 0);
       return;
     }
+    // The agent declared a wait mid-turn (wait_for_condition → deferForWait moved
+    // it back to todo + chip `waiting`). The slot is already freed by the finally;
+    // leave the chip/deferral intact — the else-branch below would wipe it, and
+    // the tick will re-dispatch once the window passes. NOT a delivery, NOT a fail.
+    if (cur.status === "todo" && cur.dispatchState === CHIP_WAITING) return;
     if (cur.status === "review") {
       // It's the human's now — but distinguish WHY: a question block as the
       // agent's last word = "serve te" (decision required); anything else =
@@ -808,8 +827,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         catch (err) { log(`re-list after heal failed for ${projectId}`, err); return; }
       }
     }
+    const nowIso = new Date().toISOString();
     todos = todos
       .filter((t) => !t.assignedTopicId && t.dispatchAttempts < settings.dispatchRetryCap)
+      // Deferral gate: a task the agent parked with an external-condition wait
+      // (chip `waiting`) stays out of the claim until its window elapses — the
+      // same guard is in the claim CAS, so a poll firing early can't sneak it in.
+      .filter((t) => !t.dispatchDeferredUntil || t.dispatchDeferredUntil <= nowIso)
       // Dependency gate: a todo whose blocker is still open WAITS (no claim
       // attempt, no chip). Same predicate as the claim CAS, so no divergence.
       .filter((t) => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })
@@ -922,6 +946,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
   }
 
+  function deferWait(taskId: string, reason: string, minutes?: number): Task {
+    // A pending grace timer would re-tick this task the moment it lands in todo,
+    // defeating the wait — clear it (harmless if none is set).
+    clearGrace(taskId);
+    const t = deps.svc.deferForWait({ taskId, reason, minutes, by: "agent" });
+    emit(t);
+    return t;
+  }
+
   function onBlockerDone(taskId: string): void {
     // The blocker completed: every todo that was waiting on it is now
     // claimable — give each one the normal enter-todo treatment (queued chip +
@@ -1028,5 +1061,5 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     pendingResume.clear();
   }
 
-  return { tick, onEnterTodo, onLeaveTodo, onBlockerDone, resume, reconcile, shutdown, isInFlight: (id) => inFlight.has(id), busyCount: () => inFlight.size };
+  return { tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, shutdown, isInFlight: (id) => inFlight.has(id), busyCount: () => inFlight.size };
 }
