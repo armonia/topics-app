@@ -140,11 +140,18 @@ export interface DispatcherDeps {
    * hand in a terminal and the two fight over the working tree.
    *
    * Two outcomes, by dispatch mode (see the guard in `tick`):
-   *  - in-place dispatch (worktree isolation OFF) → REFUSE: same directory,
-   *    guaranteed collision.
+   *  - in-place dispatch (worktree isolation OFF) → HOLD: same directory,
+   *    guaranteed collision. The todos stay in `todo` with the 'queued' chip
+   *    (one system note per hold episode), and the periodic reconcile re-ticks
+   *    the board, so dispatch RESUMES BY ITSELF once the session goes quiet —
+   *    no human intervention, no re-queue.
    *  - worktree dispatch → proceed (the agent gets its own tree) but WARN in
    *    the task thread, since the branch it lands on is the contended one.
    * Absent (tests/degraded) ⇒ no guard, the pre-existing behaviour.
+   *
+   * The census this reads keeps its previous answer when a scan throws (see
+   * services/external-sessions.ts): a transient fs error never reads as "repo
+   * free", so the guard never releases a hold on a lie.
    */
   externalSessionsAt?: (path: string) => Array<{ cwd: string; branch: string | null }>;
   /** Broadcast a WS message so live boards reflect chip/state changes. */
@@ -258,6 +265,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // In-flight launches, keyed by taskId — presence means "a turn is running or
   // being set up for this task"; keeps reconcile/tick from double-launching.
   const inFlight = new Map<string, { sessionKey: string }>();
+  // Tasks already told "il repo è occupato da una sessione esterna" during the
+  // CURRENT hold episode — cleared when the repo frees, so a later hold can
+  // note again without spamming one comment per 10s reconcile poll.
+  const externallyHeldNoted = new Set<string>();
   // Human input that arrived while a turn was still winding down (the window
   // between the agent's →review and the actual turn end). Buffered here and
   // delivered on the SAME tab at turn end — dropping it would strand the task
@@ -876,23 +887,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
     if (intruders.length > 0 && !settings.dispatchUseWorktree) {
       // In-place dispatch means the agent edits the SAME directory the human's
-      // session is in — a guaranteed fight over the working tree. Park rather
-      // than clobber; the human closes the session (or turns worktree isolation
-      // back on) and re-queues.
+      // session is in — a guaranteed fight over the working tree. HOLD instead
+      // of claiming: the todos STAY in `todo` with the 'queued' chip, so the
+      // 10s reconcile keeps re-ticking this board and dispatch resumes BY ITSELF
+      // once the external session goes quiet — no human intervention, no
+      // re-queue. One system note per hold episode, not per poll.
       for (const t of todos) {
         if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
+        if (externallyHeldNoted.has(t.id)) continue;
+        externallyHeldNoted.add(t.id);
         try {
-          emit(deps.svc.release({
-            taskId: t.id,
-            requeue: false,
-            parkState: CHIP_BLOCKED,
-            reason: `Auto-dispatch fermato: ${describeIntruders(intruders)} e questa board lavora IN-PLACE (isolamento worktree off). ` +
-              "Chiudi la sessione, oppure riattiva l'isolamento in un worktree, e riporta il task in Todo.",
-          }));
+          emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED }));
+          deps.svc.addComment({
+            taskId: t.id, author: "system",
+            content: `Dispatch in attesa: ${describeIntruders(intruders)} e questa board lavora IN-PLACE (isolamento worktree off). ` +
+              "Il task riparte da solo appena il repo torna libero — non devi fare nulla.",
+          });
         } catch { /* task may have moved */ }
       }
       return;
     }
+    // Not holding this tick (repo free, or worktree mode isolates us): forget
+    // the episode so a FUTURE hold notes again instead of staying silent.
+    for (const t of todos) externallyHeldNoted.delete(t.id);
 
     // Effective concurrency cap for this tick: ONE machine-wide budget counted
     // across EVERY board (scope 'global'), so N boards can't multiply into N×cap
