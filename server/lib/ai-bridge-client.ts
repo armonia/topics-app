@@ -89,9 +89,19 @@ export class AiBridgeClient {
       // file fd is ours to close as soon as the child owns a copy.
       let logFd: number | null = null;
       try { logFd = fs.openSync(join(this.storeDir, "daemon.log"), "a"); } catch { /* log is optional */ }
+      // --parent-pid is how the daemon knows we died: it CANNOT read that from
+      // process.ppid, which Bun never refreshes after reparenting to init (Node
+      // does). Without it the daemon's orphan monitor is dead code and every
+      // abandoned daemon lives forever — 28 of them, up to 3 days old, were
+      // found on one machine. See the monitor in ai-bridge.mjs.
       const child = spawn(
         process.execPath,
-        [resolve(import.meta.dir, "../ai-bridge.mjs"), "--socket", this.socketPath, "--store-dir", this.storeDir],
+        [
+          resolve(import.meta.dir, "../ai-bridge.mjs"),
+          "--socket", this.socketPath,
+          "--store-dir", this.storeDir,
+          "--parent-pid", String(process.pid),
+        ],
         { detached: true, stdio: ["ignore", "ignore", logFd ?? "ignore"], env: { ...process.env, PATH: augmentPath() } },
       );
       child.unref();
