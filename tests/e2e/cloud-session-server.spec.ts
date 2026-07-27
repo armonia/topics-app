@@ -18,16 +18,50 @@ import { E2E_BASE } from "./helpers/test-server";
 
 const BASE = E2E_BASE;
 
-/** Open a passive WS to the test server inside the page and collect frames. */
+/**
+ * Open a passive WS to the test server inside the page and collect frames.
+ *
+ * La pagina che ospita la socket DEVE stare sull'ORIGINE del server. Prima era
+ * `about:blank`, che ha un'origine OPACA: il browser manda `Origin: null`
+ * nell'handshake e il gate CSRF di `/ws` (`evaluateAuth`, server/lib/auth-gate.ts,
+ * hardening 2.2) risponde 403 — `onopen` non arriva mai, la `page.evaluate`
+ * resta appesa sulla Promise e il test muore per timeout a 30 s. Verificato a
+ * mano sul server di test: `Origin: null` → 403, `Origin: http://localhost:<porta>`
+ * → 101.
+ *
+ * Non è un bug del server da "sistemare": un'origine opaca (about:blank, iframe
+ * sandboxed, `data:`) è ESATTAMENTE il vettore che quel gate esiste per
+ * bloccare, e allentarlo per far passare un test riaprirebbe il buco. Serve
+ * invece una pagina same-origin — servita qui dal route handler di Playwright,
+ * così l'osservatorio resta un documento vuoto e non tira su tutta la SPA (che
+ * aprirebbe una sua WS e scriverebbe nel pane-store condiviso della suite).
+ */
 async function captureFrames(page: import("@playwright/test").Page) {
-  await page.goto("about:blank");
+  const probeUrl = `${BASE}/__e2e-ws-probe`;
+  await page.route(probeUrl, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<!doctype html><title>ws probe</title>",
+    }),
+  );
+  await page.goto(probeUrl);
   await page.evaluate((base) => {
     (window as any).__frames = [];
     const ws = new WebSocket(base.replace(/^http/, "ws") + "/ws");
     ws.onmessage = (e) => {
       try { (window as any).__frames.push(JSON.parse(e.data as string)); } catch { /* non-JSON */ }
     };
-    return new Promise<void>((resolve) => { ws.onopen = () => resolve(); });
+    // Una handshake RIFIUTATA chiude la socket senza mai chiamare `onopen`: con
+    // la sola `resolve` la Promise restava appesa e l'unico sintomo era «Test
+    // timeout of 30000ms exceeded» dopo mezzo minuto, che non dice niente su
+    // chi ha rifiutato. Rigettare su close/error fa fallire il test in un
+    // istante e con il motivo giusto.
+    return new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onclose = (e) => reject(new Error(`/ws handshake rifiutata (code ${e.code})`));
+      ws.onerror = () => reject(new Error("/ws handshake fallita"));
+    });
   }, BASE);
 }
 
