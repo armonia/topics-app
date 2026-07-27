@@ -1064,8 +1064,9 @@ describe("priority", () => {
   describe("external-session guard", () => {
     const intruder = [{ cwd: "/Users/x/Projects/alpha", branch: "main" }];
 
-    it("REFUSES in-place dispatch while a bare terminal session works the repo", async () => {
-      const h = harness({ externalSessionsAt: () => intruder });
+    it("HOLDS in-place dispatch (queued chip + one note), then RESUMES by itself when the repo frees", async () => {
+      let sessions: Array<{ cwd: string; branch: string | null }> = intruder;
+      const h = harness({ externalSessionsAt: () => sessions });
       h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
       seedTask(h.db, { id: "t1", status: "todo" });
 
@@ -1073,11 +1074,47 @@ describe("priority", () => {
       await flush();
 
       const t = h.task("t1")!;
-      expect(t.status).toBe("backlog");
-      expect(t.dispatchState).toBe("blocked");
-      expect(t.dispatchError).toContain("sessione Claude esterna viva");
-      expect(t.dispatchError).toContain("/Users/x/Projects/alpha");
+      expect(t.status).toBe("todo");            // held, never claimed
+      expect(t.dispatchState).toBe("queued");   // a visible hold, not a silent skip
       expect(h.turns.length).toBe(0);
+      const notes = h.svc.get("t1")!.comments.filter((c) => c.author === "system");
+      expect(notes.length).toBe(1);
+      expect(notes[0].content).toContain("sessione Claude esterna viva");
+      expect(notes[0].content).toContain("riparte da solo");
+
+      // Still busy next tick → no duplicate note (one per hold episode).
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.svc.get("t1")!.comments.filter((c) => c.author === "system").length).toBe(1);
+
+      // Repo frees → the next reconcile tick dispatches with NO human touch.
+      sessions = [];
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.task("t1")!.status).toBe("in_progress");
+      expect(h.turns.length).toBe(1);
+    });
+
+    it("notes AGAIN on a NEW hold episode after the repo freed in between", async () => {
+      let sessions: Array<{ cwd: string; branch: string | null }> = intruder;
+      const h = harness({ externalSessionsAt: () => sessions });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+      // Global cap 1: on the free tick t1 is claimed, t2 stays in todo — the
+      // surviving todo is the one that can experience a SECOND hold episode.
+      h.svc.setGlobalCap({ auto: false, max: 1 });
+      seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+      seedTask(h.db, { id: "t2", status: "todo" });
+
+      await h.dispatcher.tick(PID); await flush();  // hold #1 → both noted
+      sessions = [];
+      await h.dispatcher.tick(PID); await flush();  // free: episodes cleared, t1 claimed (cap 1)
+      expect(h.task("t1")!.status).toBe("in_progress");
+      expect(h.task("t2")!.status).toBe("todo");
+      // Different branch → different wording, so the svc's short-window comment
+      // dedupe (same author+content) can't mask the second note.
+      sessions = [{ cwd: "/Users/x/Projects/alpha", branch: "feature" }];
+      await h.dispatcher.tick(PID); await flush();  // hold #2 → t2 noted a SECOND time
+      expect(h.svc.get("t2")!.comments.filter((c) => c.author === "system").length).toBe(2);
     });
 
     it("in-place dispatch on a FREE repo is untouched by the guard", async () => {
