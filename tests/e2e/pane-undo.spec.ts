@@ -21,7 +21,7 @@
  * Topics are pre-seeded with messages so the chat container is scrollable.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, seedPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -69,15 +69,11 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
   // NOT re-run beforeAll on a retry, so the first attempt's close/undo (or a
   // cross-file teardown flush landing on the shared server) mutates the pane-store,
   // and the retry would inherit that (observed: only t3 survives → 1 tab, not 3).
-  // Reading the current server lastSeq and writing +1 also outranks any snapshot
-  // accumulated by the long serial run. The middle pane (t2) keeps scrollOffset=250.
+  // `seedPaneStore` supplies a lastSeq that outranks any snapshot accumulated by
+  // the long serial run, AND re-writes if a late `pagehide` beacon from the
+  // previous spec clobbers our seed. The middle pane (t2) keeps scrollOffset=250.
   test.beforeEach(async ({ request }) => {
-    let lastSeq = 0;
-    try {
-      const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
-      if (cur.ok()) lastSeq = (((await cur.json()) as { value?: { lastSeq?: number } })?.value?.lastSeq ?? 0);
-    } catch { /* fresh store */ }
-    const snapshot = {
+    await seedPaneStore(request, () => ({
       panes: {
         [t1.id]: { id: t1.id, type: "chat", title: t1.name, topicId: t1.id },
         [t2.id]: {
@@ -100,13 +96,7 @@ test.describe("@phase30-regression PANE-03: close+undo ghost-pane", () => {
       projects: {},
       groupOrder: ["group:default"],
       closedStack: [],
-      lastSeq: lastSeq + 1,
-    };
-
-    await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
-      data: snapshot,
-      ignoreHTTPSErrors: true,
-    });
+    }));
 
     // Legacy panels endpoint for sidebar visibility
     await request.put(`${BASE}/api/ui-state/panels`, {

@@ -6,7 +6,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { interceptWebSocket } from "./helpers/ws-helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, seedPaneStore } from "./helpers/api-fixtures";
 
 const TS = Date.now();
 const BASE = "http://localhost:13334";
@@ -223,35 +223,33 @@ test.describe("Tab Notification Badges", () => {
     });
 
     // pane-store-v2 — read-modify-write so we don't clobber per-pane metadata
-    // seeded by earlier helpers (chat panes already wired up).
-    const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+    // seeded by earlier helpers (chat panes already wired up). seedPaneStore
+    // re-runs this builder per attempt, so each retry amends a FRESH read and
+    // supplies the lastSeq the client's LWW gate needs.
     type Snapshot = {
       panes: Record<string, unknown>;
       groups: Record<string, { id: string; paneIds: string[]; splitRatio: number; splitAxis: string }>;
       projects: Record<string, unknown>;
       groupOrder: string[];
       closedStack: unknown[];
-      lastSeq: number;
     };
-    let snapshot: Snapshot = {
-      panes: {},
-      groups: { "group:default": { id: "group:default", paneIds: [], splitRatio: 1, splitAxis: "horizontal" } },
-      projects: {},
-      groupOrder: ["group:default"],
-      closedStack: [],
-      lastSeq: 0,
-    };
-    if (cur.ok()) {
-      const body = (await cur.json()) as { value?: Snapshot };
-      if (body?.value && typeof body.value === "object" && "groups" in body.value) snapshot = body.value;
-    }
-    snapshot.panes[paneId] = { id: paneId, type, title: type };
-    const g = snapshot.groups["group:default"];
-    if (g && !g.paneIds.includes(paneId)) g.paneIds.push(paneId);
-    snapshot.lastSeq = (snapshot.lastSeq ?? 0) + 1;
-    await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
-      data: snapshot,
-      ignoreHTTPSErrors: true,
+    await seedPaneStore(request, async () => {
+      let snapshot: Snapshot = {
+        panes: {},
+        groups: { "group:default": { id: "group:default", paneIds: [], splitRatio: 1, splitAxis: "horizontal" } },
+        projects: {},
+        groupOrder: ["group:default"],
+        closedStack: [],
+      };
+      const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+      if (cur.ok()) {
+        const body = (await cur.json()) as { value?: Snapshot };
+        if (body?.value && typeof body.value === "object" && "groups" in body.value) snapshot = body.value;
+      }
+      snapshot.panes[paneId] = { id: paneId, type, title: type };
+      const g = snapshot.groups["group:default"];
+      if (g && !g.paneIds.includes(paneId)) g.paneIds.push(paneId);
+      return snapshot;
     });
   }
 
