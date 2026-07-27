@@ -38,7 +38,7 @@ async function seedAndLoad(page: Page, panelIds: string[], opts?: { gridRows?: u
   // UNIONED with pane-store-v2 on hydrate, so stale panes accumulated in the
   // shared test DB (terminals / project panes from other spec files) leak in
   // as extra tabs and break every exact-count assertion.
-  await resetPaneStore(page.request, panelIds).catch(() => {});
+  await resetPaneStore(page.request, panelIds);
 
   // 2. Set localStorage BEFORE the app loads so the client's initial state
   //    matches the server. The client reads openPanels and grid layout from

@@ -12,7 +12,7 @@ test.describe("Tab Sync & Persistence", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
     // Clean pane-store so the topic opens are a real state change (shared test DB).
-    await resetPaneStore(page.request, []).catch(() => {});
+    await resetPaneStore(page.request, []);
     await goToApp(page);
 
     // Double-click first topic to pin it (prevent preview replacement)
@@ -51,7 +51,7 @@ test.describe("Tab Sync & Persistence", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
     // Clean pane-store so the topic opens are a real state change (shared test DB).
-    await resetPaneStore(page.request, []).catch(() => {});
+    await resetPaneStore(page.request, []);
     await goToApp(page);
 
     // Double-click first topic to pin, then open second
@@ -113,7 +113,7 @@ test.describe("Tab Sync & Persistence", () => {
     // localStorage, and the ensureTopicVisible reload then warm-boots it and
     // clobbers the WST seed (empty sidebar). resetPaneStore gives a deterministic
     // authoritative baseline so the seed wins.
-    await resetPaneStore(page.request, []).catch(() => {});
+    await resetPaneStore(page.request, []);
     await goToApp(page);
 
     // Pin a chat so the tab bar has a stable neighbour, then open a Browser pane
@@ -174,7 +174,7 @@ test.describe("Tab Sync & Persistence", () => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
     // Clean pane-store baseline (see the sibling reload test) so the WST seed
     // isn't clobbered by accumulated shared-DB junk warm-booted on reload.
-    await resetPaneStore(page.request, []).catch(() => {});
+    await resetPaneStore(page.request, []);
     await goToApp(page);
 
     await openTopicByDoubleClick(page, /Web Search Test/);
@@ -216,7 +216,7 @@ test.describe("Tab Sync & Persistence", () => {
   }) => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-01" });
     // Clean pane-store so the topic open is a real state change (shared test DB).
-    await resetPaneStore(page.request, []).catch(() => {});
+    await resetPaneStore(page.request, []);
     await goToApp(page);
 
     // Set up request listener before making changes
@@ -260,7 +260,7 @@ test.describe("Tab Sync & Persistence", () => {
 
     try {
       // Reset the shared server pane-store so B sees exactly what A opens.
-      await resetPaneStore(pageA.request, []).catch(() => {});
+      await resetPaneStore(pageA.request, []);
       // Load app in both contexts
       await goToApp(pageA);
       await goToApp(pageB);

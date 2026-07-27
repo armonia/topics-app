@@ -117,7 +117,7 @@ test.describe("Tab System Reliability", () => {
         data: { openPanels: [t1.id, t2.id, t3.id] },
       });
       // Reset the authoritative pane-store so hydrate unions to exactly these 3.
-      await resetPaneStore(page.request, [t1.id, t2.id, t3.id]).catch(() => {});
+      await resetPaneStore(page.request, [t1.id, t2.id, t3.id]);
       await gotoAndWait(page);
 
       const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
@@ -161,7 +161,7 @@ test.describe("Tab System Reliability", () => {
     try {
       await page.request.put(`${BASE}/api/ui-state/panels`, { data: { openPanels: [t.id] } });
       // Reset the authoritative pane-store so hydrate unions to exactly this topic.
-      await resetPaneStore(page.request, [t.id]).catch(() => {});
+      await resetPaneStore(page.request, [t.id]);
       await gotoAndWait(page);
 
       // Deterministically establish focus. The server only skips the unread

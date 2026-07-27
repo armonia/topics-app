@@ -9,7 +9,7 @@ test.describe("Dashboard & Analytics", () => {
   // FileExplorer, ProjectSidebar) which collide with the journal's Refresh in
   // DASH-23. An empty store leaves only the dashboard's own controls.
   test.beforeEach(async ({ request }) => {
-    await resetPaneStore(request, []).catch(() => {});
+    await resetPaneStore(request, []);
   });
 
   test("DASH-01: KPI cards render with data", async ({

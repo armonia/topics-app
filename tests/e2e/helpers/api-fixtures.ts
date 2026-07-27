@@ -173,22 +173,53 @@ export async function seedTopicIntoSidebar(request: APIRequestContext, topicId: 
 
 /** Minimal sanitizer-safe Pane record for a pane id, inferring the type the
  *  same way the client's adapters do (chat for bare topic UUIDs). */
+/**
+ * Una pane seminata senza `openedAt` NON è causalmente nuova: il reducer la
+ * data solo al momento dell'hydrate (`pane.openedAt ?? … ?? Date.now()`,
+ * reducers/panes.ts:106), quindi qualsiasi tombstone che arrivi DOPO l'hydrate
+ * — il flush di teardown dello spec precedente, tipicamente — ha un `closedAt`
+ * più recente e la sfratta (regola `openedAt > closedAt`, panes.ts:422).
+ *
+ * Si vedeva così: split-screen-sync semina [A, B, C] e la board ne mostra due,
+ * ["B", "C"] — spariva sempre e solo la topic che lo spec precedente aveva
+ * tenuto aperta, cioè l'unica per cui esisteva un tombstone. Timbrando qui
+ * l'istante del seed la pane nasce più recente di qualunque chiusura passata,
+ * ed è anche la semantica giusta: questa pane è stata aperta ORA.
+ */
+const seedOpenedAt = () => Date.now();
+
+/** I prefissi che marcano una pane NON di chat (`paneRecordForId` li mappa uno a uno). */
+const NON_CHAT_PANE_PREFIXES = ["terminal:", "browser:", "project:"] as const;
+
+/** True se l'id è una topic di chat nuda, cioè un pane id senza prefisso di tipo. */
+function isChatTopicPaneId(id: string): boolean {
+  if (NON_CHAT_PANE_PREFIXES.some((p) => id.startsWith(p))) return false;
+  return !(id.startsWith("__") && id.endsWith("__")); // utility panel
+}
+
 function paneRecordForId(id: string): Record<string, unknown> {
+  const openedAt = seedOpenedAt();
   if (id.startsWith("terminal:")) {
-    return { id, type: "terminal", title: "Terminal", terminalSessionId: id.slice("terminal:".length) };
+    return {
+      id,
+      type: "terminal",
+      title: "Terminal",
+      terminalSessionId: id.slice("terminal:".length),
+      openedAt,
+    };
   }
   if (id.startsWith("browser:")) {
-    return { id, type: "browser", title: "Browser" };
+    return { id, type: "browser", title: "Browser", openedAt };
   }
   if (id.startsWith("project:")) {
     const path = decodeURIComponent(id.slice("project:".length));
-    return { id, type: "project", title: path.split("/").pop() || path, projectPath: path };
+    return { id, type: "project", title: path.split("/").pop() || path, projectPath: path, openedAt };
   }
   if (id.startsWith("__") && id.endsWith("__")) {
     // Utility panel id (`__<type>__`, see UtilityPanel.utilityPanelId).
-    return { id, type: id.slice(2, -2), title: "" };
+    return { id, type: id.slice(2, -2), title: "", openedAt };
   }
-  return { id, type: "chat", title: "", topicId: id };
+  return { id, type: "chat", title: "", topicId: id, openedAt };
 }
 
 /** How many times `resetPaneStore` re-writes when a late beacon overwrites it. */
@@ -228,7 +259,7 @@ async function readPaneStore(
  * for the clobber to matter), and failures that MOVE between runs — it is a
  * race, not a broken assertion.
  */
-async function waitForPaneStoreQuiet(
+export async function waitForPaneStoreQuiet(
   request: APIRequestContext,
 ): Promise<{ lastSeq: number; serverSeq: number }> {
   let prev = await readPaneStore(request);
@@ -261,6 +292,7 @@ export async function seedPaneStore(
   build: () => Record<string, unknown> | Promise<Record<string, unknown>>,
   minSeq = 0,
 ): Promise<void> {
+  let lastError = "nessun tentativo eseguito";
   for (let attempt = 0; attempt < RESET_MAX_ATTEMPTS; attempt++) {
     const before = await waitForPaneStoreQuiet(request);
     const snapshot = { ...(await build()), lastSeq: Math.max(before.lastSeq, minSeq) + 1 };
@@ -270,14 +302,35 @@ export async function seedPaneStore(
         data: snapshot,
         ignoreHTTPSErrors: true,
       });
-      if (put.ok()) mySeq = ((await put.json()) as { server_seq?: number })?.server_seq ?? 0;
-    } catch { /* retried below */ }
+      if (put.ok()) {
+        mySeq = ((await put.json()) as { server_seq?: number })?.server_seq ?? 0;
+        if (mySeq === 0) lastError = "PUT ok ma senza server_seq: seed non confermabile";
+      } else {
+        lastError = `PUT ${put.status()} ${put.statusText()}`;
+      }
+    } catch (e) {
+      lastError = `PUT fallita: ${e instanceof Error ? e.message : String(e)}`;
+    }
 
-    // Did our write survive? If a late beacon landed on top, `server_seq` moved
-    // past ours and the store is contaminated again — retry.
-    const after = await readPaneStore(request);
-    if (mySeq === 0 || after.serverSeq === mySeq) return;
+    if (mySeq !== 0) {
+      // Did our write survive? If a late beacon landed on top, `server_seq`
+      // moved past ours and the store is contaminated again — retry.
+      const after = await readPaneStore(request);
+      if (after.serverSeq === mySeq) return;
+      lastError = `un beacon in ritardo ha scavalcato il seed (server_seq ${after.serverSeq} ≠ ${mySeq})`;
+    }
   }
+  // Prima questa funzione USCIVA COME SUCCESSO da una PUT fallita: `mySeq === 0`
+  // era nella stessa condizione di return del caso "scrittura confermata", e
+  // l'esaurimento dei tentativi cadeva fuori dal loop senza dire nulla. Un reset
+  // che non può fallire è esattamente quello che nessuno vede fallire: il test
+  // successivo ripartiva dal workspace lasciato dallo spec precedente, che è la
+  // causa per cui i rossi si SPOSTANO tra una run e l'altra invece di stare
+  // fermi. Meglio un rosso qui, sulla riga del seed, che un rosso inspiegabile
+  // quaranta test più avanti.
+  throw new Error(
+    `seedPaneStore: pane-store NON riportato a uno stato noto dopo ${RESET_MAX_ATTEMPTS} tentativi — ${lastError}`,
+  );
 }
 
 /**
@@ -290,11 +343,25 @@ export async function seedPaneStore(
  * (terminals, project panes from other spec files / previous runs) leak into
  * every "seed N topics" test as extra tabs. Call this alongside the legacy
  * PUTs whenever a test needs a deterministic tab set.
+ *
+ * Le topic di chat vengono anche RIAPERTE (unarchive) prima del seed. Nel
+ * modello dell'app "aperto = tab, chiuso = archiviato" (topic state model): il
+ * client filtra le pane di topic archiviate, quindi seminare una pane per una
+ * topic archiviata scrive uno stato che la UI è tenuta a ignorare — la pane c'è
+ * nello store e la tab non compare. Succedeva davvero, e in modo deterministico:
+ * split-screen-sync semina [A, B, C] e la board ne mostra due, ["B", "C"],
+ * perché un test precedente dello stesso file aveva CHIUSO la tab A, cioè
+ * archiviato la topic. Lo store risultava perfetto (tre pane, tre paneIds nel
+ * gruppo, zero tombstones) e la tab restava comunque invisibile: era la topic,
+ * non la pane. Chiedere una pane di chat È dichiarare la topic aperta.
  */
 export async function resetPaneStore(
   request: APIRequestContext,
   paneIds: string[],
 ): Promise<void> {
+  await Promise.all(
+    paneIds.filter(isChatTopicPaneId).map((id) => unarchiveTopic(request, id)),
+  );
   await seedPaneStore(request, () => ({
     panes: Object.fromEntries(paneIds.map((id) => [id, paneRecordForId(id)])),
     groups: {

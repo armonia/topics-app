@@ -62,7 +62,7 @@ test('Topic switch — activating a second tab changes the active tab', async ({
     });
     // Clear the shared pane-store so tabs from prior specs don't UNION in as a
     // 3rd tab (see resetPaneStore) — this test asserts EXACTLY 2 tabs.
-    await resetPaneStore(request, [t1.id, t2.id]).catch(() => {});
+    await resetPaneStore(request, [t1.id, t2.id]);
     await page.goto('/');
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 15000 });
 
