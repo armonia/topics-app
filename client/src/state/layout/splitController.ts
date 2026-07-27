@@ -1,35 +1,16 @@
 /**
- * splitController — the PURE geometry helpers behind the split system's gestures
- * (P2). The React hook that owns drag state lives in the component layer; the
- * math that decides "which edge did the pointer land on" and "how much weight
- * does this pixel drag move" is isolated here so it's unit-testable and shared by
- * both the standalone and project surfaces.
+ * splitController — the PURE geometry helpers behind the split system's DIVIDER
+ * gestures (P2). The React hook that owns drag state lives in the component
+ * layer; the math that decides "how much weight does this pixel drag move" is
+ * isolated here so it's unit-testable and shared by both the standalone and
+ * project surfaces.
+ *
+ * A 5-zone pointer→edge `dropZone` classifier once lived here too, but it had
+ * ZERO production callers — the live drop hit-testing is
+ * `lib/dropZone.detectDropZone` — so it was removed to keep the shipping surface
+ * honest. Recover it from git history if a tree-side drop-split op is ever wired.
  */
-import { normalizeWeights, type DropEdge, type Rect } from './layoutTree';
-
-/** A tab dropped near an edge SPLITS the target on that edge; dropped in the
- *  middle it joins the target as a tab (no geometry change). */
-export type DropZone = DropEdge | 'center';
-
-/**
- * Classify where `(px, py)` falls inside `rect` for a 5-zone drop:
- * the four edge bands (each `edgeFrac` of the way in) and the center. Corners are
- * resolved by "closest edge wins" (the smallest of the four edge distances). A
- * pointer outside the rect clamps to the nearest in-bounds zone.
- */
-export function dropZone(rect: Rect, px: number, py: number, edgeFrac = 0.25): DropZone {
-  if (rect.width <= 0 || rect.height <= 0) return 'center';
-  const rx = clamp01((px - rect.x) / rect.width);
-  const ry = clamp01((py - rect.y) / rect.height);
-  const dist = { left: rx, right: 1 - rx, top: ry, bottom: 1 - ry };
-  const min = Math.min(dist.left, dist.right, dist.top, dist.bottom);
-  if (min >= edgeFrac) return 'center';
-  // Stable tie-break order: left, right, top, bottom.
-  if (min === dist.left) return 'left';
-  if (min === dist.right) return 'right';
-  if (min === dist.top) return 'top';
-  return 'bottom';
-}
+import { normalizeWeights } from './layoutTree';
 
 /**
  * Convert a divider drag measured in PIXELS into a signed weight delta suitable
@@ -63,9 +44,4 @@ export function resizeWeights(weights: number[], idx: number, delta: number, flo
   const na = Math.min(Math.max(norm[idx] + delta, f), sum - f);
   const nb = sum - na;
   return norm.map((w, i) => (i === idx ? na : i === idx + 1 ? nb : w));
-}
-
-function clamp01(x: number): number {
-  if (!Number.isFinite(x)) return 0.5;
-  return x < 0 ? 0 : x > 1 ? 1 : x;
 }

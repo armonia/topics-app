@@ -22,7 +22,7 @@ import type { Pane, PaneGroup, GroupLayoutRow } from '../../../types';
 import {
   savePersistedTabState,
   savePersistedLayoutState,
-  stripWrapperPaneId,
+  selectNonChatPanesToPersist,
 } from './projectPersistence';
 import { getBrowserContextFromPaneId, recordBrowserOrigin } from '../../../state/pane/adapters';
 
@@ -66,10 +66,13 @@ export function useProjectPersistenceSave(
     // child panes. If it ever sneaks in (e.g. from a corrupted snapshot), it
     // would resurface on reload as an unkillable phantom tab inside the
     // project window.
-    const nonChatPanes = stripWrapperPaneId(
-      panes.filter(p => p.type !== 'chat' && !p.preview),
-      projectPath,
-    );
+    //
+    // Preview panes (Git / Files / Board) are normally dropped so a single-click
+    // preview tab doesn't clutter the restored set — but one that heads a group
+    // (its ACTIVE / solo-cell tab) is what the user is looking at and MUST
+    // survive reload, or its cell collapses and focus snaps to a chat. See
+    // selectNonChatPanesToPersist.
+    const nonChatPanes = selectNonChatPanesToPersist(panes, groups, projectPath);
     const openChatTopicIds = panes
       .filter(p => p.type === 'chat' && p.topicId)
       .map(p => p.topicId!);

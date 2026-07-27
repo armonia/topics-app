@@ -65,11 +65,6 @@ export interface SplitNode {
 
 export type LayoutNode = LeafNode | SplitNode;
 
-/** Which edge of a target leaf a moved/created pane lands on. Consumed by
- *  `splitController` (pointer→edge hit-testing) even though the tree-side
- *  drop-split op that once used it lives only in git history now. */
-export type DropEdge = 'left' | 'right' | 'top' | 'bottom';
-
 const EPSILON = 1e-9;
 
 // ─────────────────────────── constructors / guards ───────────────────────────

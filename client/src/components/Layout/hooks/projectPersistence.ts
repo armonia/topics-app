@@ -76,6 +76,32 @@ export function stripWrapperPaneId<T extends { id: string }>(
   return panes.filter(p => p.id !== wrapperId);
 }
 
+/**
+ * The non-chat panes to persist into `nonChatPanes` (chat panes ride the
+ * separate `openChatTopicIds` channel). Preview panes (Git / Files / Board —
+ * every non-durable type, see useProjectLayout `isDurableResource`) are dropped
+ * so a throwaway single-click preview tab doesn't clutter the restored set —
+ * EXCEPT a preview pane that is a group's ACTIVE tab. That one is exactly what
+ * the user is looking at: dropping it meant the focused tab vanished on reload,
+ * its cell collapsed to empty (orphan-sync prunes a group with no panes) and
+ * focus snapped to a chat cell ("perdo il focus su questa tab"; a browser split
+ * whose companion was a preview pane "perdeva lo split"). A solo split cell's
+ * lone pane IS that group's activePaneId, so this also keeps a split-out
+ * Git/Files/Board alive. Pure + exported so the persist effect and its unit test
+ * share one definition. Also strips the wrapper pane (see stripWrapperPaneId).
+ */
+export function selectNonChatPanesToPersist(
+  panes: Pane[],
+  groups: PaneGroup[],
+  projectPath: string,
+): Pane[] {
+  const activePaneIds = new Set(groups.map(g => g.activePaneId));
+  return stripWrapperPaneId(
+    panes.filter(p => p.type !== 'chat' && (!p.preview || activePaneIds.has(p.id))),
+    projectPath,
+  );
+}
+
 /** Subscribe to async hydration of `projects[path]` from the pane reducer
  * (WS init, cross-device sync). Wraps `loadProjectLayout`'s callback param
  * with shape-detection so callers always receive a `PersistedTabState`,
