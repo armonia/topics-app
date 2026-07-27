@@ -3,6 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, seedProjectPane, resetPaneStore } from "./helpers/api-fixtures";
 import {
+  collapseSidebarSections,
   countColDividers,
   countRowDividers,
   getVisibleTabLabels,
@@ -10,6 +11,21 @@ import {
 } from "./helpers/layout";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Il click su una topic è servito quando la sua tab bar è a schermo — non dopo
+ * 1,5s di speranza. Chi chiama questo helper legge subito tab, divisori o
+ * bounding box del main: la tab bar è la prima cosa che esiste in tutti e tre i
+ * casi. L'esito è volutamente ignorato perché alcuni test verificano proprio lo
+ * stato "nessuna tab" e devono poter proseguire.
+ */
+async function waitForTabBar(page: Page) {
+  await page
+    .locator('[data-testid="panel-tab-bar"]')
+    .first()
+    .waitFor({ state: "visible", timeout: 10000 })
+    .catch(() => {});
+}
 
 /** Open any available chat topic from the sidebar */
 async function openAnyTopic(page: Page) {
@@ -21,14 +37,14 @@ async function openAnyTopic(page: Page) {
     // Skip project folder entries (they contain file-like names)
     if (text && !text.includes('.ts') && !text.includes('.json') && !text.includes('.md')) {
       await treeItems.nth(i).click();
-      await page.waitForTimeout(1500);
+      await waitForTabBar(page);
       return;
     }
   }
   // Fallback: just click the first one
   if (count > 0) {
     await treeItems.first().click();
-    await page.waitForTimeout(1500);
+    await waitForTabBar(page);
   }
 }
 
@@ -185,18 +201,31 @@ test.describe("Grid Split System", () => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await openProject(page, /e2e-grid/);
 
-      const addBtn = page.locator('[role="main"] button[title*="Add"], [role="main"] button:has-text("+")');
-      if (await addBtn.count() > 0) {
-        await addBtn.first().click();
-        await page.waitForTimeout(500);
+      // Il "+" canonico è <PaneAddMenu>, che espone testid stabili: trigger e
+      // righe. Il vecchio test cercava `button[title*="Add"]` e poi leggeva
+      // `body.textContent()` per le parole "Terminal"/"Browser"/"Git" — passava
+      // anche col menu chiuso, perché quelle parole stanno pure altrove nella
+      // pagina. Ora si asserisce il menu vero e le sue righe vere.
+      const addBtn = page.locator('[role="main"] [data-testid="pane-add-menu-trigger"]').first();
+      await expect(addBtn).toBeVisible({ timeout: 10_000 });
+      await addBtn.click();
 
-        const body = await page.locator('body').textContent();
-        const hasUtilityOptions =
-          body!.includes('Terminal') || body!.includes('Browser') || body!.includes('Git');
-        expect(hasUtilityOptions, 'Project should offer utility pane types').toBeTruthy();
+      const menu = page.locator('[data-testid="pane-add-menu"]').last();
+      await expect(menu).toBeVisible({ timeout: 5000 });
 
-        await page.keyboard.press('Escape');
-      }
+      // Un tipo utility può mancare se è già presente nel gruppo (i singleton
+      // vengono filtrati da availableTypesForGroup) — se ne pretende almeno uno.
+      const utilityRows = menu.locator(
+        '[data-testid="pane-add-menu-terminal"], [data-testid="pane-add-menu-browser"], [data-testid="pane-add-menu-git"]',
+      );
+      await expect
+        .poll(() => utilityRows.count(), {
+          timeout: 5000,
+          message: 'il menu "+" di un progetto non offre nessun tipo utility',
+        })
+        .toBeGreaterThan(0);
+
+      await page.keyboard.press('Escape');
     });
 
     test("project window tab bar remains compact", async ({ page }) => {
@@ -318,40 +347,12 @@ test.describe("Grid Split System", () => {
       await page.goto("/");
       await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
       await collapseSidebarSections(page);
-      // Wait for tabs to render
-      await page.locator('[role="main"] [draggable="true"]').first().waitFor({ state: "visible", timeout: 10000 });
-      await page.waitForTimeout(800);
-    }
-
-    /** Collapse Terminals and sezione Browsers to make room for Chats topics */
-    async function collapseSidebarSections(page: Page) {
-      // Collapse sezione Terminali if expanded
-      const terminalsBtn = page.getByRole("button", { name: /sezione Terminali/ });
-      if (await terminalsBtn.count() > 0) {
-        const expanded = await terminalsBtn.getAttribute("aria-expanded");
-        if (expanded === "true") {
-          await terminalsBtn.click();
-          await page.waitForTimeout(300);
-        }
-      }
-      // Collapse sezione Browser if expanded
-      const browserBtn = page.getByRole("button", { name: /sezione Browser/ });
-      if (await browserBtn.count() > 0) {
-        const expanded = await browserBtn.getAttribute("aria-expanded");
-        if (expanded === "true") {
-          await browserBtn.click();
-          await page.waitForTimeout(300);
-        }
-      }
-      // Collapse sezione Progetti if expanded
-      const projectsBtn = page.getByRole("button", { name: /sezione Progetti/ });
-      if (await projectsBtn.count() > 0) {
-        const expanded = await projectsBtn.getAttribute("aria-expanded");
-        if (expanded === "true") {
-          await projectsBtn.click();
-          await page.waitForTimeout(300);
-        }
-      }
+      // Entrambe le tab seminate devono essere renderizzate: gli 800ms fissi
+      // aspettavano la seconda senza dirlo, e su una run lenta lo split partiva
+      // da una tab sola (gruppo a pane singola = no-op).
+      await expect
+        .poll(() => page.locator('[role="main"] [draggable="true"]').count(), { timeout: 10000 })
+        .toBeGreaterThanOrEqual(2);
     }
 
     test("GRID-01: Split Right via context menu creates side-by-side panels", async ({ page }) => {
@@ -433,13 +434,16 @@ test.describe("Grid Split System", () => {
       await page.mouse.down();
       await page.mouse.move(box!.x + box!.width / 2 + 100, box!.y + box!.height / 2, { steps: 10 });
       await page.mouse.up();
-      await page.waitForTimeout(300);
 
-      // Verify the divider moved (its position should have changed)
-      const newBox = await divider.boundingBox();
-      expect(newBox).not.toBeNull();
-      // The divider should have moved notably (at least 50px given some resistance/snapping)
-      expect(Math.abs(newBox!.x - initialX), 'Divider should have moved after drag').toBeGreaterThan(30);
+      // Il reflow non ha un evento: si polla la posizione finché non si è
+      // spostata (era waitForTimeout(300)). Se non si sposta mai il messaggio
+      // riporta di quanti pixel si è mossa, non un booleano nudo.
+      await expect
+        .poll(async () => Math.abs(((await divider.boundingBox())?.x ?? initialX) - initialX), {
+          message: 'Divider should have moved after drag',
+          timeout: 5000,
+        })
+        .toBeGreaterThan(30);
     });
 
     test("GRID-03: Resize split panels by dragging row-resize divider", async ({ page }) => {
@@ -463,11 +467,13 @@ test.describe("Grid Split System", () => {
       await page.mouse.down();
       await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 80, { steps: 10 });
       await page.mouse.up();
-      await page.waitForTimeout(300);
 
-      const newBox = await divider.boundingBox();
-      expect(newBox).not.toBeNull();
-      expect(Math.abs(newBox!.y - initialY), 'Row divider should have moved after drag').toBeGreaterThan(20);
+      await expect
+        .poll(async () => Math.abs(((await divider.boundingBox())?.y ?? initialY) - initialY), {
+          message: 'Row divider should have moved after drag',
+          timeout: 5000,
+        })
+        .toBeGreaterThan(20);
     });
 
     test("GRID-07: double-click col-resize divider equalizes the two columns", async ({ page }) => {
@@ -496,10 +502,13 @@ test.describe("Grid Split System", () => {
       await page.mouse.down();
       await page.mouse.move(box!.x + box!.width / 2 + 160, box!.y + box!.height / 2, { steps: 10 });
       await page.mouse.up();
-      await page.waitForTimeout(300);
 
-      const diffBefore = Math.abs((await widthOf(0)) - (await widthOf(1)));
-      expect(diffBefore, 'columns should be unequal after dragging the divider').toBeGreaterThan(80);
+      await expect
+        .poll(async () => Math.abs((await widthOf(0)) - (await widthOf(1))), {
+          message: 'columns should be unequal after dragging the divider',
+          timeout: 5000,
+        })
+        .toBeGreaterThan(80);
 
       // 2. Double-click the divider → equalize. (No drag movement, so useGridResize
       //    treats it as a click, not a resize, and onDoubleClick → equalizeHorizontal
@@ -508,11 +517,14 @@ test.describe("Grid Split System", () => {
       const dBox = await divider.boundingBox();
       expect(dBox).not.toBeNull();
       await page.mouse.dblclick(dBox!.x + dBox!.width / 2, dBox!.y + dBox!.height / 2);
-      await page.waitForTimeout(300);
 
       // 3. The two columns should now be approximately equal width.
-      const diffAfter = Math.abs((await widthOf(0)) - (await widthOf(1)));
-      expect(diffAfter, 'double-click should equalize the two columns to ~50/50').toBeLessThan(30);
+      await expect
+        .poll(async () => Math.abs((await widthOf(0)) - (await widthOf(1))), {
+          message: 'double-click should equalize the two columns to ~50/50',
+          timeout: 5000,
+        })
+        .toBeLessThan(30);
     });
 
     test("GRID-08: double-click row-resize divider equalizes the two rows", async ({ page }) => {
@@ -543,21 +555,27 @@ test.describe("Grid Split System", () => {
       await page.mouse.down();
       await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 120, { steps: 10 });
       await page.mouse.up();
-      await page.waitForTimeout(300);
 
-      const topAfterDrag = await topHeight();
       const half = mainBox!.height / 2;
-      expect(Math.abs(topAfterDrag - half), 'top row should be clearly off 50% after drag').toBeGreaterThan(60);
+      await expect
+        .poll(async () => Math.abs((await topHeight()) - half), {
+          message: 'top row should be clearly off 50% after drag',
+          timeout: 5000,
+        })
+        .toBeGreaterThan(60);
 
       // 2. Double-click the divider → equalizeVertical (weights [1,1] → 50/50).
       const dBox = await divider.boundingBox();
       expect(dBox).not.toBeNull();
       await page.mouse.dblclick(dBox!.x + dBox!.width / 2, dBox!.y + dBox!.height / 2);
-      await page.waitForTimeout(300);
 
       // 3. The divider should return to ~the vertical midpoint (equal row heights).
-      const topAfterEqualize = await topHeight();
-      expect(Math.abs(topAfterEqualize - half), 'double-click should equalize the two rows to ~50/50').toBeLessThan(40);
+      await expect
+        .poll(async () => Math.abs((await topHeight()) - half), {
+          message: 'double-click should equalize the two rows to ~50/50',
+          timeout: 5000,
+        })
+        .toBeLessThan(40);
     });
 
     test("GRID-04: Split layout persists after page reload @nightly", async ({ page }) => {
@@ -599,7 +617,7 @@ test.describe("Grid Split System", () => {
         const expanded = await projectsBtn.getAttribute("aria-expanded");
         if (expanded === "false") {
           await projectsBtn.click();
-          await page.waitForTimeout(500);
+          await expect(projectsBtn).toHaveAttribute('aria-expanded', 'true', { timeout: 5000 });
         }
       }
 
@@ -697,12 +715,17 @@ test.describe("Grid Split System", () => {
       const resetBtn = page.getByText('Reimposta pannelli', { exact: true });
       await expect(resetBtn, 'nested layout must offer Reimposta pannelli').toBeVisible({ timeout: 3000 });
       await resetBtn.click();
-      await page.waitForTimeout(500);
 
       // Reset semantics (since abfa87f9): every split dissolves and ALL tabs
       // collapse into ONE tabbed cell — no dividers of either axis remain.
-      expect(await countRowDividers(page), 'reset should remove every row divider').toBe(0);
-      expect(await countColDividers(page), 'reset should remove every column divider').toBe(0);
+      // Pollato invece di atteso a tempo: il reset è l'unica cosa che può far
+      // scendere il conteggio, quindi la condizione è il segnale.
+      await expect
+        .poll(async () => (await countRowDividers(page)) + (await countColDividers(page)), {
+          message: 'reset should remove every divider, both axes',
+          timeout: 5000,
+        })
+        .toBe(0);
 
       // Our panes are not closed: both topics live on as tabs of the single cell.
       const labelsAfter = await getVisibleTabLabels(page);
@@ -782,7 +805,7 @@ test.describe("Grid Split System", () => {
         const expanded = await projectsBtn.getAttribute("aria-expanded");
         if (expanded === "false") {
           await projectsBtn.click();
-          await page.waitForTimeout(500);
+          await expect(projectsBtn).toHaveAttribute('aria-expanded', 'true', { timeout: 5000 });
         }
       }
       const projectItem = page.locator('[aria-label="Topics sidebar"] button').filter({ hasText: /e2e-grid/ }).first();
@@ -817,8 +840,15 @@ test.describe("Grid Split System", () => {
         return;
       }
       await splitDown.click();
-      await page.waitForTimeout(1000);
-      if (await countRowDividers(page) === 0) {
+      // O il divisore compare, o lo split era un no-op (gruppo a pane singola):
+      // in entrambi i casi lo si sa prima del secondo, non dopo.
+      const splitLanded = await page
+        .locator('[role="main"] .cursor-row-resize')
+        .first()
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!splitLanded) {
         // Split was a no-op (single-pane group / not splittable) — nothing to flatten.
         test.skip();
         return;
@@ -846,9 +876,13 @@ test.describe("Grid Split System", () => {
       const resetBtn = page.getByText('Reimposta pannelli', { exact: true });
       await expect(resetBtn, 'project window with a stack must offer Reimposta pannelli').toBeVisible({ timeout: 3000 });
       await resetBtn.click();
-      await page.waitForTimeout(500);
 
-      expect(await countRowDividers(page), 'project flatten should remove row dividers').toBe(0);
+      await expect
+        .poll(() => countRowDividers(page), {
+          message: 'project flatten should remove row dividers',
+          timeout: 5000,
+        })
+        .toBe(0);
       // Set equality (order-insensitive), polled past the reflow: a lost
       // project tab shows up as an explicit diff of WHICH label vanished.
       await expect

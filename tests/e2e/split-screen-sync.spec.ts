@@ -9,6 +9,7 @@ import {
   waitForPaneStoreQuiet,
 } from "./helpers/api-fixtures";
 import {
+  collapseSidebarSections,
   countColDividers,
   countRowDividers,
   countTabBars,
@@ -17,20 +18,6 @@ import {
 } from "./helpers/layout";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
-
-/** Collapse sidebar sections to save space */
-async function collapseSidebarSections(page: Page) {
-  for (const name of [/sezione Terminali/, /sezione Browser/, /sezione Progetti/]) {
-    const btn = page.getByRole("button", { name });
-    if ((await btn.count()) > 0) {
-      const expanded = await btn.getAttribute("aria-expanded");
-      if (expanded === "true") {
-        await btn.click();
-        await page.waitForTimeout(300);
-      }
-    }
-  }
-}
 
 /** Seed two topics as open panels and navigate to app */
 async function openTwoTopics(page: Page, topicIds: string[]) {
@@ -62,11 +49,14 @@ async function openTwoTopics(page: Page, topicIds: string[]) {
     timeout: 15000,
   });
   await collapseSidebarSections(page);
-  await page
-    .locator('[role="main"] [draggable="true"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 10000 });
-  await page.waitForTimeout(800);
+  // Le due tab seminate devono essere ENTRAMBE renderizzate: gli 800ms fissi di
+  // prima aspettavano la seconda senza dirlo, e su una run lenta lo split
+  // partiva da una tab sola (gruppo a pane singola = no-op).
+  await expect
+    .poll(() => page.locator('[role="main"] [draggable="true"]').count(), {
+      timeout: 10000,
+    })
+    .toBeGreaterThanOrEqual(2);
 }
 
 /** Open a project in the sidebar */
@@ -78,7 +68,10 @@ async function openProjectInSidebar(page: Page, name: string | RegExp) {
     const expanded = await projectsSection.getAttribute("aria-expanded");
     if (expanded === "false") {
       await projectsSection.click();
-      await page.waitForTimeout(500);
+      // È il bottone stesso a dire quando la sezione è aperta.
+      await expect(projectsSection).toHaveAttribute("aria-expanded", "true", {
+        timeout: 5000,
+      });
     }
   }
   const btn = page

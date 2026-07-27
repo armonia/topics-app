@@ -35,6 +35,25 @@ export async function getVisibleTabLabels(page: Page): Promise<string[]> {
 }
 
 /**
+ * Chiude le sezioni Terminali / Browser / Progetti della sidebar, per far posto
+ * alle chat nei test che contano le tab.
+ *
+ * Terza copia dello stesso ciclo (grid-split e split-screen-sync avevano la
+ * loro), e tutte e tre aspettavano 300ms dopo il click. L'attesa vera è
+ * `aria-expanded="false"`: è il bottone stesso a dire quando la sezione è
+ * chiusa, e lo dice in millisecondi, non in 300.
+ */
+export async function collapseSidebarSections(page: Page): Promise<void> {
+  for (const name of [/sezione Terminali/, /sezione Browser/, /sezione Progetti/]) {
+    const btn = page.getByRole("button", { name });
+    if ((await btn.count()) === 0) continue;
+    if ((await btn.getAttribute("aria-expanded")) !== "true") continue;
+    await btn.click();
+    await expect(btn).toHaveAttribute("aria-expanded", "false", { timeout: 5000 });
+  }
+}
+
+/**
  * Right-click the tab at `tabIndex` (default: first) and pick "Dividi a destra"/
  * "Dividi in basso" from its context menu.
  *
