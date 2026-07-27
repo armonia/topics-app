@@ -17,31 +17,23 @@
 import { getTabId } from '../middleware/syncCrossTab';
 import { subscribeFrames, subscribeLifecycle } from '../../../lib/wsFrameBus';
 import { backoff } from './syncBackoff';
+import {
+  PROJECT_PANES_PREFIX,
+  projectPanesKey,
+  projectLayoutKey,
+} from '../../../../../shared/project-keys';
 
-// Storage-key derivation (hash of projectPath). Exposed here so call sites
-// don't need to re-implement the hash and so the PANE-01 grep gate passes
-// without leaving the literal `topics-project-*` prefix in consumer files.
-//
-// 32-bit hash: a cross-project collision is possible in principle (~1/4e9
-// per pair — two paths sharing one layout record), but changing the hash
-// now would orphan every existing localStorage AND server `ui_state` key,
-// silently dropping all saved project layouts. Accepted at this scale;
-// keys are pruned on project archive (usePanelLifecycle.handleArchiveProject).
-function projectHash(projectPath: string): string {
-  let hash = 0;
-  for (let i = 0; i < projectPath.length; i++) {
-    hash = projectPath.charCodeAt(i) + ((hash << 5) - hash);
-    hash = hash & hash;
-  }
-  return Math.abs(hash).toString(36);
-}
-const PANES_PREFIX = 'topics-project-panes-';
-const LAYOUT_PREFIX = 'topics-project-layout-';
+// Derivazione delle chiavi (hash di projectPath) delegata a
+// shared/project-keys.ts — la stessa funzione djb2 viveva qui, in
+// server/lib/relocate-pane.ts e in un test server, ognuna con un commento
+// "MUST match the client's" a tenerle allineate solo a parole. Ora la parita'
+// e' STRUTTURALE (una sola implementazione, importata) e verificata da
+// shared/project-keys.test.ts.
 export function projectPanesLocalKey(projectPath: string): string {
-  return `${PANES_PREFIX}${projectHash(projectPath)}`;
+  return projectPanesKey(projectPath);
 }
 export function projectLayoutLocalKey(projectPath: string): string {
-  return `${LAYOUT_PREFIX}${projectHash(projectPath)}`;
+  return projectLayoutKey(projectPath);
 }
 
 // ─── Cross-device sync of project TAB IDENTITY ────────────────────────────
@@ -77,7 +69,7 @@ let wsWired = false;
 /** Only the per-project panes/tab key rides this sync. Other `ui_state` keys
  *  (pane-store-v2, sidebar state, …) are owned by their own consumers. */
 function isSyncedProjectKey(key: string): boolean {
-  return key.startsWith(PANES_PREFIX);
+  return key.startsWith(PROJECT_PANES_PREFIX);
 }
 
 /** The device-local-stripped value we actually sync. MUST normalise
