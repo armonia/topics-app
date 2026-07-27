@@ -19,6 +19,7 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
+    dispatch_deferred_until TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -203,6 +204,70 @@ describe("task-dispatcher", () => {
     expect(t.dispatchState).toBeNull(); // no stranded "queued" chip either
     expect(t.assignedTopicId).toBeNull();
     expect(h.turns.length).toBe(0);
+  });
+
+  it("agent-declared wait releases the slot → todo + waiting chip + note, never review", async () => {
+    // VERIFICA: a task depending on a never-satisfied external condition must
+    // return to the queue with a note within its window — NOT hang holding a
+    // slot, NOT arrive in review as if delivered.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+
+    // The agent calls wait_for_condition mid-turn (route → dispatcher.deferWait).
+    const deferred = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+    expect(deferred.status).toBe("todo");
+    expect(deferred.dispatchState).toBe("waiting");
+    expect(deferred.assignedTopicId).toBeNull();          // slot released
+    expect(deferred.dispatchDeferredUntil).toBeTruthy();
+    expect(Date.parse(deferred.dispatchDeferredUntil!)).toBeGreaterThan(Date.now());
+
+    // The turn winds down: onTurnEnd must leave the waiting chip intact.
+    h.finishTurn();
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");
+    expect(t.status).not.toBe("review");
+    expect(t.dispatchState).toBe("waiting");
+    expect(h.dispatcher.isInFlight("t1")).toBe(false);    // slot freed for others
+    // The note explaining the wait is on the thread.
+    const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
+    expect(notes).toContain("il servizio X è giù");
+  });
+
+  it("a deferred waiting task is NOT re-claimed until its window elapses, then re-dispatches", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.dispatcher.deferWait("t1", "carico alto", 30);
+    h.finishTurn();
+    await flush();
+    const turnsAfterWait = h.turns.length;
+
+    // Window still open → tick must skip it (no claim, no new turn).
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.status).toBe("todo");
+    expect(h.turns.length).toBe(turnsAfterWait);
+
+    // Fast-forward past the window → tick re-dispatches on a FRESH topic.
+    h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = 't1'", [
+      new Date(Date.now() - 1000).toISOString(),
+    ]);
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");
+    expect(t.dispatchState).toBe("working");
+    expect(t.dispatchDeferredUntil).toBeNull();           // cleared on re-claim
+    expect(h.turns.length).toBe(turnsAfterWait + 1);
   });
 
   it("books wall-clock + usage delta (billable + cache reads) on the task at each turn end", async () => {
