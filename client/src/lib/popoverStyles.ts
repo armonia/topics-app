@@ -40,7 +40,6 @@ export const POPOVER_MARGIN = 8;
 
 export const Z_POPOVER = 9999;
 export const Z_CONTEXT_MENU = 9999; // same plane as popovers, by design
-export const Z_MODAL = 10000; // dialogs / command palette — above popovers
 export const Z_POPOVER_SCRIM = 9998; // mobile bottom-sheet backdrop, just under the sheet
 
 /**

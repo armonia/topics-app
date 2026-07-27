@@ -1171,16 +1171,6 @@ export interface TopicTemplate {
   description: string;
 }
 
-export interface ViewMode {
-  sidebar: boolean;
-  details: boolean;
-}
-
-export interface PanelSizes {
-  sidebar: number;
-  details: number;
-}
-
 export interface FileNode {
   name: string;
   type: 'file' | 'dir';
@@ -1196,11 +1186,6 @@ export interface GitStatus {
   files: { path: string; status: string }[];
   ahead: number;
   behind: number;
-}
-
-export interface GitDiff {
-  file: string;
-  diff: string;
 }
 
 export interface GitBranch {
@@ -1252,11 +1237,6 @@ export type { Pane, PaneType } from '../state/pane/types';
 // `PANE_TYPES` is the runtime array `PaneType` is derived from — re-exported so
 // a pane-type picker or validator can import the canonical list from '@/types'.
 export { PANE_TYPES } from '../state/pane/types';
-
-export interface PaneLayoutRow {
-  panes: string[];       // Pane IDs
-  widths: number[];      // fractions summing to 1
-}
 
 // Pane Groups — each group has its own tab bar (like VS Code editor groups)
 export type PaneGroupType = 'chat' | 'file' | 'utility';
@@ -1380,14 +1360,6 @@ export interface AppSettings {
   // is working (see .chat-working-ring). Surfaced in Settings → Appearance.
   // Defaults ON.
   workingGlow: boolean;
-}
-
-export interface ProcessInfo {
-  sessionKey: string;
-  label: string;
-  status: 'running' | 'done' | 'error';
-  startedAt: string;
-  completedAt?: string;
 }
 
 export interface ScriptProcess {

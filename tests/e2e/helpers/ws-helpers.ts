@@ -62,31 +62,3 @@ export async function interceptWebSocket(
     },
   };
 }
-
-/**
- * Set up a fully mocked WebSocket (no real server connection).
- * Allows sending messages from the "server" side to test client behavior.
- * Must be called before page.goto().
- */
-export async function mockWebSocket(
-  page: Page,
-  urlPattern: string | RegExp = /\/ws/
-) {
-  let wsRoute: WebSocketRoute | null = null;
-
-  await page.routeWebSocket(urlPattern, (ws) => {
-    wsRoute = ws;
-  });
-
-  return {
-    /** Send a message from the "server" to the page */
-    send(data: WsMessage | string) {
-      if (!wsRoute) throw new Error("WebSocket not connected yet");
-      wsRoute.send(typeof data === "string" ? data : JSON.stringify(data));
-    },
-    /** Get the WebSocketRoute for advanced usage */
-    get route() {
-      return wsRoute;
-    },
-  };
-}

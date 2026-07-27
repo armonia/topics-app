@@ -29,8 +29,8 @@ Config: [`../../playwright.config.ts`](../../playwright.config.ts) —
 - `helpers.ts` — navigation helpers: `goToApp`, `openTopic`,
   `openTestChat`, `openTopicByClick`, `openTopicByDoubleClick`.
 - `helpers/` — domain utilities: `api-fixtures` (test data + `cleanupAll`),
-  `sse-helpers` (`mockChatStream`), `ws-helpers`, `scroll-helpers`,
-  `dnd-helpers`, `seed-messages`, `gateway-health`.
+  `sse-helpers` (`mockChatStream`), `ws-helpers`, `dnd-helpers`,
+  `seed-messages`, `gateway-health`.
 - `fixtures/` — page-object fixtures; import `test` from
   `fixtures/test-fixtures.ts` (merges chat/sidebar/kanban/terminal/… via
   `mergeTests`).

@@ -58,15 +58,6 @@ export function isTabActivelyVisible(
   return isActivePanel && windowHasFocus;
 }
 
-/** Minimal roster view the decision needs — resolves a terminal id → its
- *  friendly name (the auto-name / user rename) and owning topic. */
-export interface TerminalNotifyRosterEntry {
-  id: string;
-  name?: string;
-  topicId?: string;
-  claudeSessionId?: string | null;
-}
-
 export interface TerminalNotifyInput {
   /** The terminal session id (roster id). */
   terminalId: string;

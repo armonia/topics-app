@@ -43,16 +43,6 @@ export interface GatewayEvent {
   seq?: number;
 }
 
-// Tool event data shape (from agent events with stream === "tool")
-export interface ToolEventData {
-  toolCallId: string;
-  name: string;
-  phase: "start" | "update" | "result";
-  args?: any;
-  partialResult?: string;
-  result?: string;
-}
-
 // Chat event payload shape
 export interface ChatEventPayload {
   sessionKey?: string;

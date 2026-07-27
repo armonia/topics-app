@@ -17,22 +17,6 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { BROWSER_TOOL_SPECS } from "./browser-tool-spec";
 import { ACT_ACTIONS } from "../shared/browser-snapshot-core";
 
-export type BrowserToolName =
-  | "browser_open"
-  | "browser_observe"
-  | "browser_act"
-  | "browser_extract"
-  | "browser_get_text"
-  | "browser_screenshot"
-  | "browser_read_screen"
-  | "browser_eval"
-  | "browser_save_state"
-  | "browser_load_state"
-  | "browser_point"
-  | "browser_import_chrome"
-  | "browser_upload"
-  | "browser_status";
-
 // Derived from the SHARED action set so this type can't drift from the runtime
 // validators (native + server) — one source for the whole browser_act surface.
 export type BrowserActAction = (typeof ACT_ACTIONS)[number];

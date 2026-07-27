@@ -72,16 +72,3 @@ export async function getJson(
 ): Promise<Response> {
   return router(new Request(url, { method: "GET" }));
 }
-
-/** PATCH JSON helper — same shape as postJson with a different verb. */
-export async function patchJson(
-  router: RouteHandler,
-  url: string,
-  body: unknown,
-): Promise<Response> {
-  return router(new Request(url, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }));
-}
