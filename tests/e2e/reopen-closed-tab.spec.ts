@@ -10,7 +10,7 @@
  * pane-store-v2, then drive close + reopen through the real UI.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, seedPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -24,7 +24,12 @@ async function seedTwoTabs(
   t1: { id: string; name: string },
   t2: { id: string; name: string },
 ): Promise<void> {
-  const snapshot = {
+  // The seed must OUT-RANK whatever is already stored (the client merges the
+  // snapshot under an LWW gate on lastSeq, so a hard-coded `1` silently loses
+  // against state a previous spec left behind) AND survive a late `pagehide`
+  // beacon from the previous spec. `seedPaneStore` does both — this file
+  // asserts "exactly 2 tabs", which is why it went red only in a full run.
+  await seedPaneStore(request, () => ({
     panes: {
       [t1.id]: { id: t1.id, type: "chat", title: t1.name, topicId: t1.id },
       [t2.id]: { id: t2.id, type: "chat", title: t2.name, topicId: t2.id },
@@ -40,22 +45,7 @@ async function seedTwoTabs(
     projects: {},
     groupOrder: ["group:default"],
     closedStack: [],
-    // Must OUT-RANK whatever is already stored: the pane snapshot is merged
-    // under an LWW gate on lastSeq, so a hard-coded `1` silently loses against
-    // any state a previous spec left behind — the seed appeared to be written
-    // and the tests then ran against a foreign workspace (this file asserts
-    // "exactly 2 tabs", which is why it went red only in a full-suite run).
-    // Read the live seq and bump it, exactly like resetPaneStore does.
-    lastSeq: 1,
-  };
-  const cur = await request
-    .get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true })
-    .catch(() => null);
-  if (cur?.ok()) {
-    const body = (await cur.json().catch(() => null)) as { value?: { lastSeq?: number } } | null;
-    snapshot.lastSeq = (body?.value?.lastSeq ?? 0) + 1;
-  }
-  await request.put(`${BASE}/api/ui-state/pane-store-v2`, { data: snapshot, ignoreHTTPSErrors: true });
+  }));
   await request.put(`${BASE}/api/ui-state/panels`, {
     data: { openPanels: [t1.id, t2.id] },
     ignoreHTTPSErrors: true,

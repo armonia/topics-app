@@ -111,43 +111,39 @@ export async function seedTopicIntoSidebar(request: APIRequestContext, topicId: 
   // App.tsx's openPanels mirrors store.groups['group:default'].paneIds — so
   // injecting the topic there is what makes it appear in the sidebar.
   try {
-    const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
-    let snapshot: any = {
-      panes: {},
-      groups: { 'group:default': { id: 'group:default', paneIds: [], splitRatio: 1, splitAxis: 'horizontal' } },
-      projects: {},
-      groupOrder: ['group:default'],
-      closedStack: [],
-      lastSeq: 0,
-    };
-    if (cur.ok()) {
-      const body = (await cur.json()) as { value?: any };
-      if (body?.value && typeof body.value === 'object' && 'groups' in body.value) {
-        snapshot = body.value;
+    await seedPaneStore(request, async () => {
+      const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+      let snapshot: any = {
+        panes: {},
+        groups: { 'group:default': { id: 'group:default', paneIds: [], splitRatio: 1, splitAxis: 'horizontal' } },
+        projects: {},
+        groupOrder: ['group:default'],
+        closedStack: [],
+      };
+      if (cur.ok()) {
+        const body = (await cur.json()) as { value?: any };
+        if (body?.value && typeof body.value === 'object' && 'groups' in body.value) {
+          snapshot = body.value;
+        }
       }
-    }
-    if (!snapshot.groups) snapshot.groups = {};
-    if (!snapshot.groups['group:default']) {
-      snapshot.groups['group:default'] = { id: 'group:default', paneIds: [], splitRatio: 1, splitAxis: 'horizontal' };
-    }
-    if (!Array.isArray(snapshot.groups['group:default'].paneIds)) {
-      snapshot.groups['group:default'].paneIds = [];
-    }
-    if (!snapshot.groups['group:default'].paneIds.includes(topicId)) {
-      snapshot.groups['group:default'].paneIds.push(topicId);
-    }
-    if (!snapshot.panes) snapshot.panes = {};
-    if (!snapshot.panes[topicId]) {
-      snapshot.panes[topicId] = { id: topicId, type: 'chat', title: '', topicId };
-    }
-    if (!Array.isArray(snapshot.groupOrder)) snapshot.groupOrder = ['group:default'];
-    if (!snapshot.groupOrder.includes('group:default')) snapshot.groupOrder.unshift('group:default');
-    snapshot.lastSeq = Math.max(snapshot.lastSeq ?? 0, minSeq) + 1;
-
-    await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
-      data: snapshot,
-      ignoreHTTPSErrors: true,
-    });
+      if (!snapshot.groups) snapshot.groups = {};
+      if (!snapshot.groups['group:default']) {
+        snapshot.groups['group:default'] = { id: 'group:default', paneIds: [], splitRatio: 1, splitAxis: 'horizontal' };
+      }
+      if (!Array.isArray(snapshot.groups['group:default'].paneIds)) {
+        snapshot.groups['group:default'].paneIds = [];
+      }
+      if (!snapshot.groups['group:default'].paneIds.includes(topicId)) {
+        snapshot.groups['group:default'].paneIds.push(topicId);
+      }
+      if (!snapshot.panes) snapshot.panes = {};
+      if (!snapshot.panes[topicId]) {
+        snapshot.panes[topicId] = { id: topicId, type: 'chat', title: '', topicId };
+      }
+      if (!Array.isArray(snapshot.groupOrder)) snapshot.groupOrder = ['group:default'];
+      if (!snapshot.groupOrder.includes('group:default')) snapshot.groupOrder.unshift('group:default');
+      return snapshot;
+    }, minSeq);
   } catch { /* ignore */ }
 }
 
@@ -171,6 +167,95 @@ function paneRecordForId(id: string): Record<string, unknown> {
   return { id, type: "chat", title: "", topicId: id };
 }
 
+/** How many times `resetPaneStore` re-writes when a late beacon overwrites it. */
+const RESET_MAX_ATTEMPTS = 3;
+/** Polls for the pane-store to stop moving before we write over it. */
+const QUIET_POLLS = 20;
+const QUIET_INTERVAL_MS = 50;
+
+/** The pane-store envelope: the snapshot's own `lastSeq` + the server's LWW seq. */
+async function readPaneStore(
+  request: APIRequestContext,
+): Promise<{ lastSeq: number; serverSeq: number }> {
+  try {
+    const res = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
+    if (!res.ok()) return { lastSeq: 0, serverSeq: 0 };
+    const body = (await res.json()) as { value?: { lastSeq?: number }; server_seq?: number };
+    return { lastSeq: body?.value?.lastSeq ?? 0, serverSeq: body?.server_seq ?? 0 };
+  } catch {
+    return { lastSeq: 0, serverSeq: 0 }; // fresh store
+  }
+}
+
+/**
+ * Block until no one else is writing the pane-store.
+ *
+ * WHY THIS EXISTS — the cumulative-contamination mechanism. When a spec's page
+ * closes, `pagehide` fires a FIRE-AND-FORGET `navigator.sendBeacon` PUT of that
+ * client's whole snapshot (middleware/syncServer.ts), carrying every tombstone
+ * and Spazio it accumulated. That beacon is unordered, and the server PUT has
+ * no LWW gate — it just allocates a fresh `server_seq` and overwrites. So a
+ * beacon from the PREVIOUS spec can land AFTER the next spec's reset and
+ * silently restore the old state, whose stale tombstones then EVICT the panes
+ * this spec just seeded.
+ *
+ * It explains every property measured: green alone (no previous page), green in
+ * pairs (little accumulated state), red only after ~200 tests (enough garbage
+ * for the clobber to matter), and failures that MOVE between runs — it is a
+ * race, not a broken assertion.
+ */
+async function waitForPaneStoreQuiet(
+  request: APIRequestContext,
+): Promise<{ lastSeq: number; serverSeq: number }> {
+  let prev = await readPaneStore(request);
+  for (let i = 0; i < QUIET_POLLS; i++) {
+    await new Promise((r) => setTimeout(r, QUIET_INTERVAL_MS));
+    const cur = await readPaneStore(request);
+    if (cur.serverSeq === prev.serverSeq) return cur; // nothing in flight
+    prev = cur;
+  }
+  return prev;
+}
+
+/**
+ * Write a pane-store snapshot so it actually STICKS: wait for the store to go
+ * quiet, write, then check we are still the last writer — and retry if a late
+ * beacon landed on top of us.
+ *
+ * `build()` returns the snapshot minus `lastSeq`, which this helper supplies
+ * from the live value so the client's LWW gate accepts the seed (writing a
+ * fixed `lastSeq` loses against any accumulated state — see 4868da68). It is
+ * re-invoked on every attempt, so a read-modify-write seed re-reads the store
+ * it is amending instead of re-applying a stale copy.
+ *
+ * Any spec that seeds the pane-store by hand must go through here rather than
+ * doing a bare PUT, or it inherits the race documented on
+ * `waitForPaneStoreQuiet`.
+ */
+export async function seedPaneStore(
+  request: APIRequestContext,
+  build: () => Record<string, unknown> | Promise<Record<string, unknown>>,
+  minSeq = 0,
+): Promise<void> {
+  for (let attempt = 0; attempt < RESET_MAX_ATTEMPTS; attempt++) {
+    const before = await waitForPaneStoreQuiet(request);
+    const snapshot = { ...(await build()), lastSeq: Math.max(before.lastSeq, minSeq) + 1 };
+    let mySeq = 0;
+    try {
+      const put = await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
+        data: snapshot,
+        ignoreHTTPSErrors: true,
+      });
+      if (put.ok()) mySeq = ((await put.json()) as { server_seq?: number })?.server_seq ?? 0;
+    } catch { /* retried below */ }
+
+    // Did our write survive? If a late beacon landed on top, `server_seq` moved
+    // past ours and the store is contaminated again — retry.
+    const after = await readPaneStore(request);
+    if (mySeq === 0 || after.serverSeq === mySeq) return;
+  }
+}
+
 /**
  * Reset the AUTHORITATIVE pane channel (pane-store-v2 `group:default`) to
  * EXACTLY `paneIds`, clearing the closedStack.
@@ -186,15 +271,7 @@ export async function resetPaneStore(
   request: APIRequestContext,
   paneIds: string[],
 ): Promise<void> {
-  let lastSeq = 0;
-  try {
-    const cur = await request.get(`${BASE}/api/ui-state/pane-store-v2`, { ignoreHTTPSErrors: true });
-    if (cur.ok()) {
-      const body = (await cur.json()) as { value?: { lastSeq?: number } };
-      lastSeq = body?.value?.lastSeq ?? 0;
-    }
-  } catch { /* fresh store */ }
-  const snapshot = {
+  await seedPaneStore(request, () => ({
     panes: Object.fromEntries(paneIds.map((id) => [id, paneRecordForId(id)])),
     groups: {
       "group:default": { id: "group:default", paneIds: [...paneIds], splitRatio: 1, splitAxis: "horizontal" },
@@ -202,12 +279,16 @@ export async function resetPaneStore(
     projects: {},
     groupOrder: ["group:default"],
     closedStack: [],
-    lastSeq: lastSeq + 1,
-  };
-  await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
-    data: snapshot,
-    ignoreHTTPSErrors: true,
-  });
+    // `tombstones` and `spaces` are deliberately ABSENT, not set to {}. The
+    // server PUT replaces the stored value wholesale (`value = excluded.value`,
+    // routes/ui-state.ts), so omitting a key already clears it server-side —
+    // and writing `{}` would change nothing anyway, because the client hydrate
+    // MERGES both fields and never replaces them (`if (clean.spaces)
+    // state.spaces = mergeSpaces(...)`, reducers/panes.ts): an empty object
+    // iterates zero entries and leaves whatever the client already holds.
+    // A previous attempt to "really zero" the reset by adding them was
+    // therefore structurally unable to work, and was reverted (14d1a25f).
+  }));
 }
 
 /**
