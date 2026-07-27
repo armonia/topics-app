@@ -24,7 +24,7 @@
 import { homedir, uptime } from "node:os";
 import { join, sep } from "node:path";
 import {
-  existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync,
+  mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync,
   chmodSync,
 } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -41,13 +41,6 @@ export interface DaemonState {
 interface LockFile {
   pid: number;
   acquiredAt: string;
-}
-
-export class StaleLockError extends Error {
-  constructor(public readonly stalePid: number) {
-    super(`Daemon process-lock points at dead pid ${stalePid} — recovering.`);
-    this.name = "StaleLockError";
-  }
 }
 
 export class LiveLockError extends Error {
@@ -165,9 +158,10 @@ function lockPredatesBoot(acquiredAt: string): boolean {
 /**
  * Acquire the singleton lock. Returns the freshly-written lock object.
  *
- * @throws LiveLockError if another live process holds the lock.
- *         StaleLockError is *not* thrown — stale locks are recovered
- *         transparently and a structured log line is emitted.
+ * @throws LiveLockError if another live process holds the lock. Un lock STALE
+ *         non e' un errore: viene recuperato in modo trasparente con una riga
+ *         di log strutturata (c'era una StaleLockError mai lanciata da
+ *         nessuno — rimossa).
  */
 export function acquireLock(): LockFile {
   ensureHomeDir();
