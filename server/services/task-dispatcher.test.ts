@@ -19,6 +19,7 @@ function freshDb(): Database {
     claude_task_id TEXT, assigned_topic_id TEXT REFERENCES topics(id), archived INTEGER NOT NULL DEFAULT 0,
     assigned_agent_id TEXT, in_progress_at TEXT,
     dispatch_attempts INTEGER NOT NULL DEFAULT 0, dispatch_state TEXT, dispatch_error TEXT,
+    dispatch_deferred_until TEXT,
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -203,6 +204,70 @@ describe("task-dispatcher", () => {
     expect(t.dispatchState).toBeNull(); // no stranded "queued" chip either
     expect(t.assignedTopicId).toBeNull();
     expect(h.turns.length).toBe(0);
+  });
+
+  it("agent-declared wait releases the slot → todo + waiting chip + note, never review", async () => {
+    // VERIFICA: a task depending on a never-satisfied external condition must
+    // return to the queue with a note within its window — NOT hang holding a
+    // slot, NOT arrive in review as if delivered.
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+
+    // The agent calls wait_for_condition mid-turn (route → dispatcher.deferWait).
+    const deferred = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+    expect(deferred.status).toBe("todo");
+    expect(deferred.dispatchState).toBe("waiting");
+    expect(deferred.assignedTopicId).toBeNull();          // slot released
+    expect(deferred.dispatchDeferredUntil).toBeTruthy();
+    expect(Date.parse(deferred.dispatchDeferredUntil!)).toBeGreaterThan(Date.now());
+
+    // The turn winds down: onTurnEnd must leave the waiting chip intact.
+    h.finishTurn();
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("todo");
+    expect(t.status).not.toBe("review");
+    expect(t.dispatchState).toBe("waiting");
+    expect(h.dispatcher.isInFlight("t1")).toBe(false);    // slot freed for others
+    // The note explaining the wait is on the thread.
+    const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
+    expect(notes).toContain("il servizio X è giù");
+  });
+
+  it("a deferred waiting task is NOT re-claimed until its window elapses, then re-dispatches", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, maxAgents: 2 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.dispatcher.deferWait("t1", "carico alto", 30);
+    h.finishTurn();
+    await flush();
+    const turnsAfterWait = h.turns.length;
+
+    // Window still open → tick must skip it (no claim, no new turn).
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("t1")!.status).toBe("todo");
+    expect(h.turns.length).toBe(turnsAfterWait);
+
+    // Fast-forward past the window → tick re-dispatches on a FRESH topic.
+    h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = 't1'", [
+      new Date(Date.now() - 1000).toISOString(),
+    ]);
+    await h.dispatcher.tick(PID);
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");
+    expect(t.dispatchState).toBe("working");
+    expect(t.dispatchDeferredUntil).toBeNull();           // cleared on re-claim
+    expect(h.turns.length).toBe(turnsAfterWait + 1);
   });
 
   it("books wall-clock + usage delta (billable + cache reads) on the task at each turn end", async () => {
@@ -999,8 +1064,9 @@ describe("priority", () => {
   describe("external-session guard", () => {
     const intruder = [{ cwd: "/Users/x/Projects/alpha", branch: "main" }];
 
-    it("REFUSES in-place dispatch while a bare terminal session works the repo", async () => {
-      const h = harness({ externalSessionsAt: () => intruder });
+    it("HOLDS in-place dispatch (queued chip + one note), then RESUMES by itself when the repo frees", async () => {
+      let sessions: Array<{ cwd: string; branch: string | null }> = intruder;
+      const h = harness({ externalSessionsAt: () => sessions });
       h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
       seedTask(h.db, { id: "t1", status: "todo" });
 
@@ -1008,11 +1074,47 @@ describe("priority", () => {
       await flush();
 
       const t = h.task("t1")!;
-      expect(t.status).toBe("backlog");
-      expect(t.dispatchState).toBe("blocked");
-      expect(t.dispatchError).toContain("sessione Claude esterna viva");
-      expect(t.dispatchError).toContain("/Users/x/Projects/alpha");
+      expect(t.status).toBe("todo");            // held, never claimed
+      expect(t.dispatchState).toBe("queued");   // a visible hold, not a silent skip
       expect(h.turns.length).toBe(0);
+      const notes = h.svc.get("t1")!.comments.filter((c) => c.author === "system");
+      expect(notes.length).toBe(1);
+      expect(notes[0].content).toContain("sessione Claude esterna viva");
+      expect(notes[0].content).toContain("riparte da solo");
+
+      // Still busy next tick → no duplicate note (one per hold episode).
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.svc.get("t1")!.comments.filter((c) => c.author === "system").length).toBe(1);
+
+      // Repo frees → the next reconcile tick dispatches with NO human touch.
+      sessions = [];
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.task("t1")!.status).toBe("in_progress");
+      expect(h.turns.length).toBe(1);
+    });
+
+    it("notes AGAIN on a NEW hold episode after the repo freed in between", async () => {
+      let sessions: Array<{ cwd: string; branch: string | null }> = intruder;
+      const h = harness({ externalSessionsAt: () => sessions });
+      h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: false });
+      // Global cap 1: on the free tick t1 is claimed, t2 stays in todo — the
+      // surviving todo is the one that can experience a SECOND hold episode.
+      h.svc.setGlobalCap({ auto: false, max: 1 });
+      seedTask(h.db, { id: "t1", status: "todo", createdAt: "2020-01-01T00:00:00.000Z" });
+      seedTask(h.db, { id: "t2", status: "todo" });
+
+      await h.dispatcher.tick(PID); await flush();  // hold #1 → both noted
+      sessions = [];
+      await h.dispatcher.tick(PID); await flush();  // free: episodes cleared, t1 claimed (cap 1)
+      expect(h.task("t1")!.status).toBe("in_progress");
+      expect(h.task("t2")!.status).toBe("todo");
+      // Different branch → different wording, so the svc's short-window comment
+      // dedupe (same author+content) can't mask the second note.
+      sessions = [{ cwd: "/Users/x/Projects/alpha", branch: "feature" }];
+      await h.dispatcher.tick(PID); await flush();  // hold #2 → t2 noted a SECOND time
+      expect(h.svc.get("t2")!.comments.filter((c) => c.author === "system").length).toBe(2);
     });
 
     it("in-place dispatch on a FREE repo is untouched by the guard", async () => {
