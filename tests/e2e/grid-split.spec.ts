@@ -2,7 +2,12 @@ import { mkdirSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, seedProjectPane, resetPaneStore } from "./helpers/api-fixtures";
-import { countColDividers, getVisibleTabLabels, splitViaContextMenu } from "./helpers/layout";
+import {
+  countColDividers,
+  countRowDividers,
+  getVisibleTabLabels,
+  splitViaContextMenu,
+} from "./helpers/layout";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -25,11 +30,6 @@ async function openAnyTopic(page: Page) {
     await treeItems.first().click();
     await page.waitForTimeout(1500);
   }
-}
-
-/** Count row-resize dividers (vertical splits) */
-async function countRowDividers(page: Page): Promise<number> {
-  return page.locator('[role="main"] .cursor-row-resize').count();
 }
 
 /** Open a project window by clicking its sidebar entry. The tab-driven
@@ -268,171 +268,13 @@ test.describe("Grid Split System", () => {
     });
   });
 
-  test.describe("Split handler correctness (unit-level via evaluate)", () => {
-    test("split removes pane from source group when it is the only pane", async ({ page }) => {
-      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-      await goToApp(page);
-      await openProject(page, /e2e-grid/);
+  // Il describe "Split handler correctness (unit-level via evaluate)" viveva
+  // qui: quattro test che incollavano la logica dei gruppi dentro
+  // `page.evaluate` e asserivano l'incollatura, avviando un browser per
+  // provare una tautologia. La logica vera è ora `groupOps.ts` e i test sono
+  // `client/src/components/Layout/hooks/groupOps.test.ts` (bun:test, 13 casi
+  // sull'implementazione che l'app esegue davvero).
 
-      const result = await page.evaluate(() => {
-        const groups = [
-          { id: 'g1', paneIds: ['p1'], activePaneId: 'p1' },
-          { id: 'g2', paneIds: ['p2', 'p3'], activePaneId: 'p2' },
-        ];
-        const paneId = 'p1';
-        const sourceGroupId = 'g1';
-
-        const updated = groups.map(g => {
-          if (g.id === sourceGroupId) {
-            const remaining = g.paneIds.filter(id => id !== paneId);
-            const newActive = remaining.length > 0
-              ? (g.activePaneId === paneId
-                ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
-                : g.activePaneId)
-              : g.activePaneId;
-            return { ...g, paneIds: remaining, activePaneId: newActive };
-          }
-          return g;
-        }).filter(g => g.paneIds.length > 0);
-
-        return {
-          groupCount: updated.length,
-          remainingGroupIds: updated.map(g => g.id),
-          g2PaneCount: updated.find(g => g.id === 'g2')?.paneIds.length,
-        };
-      });
-
-      expect(result.groupCount).toBe(1);
-      expect(result.remainingGroupIds).toEqual(['g2']);
-      expect(result.g2PaneCount).toBe(2);
-    });
-
-    test("split creates new group with correct type mapping", async ({ page }) => {
-      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-      await goToApp(page);
-      await page.waitForTimeout(1000);
-
-      const result = await page.evaluate(() => {
-        function paneTypeToGroupType(type: string): string {
-          if (type === 'chat') return 'chat';
-          if (type === 'file' || type === 'files') return 'file';
-          return 'utility';
-        }
-
-        return {
-          chat: paneTypeToGroupType('chat'),
-          file: paneTypeToGroupType('file'),
-          files: paneTypeToGroupType('files'),
-          browser: paneTypeToGroupType('browser'),
-          terminal: paneTypeToGroupType('terminal'),
-          git: paneTypeToGroupType('git'),
-          project: paneTypeToGroupType('project'),
-        };
-      });
-
-      expect(result.chat).toBe('chat');
-      expect(result.file).toBe('file');
-      expect(result.files).toBe('file');
-      expect(result.browser).toBe('utility');
-      expect(result.terminal).toBe('utility');
-      expect(result.git).toBe('utility');
-      expect(result.project).toBe('utility');
-    });
-
-    test("move between groups removes from source and adds to target", async ({ page }) => {
-      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-      await goToApp(page);
-      await page.waitForTimeout(1000);
-
-      const result = await page.evaluate(() => {
-        const groups = [
-          { id: 'g1', paneIds: ['p1', 'p2'], activePaneId: 'p1' },
-          { id: 'g2', paneIds: ['p3'], activePaneId: 'p3' },
-        ];
-        const paneId = 'p1';
-        const sourceGroupId = 'g1';
-        const targetGroupId = 'g2';
-        const insertIdx = 1;
-
-        const updated = groups.map(g => {
-          if (g.id === sourceGroupId) {
-            const remaining = g.paneIds.filter(id => id !== paneId);
-            const newActive = remaining.length > 0
-              ? (g.activePaneId === paneId
-                ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
-                : g.activePaneId)
-              : g.activePaneId;
-            return { ...g, paneIds: remaining, activePaneId: newActive };
-          }
-          if (g.id === targetGroupId) {
-            const newPaneIds = [...g.paneIds];
-            newPaneIds.splice(Math.max(0, Math.min(insertIdx, newPaneIds.length)), 0, paneId);
-            return { ...g, paneIds: newPaneIds, activePaneId: paneId };
-          }
-          return g;
-        }).filter(g => g.paneIds.length > 0);
-
-        return {
-          groupCount: updated.length,
-          g1Panes: updated.find(g => g.id === 'g1')?.paneIds,
-          g2Panes: updated.find(g => g.id === 'g2')?.paneIds,
-          g1Active: updated.find(g => g.id === 'g1')?.activePaneId,
-          g2Active: updated.find(g => g.id === 'g2')?.activePaneId,
-        };
-      });
-
-      expect(result.groupCount).toBe(2);
-      expect(result.g1Panes).toEqual(['p2']);
-      expect(result.g2Panes).toEqual(['p3', 'p1']);
-      expect(result.g1Active).toBe('p2');
-      expect(result.g2Active).toBe('p1');
-    });
-
-    test("move last pane from group removes that group", async ({ page }) => {
-      test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-      await goToApp(page);
-      await page.waitForTimeout(1000);
-
-      const result = await page.evaluate(() => {
-        const groups = [
-          { id: 'g1', paneIds: ['p1'], activePaneId: 'p1' },
-          { id: 'g2', paneIds: ['p3'], activePaneId: 'p3' },
-        ];
-        const paneId = 'p1';
-        const sourceGroupId = 'g1';
-        const targetGroupId = 'g2';
-        const insertIdx = 0;
-
-        const updated = groups.map(g => {
-          if (g.id === sourceGroupId) {
-            const remaining = g.paneIds.filter(id => id !== paneId);
-            const newActive = remaining.length > 0
-              ? (g.activePaneId === paneId
-                ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
-                : g.activePaneId)
-              : g.activePaneId;
-            return { ...g, paneIds: remaining, activePaneId: newActive };
-          }
-          if (g.id === targetGroupId) {
-            const newPaneIds = [...g.paneIds];
-            newPaneIds.splice(Math.max(0, Math.min(insertIdx, newPaneIds.length)), 0, paneId);
-            return { ...g, paneIds: newPaneIds, activePaneId: paneId };
-          }
-          return g;
-        }).filter(g => g.paneIds.length > 0);
-
-        return {
-          groupCount: updated.length,
-          remainingGroupIds: updated.map(g => g.id),
-          g2Panes: updated.find(g => g.id === 'g2')?.paneIds,
-        };
-      });
-
-      expect(result.groupCount).toBe(1);
-      expect(result.remainingGroupIds).toEqual(['g2']);
-      expect(result.g2Panes).toEqual(['p1', 'p3']);
-    });
-  });
 
   test.describe("Panel splitting", () => {
     let splitTopicIds: string[] = [];
@@ -451,13 +293,6 @@ test.describe("Grid Split System", () => {
       }
     });
 
-    /** Reset grid layout state (clear solo topics, grid rows) */
-    async function resetGridLayout(page: Page) {
-      await page.request.put("http://localhost:13334/api/ui-state/grid-layout", {
-        data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
-      }).catch(() => {});
-    }
-
     /** Open two topics so both appear as tabs */
     async function openTwoTopics(page: Page) {
       const [idA, idB] = splitTopicIds;
@@ -466,7 +301,7 @@ test.describe("Grid Split System", () => {
       // UNIONs on hydrate), so these tests saw foreign panes and their
       // "the first/only tab" assumptions broke — green alone, red in a full
       // suite run. Same pattern spaces-switcher.spec uses, which is stable.
-      await resetPaneStore(page.request, [idA, idB]).catch(() => {});
+      await resetPaneStore(page.request, [idA, idB]);
       // 1. Seed server state with both panels open
       await Promise.all([
         page.request.put("http://localhost:13334/api/ui-state/panels", {
@@ -565,14 +400,15 @@ test.describe("Grid Split System", () => {
       expect(before!, 'cellStacks key must be present in saved layout').toContain('cellStacks');
 
       await page.reload({ waitUntil: 'load' });
-      // Allow the post-hydrate sync effect to settle.
-      await page.waitForTimeout(2000);
-
-      const after = await page.evaluate(() =>
-        localStorage.getItem('topics-panel-grid-layout'),
-      );
-      expect(after, 'localStorage must still contain cellStacks after reload').toBeTruthy();
-      expect(after!, 'cellStacks key must survive reload').toContain('cellStacks');
+      // Era waitForTimeout(2000) per "far sedimentare" l'effetto di sync post
+      // hydrate: si aspetta il RISULTATO, non una durata. Esce appena la chiave
+      // ricompare, e fallisce con lo stesso messaggio se non ricompare mai.
+      await expect
+        .poll(
+          () => page.evaluate(() => localStorage.getItem('topics-panel-grid-layout')),
+          { message: 'cellStacks key must survive reload', timeout: 10_000 },
+        )
+        .toContain('cellStacks');
     });
 
     test("GRID-03: Resize split panels by dragging col-resize divider", async ({ page }) => {
@@ -735,13 +571,15 @@ test.describe("Grid Split System", () => {
       const preDividers = await countColDividers(page);
       expect(preDividers, 'Should have at least 1 col divider before reload').toBeGreaterThanOrEqual(1);
 
-      // Reload and wait for layout restore
+      // Reload and wait for layout restore. Era waitForTimeout(3000) — il
+      // segnale reale è che i divider siano tornati, che è anche l'asserzione.
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(3000);
-
-      // The split layout should persist
-      const postDividers = await countColDividers(page);
-      expect(postDividers, 'Col dividers should persist after reload').toBeGreaterThanOrEqual(preDividers);
+      await expect
+        .poll(() => countColDividers(page), {
+          message: 'Col dividers should persist after reload',
+          timeout: 15_000,
+        })
+        .toBeGreaterThanOrEqual(preDividers);
 
       // Also verify localStorage has grid layout data
       const layoutData = await page.evaluate(() => localStorage.getItem('topics-panel-grid-layout'));
@@ -774,7 +612,15 @@ test.describe("Grid Split System", () => {
       }
 
       await projectItem.click();
-      await page.waitForTimeout(2000);
+      // Era waitForTimeout(2000): si aspetta la comparsa della prima tab del
+      // progetto. Il bail-out `test.skip()` qui sotto resta la rete di sicurezza
+      // se non arriva mai — ma nel caso normale si riparte appena la UI è
+      // pronta, invece di pagare 2s pieni ogni volta.
+      await page
+        .locator('[role="main"] [draggable="true"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 10_000 })
+        .catch(() => { /* il controllo esplicito sotto decide se skippare */ });
 
       // Project windows should have tabs that can be right-clicked
       const tab = page.locator('[role="main"] [draggable="true"]').first();
@@ -867,7 +713,14 @@ test.describe("Grid Split System", () => {
       // Persistence: the flat layout survives a reload (written through the
       // usePanelGridPersistence debounced writer, restored by its sanitizers).
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(2000);
+      // Era waitForTimeout(2000): il layout è ripristinato quando le tab sono
+      // tornate, non dopo un tempo fisso.
+      await expect
+        .poll(() => getVisibleTabLabels(page).then(l => l.length), {
+          message: 'le tab devono tornare dopo il reload',
+          timeout: 15_000,
+        })
+        .toBeGreaterThan(0);
       expect(await countRowDividers(page), 'flat layout must persist across reload').toBe(0);
       const labelsReloaded = await getVisibleTabLabels(page);
       expect(labelsReloaded.some(l => /E2E-Split-A/.test(l)), 'topic A must persist across reload').toBe(true);
@@ -938,7 +791,15 @@ test.describe("Grid Split System", () => {
         return;
       }
       await projectItem.click();
-      await page.waitForTimeout(2000);
+      // Era waitForTimeout(2000): si aspetta la comparsa della prima tab del
+      // progetto. Il bail-out `test.skip()` qui sotto resta la rete di sicurezza
+      // se non arriva mai — ma nel caso normale si riparte appena la UI è
+      // pronta, invece di pagare 2s pieni ogni volta.
+      await page
+        .locator('[role="main"] [draggable="true"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 10_000 })
+        .catch(() => { /* il controllo esplicito sotto decide se skippare */ });
 
       // Split a project-internal tab down → a cellStack inside GroupLayout.
       const tab = page.locator('[role="main"] [draggable="true"]').first();

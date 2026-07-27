@@ -79,15 +79,14 @@ import { shouldHandleOpenFile } from '../fileOpenScope';
 import type { ChatReconciliation, PersistedSnapshot, PersistenceGateRefs } from './types';
 import { shouldKeepRestoredTerminalPane } from './terminalReconcile';
 import { stripWrapperPaneId } from './projectPersistence';
+import {
+  detachPaneFromGroups,
+  movePaneBetweenGroups,
+  paneTypeToGroupType,
+} from './groupOps';
 import { popOutTopic } from '../../../lib/popOutTopic';
 
 // --- Module-local helpers (mirrors of ProjectWindow.tsx helpers) ---
-
-function paneTypeToGroupType(type: PaneType): PaneGroupType {
-  if (type === 'chat') return 'chat';
-  if (type === 'file' || type === 'files') return 'file';
-  return 'utility';
-}
 
 function buildDefaultGroups(panes: Pane[]): { groups: PaneGroup[]; rows: GroupLayoutRow[] } {
   if (panes.length === 0) return { groups: [], rows: [] };
@@ -1261,20 +1260,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
       setPanes(prev => prev.filter(p => p.id !== paneId));
 
-      setGroups(prev => {
-        return prev
-          .map(g => {
-            if (g.id !== groupId) return g;
-            const remaining = g.paneIds.filter(id => id !== paneId);
-            if (remaining.length === 0) return { ...g, paneIds: [] };
-            const newActive =
-              g.activePaneId === paneId
-                ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
-                : g.activePaneId;
-            return { ...g, paneIds: remaining, activePaneId: newActive };
-          })
-          .filter(g => g.paneIds.length > 0);
-      });
+      setGroups(prev => detachPaneFromGroups(prev, groupId, paneId));
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleClosePane is declared AFTER this callback (forward const, TDZ); it is only invoked inside the redo handler at undo-stack-replay time, where it re-enters the full deferred-close pipeline and re-reads live state, so a stale closure is benign
     [panes, groups, projectPath, pushClosedTab, removeClosedTab],
@@ -1983,33 +1969,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
 
   const handleMovePaneBetweenGroups = useCallback(
     (sourceGroupId: string, targetGroupId: string, paneId: string, insertIdx: number) => {
-      setGroups(prev => {
-        const sourceGroup = prev.find(g => g.id === sourceGroupId);
-        const targetGroup = prev.find(g => g.id === targetGroupId);
-        if (!sourceGroup || !targetGroup) return prev;
-        if (!sourceGroup.paneIds.includes(paneId)) return prev;
-
-        return prev
-          .map(g => {
-            if (g.id === sourceGroupId) {
-              const remaining = g.paneIds.filter(id => id !== paneId);
-              const newActive =
-                remaining.length > 0
-                  ? g.activePaneId === paneId
-                    ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
-                    : g.activePaneId
-                  : g.activePaneId;
-              return { ...g, paneIds: remaining, activePaneId: newActive };
-            }
-            if (g.id === targetGroupId) {
-              const newPaneIds = [...g.paneIds];
-              newPaneIds.splice(Math.max(0, Math.min(insertIdx, newPaneIds.length)), 0, paneId);
-              return { ...g, paneIds: newPaneIds, activePaneId: paneId };
-            }
-            return g;
-          })
-          .filter(g => g.paneIds.length > 0);
-      });
+      setGroups(prev =>
+        movePaneBetweenGroups(prev, sourceGroupId, targetGroupId, paneId, insertIdx),
+      );
       setFocusedGroupId(targetGroupId);
     },
     [],
@@ -2099,24 +2061,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         type: paneTypeToGroupType(pane.type),
       };
 
-      setGroups(prev => {
-        const updated = prev
-          .map(g => {
-            if (g.id === sourceGroupId) {
-              const remaining = g.paneIds.filter(id => id !== paneId);
-              const newActive =
-                remaining.length > 0
-                  ? g.activePaneId === paneId
-                    ? remaining[Math.min(g.paneIds.indexOf(paneId), remaining.length - 1)]
-                    : g.activePaneId
-                  : g.activePaneId;
-              return { ...g, paneIds: remaining, activePaneId: newActive };
-            }
-            return g;
-          })
-          .filter(g => g.paneIds.length > 0);
-        return [...updated, newGroup];
-      });
+      setGroups(prev => [...detachPaneFromGroups(prev, sourceGroupId, paneId), newGroup]);
 
       if (edge === 'left' || edge === 'right') {
         setRows(prev => {
