@@ -202,17 +202,6 @@ export async function resetPaneStore(
     projects: {},
     groupOrder: ["group:default"],
     closedStack: [],
-    // tombstones + spaces were MISSING from this "reset", and both are durable,
-    // synced state that accumulates across a run:
-    //  - a stale tombstone evicts a pane on hydrate, so a freshly seeded pane
-    //    could vanish without the spec ever knowing;
-    //  - a leftover Spazio makes panes invisible, because the grid filters
-    //    visible panes by activeSpaceId.
-    // Omitting a key leaves whatever was already stored, so the reset was only
-    // partial — which is exactly the shape of the CUMULATIVE contamination
-    // (green alone and in pairs, red after ~200 tests).
-    tombstones: {},
-    spaces: {},
     lastSeq: lastSeq + 1,
   };
   await request.put(`${BASE}/api/ui-state/pane-store-v2`, {
