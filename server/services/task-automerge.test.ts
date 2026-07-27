@@ -47,9 +47,10 @@ describe("task-automerge", () => {
     expect(git.calls.some((c) => c[0] === "merge" && c.includes("--abort"))).toBe(true);
   });
 
-  test("dirty working tree → 'skipped', never merges", async () => {
+  test("on main but dirty working tree → 'skipped', never merges", async () => {
     const git = fakeGit({
       "symbolic-ref --short": { stdout: "main\n" },
+      "rev-list --count": { stdout: "3\n" },
       "status --porcelain": { stdout: " M src/foo.ts\n" },
     });
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
@@ -58,12 +59,66 @@ describe("task-automerge", () => {
     expect(git.calls.some((c) => c[0] === "merge")).toBe(false);
   });
 
-  test("checkout not on main → 'skipped'", async () => {
-    const git = fakeGit({ "symbolic-ref --short": { stdout: "feature/x\n" } });
+  test("shared checkout on a dev branch → lands via a throwaway main worktree, landedNotLive", async () => {
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "feature/x\n" },
+      "rev-list --count": { stdout: "3\n" },
+      "worktree add": { code: 0 },
+      "merge --no-ff": { code: 0 },
+      "rev-parse --short": { stdout: "abc1234\n" },
+      "diff --name-only": { stdout: "server/foo.ts\n" },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    if (res.status === "merged") {
+      expect(res.landedNotLive).toBe(true);
+      expect(res.checkoutBranch).toBe("feature/x");
+      expect(res.touchedServer).toBe(true);
+    }
+    // The shared checkout is NEVER merged into; the throwaway worktree is added then removed.
+    expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "add")).toBe(true);
+    expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "remove")).toBe(true);
+  });
+
+  test("in-place land on main reports landedNotLive false", async () => {
+    const git = fakeGit({
+      ...CLEAN_PRECONDITIONS,
+      "merge --no-ff": { code: 0 },
+      "rev-parse --short": { stdout: "abc1234\n" },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    if (res.status !== "merged") throw new Error(`expected merged, got ${res.status}`);
+    expect(res.landedNotLive).toBe(false);
+    expect(res.checkoutBranch).toBe("main");
+    expect(git.calls.some((c) => c[0] === "worktree")).toBe(false);
+  });
+
+  test("worktree land conflict → 'conflict', aborts, still removes the worktree", async () => {
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "feature/x\n" },
+      "rev-list --count": { stdout: "3\n" },
+      "worktree add": { code: 0 },
+      "merge --no-ff": { code: 1, stderr: "CONFLICT" },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("conflict");
+    expect(git.calls.some((c) => c[0] === "merge" && c.includes("--abort"))).toBe(true);
+    expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "remove")).toBe(true);
+  });
+
+  test("worktree add fails → 'skipped' (never merges)", async () => {
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "feature/x\n" },
+      "rev-list --count": { stdout: "3\n" },
+      "worktree add": { code: 1, stderr: "fatal: 'main' is already checked out" },
+    });
     const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
     const res = await am.tryMerge("t1", "x");
     expect(res.status).toBe("skipped");
-    if (res.status === "skipped") expect(res.reason).toContain("feature/x");
+    expect(git.calls.some((c) => c[0] === "merge" && c.includes("--no-ff"))).toBe(false);
   });
 
   test("no commits ahead of main → 'nothing'", async () => {

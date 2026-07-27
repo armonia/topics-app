@@ -11,11 +11,20 @@
 //   • NEVER touch a dirty working tree — a concurrent human/agent session may have
 //     uncommitted WIP in the shared main checkout. We refuse (skip) rather than
 //     stash someone else's work or fold it into a merge commit.
-//   • NEVER merge into a checkout that isn't on `main` (its HEAD is the fork point;
-//     merging elsewhere would land on the wrong branch).
+//   • NEVER merge INTO the shared checkout when it isn't on `main`. Its HEAD is a
+//     dev branch — a session is working there. Instead we land in a SEPARATE,
+//     throwaway worktree pinned to `main`: the shared `main` ref advances (git
+//     worktrees share one object DB + refs) while the dev branch is left untouched.
+//     This is the whole point — a single checkout used to serve both the running
+//     server AND live dev sessions no longer makes a land fail (or force someone's
+//     branch to move) just because a session is parked on a feature branch.
 //   • NO push — landing is local only; the release pipeline stays the sole pusher.
 //   • On any non-zero merge we `merge --abort`, so main is never left mid-conflict.
 //   • Serialized per repo path, so two approvals on the same project can't race.
+
+import { tmpdir } from "os";
+import { join } from "path";
+import { createHash } from "crypto";
 
 export type AutoMergeResult =
   | {
@@ -26,6 +35,15 @@ export type AutoMergeResult =
       touchedServer: boolean;
       /** Landing touched desktop-tauri/ → the native shell needs a cargo rebuild + relaunch. */
       touchedNative: boolean;
+      /**
+       * The merge landed on `main` but the SHARED checkout (which the live server
+       * runs from) is parked on another branch — so the landed code is on main yet
+       * NOT running. The caller must say so loudly (and must NOT rebuild/relaunch
+       * off the shared checkout, whose working tree is that other branch, not main).
+       */
+      landedNotLive: boolean;
+      /** Branch the shared checkout is currently on (the live branch). */
+      checkoutBranch: string;
     }
   | { status: "conflict"; branch: string }
   | { status: "nothing"; branch: string }
@@ -120,23 +138,32 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     }
     const { repoPath, branch, defaultBranch } = target;
 
+    const mergeMsg = `merge task ${taskId}: ${title}`.replace(/\s+/g, " ").slice(0, 200);
+
+    // First-parent diff = exactly what this landing introduced on main. `cwd` is
+    // wherever the merge happened (the shared checkout, or the throwaway main
+    // worktree). The caller reacts per area: client/ → rebuild the served bundle,
+    // server → restart, desktop-tauri → native rebuild.
+    async function finishMerged(cwd: string, live: boolean, checkoutBranch: string): Promise<AutoMergeResult> {
+      const rev = await runGit(cwd, ["rev-parse", "--short", "HEAD"]);
+      const diff = await runGit(cwd, ["diff", "--name-only", "HEAD^1", "HEAD"]);
+      const files = diff.code === 0 ? diff.stdout.split("\n").filter(Boolean) : [];
+      return {
+        status: "merged", commit: rev.stdout.trim(), branch, repoPath,
+        touchedClient: files.some((f) => f.startsWith("client/")),
+        touchedServer: files.some((f) => f.startsWith("server/") || f === "server.ts"),
+        touchedNative: files.some((f) => f.startsWith("desktop-tauri/")),
+        landedNotLive: !live, checkoutBranch,
+      };
+    }
+
     return chain(repoPath, async (): Promise<AutoMergeResult> => {
       try {
-        // Precondition (a): the checkout is on the integration branch. Its HEAD is
-        // the fork point of task branches; merging anywhere else lands wrong.
         const head = await runGit(repoPath, ["symbolic-ref", "--short", "-q", "HEAD"]);
         const cur = head.stdout.trim();
-        if (cur !== defaultBranch) {
-          return { status: "skipped", reason: `il checkout è su '${cur || "detached HEAD"}', non '${defaultBranch}'` };
-        }
 
-        // Precondition (b): clean working tree — never merge into someone's WIP.
-        const st = await runGit(repoPath, ["status", "--porcelain"]);
-        if (st.stdout.trim() !== "") {
-          return { status: "skipped", reason: "working tree sporco (WIP non committata) — mergia a mano o pulisci il checkout" };
-        }
-
-        // Precondition (c): the branch exists and has commits main doesn't.
+        // Does the branch exist and have commits main doesn't? (Refs are shared
+        // across every worktree, so this reads the same from the shared checkout.)
         const ahead = await runGit(repoPath, ["rev-list", "--count", `${defaultBranch}..${branch}`]);
         if (ahead.code !== 0) {
           return { status: "skipped", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
@@ -145,29 +172,42 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           return { status: "nothing", branch };
         }
 
-        // Merge. --no-ff keeps a merge commit so the landing is auditable even for a
-        // fast-forwardable branch.
-        const msg = `merge task ${taskId}: ${title}`.replace(/\s+/g, " ").slice(0, 200);
-        const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", msg, branch]);
-        if (merge.code === 0) {
-          const rev = await runGit(repoPath, ["rev-parse", "--short", "HEAD"]);
-          // First-parent diff = exactly what this landing introduced on main.
-          // The caller reacts per area: client/ → rebuild the served bundle
-          // ("non la vedo"), server → restart the live process, desktop-tauri
-          // → tell the human the native shell needs a rebuild.
-          const diff = await runGit(repoPath, ["diff", "--name-only", "HEAD^1", "HEAD"]);
-          const files = diff.code === 0 ? diff.stdout.split("\n").filter(Boolean) : [];
-          return {
-            status: "merged", commit: rev.stdout.trim(), branch, repoPath,
-            touchedClient: files.some((f) => f.startsWith("client/")),
-            touchedServer: files.some((f) => f.startsWith("server/") || f === "server.ts"),
-            touchedNative: files.some((f) => f.startsWith("desktop-tauri/")),
-          };
+        // Fast path: the shared checkout is ALREADY on main → merge in place, so a
+        // hot-reload/rebuild makes the landing live immediately. Requires a clean
+        // tree: never fold a concurrent session's WIP into the merge.
+        if (cur === defaultBranch) {
+          const st = await runGit(repoPath, ["status", "--porcelain"]);
+          if (st.stdout.trim() !== "") {
+            return { status: "skipped", reason: `il checkout è su '${defaultBranch}' con WIP non committata — mergia a mano o pulisci il checkout` };
+          }
+          // --no-ff keeps a merge commit so the landing is auditable even for a FF.
+          const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
+          if (merge.code === 0) return finishMerged(repoPath, /*live*/ true, cur);
+          await runGit(repoPath, ["merge", "--abort"]).catch(() => undefined);
+          return { status: "conflict", branch };
         }
 
-        // Non-zero: conflict (or any failure). Abort so main is never left mid-merge.
-        await runGit(repoPath, ["merge", "--abort"]).catch(() => undefined);
-        return { status: "conflict", branch };
+        // The shared checkout is parked on a dev branch (a live session). Land in a
+        // throwaway worktree pinned to main: the shared `main` ref advances, the dev
+        // branch is untouched, nobody's branch has to move. The landing is on main
+        // but NOT running yet (the live server serves `cur`) → landedNotLive.
+        const wtPath = join(tmpdir(), "topics-land", createHash("sha1").update(repoPath).digest("hex").slice(0, 16));
+        // Clear any leftover from a previous crashed land before re-adding.
+        await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
+        await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        const add = await runGit(repoPath, ["worktree", "add", wtPath, defaultBranch]);
+        if (add.code !== 0) {
+          return { status: "skipped", reason: `impossibile creare il worktree di land su '${defaultBranch}': ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}` };
+        }
+        try {
+          const merge = await runGit(wtPath, ["merge", "--no-ff", "-m", mergeMsg, branch]);
+          if (merge.code === 0) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
+          await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
+          return { status: "conflict", branch };
+        } finally {
+          await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
+          await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        }
       } catch (e) {
         log(`[automerge] tryMerge failed for ${taskId}`, e);
         // Best-effort cleanup, then report as a skip so the approve never breaks.
