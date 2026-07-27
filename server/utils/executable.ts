@@ -9,68 +9,13 @@ interface ProbeResult {
 }
 
 /**
- * Find an executable in PATH and verify it can be spawned.
- * Pattern adopted from Paseo (packages/server/src/utils/executable.ts).
- *
- * Uses Bun.which() to locate the binary, then probes by spawning `<bin> --version`
- * with a 2s timeout. Resolves true on the `spawn` event, so even hung CLIs count
- * as "available".
- */
-export async function findExecutable(name: string): Promise<string | null> {
-  const path = Bun.which(name);
-  if (!path) return null;
-  const ok = await probeSpawn(path);
-  return ok ? path : null;
-}
-
-/**
- * Probe an executable by spawning it with `--version`. Returns true if the
- * binary spawns successfully (regardless of exit code or output).
- */
-function probeSpawn(path: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (result: boolean) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(path, ["--version"], { stdio: "ignore" });
-    } catch {
-      finish(false);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      try { child.kill(); } catch {}
-      finish(true);
-    }, PROBE_TIMEOUT_MS);
-
-    child.on("spawn", () => {
-      clearTimeout(timer);
-      try { child.kill(); } catch {}
-      finish(true);
-    });
-
-    child.on("error", () => {
-      clearTimeout(timer);
-      finish(false);
-    });
-  });
-}
-
-/**
  * Probe a binary at an absolute path: spawn `<path> --version` and capture the output.
  * Use this when the binary may not be in PATH (e.g. inside a macOS .app bundle).
+ *
+ * C'era anche un `findExecutable(name)` (Bun.which + probe senza output) con il
+ * suo `probeSpawn`: nessun chiamante in tutto il repo, rimossi.
  */
-export async function probeBinaryPath(path: string): Promise<ProbeResult> {
-  return probeWithPath(path);
-}
-
-function probeWithPath(path: string): Promise<ProbeResult> {
+export function probeBinaryPath(path: string): Promise<ProbeResult> {
   return new Promise<ProbeResult>((resolve) => {
     let settled = false;
     const finish = (result: ProbeResult) => {
@@ -97,7 +42,7 @@ function probeWithPath(path: string): Promise<ProbeResult> {
     child.stdout?.on("data", (chunk) => { stdout += chunk.toString(); });
     child.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
 
-    child.on("close", (code) => {
+    child.on("close", () => {
       clearTimeout(timer);
       const output = (stdout || stderr).trim();
       const version = parseVersion(output);
