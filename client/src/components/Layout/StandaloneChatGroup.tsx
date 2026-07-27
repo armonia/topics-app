@@ -683,6 +683,11 @@ export function StandaloneChatGroup({
         <ProjectWindowPane
           key={projectPath}
           projectPath={projectPath}
+          // Same signal the browser pane above gets, for the same reason: the
+          // keep-alive wrapper's `display:none` does not reach the panes nested
+          // inside this window (nor their OS-level native views), so a window
+          // sitting behind another tab has to be TOLD it is off screen.
+          isVisible={isPaneActive}
           focusedPanelId={focusedPanelId}
           onFocusPanel={onFocusPanel}
           onClosePanel={onClosePanel}
