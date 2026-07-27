@@ -34,6 +34,22 @@ const NIGHTLY_ONLY_SPECS = [
   "file-external-drop",
 ].map((name) => `**/${name}.spec.ts`);
 
+// ── Velocità vs. evidenza ────────────────────────────────────────────────────
+// Il default è VELOCE. La modalità "guardabile" (slowMo + video su OGNI test)
+// serve a produrre le clip di consegna richieste dal protocollo board, non a
+// ogni verifica: si attiva con E2E_EVIDENCE=1.
+//
+// `slowMo` mette una pausa davanti a OGNI azione del protocollo. A 300 ms, con
+// ~845 azioni statiche nella suite (click/fill/press/…), sono >4 minuti di sleep
+// puro per passata prima ancora di contare loop e helper condivisi: il singolo
+// costo più grosso della suite. Non è un meccanismo di stabilità — un test che
+// regge solo grazie a slowMo sta nascondendo una race che va risolta con
+// un'attesa condizionale, non con una pausa fissa.
+//
+// `video: "on"` registra e SALVA una clip anche per i test verdi, che nessuno
+// guarda; "retain-on-failure" tiene solo quelle diagnosticamente utili.
+const EVIDENCE = process.env.E2E_EVIDENCE === "1";
+
 export default defineConfig({
   globalSetup: "./tests/e2e/global-setup.ts",
   testDir: "./tests/e2e",
@@ -52,11 +68,11 @@ export default defineConfig({
   ],
   use: {
     baseURL: "http://localhost:13334",
-    video: "on", // always record video
+    video: EVIDENCE ? "on" : "retain-on-failure",
     screenshot: "only-on-failure",
     trace: "on-first-retry",
     viewport: { width: 1280, height: 800 },
-    launchOptions: { slowMo: 300 }, // 300ms between actions for watchable videos
+    launchOptions: EVIDENCE ? { slowMo: 300 } : {},
     permissions: ["clipboard-read", "clipboard-write"],
   },
   outputDir: "test-results/artifacts",

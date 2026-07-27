@@ -48,7 +48,16 @@ async function openProject(page: Page, name: string | RegExp, projectPath = "/tm
     await expect(projectBtn.first()).toBeVisible({ timeout: 10000 });
   }
   await projectBtn.first().click();
-  await page.waitForTimeout(2000);
+  // Attesa CONDIZIONALE (era waitForTimeout(2000)): la finestra progetto è
+  // pronta quando ha renderizzato la sua tab bar — esattamente ciò che ogni
+  // chiamante legge subito dopo con getVisibleTabLabels(). Chi verifica il
+  // caso "progetto senza tab" lo fa con le proprie expect (o skip), quindi qui
+  // l'esito è volutamente ignorato: serve solo a non proseguire troppo presto.
+  await page
+    .locator('[role="main"] .truncate.flex-1')
+    .first()
+    .waitFor({ state: "visible", timeout: 5000 })
+    .catch(() => {});
 }
 
 // ─── Test Suite ───────────────────────────────────────────────────────────
@@ -117,7 +126,6 @@ test.describe("Grid Split System", () => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       // Open the self-provisioned project to ensure we have tabs
       await openProject(page, /e2e-grid/);
-      await page.waitForTimeout(1500);
 
       const initialLabels = await getVisibleTabLabels(page);
       if (initialLabels.length === 0) {
@@ -126,10 +134,11 @@ test.describe("Grid Split System", () => {
       }
 
       await page.reload({ waitUntil: 'load' });
-      await page.waitForTimeout(3000);
+      // Era waitForTimeout(3000): il segnale reale che il reload è servito è la
+      // sidebar montata — la stessa condizione che goToApp aspetta.
+      await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'visible', timeout: 15000 });
       // Re-open the same project
       await openProject(page, /e2e-grid/);
-      await page.waitForTimeout(1500);
 
       const reloadedLabels = await getVisibleTabLabels(page);
       expect(reloadedLabels.length).toBeGreaterThan(0);
@@ -167,7 +176,6 @@ test.describe("Grid Split System", () => {
     test("project window opens with tab bar", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await openProject(page, /e2e-grid/);
-      await page.waitForTimeout(1500);
 
       const labels = await getVisibleTabLabels(page);
       expect(labels.length, 'Project should have at least one tab').toBeGreaterThan(0);
@@ -176,7 +184,6 @@ test.describe("Grid Split System", () => {
     test("project tabs include utility types (terminal, git, browser)", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await openProject(page, /e2e-grid/);
-      await page.waitForTimeout(1500);
 
       const addBtn = page.locator('[role="main"] button[title*="Add"], [role="main"] button:has-text("+")');
       if (await addBtn.count() > 0) {
@@ -195,7 +202,6 @@ test.describe("Grid Split System", () => {
     test("project window tab bar remains compact", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await openProject(page, /e2e-grid/);
-      await page.waitForTimeout(1500);
 
       const tabBars = page.locator('[role="main"] .border-b.border-app-border.flex-shrink-0');
       const count = await tabBars.count();
@@ -211,7 +217,6 @@ test.describe("Grid Split System", () => {
     test("no duplicate tabs after project operations", async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await openProject(page, /e2e-grid/);
-      await page.waitForTimeout(2000);
 
       const labels = await getVisibleTabLabels(page);
       const counts = new Map<string, number>();
@@ -268,7 +273,6 @@ test.describe("Grid Split System", () => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openProject(page, /e2e-grid/);
-      await page.waitForTimeout(2000);
 
       const result = await page.evaluate(() => {
         const groups = [
@@ -1001,7 +1005,6 @@ test.describe("Grid Split System", () => {
       await goToApp(page);
       // Open the self-provisioned project to ensure we have draggable tabs
       await openProject(page, /e2e-grid/);
-      await page.waitForTimeout(2000);
 
       const draggableTabs = page.locator('[role="main"] [draggable="true"]');
       const count = await draggableTabs.count();
@@ -1012,7 +1015,6 @@ test.describe("Grid Split System", () => {
       test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
       await goToApp(page);
       await openProject(page, /e2e-grid/);
-      await page.waitForTimeout(2000);
 
       const draggableTabs = page.locator('[role="main"] [draggable="true"]');
       const count = await draggableTabs.count();
