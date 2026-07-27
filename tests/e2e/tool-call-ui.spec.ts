@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 
 /**
@@ -26,6 +26,17 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // Deterministic workspace: THIS topic open, nothing else. This file seeded no
+  // pane state at all, so its behaviour depended on what ran before it — it
+  // failed when run ALONE (empty workspace: the topic opens as a replaceable
+  // PREVIEW tab) and passed after a spec that left pinned panes behind. Seeding
+  // the pane-store makes the tab permanent and the only one, so the global
+  // `page.locator('[data-testid="tool-call-row-…"]')` queries can only ever
+  // resolve inside this topic's pane.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]).catch(() => {});
   });
 
   test("renders ReasoningRow + ToolCallRow + footer in order", async ({ page, request }) => {
