@@ -1,4 +1,30 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, Page, Locator } from '@playwright/test';
+
+// Pause that exists ONLY to pace the delivery video, never to synchronise.
+// playwright.config.ts records video on demand (E2E_EVIDENCE=1); on the default
+// fast path there is no clip to pace, so these are 8s of dead sleep per run.
+// Anything that actually needs to wait for the app uses a condition instead.
+const EVIDENCE = process.env.E2E_EVIDENCE === '1';
+const videoPause = (page: Page, ms: number) =>
+  EVIDENCE ? page.waitForTimeout(ms) : Promise.resolve();
+
+/**
+ * Waits until an element's x stops moving — the honest end of a CSS transform
+ * animation (the sidebar slide), which has no event we can await. Two identical
+ * consecutive samples mean the transition has landed; a fixed sleep would either
+ * cut the animation short or pad every run with slack.
+ */
+async function waitForSettledX(locator: Locator, timeoutMs = 3000): Promise<number> {
+  let last = Number.NaN;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const x = (await locator.boundingBox())?.x ?? Number.NaN;
+    if (x === last) return x;
+    last = x;
+    await locator.page().waitForTimeout(100);
+  }
+  return last;
+}
 
 /**
  * Measure Cumulative Layout Shift during an action.
@@ -84,7 +110,11 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1500); // let UI settle for clear video
+    // The real "app is up" signal, not a sleep: the sidebar has mounted.
+    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await videoPause(page, 1500);
   });
 
   test('Topic switch has no visible layout shift', async ({ page }, testInfo) => {
@@ -92,9 +122,13 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
     // Click the first topic in sidebar (uses role="treeitem" like other E2E tests)
     const topics = page.getByRole('treeitem');
     await topics.first().waitFor({ timeout: 5000 });
-    await page.waitForTimeout(1000); // video: show initial state
+    await videoPause(page, 1000);
     await topics.first().click();
-    await page.waitForTimeout(1500); // video: show first topic loaded
+    // The topic is loaded when its pane exists — not after 1.5s of hoping.
+    await expect(page.locator('[data-testid="panel-tab-bar"]').first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await videoPause(page, 1500);
 
     // Now measure CLS while switching to a different topic
     const count = await topics.count();
@@ -158,13 +192,15 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
     await expect(sidebar).toBeVisible();
     const xBefore = (await sidebar.boundingBox())?.x ?? 0;
 
-    await page.waitForTimeout(1000); // video: show sidebar state BEFORE
+    await videoPause(page, 1000);
     await page.screenshot({ path: 'test-results/sidebar-BEFORE-toggle.png' });
 
     // Toggle sidebar (⌘B)
     const cls = await measureCLS(page, async () => {
       await page.keyboard.press('Meta+b');
-      await page.waitForTimeout(1500); // video: show state AFTER toggle
+      // This one is NOT video pacing — it's the CLS measurement window, so it
+      // must cover the whole slide. Ends when the sidebar stops moving.
+      await waitForSettledX(sidebar);
     });
     expect(cls).toBeLessThan(0.1);
 
@@ -175,9 +211,9 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
     expect(xAfter, 'Sidebar should slide off-screen (x decreases) on collapse').toBeLessThan(xBefore);
 
     // Toggle back
-    await page.waitForTimeout(500);
     await page.keyboard.press('Meta+b');
-    await page.waitForTimeout(1500); // video: show sidebar restored
+    await waitForSettledX(sidebar);
+    await videoPause(page, 1500);
 
     await page.screenshot({ path: 'test-results/sidebar-AFTER-restore.png' });
 
