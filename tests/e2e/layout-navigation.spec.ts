@@ -59,18 +59,20 @@ test.describe("Layout & Navigation", () => {
     await expect(menu).toBeHidden({ timeout: 5000 });
 
     // Test add pane (+) button: click it and verify dropdown menu appears
+    // The (+) button must BE there: gating this block on `count() > 0` meant a
+    // missing button silently skipped every assertion below and still reported
+    // green, so the test could not fail for the exact regression it names.
     const addPaneBtn = page.getByTitle("Add pane");
-    if ((await addPaneBtn.count()) > 0) {
-      await addPaneBtn.first().click();
-      // Add pane dropdown is portaled — target its stable testid.
-      const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
-      await expect(addMenu).toBeVisible({ timeout: 5000 });
-      // Should have pane type options
-      const menuButtons = addMenu.locator("button");
-      expect(await menuButtons.count()).toBeGreaterThan(0);
-      // Dismiss by pressing Escape
-      await page.keyboard.press("Escape");
-    }
+    await expect(addPaneBtn.first()).toBeVisible({ timeout: 5000 });
+    await addPaneBtn.first().click();
+    // Add pane dropdown is portaled — target its stable testid.
+    const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
+    await expect(addMenu).toBeVisible({ timeout: 5000 });
+    // Should have pane type options
+    const menuButtons = addMenu.locator("button");
+    expect(await menuButtons.count()).toBeGreaterThan(0);
+    // Dismiss by pressing Escape
+    await page.keyboard.press("Escape");
   });
 
   test("LAYOUT-02: connection status indicator shows connected state", async ({

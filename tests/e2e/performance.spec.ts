@@ -187,34 +187,35 @@ test.describe('PERF-01 — Layout Stability & Visual Quality', () => {
   });
 
   test('Panel split does not cause layout shift', async ({ page }) => {
-    // Open a topic first so we have a tab bar
+    // Preconditions are ASSERTED, not tiptoed around. This test used to wrap
+    // every assertion in `if (await x.count() > 0)`: with no topic, no tab bar,
+    // no tab or no split entry it ran zero expects and reported green — the one
+    // outcome a layout-shift guard must never produce, because "the UI didn't
+    // render" is precisely the regression it exists to catch.
     const topics = page.getByRole('treeitem');
-    if (await topics.count() > 0) {
-      await topics.first().click();
-      await page.waitForTimeout(500);
-    }
+    await expect(topics.first()).toBeVisible({ timeout: 10_000 });
+    await topics.first().click();
 
-    // Right-click on a tab to get split context menu (same pattern as grid-split.spec.ts)
     const tabBar = page.locator('[data-testid="panel-tab-bar"]').first();
-    if (await tabBar.count() > 0) {
-      const tab = tabBar.locator('[draggable="true"]').first();
-      if (await tab.count() > 0) {
-        const cls = await measureCLS(page, async () => {
-          await tab.click({ button: 'right' });
-          await page.waitForTimeout(200);
-          const splitOption = page.getByText('Dividi a destra', { exact: true });
-          if (await splitOption.count() > 0) {
-            await splitOption.click();
-            await page.waitForTimeout(500);
-          }
-        });
-        expect(cls).toBeLessThan(0.1);
+    await expect(tabBar).toBeVisible({ timeout: 10_000 });
+    const tab = tabBar.locator('[draggable="true"]').first();
+    await expect(tab).toBeVisible({ timeout: 10_000 });
 
-        // Visual stability: UI must settle after panel split
-        const instability = await assertVisualStability(page, 2000, 2.0);
-        expect(instability, 'UI should be visually stable after panel split').toBeLessThan(2.0);
-      }
-    }
+    const cls = await measureCLS(page, async () => {
+      await tab.click({ button: 'right' });
+      const splitOption = page.getByText('Dividi a destra', { exact: true });
+      await expect(splitOption).toBeVisible({ timeout: 5_000 });
+      await splitOption.click();
+      // The split is done when a second pane exists — not after a fixed sleep.
+      await expect(page.locator('[data-testid="panel-tab-bar"]')).toHaveCount(2, {
+        timeout: 10_000,
+      });
+    });
+    expect(cls).toBeLessThan(0.1);
+
+    // Visual stability: UI must settle after panel split
+    const instability = await assertVisualStability(page, 2000, 2.0);
+    expect(instability, 'UI should be visually stable after panel split').toBeLessThan(2.0);
   });
 
   test('Chat message list does not shift on new message', async ({ page }) => {
