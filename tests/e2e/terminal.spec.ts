@@ -1,4 +1,4 @@
-import { expect } from "@playwright/test";
+import { expect, type APIRequestContext } from "@playwright/test";
 import { test } from "./fixtures/terminal.fixture";
 import {
   createTopic,
@@ -11,29 +11,43 @@ import {
 } from "./helpers/api-fixtures";
 import { goToApp } from "./helpers";
 
-// The e2e DB persists across runs (DATA_DIR=/tmp/topics-test-data) and the
-// per-project pane channel is union-additive on hydrate, so terminal panes
-// opened by a prior run — or a prior RETRY of the same test — stay persisted
-// under /tmp's `topics-project-panes-<hash>` key and are re-added into a fresh
-// page. That made TERM-01 pick up a DEAD stale pane (empty → no prompt) and
-// TERM-04 count 3–6 tabs instead of 2. Reset the shared /tmp project layout +
-// kill all live sessions before EVERY test in this file so each starts from a
-// known-empty terminal state (retry-safe: beforeEach re-runs on each attempt).
-// Il reset per-progetto sopra non basta: una pane terminale aperta al livello
-// GLOBALE da un altro file (il pane-store è uno solo per tutta la suite seriale)
-// sopravvive, e `navigateAndOpenTerminal` vede `xtermAlreadyVisible` → riusa una
-// shell morta invece di aprirne una. Sulle tab bar in più, poi, il `.last()` di
-// TERM-04/TERM-08 finisce sul gruppo sbagliato. Ogni test qui apre da sé finestra
-// progetto e shell partendo dalla sidebar, quindi non c'è nulla da preservare.
-test.beforeEach(async ({ request }) => {
+// Use /tmp which always exists. On macOS, /tmp symlinks to /private/tmp.
+const projectPath = "/tmp";
+
+/**
+ * Stato di partenza noto per OGNI test del file (retry-safe: gira a ogni tentativo).
+ *
+ * The e2e DB persists across runs (DATA_DIR=/tmp/topics-test-data) and the
+ * per-project pane channel is union-additive on hydrate, so terminal panes
+ * opened by a prior run — or a prior RETRY of the same test — stay persisted
+ * under /tmp's `topics-project-panes-<hash>` key and are re-added into a fresh
+ * page. That made TERM-01 pick up a DEAD stale pane (empty → no prompt) and
+ * TERM-04 count 3–6 tabs instead of 2.
+ *
+ * Il reset per-progetto non basta: una pane terminale aperta al livello GLOBALE
+ * da un altro file (il pane-store è uno solo per tutta la suite seriale)
+ * sopravvive, e `navigateAndOpenTerminal` vede `xtermAlreadyVisible` → riusa una
+ * shell morta invece di aprirne una. Sulle tab bar in più, poi, il `.last()` di
+ * TERM-04/TERM-08 finisce sul gruppo sbagliato.
+ *
+ * Il pane-store va però azzerato al topic del describe, NON a `[]`. La riga di un
+ * progetto nella sidebar è guidata dalle TAB APERTE, non dai topic che esistono:
+ * `buildSidebarItems.ts` la salta se non c'è né la tab del progetto né un figlio
+ * con una tab aperta. Svuotando il pane-store spariva quindi anche
+ * `button[title="/tmp"]`, che è il punto di partenza di ogni test qui — TERM-01,
+ * TERM-03 e TERM-04 morivano tutti e tre lì. È lo stesso inciampo già corretto in
+ * browser-process.spec.ts nel commit che ha introdotto questi reset.
+ */
+async function resetTerminalWorkspace(
+  request: APIRequestContext,
+  topicId: string,
+): Promise<void> {
   await deleteAllTerminalSessions(request);
-  await resetPaneStore(request, []);
-  await resetProjectPanes(request, "/tmp");
-});
+  await resetPaneStore(request, [topicId]);
+  await resetProjectPanes(request, projectPath);
+}
 
 test.describe.serial("Terminal", () => {
-  // Use /tmp which always exists. On macOS, /tmp symlinks to /private/tmp.
-  const projectPath = "/tmp";
   const topicName = `e2e-terminal-${Date.now()}`;
   let topicId: string;
 
@@ -42,6 +56,10 @@ test.describe.serial("Terminal", () => {
       projectPath,
     });
     topicId = topic.id;
+  });
+
+  test.beforeEach(async ({ request }) => {
+    await resetTerminalWorkspace(request, topicId);
   });
 
   test.afterAll(async ({ request }) => {
@@ -320,13 +338,16 @@ test.describe.serial("Terminal", () => {
  * Requires routeWebSocket BEFORE navigation, so it has its own describe block.
  */
 test.describe("Terminal Reconnect", () => {
-  const projectPath = "/tmp";
   const topicName = `e2e-term-reconnect-${Date.now()}`;
   let topicId: string;
 
   test.beforeAll(async ({ request }) => {
     const topic = await createTopic(request, topicName, { projectPath });
     topicId = topic.id;
+  });
+
+  test.beforeEach(async ({ request }) => {
+    await resetTerminalWorkspace(request, topicId);
   });
 
   test.afterAll(async ({ request }) => {
@@ -452,13 +473,16 @@ test.describe("Terminal Reconnect", () => {
  * Tests opening 2 terminal panes and switching between them via PaneTabBar.
  */
 test.describe("Terminal Multi-Instance", () => {
-  const projectPath = "/tmp";
   const topicName = `e2e-term-multi-${Date.now()}`;
   let topicId: string;
 
   test.beforeAll(async ({ request }) => {
     const topic = await createTopic(request, topicName, { projectPath });
     topicId = topic.id;
+  });
+
+  test.beforeEach(async ({ request }) => {
+    await resetTerminalWorkspace(request, topicId);
   });
 
   test.afterAll(async ({ request }) => {
