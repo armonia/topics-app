@@ -15,6 +15,7 @@
         "scripts/**/*.ts!",
         "server/db/seed.ts!", // one-shot JSON→SQLite migration, run by hand
         "server/**/*.test.ts",
+        "shared/**/*.test.ts", // girati da `test:unit`, non importati da nessuno
         "tests/**/*.{test,spec}.ts"
       ],
       "project": [

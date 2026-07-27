@@ -21,6 +21,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createTopicsRouter } from "./topics";
 import type { Topic } from "../types";
+import { projectHash } from "../../shared/project-keys";
 
 // The terminal-tab fallback of open/create-project (and move-to-project) resolves
 // the caller via getTerminalSessionById, which is imported statically from
@@ -146,13 +147,6 @@ function makeHarness() {
   };
   const cleanup = () => rmSync(openclawDir, { recursive: true, force: true });
 
-  // djb2 — mirrors moveTerminalPaneToProject / the client projectHash(), so a
-  // test can assert the exact membership key a moved pane lands under.
-  const projectHash = (p: string): string => {
-    let h = 0;
-    for (let i = 0; i < p.length; i++) { h = p.charCodeAt(i) + ((h << 5) - h); h = h & h; }
-    return Math.abs(h).toString(36);
-  };
   const readUi = (key: string): Record<string, unknown> | null => {
     const row = uiState.get(key);
     if (!row) return null;

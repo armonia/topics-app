@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { projectPanesKey } from "../../shared/project-keys";
 
 /**
  * Relocate a Claude Code TERMINAL tab into a project window, server-side and
@@ -38,15 +39,10 @@ export function moveTerminalPaneToProject(
 ): { paneId: string; membershipKey: string } {
   const paneId = `terminal:${term.id}`;
 
-  // djb2 — MUST match client projectHash() in
-  // client/src/state/pane/adapters/projectLayoutSync.ts so the membership key
-  // lines up with what the renderer reads.
-  const projectHash = (p: string): string => {
-    let h = 0;
-    for (let i = 0; i < p.length; i++) { h = p.charCodeAt(i) + ((h << 5) - h); h = h & h; }
-    return Math.abs(h).toString(36);
-  };
-  const membershipKey = `topics-project-panes-${projectHash(projectDir)}`;
+  // Chiave di appartenenza: shared/project-keys.ts e' l'unica sorgente
+  // dell'hash djb2 (client + server), cosi' la chiave combacia sempre con
+  // quella che il renderer legge — non serve piu' un commento "MUST match".
+  const membershipKey = projectPanesKey(projectDir);
   const APP_KEY = "pane-store-v2";
 
   const readUi = (key: string): Record<string, unknown> | null => {
