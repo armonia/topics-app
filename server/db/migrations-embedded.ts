@@ -61,6 +61,7 @@ import m052 from "./migrations/053-board-max-agents-auto.sql" with { type: "text
 import m053 from "./migrations/054-app-settings.sql" with { type: "text" };
 import m054 from "./migrations/055-task-preview-image.sql" with { type: "text" };
 import m055 from "./migrations/056-compaction-markers.sql" with { type: "text" };
+import m056 from "./migrations/057-compaction-post-tokens-sanity.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -126,4 +127,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 54, name: "054-app-settings.sql", sql: m053 },
   { version: 55, name: "055-task-preview-image.sql", sql: m054 },
   { version: 56, name: "056-compaction-markers.sql", sql: m055 },
+  { version: 57, name: "057-compaction-post-tokens-sanity.sql", sql: m056 },
 ];

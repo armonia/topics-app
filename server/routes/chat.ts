@@ -571,6 +571,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // turn's `prompt_tokens` (the compacted context that was sent) is the
           // post-compaction size to backfill onto the just-created marker.
           let compactedThisTurn = false;
+          // First per-call context size seen AFTER a compaction boundary — that
+          // single measurement IS the post-compaction context. Latched so later
+          // calls in the same turn (which grow again as work resumes) can't
+          // overwrite it. See onContextSize below.
+          let postCompactionFilled = false;
           // Reattach after a server restart continues the SAME bubble the client
           // was watching (reuse + in-place JSONL replay) instead of spawning a
           // duplicate turn / leaving a ghost spinner. Normal sends always get a
@@ -1373,6 +1378,35 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             },
 
+            onContextSize: (tokens) => {
+              // Post-compaction context size. The FIRST model call after the
+              // boundary is the only honest measurement: its prompt IS the
+              // compacted context. Previously this was backfilled from the
+              // final `result` usage, which AGGREGATES every call in the turn —
+              // so a long turn reported a post-compaction size far bigger than
+              // the pre one and the divider read "48.9k → 1.2M token", i.e. the
+              // context appeared to EXPLODE during compaction.
+              if (!compactedThisTurn || postCompactionFilled) return;
+              postCompactionFilled = true;
+              try {
+                const filled = backfillPostTokens(ctx.db, sessionKey, tokens);
+                if (!filled) return;
+                const cevt = {
+                  type: "stream:compaction" as const,
+                  sessionKey,
+                  topicId: matchedTopic?.id,
+                  markerId: filled.id,
+                  afterMessageId: filled.afterMessageId,
+                  trigger: filled.trigger,
+                  ...(filled.preTokens != null ? { preTokens: filled.preTokens } : {}),
+                  ...(filled.postTokens != null ? { postTokens: filled.postTokens } : {}),
+                  createdAt: filled.createdAt,
+                };
+                if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cevt);
+                else broadcastToAll(cevt);
+              } catch (err) { console.error("[compaction] backfill failed:", err); }
+            },
+
             onDone: (message?: any) => {
               // Extract final content from message if available
               if (message) {
@@ -1398,31 +1432,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   const outTok = usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens;
                   if (typeof inTok === "number") usagePromptTokens = inTok;
                   if (typeof outTok === "number") usageCompletionTokens = outTok;
-                  // If a compaction landed this turn, the input tokens we just
-                  // sent ARE the post-compaction context size — backfill it onto
-                  // the marker and re-broadcast so the divider shows the pre→post
-                  // delta live (CHAT-COMPACT-01 finished the wiring but never
-                  // called this).
-                  if (compactedThisTurn && typeof inTok === "number") {
-                    try {
-                      const filled = backfillPostTokens(ctx.db, sessionKey, inTok);
-                      if (filled) {
-                        const cevt = {
-                          type: "stream:compaction" as const,
-                          sessionKey,
-                          topicId: matchedTopic?.id,
-                          markerId: filled.id,
-                          afterMessageId: filled.afterMessageId,
-                          trigger: filled.trigger,
-                          ...(filled.preTokens != null ? { preTokens: filled.preTokens } : {}),
-                          ...(filled.postTokens != null ? { postTokens: filled.postTokens } : {}),
-                          createdAt: filled.createdAt,
-                        };
-                        if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cevt);
-                        else broadcastToAll(cevt);
-                      }
-                    } catch (err) { console.error("[compaction] backfill failed:", err); }
-                  }
+                  // NB: `inTok` here is the TURN AGGREGATE (the CLI sums usage
+                  // across every model call in the turn), which is fine for
+                  // cost/tokens accounting below but is NOT a context size.
+                  // The post-compaction size is filled by onContextSize above,
+                  // from the first single call after the boundary.
                   // Cost: try the provider field first, then derive via the
                   // existing per-model price table when both token counts exist.
                   const usdFromProvider = typeof usage.costUsd === "number" ? usage.costUsd : undefined;
