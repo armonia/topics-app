@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { test, MOCK_RUNNING_SCRIPTS, MOCK_BROWSER_CONTEXTS } from "./fixtures/browser.fixture";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, seedPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 
 // ── Phase 27 -> Phase 30 disposition map (per plan 30-05 Task 6, I11 strategy) ──
 //
@@ -237,26 +237,24 @@ test.describe("RemoteBrowserPanel", () => {
   // pane (created in the ScriptRunner describe's beforeAll) doesn't own the
   // layout — usePaneOrdering's browser:open-and-navigate listener bails out
   // early when hasProjectPaneRef.current is true.
+  // `lastSeq` comes from seedPaneStore: hard-coding it (this used to send 0)
+  // loses the client's LWW gate against any state the serial run accumulated,
+  // so the reset looked written but never applied.
   test.beforeEach(async ({ request }) => {
-    await request
-      .put("http://localhost:13334/api/ui-state/pane-store-v2", {
-        data: {
-          panes: {},
-          groups: {
-            "group:default": {
-              id: "group:default",
-              paneIds: [],
-              splitRatio: 1,
-              splitAxis: "horizontal",
-            },
-          },
-          projects: {},
-          groupOrder: ["group:default"],
-          closedStack: [],
-          lastSeq: 0,
+    await seedPaneStore(request, () => ({
+      panes: {},
+      groups: {
+        "group:default": {
+          id: "group:default",
+          paneIds: [],
+          splitRatio: 1,
+          splitAxis: "horizontal",
         },
-      })
-      .catch(() => { /* tolerate */ });
+      },
+      projects: {},
+      groupOrder: ["group:default"],
+      closedStack: [],
+    }));
   });
 
   // BROWSER-04: REWRITTEN — mount via CustomEvent (was: click sidebar context).
