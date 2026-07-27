@@ -6,7 +6,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { interceptWebSocket } from "./helpers/ws-helpers";
-import { createTopic, deleteTopic, seedPaneStore } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, seedPaneStore } from "./helpers/api-fixtures";
 
 const TS = Date.now();
 const BASE = "http://localhost:13334";
@@ -22,6 +22,17 @@ test.beforeAll(async ({ request }) => {
 test.afterAll(async ({ request }) => {
   await deleteTopic(request, topicA.id).catch(() => {});
   await deleteTopic(request, topicB.id).catch(() => {});
+});
+
+// I test qui ragionano su QUALI tab sono aperti e quale è attivo (A inattivo →
+// badge, B focalizzato → niente badge). I due helper qui sotto seminano la
+// chiave legacy `openPanels`, che però il client NON legge più: i tab di A e B
+// arrivano dal pane-store (li apre createTopic), e quello è UNO solo per tutta
+// la suite seriale — le pane lasciate dai file precedenti restano lì. Reset ad
+// A e B soltanto: né più (una `__agents__` superstite renderebbe ambiguo il
+// locator di TAB-BADGE-10/11) né meno (i tab servono).
+test.beforeEach(async ({ request }) => {
+  await resetPaneStore(request, [topicA.id, topicB.id]);
 });
 
 /** Navigate with both topics pre-opened as panels, B focused */

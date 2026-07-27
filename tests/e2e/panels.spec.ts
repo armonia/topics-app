@@ -98,37 +98,90 @@ test.describe("Panels & Views", () => {
       .toBeGreaterThan(5);
   });
 
-  test("multi-pane layout with Add Pane", async ({ page }) => {
+  test("multi-pane layout with Add Pane", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
+    // Il "+" NON e' condizionale, e la vecchia forma `if (count > 0)` rendeva
+    // il test verde anche se spariva del tutto. Catena dal sorgente:
+    //   StandaloneChatGroup.tsx:525 → availableTypes =
+    //     getAddableTypesForScope('standalone', …), che restituisce SEMPRE
+    //     almeno browser + terminal (paneConfig.ts:46-47: entrambi hanno
+    //     addableScopes ['standalone','project'] e NON sono singleton, quindi
+    //     nessun filtro puo' svuotare la lista);
+    //   PaneTabBar.tsx:590 → hasMenuItems = onNewChat || availableTypes.length
+    //     > 0 → vero; PaneTabBar.tsx:966 monta <PaneAddMenu …>;
+    //   PaneAddMenu.tsx:374+467-474 → il trigger ha title={triggerTitle} col
+    //     default "Add pane" (PaneTabBar non lo sovrascrive: l'header di App
+    //     usa "New (⌘N)" e la sidebar "Add to project", quindi questo title
+    //     identifica UNA sola affordance).
+    // Nessun feature-flag, nessun gate openclaw, nessun ramo desktop-only,
+    // nessuna fetch di mezzo: l'asserzione va incondizionata.
+    //
+    // Pane-store azzerato prima di caricare: con un layout ereditato dagli
+    // spec precedenti esisterebbero piu' celle — quindi piu' tab bar e piu'
+    // "+" — e il test non saprebbe piu' quale sta guardando.
+    await resetPaneStore(request, []);
     await goToApp(page);
     await openTopic(page, /Web Search Test/);
 
-    const addPaneBtn = page.getByRole("button", { name: /Add pane/ });
-    if (await addPaneBtn.count() > 0) {
-      await addPaneBtn.first().click();
-    }
-    await expect
-      .poll(
-        async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
-        { timeout: 10000 },
-      )
-      .toBeGreaterThan(10);
+    const addPaneBtn = page.getByTitle("Add pane");
+    await expect(addPaneBtn).toBeVisible({ timeout: 10000 });
+    await addPaneBtn.click();
+
+    // Il menu e' portalato su document.body (PaneAddMenu.tsx:525): si asserisce
+    // sul suo testid stabile e sulle voci che lo scope standalone offre sempre
+    // (Shell = terminal, PaneAddMenu.tsx:223; Browser, PaneAddMenu.tsx:286).
+    const addMenu = page.getByTestId("pane-add-menu");
+    await expect(addMenu).toBeVisible({ timeout: 5000 });
+    await expect(addMenu.getByTestId("pane-add-menu-shell")).toBeVisible();
+    await expect(addMenu.getByTestId("pane-add-menu-browser")).toBeVisible();
+
+    // Ci si ferma al menu SENZA creare davvero il pannello: la creazione vera
+    // lascerebbe un PTY / una sessione browser viva in una suite seriale e non
+    // ermetica, ed e' gia' coperta altrove — browser-add-empty.spec.ts (scope
+    // standalone) e layout-navigation.spec.ts, test "LAYOUT-04" (scope
+    // progetto: apre il menu e clicca davvero la prima voce).
+    await page.keyboard.press("Escape");
+    await expect(addMenu).toBeHidden({ timeout: 5000 });
   });
 
-  test("dashboard digest tab", async ({ page }) => {
+  test("dashboard digest tab", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
+    // Il tab "Digest" NON e' condizionale: ActivityFeedPanel.tsx:83-95 mappa
+    // `['live','digest']` senza guardie — se il pannello e' montato, i due
+    // bottoni ci sono entrambi. Quindi il vecchio
+    // `waitFor(...).catch(() => {})` + `if (count > 0)` non proteggeva da
+    // nulla: assorbiva il caso "il pannello non e' montato affatto" e faceva
+    // passare il test senza mai cliccare il Digest.
+    //
+    // Reset del pane-store: e' la causa sospetta del rosso in run completa
+    // (verde 10/10 in isolamento). handleOpenAsPage registra il pane utility
+    // in `group:default` e lo mette a fuoco (usePanelLifecycle.ts:895-915), ma
+    // su un layout ereditato dagli altri spec — split, celle, tab di fondo —
+    // il pane Activity puo' finire in una cella non visibile, e piu' avanti la
+    // chat riaperta non diventa il tab attivo della cella a schermo: la
+    // "Message input" non compare mai. Da zero la sequenza e' deterministica.
+    await resetPaneStore(request, []);
     // Activity is openclaw-gated inside the "Settings & Tools" (Topics ▾) menu.
     await mockOpenClawAvailable(page);
     await goToApp(page);
     await openTopicsMenuItem(page, "Activity");
-    // Il pannello Activity e' montato quando ha del testo: si aspetta QUELLO,
-    // non un tempo. Il click sul Digest non ha bisogno di una pausa dopo —
-    // il passo successivo (openTopic) porta le proprie attese condizionali.
-    const digestTab = page.locator("text=Digest");
-    await digestTab.first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
-    if (await digestTab.count() > 0) {
-      await digestTab.first().click();
-    }
+
+    // Si aspetta il pannello VERO (data-testid su ActivityFeedPanel.tsx:80),
+    // non un testo qualsiasi dentro main — "Activity" e' anche l'etichetta del
+    // tab, quindi cercarla nel testo non distingue "pannello montato" da
+    // "solo la linguetta aperta".
+    const activityFeed = page.getByTestId("activity-feed");
+    await expect(activityFeed).toBeVisible({ timeout: 10000 });
+
+    const digestTab = activityFeed.getByRole("button", { name: "Digest", exact: true });
+    await expect(digestTab).toBeVisible({ timeout: 10000 });
+    await digestTab.click();
+
+    // Il click deve MONTARE il JournalPanel (import lazy dietro <Suspense>,
+    // ActivityFeedPanel.tsx:98-103). Il testid sta sul div radice
+    // (JournalPanel.tsx:77) e non dipende dall'esito della fetch del journal:
+    // errore o giornata vuota rendono comunque il pannello.
+    await expect(page.getByTestId("journal-panel")).toBeVisible({ timeout: 10000 });
 
     // Navigate back to chat and wait for input to be ready
     await openTopic(page, /Web Search Test/);
@@ -193,16 +246,34 @@ test.describe("Panels & Views", () => {
   test("remote access panel opens", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
     await goToApp(page);
-    const remoteBtn = page.getByRole("button", { name: /Remote Access/i });
-    if (await remoteBtn.count() > 0) {
-      await remoteBtn.click();
-      await expect
-        .poll(
-          async () => ((await page.locator('[role="main"]').textContent()) ?? "").length,
-          { timeout: 10000 },
-        )
-        .toBeGreaterThan(5);
-    }
+    // "Remote Access" NON e' piu' un bottone dell'header: e' una riga del menu
+    // "Settings & Tools" (Topics ▾) — App.tsx:1238-1244, vedi la nota a
+    // App.tsx:931 "Activity / Agents / Remote Access moved into the Topics ▾
+    // menu". Il vecchio corpo lo cercava a MENU CHIUSO: `count()` era 0, il
+    // blocco non veniva mai eseguito e il test restava verde senza aprire
+    // niente. Si apre con l'helper condiviso, come Activity e Agents.
+    //
+    // A differenza di Activity/Agents la riga NON e' dietro
+    // `openclawAvailable` (quelle sono avvolte in `{openclawAvailable && …}`,
+    // App.tsx:1245 e 1254; questa no) e non ha rami isMobile: e' sempre
+    // presente, quindi nessuno skip condizionale — se manca, deve fallire.
+    await openTopicsMenuItem(page, /Remote Access/i);
+
+    // Il pannello e' portalato su document.body (App.tsx:1297-1319), NON
+    // dentro [role="main"]: la vecchia asserzione sul testo di main non lo
+    // avrebbe visto nemmeno cliccando.
+    //
+    // Si asserisce sul toggle del tunnel, l'unico elemento che RemoteAccessPanel
+    // rende in ENTRAMBI i rami di stato e che appartiene solo a lui:
+    // "Disable Tunnel" se /api/remote/status riporta un tunnel attivo
+    // (RemoteAccessPanel.tsx:144), "Enable Tailscale Funnel" altrimenti — e
+    // "altrimenti" include fetch fallita/errore, perche' `status` resta null e
+    // il componente cade comunque nel ramo inattivo (RemoteAccessPanel.tsx:92
+    // e 166). Nessuna dipendenza dall'esito della chiamata, quindi.
+    const tunnelToggle = page.getByRole("button", {
+      name: /Enable Tailscale Funnel|Disable Tunnel/,
+    });
+    await expect(tunnelToggle).toBeVisible({ timeout: 10000 });
   });
 
   test("opening a project shows its file explorer", async ({ page, request }) => {

@@ -21,7 +21,12 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fixtures";
+import {
+  createTopic,
+  deleteTopic,
+  resetPaneStore,
+  waitForTopicVisible,
+} from "./helpers/api-fixtures";
 
 /** Read the sidebar's rendered width in px. */
 async function sidebarWidth(page: Page): Promise<number> {
@@ -119,6 +124,15 @@ test.describe("Checklist UI verification", () => {
     });
     test.afterAll(async ({ request }) => {
       if (topicId) await deleteTopic(request, topicId);
+    });
+
+    // Il test è proprio sul CONTEGGIO delle tab: con le pane lasciate aperte dai
+    // file precedenti (il pane-store è uno solo per tutta la suite seriale) la
+    // barra va in overflow e la tab appena aperta può restare fuori dalla parte
+    // visibile → `toBeVisible()` rosso pur essendoci una sola tab. Il test apre
+    // da sé il topic dalla sidebar, quindi si parte da workspace vuoto.
+    test.beforeEach(async ({ request }) => {
+      await resetPaneStore(request, []);
     });
 
     test("CHK4-01: clicking a topic already open in the sidebar does NOT add a second tab", async ({ page }) => {

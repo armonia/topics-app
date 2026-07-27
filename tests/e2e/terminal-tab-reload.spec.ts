@@ -9,6 +9,8 @@ import {
   listTerminalSessions,
   deleteTerminalSession,
   deleteAllTerminalSessions,
+  resetPaneStore,
+  resetProjectPanes,
 } from "./helpers/api-fixtures";
 import { goToApp, openTopic } from "./helpers";
 import type { Page } from "@playwright/test";
@@ -30,6 +32,15 @@ test.describe.serial("Terminal tab reload", () => {
     // Clean slate: a stale /tmp shell session (active or dormant) from a prior run
     // would make the project-terminal open reconnect to a dead PTY (empty xterm).
     await deleteAllTerminalSessions(request);
+    // Le SESSIONI muoiono con la riga sopra, le PANE no: vivono nel pane-store
+    // condiviso da tutta la suite seriale (e, per il progetto /tmp, nella sua
+    // chiave `ui_state` separata). Una pane terminale lasciata da terminal.spec
+    // punta ora a una sessione appena cancellata, e `navigateAndOpenTerminal`
+    // la vede con `xtermAlreadyVisible` → i test lavorano su una tab morta.
+    // Reset in beforeAll e NON in beforeEach: dentro il file il riuso della
+    // stessa pane tra un test e l'altro è voluto (early-return sopra).
+    await resetPaneStore(request, []);
+    await resetProjectPanes(request, projectPath);
     const topic = await createTopic(request, topicName, { projectPath });
     topicId = topic.id;
   });

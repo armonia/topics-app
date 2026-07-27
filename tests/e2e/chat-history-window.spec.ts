@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 
 /**
@@ -23,6 +23,15 @@ import { seedMessage } from "./helpers/seed-messages";
  * the top reveals it.
  */
 test.describe("Chat history window", () => {
+  // `chatPage.messageList` è lo scroller virtualizzato preso con `.first()`: con le
+  // pane lasciate aperte dai file precedenti (pane-store unico per la suite
+  // seriale) il primo scroller è quello di un'ALTRA chat e lo scroll-up
+  // misurerebbe il thread sbagliato. Il topic di questo test nasce dentro il
+  // test, dopo il reset, e createTopic gli apre da sé il tab.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, []);
+  });
+
   test("loads the full thread head for a >100-message topic", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-HISTORY-WINDOW" });
     test.setTimeout(120_000); // 120 sequential seeds + load + scroll-up poll

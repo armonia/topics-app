@@ -1,9 +1,13 @@
 import { test, expect } from "./fixtures/topic-management.fixture";
-import { createTopic, patchTopic, cleanupAll } from "./helpers/api-fixtures";
+import { createTopic, patchTopic, cleanupAll, resetPaneStore } from "./helpers/api-fixtures";
 
 test.describe("Topic Management", () => {
   const TS = Date.now();
   const topicIds: string[] = [];
+  // Solo i tre topic del beforeAll: `topicIds` cresce test dopo test con gli
+  // usa-e-getta (poi archiviati o cancellati) e non è un bersaglio valido per
+  // il reset del pane-store.
+  const seededPaneIds: string[] = [];
 
   test.beforeAll(async ({ request }) => {
     const alpha = await createTopic(request, `E2E-Alpha-${TS}`, {
@@ -16,10 +20,20 @@ test.describe("Topic Management", () => {
       color: "#7c3aed",
     });
     topicIds.push(alpha.id, beta.id, gamma.id);
+    seededPaneIds.push(alpha.id, beta.id, gamma.id);
   });
 
   test.afterAll(async ({ request }) => {
     await cleanupAll(request, { topics: topicIds });
+  });
+
+  // Il pane-store è UNO per l'intera suite seriale e nessuno lo azzera fra un
+  // file e l'altro: i test qui contano righe e tab nella sidebar, quindi senza
+  // reset misurerebbero anche le pane lasciate aperte dai file precedenti.
+  // Si riparte esattamente dai tre topic seminati sopra — che DEVONO restare
+  // aperti, perché una chat standalone compare in sidebar solo con un tab.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, seededPaneIds);
   });
 
   // TOPIC-01: create new topic via sidebar and it appears in topic list
@@ -391,6 +405,13 @@ test.describe("Topic Management — Fissati archive interplay", () => {
       data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems: [] },
     });
     await cleanupAll(request, { topics: pinIds });
+  });
+
+  // Slate pulito anche sul pane-store (condiviso da tutta la suite seriale): il
+  // test crea da sé il topic che gli serve e createTopic gli apre il tab, quindi
+  // qui non serve conservare nulla.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, []);
   });
 
   test("PIN-ARCHIVE: explicit Archive on a pinned chat still archives, but its row stays; reopening self-heals", async ({

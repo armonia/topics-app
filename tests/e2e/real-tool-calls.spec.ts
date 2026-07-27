@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage, type SeedToolCall } from "./helpers/seed-messages";
 import { isGatewayAvailable } from "./helpers/gateway-health";
 
@@ -121,6 +121,14 @@ test.describe.serial("Real Tool Call & Media Rendering", () => {
     if (topicId) {
       await deleteTopic(request, topicId);
     }
+  });
+
+  // Il pane-store è UNO per l'intera suite seriale: se restano aperte le pane
+  // dei file precedenti, il DOM monta anche le loro chat e i test qui —
+  // che cercano tool-call card per data-testid nell'intera pagina — misurano
+  // uno stato che non hanno seminato. Reset al solo topic di questo file.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   // --- REAL-TC-01: Tool call rendering from history ---

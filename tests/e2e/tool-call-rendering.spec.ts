@@ -7,7 +7,7 @@ import {
   unmockChatStream,
   HISTORY_ROUTE_PATTERN,
 } from "./helpers/sse-helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 /** Route pattern for /uploads/ image and file requests */
 const UPLOADS_ROUTE_PATTERN = /\/uploads\//;
@@ -47,6 +47,13 @@ test.describe.serial("Tool Call & Attachment Rendering", () => {
     if (testTopicId) {
       await deleteTopic(request, testTopicId);
     }
+  });
+
+  // `getByRole("textbox", { name: /Message input/ })` è STRICT: una pane chat
+  // superstite di un file precedente (il pane-store è unico per tutta la suite
+  // seriale) la fa risolvere a 2 elementi. Reset al topic di questo file.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [testTopicId]);
   });
 
   test("TOOL-01/03 - tool call card renders with name, args, and status", async ({

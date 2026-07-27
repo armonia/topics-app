@@ -8,9 +8,16 @@ import {
   MOCK_CHAT_MESSAGES,
   MOCK_TIMELINE_EVENTS,
 } from "./fixtures/agent.fixture";
+import { resetPaneStore } from "./helpers/api-fixtures";
 
 test.describe("Agent Management", () => {
-  test.beforeEach(async ({ agentPage, page }) => {
+  test.beforeEach(async ({ agentPage, page, request }) => {
+    // Il pane-store è UNO per tutta la suite seriale: la pane Agents aperta da
+    // un test resta aperta per il successivo (e per gli altri file), e da lì in
+    // poi il bottone "Agents" esiste due volte — vedi il commento in
+    // agent.fixture.openAgentsPane(). Si azzera PRIMA del goto, così ogni test
+    // parte da un workspace vuoto e apre lui la pane che gli serve.
+    await resetPaneStore(request, []);
     await agentPage.mockAllAgentEndpoints();
     await page.goto("/");
   });

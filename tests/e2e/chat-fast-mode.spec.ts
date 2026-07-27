@@ -1,7 +1,7 @@
 import { expect, type Route } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 // openspec change: chat-fast-mode
 //
@@ -30,6 +30,13 @@ test.describe.serial("Chat — Fast Mode toggle", () => {
     if (topicId) {
       await deleteTopic(request, topicId);
     }
+  });
+
+  // Il toggle ⚡ è per-composer: con le pane dei file precedenti ancora aperte,
+  // `data-testid="chat-input-fast-mode"` risolve a più elementi. Reset dello
+  // store condiviso al solo topic seminato qui.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("toggle is positioned between Plan and Context ring, flips on click", async ({ page }) => {

@@ -18,7 +18,7 @@
  * dispatched — these tests only exercise the preview contract.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -55,6 +55,14 @@ async function hoverTabDrag(page: Page, x: number, y: number): Promise<void> {
 }
 
 test.describe("Drop zones v2", () => {
+  // Le zone sono RELATIVE alla cella, quindi il test dipende dalla geometria:
+  // il pane-store è unico per tutta la suite seriale e le pane lasciate aperte
+  // dai file precedenti spezzano il layout in N celle, per cui `.first()` non è
+  // più la cella larga ~1100px su cui sono calibrate le percentuali qui sotto.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, []);
+  });
+
   test("relative zones + center/top previews on a standalone cell", async ({ page, request }) => {
     const t1 = await createTopic(request, "DropZonesA");
     const t2 = await createTopic(request, "DropZonesB");

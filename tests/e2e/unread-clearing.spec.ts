@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 const BASE = "http://localhost:13334";
 
@@ -16,6 +16,13 @@ test.describe("Unread badge clearing", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // Il badge di non-letto si conta sul tab APERTO del topic: il pane-store è
+  // condiviso da tutta la suite seriale, quindi qui riportiamo lo stato al solo
+  // tab seminato da createTopic — né più (pane altrui) né meno (il tab serve).
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("unread badge appears when message arrives for unfocused topic", async ({ page, request }) => {

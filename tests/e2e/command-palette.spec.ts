@@ -1,22 +1,34 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/command-palette.fixture";
-import { createTopic, cleanupAll, deleteTopic, patchTopic } from "./helpers/api-fixtures";
+import { createTopic, cleanupAll, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { ensureTopicVisible, goToApp } from "./helpers";
 
 test.describe("Command Palette", () => {
   const TS = Date.now();
   const topicIds: string[] = [];
+  // Solo i tre topic del beforeAll: `topicIds` cresce con quelli creati dentro
+  // i singoli test, che non devono finire aperti negli altri.
+  const seededPaneIds: string[] = [];
 
   test.beforeAll(async ({ request }) => {
     const alpha = await createTopic(request, `E2E-CmdAlpha-${TS}`);
     const beta = await createTopic(request, `E2E-CmdBeta-${TS}`);
     const gamma = await createTopic(request, `E2E-CmdGamma-${TS}`);
     topicIds.push(alpha.id, beta.id, gamma.id);
+    seededPaneIds.push(alpha.id, beta.id, gamma.id);
   });
 
   test.afterAll(async ({ request }) => {
     await cleanupAll(request, { topics: topicIds });
+  });
+
+  // Il pane-store è condiviso da tutta la suite seriale: CMD-15 conta i tab
+  // aperti in `[role="main"]` e le pane lasciate dai file precedenti falsano
+  // il conteggio. Si riparte dai tre topic seminati sopra, che devono restare
+  // aperti (la palette li cerca in sidebar, dove compaiono solo con un tab).
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, seededPaneIds);
   });
 
   // CMD-01: Cmd+K opens command palette with focused search input

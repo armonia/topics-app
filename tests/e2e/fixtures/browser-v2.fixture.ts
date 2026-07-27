@@ -284,6 +284,25 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
     return this.wsConnectCount;
   }
 
+  /**
+   * Attende che il client si sia DAVVERO connesso alla WS mockata.
+   *
+   * `wsRouteRef` nasce dentro l'handler di `routeWebSocket`, cioè solo DOPO che
+   * il pane ha aperto la connessione. Montare il pane e sparare subito un
+   * `broadcast*`/`send*` è una race che fallisce con "mockBrowserWs() must be
+   * called first" — messaggio fuorviante: il mock c'era, era il client a non
+   * essersi ancora collegato. Chi trasmette aspetta prima questo.
+   */
+  async waitForWsConnected(timeoutMs = 10_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!this.wsRouteRef) {
+      if (Date.now() > deadline) {
+        throw new Error(`WS mock: il client non si è connesso entro ${timeoutMs}ms`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
   /** Send a synthetic download message over the active WS route. */
   sendDownload(info: { filename: string; href: string; size?: number; state: 'started' | 'completed' | 'failed' }): void {
     if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');

@@ -9,7 +9,7 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { existsSync, rmSync } from "fs";
 import { join } from "path";
 
@@ -109,6 +109,15 @@ test.describe.serial("Project Commands", () => {
     if (existsSync(testProjectDir)) {
       rmSync(testProjectDir, { recursive: true, force: true });
     }
+  });
+
+  // `sendCommand` prende il composer con un locator STRICT: una sola pane chat
+  // superstite di un file precedente (il pane-store è unico per tutta la suite
+  // seriale) lo fa risolvere a 2 elementi e affonda il file intero. Reset al
+  // solo topic seminato dal beforeAll — che serve, perché `openTopicAnywhere`
+  // lo cerca nella sidebar, dove compare solo se ha un tab aperto.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("AC-7: /project appears in slash command autocomplete", async ({ page }) => {

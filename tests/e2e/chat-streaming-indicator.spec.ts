@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { mockHangingStream, unmockChatStream } from "./helpers/sse-helpers";
 
 const BASE = "http://localhost:13334";
@@ -26,6 +26,13 @@ test.describe("Chat streaming indicator", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // `streamingIndicator` e `messageInput` sono STRICT: una sola pane chat
+  // superstite di un file precedente (il pane-store è condiviso da tutta la
+  // suite) basta a farli risolvere a 2 elementi. Reset al topic di questo file.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("shows a playful phrase + a live ticking timer (no bounce dots)", async ({ page, chatPage }) => {

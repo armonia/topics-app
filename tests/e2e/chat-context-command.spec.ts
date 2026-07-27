@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 /**
  * `/context` is the CLI-parity command that surfaces the context-window usage
@@ -20,6 +20,13 @@ test.describe("Chat /context command", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // `chatPage.messageInput` è STRICT (nessun .first()): basta una pane chat
+  // lasciata aperta da un file precedente — il pane-store è uno solo per tutta
+  // la suite seriale — perché risolva a 2 elementi e il file muoia in blocco.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   test("shows a token/budget breakdown banner", async ({ page, chatPage }) => {

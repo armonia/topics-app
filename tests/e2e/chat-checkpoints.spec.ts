@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 const MOCK_CHECKPOINTS = [
   {
@@ -46,6 +46,13 @@ test.describe("Chat Checkpoints (CHAT-05)", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // Il pane-store è condiviso da tutta la suite seriale: senza reset la chat
+  // di questo file si apre in mezzo alle pane lasciate dai file precedenti e i
+  // controlli della chat (input, barra checkpoint) risolvono a più elementi.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   async function mockCheckpoints(page: import("@playwright/test").Page, checkpoints: typeof MOCK_CHECKPOINTS) {

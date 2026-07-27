@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import { test, ChatPage } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 /**
  * `/model`, `/effort` and `/reasoning` used to hard-400 on a claude-code topic
@@ -21,6 +21,13 @@ test.describe("Chat slash commands (claude-code)", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // `chatPage.messageInput` è STRICT: le pane lasciate aperte dai file
+  // precedenti (pane-store unico per la suite seriale) la farebbero risolvere a
+  // più composer. Reset al solo topic claude-code di questo file.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   async function runCmd(chatPage: ChatPage, page: Page, cmd: string) {

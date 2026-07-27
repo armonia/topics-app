@@ -2,7 +2,7 @@ import { expect, type Route } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import { mockChatStream } from "./helpers/sse-helpers";
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 
 test.describe.serial("Provider/Model picker", () => {
   let topicId: string;
@@ -16,6 +16,14 @@ test.describe.serial("Provider/Model picker", () => {
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+  });
+
+  // Il pane-store è UNO per l'intera suite seriale: i file eseguiti prima
+  // lasciano le loro pane aperte, e `getByTestId("provider-model-picker")` —
+  // uno per pane chat montata — finisce in strict-mode violation. Riportiamo
+  // lo store al solo topic seminato dal beforeAll.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [topicId]);
   });
 
   // Provider/model REST shape is covered in `provider-snapshot-sync.spec.ts`

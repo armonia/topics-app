@@ -7,7 +7,12 @@
  */
 import { test, expect } from "@playwright/test";
 
-import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import {
+  createTopic,
+  deleteTopic,
+  resetPaneStore,
+  resetProjectPanes,
+} from "./helpers/api-fixtures";
 import { getVisibleTabLabels } from "./helpers/layout";
 
 const BASE = "http://localhost:13334";
@@ -71,6 +76,22 @@ test.describe("EditorTabs: rapid file opening does not show stale content", () =
 
   test.afterAll(async ({ request }) => {
     await deleteTopic(request, topicId);
+  });
+
+  // `seedAndLoad` semina solo la chiave legacy `panels`, che il client NON
+  // legge più (nessun riferimento a `ui-state/panels` sotto client/src): la
+  // finestra progetto si apriva quindi solo se un file precedente ne aveva
+  // lasciata una nel pane-store — l'unico canale autoritativo. Qui la apriamo
+  // per davvero, con l'id CANONICO `project:<path url-encoded>`
+  // (paneConfig.createPaneId), altrimenti il pane non viene riconosciuto.
+  //
+  // Il layout INTERNO del progetto è una chiave `ui_state` separata
+  // (`topics-project-panes-<hash>`): sopravvive al reset globale e a un contesto
+  // Playwright nuovo, quindi va azzerato a parte o la finestra si idrata coi
+  // pane aperti da un altro file.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, [`project:${encodeURIComponent(process.cwd())}`]);
+    await resetProjectPanes(request, process.cwd());
   });
 
   test("opening files rapidly does not produce page errors from abort cleanup", async ({
@@ -180,6 +201,15 @@ test.describe("PanelGrid: resize works after split", () => {
     }
   });
 
+  // Il test conta i tab in `[role="main"]` e pretende che il PRIMO sia uno dei
+  // suoi: il pane-store è unico per tutta la suite seriale, quindi si riparte
+  // esattamente dai due topic del beforeAll (`seedAndLoad` scrive solo la
+  // chiave legacy `panels`, che il client non legge più — i tab arrivano dal
+  // pane-store, dove createTopic li ha aperti).
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, topicIds);
+  });
+
   test("split creates col-resize divider and resize drag changes panel widths", async ({
     page,
   }) => {
@@ -273,6 +303,13 @@ test.describe("PanelGrid: resize works after split", () => {
 // ─── Test 3: Panel validation removes archived topics ───────────────────────
 
 test.describe("Panel validation: archived topic panels are removed", () => {
+  // `countTabs` conta TUTTE le tab del workspace e `getVisibleTabLabels` legge le
+  // loro etichette: una pane lasciata aperta da un file precedente falsa entrambi.
+  // Il test si crea e si apre il topic da solo, quindi non c'è nulla da preservare.
+  test.beforeEach(async ({ request }) => {
+    await resetPaneStore(request, []);
+  });
+
   test("archiving a topic removes its tab without infinite re-render", async ({
     page,
     request,
