@@ -43,8 +43,10 @@ const {
   __getInflightKeys,
   __resetInflightForTests,
   __pushSnapshotForTests,
+  __teardownFlushUrlForTests,
   PANE_STORE_REMOTE_KEY,
 } = await import("./syncServer");
+const { usePaneStore } = await import("../store");
 const { __resetSelfEchoForTests } = await import("./selfEcho");
 
 // Record each fetch call + the AbortSignal we received so tests can assert
@@ -174,4 +176,102 @@ describe("syncServer — inflight coalescing (finding #13)", () => {
       await expect(p2).resolves.toBeUndefined();
     },
   );
+});
+
+/**
+ * Compare-and-swap base on the TEARDOWN flush paths.
+ *
+ * The defect: the server stamps every PUT with a fresh, higher `server_seq`,
+ * and the client's HYDRATE gate compares `server_seq` — so a snapshot that is
+ * genuinely OLD still outranks everything once written. A tab that slept
+ * through another device's edits and then fires `pagehide` drags every other
+ * device back in time. `?base=` lets the server refuse that write (409).
+ */
+describe("syncServer — CAS base on teardown flush", () => {
+  beforeEach(() => {
+    __resetInflightForTests();
+    __resetSelfEchoForTests();
+    usePaneStore.setState((d) => { d.lastServerSeq = 0; });
+  });
+  afterEach(() => {
+    __resetInflightForTests();
+    restoreFetch();
+    uninstallFakeWindow();
+    installFakeWindow();
+  });
+
+  test("the teardown URL declares the base seq the tab last saw", () => {
+    expect(__teardownFlushUrlForTests(42)).toBe("/api/ui-state/pane-store-v2?base=42");
+    // A tab that never saw a server frame declares base 0 — which is exactly
+    // what the server reads for a row that does not exist yet.
+    expect(__teardownFlushUrlForTests(0)).toBe("/api/ui-state/pane-store-v2?base=0");
+  });
+
+  test("a PUT with a base carries it on the query string; one without does not", async () => {
+    installHangingFetch();
+    void __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 1 }, 1, 7);
+    await Promise.resolve();
+    expect(fetchCalls[0].url).toBe("/api/ui-state/pane-store-v2?base=7");
+
+    __resetInflightForTests();
+    void __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 2 }, 2);
+    await Promise.resolve();
+    expect(fetchCalls[1].url).toBe("/api/ui-state/pane-store-v2");
+    __resetInflightForTests();
+  });
+
+  test("409 is TERMINAL — the stale snapshot is never retried", async () => {
+    let calls = 0;
+    (globalThis as unknown as { fetch: unknown }).fetch = (): Promise<Response> => {
+      calls++;
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: "stale_base", server_seq: 12 }), { status: 409 }),
+      );
+    };
+    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 1 }, 1, 3);
+    // Exactly one attempt: retrying would re-send the same refused body, and if
+    // the row ever settled it would succeed at overwriting fresher state —
+    // which is the bug the gate exists to prevent.
+    expect(calls).toBe(1);
+    expect(__getInflightKeys()).toEqual([]);
+  });
+
+  test("a 5xx still retries — only the CAS conflict is terminal", async () => {
+    let calls = 0;
+    (globalThis as unknown as { fetch: unknown }).fetch = (): Promise<Response> => {
+      calls++;
+      return Promise.resolve(new Response("boom", { status: 500 }));
+    };
+    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 1 }, 1, 3);
+    expect(calls).toBeGreaterThan(1);
+  });
+
+  test("an accepted write advances the base, so the NEXT teardown flush isn't self-blocked", async () => {
+    (globalThis as unknown as { fetch: unknown }).fetch = (): Promise<Response> =>
+      Promise.resolve(
+        new Response(JSON.stringify({ server_seq: 55 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    expect(usePaneStore.getState().lastServerSeq).toBe(0);
+    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 1 }, 1);
+    // Our own write never comes back through HYDRATE (the self-echo filter
+    // drops it), so without this the base would freeze at the last REMOTE
+    // frame and every teardown flush after a local edit would 409 forever.
+    expect(usePaneStore.getState().lastServerSeq).toBe(55);
+  });
+
+  test("the base only ever moves forward", async () => {
+    usePaneStore.setState((d) => { d.lastServerSeq = 90; });
+    (globalThis as unknown as { fetch: unknown }).fetch = (): Promise<Response> =>
+      Promise.resolve(
+        new Response(JSON.stringify({ server_seq: 12 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    await __pushSnapshotForTests(PANE_STORE_REMOTE_KEY, { lastSeq: 1 }, 1);
+    expect(usePaneStore.getState().lastServerSeq).toBe(90);
+  });
 });

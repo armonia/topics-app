@@ -225,6 +225,21 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
         return json({ error: `Payload exceeds ${MAX_UI_STATE_BYTES} bytes`, limit: MAX_UI_STATE_BYTES, size: value.length }, 413);
       }
 
+      // OPTIONAL compare-and-swap (`?base=<server_seq>`): "only write if the row
+      // is still at the seq I last saw". Opt-in — a PUT without `base` behaves
+      // exactly as before (test fixtures, server-internal writes, older clients).
+      //
+      // WHY: every PUT gets a FRESH, higher server_seq, and the client's HYDRATE
+      // gate compares server_seq (reducers/panes.ts) — which orders WRITES, not
+      // freshness. So a snapshot that is genuinely OLD still outranks everything
+      // once written. A tab that slept through another device's changes and then
+      // fires its teardown flush (`pagehide`/`visibilitychange`, syncServer.ts)
+      // therefore REVERTS every other device to its stale state. `lastSeq` can't
+      // arbitrate: it is a per-device dispatch counter, not a shared clock.
+      // The base seq is the only value both sides agree on.
+      const rawBase = _url.searchParams.get("base");
+      const base = rawBase !== null && /^\d+$/.test(rawBase) ? Number(rawBase) : null;
+
       // Race-fix (Phase 30): use BEGIN IMMEDIATE instead of the default
       // BEGIN DEFERRED that bun:sqlite's db.transaction() emits. Two concurrent
       // PUT callers with DEFERRED can both execute the SELECT MAX before either
@@ -232,7 +247,17 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
       // IMMEDIATE acquires a RESERVED lock at BEGIN time, so a second writer
       // blocks until the first commits and then reads the updated MAX —
       // guaranteeing distinct, monotonically increasing server_seq values.
-      const server_seq = db.transaction(() => {
+      // The CAS check lives INSIDE the same transaction, so the read of the
+      // current seq and the write are atomic with respect to other writers.
+      const outcome = db.transaction((): { written: boolean; server_seq: number } => {
+        if (base !== null) {
+          const cur = db.query(
+            "SELECT server_seq FROM ui_state WHERE key = ?",
+          ).get(key) as { server_seq: number } | null;
+          // An absent row reads as seq 0, so a first write declares base=0.
+          const curSeq = cur?.server_seq ?? 0;
+          if (curSeq !== base) return { written: false, server_seq: curSeq };
+        }
         const { maxSeq } = db.query(
           "SELECT COALESCE(MAX(server_seq), 0) AS maxSeq FROM ui_state",
         ).get() as { maxSeq: number };
@@ -247,9 +272,18 @@ export function createUiStateRouter(ctx: AppContext): RouteHandler {
              updated_at = datetime('now')`,
           [key, value, nextSeq],
         );
-        return nextSeq;
+        return { written: true, server_seq: nextSeq };
       }).immediate();
 
+      if (!outcome.written) {
+        // Someone else moved the row since `base`. Nothing was written and no
+        // broadcast is emitted — the caller's snapshot was built on state that
+        // is no longer current. `sendBeacon` can't read this response, which is
+        // exactly the desired outcome: a dying tab's stale flush simply loses.
+        return json({ error: "stale_base", server_seq: outcome.server_seq }, 409);
+      }
+
+      const server_seq = outcome.server_seq;
       broadcastToAll({ type: "ui-state:updated", key, value: sanitized, payload_version: 2, server_seq, sourceClientId });
       return json({ ok: true, payload_version: 2, server_seq });
     }

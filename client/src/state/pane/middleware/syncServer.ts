@@ -42,6 +42,24 @@ function isAbortError(err: unknown): boolean {
 }
 
 /**
+ * Advance the compare-and-swap base after the SERVER accepts one of our writes.
+ *
+ * Necessary because our own write never comes back through HYDRATE — the
+ * self-echo filter (selfEcho.ts) drops the broadcast it triggers, and that
+ * HYDRATE is the only other thing that moves `lastServerSeq`. Without this the
+ * base would freeze at the last REMOTE frame we saw, and every teardown flush
+ * after any local edit would 409 forever: the gate would be permanently on.
+ *
+ * The ack tells us exactly what we need — the row is now at `server_seq` AND
+ * its content is our snapshot — so this tab is, by definition, current at it.
+ */
+function advanceServerBase(server_seq: number): void {
+  usePaneStore.setState((draft) => {
+    if (server_seq > draft.lastServerSeq) draft.lastServerSeq = server_seq;
+  });
+}
+
+/**
  * Fire a PUT for `key` with inflight-abort semantics. If an older PUT for the
  * same key is in flight it is aborted first. The retry chain uses the same
  * AbortController so a newer PUT arriving mid-backoff cancels the chain.
@@ -50,6 +68,7 @@ async function pushSnapshot(
   key: string,
   snapshot: unknown,
   snapshotSeq: number,
+  baseSeq?: number,
 ): Promise<void> {
   const prior = inflight.get(key);
   if (prior) prior.controller.abort();
@@ -59,7 +78,7 @@ async function pushSnapshot(
   inflight.set(key, entry);
 
   try {
-    await putWithRetry(key, snapshot, controller.signal, 0);
+    await putWithRetry(key, snapshot, controller.signal, 0, baseSeq);
   } finally {
     // Only clear the slot if we're still the registered owner — a newer PUT
     // may have replaced us (prior.controller.abort() on its entry) and we
@@ -73,6 +92,7 @@ async function putWithRetry(
   snapshot: unknown,
   signal: AbortSignal,
   attempt: number,
+  baseSeq?: number,
 ): Promise<void> {
   try {
     // Finding #10: tag the PUT with this tab's id so the server can echo it
@@ -80,7 +100,9 @@ async function putWithRetry(
     // defence-in-depth filter on top of `isSelfEcho(server_seq)` — catches
     // the case where the ack is lost (crash mid-PUT, reconnect) while the
     // broadcast still lands.
-    const res = await fetch(`/api/ui-state/${key}`, {
+    const url =
+      baseSeq === undefined ? `/api/ui-state/${key}` : `/api/ui-state/${key}?base=${baseSeq}`;
+    const res = await fetch(url, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -92,16 +114,24 @@ async function putWithRetry(
     if (res.ok) {
       try {
         const body = (await res.json()) as { server_seq?: number } | null;
-        if (body && typeof body.server_seq === 'number') rememberLocalAck(body.server_seq);
+        if (body && typeof body.server_seq === 'number') {
+          rememberLocalAck(body.server_seq);
+          advanceServerBase(body.server_seq);
+        }
       } catch {
         /* response may be empty / non-JSON; non-fatal */
       }
       return;
     }
+    // 409 = compare-and-swap conflict: someone moved the row past our `base`.
+    // Terminal, never retried — the body we hold is exactly the stale snapshot
+    // the server just refused, so re-sending it can only fail again (or, if the
+    // row settles, succeed at overwriting fresher state, which is the bug).
+    if (res.status === 409) return;
     if (attempt < MAX_RETRIES) {
       await backoffDelay(attempt, signal);
       if (signal.aborted) return;
-      return putWithRetry(key, snapshot, signal, attempt + 1);
+      return putWithRetry(key, snapshot, signal, attempt + 1, baseSeq);
     }
   } catch (err) {
     // AbortError is the coalesce path — a newer PUT took over. Silent.
@@ -113,7 +143,7 @@ async function putWithRetry(
         return;
       }
       if (signal.aborted) return;
-      return putWithRetry(key, snapshot, signal, attempt + 1);
+      return putWithRetry(key, snapshot, signal, attempt + 1, baseSeq);
     }
   }
 }
@@ -145,6 +175,26 @@ function backoffDelay(attempt: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
+ * URL for a TEARDOWN flush, carrying the compare-and-swap base seq.
+ *
+ * Teardown flushes are the one write we cannot trust: the tab may have slept
+ * through another device's changes, and the server stamps every PUT with a
+ * fresh, higher `server_seq` — which is what the HYDRATE gate compares. So a
+ * stale flush doesn't just lose a little state, it OUTRANKS everyone and drags
+ * every other device back in time. `?base=` tells the server "only take this
+ * if the row is still where I last saw it" (routes/ui-state.ts): if another
+ * writer moved on, our flush is dropped with a 409 and nothing is broadcast.
+ *
+ * Only teardown paths declare a base. The debounced PUT keeps writing
+ * unconditionally: it runs milliseconds after a local action on a live tab,
+ * and a 409 there would need a hydrate-and-re-push loop to avoid losing the
+ * user's edit. The dying-tab case has no such need — losing IS the fix.
+ */
+function teardownFlushUrl(baseServerSeq: number): string {
+  return `/api/ui-state/${REMOTE_KEY}?base=${baseServerSeq}`;
+}
+
+/**
  * Fire a PUT immediately via `fetch({ keepalive: true })`. Unlike sendBeacon,
  * keepalive fetch survives the page teardown race AND exposes the Response, so
  * we can parse `server_seq` and call `rememberLocalAck` — critical on the
@@ -168,11 +218,12 @@ function flushNowKeepalive(): void {
   // empty snapshot and clobber the server's good copy (the exact reload-storm
   // pathology the debounce guard fixed, minus this path). Skip the flush.
   if (!hasReceivedServerHydrate()) return;
-  const snap = selectSyncableSnapshot(usePaneStore.getState());
+  const state = usePaneStore.getState();
+  const snap = selectSyncableSnapshot(state);
   void (async () => {
     try {
       // Finding #10: X-Client-Id on the keepalive teardown path too.
-      const res = await fetch(`/api/ui-state/${REMOTE_KEY}`, {
+      const res = await fetch(`${teardownFlushUrl(state.lastServerSeq)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -184,7 +235,10 @@ function flushNowKeepalive(): void {
       if (res.ok) {
         try {
           const body = (await res.json()) as { server_seq?: number } | null;
-          if (body && typeof body.server_seq === 'number') rememberLocalAck(body.server_seq);
+          if (body && typeof body.server_seq === 'number') {
+            rememberLocalAck(body.server_seq);
+            advanceServerBase(body.server_seq);
+          }
         } catch { /* non-JSON response; non-fatal */ }
       }
     } catch {
@@ -207,20 +261,24 @@ function flushNowBeacon(): void {
   // Same boot-time hydrate guard as flushNowKeepalive — a pre-hydrate pagehide
   // must not beacon the empty default store over the server's authoritative copy.
   if (!hasReceivedServerHydrate()) return;
-  const snap = selectSyncableSnapshot(usePaneStore.getState());
+  const state = usePaneStore.getState();
+  const snap = selectSyncableSnapshot(state);
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
     try {
       const blob = new Blob([JSON.stringify(snap)], { type: 'application/json' });
       // Finding #10: sendBeacon can't set custom headers — use the `?cid=`
       // query param instead. Server reads header first, falls back to query.
-      const beaconUrl = `/api/ui-state/${REMOTE_KEY}?cid=${encodeURIComponent(getTabId())}`;
+      // `base` rides the same query string (see teardownFlushUrl): we can't
+      // read the 409 here, and we don't need to — the point is that a stale
+      // beacon from a dying tab is REJECTED rather than winning on seq.
+      const beaconUrl = `${teardownFlushUrl(state.lastServerSeq)}&cid=${encodeURIComponent(getTabId())}`;
       if (navigator.sendBeacon(beaconUrl, blob)) return;
     } catch { /* fall through to fetch */ }
   }
   // Beacon unavailable or failed — last resort; response won't be read but
   // the write may still land if the browser hasn't torn down the process yet.
-  const seq = usePaneStore.getState().lastSeq;
-  void pushSnapshot(REMOTE_KEY, snap, seq);
+  // Still a teardown flush, so it carries the same CAS base.
+  void pushSnapshot(REMOTE_KEY, snap, state.lastSeq, state.lastServerSeq);
 }
 
 export function initServerSync(): void {
@@ -357,6 +415,11 @@ export function __pushSnapshotForTests(
   key: string,
   snapshot: unknown,
   snapshotSeq: number,
+  baseSeq?: number,
 ): Promise<void> {
-  return pushSnapshot(key, snapshot, snapshotSeq);
+  return pushSnapshot(key, snapshot, snapshotSeq, baseSeq);
+}
+/** Test-only — the URL a teardown flush would PUT to for a given base seq. */
+export function __teardownFlushUrlForTests(baseServerSeq: number): string {
+  return teardownFlushUrl(baseServerSeq);
 }
