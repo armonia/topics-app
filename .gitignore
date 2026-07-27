@@ -85,6 +85,7 @@ tasks/
 docs/*
 # ENV.md is the public env-var reference (env audit 2026-07) — committable.
 !docs/ENV.md
+!docs/generative-ui-in-chat-research.md
 
 # Reference repos (local only)
 .reference/
