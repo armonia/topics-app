@@ -79,10 +79,6 @@ export class SettingsPage {
     );
   }
 
-  get themeToggle() {
-    return this.page.locator('[data-testid="settings-theme-toggle"]');
-  }
-
   get themeButtons() {
     return this.panel.locator('button:has-text("Light"), button:has-text("Dark"), button:has-text("System")');
   }
@@ -93,10 +89,6 @@ export class SettingsPage {
 
   get messageDensityButtons() {
     return this.panel.locator('button:has-text("Comfortable"), button:has-text("Compact")');
-  }
-
-  async toggleTheme() {
-    await this.themeToggle.click();
   }
 }
 
