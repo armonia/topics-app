@@ -106,10 +106,8 @@ export function PerfSection() {
     return [...m.entries()].sort((a, b) => b[1].cpu - a[1].cpu).slice(0, 5);
   })();
 
-  // Two real process figures: Topics shell (Tauri) + the Bun server (separate
-  // process). `perf.partial` is true when we could only measure the shell (the
-  // WKWebView content/GPU processes are launchd-reparented, unattributable), so
-  // the breakdown below shows shell + server honestly instead of fabricated 0s.
+  // `perf.partial` is true only where the shell can't attribute its child
+  // processes (Windows/Linux); on macOS these figures now cover the whole app.
   // `perf?.memory` (not just `perf`): a renderer running ahead of an un-rebuilt
   // shell gets a payload without `memory`, so guard the whole block.
   const serverMemMB = status?.server.memoryMB ?? null;
@@ -118,15 +116,24 @@ export function PerfSection() {
   const totalMemMB = mem ? mem.totalMB : serverMemMB;
   const memLabel = mem?.metric === 'footprint' ? 'footprint' : 'RSS';
 
+  // How much of the footprint the OS has had to compress or swap out. Measured at
+  // 6937 MB footprint against 610 MB resident with ~20 browser panes open — the
+  // paging that ratio implies, not the GPU, is what makes the UI stutter, so it
+  // gets said out loud instead of hiding behind a healthy-looking resident figure.
+  const compressedMB = mem && !isPartial ? Math.max(0, mem.totalMB - mem.residentMB) : 0;
+
   // Bottleneck verdict — only the unambiguous calls. We no longer guess "PC
   // saturated by other processes": the top-process list below shows the actual
-  // culprits, so the user reads it directly instead of being told. Under Tauri the
-  // renderer CPU isn't visible (WKWebView XPC), so the load verdict keys off the
-  // shell process instead of the always-0 renderer figure.
+  // culprits, so the user reads it directly instead of being told.
   let verdict: { text: string; color: string } | null = null;
   if (perf && accelerated === false) {
     verdict = { text: 'Accelerazione hardware OFF — causa principale dei pochi FPS', color: 'text-red-500' };
-  } else if (perf && (isPartial ? perf.cpu.total > 100 : perf.cpu.renderer > 80)) {
+  } else if (compressedMB > 2048) {
+    verdict = {
+      text: `${(compressedMB / 1024).toFixed(1)} GB compressi/in swap — chiudi qualche pannello browser`,
+      color: 'text-amber-500',
+    };
+  } else if (perf && perf.cpu.total > 100) {
     verdict = { text: 'Processo Topics sotto carico', color: 'text-amber-500' };
   }
   // No "Fluido" line in the good case: the FPS headline + sparkline above
@@ -165,40 +172,65 @@ export function PerfSection() {
       {perf && !isPartial && (
         <div className="grid grid-cols-4 gap-1.5">
           <PerfStat
-            label="CPU renderer"
+            label="CPU Topics"
             className="col-span-2"
-            value={`${perf.cpu.renderer}%`}
-            color={perf.cpu.renderer > 80 ? 'text-amber-500' : 'text-app-text'}
-            title="CPU del renderer di Topics — somma per-processo, può superare 100% come in Activity Monitor"
+            value={`${perf.cpu.total}%`}
+            color={perf.cpu.total > 100 ? 'text-amber-500' : 'text-app-text'}
+            title={`CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) — somma per-core, può superare 100% come in Activity Monitor`}
           />
           <PerfStat
-            label="CPU GPU"
-            className="col-span-2"
+            label="Renderer"
+            value={`${perf.cpu.renderer}%`}
+            title="CPU dei processi WKWebView di contenuto — uno per pannello browser"
+          />
+          <PerfStat
+            label="GPU"
             value={`${perf.cpu.gpu}%`}
-            color={undefined}
-            title="CPU del processo GPU/compositor di Topics — somma per-processo"
+            title="CPU del processo GPU/compositor di Topics"
           />
         </div>
       )}
 
-      {/* Memory — the honest process figures. Under Tauri (`isPartial`) we can only
-          measure the shell process, so we show Topics (shell) + the Bun server as
-          the two real numbers, NOT a fabricated renderer/GPU/other breakdown. */}
+      {/* Memory — the honest process figures. Where the shell can attribute its
+          children (macOS) this is the WHOLE app; `isPartial` keeps the old
+          shell-only labelling truthful everywhere else. */}
       <div
         className="flex items-center justify-between px-0.5 pt-0.5"
         title={isPartial
-          ? 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli): macOS li scorpora sotto launchd e non sono attribuibili. Il server Bun è un processo separato (tile a parte).'
+          ? 'Memoria del processo shell di Topics (RSS). NON include i processi WKWebView (contenuto browser dei pannelli). Il server Bun è un processo separato (tile a parte).'
           : memLabel === 'footprint'
-            ? 'Footprint dei processi di Topics — ≈ il valore di Activity Monitor. Il server Bun è un processo separato (tile a parte).'
+            ? `Footprint di TUTTI i ${mem?.processCount ?? '?'} processi di Topics (shell + WKWebView dei pannelli) — lo stesso valore della colonna "Memoria" di Activity Monitor. Il server Bun è un processo separato (tile a parte).`
             : 'Memoria residente (RSS) dei processi di Topics. Activity Monitor mostra un valore più alto (footprint).'}
       >
         <span className="flex items-center gap-1.5 text-[11px] text-app-text-muted">
-          <HardDrive size={12} /> Memoria <span className="text-[9px] opacity-60">{isPartial ? 'shell · RSS' : memLabel}</span>
+          <HardDrive size={12} /> Memoria{' '}
+          <span className="text-[9px] opacity-60">
+            {isPartial ? 'shell · RSS' : `${mem?.processCount ?? '?'} processi · ${memLabel}`}
+          </span>
         </span>
         <span className="tabular-nums text-[13px] font-semibold text-app-text">
           {totalMemMB !== null ? `${totalMemMB} MB` : '—'}
         </span>
       </div>
+      {/* The resident slice. Without it the footprint headline is unreadable: the
+          user can't tell "6 GB in RAM" (bad) from "6 GB of which 600 MB in RAM,
+          the rest compressed" (bad differently, and fixed by closing panes). */}
+      {!isPartial && mem && (
+        <div
+          className="flex items-center justify-between px-0.5 text-[10px] text-app-text-muted"
+          title="Quanta di quella memoria è davvero nella RAM fisica adesso. Il resto lo ha compresso o spostato in swap il sistema: rientrarci costa tempo, ed è quello che fa scattare l'interfaccia."
+        >
+          <span>di cui in RAM</span>
+          <span className="tabular-nums">
+            {mem.residentMB} MB
+            {compressedMB > 0 && (
+              <span className={compressedMB > 2048 ? 'text-amber-500' : ''}>
+                {' '}· {compressedMB} MB compressi
+              </span>
+            )}
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-4 gap-1.5">
         {isPartial && mem ? (
           <>

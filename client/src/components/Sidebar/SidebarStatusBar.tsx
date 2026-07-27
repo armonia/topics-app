@@ -138,26 +138,35 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
     } catch { return false; }
   });
 
-  // The two REAL process figures: the Topics shell (Tauri) and the Bun server (a
-  // separate OS process). We do NOT invent a whole-app total — the WKWebView
-  // content/GPU processes aren't attributable, so `perf.partial` is true and the
-  // headline is honestly the shell figure with the caveat in its tooltip.
+  // The headline is the WHOLE app: shell + every WKWebView process macOS
+  // attributes to it, the same set (and the same footprint metric) Activity
+  // Monitor groups under "Topics". It used to be the shell process alone —
+  // measured, that read 59 MB while the app really held 6937 MB across 24
+  // processes, so the one number the status bar exists to show was off by ~100x.
+  // `perf.partial` still guards platforms with no attribution API.
   const serverMemMB = status?.server.memoryMB ?? null;
   // Optional-chain `memory`: it crosses the IPC boundary, so a renderer running
   // ahead of a not-yet-rebuilt shell (auto-update / partial deploy) can see an old
   // payload without `memory`. `?.memory?.` degrades to the server-only fallback
-  // instead of throwing. Every read below is gated on shellMemMB, so a non-null
+  // instead of throwing. Every read below is gated on appMemMB, so a non-null
   // value guarantees perf.memory exists.
   const memMetric = perf?.memory?.metric;
   const isPartialMem = perf?.partial ?? false;
-  const shellMemMB = perf?.memory?.totalMB ?? null;
-  const totalMemMB = shellMemMB !== null ? shellMemMB : serverMemMB;
-  // No whole-app number exists to threshold on; flag only a shell process that is
-  // itself heavy (the old >3072 MB "app total" alarm could never fire on a
-  // shell-only figure, so it was dead).
-  const memHigh = shellMemMB !== null ? shellMemMB > 1024 : (serverMemMB ?? 0) > 512;
-  const memTitle = shellMemMB !== null
-    ? `Topics (processo shell): ${shellMemMB} MB — ${memMetric === 'footprint' ? 'footprint, ≈ Activity Monitor' : 'memoria residente (RSS)'}${isPartialMem ? '\n· NON include i processi WKWebView (contenuto browser dei pannelli): macOS li scorpora sotto launchd' : ''}\n· server Bun (processo separato): ${serverMemMB ?? '—'} MB`
+  const appMemMB = perf?.memory?.totalMB ?? null;
+  const residentMemMB = perf?.memory?.residentMB ?? null;
+  const procCount = perf?.memory?.processCount ?? null;
+  const totalMemMB = appMemMB !== null ? appMemMB : serverMemMB;
+  // Whole-app figures can legitimately be large, so the alarm sits where it was
+  // always meant to (>3 GB); a partial reading is shell-only and keeps its own
+  // much lower bar.
+  const memHigh = appMemMB !== null
+    ? appMemMB > (isPartialMem ? 1024 : 3072)
+    : (serverMemMB ?? 0) > 512;
+  const memTitle = appMemMB !== null
+    ? (isPartialMem
+        ? `Topics (processo shell): ${appMemMB} MB — ${memMetric === 'footprint' ? 'footprint' : 'memoria residente (RSS)'}\n· NON include i processi WKWebView (contenuto browser dei pannelli)`
+        : `Topics, ${procCount ?? '?'} processi: ${appMemMB} MB di footprint — lo stesso valore di Activity Monitor\n· di cui in RAM adesso: ${residentMemMB ?? '—'} MB (il resto è compresso o in swap)`
+      ) + `\n· server Bun (processo separato): ${serverMemMB ?? '—'} MB`
     : status
       ? `Processo server: ${serverMemMB} MB (heap ${status.server.heapUsedMB} MB) — la memoria dell'app è disponibile solo nell'app desktop`
       : '';
@@ -320,17 +329,20 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
               className={`flex-shrink-0 text-app-text-muted tabular-nums ${memHigh ? 'text-amber-500' : ''}`}
               title={memTitle}
             >
-              {totalMemMB}MB
+              {/* Whole-app footprint runs to several GB with many panes open;
+                  "6937MB" in a status bar is a wall of digits, so switch unit. */}
+              {totalMemMB >= 1024 ? `${(totalMemMB / 1024).toFixed(1)}GB` : `${totalMemMB}MB`}
             </span>
           )}
-          {/* Only shown with a real reading: cpu.total is 0 until the shell CPU
-              baseline lands (and 0 on an idle shell), so a persistent "0%" would
-              look fabricated — better to hide than to show a number we don't
-              measure. It's the shell process alone (WKWebView content excluded). */}
+          {/* Only shown with a real reading: cpu.total is 0 until the CPU baseline
+              lands (and 0 on a fully idle app), so a persistent "0%" would look
+              fabricated — better to hide than to show a number we don't measure. */}
           {perf && perf.cpu.total > 0 && (
             <span
               className={`flex-shrink-0 text-app-text-muted tabular-nums ${perf.cpu.total > 100 ? 'text-amber-500' : ''}`}
-              title={`CPU processo shell di Topics: ${perf.cpu.total}%${isPartialMem ? ' — non include i processi WKWebView dei pannelli' : ''} · può superare 100% (per core)`}
+              title={isPartialMem
+                ? `CPU processo shell di Topics: ${perf.cpu.total}% — non include i processi WKWebView dei pannelli · può superare 100% (per core)`
+                : `CPU di tutti i ${procCount ?? '?'} processi di Topics: ${perf.cpu.total}% · può superare 100% (per core)`}
             >
               {perf.cpu.total}%
             </span>

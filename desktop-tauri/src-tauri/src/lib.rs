@@ -69,20 +69,151 @@ fn register_ui_webview(window: &tauri::WebviewWindow, label: &str) {
     }
 }
 
-/// Per-process footprint, mirroring (a subset of) the Electron `perf.getMetrics`
-/// shape so the status-bar dropdown can show the real desktop RAM/CPU. NOTE: on
-/// macOS the WKWebView content/GPU/network processes are XPC services reparented
-/// to launchd, so attributing them to this app from sysinfo is unreliable; we
-/// report the shell process here and refine attribution later.
+/// Whole-app footprint, mirroring (a subset of) the Electron `perf.getMetrics`
+/// shape so the status-bar dropdown can show the real desktop RAM/CPU.
+///
+/// This used to be the SHELL PROCESS ONLY (`partial: true`), on the belief that
+/// the WKWebView content/GPU/networking XPC services — reparented to launchd, so
+/// invisible to any ppid walk — "can't be attributed without private APIs". That
+/// was wrong, and expensively so: measured on Attilio's box the shell alone reads
+/// 59 MB while the app really owns 24 processes and 6.9 GB of footprint. The
+/// status bar was understating usage by ~100x. See `responsible_pids`.
 #[derive(Serialize)]
 struct PerfMetrics {
     version: String,
-    /// Resident memory of the shell process, in MB.
+    /// Whole-app memory footprint in MB — this is Activity Monitor's "Memory"
+    /// column (`phys_footprint`), so the user can cross-check it there and get
+    /// the same number. Includes memory the OS has compressed or swapped out,
+    /// which is the point: that memory is still the app's, and paging it back in
+    /// is exactly what makes the UI stutter.
     total_mb: f64,
-    /// CPU usage percent of the shell process (single-sample; approximate).
+    /// The slice of `total_mb` currently resident in physical RAM. The gap
+    /// between the two IS the compression/swap pressure the app is generating.
+    resident_mb: f64,
+    /// Footprint of the WKWebView CONTENT processes — one per pane, and where
+    /// essentially all of the app's memory actually lives.
+    renderer_mb: f64,
+    /// Footprint of the shared WKWebView GPU process.
+    gpu_mb: f64,
+    /// Everything else in the set: the shell itself, WKWebView Networking, and
+    /// the platform-support helpers.
+    other_mb: f64,
+    /// CPU usage percent summed over the whole process set (delta-based).
     cpu_percent: f32,
-    /// Whether the figure is the full app footprint or just the shell process.
+    /// The `cpu_percent` share burnt by the WKWebView content processes...
+    cpu_renderer: f32,
+    /// ...and by the GPU/compositor process. Same buckets as the memory split,
+    /// so the dropdown's CPU and memory rows describe the same partition.
+    cpu_gpu: f32,
+    /// How many processes the figures cover (1 = shell only).
+    process_count: u32,
+    /// True when the figure covers only the shell process. Now false on macOS;
+    /// still true elsewhere, where we have no equivalent attribution API.
     partial: bool,
+}
+
+// macOS process-responsibility + libproc entry points, declared by hand: they
+// live in `/usr/lib/libSystem.B.dylib` and are what Activity Monitor itself
+// groups by, but they have no crate binding here.
+//
+// `responsibility_get_pid_responsible_for_pid` is the one that matters. WebKit's
+// XPC services are reparented to launchd, so ppid is useless — but the kernel
+// keeps a SEPARATE "responsible process" link that survives reparenting, and it
+// resolves each WebContent/GPU/Networking helper back to the app that opened it.
+// It needs no entitlement and no root (verified on macOS 26: Mail→6 procs,
+// Topics→24). It is not in a public header, hence the manual extern.
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn responsibility_get_pid_responsible_for_pid(pid: i32) -> i32;
+    fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut u64) -> i32;
+    fn proc_listpids(idtype: u32, typeinfo: u32, buffer: *mut i32, buffersize: i32) -> i32;
+}
+
+/// How long a discovered pid set is reused. Enumerating every process on the box
+/// and asking the kernel who is responsible for each is a full-table scan (~600
+/// processes); the set only changes when a pane opens or closes, so the polls in
+/// between just re-read rusage for the pids we already know. Keeps the status-bar
+/// poll off the very CPU budget this readout exists to protect.
+#[cfg(target_os = "macos")]
+const PERF_PID_SET_TTL: std::time::Duration = std::time::Duration::from_secs(10);
+
+#[cfg(target_os = "macos")]
+static PERF_PIDS: std::sync::OnceLock<
+    std::sync::Mutex<(Option<std::time::Instant>, Vec<i32>)>,
+> = std::sync::OnceLock::new();
+
+/// Every pid macOS holds THIS process responsible for — the shell plus its
+/// reparented WKWebView XPC services — cached for `PERF_PID_SET_TTL`.
+#[cfg(target_os = "macos")]
+fn responsible_pids(own: i32) -> Vec<i32> {
+    let cell = PERF_PIDS.get_or_init(|| std::sync::Mutex::new((None, Vec::new())));
+    // Recover a poisoned lock rather than panic: a prior panicked holder must not
+    // permanently break the diagnostics readout.
+    let mut guard = cell.lock().unwrap_or_else(|e| e.into_inner());
+    let fresh = guard
+        .0
+        .is_some_and(|at| at.elapsed() < PERF_PID_SET_TTL);
+    if fresh && !guard.1.is_empty() {
+        return guard.1.clone();
+    }
+    let scanned = scan_responsible_pids(own);
+    *guard = (Some(std::time::Instant::now()), scanned.clone());
+    scanned
+}
+
+#[cfg(target_os = "macos")]
+fn scan_responsible_pids(own: i32) -> Vec<i32> {
+    const PROC_ALL_PIDS: u32 = 1;
+    // Sizing call (null buffer) returns the byte count currently needed.
+    let needed = unsafe { proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
+    if needed <= 0 {
+        return vec![own];
+    }
+    // Headroom: processes can be spawned between the sizing call and the fill.
+    let cap = needed as usize / std::mem::size_of::<i32>() + 64;
+    let mut buf = vec![0i32; cap];
+    let written = unsafe {
+        proc_listpids(
+            PROC_ALL_PIDS,
+            0,
+            buf.as_mut_ptr(),
+            (cap * std::mem::size_of::<i32>()) as i32,
+        )
+    };
+    if written <= 0 {
+        return vec![own];
+    }
+    let mut out = vec![own];
+    for &pid in buf.iter().take(written as usize / std::mem::size_of::<i32>()) {
+        // 0 padding from the tail of the buffer, and our own pid (already in).
+        if pid <= 0 || pid == own {
+            continue;
+        }
+        // Dead or protected pids answer 0 or -1 — neither of which is `own`.
+        if unsafe { responsibility_get_pid_responsible_for_pid(pid) } == own {
+            out.push(pid);
+        }
+    }
+    out
+}
+
+/// `(phys_footprint, resident_size)` for a pid, in bytes.
+///
+/// `proc_pid_rusage` fills a `rusage_info_v2`, whose `rusage_info_v0` prefix is a
+/// fixed run of u64 slots: [0..=1] `ri_uuid`, 2 `ri_user_time`, 3 `ri_system_time`,
+/// 4 `ri_pkg_idle_wkups`, 5 `ri_interrupt_wkups`, 6 `ri_pageins`, 7 `ri_wired_size`,
+/// 8 `ri_resident_size`, 9 `ri_phys_footprint`. Indices verified by measurement,
+/// not by eyeballing the header: slot 8 matched `ps -o rss` exactly (605 MB).
+#[cfg(target_os = "macos")]
+fn proc_memory(pid: i32) -> Option<(u64, u64)> {
+    const RUSAGE_INFO_V2: i32 = 2;
+    // rusage_info_v2 is far smaller than this; oversizing means a future flavour
+    // that returns more can't scribble past the buffer.
+    let mut buf = [0u64; 64];
+    if unsafe { proc_pid_rusage(pid, RUSAGE_INFO_V2, buf.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    Some((buf[9], buf[8]))
 }
 
 /// Persisted System so `cpu_usage()` is a REAL delta. sysinfo derives per-process
@@ -97,26 +228,126 @@ static PERF_SYS: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> = std::s
 fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
     let version = app.package_info().version.to_string();
     let sys_mutex = PERF_SYS.get_or_init(|| std::sync::Mutex::new(sysinfo::System::new()));
-    let (total_mb, cpu_percent) = match sysinfo::get_current_pid() {
-        Ok(pid) => {
-            // Recover a poisoned lock rather than panic the whole command: a prior
-            // panicked holder must not permanently break the diagnostics readout.
-            let mut sys = sys_mutex.lock().unwrap_or_else(|e| e.into_inner());
-            sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-            match sys.process(pid) {
-                // Memory is absolute (correct on the first call); CPU is a delta,
-                // so it reads 0.0 until the second poll establishes a baseline.
-                Some(p) => ((p.memory() as f64) / 1_048_576.0, p.cpu_usage()),
-                None => (0.0, 0.0),
+    let own = match sysinfo::get_current_pid() {
+        Ok(pid) => pid,
+        Err(_) => {
+            return PerfMetrics {
+                version,
+                total_mb: 0.0,
+                resident_mb: 0.0,
+                renderer_mb: 0.0,
+                gpu_mb: 0.0,
+                other_mb: 0.0,
+                cpu_percent: 0.0,
+                cpu_renderer: 0.0,
+                cpu_gpu: 0.0,
+                process_count: 0,
+                partial: true,
             }
         }
-        Err(_) => (0.0, 0.0),
     };
-    // `partial: true` — this is the shell process ONLY. The WKWebView content/GPU/
-    // networking XPC processes (where the real per-pane RAM lives) are reparented
-    // to launchd on macOS and can't be attributed without private APIs, so the JS
-    // side must label this honestly as the shell figure, not the whole-app total.
-    PerfMetrics { version, total_mb, cpu_percent, partial: true }
+
+    // The process set the figures cover. On macOS that's the whole app (shell +
+    // every WKWebView XPC service the kernel attributes to us); elsewhere we have
+    // no equivalent API, so it stays the shell alone and `partial` says so.
+    #[cfg(target_os = "macos")]
+    let (pids, partial) = (responsible_pids(own.as_u32() as i32), false);
+    #[cfg(not(target_os = "macos"))]
+    let (pids, partial) = (vec![own.as_u32() as i32], true);
+
+    // CPU still comes from sysinfo: it derives per-process CPU from the change in
+    // CPU time between refreshes, and PERF_SYS persists so each poll diffs against
+    // the previous one. Refreshing only OUR pids keeps this off the full process
+    // table. Reads 0.0 until the second poll establishes a baseline.
+    let sysinfo_pids: Vec<sysinfo::Pid> = pids
+        .iter()
+        .map(|&p| sysinfo::Pid::from_u32(p as u32))
+        .collect();
+    // Which bucket a process falls in. The same partition drives both the CPU and
+    // the memory rows of the dropdown, so the two describe the same thing.
+    enum Bucket {
+        Renderer,
+        Gpu,
+        Other,
+    }
+    fn bucket(name: &str) -> Bucket {
+        if name.contains("WebContent") {
+            Bucket::Renderer
+        } else if name.contains("GPU") {
+            Bucket::Gpu
+        } else {
+            Bucket::Other
+        }
+    }
+
+    let mut cpu_percent = 0.0f32;
+    let mut cpu_renderer = 0.0f32;
+    let mut cpu_gpu = 0.0f32;
+    let mut buckets: std::collections::HashMap<i32, Bucket> = std::collections::HashMap::new();
+    {
+        let mut sys = sys_mutex.lock().unwrap_or_else(|e| e.into_inner());
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&sysinfo_pids), true);
+        for (raw, spid) in pids.iter().zip(sysinfo_pids.iter()) {
+            let Some(p) = sys.process(*spid) else { continue };
+            let cpu = p.cpu_usage();
+            cpu_percent += cpu;
+            let b = bucket(&p.name().to_string_lossy());
+            match b {
+                Bucket::Renderer => cpu_renderer += cpu,
+                Bucket::Gpu => cpu_gpu += cpu,
+                Bucket::Other => {}
+            }
+            buckets.insert(*raw, b);
+        }
+    }
+
+    // Memory does NOT come from sysinfo: its `memory()` is resident size, which
+    // for these panes is wildly misleading — measured, 20 WebContent processes
+    // reported 6374 MB of footprint against ~130 MB resident, because the OS had
+    // compressed the rest. Resident alone would have told the user everything was
+    // fine while the machine paged itself to death. So we read both from rusage
+    // and report footprint as the headline, resident as the honest qualifier.
+    let mut footprint = 0u64;
+    let mut resident = 0u64;
+    let mut renderer = 0u64;
+    let mut gpu = 0u64;
+    for &pid in &pids {
+        #[cfg(target_os = "macos")]
+        let sample = proc_memory(pid);
+        // No responsibility/rusage equivalent off macOS: fall back to sysinfo's
+        // resident size for both figures, which is all `partial: true` promises.
+        #[cfg(not(target_os = "macos"))]
+        let sample = {
+            let sys = sys_mutex.lock().unwrap_or_else(|e| e.into_inner());
+            sys.process(sysinfo::Pid::from_u32(pid as u32))
+                .map(|p| (p.memory(), p.memory()))
+        };
+        let Some((pf, rs)) = sample else { continue };
+        footprint += pf;
+        resident += rs;
+        match buckets.get(&pid) {
+            Some(Bucket::Renderer) => renderer += pf,
+            Some(Bucket::Gpu) => gpu += pf,
+            _ => {}
+        }
+    }
+    const MB: f64 = 1_048_576.0;
+
+    PerfMetrics {
+        version,
+        total_mb: footprint as f64 / MB,
+        resident_mb: resident as f64 / MB,
+        renderer_mb: renderer as f64 / MB,
+        gpu_mb: gpu as f64 / MB,
+        // Derived, so the four buckets always add up to the headline exactly —
+        // no rounding drift between "other" and the parts we did classify.
+        other_mb: footprint.saturating_sub(renderer + gpu) as f64 / MB,
+        cpu_percent,
+        cpu_renderer,
+        cpu_gpu,
+        process_count: pids.len() as u32,
+        partial,
+    }
 }
 
 /// Loopback port the WKWebView reaches the data server through (plain HTTP/WS).
@@ -2787,6 +3018,41 @@ fn browser_set_bounds_inner(
     #[cfg(not(target_os = "macos"))]
     let _ = radius;
     Ok(())
+}
+
+/// Really show/hide a browser pane's native webview.
+///
+/// The inherited way to "hide" a pane is `browser_set_bounds({0,0,0,0})` — an
+/// ELECTRON workaround (WebContentsView exposes no setVisible) that we carried
+/// over unexamined. It does not hide anything as far as WebKit is concerned:
+/// visibility is derived from `isHiddenOrHasHiddenAncestor` + window occlusion,
+/// never from the rect. A zero-sized pane is therefore a fully VISIBLE page —
+/// rAF keeps firing, timers stay unthrottled, and WebKit never runs the
+/// background-page memory reclaim.
+///
+/// What that cost, measured on Attilio's box: 20 live WebContent processes
+/// holding 6374 MB of footprint against ~130 MB actually resident. The OS had
+/// compressed the difference and the machine sat at 23.7/24 GB of swap — the
+/// paging, not the GPU, is what made the UI stutter with many panes open.
+///
+/// `hide()` maps to `setHidden:` (wry `set_visible`), which flips WebKit's
+/// ActivityState::IsVisible: the page goes to visibilityState "hidden", rAF
+/// stops, timers throttle, and the content process becomes reclaimable. This is
+/// what Safari does to background tabs. Bounds are deliberately left untouched
+/// while hidden, so re-showing is instant and needs no geometry round-trip.
+#[tauri::command]
+fn browser_set_visible(app: tauri::AppHandle, id: String, visible: bool) -> Result<(), String> {
+    no_abort("browser_set_visible", move || {
+        use tauri::Manager;
+        let wv = app
+            .get_webview(&browser_label(&id))
+            .ok_or("no such browser pane")?;
+        if visible {
+            wv.show().map_err(|e| e.to_string())
+        } else {
+            wv.hide().map_err(|e| e.to_string())
+        }
+    })
 }
 
 /// Sidebar-slide handoff: land a browser pane's FIXED-duration move on the Core
@@ -6342,6 +6608,7 @@ pub fn run() {
             browser_open,
             browser_navigate,
             browser_set_bounds,
+            browser_set_visible,
             browser_animate_bounds,
             browser_close,
             browser_eval_js,

@@ -4,22 +4,32 @@ import { tauriInvoke } from '../lib/shell/tauri';
 
 export interface PerfMetrics {
   version: string;
-  /** CPU % of the measured process(es). Under Tauri only `total` (the shell
-   *  process) is real; `renderer`/`gpu` stay 0 because WKWebView's content/GPU
-   *  processes aren't attributable (see `partial`). `total` is 0 until the second
-   *  poll establishes a CPU baseline — callers should treat 0 as "no reading". */
+  /** CPU % summed over the measured processes, split into the same buckets as
+   *  `memory`. Per-core like Activity Monitor, so a sum can exceed 100%. `total`
+   *  is 0 until the second poll establishes a baseline — callers should treat 0
+   *  as "no reading". */
   cpu: { renderer: number; gpu: number; total: number };
-  /** Process memory in MB. Under Tauri this is the SHELL process only (`partial`
-   *  true, `metric` 'rss'): `rendererMB`/`gpuMB`/`otherMB` are 0 and `totalMB` is
-   *  the shell RSS — NOT the whole-app footprint. `metric` 'footprint' would be
-   *  the Activity-Monitor-equivalent figure but no current shell reports it. */
-  memory: { totalMB: number; rendererMB: number; gpuMB: number; otherMB: number; processCount: number; metric: 'footprint' | 'rss' };
+  /** Process memory in MB, covering the WHOLE app on macOS: the shell plus every
+   *  WKWebView XPC service the kernel attributes to us. `metric` is 'footprint'
+   *  there — the same `phys_footprint` Activity Monitor's "Memory" column shows,
+   *  so the two agree. `residentMB` is the slice actually in physical RAM; the
+   *  gap between it and `totalMB` is memory the OS has compressed or swapped,
+   *  which is what makes the UI stutter when it has to be paged back in. */
+  memory: {
+    totalMB: number;
+    residentMB: number;
+    rendererMB: number;
+    gpuMB: number;
+    otherMB: number;
+    processCount: number;
+    metric: 'footprint' | 'rss';
+  };
   gpu: { accelerated: boolean; compositing: string; webgl: string };
-  /** True when `memory.totalMB`/`cpu.total` cover only the shell process, not the
-   *  full multi-process app. Always true on Tauri today: the macOS WKWebView
-   *  content/GPU/networking XPC processes are reparented to launchd and can't be
-   *  attributed without private APIs. The UI MUST NOT present a partial figure as
-   *  the whole-app total. */
+  /** True when the figures cover only the shell process rather than the full
+   *  multi-process app — the UI MUST NOT present a partial figure as the
+   *  whole-app total. False on macOS since the shell learned to attribute the
+   *  reparented WKWebView XPC services (`responsibility_get_pid_responsible_for_pid`);
+   *  still true on Windows/Linux, which have no equivalent API. */
   partial: boolean;
 }
 
@@ -50,21 +60,48 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
   const [metrics, setMetrics] = useState<PerfMetrics | null>(null);
 
   useEffect(() => {
-    // Tauri's perf_metrics command reports the shell process only (content/GPU are
-    // launchd-reparented XPC — honest multi-process attribution is a later phase),
-    // so map its small shape onto PerfMetrics with zeroed sub-process figures, a
-    // 'rss' metric, and the command's own `partial` flag carried through so the UI
-    // can label it truthfully. Web has no native process introspection (null).
+    // Tauri's perf_metrics command aggregates the whole app on macOS and reports
+    // footprint (Activity-Monitor-equivalent) plus the resident slice and a
+    // renderer/gpu/other split. Its own `partial` flag is carried through rather
+    // than assumed, so the UI keeps labelling non-macOS shells truthfully. Web has
+    // no native process introspection (null).
     const getMetrics: (() => Promise<PerfMetrics>) | null =
       isTauri
         ? async () => {
-            const m = await tauriInvoke<{ version: string; total_mb: number; cpu_percent: number; partial: boolean }>('perf_metrics');
+            const m = await tauriInvoke<{
+              version: string;
+              total_mb: number;
+              resident_mb: number;
+              renderer_mb: number;
+              gpu_mb: number;
+              other_mb: number;
+              cpu_percent: number;
+              cpu_renderer: number;
+              cpu_gpu: number;
+              process_count: number;
+              partial: boolean;
+            }>('perf_metrics');
+            const partial = m.partial ?? true;
             return {
               version: m.version,
-              cpu: { renderer: 0, gpu: 0, total: Math.round(m.cpu_percent) },
-              memory: { totalMB: Math.round(m.total_mb), rendererMB: 0, gpuMB: 0, otherMB: 0, processCount: 1, metric: 'rss' },
+              cpu: {
+                renderer: Math.round(m.cpu_renderer ?? 0),
+                gpu: Math.round(m.cpu_gpu ?? 0),
+                total: Math.round(m.cpu_percent),
+              },
+              memory: {
+                totalMB: Math.round(m.total_mb),
+                residentMB: Math.round(m.resident_mb ?? m.total_mb),
+                rendererMB: Math.round(m.renderer_mb ?? 0),
+                gpuMB: Math.round(m.gpu_mb ?? 0),
+                otherMB: Math.round(m.other_mb ?? 0),
+                processCount: m.process_count || 1,
+                // A partial reading is the shell's own resident size, not a
+                // footprint — don't mislabel it as the Activity Monitor figure.
+                metric: partial ? 'rss' : 'footprint',
+              },
               gpu: TAURI_GPU,
-              partial: m.partial ?? true,
+              partial,
             };
           }
         : null;
