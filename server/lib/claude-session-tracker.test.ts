@@ -314,6 +314,12 @@ describe('ClaudeSessionTracker — live JSONL tail (tailOnce)', () => {
     // The Monitor fires: Claude appends the injected turn to the transcript.
     // No hook announces it — the tail is the only observer.
     writeFileSync(join(dir, 'term-1.jsonl'), taskNotifLine(T0 + 5_000));
+    // Drain the parking hooks' coalesced broadcast BEFORE clearing, exactly as
+    // the sibling test below does: ingestHook arms a 20ms timer, and clearing
+    // the buffer with that flush still in flight lets it land afterwards and be
+    // counted as a second event. Isolated it always wins the race; under the
+    // full suite's load it doesn't.
+    await rec.waitForBroadcast();
     rec.events.length = 0;
     const updated = await trk.tailOnce(T0 + 6_000);
     expect(updated).toBe(1);
