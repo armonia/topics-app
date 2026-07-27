@@ -294,11 +294,6 @@ export function toolNameToEndpoint(name: string): string {
   return name.replace(/^browser_/, "").replace(/_/g, "-");
 }
 
-/** Reverse of toolNameToEndpoint: REST endpoint slug → `browser_*` tool name. */
-export function endpointToToolName(endpoint: string): string {
-  return "browser_" + endpoint.replace(/-/g, "_");
-}
-
 /** Browser tools bridged generically over REST (endpoint slug → tool name). */
 export const BRIDGED_BROWSER_ENDPOINTS: Record<string, string> = Object.fromEntries(
   BROWSER_TOOL_SPECS.filter((s) => s.surfaces.mcp).map((s) => [

@@ -39,17 +39,6 @@ interface MemoryNode {
 
 const contextAnalysisCache = new Map<string, { data: ContextAnalysisResult; timestamp: number }>();
 
-export function invalidateContextCache(topicId: string) {
-  // Cache keys are `${topicId}::${providerName}` since change
-  // `topic-context-canonical` (provider strategy can shape the envelope).
-  // Clear every entry for this topic regardless of provider.
-  for (const key of contextAnalysisCache.keys()) {
-    if (key === topicId || key.startsWith(`${topicId}::`)) {
-      contextAnalysisCache.delete(key);
-    }
-  }
-}
-
 export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
   const { json, matchRoute, loadTopics, OPENCLAW_DIR } = ctx;
   const WORKSPACE_DIR = join(OPENCLAW_DIR, "workspace");

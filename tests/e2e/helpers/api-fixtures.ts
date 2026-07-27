@@ -396,20 +396,6 @@ export async function deleteTask(
 
 // --- Agent profile fixtures ---
 
-export async function createAgentProfile(
-  request: APIRequestContext,
-  name: string,
-  opts?: { model?: string; systemPrompt?: string }
-): Promise<{ id: string; name: string; model: string }> {
-  const res = await request.post(`${BASE}/api/agents/profiles`, {
-    data: { name, ...opts },
-    ignoreHTTPSErrors: true,
-  });
-  if (!res.ok())
-    throw new Error(`Failed to create agent profile: ${res.status()}`);
-  return res.json() as Promise<{ id: string; name: string; model: string }>;
-}
-
 export async function deleteAgentProfile(
   request: APIRequestContext,
   id: string

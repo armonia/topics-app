@@ -9,55 +9,6 @@
  */
 import type { Page, Locator } from "@playwright/test";
 
-export interface DragOptions {
-  /** Number of intermediate mouse move steps (default: 10) */
-  steps?: number;
-  /** Initial small move to trigger dnd-kit activation (default: 5px) */
-  activationDistance?: number;
-}
-
-/**
- * Perform a dnd-kit compatible drag from source to target.
- * Uses manual pointer events with intermediate steps for collision detection.
- */
-export async function dndDrag(
-  page: Page,
-  source: Locator,
-  target: Locator,
-  opts: DragOptions = {}
-) {
-  const { steps = 10, activationDistance = 5 } = opts;
-
-  const sourceBox = await source.boundingBox();
-  const targetBox = await target.boundingBox();
-  if (!sourceBox || !targetBox)
-    throw new Error("Source or target not visible for drag");
-
-  const startX = sourceBox.x + sourceBox.width / 2;
-  const startY = sourceBox.y + sourceBox.height / 2;
-  const endX = targetBox.x + targetBox.width / 2;
-  const endY = targetBox.y + targetBox.height / 2;
-
-  // Move to source center and press
-  await page.mouse.move(startX, startY);
-  await page.mouse.down();
-
-  // Small initial move to pass dnd-kit distance activation threshold
-  await page.mouse.move(
-    startX + activationDistance,
-    startY + activationDistance,
-    { steps: 3 }
-  );
-
-  // Move to target with intermediate steps for collision detection
-  await page.mouse.move(endX, endY, { steps });
-
-  // Final hover to ensure drop zone registration
-  await page.mouse.move(endX, endY);
-
-  await page.mouse.up();
-}
-
 /**
  * Drag within a vertical sortable list to reorder items.
  * Offsets the target position to place above or below the target element.

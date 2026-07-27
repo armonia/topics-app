@@ -97,8 +97,6 @@ export const dashboardApi = mk({
   getKPIs: async () => ({ throughputDay: 12, throughputWeek: 64, avgCycleTimeHours: 3.2, wipCount: 4, errorRate: 0.02, tokenSpendDay: 1.4, tokenSpendWeek: 9.1, agentUtilization: 0.62, approvalTurnaroundHours: 1.1, pendingApprovals: 0 }),
   getTimeSeries: async () => ([]), getAgentStats: async () => ([]),
 });
-export const boardMemoryApi = mk({ list: async () => ([]) });
-export const agentActionsApi = mk({});
 export const providersApi = mk({ snapshot: async () => ({ providers: [], defaultProvider: null, generatedAt: now() }) });
 export const projectsApi = mk({ list: async () => ({ projects: [{ path: "/demo/topics-app", name: "topics-app" }] }) });
 export const worktreesApi = mk({ list: async () => ([]) });
@@ -107,8 +105,3 @@ export function getMediaUrl(path: string): string { return path || ""; }
 export function isProvidersSnapshot(v: unknown): boolean {
   return !!v && typeof v === "object" && Array.isArray((v as Record<string, unknown>).providers);
 }
-
-export const terminalsApi = mk({ list: async () => ([]) });
-export const remoteAccessApi = mk({});
-export const browserApi = mk({});
-export const browserContextsApi = mk({ list: async () => ([]) });

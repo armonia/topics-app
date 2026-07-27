@@ -157,16 +157,6 @@ export interface Group {
   splitAxis: 'horizontal' | 'vertical';
 }
 
-export interface ProjectLayout {
-  projectPath: string;
-  groups: Group[];
-  panes: Record<string, Pane>;
-  groupOrder: string[];
-  tabOrder: string[];
-  focusedPaneId: string | null;
-  lastOpenedAt: number;
-}
-
 /**
  * Terminal metadata carried on a closed-tab record so `reopenClosedTab` can
  * recreate the server session. Single shared shape across the reducer's

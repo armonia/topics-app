@@ -197,8 +197,3 @@ export async function probeFraming(
   cache.set(url, { framable, expiresAt: now + FRAMING_TTL_MS });
   return framable;
 }
-
-/** Test/maintenance helper: drop the cache. */
-export function clearFramingCache(): void {
-  cache.clear();
-}

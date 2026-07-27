@@ -70,16 +70,6 @@ export async function probeBinaryPath(path: string): Promise<ProbeResult> {
   return probeWithPath(path);
 }
 
-/**
- * Like findExecutable but also captures the version string from `<bin> --version`.
- * Returns null if not found, otherwise an object with path + parsed version.
- */
-export async function probeExecutable(name: string): Promise<ProbeResult> {
-  const path = Bun.which(name);
-  if (!path) return { available: false };
-  return probeWithPath(path);
-}
-
 function probeWithPath(path: string): Promise<ProbeResult> {
   return new Promise<ProbeResult>((resolve) => {
     let settled = false;
@@ -129,8 +119,4 @@ function parseVersion(output: string): string | undefined {
   const firstLine = clean.split("\n")[0]?.trim();
   const semver = firstLine?.match(/v?\d+\.\d+(\.\d+)?(-[\w.]+)?/)?.[0];
   return semver || firstLine;
-}
-
-export async function isCommandAvailable(name: string): Promise<boolean> {
-  return (await findExecutable(name)) !== null;
 }

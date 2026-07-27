@@ -98,14 +98,3 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
     </div>
   );
 }
-
-// Inline shortcut hint (small badge)
-export function ShortcutHint({ keys, className = '' }: { keys: string; className?: string }) {
-  return (
-    <span className={`inline-flex items-center gap-0.5 ${className}`}>
-      {keys.split(' ').map((k, i) => (
-        <kbd key={i} className="kbd">{k}</kbd>
-      ))}
-    </span>
-  );
-}
