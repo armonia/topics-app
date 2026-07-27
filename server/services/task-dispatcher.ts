@@ -133,6 +133,20 @@ export interface DispatcherDeps {
    * are trusted as-is (the pre-existing behaviour).
    */
   topicExists?: (topicId: string) => boolean;
+  /**
+   * Claude sessions running OUTSIDE Topics right now at/under a directory
+   * (see services/external-sessions.ts). The dispatcher can only see its OWN
+   * agents, so without this a task lands in a repo the human is editing by
+   * hand in a terminal and the two fight over the working tree.
+   *
+   * Two outcomes, by dispatch mode (see the guard in `tick`):
+   *  - in-place dispatch (worktree isolation OFF) → REFUSE: same directory,
+   *    guaranteed collision.
+   *  - worktree dispatch → proceed (the agent gets its own tree) but WARN in
+   *    the task thread, since the branch it lands on is the contended one.
+   * Absent (tests/degraded) ⇒ no guard, the pre-existing behaviour.
+   */
+  externalSessionsAt?: (path: string) => Array<{ cwd: string; branch: string | null }>;
   /** Broadcast a WS message so live boards reflect chip/state changes. */
   broadcast: (message: object) => void;
   log?: (msg: string, err?: unknown) => void;
@@ -202,6 +216,19 @@ const CHIP_BLOCKED = "blocked";
 // requeues orphans in these states, so a human dragging a review/done task into
 // In Progress (dispatch_state null/needs_input) is never falsely "orphaned".
 const ACTIVE_DISPATCH_STATES = new Set([CHIP_WORKING, "starting"]);
+
+/**
+ * Human phrasing for the external-session guard: how many sessions, where, and
+ * on which branch — enough for the human to recognise their own terminal.
+ * Pure (exported for the dispatcher tests).
+ */
+export function describeIntruders(intruders: Array<{ cwd: string; branch: string | null }>): string {
+  const n = intruders.length;
+  const head = intruders[0];
+  const where = head ? `${head.cwd}${head.branch ? ` (branch ${head.branch})` : ""}` : "";
+  if (n === 1) return `c'è una sessione Claude esterna viva su ${where}`;
+  return `ci sono ${n} sessioni Claude esterne vive su questo repo (la più recente su ${where})`;
+}
 
 /** Persistent role for the task-scoped topic (the per-turn task rides in the user message). */
 const ROLE_PROMPT =
@@ -838,6 +865,35 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return;
     }
 
+    // GUARD — somebody else is already working this repo. `externalSessionsAt`
+    // reports the live Claude sessions Topics didn't start (a bare `claude` in
+    // a terminal). Read ONCE per tick: the census is TTL-cached upstream, and
+    // every task in this tick shares the same answer.
+    let intruders: Array<{ cwd: string; branch: string | null }> = [];
+    if (deps.externalSessionsAt) {
+      try { intruders = deps.externalSessionsAt(resolved.path) ?? []; }
+      catch (err) { log(`external-session probe failed for ${resolved.path}`, err); }
+    }
+    if (intruders.length > 0 && !settings.dispatchUseWorktree) {
+      // In-place dispatch means the agent edits the SAME directory the human's
+      // session is in — a guaranteed fight over the working tree. Park rather
+      // than clobber; the human closes the session (or turns worktree isolation
+      // back on) and re-queues.
+      for (const t of todos) {
+        if (inFlight.has(t.id) || graceTimers.has(t.id)) continue;
+        try {
+          emit(deps.svc.release({
+            taskId: t.id,
+            requeue: false,
+            parkState: CHIP_BLOCKED,
+            reason: `Auto-dispatch fermato: ${describeIntruders(intruders)} e questa board lavora IN-PLACE (isolamento worktree off). ` +
+              "Chiudi la sessione, oppure riattiva l'isolamento in un worktree, e riporta il task in Todo.",
+          }));
+        } catch { /* task may have moved */ }
+      }
+      return;
+    }
+
     // Effective concurrency cap for this tick: ONE machine-wide budget counted
     // across EVERY board (scope 'global'), so N boards can't multiply into N×cap
     // agents. 'auto' sizes it from live capacity (CPU/load); otherwise the fixed
@@ -869,6 +925,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (!claimed) continue; // cap hit or lost the race
       clearGrace(t.id);
       emit(claimed); // chip → starting
+      // Worktree dispatch with a live external session: the agent's files are
+      // isolated, but the BRANCH it will land on is contended. Say so in the
+      // thread so the reviewer knows before approving a merge.
+      if (intruders.length > 0) {
+        try {
+          deps.svc.addComment({
+            taskId: t.id, author: "system",
+            content: `Attenzione: ${describeIntruders(intruders)} mentre parte questo agent. ` +
+              "L'agent lavora in un worktree isolato, ma il landing su main può incrociare quel lavoro — controlla il diff prima di approvare.",
+          });
+        } catch { /* best-effort note */ }
+      }
       // Fire the launch; do NOT await (one board can fill multiple slots).
       void launch(t.id, {
         useWorktree: settings.dispatchUseWorktree,
