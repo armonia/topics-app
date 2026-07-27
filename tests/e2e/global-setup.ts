@@ -157,6 +157,25 @@ async function startTestServer(): Promise<void> {
 }
 
 async function globalSetup() {
+  // Il bundle deve esistere PRIMA di accendere il server, o ogni test mente.
+  //
+  // `public/` è gitignored: in un checkout fresco — un worktree di agente, una
+  // clone pulita, una CI senza step di build — semplicemente non c'è. Il server
+  // di test parte lo stesso e serve una pagina vuota, quindi TUTTI i test
+  // falliscono sul primo `waitForSelector('[aria-label="Topics sidebar"]')`:
+  // ~500 rossi che accusano il componente sbagliato e mandano a caccia di un
+  // bug che non esiste (visto: chat.spec.ts sembrava rotto sullo scroll, era
+  // `bun run build:client` fallito in silenzio per node_modules mancanti).
+  // Un errore solo, che dice cosa lanciare, vale più di una suite rossa.
+  const bundleEntry = resolve(__dirname, "../../public/index.html");
+  if (!existsSync(bundleEntry)) {
+    throw new Error(
+      `[global-setup] Bundle del client assente: ${bundleEntry}\n` +
+        `Il server di test servirebbe una pagina vuota e ogni test fallirebbe ` +
+        `per un motivo finto. Lancia prima:\n\n    bun run build:client\n`
+    );
+  }
+
   // Disable TLS verification for localhost self-signed certs
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
