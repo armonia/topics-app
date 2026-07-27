@@ -269,8 +269,8 @@ test.describe("File Explorer & Git", () => {
     await expect(searchInput).toBeVisible();
     await searchInput.fill("[invalid(");
 
-    // Wait for debounce (300ms)
-    await page.waitForTimeout(500);
+    // Niente sleep per il debounce (300ms): le asserzioni qui sotto sono
+    // auto-retrying, aspettano loro quanto serve e non un millisecondo di più.
 
     // Verify no crash: the file search dialog is still visible
     await expect(fileExplorerPage.fileSearch).toBeVisible();
@@ -283,11 +283,13 @@ test.describe("File Explorer & Git", () => {
     const resultButtons = fileExplorerPage.fileSearch.locator(
       "button"
     ).filter({ hasText: /\d+/ }); // line number results
-    // Results list should be empty (only toggle/close buttons visible)
+    // Results list must be empty (only toggle/close buttons visible). Era un
+    // locator dichiarato e mai asserito: il commento diceva una cosa che il
+    // test non verificava.
+    await expect(resultButtons).toHaveCount(0);
 
     // Now type a valid regex and verify it works normally
     await searchInput.fill("hello");
-    await page.waitForTimeout(500);
 
     // Error should be gone
     await expect(regexError).not.toBeVisible();
@@ -455,12 +457,11 @@ test.describe("File Explorer & Git", () => {
     const srcSegment = breadcrumb.getByRole("button", { name: "src" });
     await srcSegment.click();
 
-    // Wait a moment for the dropdown to load via API
-    await page.waitForTimeout(500);
-
     // The dropdown should show index.ts (child of src/)
-    // DropdownPortal renders at page level
+    // DropdownPortal renders at page level. Il segnale che l'API ha risposto è
+    // la prima voce a schermo, non 500ms di attesa al buio.
     const dropdownItems = page.locator('[class*="max-h-[300px]"] button');
+    await expect(dropdownItems.first()).toBeVisible({ timeout: 10_000 });
     const firstDropdownCount = await dropdownItems.count();
 
     // Close the dropdown by clicking the segment again
@@ -480,11 +481,13 @@ test.describe("File Explorer & Git", () => {
     // Click the first segment (project root) to open its dropdown
     const rootSegment = breadcrumb.locator("button").first();
     await rootSegment.click();
-    await page.waitForTimeout(500);
 
     // This dropdown should show root-level children (README.md, package.json, src/, etc.)
     // If the fix is working, the dropdown content reflects the new directory, not stale cache
     const rootDropdownItems = page.locator('[class*="max-h-[300px]"] button');
+    await expect
+      .poll(() => rootDropdownItems.count(), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(3);
     const rootDropdownCount = await rootDropdownItems.count();
 
     // Root directory should have multiple items (README.md, package.json, src/, newfile.txt)

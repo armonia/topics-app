@@ -23,8 +23,7 @@ async function sidebarRightEdge(page: import('@playwright/test').Page): Promise<
 
 test('Sidebar toggle — collapses off-screen and restores', async ({ page }) => {
   await page.goto('/');
-  await page.waitForSelector('[aria-label="Topics sidebar"]', { state: 'attached', timeout: 15000 });
-  await page.waitForTimeout(500);
+  await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 15000 });
 
   // BEFORE: sidebar open, right edge past its real width.
   const openEdge = await sidebarRightEdge(page);
@@ -37,17 +36,15 @@ test('Sidebar toggle — collapses off-screen and restores', async ({ page }) =>
   // Desktop collapse is a composited translateX(-100%), NOT a width change, so we
   // assert the sidebar slid off-screen (right edge ≈ 0), not width→0.
   await page.keyboard.press('Meta+b');
-  await page.waitForTimeout(800);
   await expect
-    .poll(() => sidebarRightEdge(page), { timeout: 4000 })
+    .poll(() => sidebarRightEdge(page), { timeout: 5000 })
     .toBeLessThan(2);
   await page.screenshot({ path: 'test-results/sidebar-AFTER-closed.png', fullPage: false });
 
   // Toggle back open → slides back on-screen.
   await page.keyboard.press('Meta+b');
-  await page.waitForTimeout(800);
   await expect
-    .poll(() => sidebarRightEdge(page), { timeout: 4000 })
+    .poll(() => sidebarRightEdge(page), { timeout: 5000 })
     .toBeGreaterThan(100);
   await page.screenshot({ path: 'test-results/sidebar-AFTER-reopened.png', fullPage: false });
 });
