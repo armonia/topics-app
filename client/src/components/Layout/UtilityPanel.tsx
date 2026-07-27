@@ -7,5 +7,7 @@
 // StandaloneChatGroup.tsx inlines the same per-type rendering itself (and has
 // since grown a 'journal' branch this component never had), so the component
 // here was never actually mounted anywhere — dead since that inlining landed.
-// eslint-disable-next-line react-refresh/only-export-components -- pure re-export for back-compat with existing importers
+// (No react-refresh/only-export-components suppression needed: with the
+// component gone this file exports nothing but pure functions, so the rule
+// never fires — the directive it used to carry was itself dead.)
 export { isUtilityPanelId, utilityPanelId, parseUtilityPanelType } from '../../state/pane/adapters/utilityPanelId';
