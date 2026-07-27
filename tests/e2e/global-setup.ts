@@ -1,23 +1,33 @@
 /**
  * Playwright global setup — runs BEFORE all test suites.
  *
- * 1. Starts an isolated test server on port 13334 with its own SQLite DB
+ * 1. Starts an isolated test server with its own SQLite DB
  * 2. Cleans up stale E2E test data from previous failed runs
  *
- * The test server uses /tmp/topics-test-data/ for its database,
- * completely isolated from the production data/ directory.
+ * The test server uses its own DATA_DIR under /tmp, completely isolated from
+ * the production data/ directory — e da quella degli altri shard: porta e
+ * percorsi vengono da `helpers/test-server.ts`, che li deriva da `E2E_PORT`.
  */
 
 import { spawn, execSync, type ChildProcess } from "child_process";
 import { existsSync, readdirSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
+import {
+  E2E_BASE,
+  E2E_PORT,
+  dataDirForPort,
+  descendantsOf,
+  testServerEnv,
+} from "./helpers/test-server";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
-// Port 13334 chosen to avoid conflicts with production services
-// (port 3334 is used by the openclaw-gateway voice-call webhook)
-const BASE = "http://localhost:13334";
-const TEST_SERVER_PORT = 13334;
+// Port 13334 is the default, chosen to avoid conflicts with production services
+// (port 3334 is used by the openclaw-gateway voice-call webhook); ogni shard
+// ne usa una diversa via E2E_PORT.
+const BASE = E2E_BASE;
+const TEST_SERVER_PORT = E2E_PORT;
+const TEST_DATA_DIR = dataDirForPort(E2E_PORT);
 
 /**
  * Resolve a Chromium executable on disk. Falls back through the most likely
@@ -104,25 +114,11 @@ async function startTestServer(): Promise<void> {
     detached: true,
     env: {
       ...process.env,
-      BUN_PORT: String(TEST_SERVER_PORT),
-      DATA_DIR: "/tmp/topics-test-data",
-      // Phase 30 plan 30-05: dedicated TOPICS_HOME so the test server's
-      // daemon lock + state files don't collide with the dev server
-      // (which holds ~/.topics/daemon-process.lock).
-      TOPICS_HOME: "/tmp/topics-test-data/.topics-home",
-      // Isolate OpenClaw config/session reads (server/utils.ts) from the
-      // real user — SESSIONS_DIR derives from OPENCLAW_DIR when unset, so
-      // this one var covers both. HOME is force-exported inside
-      // start-test-server.sh itself (not here) for the same reason it's
-      // not propagated to the runner above.
-      OPENCLAW_DIR: "/tmp/topics-test-data/.openclaw",
-      // Dedicated PTY-bridge socket. The bridge socket is otherwise derived
-      // from cwd, which the test server SHARES with the dev server — so the
-      // test server's reconcile would see the dev server's live Claude PTYs
-      // as "orphans" (absent from its test DB) and KILL them. An isolated
-      // socket gives the test run its own empty bridge. (Honored by
-      // getSocketPath() in server/routes/terminal.ts.)
-      TOPICS_PTY_SOCKET: "/tmp/topics-pty-bridge-e2e-test.sock",
+      // Porta, DATA_DIR, TOPICS_HOME, OPENCLAW_DIR e i socket del PTY-bridge /
+      // ai-bridge: tutto da testServerEnv(), l'unica lista. Prima era ricopiata
+      // qui, dentro start-test-server.sh e dentro lo spec che riavvia il server
+      // — tre copie già divergenti fra loro.
+      ...testServerEnv(TEST_SERVER_PORT),
       // Phase 30 plan 30-05: server's playwright-core ships an older
       // chromium-1208 manifest, but @playwright/test installs the current
       // chromium-1217 binary. Pin the BrowserService Chromium to the
@@ -130,9 +126,6 @@ async function startTestServer(): Promise<void> {
       // running on a machine with a different layout.
       CHROMIUM_PATH: process.env.CHROMIUM_PATH ||
         resolveChromiumPath(),
-      NO_TLS: "1",
-      GATEWAY_TOKEN: process.env.GATEWAY_TOKEN || "test-token",
-      GATEWAY_URL: process.env.GATEWAY_URL || "http://127.0.0.1:18789",
     },
   });
 
@@ -187,7 +180,7 @@ async function globalSetup() {
   // already gets DATA_DIR via startTestServer(); without this line the
   // runner's process.env.DATA_DIR stays unset and specs would have to
   // hardcode the path.
-  if (!process.env.DATA_DIR) process.env.DATA_DIR = "/tmp/topics-test-data";
+  if (!process.env.DATA_DIR) process.env.DATA_DIR = TEST_DATA_DIR;
 
   // Same rationale, for OPENCLAW_DIR (see startTestServer() below) — specs
   // that resolve project-workspace paths (e.g. project-commands.spec.ts's
@@ -197,7 +190,7 @@ async function globalSetup() {
   // mutating it here, in the runner process, would also change what
   // Playwright's own os.homedir()-based Chromium cache lookup resolves to
   // for every worker, breaking browser launch for the whole suite.
-  if (!process.env.OPENCLAW_DIR) process.env.OPENCLAW_DIR = "/tmp/topics-test-data/.openclaw";
+  if (!process.env.OPENCLAW_DIR) process.env.OPENCLAW_DIR = `${TEST_DATA_DIR}/.openclaw`;
 
   // Kill any stale test server processes on the test port before starting
   try {
@@ -218,7 +211,7 @@ async function globalSetup() {
   // before the test server boots so restoreAllContexts doesn't re-hydrate
   // a context with stale cookies that would skew BROWSER-CHAT-01 asserts.
   const { rmSync } = await import("fs");
-  for (const dir of ["/tmp/topics-test-data/browser-state", join(process.cwd(), "data", "browser-state")]) {
+  for (const dir of [join(TEST_DATA_DIR, "browser-state"), join(process.cwd(), "data", "browser-state")]) {
     try {
       if (existsSync(dir)) {
         rmSync(dir, { recursive: true, force: true });
@@ -242,7 +235,7 @@ async function globalSetup() {
   // panes in ui_state. The server recreates the schema on boot (server/db.ts
   // `new Database(dbPath)` + CREATE TABLE IF NOT EXISTS), and seedBaselineData()
   // re-seeds Web Search Test / Best Ramen fresh + non-archived every run.
-  const dataDir = process.env.DATA_DIR || "/tmp/topics-test-data";
+  const dataDir = process.env.DATA_DIR || TEST_DATA_DIR;
   for (const f of ["topics.db", "topics.db-wal", "topics.db-shm"]) {
     const p = join(dataDir, f);
     try {
@@ -417,10 +410,13 @@ function emergencyCleanup() {
     // Kill only the Chromiums THIS run is responsible for. The previous version
     // killed every ms-playwright Chromium on the machine, which reaches across
     // repos: a concurrent E2E run in another project (and its results) died
-    // whenever this suite crashed or was interrupted. Anything already alive at
-    // globalSetup time is by definition not ours — spare it.
+    // whenever this suite crashed or was interrupted. Nostri = discendenti di
+    // questo runner; la fotografia dei PID pre-esistenti resta come cintura in
+    // più, ma da sola non basta con più shard in parallelo (i browser degli
+    // altri nascono DOPO la fotografia).
+    const mine = descendantsOf(process.pid);
     const ours = listPlaywrightChromiumPids().filter(
-      (pid) => !foreignChromiumPids.has(pid) && /^\d+$/.test(pid),
+      (pid) => !foreignChromiumPids.has(pid) && mine.has(pid) && /^\d+$/.test(pid),
     );
     if (ours.length) execSync(`kill -9 ${ours.join(" ")} 2>/dev/null || true`);
   } catch {}

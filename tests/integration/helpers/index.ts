@@ -18,7 +18,7 @@
 
 import * as fs from "node:fs";
 import path from "node:path";
-import type { AppContext, RouteHandler } from "../../../server/types";
+import type { AppContext } from "../../../server/types";
 
 /**
  * Absolute path to the topics-app repo root, computed once from this
@@ -49,26 +49,12 @@ export async function createTestAppContext(): Promise<AppContext> {
 }
 
 /**
- * POST JSON helper. Builds a `Request`, hands it to the router, and
- * waits for the Response. Mirrors what board-jump-to-tab.test.ts
- * already did module-locally.
+ * POST/GET JSON helper — RIMOSSI.
+ *
+ * `postJson`/`getJson` chiamavano `router(req)` con UN argomento, ma
+ * `RouteHandler` è `(req, url, pathname, method) => Response | null`: quelle due
+ * funzioni non hanno mai potuto funzionare. Nessuno le importava, quindi
+ * nessuno se n'è accorto — l'unica cosa che le teneva in piedi era che tests/
+ * non era sotto typecheck. Chi ne ha bisogno chiami il router con la firma
+ * vera, come fa board-jump-to-tab.test.ts.
  */
-export async function postJson(
-  router: RouteHandler,
-  url: string,
-  body: unknown,
-): Promise<Response> {
-  return router(new Request(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }));
-}
-
-/** GET helper — symmetric to postJson, no body. */
-export async function getJson(
-  router: RouteHandler,
-  url: string,
-): Promise<Response> {
-  return router(new Request(url, { method: "GET" }));
-}

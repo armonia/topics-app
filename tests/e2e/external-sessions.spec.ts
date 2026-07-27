@@ -7,7 +7,7 @@
  * `~/.claude/projects/*.jsonl` (see server/lib/external-claude-sessions.ts) and
  * the board header carries a read-only badge for it.
  *
- * The test server runs with HOME=/tmp/topics-test-data/.home (see
+ * The test server runs with HOME=<DATA_DIR>/.home (see
  * scripts/start-test-server.sh), so seeding a transcript under THAT home is
  * exactly what a bare `claude` would write — no mocks, the real scan path.
  */
@@ -15,9 +15,10 @@ import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { E2E_BASE, E2E_HOME } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
-const TEST_HOME = "/tmp/topics-test-data/.home";
+const BASE = E2E_BASE;
+const TEST_HOME = E2E_HOME;
 const PROJECT_PATH = `/tmp/e2e-extsess-${Date.now()}`;
 /** Claude Code encodes the cwd by replacing every `/` and `.` with `-`. */
 const encodedDir = PROJECT_PATH.replace(/[/.]/g, "-");

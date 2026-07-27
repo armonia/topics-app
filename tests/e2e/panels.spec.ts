@@ -9,8 +9,9 @@ import {
   resetPaneStore,
 } from "./helpers/api-fixtures";
 import { mockOpenClawAvailable, openTopicsMenuItem } from "./helpers/openclaw";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE_URL = "http://localhost:13334";
+const BASE_URL = E2E_BASE;
 const PROJECT_DIR = "/tmp/e2e-panels";
 const PROJECT_FILE = "e2e-marker.txt";
 

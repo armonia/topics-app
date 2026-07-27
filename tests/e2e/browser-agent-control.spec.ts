@@ -1,8 +1,9 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { readFileSync } from "fs";
+import { E2E_BASE, E2E_WS_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05)", () => {
   test.beforeEach(({}, testInfo) => {
@@ -109,7 +110,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       await page.goto(BASE);
 
       // 2. Open WS to /ws/browser/:id and start recording agent_active messages.
-      const wsUrl = `ws://localhost:13334/ws/browser/${ctxId}`;
+      const wsUrl = `${E2E_WS_BASE}/ws/browser/${ctxId}`;
       await page.evaluate((url) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).__msgs = [];

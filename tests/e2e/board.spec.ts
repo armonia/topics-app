@@ -15,8 +15,9 @@ import { test } from "./fixtures/layout.fixture";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 const PROJECT_PATH = `/tmp/e2e-board-${Date.now()}`;
 
 /** BYTE-IDENTICAL to server/services/tasks.ts:projectIdForPath (parity-tested there). */

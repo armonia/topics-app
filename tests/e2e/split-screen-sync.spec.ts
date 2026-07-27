@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
+import { E2E_BASE } from "./helpers/test-server";
 import {
   createTopic,
   deleteTopic,
@@ -24,17 +25,17 @@ async function openTwoTopics(page: Page, topicIds: string[]) {
   const [idA, idB] = topicIds;
   await Promise.all([
     page.request
-      .put("http://localhost:13334/api/ui-state/panels", {
+      .put(`${E2E_BASE}/api/ui-state/panels`, {
         data: { openPanels: [idA, idB] },
       })
       .catch(() => {}),
     page.request
-      .put("http://localhost:13334/api/ui-state/grid-layout", {
+      .put(`${E2E_BASE}/api/ui-state/grid-layout`, {
         data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
       })
       .catch(() => {}),
     page.request
-      .put("http://localhost:13334/api/ui-state/panel-order", {
+      .put(`${E2E_BASE}/api/ui-state/panel-order`, {
         data: { order: [idA, idB], pinned: [idA, idB] },
       })
       .catch(() => {}),
@@ -321,17 +322,17 @@ test.describe("Split Screen Sync & Correctness", () => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     // Seed a chat panel open
     await page.request
-      .put("http://localhost:13334/api/ui-state/panels", {
+      .put(`${E2E_BASE}/api/ui-state/panels`, {
         data: { openPanels: [topicIds[0]] },
       })
       .catch(() => {});
     await page.request
-      .put("http://localhost:13334/api/ui-state/panel-order", {
+      .put(`${E2E_BASE}/api/ui-state/panel-order`, {
         data: { order: [topicIds[0]], pinned: [topicIds[0]] },
       })
       .catch(() => {});
     await page.request
-      .put("http://localhost:13334/api/ui-state/grid-layout", {
+      .put(`${E2E_BASE}/api/ui-state/grid-layout`, {
         data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
       })
       .catch(() => {});
@@ -447,12 +448,12 @@ test.describe("Split Screen Sync & Correctness", () => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
     // Seed a chat panel
     await page.request
-      .put("http://localhost:13334/api/ui-state/panels", {
+      .put(`${E2E_BASE}/api/ui-state/panels`, {
         data: { openPanels: [topicIds[0]] },
       })
       .catch(() => {});
     await page.request
-      .put("http://localhost:13334/api/ui-state/panel-order", {
+      .put(`${E2E_BASE}/api/ui-state/panel-order`, {
         data: { order: [topicIds[0]], pinned: [topicIds[0]] },
       })
       .catch(() => {});
@@ -503,13 +504,13 @@ test.describe("Split Screen Sync & Correctness", () => {
     // Need 3 topics for multi-row multi-column
     const [idA, idB, idC] = topicIds;
     await Promise.all([
-      page.request.put("http://localhost:13334/api/ui-state/panels", {
+      page.request.put(`${E2E_BASE}/api/ui-state/panels`, {
         data: { openPanels: [idA, idB, idC] },
       }),
-      page.request.put("http://localhost:13334/api/ui-state/grid-layout", {
+      page.request.put(`${E2E_BASE}/api/ui-state/grid-layout`, {
         data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
       }),
-      page.request.put("http://localhost:13334/api/ui-state/panel-order", {
+      page.request.put(`${E2E_BASE}/api/ui-state/panel-order`, {
         data: { order: [idA, idB, idC], pinned: [idA, idB, idC] },
       }),
     ]);

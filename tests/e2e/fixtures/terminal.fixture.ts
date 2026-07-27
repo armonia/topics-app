@@ -19,7 +19,7 @@ export class TerminalPage {
 
   /** Get all terminal text from the active terminal */
   async getTerminalText(): Promise<string> {
-    return this.activeXtermRows.evaluate((el) => el.innerText);
+    return this.activeXtermRows.evaluate((el) => (el as HTMLElement).innerText);
   }
 
   /** Type a command into the focused terminal (xterm captures keyboard directly) */

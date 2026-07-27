@@ -15,8 +15,9 @@
 import { test, expect } from "@playwright/test";
 import * as fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { E2E_BASE } from "./helpers/test-server";
 
-const API = "http://localhost:13334/api";
+const API = `${E2E_BASE}/api`;
 
 interface ProjectRow {
   id: string;

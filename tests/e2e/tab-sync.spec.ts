@@ -2,6 +2,7 @@ import { test } from "./fixtures/tab-sync.fixture";
 import { expect } from "@playwright/test";
 import { goToApp, openTopic, openTopicByClick, openTopicByDoubleClick } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
 test.describe("Tab Sync & Persistence", () => {
   // TAB-SYNC-01: Tab State Persistence Across Reload
@@ -250,10 +251,10 @@ test.describe("Tab Sync & Persistence", () => {
 
     // Create two independent browser contexts
     const contextA = await browser.newContext({
-      baseURL: "http://localhost:13334",
+      baseURL: E2E_BASE,
     });
     const contextB = await browser.newContext({
-      baseURL: "http://localhost:13334",
+      baseURL: E2E_BASE,
     });
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
@@ -312,10 +313,10 @@ test.describe("Tab Sync & Persistence", () => {
     test.info().annotations.push({ type: "spec", description: "TAB-SYNC-02" });
 
     const contextA = await browser.newContext({
-      baseURL: "http://localhost:13334",
+      baseURL: E2E_BASE,
     });
     const contextB = await browser.newContext({
-      baseURL: "http://localhost:13334",
+      baseURL: E2E_BASE,
     });
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();

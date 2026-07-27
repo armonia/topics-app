@@ -12,8 +12,9 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { existsSync, rmSync } from "fs";
 import { join } from "path";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 // Must agree with the server's WORKSPACE_DIR (server/routes/topics.ts —
 // `join(OPENCLAW_DIR, "workspace")`). global-setup.ts propagates OPENCLAW_DIR
 // to this runner process so both sides resolve the same isolated path.

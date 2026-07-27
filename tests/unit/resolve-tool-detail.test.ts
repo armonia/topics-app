@@ -71,7 +71,7 @@ describe('resolveToolDetail — graceful degradation on schema drift', () => {
       name: 'Bash',
       args: { command: 'pwd' },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      detail: { type: 'nonsense' as any },
+      detail: { type: 'nonsense' } as any,
     };
     const detail = resolveToolDetail(tc);
     expect(detail.type).toBe('shell');

@@ -9,8 +9,9 @@
 import { test, expect } from "./fixtures/test-fixtures";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 test.describe("Cross-Feature Interactions", () => {
   // CROSS-01: Topic switch preserves chat scroll position

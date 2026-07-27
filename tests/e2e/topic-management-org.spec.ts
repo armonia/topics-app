@@ -15,6 +15,7 @@ import {
   resetPaneStore,
 } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
+import { E2E_BASE } from "./helpers/test-server";
 
 const TS = Date.now();
 
@@ -241,7 +242,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     // the localStorage seed above (isFromServerRef). The shared test DB usually
     // holds a `timeline` value, so seed grouped on the SERVER too — otherwise no
     // section headers render and the "sezione Chat" button never appears.
-    await page.request.put("http://localhost:13334/api/ui-state/sidebar-state", {
+    await page.request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
       data: { viewMode: "grouped", showArchived: false, expandedNodes: [], pinnedItems: [] },
     });
     await goToApp(page);
@@ -378,7 +379,7 @@ test.describe("Topic Management - Settings & Organization", () => {
     // exists. What the feature must still guarantee is that the pick STICKS.
     // GET /api/topics returns `{ topics: Record<id, Topic>, … }` — a keyed map.
     const colorOf = async () => {
-      const res = await page.request.get("http://localhost:13334/api/topics");
+      const res = await page.request.get(`${E2E_BASE}/api/topics`);
       const body = await res.json();
       return body?.topics?.[betaId]?.color;
     };

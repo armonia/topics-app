@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
+import { E2E_BASE } from "./helpers/test-server";
 import {
   createTopic,
   deleteTopic,
@@ -17,7 +18,7 @@ const created: { topics: string[]; terminals: string[] } = {
 test.describe("Sidebar — Unified Timeline", () => {
   test.beforeAll(async ({ request }) => {
     // Reset sidebar state to clean defaults (include all legacy fields to prevent migration from old values)
-    await request.put("http://localhost:13334/api/ui-state/sidebar-state", {
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
       data: {
         viewMode: "timeline",
         showArchived: false,
@@ -68,7 +69,7 @@ test.describe("Sidebar — Unified Timeline", () => {
     });
 
     // Pre-open tabs so items appear in sidebar
-    await request.put("http://localhost:13334/api/ui-state/panels", {
+    await request.put(`${E2E_BASE}/api/ui-state/panels`, {
       data: { openPanels: [created.topics[1], `terminal:${created.terminals[0]}`] },
     });
     await page.goto("/");
@@ -101,7 +102,7 @@ test.describe("Sidebar — Unified Timeline", () => {
 
     // Set panels in both localStorage and server to include the project chat
     const topicId = created.topics[0];
-    await request.put("http://localhost:13334/api/ui-state/panels", {
+    await request.put(`${E2E_BASE}/api/ui-state/panels`, {
       data: { openPanels: [topicId] },
     });
     // Also pre-set localStorage so the page loads with the panels immediately
@@ -139,7 +140,7 @@ test.describe("Sidebar — Unified Timeline", () => {
     });
 
     // Pre-open tabs so sections have content in grouped view
-    await request.put("http://localhost:13334/api/ui-state/panels", {
+    await request.put(`${E2E_BASE}/api/ui-state/panels`, {
       data: { openPanels: [created.topics[1]] },
     });
     await page.goto("/");
@@ -188,17 +189,17 @@ test.describe("Sidebar — Unified Timeline", () => {
 
     // Archive it via API (DELETE with body { archived: true } = archive, not delete)
     await request.delete(
-      `http://localhost:13334/api/topics/${archiveTopic.id}`,
+      `${E2E_BASE}/api/topics/${archiveTopic.id}`,
       { data: { archived: true } }
     );
 
     // Ensure clean sidebar state on server — set showArchived=false
-    await request.put("http://localhost:13334/api/ui-state/sidebar-state", {
+    await request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
       data: { viewMode: "timeline", showArchived: false, expandedNodes: [], showProjectsArchived: false, showChatsArchived: false },
     });
 
     // Verify it was saved
-    const verifyRes = await request.get("http://localhost:13334/api/ui-state/sidebar-state");
+    const verifyRes = await request.get(`${E2E_BASE}/api/ui-state/sidebar-state`);
     const verifyData = await verifyRes.json();
     console.log("[ARCHIVE] Server state after reset:", JSON.stringify(verifyData));
 
@@ -261,7 +262,7 @@ test.describe("Sidebar — Unified Timeline", () => {
     });
 
     // Pre-open standalone chat tab so it appears in sidebar
-    await request.put("http://localhost:13334/api/ui-state/panels", {
+    await request.put(`${E2E_BASE}/api/ui-state/panels`, {
       data: { openPanels: [created.topics[1]] },
     });
     await page.goto("/");
@@ -285,7 +286,7 @@ test.describe("Sidebar — Unified Timeline", () => {
 // of the sidebar with a pin glyph, and one click reopens. Unpinning a CLOSED
 // chat archives it (back to the 2-state model: closed ⟺ archived).
 test.describe("Sidebar — Fissati (pinning)", () => {
-  const BASE = "http://localhost:13334";
+  const BASE = E2E_BASE;
   const pinCreated: string[] = [];
 
   const resetSidebarState = async (request: import("@playwright/test").APIRequestContext) => {

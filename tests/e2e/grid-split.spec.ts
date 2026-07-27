@@ -2,6 +2,7 @@ import { mkdirSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, seedProjectPane, resetPaneStore } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 import {
   collapseSidebarSections,
   countColDividers,
@@ -333,13 +334,13 @@ test.describe("Grid Split System", () => {
       await resetPaneStore(page.request, [idA, idB]);
       // 1. Seed server state with both panels open
       await Promise.all([
-        page.request.put("http://localhost:13334/api/ui-state/panels", {
+        page.request.put(`${E2E_BASE}/api/ui-state/panels`, {
           data: { openPanels: [idA, idB] },
         }).catch(() => {}),
-        page.request.put("http://localhost:13334/api/ui-state/grid-layout", {
+        page.request.put(`${E2E_BASE}/api/ui-state/grid-layout`, {
           data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
         }).catch(() => {}),
-        page.request.put("http://localhost:13334/api/ui-state/panel-order", {
+        page.request.put(`${E2E_BASE}/api/ui-state/panel-order`, {
           data: { order: [idA, idB], pinned: [idA, idB] },
         }).catch(() => {}),
       ]);
@@ -764,11 +765,11 @@ test.describe("Grid Split System", () => {
       // A FRESH sidebar-only topic (raw POST — NOT seeded into openPanels/pane-
       // store like createTopic does), so it starts CLOSED and can't be residue.
       const dropName = `E2E-DropGroup-${Date.now()}`;
-      const res = await request.post("http://localhost:13334/api/topics", { data: { name: dropName }, ignoreHTTPSErrors: true });
+      const res = await request.post(`${E2E_BASE}/api/topics`, { data: { name: dropName }, ignoreHTTPSErrors: true });
       const idDrop = ((await res.json()) as { id: string }).id;
 
       // Ensure topic A is open so there's a target cell (its own tab).
-      await page.request.put("http://localhost:13334/api/ui-state/panels", { data: { openPanels: [idA] } }).catch(() => {});
+      await page.request.put(`${E2E_BASE}/api/ui-state/panels`, { data: { openPanels: [idA] } }).catch(() => {});
       await page.goto("/");
       await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
       const cell = page.locator('[role="main"] [draggable="true"]').first();

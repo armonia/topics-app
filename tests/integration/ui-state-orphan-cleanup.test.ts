@@ -55,21 +55,19 @@ const KEEP_D = "44444444-dddd-4ddd-8ddd-dddddddddddd"; // no project_path → no
 
 function seedTopics(db: Database) {
   // Two orphans (project_path set, not archived) — must be cleaned.
-  db.run(`INSERT INTO topics (id, project_path, archived) VALUES (?, '/some/proj', 0)`, ORPHAN_A);
-  db.run(`INSERT INTO topics (id, project_path, archived) VALUES (?, '/other/proj', 0)`, ORPHAN_B);
+  db.run(`INSERT INTO topics (id, project_path, archived) VALUES (?, '/some/proj', 0)`, [ORPHAN_A]);
+  db.run(`INSERT INTO topics (id, project_path, archived) VALUES (?, '/other/proj', 0)`, [ORPHAN_B]);
   // Archived project topic — must NOT be cleaned (closedStack must keep it).
-  db.run(`INSERT INTO topics (id, project_path, archived) VALUES (?, '/proj', 1)`, KEEP_C);
+  db.run(`INSERT INTO topics (id, project_path, archived) VALUES (?, '/proj', 1)`, [KEEP_C]);
   // Standalone topic (no project_path) — must NOT be cleaned.
-  db.run(`INSERT INTO topics (id, project_path, archived) VALUES (?, NULL, 0)`, KEEP_D);
+  db.run(`INSERT INTO topics (id, project_path, archived) VALUES (?, NULL, 0)`, [KEEP_D]);
 }
 
 function putUiState(db: Database, key: string, value: unknown, seq = 0) {
   db.run(
     `INSERT OR REPLACE INTO ui_state (key, value, payload_version, server_seq, updated_at)
      VALUES (?, ?, 2, ?, datetime('now'))`,
-    key,
-    JSON.stringify(value),
-    seq,
+    [key, JSON.stringify(value), seq],
   );
 }
 

@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { openTwoDevices, tabFor, closeTabViaX } from "./helpers/multi-client";
 import { resetPaneStore } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
 /**
  * Cross-device browser-tab close — the "l'ho chiusa da app, ma sta ancora su
@@ -23,7 +24,7 @@ import { resetPaneStore } from "./helpers/api-fixtures";
  * real headless Chromium is involved — only the pane-store + tombstone sync,
  * which is what the fix touches.
  */
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 test.describe("Cross-device browser tab close (tombstone eviction)", () => {
   test("CD-CLOSE-01: a browser tab closed on device A disappears LIVE on device B", async ({ browser }) => {

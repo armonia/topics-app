@@ -1,4 +1,5 @@
-const BASE = "http://localhost:13334";
+import { E2E_BASE } from "./test-server";
+const BASE = E2E_BASE;
 
 /** Check if the AI gateway is available for live chat tests */
 export async function isGatewayAvailable(): Promise<boolean> {

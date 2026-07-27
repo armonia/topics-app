@@ -19,8 +19,9 @@
 import type { Browser, BrowserContext, Page, APIRequestContext, Locator } from "@playwright/test";
 import { expect } from "@playwright/test";
 import { goToApp } from "../helpers";
+import { E2E_BASE } from "./test-server";
 
-const BASE_URL = "http://localhost:13334";
+const BASE_URL = E2E_BASE;
 // The per-context browser STREAM socket (headless Chromium fan-out). Distinct
 // from the app-wide sync socket `/ws` — this regex never matches `/ws` itself,
 // so stubbing it leaves pane/tombstone sync fully real.

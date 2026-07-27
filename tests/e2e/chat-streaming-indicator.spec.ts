@@ -3,8 +3,9 @@ import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { mockHangingStream, unmockChatStream } from "./helpers/sse-helpers";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 /**
  * The turn-activity indicator (playful rotating phrase + soft-glow dot + a live

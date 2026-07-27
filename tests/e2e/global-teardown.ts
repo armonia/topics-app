@@ -5,8 +5,9 @@
  */
 
 import { execSync, execFileSync } from "child_process";
+import { E2E_PORT, descendantsOf } from "./helpers/test-server";
 
-const TEST_PORT = 13334;
+const TEST_PORT = E2E_PORT;
 
 async function globalTeardown() {
   const pid = process.env.__TEST_SERVER_PID;
@@ -55,13 +56,17 @@ async function globalTeardown() {
     const spared = new Set(
       (process.env.__FOREIGN_CHROMIUM_PIDS || "").split(",").filter(Boolean),
     );
+    // Nostri = discendenti di QUESTO runner. La fotografia dei PID pre-esistenti
+    // resta come cintura in più, ma da sola non basterebbe più: con gli shard in
+    // parallelo i browser degli altri nascono DOPO la nostra fotografia.
+    const mine = descendantsOf(process.pid);
     const chromiumPids = execSync(
       'ps ax -o pid=,command= | grep -E "ms-playwright|mcp-chrome" | grep -Ei "chromium|chrome" | grep -v grep | awk \'{ print $1 }\' 2>/dev/null || true'
     ).toString().trim();
     const ours = chromiumPids
       .split("\n")
-      .map((s) => s.trim())
-      .filter((pid) => /^\d+$/.test(pid) && !spared.has(pid));
+      .map((s: string) => s.trim())
+      .filter((pid: string) => /^\d+$/.test(pid) && !spared.has(pid) && mine.has(pid));
     if (ours.length) {
       execSync(`kill -9 ${ours.join(' ')} 2>/dev/null || true`);
       console.log(`[global-teardown] Killed ${ours.length} orphaned Chromium process(es) from this run` +

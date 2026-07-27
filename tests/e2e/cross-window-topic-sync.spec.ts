@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { goToApp, ensureTopicVisible } from "./helpers";
+import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import {
   createTopic,
   deleteTopic,
@@ -7,7 +8,7 @@ import {
   seedProjectInnerChats,
 } from "./helpers/api-fixtures";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 /**
  * Cross-window topic + message sync.
@@ -27,7 +28,7 @@ const BASE = "http://localhost:13334";
  *    sull'applicazione Electron non la vedo poi da browser".
  */
 test.describe.serial("Cross-window topic + message sync", () => {
-  const projectPath = "/tmp/topics-test-data";
+  const projectPath = E2E_DATA_DIR;
 
   // Ogni test qui apre DUE contesti sullo stesso server, e il pane-store è uno
   // solo per tutta la suite seriale: con le pane dei file precedenti ancora

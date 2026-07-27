@@ -1,0 +1,34 @@
+{
+  // Typecheck degli E2E — prima non esisteva.
+  //
+  // `tsconfig.server.json` include solo ["server", "server.ts", "shared"] e gli
+  // altri config stanno sotto client/: tutta la cartella tests/ non era coperta
+  // da NESSUN progetto TypeScript. Risultato: l'editor segnalava ~60 falsi
+  // "Cannot find name 'process' / 'fs' / 'Buffer' / '__dirname'" (i globali Node
+  // non erano dichiarati da nessuna parte) e in cambio nessuno controllava i
+  // veri errori di tipo delle spec — che girano con Playwright, il quale
+  // trasforma il TS senza controllarne i tipi.
+  //
+  // Stesse impostazioni del server (strict off, strictNullChecks on) per non
+  // aprire un fronte di implicit-any su 46 file di test in un colpo solo.
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // "bun" porta con sé i globali Node (process, Buffer, __dirname, i moduli
+    // "fs"/"path"/…) e in più i tipi Bun usati da qualche helper.
+    "types": ["bun"],
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "strictNullChecks": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  },
+  // Le spec di integrazione importano moduli del server, che a loro volta
+  // importano i .sql delle migration (import testuale di Bun): senza la sua
+  // dichiarazione ambient il programma vede 60 moduli inesistenti.
+  "include": ["tests", "playwright.config.ts", "server/db/sql-modules.d.ts"]
+}

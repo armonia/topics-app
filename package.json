@@ -28,6 +28,8 @@
     "check:any": "bun run scripts/check-any.ts",
     "check:deadcode": "bunx --bun knip",
     "typecheck:server": "bun run scripts/typecheck-server.ts",
+    "typecheck:e2e": "./client/node_modules/.bin/tsc -p tsconfig.e2e.json --ignoreDeprecations 5.0",
+    "test:e2e:shards": "./scripts/e2e-shards.sh",
     "hooks:install": "bun run scripts/install-claude-hooks.ts install",
     "hooks:uninstall": "bun run scripts/install-claude-hooks.ts uninstall",
     "test": "npx playwright test",

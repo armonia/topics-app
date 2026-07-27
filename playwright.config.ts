@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { E2E_BASE } from "./tests/e2e/helpers/test-server";
 
 // Two-tier E2E: the PR gate runs a fast, deterministic subset; the full suite —
 // including slow/perf/network/two-window/reload-persistence specs — runs nightly
@@ -67,7 +68,7 @@ export default defineConfig({
     ["list"],
   ],
   use: {
-    baseURL: "http://localhost:13334",
+    baseURL: E2E_BASE,
     video: EVIDENCE ? "on" : "retain-on-failure",
     screenshot: "only-on-failure",
     trace: "on-first-retry",

@@ -14,8 +14,9 @@ import {
   unmockChatStream,
 } from "./helpers/sse-helpers";
 import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { E2E_BASE } from "./helpers/test-server";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 test.describe.serial("Claude Code Provider", () => {
   let testTopicId: string;

@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { goToApp } from "./helpers";
+import { E2E_BASE } from "./helpers/test-server";
 import {
   createTopic,
   deleteTopic,
@@ -8,7 +9,7 @@ import {
   closeAllBrowserContexts,
 } from "./helpers/api-fixtures";
 
-const BASE = "http://localhost:13334";
+const BASE = E2E_BASE;
 
 /**
  * Mount a RemoteBrowserPanel for `topicId` by dispatching the canonical
@@ -132,7 +133,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       await expect(urlInput.first()).toBeVisible({ timeout: 10000 });
 
       const res = await request.post(
-        `http://localhost:13334/api/topics/${topic.id}/browser/close-pane`,
+        `${E2E_BASE}/api/topics/${topic.id}/browser/close-pane`,
         { data: {} },
       );
       expect(res.ok()).toBeTruthy();
