@@ -116,7 +116,7 @@ test.describe("Panels & Views", () => {
 
   test("terminal section exists", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
-    // Sidebar sections (Terminals/Browsers/…) only render in GROUPED view; the
+    // Sidebar sections (Terminali/Browser/…) only render in GROUPED view; the
     // default is the unified timeline. viewMode is SERVER-persisted
     // (useSidebarState fetches /api/ui-state/sidebar-state on mount and it wins
     // over localStorage), so a localStorage-only seed is clobbered — set it on
@@ -130,7 +130,10 @@ test.describe("Panels & Views", () => {
     await resetPaneStore(request, [`terminal:${session.id}`]);
     try {
       await goToApp(page);
-      const terminalsBtn = page.getByRole("button", { name: /Terminals/ });
+      // Accessible name is `sezione <label>` (TopicTree renderSection) and the
+      // labels are Italian since ed903cfc — match it exactly, not by a loose
+      // substring that a rename can silently stop matching.
+      const terminalsBtn = page.getByRole("button", { name: "sezione Terminali" });
       await expect(terminalsBtn).toBeVisible({ timeout: 10000 });
     } finally {
       await deleteTerminalSession(request, session.id);
@@ -150,7 +153,7 @@ test.describe("Panels & Views", () => {
     await resetPaneStore(request, ["browser:e2e-panel-browser"]);
     try {
       await goToApp(page);
-      const browserSection = page.getByRole("button", { name: /Browser/ });
+      const browserSection = page.getByRole("button", { name: "sezione Browser" });
       await expect(browserSection.first()).toBeVisible({ timeout: 10000 });
 
       await browserSection.first().click();
@@ -175,8 +178,13 @@ test.describe("Panels & Views", () => {
     }
   });
 
-  test("file explorer opens project topics", async ({ page }) => {
+  test("file explorer opens project topics", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-02" });
+    // The project row is derived from OPEN panes, so this test used to pass only
+    // on panes left behind by whatever ran before it: the two tests above end
+    // with resetPaneStore([]) and it went red right after them. Seed its own
+    // tab instead of inheriting someone else's state.
+    if (projectTopicId) await resetPaneStore(request, [projectTopicId]);
     await goToApp(page);
     // Use the project-linked topic we created (folder name = "e2e-panels")
     const projectBtn = page.locator('button:has-text("e2e-panels")').first();
