@@ -148,12 +148,21 @@ export function backfillPostTokens(
   if (!Number.isFinite(postTokens) || postTokens < 0) return null;
   const target = db
     .prepare(
-      `SELECT id FROM compaction_markers
+      `SELECT id, pre_tokens FROM compaction_markers
         WHERE session_key = ? AND post_tokens IS NULL
         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
     )
-    .get(sessionKey) as { id?: unknown } | undefined;
+    .get(sessionKey) as { id?: unknown; pre_tokens?: unknown } | undefined;
   if (!target?.id) return null;
+  // A compaction SHRINKS the context — a post >= pre is not a measurement, it's
+  // the wrong number (turn-aggregate usage rather than one call's prompt size).
+  // Reject it rather than persist a divider claiming "167k → 11.2M token".
+  if (typeof target.pre_tokens === "number" && postTokens >= target.pre_tokens) {
+    console.warn(
+      `[compaction] rejected implausible post_tokens ${postTokens} (pre ${target.pre_tokens}) for ${sessionKey}`,
+    );
+    return null;
+  }
   db.prepare(`UPDATE compaction_markers SET post_tokens = $post WHERE id = $id`).run({
     $post: postTokens,
     $id: String(target.id),

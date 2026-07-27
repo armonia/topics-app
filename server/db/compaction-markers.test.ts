@@ -64,6 +64,23 @@ describe("compaction-markers persistence", () => {
     expect(getCompactionMarkersBySession(db, "sk4")[0].postTokens).toBe(42);
   });
 
+  test("backfillPostTokens rejects a post >= pre (a compaction never grows the context)", () => {
+    // The old wiring fed this the TURN AGGREGATE from the final `result` usage,
+    // so real markers ended up claiming "167k -> 11.2M token". A compaction
+    // shrinks the context by definition: refuse the reading instead of
+    // persisting a confidently-wrong delta.
+    insertCompactionMarker(db, { sessionKey: "sk5", marker: { trigger: "auto", preTokens: 167_386 } });
+    expect(backfillPostTokens(db, "sk5", 11_257_662)).toBeNull();
+    expect(getCompactionMarkersBySession(db, "sk5")[0].postTokens).toBeUndefined();
+    // The marker stays open, so an honest measurement can still land later.
+    expect(backfillPostTokens(db, "sk5", 12_004)?.postTokens).toBe(12_004);
+  });
+
+  test("backfillPostTokens accepts a post < pre with no pre recorded at all", () => {
+    insertCompactionMarker(db, { sessionKey: "sk6", marker: { trigger: "manual" } });
+    expect(backfillPostTokens(db, "sk6", 9_000)?.postTokens).toBe(9_000);
+  });
+
   test("insertCompactionMarkerIfNew collapses repeats at the same anchor", () => {
     const first = insertCompactionMarkerIfNew(db, {
       sessionKey: "sk7",

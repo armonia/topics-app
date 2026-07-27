@@ -1,6 +1,16 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { uploadApi } from '../../lib/api';
 
+/**
+ * Floor under which a recording carries no speech: an accidental start/stop
+ * (the ⌘⇧R chord toggling twice, a pane unmounting mid-record) yields zero data
+ * chunks or a container header with no audio in it. Uploading those posted a
+ * real `[Voice message: …]` bubble into the transcript that played silence —
+ * the "random empty voice note at the end of a chat". Opus at ~24kbps clears
+ * this in well under half a second, so no genuine note is dropped.
+ */
+const MIN_VOICE_BLOB_BYTES = 512;
+
 export function useVoiceRecording(
   sendMessage: (sessionKey: string, content: string) => Promise<boolean>,
   sessionKey: string,
@@ -68,6 +78,15 @@ export function useVoiceRecording(
         const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mimeType });
         setIsRecording(false);
         setRecordingTime(0);
+        // Silence is not a message: drop an empty/header-only capture instead of
+        // uploading it and sending a `[Voice message: …]` bubble for it.
+        if (audioChunksRef.current.length === 0 || blob.size < MIN_VOICE_BLOB_BYTES) {
+          console.warn(`[voice] discarded empty recording (${blob.size}B) — nothing sent`);
+          audioChunksRef.current = [];
+          recordingSessionKeyRef.current = null;
+          resolve();
+          return;
+        }
         setUploading(true);
         try {
           const result = await uploadApi.uploadFile(file);

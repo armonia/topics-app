@@ -305,6 +305,13 @@ function QueuedRow({
 
 interface ChatInputProps {
   isMobile: boolean;
+  /**
+   * True only for the pane that owns the keyboard. The voice chords below are
+   * `window`-level, and every open chat pane mounts a ChatInput — ungated, one
+   * ⌘⇧R started a recording in EVERY pane at once (N mic streams, N voice
+   * notes). Same gate as ChatPane's ⌘U handler.
+   */
+  isFocused: boolean;
   topic: Topic;
   currentMessages: ChatMessage[];
   currentStreaming: boolean;
@@ -378,6 +385,7 @@ interface ChatInputProps {
 
 export function ChatInput({
   isMobile,
+  isFocused,
   topic,
   currentMessages,
   currentStreaming,
@@ -551,8 +559,10 @@ export function ChatInput({
     currentStreaming
   );
 
-  // Global keyboard shortcuts for voice features
+  // Global keyboard shortcuts for voice features — focused pane only (see the
+  // `isFocused` prop doc: these are window-level and every pane mounts one).
   useEffect(() => {
+    if (!isFocused) return;
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
       
@@ -583,7 +593,7 @@ export function ChatInput({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [toggleCall, toggleListening, voiceCallSupported, sttSupported, isCallActive, isRecording, startRecording, stopRecording, isSpeaking, stopSpeaking]);
+  }, [isFocused, toggleCall, toggleListening, voiceCallSupported, sttSupported, isCallActive, isRecording, startRecording, stopRecording, isSpeaking, stopSpeaking]);
 
   // Sync transcript to message input. `message`/`setMessage` are intentionally
   // read as a snapshot only when a new `transcript` arrives — the guard plus

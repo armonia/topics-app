@@ -1963,6 +1963,21 @@ export class ClaudeCodeProvider implements AIProvider {
       typeof event.parent_tool_use_id === "string" && event.parent_tool_use_id
         ? event.parent_tool_use_id
         : null;
+
+    // Per-call context size. Each `assistant` event carries the usage of the ONE
+    // model call that produced it, so `input + cache_read + cache_creation` is
+    // the real size of the prompt the model just saw. The final `result` usage
+    // sums every call in the turn — reading THAT as the context size is what
+    // made the post-compaction divider claim the context had grown. Sidechain
+    // (sub-agent) calls have their own context and are excluded.
+    if (event.type === "assistant" && !parentToolUseId && handler?.onContextSize) {
+      const mu = (event.message as { usage?: Record<string, unknown> } | undefined)?.usage;
+      if (mu) {
+        const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+        const size = n(mu.input_tokens) + n(mu.cache_read_input_tokens) + n(mu.cache_creation_input_tokens);
+        if (size > 0) handler.onContextSize(size);
+      }
+    }
     if (parentToolUseId && eventContent && handler) {
       // Lazy registration: sub-agent emits before the parent tool_use block
       // arrives in the cumulative snapshot can happen on the very first

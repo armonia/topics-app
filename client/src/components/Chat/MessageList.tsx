@@ -3,6 +3,8 @@ import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import { ScrollToBottom, NewMessageBanner } from '../Shared/ScrollToBottom';
 import { CompactionDivider } from './CompactionDivider';
+import { CompactionHoistContext } from './compactionHoist';
+import { splitCompactionSummary } from '../../lib/compactionSummary';
 import { partitionMarkers } from './partitionMarkers';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
@@ -742,11 +744,29 @@ export function MessageList({
             // Only show plan approve/reject on the last assistant message
             const isLastAssistant = msg.role === 'assistant' && idx === filteredMessages.length - 1;
             const trailingMarkers = msg.id ? markerPartition.byAfter.get(msg.id) : undefined;
+            // One boundary, one signal: a divider hoists the recap out of the
+            // message BELOW it (that's where the CLI writes it) and renders the
+            // expander itself, and that message then skips its own fold.
+            const next = idx + 1 < filteredMessages.length ? filteredMessages[idx + 1] : undefined;
+            const trailingSummary = trailingMarkers?.length
+              ? splitCompactionSummary(next?.content ?? '').summary
+              : null;
+            const leadingSummary = idx === 0 && markerPartition.leading.length
+              ? splitCompactionSummary(msg.content ?? '').summary
+              : null;
+            const hoistOwnSummary = idx === 0
+              ? !!leadingSummary
+              : !!(prev?.id && markerPartition.byAfter.get(prev.id)?.length);
             return (
               <>
-              {idx === 0 && markerPartition.leading.map((mk) => (
-                <CompactionDivider key={mk.id} marker={mk} />
+              {idx === 0 && markerPartition.leading.map((mk, i) => (
+                <CompactionDivider
+                  key={mk.id}
+                  marker={mk}
+                  summary={i === markerPartition.leading.length - 1 ? leadingSummary ?? undefined : undefined}
+                />
               ))}
+              <CompactionHoistContext.Provider value={hoistOwnSummary}>
               <div
                 className={
                   (isMobile ? 'px-2' : 'px-4') +
@@ -779,8 +799,9 @@ export function MessageList({
                   onRetry={isLastAssistant ? onRetry : undefined}
                 />
               </div>
+              </CompactionHoistContext.Provider>
               {trailingMarkers && trailingMarkers.map((mk) => (
-                <CompactionDivider key={mk.id} marker={mk} />
+                <CompactionDivider key={mk.id} marker={mk} summary={trailingSummary ?? undefined} />
               ))}
               </>
             );

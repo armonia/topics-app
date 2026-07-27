@@ -289,6 +289,16 @@ export interface StreamHandler {
    * never resumes a turn. See CHAT-COMPACT-01.
    */
   onCompaction?: (marker: CompactionMarker) => void;
+  /**
+   * Context size (tokens) of ONE model call, as reported per assistant message:
+   * `input + cache_read + cache_creation`. This is the live size of the prompt
+   * the model just saw — NOT the turn total. The final `result` usage is an
+   * AGGREGATE over every call in the turn, so it is orders of magnitude larger
+   * on a long turn and must never be read as "how big is the context now"
+   * (that made the post-compaction divider report a context EXPLOSION).
+   * Fires once per assistant message; sub-agent (sidechain) calls are excluded.
+   */
+  onContextSize?: (tokens: number) => void;
   onDone: (message?: ProviderDoneMessage) => void;
   onError: (error: string) => void;
   onAborted?: (message?: ProviderDoneMessage) => void;

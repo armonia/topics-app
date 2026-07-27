@@ -6,6 +6,7 @@ import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
 import { Copy, Check, CheckCheck, Download, Layers, ChevronRight } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
+import { CompactionHoistContext } from './Chat/compactionHoist';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
 import { basename } from '../lib/path-utils';
@@ -938,10 +939,13 @@ function CompactionSummaryFold({ summary, components }: { summary: string; compo
  *  text). Drop-in for `<ChatMarkdown components={…}>{text}</ChatMarkdown>`. */
 function ProseBlock({ text, components }: { text: string; components: MarkdownComponents }) {
   const { before, summary } = splitCompactionSummary(text);
+  // The divider right above this message already hoisted the recap into its own
+  // expander — rendering the fold too would announce the same boundary twice.
+  const hoisted = useContext(CompactionHoistContext);
   return (
     <>
       {before ? <ChatMarkdown components={components}>{before}</ChatMarkdown> : null}
-      {summary ? <CompactionSummaryFold summary={summary} components={components} /> : null}
+      {summary && !hoisted ? <CompactionSummaryFold summary={summary} components={components} /> : null}
     </>
   );
 }
