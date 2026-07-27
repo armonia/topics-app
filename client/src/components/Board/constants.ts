@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { PackageCheck } from 'lucide-react';
+import { PackageCheck, Hourglass } from 'lucide-react';
 import type { TaskStatus } from '../../lib/board';
 
 /** Compact prose for the shared ChatMarkdown renderer inside small board
@@ -59,6 +59,10 @@ export const STATUS_ICON_COLOR: Record<TaskStatus, string> = {
 // Card chip for the dispatch lifecycle (server: tasks.dispatch_state).
 export const DISPATCH_CHIP: Record<string, { text: string; cls: string; title?: string; Icon?: LucideIcon }> = {
   queued: { text: 'in coda', cls: 'bg-white/10 text-neutral-300' },
+  // The agent DECLARED an external-condition wait: back in the queue, slot freed,
+  // re-dispatched when its window elapses. NOT a delivery — never in review. The
+  // reason rides in task.dispatchError → shown as the chip tooltip.
+  waiting: { text: 'in attesa', cls: 'bg-indigo-500/15 text-indigo-300', title: "In attesa di una condizione esterna: lo slot è libero, riparte da solo", Icon: Hourglass },
   starting: { text: 'avvio…', cls: 'bg-amber-500/15 text-amber-300' },
   working: { text: 'al lavoro', cls: 'bg-sky-500/15 text-sky-300' },
   // Both live in Review, but they ask different things of the human:
