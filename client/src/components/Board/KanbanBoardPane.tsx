@@ -13,6 +13,8 @@ import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensor
 import { Bot, Check, ChevronDown, ChevronRight, Loader2, Search, Settings, UploadCloud, X } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
+import { ExternalSessionsBadge } from './ExternalSessionsBadge';
+import { useExternalSessions } from '../../hooks/useExternalSessions';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, subscribePopstateTask } from '../../lib/openTaskLink';
 import {
@@ -368,6 +370,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
   const [tasks, setTasks] = useState<BoardTask[]>([]);
+  // Sessions running outside the kanban. Scoped to this board in project mode,
+  // machine-wide on the global board — same scoping rule as the task list.
+  const externalSessions = useExternalSessions(onMessage, mode === 'project' ? projectId : undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -735,6 +740,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         </div>
         <div className="ml-auto flex items-center gap-2">
           {mode === 'all' && <span className="hidden text-[11px] text-neutral-500 sm:inline">{tasks.length} task · tutti i progetti</span>}
+          {/* The work the kanban does NOT govern — otherwise a repo with three
+              bare `claude` sessions and no cards reads as "fermo". */}
+          <ExternalSessionsBadge sessions={externalSessions} showProject={mode === 'all'} />
           {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
           <PublishControl />
           {hasProject && (
