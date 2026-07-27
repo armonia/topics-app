@@ -1,4 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
+import { mintAgentToken } from "../middleware/agent-auth";
 
 export function createAgentProfilesRouter(ctx: AppContext): RouteHandler {
   const { db, json, readJSON, matchRoute, errorResponse, broadcastToAll } = ctx;
@@ -18,6 +19,7 @@ export function createAgentProfilesRouter(ctx: AppContext): RouteHandler {
       WHERE id=$id
     `),
     deleteProfile: db.prepare(`DELETE FROM agent_profiles WHERE id = ?`),
+    setToken: db.prepare(`UPDATE agent_profiles SET agent_token_hash = ?, updated_at = ? WHERE id = ?`),
 
     // Assignments
     getAssignments: db.prepare(`SELECT * FROM agent_assignments WHERE agent_id = ?`),
@@ -214,6 +216,24 @@ export function createAgentProfilesRouter(ctx: AppContext): RouteHandler {
         stmts.deleteProfile.run(params.id);
         broadcastToAll({ type: "agent:profile:deleted", profileId: params.id });
         return json({ ok: true });
+      }
+    }
+
+    // POST /api/agents/profiles/:id/token - mint a fresh agent token.
+    // The raw token is returned ONCE (only its pbkdf2 hash is stored); minting
+    // again rotates it and invalidates the previous one. This is the only
+    // supported way to hand an agent a native X-Agent-Token (agentAuthOk in
+    // terminal.ts now honours it), replacing the hand-written DB hash.
+    {
+      const params = matchRoute(pathname, "/api/agents/profiles/:id/token");
+      if (params && method === "POST") {
+        const row = stmts.getProfile.get(params.id) as any;
+        if (!row) return errorResponse(404, "Agent profile not found");
+        const { token, hash } = mintAgentToken();
+        stmts.setToken.run(hash, new Date().toISOString(), params.id);
+        const updated = stmts.getProfile.get(params.id) as any;
+        broadcastToAll({ type: "agent:profile:updated", profile: rowToProfile(updated) });
+        return json({ token });
       }
     }
 
