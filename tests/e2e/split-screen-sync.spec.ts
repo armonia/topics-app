@@ -1,20 +1,22 @@
 import { mkdirSync, rmSync } from "fs";
 import { test, expect, type Page } from "@playwright/test";
-import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
-import { countColDividers, splitViaContextMenu } from "./helpers/layout";
+import { goToApp } from "./helpers";
+import {
+  createTopic,
+  deleteTopic,
+  resetPaneStore,
+  seedProjectPane,
+  waitForPaneStoreQuiet,
+} from "./helpers/api-fixtures";
+import {
+  countColDividers,
+  countRowDividers,
+  countTabBars,
+  getVisibleTabLabels,
+  splitViaContextMenu,
+} from "./helpers/layout";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
-
-/** Count row-resize dividers (vertical splits) */
-async function countRowDividers(page: Page): Promise<number> {
-  return page.locator('[role="main"] .cursor-row-resize').count();
-}
-
-/** Count all panel tab bars */
-async function countTabBars(page: Page): Promise<number> {
-  return page.locator('[data-testid="panel-tab-bar"]').count();
-}
 
 /** Collapse sidebar sections to save space */
 async function collapseSidebarSections(page: Page) {
@@ -53,7 +55,7 @@ async function openTwoTopics(page: Page, topicIds: string[]) {
   // Reset the authoritative pane channel too — legacy openPanels is UNIONED
   // with pane-store-v2 on hydrate, so stale panes from the shared test DB
   // otherwise leak in as extra tabs.
-  await resetPaneStore(page.request, [idA, idB]).catch(() => {});
+  await resetPaneStore(page.request, [idA, idB]);
   await page.goto("/");
   await page.waitForSelector('[aria-label="Topics sidebar"]', {
     state: "visible",
@@ -192,10 +194,9 @@ test.describe("Split Screen Sync & Correctness", () => {
       state: "visible",
       timeout: 15000,
     });
-    await page.waitForTimeout(2000);
-
-    const postDividers = await countColDividers(page);
-    expect(postDividers).toBeGreaterThanOrEqual(1);
+    // Il divisore ricompare quando il layout è stato reidratato: si aspetta
+    // QUELLO, non due secondi a caso.
+    await expect.poll(() => countColDividers(page), { timeout: 10000 }).toBeGreaterThanOrEqual(1);
 
     // Verify localStorage has grid layout
     const layoutData = await page.evaluate(() =>
@@ -344,7 +345,7 @@ test.describe("Split Screen Sync & Correctness", () => {
     // Deterministic tab set (see openTwoTopics), then the project pane on
     // top — the tab-driven sidebar needs the `project:<path>` pane open to
     // show the project row this test clicks.
-    await resetPaneStore(page.request, [topicIds[0]]).catch(() => {});
+    await resetPaneStore(page.request, [topicIds[0]]);
     await seedProjectPane(page.request, PROJECT_PATH);
 
     await page.goto("/");
@@ -360,14 +361,13 @@ test.describe("Split Screen Sync & Correctness", () => {
     const tabBars = await countTabBars(page);
     expect(tabBars).toBeGreaterThanOrEqual(2);
 
-    // Should have a divider between them (if multi-column layout)
-    // The project opens as a second panel which may create a split
-    const totalDividers =
-      (await countColDividers(page)) + (await countRowDividers(page));
-    // At minimum, both tab bars should be visible
-    expect(
-      await page.locator('[data-testid="panel-tab-bar"]').first().isVisible()
-    ).toBeTruthy();
+    // Il divisore c'è solo se il progetto apre una colonna, quindi non lo si
+    // asserisce: quello che DEVE valere sempre è che le due tab bar siano
+    // entrambe visibili (prima si calcolava un `totalDividers` e non lo si
+    // guardava, e si asseriva solo la prima barra — cioè quasi nulla).
+    const bars = page.locator('[data-testid="panel-tab-bar"]');
+    await expect(bars.first()).toBeVisible();
+    await expect(bars.nth(1)).toBeVisible();
   });
 
   // ── 3.2: Project window with nested splits ──
@@ -463,7 +463,7 @@ test.describe("Split Screen Sync & Correctness", () => {
         data: { order: [topicIds[0]], pinned: [topicIds[0]] },
       })
       .catch(() => {});
-    await resetPaneStore(page.request, [topicIds[0]]).catch(() => {});
+    await resetPaneStore(page.request, [topicIds[0]]);
     await seedProjectPane(page.request, PROJECT_PATH);
 
     await page.goto("/");
@@ -477,8 +477,10 @@ test.describe("Split Screen Sync & Correctness", () => {
 
     const tabBarsBefore = await countTabBars(page);
 
-    // Wait for debounced saves
-    await page.waitForTimeout(3000);
+    // Attesa del salvataggio debounced misurata sul server, non a occhio: il
+    // pane-store è "quieto" quando due letture di fila danno lo stesso
+    // server_seq (≤1s, di solito ~100ms, contro i 3s fissi di prima).
+    await waitForPaneStoreQuiet(page.request);
 
     // Reload
     await page.reload({ waitUntil: "load" });
@@ -486,7 +488,7 @@ test.describe("Split Screen Sync & Correctness", () => {
       state: "visible",
       timeout: 15000,
     });
-    await page.waitForTimeout(2000);
+    await expect.poll(() => countTabBars(page), { timeout: 10000 }).toBeGreaterThan(0);
 
     // Re-open project
     await openProjectInSidebar(page, /e2e-split-sync/i);
@@ -508,26 +510,20 @@ test.describe("Split Screen Sync & Correctness", () => {
     // Need 3 topics for multi-row multi-column
     const [idA, idB, idC] = topicIds;
     await Promise.all([
-      page.request
-        .put("http://localhost:13334/api/ui-state/panels", {
-          data: { openPanels: [idA, idB, idC] },
-        })
-        .catch(() => {}),
-      page.request
-        .put("http://localhost:13334/api/ui-state/grid-layout", {
-          data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
-        })
-        .catch(() => {}),
-      page.request
-        .put("http://localhost:13334/api/ui-state/panel-order", {
-          data: { order: [idA, idB, idC], pinned: [idA, idB, idC] },
-        })
-        .catch(() => {}),
+      page.request.put("http://localhost:13334/api/ui-state/panels", {
+        data: { openPanels: [idA, idB, idC] },
+      }),
+      page.request.put("http://localhost:13334/api/ui-state/grid-layout", {
+        data: { gridRows: [], gridRowHeights: [], soloTopicIds: [] },
+      }),
+      page.request.put("http://localhost:13334/api/ui-state/panel-order", {
+        data: { order: [idA, idB, idC], pinned: [idA, idB, idC] },
+      }),
     ]);
     // Reset the authoritative pane channel to EXACTLY these three topics —
     // legacy openPanels is UNIONED with pane-store-v2 on hydrate, so stale panes
     // from the shared test DB otherwise leak in as extra tabs.
-    await resetPaneStore(page.request, [idA, idB, idC]).catch(() => {});
+    await resetPaneStore(page.request, [idA, idB, idC]);
 
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', {
@@ -535,22 +531,22 @@ test.describe("Split Screen Sync & Correctness", () => {
       timeout: 15000,
     });
     await collapseSidebarSections(page);
-    await page
-      .locator('[role="main"] [draggable="true"]')
-      .first()
-      .waitFor({ state: "visible", timeout: 10000 });
-    await page.waitForTimeout(800);
+    // Le tre tab seminate devono essere TUTTE lì prima di dividere. Non
+    // ">= 2": con due sole tab il secondo split parte da un gruppo a pane
+    // singolo, che è un no-op — e il test finiva per misurare quel no-op
+    // invece del layout a due assi che dichiara di verificare.
+    // Si polla sulle ETICHETTE, non sul conteggio: se la precondizione salta,
+    // il messaggio d'errore dice QUALI tab ci sono invece di un numero nudo.
+    await expect
+      .poll(() => getVisibleTabLabels(page), { timeout: 10000 })
+      .toHaveLength(3);
 
     // Split Down first to create 2 rows
     await splitViaContextMenu(page, "Dividi in basso");
-    const rowDividers = await countRowDividers(page);
-    expect(rowDividers).toBeGreaterThanOrEqual(1);
+    expect(await countRowDividers(page)).toBeGreaterThanOrEqual(1);
 
     // Now Split Right on one of the remaining tabs to create a column within a row
-    const tabs = page.locator('[role="main"] [draggable="true"]');
-    if ((await tabs.count()) >= 2) {
-      await splitViaContextMenu(page, "Dividi a destra", 0);
-    }
+    await splitViaContextMenu(page, "Dividi a destra", 0);
 
     // Verify both row and column dividers coexist
     const finalRowDividers = await countRowDividers(page);
