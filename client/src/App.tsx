@@ -28,6 +28,7 @@ import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { wireTauriDragRegions } from './lib/shell/window';
 import { initDevBundleReload } from './lib/devBundleReload';
+import { initDevLayoutProbe } from './lib/devLayoutProbe';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
 import { openTaskFromUrl, currentTaskTarget } from './lib/openTaskLink';
@@ -141,6 +142,12 @@ function App() {
     const offChunk = initChunkReloadGuard();
     return () => { offRev(); offChunk(); };
   }, []);
+
+  // Sonda di diagnosi del layout: inerte finché qualcuno non la ARMA scrivendo
+  // `dev-layout-probe` nello ui-state. Serve a dire CHI sporca il layout
+  // nell'app vera, dove i profili nativi non sanno nominare il JS e l'ambiente
+  // E2E non riproduce il problema. Vedi lib/devLayoutProbe.ts.
+  useEffect(() => initDevLayoutProbe(), []);
 
   // Deep-link a board task from /task/<taskId> (the drawer's "copia link"; a
   // legacy ?task=<slug>~<taskId> link still resolves too): opens the global
