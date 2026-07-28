@@ -172,17 +172,39 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     // can't snap the view out of its native animation. Cleared at slide-end
     // BEFORE the settle re-measure.
     let slideAnimating = false;
+    // Coalesce — skip the IPC if bounds didn't change. setBounds rounds
+    // to integers main-side, so we round here too for cheap equality.
+    const push = (next: { x: number; y: number; width: number; height: number }) => {
+      const json = `${Math.round(next.x)},${Math.round(next.y)},${Math.round(next.width)},${Math.round(next.height)}`;
+      if (json === lastSentJson) return;
+      lastSentJson = json;
+      browser.setBounds(next);
+    };
+
     const updateBounds = () => {
       if (slideAnimating) return;
       const el = placeholderRef.current;
       if (!el) return;
-      const rect = el.getBoundingClientRect();
 
       // Hide entirely while:
       // - the parent pane is `display:none` in a keep-alive ladder
       //   (display:none doesn't reliably fire ResizeObserver, so we
       //   trust the explicit prop instead of relying on the rect)
       // - a global drag is in progress (drop preview must be visible)
+      // Both answers are the zero rect whatever the geometry says, so bail out
+      // BEFORE getBoundingClientRect(): that call forces a synchronous layout,
+      // and this function runs off a capture-phase scroll listener — EVERY
+      // inner scroll in the window (a streaming chat autoscrolling, a terminal,
+      // a long list) reaches EVERY mounted placeholder. A keep-alive ladder
+      // holds several hidden ones; none of them should pay a reflow just to
+      // conclude they are still hidden.
+      if (!isVisible || dragging) {
+        push({ x: 0, y: 0, width: 0, height: 0 });
+        return;
+      }
+
+      const rect = el.getBoundingClientRect();
+
       // NOTE: agent activity does NOT affect bounds — the view fills the
       // placeholder at all times (the "controlling" indicator lives in the
       // toolbar, so the page never shifts when the agent acts).
@@ -198,50 +220,59 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       // Responsive mode (deviceMode==='custom'): seed a sensible initial size on
       // first entry, then size the view to it (top-left) so the page reflows
       // like a real window — the uncovered pane area holds the drag handles.
-      if (mode === 'custom' && !resp && isVisible && !dragging) {
+      // (`isVisible && !dragging` is implied — the guard above already returned.)
+      if (mode === 'custom' && !resp) {
         browser.setResponsiveSize(
           Math.max(MIN_RESP, Math.round(rect.width * 0.7)),
           Math.max(MIN_RESP, Math.round(rect.height * 0.7)),
         );
       }
-      const next = (!isVisible || dragging)
-        ? { x: 0, y: 0, width: 0, height: 0 }
-        : (mode === 'custom' && resp)
-          ? {
-              x: rect.left,
-              y: rect.top,
-              width: Math.max(0, Math.min(resp.width, Math.round(rect.width))),
-              height: Math.max(0, Math.min(resp.height, Math.round(rect.height))),
-            }
-          : {
-              x: rect.left + NATIVE_VIEW_GUTTER,
-              y: rect.top + NATIVE_VIEW_GUTTER,
-              width: Math.max(0, rect.width - 2 * NATIVE_VIEW_GUTTER),
-              height: Math.max(0, rect.height - 2 * NATIVE_VIEW_GUTTER),
-            };
+      push((mode === 'custom' && resp)
+        ? {
+            x: rect.left,
+            y: rect.top,
+            width: Math.max(0, Math.min(resp.width, Math.round(rect.width))),
+            height: Math.max(0, Math.min(resp.height, Math.round(rect.height))),
+          }
+        : {
+            x: rect.left + NATIVE_VIEW_GUTTER,
+            y: rect.top + NATIVE_VIEW_GUTTER,
+            width: Math.max(0, rect.width - 2 * NATIVE_VIEW_GUTTER),
+            height: Math.max(0, rect.height - 2 * NATIVE_VIEW_GUTTER),
+          });
+    };
 
-      // Coalesce — skip the IPC if bounds didn't change. setBounds rounds
-      // to integers main-side, so we round here too for cheap equality.
-      const json = `${Math.round(next.x)},${Math.round(next.y)},${Math.round(next.width)},${Math.round(next.height)}`;
-      if (json === lastSentJson) return;
-      lastSentJson = json;
-      browser.setBounds(next);
+    // Event-driven re-measure. ResizeObserver, MutationObserver, window resize
+    // and the capture-phase scroll listener can each fire several times inside
+    // one frame (a scroll that also resizes something trips RO *and* scroll);
+    // called directly, each one forces its own layout. Collapse them onto a
+    // single rAF: the bounds reach the compositor a frame later anyway, so
+    // nothing is lost visually, and the cadence matches the settle poll below.
+    // Deliberate two-frame defers (transitionend, reflow-request, slide-end)
+    // keep calling `updateBounds` directly — their timing is the point.
+    let coalesceRaf = 0;
+    const scheduleBounds = () => {
+      if (coalesceRaf) return;
+      coalesceRaf = requestAnimationFrame(() => {
+        coalesceRaf = 0;
+        updateBounds();
+      });
     };
 
     updateBounds();
 
-    const ro = new ResizeObserver(updateBounds);
+    const ro = new ResizeObserver(scheduleBounds);
     if (placeholderRef.current) ro.observe(placeholderRef.current);
     // Observe body too — picks up sibling pane resize / sidebar collapse
     // even when the placeholder's own size doesn't change.
     ro.observe(document.body);
 
-    window.addEventListener('resize', updateBounds);
-    window.addEventListener('scroll', updateBounds, { passive: true, capture: true });
+    window.addEventListener('resize', scheduleBounds);
+    window.addEventListener('scroll', scheduleBounds, { passive: true, capture: true });
 
     // MutationObserver on body: catches className toggles (theme, sidebar
     // open/close) that re-flow without firing RO.
-    const mo = new MutationObserver(updateBounds);
+    const mo = new MutationObserver(scheduleBounds);
     mo.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'], subtree: false });
 
     // Poll briefly to smooth split/transition animations. CSS transitions
@@ -367,10 +398,11 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
       mo.disconnect();
       cancelAnimationFrame(rafId);
       if (slideRaf) cancelAnimationFrame(slideRaf);
+      if (coalesceRaf) cancelAnimationFrame(coalesceRaf);
       window.removeEventListener('topics:sidebar-resize-start', onSidebarSlideStart);
       window.removeEventListener('topics:sidebar-resize-end', onSidebarSlideEnd);
-      window.removeEventListener('resize', updateBounds);
-      window.removeEventListener('scroll', updateBounds, { capture: true });
+      window.removeEventListener('resize', scheduleBounds);
+      window.removeEventListener('scroll', scheduleBounds, { capture: true });
       window.removeEventListener('transitionend', onTransitionEnd, true);
       window.removeEventListener('browser:reflow-request', onReflowRequest as EventListener);
       // On unmount, hide the view (the native pane's own teardown removes it

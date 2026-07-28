@@ -74,6 +74,32 @@ const INSTALL_FOCUS_HOOK =
   "__tFocusArm=Date.now()+600;},true);" +
   "addEventListener('focus',function(){if(__tFocusArm&&Date.now()<=__tFocusArm){__tFocusArm=0;window.__topicsFocusBump++;}},true);}";
 
+/** True while this document is actually on screen.
+ *
+ *  Every eval poll below crosses into a SEPARATE WKWebView content process
+ *  through the Rust shell. Left ungated they keep ticking while the whole app is
+ *  occluded (⌘H, minimized, another Space), burning IPC and content-process CPU
+ *  for pixels nobody can see — and with the keep-alive ladder there is one such
+ *  pane per visited browser tab.
+ *
+ *  Visibility is the right gate, and `document.hasFocus()` is emphatically NOT:
+ *  a click into a native pane makes the CHILD webview key, so the host
+ *  document's hasFocus() reads false exactly when a browser pane is in use.
+ *  Visibility has no such inversion, and an app that is merely not frontmost
+ *  stays `visible` — which keeps the click-that-also-focuses-the-app path
+ *  (INSTALL_FOCUS_HOOK's arm window) working. Nothing is lost while hidden:
+ *  __topicsFocusBump is a monotonic counter and the page-side console buffer is
+ *  capped, so the tick primed on the way back reads the accumulated state. */
+const docVisible = (): boolean =>
+  typeof document === 'undefined' || document.visibilityState === 'visible';
+
+/** Run `fn` whenever the document becomes visible again; returns the unsubscribe. */
+function onDocumentVisible(fn: () => void): () => void {
+  const handler = (): void => { if (docVisible()) fn(); };
+  document.addEventListener('visibilitychange', handler);
+  return () => document.removeEventListener('visibilitychange', handler);
+}
+
 /** Best-effort URL/search normalisation for the address bar. Full URLs pass
  *  through; a bare host gets https://; anything else becomes a web search. */
 function normalizeUrl(input: string): string {
@@ -538,7 +564,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       // Skip if the previous eval hasn't resolved — on a hung page browser_eval_js
       // can take up to its 8s timeout, and ungated ticks would pile up blocked
       // spawn_blocking workers behind it.
-      if (stop || inFlight) return;
+      if (stop || inFlight || !docVisible()) return;
       inFlight = true;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: READ });
@@ -572,9 +598,11 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       }
     };
     const iv = window.setInterval(tick, 800);
+    const offVis = onDocumentVisible(() => { void tick(); }); // catch up on re-show
     void tick(); // prime immediately
     return () => {
       stop = true;
+      offVis();
       window.clearInterval(iv);
     };
   }, [id, ready, isVisible, maybeFireSelfFocus]);
@@ -594,7 +622,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       "(function(){try{return JSON.stringify({u:location.href,t:document.title," +
       "f:(document.querySelector(\"link[rel~='icon']\")||{}).href||location.origin+'/favicon.ico'})}catch(e){return ''}})()";
     const tick = async () => {
-      if (stop || inFlight) return;
+      if (stop || inFlight || !docVisible()) return;
       inFlight = true;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: META });
@@ -608,7 +636,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     };
     void tick(); // prime once immediately so the label appears fast on open
     const iv = window.setInterval(tick, 2500);
-    return () => { stop = true; window.clearInterval(iv); };
+    const offVis = onDocumentVisible(() => { void tick(); });
+    return () => { stop = true; offVis(); window.clearInterval(iv); };
   }, [id, ready, isVisible]);
 
   // Navigation failures — drain the Rust did-fail queue (browser_take_nav_errors,
@@ -658,7 +687,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       "(function(){" + INSTALL_FOCUS_HOOK +
       "return String(window.__topicsFocusBump||0)})()";
     const tick = async () => {
-      if (stop || inFlight) return;
+      if (stop || inFlight || !docVisible()) return;
       inFlight = true;
       try {
         const raw = await tauriInvoke<string>('browser_eval_js', { id, js: FAST });
@@ -667,8 +696,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       } catch { /* pane closing / eval timeout — next tick retries */ }
       finally { inFlight = false; }
     };
+    // 8.3 evals/s per visible pane is the price of instant tab activation while
+    // you are looking at the app; while it is occluded it buys nothing, and the
+    // bump counter is monotonic so the catch-up tick loses no click.
     const iv = window.setInterval(tick, 120);
-    return () => { stop = true; window.clearInterval(iv); };
+    const offVis = onDocumentVisible(() => { void tick(); });
+    return () => { stop = true; offVis(); window.clearInterval(iv); };
   }, [id, ready, isVisible, maybeFireSelfFocus]);
 
   const toggleDevTools = useCallback(async () => {
