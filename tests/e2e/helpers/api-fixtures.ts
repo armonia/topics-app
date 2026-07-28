@@ -249,16 +249,22 @@ async function readPaneStore(
  * WHY THIS EXISTS — the cumulative-contamination mechanism. When a spec's page
  * closes, `pagehide` fires a FIRE-AND-FORGET `navigator.sendBeacon` PUT of that
  * client's whole snapshot (middleware/syncServer.ts), carrying every tombstone
- * and Spazio it accumulated. That beacon is unordered, and the server PUT has
- * no LWW gate — it just allocates a fresh `server_seq` and overwrites. So a
- * beacon from the PREVIOUS spec can land AFTER the next spec's reset and
- * silently restore the old state, whose stale tombstones then EVICT the panes
- * this spec just seeded.
+ * and Spazio it accumulated. That beacon is unordered, so one from the PREVIOUS
+ * spec can land AFTER the next spec's reset and silently restore the old state,
+ * whose stale tombstones then EVICT the panes this spec just seeded.
  *
  * It explains every property measured: green alone (no previous page), green in
  * pairs (little accumulated state), red only after ~200 tests (enough garbage
  * for the clobber to matter), and failures that MOVE between runs — it is a
  * race, not a broken assertion.
+ *
+ * STATO — teardown flushes now declare a compare-and-swap base (`?base=<seq>` in
+ * `teardownFlushUrl`, honoured by routes/ui-state.ts), so a late beacon from a
+ * dying tab is rejected with 409 instead of winning on seq. That closed the
+ * clobber described above. This helper stays as defence-in-depth: the DEBOUNCED
+ * PUT of a still-live page is deliberately ungated (a 409 there would lose a
+ * real user edit), so a page that hasn't finished tearing down can still write
+ * under a spec that is already seeding. Don't delete it without re-measuring.
  */
 export async function waitForPaneStoreQuiet(
   request: APIRequestContext,
