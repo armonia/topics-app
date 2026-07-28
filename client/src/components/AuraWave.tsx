@@ -68,6 +68,12 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS, muted = false }:
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const baseRef = useRef<SVGPathElement>(null);
+  // `muted` changes whenever the session flips working ⇄ watching, which is far
+  // too often to justify tearing down the canvas and re-sampling the geometry.
+  // The draw loop reads it through a ref instead, so the wave softens on the very
+  // next frame with no restart (it used to be captured once and go stale).
+  const mutedRef = useRef(muted);
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -163,18 +169,20 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS, muted = false }:
     const TWO = Math.PI * 2;
     // For muted (watching) phase: reduce per-ring opacity to ~0.5 cumulative
     // at the border (vs ~0.75 normally), making the wave more subtle.
-    const baseAlpha = muted ? 1 - Math.pow(0.5, 1 / LAYERS) : 1 - Math.pow(0.25, 1 / LAYERS);
-    const layerAlpha = baseAlpha;
+    const ALPHA_MUTED = 1 - Math.pow(0.5, 1 / LAYERS);
+    const ALPHA_ACTIVE = 1 - Math.pow(0.25, 1 / LAYERS);
 
     const draw = (): void => {
       const NS = P.length;
       if (!NS || !grad) return;
       ctx.clearRect(0, 0, bw, bh);
+      const isMuted = mutedRef.current;
+      const layerAlpha = isMuted ? ALPHA_MUTED : ALPHA_ACTIVE;
       const backMin = Math.min(bw, bh);
       const eased = energy * energy * (3 - 2 * energy);
       const ampMul = 0.85 + 0.35 * eased;
       // For muted (watching) phase: reduce amplitude by 50% to make the wave subtler
-      const ampFrac = muted ? AMP_FRAC * 0.5 : AMP_FRAC;
+      const ampFrac = isMuted ? AMP_FRAC * 0.5 : AMP_FRAC;
       const A = backMin * ampFrac * ampMul;
       const inset = backMin * INSET_FRAC + backMin * INSET_SWELL_FRAC * Math.sin(W_INSET * phSlow);
       const blurB = Math.max(3, backMin * BLUR_FRAC);
@@ -246,11 +254,31 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS, muted = false }:
       return () => ro.disconnect();
     }
 
+    // Don't draw what nobody can see. An aura inside a `display:none` keepalive
+    // shell (PaneKeepAlive) or scrolled out of the viewport has NO layout box, so
+    // IntersectionObserver reports it as non-intersecting — the right gate, and a
+    // free one. Without it every mounted aura burns LAYERS blurred fills per
+    // frame that travel all the way to the GPU process without a single pixel
+    // reaching the screen.
+    //
+    // We deliberately do NOT gate on window focus: native panes steal focus, and
+    // freezing a wave the user is plainly looking at would be a visible bug (same
+    // reasoning as auraActivity's ticker, which freezes only on document.hidden).
+    // Starts `true` because the observer's first callback lands a frame later — a
+    // genuinely visible aura must never flash blank at mount.
+    let visible = true;
+    const io = new IntersectionObserver((entries) => {
+      visible = entries[entries.length - 1].isIntersecting;
+    });
+    io.observe(host);
+
     let last = performance.now();
     const tick = (now: number): void => {
       let dt = (now - last) / 1000;
       last = now;
       if (dt > 0.05) dt = 0.05; // clamp on resume → no phase jump
+      // `last` is already refreshed above, so dt stays small when we resume.
+      if (!visible) return;
       const target = readAuraEnergy(activityId);
       energy += (target - energy) * Math.min(1, dt / 0.6);
       const speedMul = 0.45 + 1.9 * (energy * energy * (3 - 2 * energy));
@@ -262,6 +290,7 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS, muted = false }:
 
     return () => {
       ro.disconnect();
+      io.disconnect();
       unsubscribe();
     };
   }, [activityId, radius]);
