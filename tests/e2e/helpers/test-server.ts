@@ -41,6 +41,20 @@ export function dataDirForPort(port: number): string {
     : `/tmp/topics-test-data-${port}`;
 }
 
+/**
+ * Dove sta la FOTOGRAFIA del bundle servita da quel server.
+ *
+ * Non è `public/` del repo: quella cartella è viva. `vite build --watch` la
+ * svuota e la riscrive a ogni salvataggio nel client, e nella finestra in cui
+ * `index.html` non c'è il server risponde "no such file or directory". L'app
+ * non si carica e falliscono test a caso — nell'ultima run erano i terminali,
+ * accusati di non renderizzare xterm mentre il problema era che non c'era la
+ * pagina. `global-setup.ts` copia il bundle qui una volta e ci punta il server.
+ */
+export function publicDirForPort(port: number): string {
+  return `${dataDirForPort(port)}/public`;
+}
+
 /** La `DATA_DIR` di QUESTO processo — le spec la leggono per ispezionare i file scritti dal server. */
 export const E2E_DATA_DIR = process.env.DATA_DIR || dataDirForPort(E2E_PORT);
 
@@ -72,6 +86,9 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     TOPICS_PTY_SOCKET: `/tmp/topics-pty-bridge-e2e-${port}.sock`,
     // Stessa storia per il broker stream-json.
     TOPICS_AI_BRIDGE_SOCKET: `/tmp/topics-ai-bridge-e2e-${port}.sock`,
+    // Il bundle servito è la fotografia fatta dal globalSetup, non `public/` del
+    // repo: vedi publicDirForPort qui sopra.
+    TOPICS_PUBLIC_DIR: publicDirForPort(port),
     NO_TLS: "1",
     // Arma le route di reset (`/api/test/checkpoint`, `/api/test/reset`). Sono
     // distruttive per costruzione — svuotano ogni tabella — quindi esistono solo

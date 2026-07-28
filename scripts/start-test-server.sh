@@ -55,6 +55,12 @@ export TOPICS_AI_BRIDGE_SOCKET="${TOPICS_AI_BRIDGE_SOCKET:-/tmp/topics-ai-bridge
 # Svuotano ogni tabella: esistono SOLO dove questa variabile c'è, e questo script
 # è l'unico posto che la mette. Vedi server/routes/e2e.ts.
 export TOPICS_E2E="${TOPICS_E2E:-1}"
+# Bundle servito: la FOTOGRAFIA di public/ fatta dal globalSetup, non la cartella
+# viva del repo — che `vite build --watch` svuota e riscrive mentre i test
+# girano, facendo cadere test a caso con la pagina inesistente. Arriva
+# dall'ambiente (testServerEnv); vuoto = comportamento storico (public/ del repo),
+# che è quello giusto per chi lancia questo script a mano.
+export TOPICS_PUBLIC_DIR="${TOPICS_PUBLIC_DIR:-}"
 export GATEWAY_TOKEN="${GATEWAY_TOKEN:-test-token}"
 export GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
 
