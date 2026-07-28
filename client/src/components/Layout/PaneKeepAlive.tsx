@@ -27,7 +27,18 @@ import { useRef, type ReactNode } from 'react';
  *    attraverso il bailout. Una chat nascosta continua a ricevere i suoi
  *    messaggi; si congelano solo le props che arrivano dal gruppo, che tanto
  *    nessuno può vedere finché la pane è nascosta.
+ *
+ * NOTA sul lint. `react-hooks/refs` vieta di leggere/scrivere una ref in fase di
+ * render, ed è una regola giusta: quasi sempre quel codice è un `useState`
+ * mascherato. Qui è il contrario — la ref È il meccanismo. Serve conservare
+ * l'ELEMENTO React del render precedente e restituire lo stesso riferimento per
+ * ottenere il bailout, e passare da `useState` non si può: `setFrozen(children)`
+ * riceverebbe un oggetto nuovo a ogni render e girerebbe all'infinito. La
+ * scrittura è idempotente rispetto al render (nessun effetto fuori da questo
+ * componente, nessun tearing: il valore dipende solo dalle props di questo
+ * render), quindi la regola è disattivata qui e solo qui.
  */
+/* eslint-disable react-hooks/refs -- vedi NOTA sul lint sopra: la ref è il meccanismo, non uno stato travestito */
 export function PaneKeepAlive({
   isVisible,
   className,
