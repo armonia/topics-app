@@ -123,9 +123,18 @@ function run(): () => void {
   const syncReads: Counter = new Map();
   const resizes: Counter = new Map();
   const rafs: Counter = new Map();
-  /** Quali TOKEN di `class` si accendono e spengono, e su chi. Un cambio di
-   *  classe sulla radice di un sottoalbero grande invalida lo stile di tutto
-   *  quel sottoalbero: sapere il conteggio non basta, serve il NOME. */
+  /**
+   * Chi scrive le classi, con che token e da dove. Un cambio di classe sulla
+   * radice di un sottoalbero grande invalida lo stile di TUTTO quel sottoalbero,
+   * quindi il conteggio da solo non basta: serve il nome del token e il
+   * chiamante.
+   *
+   * Perché intercettando le API invece che dal MutationObserver: i record
+   * arrivano in batch, e confrontare `oldValue` col valore CORRENTE fa sembrare
+   * "identico" ogni toggle rapido (remove+add danno due record, entrambi già
+   * riallineati al valore finale). Il primo giro di questa sonda ci è cascato e
+   * ha riportato 556 "riscritture identiche" che identiche non erano.
+   */
   const classFlips: Counter = new Map();
   let mutationTotal = 0;
   let rafTotal = 0;
@@ -138,18 +147,7 @@ function run(): () => void {
       const what =
         r.type === 'attributes' ? `attr:${r.attributeName}` : r.type === 'characterData' ? 'text' : 'children';
       bump(mutations, `${what} → ${label(r.target)}`);
-      if (r.type === 'attributes' && r.attributeName === 'class' && r.target instanceof Element) {
-        const before = new Set((r.oldValue ?? '').split(/\s+/).filter(Boolean));
-        const after = new Set(String(r.target.className || '').split(/\s+/).filter(Boolean));
-        const who = label(r.target);
-        let changed = false;
-        for (const t of after) if (!before.has(t)) { bump(classFlips, `+${t} → ${who}`); changed = true; }
-        for (const t of before) if (!after.has(t)) { bump(classFlips, `-${t} → ${who}`); changed = true; }
-        // Riscrittura IDENTICA: nessun token cambia ma il browser invalida
-        // comunque lo stile del sottoalbero. È il caso più insidioso perché
-        // non si vede guardando il DOM.
-        if (!changed) bump(classFlips, `(riscritta identica) → ${who}`);
-      }
+
     }
   });
   mo.observe(document.documentElement, {
@@ -192,6 +190,31 @@ function run(): () => void {
   restores.push(() => {
     Element.prototype.getBoundingClientRect = gbcr;
   });
+
+  // ── 2b. scritture di `class` ────────────────────────────────────────────
+  const tokenProto = DOMTokenList.prototype as unknown as Record<string, unknown>;
+  for (const method of ['add', 'remove', 'toggle', 'replace'] as const) {
+    const orig = tokenProto[method] as ((...args: unknown[]) => unknown) | undefined;
+    if (typeof orig !== 'function') continue;
+    tokenProto[method] = function (this: DOMTokenList, ...args: unknown[]) {
+      bump(classFlips, `${method}(${args.map(String).join(',')}) ← ${caller()}`);
+      return orig.apply(this, args);
+    };
+    restores.push(() => { tokenProto[method] = orig; });
+  }
+  const classNameDesc = Object.getOwnPropertyDescriptor(Element.prototype, 'className');
+  if (classNameDesc?.set) {
+    const origSet = classNameDesc.set;
+    Object.defineProperty(Element.prototype, 'className', {
+      ...classNameDesc,
+      set(this: Element, v: string) {
+        const same = String(this.className) === String(v);
+        bump(classFlips, `className=${same ? 'IDENTICA ' : ''}"${String(v).slice(0, 40)}" ← ${caller()}`);
+        origSet.call(this, v);
+      },
+    });
+    restores.push(() => Object.defineProperty(Element.prototype, 'className', classNameDesc));
+  }
 
   // ── 3. ResizeObserver ───────────────────────────────────────────────────
   const OrigRO = window.ResizeObserver;
