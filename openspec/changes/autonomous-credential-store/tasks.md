@@ -9,6 +9,10 @@ per il Rust, `cd client && tsc -b` + `bun run build:client` per il TS) e i test 
   signing) e documentarne la creazione nel repo (script/README, non il materiale privato).
 - [ ] 0.2 `desktop-tauri/src-tauri/*.entitlements`: `keychain-access-groups`
   (`io.armonia.topics.tauri`) + entitlement minimi; referenziarlo dal build/firma.
+- [ ] 0.2-bis **Verifica che `keychain-access-groups` regga con la firma self-signed**
+  (entitlement ristretto, di norma legato a un provisioning profile). Se non regge:
+  ripiegare sul **keychain file-based** con ACL sull'eseguibile — stesso accesso
+  non-interattivo, nessun entitlement ristretto. Decidere QUI, prima di Phase 1.
 - [ ] 0.3 `Info.plist`: aggiungere le usage string necessarie (accanto all'ATS esistente).
 - [ ] 0.4 `tauri.conf.json` / pipeline: firmare con l'identità persistente (non adhoc).
 - [ ] 0.5 Check di CI/build: **fallire** se il binario è adhoc/senza l'entitlement Keychain
@@ -33,6 +37,10 @@ per il Rust, `cd client && tsc -b` + `bun run build:client` per il TS) e i test 
   consulta **allowlist**, chiama `cred_get`, sostituisce **subito prima** di
   `page.keyboard.type` (`browser-service.ts:1104` e `:1450`) e nel ramo `fill`. Scarta il
   valore dopo l'uso.
+- [ ] 2.1-bis **Origin binding** (INJECT-03): confronto eTLD+1 fra dominio della credenziale
+  e origin del frame in cui si digita; rifiuto su redirect/navigazione intermedia/iframe
+  cross-origin, con voce di audit del tentativo bloccato. Test: redirect ostile a metà
+  login → nulla digitato; sottodominio dello stesso sito → passa.
 - [ ] 2.2 `redactSecrets()`: wrap dei logger server/sidecar e dei dump dei browser tool
   (screenshot/HTML/errori) → `***` sui valori risolti della sessione.
 - [ ] 2.3 Test: il placeholder non è mai risolto fuori dal resolver; il valore reale entra

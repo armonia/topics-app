@@ -21,6 +21,40 @@ argomenti del tool loggati, né essere ritornato al chiamante.
 - **THEN** la risoluzione è rifiutata, nulla viene digitato, e l'agente riceve un errore
   che richiede autorizzazione umana
 
+### Requirement: INJECT-03 — Origin binding: il segreto si digita solo sul suo dominio
+
+Il resolver SHALL verificare, **al momento della risoluzione**, che il dominio della
+credenziale corrisponda all'**origin del frame in cui si sta effettivamente digitando**
+(confronto su eTLD+1, non su sottostringa). Se l'origin attivo differisce — per redirect,
+navigazione intermedia, o perché il campo vive in un **iframe cross-origin** — la
+risoluzione SHALL essere rifiutata e nulla SHALL essere digitato. L'allowlist (AUTH-05)
+autorizza il *dominio*; l'origin binding garantisce che il segreto finisca **su quel
+dominio e non altrove**: sono controlli distinti e SHALL essere entrambi applicati.
+
+Motivazione: senza questo vincolo un redirect verso un dominio ostile, o un iframe di
+terza parte dentro una pagina lecita, riceverebbe la password — è la difesa che i
+password manager applicano di default e che l'allowlist da sola non fornisce.
+
+#### Scenario: redirect verso un dominio diverso durante il login
+- **GIVEN** un placeholder `{{cred:example.com/password}}`
+- **WHEN** al momento della digitazione la pagina attiva è su `evil.test` (per redirect o
+  navigazione intermedia)
+- **THEN** la risoluzione è rifiutata, nulla viene digitato, e l'evento è registrato
+  nell'audit log come tentativo bloccato
+
+#### Scenario: campo dentro un iframe cross-origin
+- **GIVEN** un form di login il cui campo password vive in un iframe di origin diverso da
+  quello della pagina principale
+- **WHEN** il resolver tenta di risolvere un placeholder per il dominio della pagina
+  principale
+- **THEN** la risoluzione è rifiutata e l'agente riceve un errore che richiede
+  autorizzazione umana
+
+#### Scenario: sottodominio legittimo dello stesso sito
+- **GIVEN** un placeholder `{{cred:example.com/password}}`
+- **WHEN** la digitazione avviene su `accounts.example.com` (stesso eTLD+1)
+- **THEN** la risoluzione procede normalmente
+
 ### Requirement: INJECT-02 — Redaction hard nei log
 
 Qualunque log (server, sidecar, tool trace, error report) SHALL sottoporre a **redaction**
