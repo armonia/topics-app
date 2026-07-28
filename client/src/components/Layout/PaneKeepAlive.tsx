@@ -56,7 +56,30 @@ export function PaneKeepAlive({
   return (
     <div
       className={className}
-      style={{ display: isVisible ? 'flex' : 'none' }}
+      // CONFINE DI LAYOUT della pane. Misurato col profilo nativo (2026-07-28,
+      // finestra a fuoco, famiglia al 123%): l'animatore del caret di WebKit
+      // sta al 36% del main thread. Per sapere dove disegnare il trattino
+      // lampeggiante chiama `recomputeCaretRect` → `canonicalPosition` →
+      // `Document::updateLayout()` A OGNI FRAME; e siccome l'albero delle pane
+      // pende da un box fuori-flusso che è un flex container, quel layout
+      // ripartiva da `RenderView` e ridiscendeva 14 livelli con
+      // `RelayoutChildren`. Qualunque cosa sporcasse il layout dentro UNA pane
+      // faceva rilayoutare TUTTE le altre, sessanta volte al secondo.
+      //
+      // `contain: layout` chiude la propagazione al bordo della pane: il caret
+      // continua a forzare il layout — è il motore, non lo decidiamo noi — ma
+      // trova da rifare solo il pezzo davvero sporco. Vale per ogni sorgente
+      // futura di layout sporco, non solo per il caret.
+      //
+      // PREZZO PAGATO, ed è il motivo per cui questa strada era rimasta in
+      // sospeso: la containment rende questo div un containing block per i
+      // discendenti `position: fixed`, che quindi si ancorerebbero alla pane
+      // invece che al viewport. I quattro overlay che stavano dentro le pane
+      // sono stati portati su portale (TopicSettingsModal, il drawer mobile di
+      // ProjectSidebar, il ripple di RemoteBrowserPanel e l'evidenziazione di
+      // SelectElementOverlay). Chi aggiunge un `fixed` dentro una pane deve
+      // passare da `createPortal`, come già fanno menu, popover e toast.
+      style={{ display: isVisible ? 'flex' : 'none', contain: 'layout' }}
       aria-hidden={!isVisible}
     >
       {frozen.current}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, FolderOpen, GitBranch } from 'lucide-react';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import type { Topic, UpdateTopicRequest, AutonomyLevel, Worktree } from '../../types';
@@ -158,7 +159,14 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
 
   if (!isOpen) return null;
 
-  return (
+  // Portale su <body>. Questo modale è montato DENTRO una pane (ChatPanel,
+  // ProjectWindow, StandaloneChatGroup) e un `position: fixed` si àncora al
+  // viewport solo finché nessun antenato è un containing block. Da quando il
+  // guscio delle pane ha `contain: layout` — che serve a impedire che una riga
+  // sporca di terminale faccia rilayoutare l'intero albero — quell'antenato
+  // esiste, e senza portale il modale resterebbe imprigionato nella pane invece
+  // di coprire la finestra. Vedi PaneKeepAlive.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={handleClose} role="dialog" aria-modal="true" aria-label={`${topic.name} Settings`}>
       <div className={`absolute ${MODAL_BACKDROP}`} />
       <div
@@ -447,6 +455,7 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
