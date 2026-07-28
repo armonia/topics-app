@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
+import { createWriteCoalescer, type WriteCoalescer } from './writeCoalescer';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
 import { isTauri } from '../../lib/shell';
@@ -103,6 +104,17 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const termRef = useRef<{ term: Terminal; fit: FitAddon; ws: WebSocket } | null>(null);
   const [stale, setStale] = useState(false);
 
+  // ── Cadenza di redraw ──────────────────────────────────────────────────
+  // Scrivere su xterm schedula un redraw DOM: un TUI vivo (lo spinner di
+  // claude-code) scrive a ogni frame, quindi ogni terminale montato ricostruisce
+  // le righe 60 volte al secondo, ognuna con style resolve + layout della riga +
+  // repaint dei glifi. Con più finestre progetto aperte è il costo a riposo
+  // dominante dell'app (vedi writeCoalescer.ts per la misura). Quindi: ritmo
+  // pieno solo quando questa pane è DAVVERO guardata — attiva, app a fuoco e
+  // documento visibile — altrimenti si accumula e si scarica a ~4Hz, in ordine.
+  const isWatchedRef = useRef(false);
+  const coalescerRef = useRef<WriteCoalescer | null>(null);
+
   // ── Lossless reattach ──────────────────────────────────────────────────
   // The terminal-session list is broadcast by the server and sourced from the
   // PTY bridge, which keeps sessions alive across server reloads/restarts. So
@@ -162,6 +174,28 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   useEffect(() => {
     if (isActive && finished) signalsActions.clearTerminalFinished(sessionId);
   }, [isActive, finished, sessionId]);
+
+  // Chi decide la cadenza. Stessa soglia di `useAnimationPause` (documento
+  // visibile + finestra a fuoco), più "questa pane è quella attiva". Il flush al
+  // passaggio a "guardato" è obbligatorio: senza, tornare sulla pane mostrerebbe
+  // uno schermo vecchio fino allo scadere del timer.
+  useEffect(() => {
+    const sync = () => {
+      const watched = isActive && !document.hidden && document.hasFocus();
+      const wasWatched = isWatchedRef.current;
+      isWatchedRef.current = watched;
+      if (watched && !wasWatched) coalescerRef.current?.flush();
+    };
+    sync();
+    window.addEventListener('focus', sync);
+    window.addEventListener('blur', sync);
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      window.removeEventListener('focus', sync);
+      window.removeEventListener('blur', sync);
+      document.removeEventListener('visibilitychange', sync);
+    };
+  }, [isActive]);
 
   // "Working" glow — the Apple-Intelligence ring, the terminal twin of the one
   // in ChatPanel. Uses `useTerminalWorkingRing`, a STRICTER signal than the
@@ -251,6 +285,15 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(el);
+
+    // Ogni byte del PTY passa da qui, mai da `term.write` diretto: il coalescer
+    // decide se ridisegnare subito o accumulare, e scavalcarlo romperebbe
+    // l'ordine dei byte (quindi lo stato ANSI) contro l'arretrato in coda.
+    const coalescer = createWriteCoalescer({
+      write: (chunk) => term.write(chunk),
+      isWatched: () => isWatchedRef.current,
+    });
+    coalescerRef.current = coalescer;
 
     // Renderer: DOM on EVERY host, including Tauri/WebKit. The Canvas addon
     // (@xterm/addon-canvas) is pinned to xterm core v5 — `peerDependencies:
@@ -428,13 +471,13 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               return;
             }
           } catch { /* not JSON — write as-is */ }
-          term.write(data);
+          coalescer.push(data);
           outputBytesRef.current += data.length;
           if (dormantEmptyRef.current) setDormantEmpty(false);
           if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
           if (replayed) bumpAura(sessionId, 0.2);
         } else if (data instanceof ArrayBuffer) {
-          term.write(new Uint8Array(data));
+          coalescer.push(new Uint8Array(data));
           outputBytesRef.current += data.byteLength;
           if (dormantEmptyRef.current) setDormantEmpty(false);
           if (dormantTimerRef.current) { clearTimeout(dormantTimerRef.current); dormantTimerRef.current = null; }
@@ -448,7 +491,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         if (event.code === 1000) {
           // Clean end — the PTY exited (`exit`, process finished). Not a
           // reconnect candidate; the session drops from the list on its own.
-          term.write('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
+          coalescer.push('\r\n\x1b[90m[Session ended]\x1b[0m\r\n');
           return;
         }
         // 1008 ("session not found") or any abnormal close. The PTY bridge
@@ -463,7 +506,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           const delay = Math.min(500 * retryCount, 3000);
           retryTimer = setTimeout(connectWs, delay);
         } else {
-          term.write('\r\n\x1b[90m[Session expired]\x1b[0m\r\n');
+          coalescer.push('\r\n\x1b[90m[Session expired]\x1b[0m\r\n');
           setStale(true);
           onStale?.();
         }
@@ -521,6 +564,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       detachTouchScroll();
       el.removeEventListener('paste', handleImagePaste as unknown as EventListener, true);
       termRef.current?.ws.close();
+      coalescer.dispose();
+      coalescerRef.current = null;
       term.dispose();
       termRef.current = null;
     };
