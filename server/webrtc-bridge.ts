@@ -250,6 +250,14 @@ export function createWebrtcBridge(): WebrtcBridge {
     child = null;
   }
 
+  // Probe d'avvio. NON genera niente — il sidecar resta lazy: si limita a vedere
+  // se al nostro socket risponde già qualcuno, cioè un sidecar sopravvissuto al
+  // server precedente. Se la sua build non è la nostra, il gestore di `ready` lo
+  // mieta subito, senza aspettare che qualcuno apra una pane browser: un orfano
+  // stantìo brucia CPU H24 (osservato: sei giorni al 42%) e finché nessuno fa un
+  // offer `ensure()` — l'unico posto da cui passava la mietitura — non gira mai.
+  if (bin) void tryConnect();
+
   return {
     available() {
       return !!bin;
