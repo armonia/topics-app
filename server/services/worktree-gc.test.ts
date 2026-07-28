@@ -258,3 +258,185 @@ describe("sweepWorktrees", () => {
     expect(s.reaped).toBe(2);
   });
 });
+
+/**
+ * Il TTL sugli abbandonati. È l'unico punto in cui la GC tocca un task che sulla
+ * carta è ATTIVO, quindi ogni condizione è scritta come "un motivo per non
+ * toccarlo": basta che una non sia soddisfatta e si tiene tutto.
+ */
+describe("decideWorktreeReap — TTL sui task abbandonati in in_progress", () => {
+  const stuck = {
+    taskStatus: "in_progress" as const,
+    taskArchived: false,
+    hasRealDirt: false,
+    mergedIntoMain: false,
+    autoMergeEnabled: true,
+    mode: "branch" as const,
+    idleDays: 30,
+    abandonAfterDays: 7,
+  };
+
+  test("fermo da 30 giorni con TTL a 7 → abandon (checkout via, branch salvo)", () => {
+    const d = decideWorktreeReap(stuck);
+    expect(d.action).toBe("abandon");
+    expect(d.reason).toContain("30 giorni");
+  });
+
+  test("mai 'reap': l'abbandono non distrugge mai un branch", () => {
+    // Anche col contenuto già su main la strada resta abandon: è il task che
+    // decide, e un task in_progress non è chiuso.
+    expect(decideWorktreeReap({ ...stuck, mergedIntoMain: true }).action).toBe("abandon");
+  });
+
+  test("fermo MENO del TTL → keep", () => {
+    expect(decideWorktreeReap({ ...stuck, idleDays: 6.9 }).action).toBe("keep");
+  });
+
+  test("idle non misurabile (null) → keep: non saperlo non è essere morti", () => {
+    expect(decideWorktreeReap({ ...stuck, idleDays: null }).action).toBe("keep");
+  });
+
+  test("TTL spento (0 o assente) → keep, qualunque sia l'idle", () => {
+    expect(decideWorktreeReap({ ...stuck, abandonAfterDays: 0 }).action).toBe("keep");
+    expect(decideWorktreeReap({ ...stuck, abandonAfterDays: undefined }).action).toBe("keep");
+  });
+
+  test("lavoro non committato → keep: quella è l'unica copia", () => {
+    expect(decideWorktreeReap({ ...stuck, hasRealDirt: true }).action).toBe("keep");
+  });
+
+  test("mode 'detached' → keep: senza branch i commit diventerebbero irraggiungibili", () => {
+    expect(decideWorktreeReap({ ...stuck, mode: "detached" }).action).toBe("keep");
+  });
+
+  test("mode 'reuse' → abandon: il branch preesistente tiene i commit", () => {
+    expect(decideWorktreeReap({ ...stuck, mode: "reuse" }).action).toBe("abandon");
+  });
+
+  for (const s of ["backlog", "todo", "review"] as const) {
+    test(`'${s}' fermo da 30 giorni → keep (solo in_progress mente sul suo stato)`, () => {
+      expect(decideWorktreeReap({ ...stuck, taskStatus: s }).action).toBe("keep");
+    });
+  }
+
+  test("un task chiuso segue la strada di sempre, il TTL non c'entra", () => {
+    expect(decideWorktreeReap({ ...stuck, taskStatus: "done", mergedIntoMain: true }).action).toBe("reap");
+  });
+});
+
+describe("sweepWorktrees — abbandonati", () => {
+  const stuckDeps = (over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps =>
+    makeDeps({
+      listWorktrees: () => [wt("stuck")],
+      resolveTask: () => ({ taskId: "t-stuck", status: "in_progress", archived: false }),
+      branchStatus: async () => "unmerged",
+      abandonAfterDays: 7,
+      idleDays: () => 30,
+      ...over,
+    });
+
+  test("chiama abandon col task, il worktree e il motivo — e non reapa nulla", async () => {
+    const calls: Array<{ taskId: string; wtId: string; reason: string }> = [];
+    const reaped: string[] = [];
+    const s = await sweepWorktrees(stuckDeps({
+      abandon: async (taskId, w, reason) => { calls.push({ taskId, wtId: w.id, reason }); return true; },
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.taskId).toBe("t-stuck");
+    expect(calls[0]!.wtId).toBe("stuck");
+    expect(calls[0]!.reason).toContain("30 giorni");
+    expect(reaped).toEqual([]);           // MAI la strada distruttiva
+    expect(s.abandoned).toBe(1);
+    expect(s.reaped).toBe(0);
+  });
+
+  test("host senza 'abandon' → keep (nessun mezzo abbandono: o park+rimozione, o niente)", async () => {
+    const s = await sweepWorktrees(stuckDeps({ abandon: undefined }));
+    expect(s.abandoned).toBe(0);
+    expect(s.kept).toBe(1);
+  });
+
+  test("abandon che fallisce → kept, non contato", async () => {
+    const s = await sweepWorktrees(stuckDeps({ abandon: async () => false }));
+    expect(s.abandoned).toBe(0);
+    expect(s.kept).toBe(1);
+  });
+
+  test("turno VIVO addosso → nemmeno interrogato l'idle", async () => {
+    let asked = 0;
+    const s = await sweepWorktrees(stuckDeps({
+      isBusy: () => true,
+      idleDays: () => { asked++; return 30; },
+      abandon: async () => true,
+    }));
+    expect(asked).toBe(0);
+    expect(s.abandoned).toBe(0);
+    expect(s.kept).toBe(1);
+  });
+
+  test("dirt nel tree → keep, l'abbandono non passa sopra il lavoro non committato", async () => {
+    const s = await sweepWorktrees(stuckDeps({
+      realDirt: async () => ["server/foo.ts"],
+      abandon: async () => true,
+    }));
+    expect(s.abandoned).toBe(0);
+    expect(s.kept).toBe(1);
+  });
+
+  test("l'idle si misura solo per i candidati veri (in_progress)", async () => {
+    const asked: string[] = [];
+    await sweepWorktrees(stuckDeps({
+      resolveTask: () => ({ taskId: "t-review", status: "review", archived: false }),
+      idleDays: (id) => { asked.push(id); return 30; },
+      abandon: async () => true,
+    }));
+    expect(asked).toEqual([]);
+  });
+});
+
+describe("sweepWorktrees — riga fantasma sotto un task ancora attivo", () => {
+  const ghost = (over: Partial<WorktreeGcDeps> = {}): WorktreeGcDeps =>
+    makeDeps({
+      listWorktrees: () => [wt("ghost")],
+      branchStatus: async () => "gone",
+      resolveTask: () => ({ taskId: "t-live", status: "in_progress", archived: false }),
+      ...over,
+    });
+
+  test("task attivo + branch sparito → park, non una riga cancellata sotto i piedi", async () => {
+    const calls: string[] = [];
+    const reaped: string[] = [];
+    const s = await sweepWorktrees(ghost({
+      abandon: async (taskId, _w, reason) => { calls.push(`${taskId}:${reason}`); return true; },
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("t-live");
+    expect(reaped).toEqual([]);
+    expect(s.abandoned).toBe(1);
+  });
+
+  test("task chiuso + branch sparito → resta il reap diretto di sempre", async () => {
+    const reaped: string[] = [];
+    const s = await sweepWorktrees(ghost({
+      resolveTask: () => ({ taskId: "t-done", status: "done", archived: false }),
+      abandon: async () => true,
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(reaped).toEqual(["ghost"]);
+    expect(s.reaped).toBe(1);
+    expect(s.abandoned).toBe(0);
+  });
+
+  test("orfana (nessun task) + branch sparito → reap diretto", async () => {
+    const reaped: string[] = [];
+    const s = await sweepWorktrees(ghost({
+      resolveTask: () => ({ taskId: null }),
+      abandon: async () => true,
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(reaped).toEqual(["ghost"]);
+    expect(s.reaped).toBe(1);
+  });
+});

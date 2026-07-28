@@ -17,9 +17,14 @@
  * with unmerged commits when we can't safely land them, or one under a live
  * agent turn. A closed task whose clean commits never landed is re-merged
  * first (land-then-reap), never dropped.
+ *
+ * The one exception to "active ⇒ untouchable" is `abandon`: a task stuck in
+ * `in_progress` with no sign of life for days is active only on paper, and it
+ * held its checkout forever. That path keeps the BRANCH and parks the task —
+ * it frees a directory, never a commit (see `isAbandoned`).
  */
 
-export type WorktreeReapAction = "reap" | "land-then-reap" | "keep";
+export type WorktreeReapAction = "reap" | "land-then-reap" | "abandon" | "keep";
 
 export interface WorktreeReapDecision {
   action: WorktreeReapAction;
@@ -41,6 +46,41 @@ export interface WorktreeReapInput {
   autoMergeEnabled: boolean;
   /** Only `branch`-mode worktrees own a landable branch. */
   mode: "branch" | "reuse" | "detached";
+  /**
+   * Days since the last sign of life on the bound task — a turn, a comment, a
+   * chat message, a write to the agent's transcript. `null` = the host can't
+   * measure it, and ignorance is never abandonment (same rule as the
+   * dispatcher's liveness net: only a POSITIVE signal of death acts).
+   */
+  idleDays?: number | null;
+  /** TTL for `abandon`: idle days after which an `in_progress` task counts as abandoned. `0`/absent = off. */
+  abandonAfterDays?: number;
+}
+
+/**
+ * The one non-terminal case that is nonetheless finished: a task stuck in
+ * `in_progress` — agent dead, or a turn that simply never came back — holding
+ * its worktree forever. `decideWorktreeReap` calls it `abandon`, deliberately
+ * NOT `reap`: the branch survives (nothing committed is ever lost), only the
+ * checkout goes, and the task is parked so nothing resumes into a directory
+ * that no longer exists.
+ *
+ * Every condition here is a reason not to act, in the order that matters:
+ * a TTL that's off, the wrong status, an unmeasurable idle, work that is still
+ * only in the tree, or commits that live in a detached HEAD and would become
+ * unreachable the moment the checkout goes.
+ */
+function isAbandoned(input: WorktreeReapInput): boolean {
+  const ttl = input.abandonAfterDays ?? 0;
+  if (ttl <= 0) return false;
+  // Only `in_progress` — the state that CLAIMS an agent is at work right now.
+  // `todo`/`backlog` are queued (a re-dispatch reuses the tree), `review` is a
+  // human's pending decision and its worktree is the evidence they inspect.
+  if (input.taskStatus !== "in_progress") return false;
+  if (input.idleDays == null || input.idleDays < ttl) return false;
+  if (input.hasRealDirt) return false;
+  if (input.mode === "detached") return false;
+  return true;
 }
 
 /**
@@ -51,7 +91,14 @@ export function decideWorktreeReap(input: WorktreeReapInput): WorktreeReapDecisi
   // A task that is still being worked or is awaiting human review owns its
   // worktree — never touch it. Orphans (taskStatus === null) ARE terminal.
   const terminal = input.taskStatus === null || input.taskStatus === "done" || input.taskArchived;
-  if (!terminal) return { action: "keep", reason: `task '${input.taskStatus}' attivo` };
+  if (!terminal) {
+    // Active on paper, abandoned in fact: see `isAbandoned`. The branch is kept,
+    // so this frees a checkout and never a commit.
+    if (isAbandoned(input)) {
+      return { action: "abandon", reason: `task fermo in 'in_progress' da ${Math.floor(input.idleDays!)} giorni` };
+    }
+    return { action: "keep", reason: `task '${input.taskStatus}' attivo` };
+  }
 
   // Real uncommitted work sitting in the tree is the only copy — a closed task
   // can still carry it (a system-forced review). Human decides; we don't nuke.
@@ -158,6 +205,21 @@ export interface WorktreeGcDeps {
   branchStatus: (wt: GcWorktree) => Promise<BranchStatus>;
   /** The worktree's board opted into auto-merge. */
   autoMergeEnabled: (projectId: string) => boolean;
+  /**
+   * Days since the last sign of life on the task, or `null` when unmeasurable.
+   * Absent ⇒ the abandon TTL is off entirely.
+   */
+  idleDays?: (taskId: string) => number | null;
+  /** TTL in days for the abandon path (see `isAbandoned`). Absent/0 = off. */
+  abandonAfterDays?: number;
+  /**
+   * Retire an abandoned task: park it (freeing its topic binding) and remove
+   * ONLY the checkout, keeping the branch. Both halves belong together — a
+   * worktree removed under a task that still reads `in_progress` would let a
+   * later resume run in the base repo, next to the human's own work.
+   * Returns false if it couldn't complete (kept, then).
+   */
+  abandon?: (taskId: string, wt: GcWorktree, reason: string) => Promise<boolean>;
   /** Land the task's branch. Returns the coarse outcome. */
   tryLand: (taskId: string) => Promise<LandOutcome>;
   /** Reap worktree + branch + row (worktreeManager.delete). */
@@ -175,6 +237,8 @@ export interface WorktreeGcSummary {
   total: number;
   reaped: number;
   landed: number;
+  /** Checkouts freed under a task abandoned in `in_progress` (branch kept). */
+  abandoned: number;
   kept: number;
   errors: number;
 }
@@ -186,7 +250,7 @@ export interface WorktreeGcSummary {
  */
 export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSummary> {
   const worktrees = deps.listWorktrees();
-  const summary: WorktreeGcSummary = { total: worktrees.length, reaped: 0, landed: 0, kept: 0, errors: 0 };
+  const summary: WorktreeGcSummary = { total: worktrees.length, reaped: 0, landed: 0, abandoned: 0, kept: 0, errors: 0 };
 
   for (const wt of worktrees) {
     try {
@@ -202,6 +266,19 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
       // nothing — the disk dir (if any) is a leftover, the row is dead weight.
       // Reap directly (the manager prunes the missing dir + deletes the row).
       if (wt.mode === "branch" && branch === "gone") {
+        // …unless a task still claims to be working in it. Deleting the row
+        // under a live binding leaves the task pointing at a cwd that no longer
+        // resolves, and its next resume would run in the base repo. Park it
+        // first, same as an abandonment — the branch is already gone, so there
+        // is nothing left to preserve but the task's honesty.
+        const status = taskId ? (t as { status: TaskStatus }).status : null;
+        const stillClaimed = status !== null && status !== "done" && !(t as { archived?: boolean }).archived;
+        if (taskId && stillClaimed && deps.abandon) {
+          const ok = await deps.abandon(taskId, wt, "il branch del worktree non esiste più");
+          if (ok) { summary.abandoned += 1; deps.log(`[worktree-gc] abbandonato ${wt.branchName ?? wt.id} — branch sparito sotto un task '${status}'`); }
+          else summary.kept += 1;
+          continue;
+        }
         const ok = await deps.reap(wt.id);
         if (ok) { summary.reaped += 1; deps.log(`[worktree-gc] reaped ${wt.branchName ?? wt.id} — branch già sparito (riga fantasma)`); }
         else summary.errors += 1;
@@ -220,9 +297,31 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         mergedIntoMain: branch === "merged",
         autoMergeEnabled: deps.autoMergeEnabled(wt.projectId),
         mode: wt.mode,
+        // Measured only for a task that could BE abandoned: for everything else
+        // the answer changes nothing and the probe (a stat on the transcript)
+        // isn't worth doing.
+        idleDays:
+          taskId && deps.idleDays && (t as { status: TaskStatus }).status === "in_progress"
+            ? deps.idleDays(taskId)
+            : null,
+        abandonAfterDays: deps.abandonAfterDays,
       });
 
       if (decision.action === "keep") { summary.kept += 1; continue; }
+
+      if (decision.action === "abandon") {
+        // Needs both a task to park and a host able to do it; without either,
+        // keeping is the only safe answer.
+        if (!taskId || !deps.abandon) { summary.kept += 1; continue; }
+        const ok = await deps.abandon(taskId, wt, decision.reason);
+        if (ok) {
+          summary.abandoned += 1;
+          deps.log(`[worktree-gc] abbandonato ${wt.branchName ?? wt.id} — ${decision.reason} (branch conservato)`);
+        } else {
+          summary.kept += 1;
+        }
+        continue;
+      }
 
       if (decision.action === "land-then-reap") {
         // Needs a real task to land. An orphan (taskId null) with unmerged
@@ -266,10 +365,10 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
     }
   }
 
-  if (summary.reaped || summary.landed || summary.errors) {
+  if (summary.reaped || summary.landed || summary.abandoned || summary.errors) {
     deps.log(
       `[worktree-gc] sweep done: ${summary.reaped} reaped, ${summary.landed} landed, ` +
-      `${summary.kept} kept, ${summary.errors} errors (of ${summary.total})`,
+      `${summary.abandoned} abbandonati, ${summary.kept} kept, ${summary.errors} errors (of ${summary.total})`,
     );
   }
   return summary;

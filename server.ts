@@ -1,5 +1,5 @@
 import { basename, join, resolve, sep } from "path";
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync } from "fs";
 import type { ServerWebSocket } from "bun";
 import type { WSData } from "./server/types";
 import { createAppContext } from "./server/utils";
@@ -81,7 +81,7 @@ import { createE2eRouter } from "./server/routes/e2e";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isLoopbackAddress, isAuthGatedPath } from "./server/lib/auth-gate";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
-import { isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
+import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreesRouter } from "./server/routes/worktrees";
 import { createMachinesRouter } from "./server/routes/machines";
@@ -2348,6 +2348,70 @@ reattachSurvivingChatTurns()
 // provably nothing to lose, landing a closed task's unmerged-but-clean commits
 // first. See server/services/worktree-gc.ts.
 const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
+// After how many days without a single sign of life an `in_progress` task counts
+// as abandoned and gives its checkout back (branch kept — see worktree-gc.ts).
+// A week: dispatch turns are capped at minutes, so seven days of total silence
+// on a task that claims an agent is working can only mean nobody is.
+const WORKTREE_ABANDON_DAYS = Number(process.env.TOPICS_WORKTREE_ABANDON_DAYS ?? 7);
+
+/**
+ * Days since the LAST SIGN OF LIFE on a task, or null if we can't tell.
+ *
+ * "Life" is deliberately the union of every trace an agent or a human leaves,
+ * because each one alone has a blind spot: the task row misses work that only
+ * talked (a long turn commenting nothing), comments miss a chat-only session,
+ * and both miss a CLI session whose only trace is the transcript growing on
+ * disk. The maximum of the four is the honest answer; a query that blows up
+ * returns null, which the GC reads as "don't touch".
+ */
+function taskIdleDays(taskId: string): number | null {
+  try {
+    const row = ctx.db
+      .prepare(
+        `SELECT t.updated_at AS taskAt,
+                (SELECT MAX(created_at) FROM task_comments WHERE task_id = t.id) AS commentAt,
+                (SELECT MAX(m.timestamp) FROM messages m
+                   JOIN topics tp ON tp.session_key = m.session_key
+                  WHERE tp.id = t.assigned_topic_id) AS messageAt,
+                t.assigned_topic_id AS topicId
+           FROM tasks t WHERE t.id = ?`,
+      )
+      .get(taskId) as { taskAt?: string; commentAt?: string; messageAt?: string; topicId?: string } | undefined;
+    if (!row) return null;
+
+    let last = 0;
+    for (const ts of [row.taskAt, row.commentAt, row.messageAt]) {
+      const ms = ts ? Date.parse(ts) : NaN;
+      if (Number.isFinite(ms)) last = Math.max(last, ms);
+    }
+
+    // The transcript: the only trace of a session that writes without ever
+    // reaching our tables. Best-effort — a missing file just doesn't vote.
+    if (row.topicId) {
+      try {
+        const sk = (ctx.db.prepare("SELECT session_key AS sk FROM topics WHERE id = ?")
+          .get(row.topicId) as { sk?: string } | undefined)?.sk;
+        const topic = sk ? ctx.getTopicBySessionKey(sk) : null;
+        const csid = sk
+          ? (ctx.db.prepare("SELECT claude_session_id AS id FROM claude_code_sessions WHERE session_key = ?")
+              .get(sk) as { id?: string } | undefined)?.id
+          : undefined;
+        const cwd = topic ? ctx.resolveTopicCwd(topic) : null;
+        if (cwd && csid) {
+          const p = claudeTranscriptPath(cwd, csid);
+          if (existsSync(p)) last = Math.max(last, statSync(p).mtimeMs);
+        }
+      } catch { /* il transcript è un voto in più, mai un blocco */ }
+    }
+
+    if (!last) return null;
+    return (Date.now() - last) / 86_400_000;
+  } catch (err) {
+    console.warn("[worktree-gc] idleDays failed", err);
+    return null;
+  }
+}
+
 function runWorktreeGc() {
   return sweepWorktrees({
     listWorktrees: () => ctx.worktreeStore.list({ status: "ready" }).map((w) => ({
@@ -2369,6 +2433,32 @@ function runWorktreeGc() {
       return branchStatusFromRepo(repoPath, w.branchName);
     },
     autoMergeEnabled: (projectId) => { try { return !!dispatcherSvc.getBoardSettings(projectId).dispatchAutoMerge; } catch { return false; } },
+    abandonAfterDays: WORKTREE_ABANDON_DAYS,
+    idleDays: (taskId) => taskIdleDays(taskId),
+    abandon: async (taskId, wt, reason) => {
+      // Order matters: park FIRST. `release` clears the topic binding, so from
+      // here on nothing can resume this task into a checkout that's about to
+      // disappear (a resume falls back to the base project dir — the human's own
+      // repo). If the removal below fails, the task is at least already safe.
+      try {
+        dispatcherSvc.release({
+          taskId,
+          requeue: false,
+          parkState: "failed",
+          by: "system",
+          reason:
+            `Worktree liberato: ${reason}. Il branch \`${wt.branchName ?? "?"}\` è INTATTO ` +
+            `(nessun commit perso) — per riprendere il lavoro ripartilo da lì; ` +
+            `il task torna in backlog perché la sessione non c'è più.`,
+        });
+      } catch (err) {
+        console.warn("[worktree-gc] park del task abbandonato fallito", err);
+        return false;
+      }
+      try { await previewManager?.teardown(taskId); } catch { /* best-effort */ }
+      // `deleteBranch: false` is the whole point of this path.
+      return ctx.worktreeManager.delete(wt.id, { deleteBranch: false });
+    },
     tryLand: async (taskId) => {
       const text = dispatcherSvc.get(taskId)?.task.text ?? "";
       const res = await taskAutoMerge.tryMerge(taskId, text);
