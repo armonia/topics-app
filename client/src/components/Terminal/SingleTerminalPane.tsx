@@ -99,6 +99,14 @@ interface SingleTerminalPaneProps {
   isActive?: boolean;
 }
 
+/**
+ * Quanto silenzio serve per considerare finito un resize della FINESTRA nativa.
+ * Non esiste un evento di fine: 120ms è più lungo dell'intervallo fra due frame
+ * di trascinamento (16ms) e abbastanza corto da non far percepire ritardo quando
+ * si lascia il bordo.
+ */
+const WINDOW_RESIZE_SETTLE_MS = 120;
+
 export function SingleTerminalPane({ sessionId, onStale, isActive = true }: SingleTerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ term: Terminal; fit: FitAddon; ws: WebSocket } | null>(null);
@@ -635,8 +643,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // the drag (the demo's "le finestre flashano"). useGridResize brackets a real
   // drag with 'topics:pane-resize-start' / '-end', so coalesce: hold the fits
   // while a drag is live and run exactly one fit when it ends, at the settled
-  // geometry. Non-drag size changes (sidebar toggle, window resize) still fit
-  // immediately.
+  // geometry. Lo stesso vale ora per il resize della FINESTRA nativa, che non
+  // emette parentesi e se le auto-genera (vedi WINDOW_RESIZE_SETTLE_MS):
+  // restano immediate solo le variazioni ISOLATE di dimensione, quelle per cui
+  // aspettare non avrebbe senso.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -669,6 +679,30 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     window.addEventListener('topics:pane-resize-end', onResizeEnd);
     window.addEventListener('topics:sidebar-resize-start', onResizeStart);
     window.addEventListener('topics:sidebar-resize-end', onResizeEnd);
+
+    // …E ANCHE il resize della FINESTRA NATIVA, che era l'unico caso rimasto
+    // scoperto. Trascinare il bordo della finestra non emette nessuna delle
+    // parentesi qui sopra — quelle le emette l'app per i propri divider — quindi
+    // ogni terminale rifaceva `fit()` a OGNI frame del trascinamento: misura,
+    // ricostruzione delle righe e reflow completo, moltiplicati per il numero di
+    // terminali montati. È il picco di CPU che si vede ridimensionando la
+    // finestra (~80%, riferito da Attilio 2026-07-28).
+    //
+    // Il resize nativo non ha un evento di "fine", quindi la parentesi si chiude
+    // da sola: si apre al primo `resize` e si richiude WINDOW_RESIZE_SETTLE_MS
+    // dopo l'ultimo. Il `fit` finale arriva comunque, perché `handleResize` nel
+    // frattempo ha alzato `missed` e `onResizeEnd` lo consuma.
+    let winResizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const onWindowResize = () => {
+      if (winResizeTimer === null) onResizeStart();
+      else clearTimeout(winResizeTimer);
+      winResizeTimer = setTimeout(() => {
+        winResizeTimer = null;
+        onResizeEnd();
+      }, WINDOW_RESIZE_SETTLE_MS);
+    };
+    window.addEventListener('resize', onWindowResize);
+
     return () => {
       observer.disconnect();
       cancelFit(fit); // drop any queued fit so we never call into a disposed terminal
@@ -676,6 +710,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       window.removeEventListener('topics:pane-resize-end', onResizeEnd);
       window.removeEventListener('topics:sidebar-resize-start', onResizeStart);
       window.removeEventListener('topics:sidebar-resize-end', onResizeEnd);
+      window.removeEventListener('resize', onWindowResize);
+      // Parentesi aperta e mai chiusa = fit congelati per sempre: se lo
+      // smontaggio capita in mezzo a un resize, la si chiude qui.
+      if (winResizeTimer !== null) { clearTimeout(winResizeTimer); onResizeEnd(); }
     };
   }, []);
 
