@@ -14,14 +14,20 @@
 // onEffortChange funnel (which respawns an idle CLI), autonomyLevel through
 // onUpdateTopic. Nothing new is invented here — this is the missing surface for
 // state the composer already had in scope.
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from '@/lib/popoverStyles';
+import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
+import {
+  EFFORT_TIERS,
+  effortIndex,
+  providerEffortTier,
+  resolveEffectiveProvider,
+  type ProviderSelection,
+} from '@/lib/effortTiers';
 import type { AutonomyLevel, Topic, UpdateTopicRequest } from '@/types';
-
-const EFFORT_TIERS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 const AUTONOMY: { value: AutonomyLevel; label: string; desc: string }[] = [
   { value: 'ask', label: 'Chiedi', desc: 'Approvi ogni azione' },
@@ -39,6 +45,11 @@ interface SessionConfigPopoverProps {
   onEffortChange?: (effort: string | null) => void;
   /** Absent when the active provider exposes no effort tiers. */
   effortSupported: boolean;
+  /** Override provider/modello in forza, per risalire al tier di DEFAULT: senza
+   *  quello lo slider non saprebbe dove mettere il pollice quando non c'è
+   *  override, e "default" resterebbe una parola senza posizione. */
+  providerOverride?: ProviderSelection | null;
+  defaultProviderLabel?: string;
   onUpdateTopic?: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
 }
 
@@ -47,6 +58,8 @@ export function SessionConfigPopover({
   effort,
   onEffortChange,
   effortSupported,
+  providerOverride,
+  defaultProviderLabel,
   onUpdateTopic,
 }: SessionConfigPopoverProps) {
   const [open, setOpen] = useState(false);
@@ -55,6 +68,24 @@ export function SessionConfigPopover({
   const panelRef = useRef<HTMLDivElement>(null);
 
   useDismissable({ open, onClose: () => setOpen(false), refs: [panelRef, btnRef] });
+
+  // Stessa risoluzione del picker (lib/effortTiers.ts): il tier di default è
+  // quello del provider attivo, ed è il riferimento contro cui si legge
+  // l'override per-topic.
+  const { snapshot } = useProvidersSnapshot();
+  const entries = useMemo(() => snapshot?.providers ?? [], [snapshot]);
+  const defaultTier = useMemo(() => {
+    const effective = resolveEffectiveProvider(entries, providerOverride ?? null, defaultProviderLabel);
+    return providerEffortTier(entries, effective, providerOverride ?? null);
+  }, [entries, providerOverride, defaultProviderLabel]);
+
+  // Il pollice sta SEMPRE da qualche parte: sull'override se c'è, altrimenti
+  // sul default del provider. Se nemmeno quello si conosce (provider senza
+  // tier, snapshot non ancora arrivato) si parte da 'high', il centro scala,
+  // ma senza spacciarlo per un valore in forza: la riga sotto dice quale dei
+  // due casi è.
+  const sliderTier = effort ?? defaultTier ?? null;
+  const sliderIndex = Math.max(0, effortIndex(sliderTier) >= 0 ? effortIndex(sliderTier) : 2);
 
   const autonomy: AutonomyLevel = topic.autonomyLevel ?? 'ask';
   // With neither knob available there is nothing to show — stay invisible
@@ -126,22 +157,50 @@ export function SessionConfigPopover({
                   </button>
                 )}
               </div>
-              <div className="flex rounded-md border border-app-border overflow-hidden">
-                {EFFORT_TIERS.map((t) => (
-                  <button
+              {/* Slider, non pill: la scala low→max è ORDINATA, e cinque
+                  bottoni affiancati non lo dicono. Trascinare sul tier che è
+                  già il default del provider CANCELLA l'override, così la
+                  topic continua a seguire il default se cambia. */}
+              <input
+                type="range"
+                min={0}
+                max={EFFORT_TIERS.length - 1}
+                step={1}
+                value={sliderIndex}
+                onChange={(e) => {
+                  const tier = EFFORT_TIERS[Number(e.target.value)];
+                  onEffortChange(tier === defaultTier ? null : tier);
+                }}
+                aria-label="Reasoning effort"
+                aria-valuetext={EFFORT_TIERS[sliderIndex]}
+                data-testid="session-effort-slider"
+                data-effort-tier={EFFORT_TIERS[sliderIndex]}
+                data-effort-overridden={effort ? 'true' : undefined}
+                className="w-full accent-primary cursor-pointer"
+              />
+              <div className="flex justify-between mt-0.5">
+                {EFFORT_TIERS.map((t, i) => (
+                  <span
                     key={t}
-                    type="button"
-                    onClick={() => onEffortChange(t)}
-                    className={`flex-1 px-1 py-1 text-[10px] uppercase tracking-wide transition-colors ${
-                      effort === t
-                        ? 'bg-primary text-white'
-                        : 'text-app-text-secondary hover:bg-app-hover'
-                    }`}
                     data-testid={`session-effort-${t}`}
+                    className={`text-[9px] uppercase tracking-wide ${
+                      i === sliderIndex
+                        ? effort
+                          ? 'text-primary font-semibold'
+                          : 'text-app-text-secondary font-semibold'
+                        : 'text-app-text-muted'
+                    }`}
                   >
                     {t}
-                  </button>
+                  </span>
                 ))}
+              </div>
+              <div className="mt-1 text-[10px] text-app-text-muted">
+                {effort
+                  ? `Override per questa chat${defaultTier ? ` — default ${defaultTier}` : ''}`
+                  : defaultTier
+                    ? `Default del provider (${defaultTier})`
+                    : 'Default del provider'}
               </div>
             </div>
           )}

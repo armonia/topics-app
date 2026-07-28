@@ -5,6 +5,7 @@ import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import type { ProviderSnapshotEntry } from '../../types';
+import { resolveEffectiveProvider, providerEffortTier } from '@/lib/effortTiers';
 
 const PROVIDER_LABELS: Record<string, string> = {
   openclaw: 'OpenClaw',
@@ -23,10 +24,6 @@ export interface ProviderModelOverride {
   model: string;
 }
 
-/** Reasoning-effort tiers the per-topic selector exposes (migration 033).
- *  Mirrors VALID_CLAUDE_EFFORTS on the server. */
-const EFFORT_TIERS = ['low', 'medium', 'high', 'xhigh', 'max'];
-
 interface Props {
   /** Currently selected override (null = use topic/global default) */
   override: ProviderModelOverride | null;
@@ -34,15 +31,14 @@ interface Props {
   defaultProviderLabel?: string;
   onChange: (override: ProviderModelOverride | null) => void;
   onOpenSettings?: () => void;
-  /** Per-topic effort-tier override (migration 033). null = use the provider's
-   *  global default (shown as the `effortTier` badge). */
+  /** Per-topic effort-tier override (migration 033), letto in SOLA LETTURA
+   *  per il badge: qui l'effort si VEDE, si cambia dal SessionConfigPopover.
+   *  Averlo in due posti significava due sorgenti di verità per la stessa
+   *  impostazione, in due popover diversi, con due grafiche diverse. */
   effort?: string | null;
-  /** Persist a new per-topic effort tier; null clears the override. When
-   *  omitted the effort selector is hidden (e.g. providers without a tier). */
-  onEffortChange?: (effort: string | null) => void;
 }
 
-export function ProviderModelPicker({ override, defaultProviderLabel, onChange, onOpenSettings, effort, onEffortChange }: Props) {
+export function ProviderModelPicker({ override, defaultProviderLabel, onChange, onOpenSettings, effort }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -67,17 +63,10 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
 
   // Resolve the effective selection (override → topic provider → global default)
   // so the button can show the actual model name in use.
-  const effective = useMemo(() => {
-    if (override) return { provider: override.provider, model: override.model };
-    const ready = entries.filter((e) => e.status === 'ready');
-    const pick = (name?: string) => ready.find((e) => e.name === name);
-    const candidate =
-      pick(defaultProviderLabel) ??
-      ready.find((e) => e.isDefault) ??
-      ready[0];
-    if (!candidate || candidate.models.length === 0) return null;
-    return { provider: candidate.name, model: candidate.models[0] };
-  }, [override, entries, defaultProviderLabel]);
+  const effective = useMemo(
+    () => resolveEffectiveProvider(entries, override, defaultProviderLabel),
+    [override, entries, defaultProviderLabel],
+  );
 
   const buttonLabel = useMemo(() => {
     if (effective) return effective.model;
@@ -88,18 +77,14 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   // Effort/reasoning tier the server forces on the ACTIVE provider's sessions
   // (read-only policy, e.g. `--effort xhigh` for claude-code). Shown as a
   // badge next to the model name; absent for providers without a tier.
-  const activeEffortTier = useMemo(() => {
-    const name = effective?.provider ?? override?.provider;
-    if (!name) return null;
-    return entries.find((e) => e.name === name)?.effortTier ?? null;
-  }, [effective, override, entries]);
+  const activeEffortTier = useMemo(
+    () => providerEffortTier(entries, effective, override),
+    [effective, override, entries],
+  );
 
-  // The tier actually in force for this topic = per-topic override → provider
-  // default. The selector below only appears when the active provider exposes a
-  // tier (i.e. `activeEffortTier` present, today claude-code) AND a persist
-  // callback is wired; otherwise per-topic effort has nowhere to take effect.
+  // Il tier davvero in forza per questa topic = override per-topic → default
+  // del provider. Il badge lo mostra; cambiarlo è affare del SessionConfigPopover.
   const effectiveEffort = effort ?? activeEffortTier ?? null;
-  const supportsEffort = !!onEffortChange && !!activeEffortTier;
 
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -267,58 +252,6 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
               </button>
             )}
           </div>
-
-          {/* Effort tier selector (migration 033) — per-topic override of the
-              provider's global reasoning-effort policy. Only shown for providers
-              that expose a tier (claude-code). Picking the provider default
-              clears the override so the topic tracks future default changes. */}
-          {supportsEffort && (
-            <div className="px-2.5 py-2 border-b border-app-border">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] uppercase tracking-wide text-app-text-muted">Effort</span>
-                {effort && (
-                  <button
-                    onClick={() => onEffortChange!(null)}
-                    className="text-[10px] text-app-text-muted hover:text-app-text underline"
-                    title={`Reset to provider default (${activeEffortTier})`}
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-              <div className="flex gap-1" role="group" aria-label="Reasoning effort tier">
-                {EFFORT_TIERS.map((t) => {
-                  const isActive = effectiveEffort === t;
-                  const isDefault = t === activeEffortTier;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      data-testid={`effort-opt-${t}`}
-                      aria-pressed={isActive}
-                      // Selecting the provider default clears the override (null);
-                      // any other tier persists as an explicit per-topic override.
-                      onClick={() => onEffortChange!(isDefault ? null : t)}
-                      className={`flex-1 px-1 py-1 rounded text-[10px] uppercase tracking-wide transition-colors ${
-                        isActive
-                          ? 'bg-primary/20 text-primary font-semibold'
-                          : 'text-app-text-secondary hover:bg-app-hover'
-                      }`}
-                      title={
-                        effort === t
-                          ? `Per-topic override: ${t}`
-                          : isDefault
-                            ? `Provider default: ${t}`
-                            : `Set effort to ${t}`
-                      }
-                    >
-                      {t}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           {/* Provider/model groups */}
           <div
