@@ -3,6 +3,11 @@ import { expect } from "@playwright/test";
 import { goToApp, openTestChat } from "./helpers";
 import { seedProjectPane, resetPaneStore } from "./helpers/api-fixtures";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 // A real on-disk project whose basename matches /topics-app/i, so the tests
 // that call `layoutPage.openProject(/topics-app/i)` have a project to open in

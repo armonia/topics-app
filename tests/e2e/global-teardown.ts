@@ -6,6 +6,7 @@
 
 import { execSync, execFileSync } from "child_process";
 import { E2E_PORT, descendantsOf } from "./helpers/test-server";
+import { releaseRunLock } from "./helpers/run-lock";
 
 const TEST_PORT = E2E_PORT;
 
@@ -95,6 +96,12 @@ async function globalTeardown() {
   } catch (e) {
     console.log(`[global-teardown] AI review skipped: ${e instanceof Error ? e.message : e}`);
   }
+
+  // Ultimo passo: restituisce la porta. Va DOPO il kill del server — finché
+  // quel processo respira, la prossima run non deve poter entrare e ammazzarlo.
+  // `releaseRunLock` toglie solo il lock di questo PID, quindi è innocuo anche
+  // se il lock nel frattempo è passato a qualcun altro.
+  releaseRunLock(TEST_PORT);
 }
 
 export default globalTeardown;

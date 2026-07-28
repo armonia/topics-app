@@ -1,6 +1,11 @@
 import { test } from "./fixtures/infra.fixture";
 import { expect } from "@playwright/test";
 import { MOCK_TUNNEL_ACTIVE, MOCK_TUNNEL_INACTIVE } from "./fixtures/infra.fixture";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 test.describe("Cron Jobs Panel", () => {
   test("CRON-01: Panel renders job list with enabled/disabled sections", async ({

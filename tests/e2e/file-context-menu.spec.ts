@@ -3,6 +3,11 @@ import { test } from "./fixtures/file-explorer.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { execSync } from "child_process";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 test.describe("File Context Menu & Script Runner (FILE-03)", () => {
   let topicId: string;

@@ -27,6 +27,11 @@ import {
   resetPaneStore,
   waitForTopicVisible,
 } from "./helpers/api-fixtures";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 /** Read the sidebar's rendered width in px. */
 async function sidebarWidth(page: Page): Promise<number> {

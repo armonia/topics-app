@@ -9,6 +9,11 @@ import { test, expect } from "@playwright/test";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 const TS = Date.now();
 const BASE = E2E_BASE;

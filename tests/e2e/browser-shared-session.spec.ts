@@ -2,6 +2,11 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { closeAllBrowserContexts } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 // Chi sporca pulisce: vedi la docstring di `closeAllBrowserContexts`.
 test.afterAll(async ({ request }) => {

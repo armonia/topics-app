@@ -14,6 +14,11 @@ import {
 } from "./helpers/api-fixtures";
 import { goToApp, openTopic } from "./helpers";
 import type { Page } from "@playwright/test";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 /**
  * Coverage for the tab right-click "Ricarica" action (terminal-tab-reload change).

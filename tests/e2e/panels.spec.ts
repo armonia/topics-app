@@ -10,6 +10,11 @@ import {
 } from "./helpers/api-fixtures";
 import { mockOpenClawAvailable, openTopicsMenuItem } from "./helpers/openclaw";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 const BASE_URL = E2E_BASE;
 const PROJECT_DIR = "/tmp/e2e-panels";

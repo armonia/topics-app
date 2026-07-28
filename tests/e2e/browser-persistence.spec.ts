@@ -3,6 +3,11 @@ import { createTopic, deleteTopic, closeAllBrowserContexts } from "./helpers/api
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 const BASE = E2E_BASE;
 

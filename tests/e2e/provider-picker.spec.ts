@@ -3,6 +3,11 @@ import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import { mockChatStream } from "./helpers/sse-helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 test.describe.serial("Provider/Model picker", () => {
   let topicId: string;

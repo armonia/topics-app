@@ -1,5 +1,10 @@
 import { test, expect, Page, Locator } from '@playwright/test';
 import { createTopic, deleteTopic } from './helpers/api-fixtures';
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 // Pause that exists ONLY to pace the delivery video, never to synchronise.
 // playwright.config.ts records video on demand (E2E_EVIDENCE=1); on the default

@@ -3,6 +3,11 @@ import { expect } from "@playwright/test";
 import { goToApp, openTopic, openTopicByClick, openTopicByDoubleClick } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 test.describe("Tab Sync & Persistence", () => {
   // TAB-SYNC-01: Tab State Persistence Across Reload

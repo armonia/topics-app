@@ -16,6 +16,11 @@ import { test, expect } from "@playwright/test";
 import * as fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 const API = `${E2E_BASE}/api`;
 

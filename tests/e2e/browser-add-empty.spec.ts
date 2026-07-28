@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { resetPaneStore } from "./helpers/api-fixtures";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 /**
  * BRW-EMPTY-01 — "Add pane → Browser" must work from a client with ZERO tabs.

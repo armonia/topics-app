@@ -9,6 +9,11 @@ import {
 } from "./helpers/api-fixtures";
 import { readFileSync } from "fs";
 import { resolve as resolvePath } from "path";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 // W7: Wave-0 dep on Task 0. Resolve relative to spec file (works from any cwd).
 const PERF_PATH = resolvePath(__dirname, "perf-baseline.json");
