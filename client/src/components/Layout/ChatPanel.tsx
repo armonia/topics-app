@@ -141,7 +141,7 @@ export function ChatPanel({
 
   return (
     <>
-      <div role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
+      <div data-testid="chat-panel" role="region" aria-label={`${topic.name} panel`} className={`relative flex flex-col flex-1 min-h-0 bg-surface overflow-hidden transition-colors duration-100 ${isDragOver ? 'bg-primary/3' : ''}`} onClick={onFocus}>
         {/* Apple-Intelligence "working" glow — a thin rotating ring hugging the
             pane edge while the session streams. Rendered only when working so
             it costs nothing at rest; transform-only animation (see index.css).
