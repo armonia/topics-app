@@ -40,7 +40,8 @@ import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-au
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
-import { branchStatusFromRepo } from "./server/services/branch-status";
+import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit } from "./server/services/branch-status";
+import { auditLandings } from "./server/services/landing-audit";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic } from "./server/lib/session-control-core";
 import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir } from "./server/services/project-path-resolver";
@@ -783,6 +784,17 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     const repoPath = ctx.projectStore.get(wt.projectId)?.path;
     if (!repoPath) return null;
     return branchStatusFromRepo(repoPath, wt.branchName);
+  },
+  // Delivery snapshot, taken when the task enters review: branch + tip SHA. The
+  // branch dies with the reap, the commit survives (gc.pruneExpire=90d), so the
+  // landing audit holds the COMMIT.
+  taskDeliveryRef: async (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
+    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
+    if (!repoPath) return null;
+    const commit = await resolveCommit(repoPath, `refs/heads/${wt.branchName}`);
+    return commit ? { branch: wt.branchName, commit } : null;
   },
   // Post-landing reap: merged (or empty) worktrees have no remaining value —
   // the manager path removes worktree + branch + row, serialized per project.
@@ -2372,6 +2384,67 @@ function runWorktreeGc() {
 const worktreeGcBoot = setTimeout(runWorktreeGc, 120_000);
 const worktreeGcTimer = setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS);
 
+// ── Landing audit: "done" must mean "è nel prodotto" ───────────────────────
+// The GC above decides what is safe to DESTROY; this decides what has actually
+// ARRIVED. They are different questions, and the 19/07 loss lived in the gap:
+// the task said done, the branch was gone, the code was nowhere.
+//
+// Two steps per pass:
+//  1. BACKFILL — any review/done task with a live branch worktree but no
+//     recorded delivery gets its branch tip recorded now. Covers the paths that
+//     bypass the route PATCH (system-delivery from the dispatcher) and every
+//     task that predates the delivery snapshot.
+//  2. AUDIT — compare each recorded commit against main by CONTENT and stamp
+//     the verdict; the edge into `unlanded` posts a comment on the task.
+async function backfillDeliveries(): Promise<void> {
+  const rows = ctx.db.prepare(
+    `SELECT id FROM tasks
+      WHERE archived = 0 AND delivery_commit IS NULL AND status IN ('review', 'done')`,
+  ).all() as Array<{ id: string }>;
+  for (const row of rows) {
+    const wt = worktreeOfTask(row.id);
+    if (!wt || wt.mode !== "branch" || !wt.branchName) continue;
+    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
+    if (!repoPath) continue;
+    // Awaited: the audit right below must see what we just recorded, otherwise
+    // a backfilled task waits a full interval for its first verdict.
+    const commit = await resolveCommit(repoPath, `refs/heads/${wt.branchName}`).catch(() => null);
+    if (commit) dispatcherSvc.recordDelivery({ taskId: row.id, branch: wt.branchName, commit });
+  }
+}
+
+const LANDING_AUDIT_INTERVAL_MS = 30 * 60_000;
+async function runLandingAudit() {
+  await backfillDeliveries().catch((err) => console.warn("[landing-audit] backfill failed", err));
+  return auditLandings({
+    listCandidates: () => dispatcherSvc.listLandingAuditCandidates(),
+    repoPath: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+    commitStatus: (repoPath, commit) => commitStatusFromRepo(repoPath, commit),
+    record: (taskId, state, checkedAt) => dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
+    previousState: (taskId) => dispatcherSvc.get(taskId)?.task.landingState ?? null,
+    // The whole point: a delivery that never reached main must SAY so, on the
+    // task, once — not sit silently in a column for 8 days.
+    onNewlyUnlanded: (task) => {
+      try {
+        dispatcherSvc.addComment({
+          taskId: task.id, author: "system",
+          content:
+            `⚠️ Consegnato ma NON su main: il commit \`${task.deliveryCommit?.slice(0, 8)}\`` +
+            (task.deliveryBranch ? ` (branch \`${task.deliveryBranch}\`)` : "") +
+            " non risulta nel contenuto di main. Landa il branch, oppure recupera il commit prima che venga potato.",
+        });
+        const fresh = dispatcherSvc.get(task.id)?.task;
+        if (fresh) broadcastToAll({ type: "task:updated", projectId: task.projectId, task: fresh });
+      } catch (err) { console.warn("[landing-audit] comment failed", err); }
+    },
+    now: () => new Date().toISOString(),
+    log: (msg) => console.log(msg),
+  }).catch((err) => { console.error("[landing-audit] sweep failed", err); return null; });
+}
+// Offset from the GC pass so the two git sweeps don't collide on the same repo.
+const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
+const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS);
+
 const proto = useTls ? "https" : "http";
 const wsProto = useTls ? "wss" : "ws";
 console.log(`🚀 Topics App running at ${proto}://localhost:${PORT}`);
@@ -2432,6 +2505,8 @@ async function gracefulShutdown(signal: string) {
   clearInterval(dispatchTimer);
   clearTimeout(worktreeGcBoot);
   clearInterval(worktreeGcTimer);
+  clearTimeout(landingAuditBoot);
+  clearInterval(landingAuditTimer);
   taskDispatcher.shutdown();
   void previewManager?.teardownAll(); // kill any live preview servers
   stopHeartbeatChecker();      // agent FSM stale-checker (was an unstoppable leak)

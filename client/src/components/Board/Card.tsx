@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowUpRight, ClipboardList, Lock, MessageSquare, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ClipboardList, Lock, MessageSquare, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -196,7 +196,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   const showPriority = !task.priorityAuto && task.priority !== 2;
   // Review expands the subtask checklist on the card; elsewhere the count chip suffices.
   const checklist = task.status === 'review' ? children : [];
-  const hasMetaRow = !!((blocker && blocker.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo);
+  // "done" that never reached main — the 19/07 loss, made visible. Only on done:
+  // a task in review is legitimately not landed yet, flagging it would be noise.
+  const notLanded = task.status === 'done' && task.landingState === 'unlanded';
+  const hasMetaRow = !!((blocker && blocker.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded);
 
   return (
     <div
@@ -345,6 +348,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               title={`${task.userCommentCount} ${task.userCommentCount === 1 ? 'tuo messaggio' : 'tuoi messaggi'} nel thread (esclusa l'AI)`}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
+          )}
+          {notLanded && (
+            <span
+              title={`Il lavoro consegnato (${task.deliveryCommit?.slice(0, 8) ?? '?'}${task.deliveryBranch ? ` su ${task.deliveryBranch}` : ''}) NON risulta su main. Landa il branch prima che venga potato.`}
+              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300"
+            ><AlertTriangle className="h-3 w-3 shrink-0" /> non su main</span>
           )}
           {task.planFirst && (
             <span

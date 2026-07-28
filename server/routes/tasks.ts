@@ -96,6 +96,12 @@ export interface TasksRouterOpts {
    */
   taskBranchStatus?: (taskId: string) => Promise<BranchStatus | null>;
   /**
+   * The task branch and its current tip, for the delivery snapshot taken when a
+   * task enters `review`. `null` ⇒ no branch worktree (in-place task), nothing
+   * to audit later.
+   */
+  taskDeliveryRef?: (taskId: string) => Promise<{ branch: string; commit: string } | null>;
+  /**
    * Delete the task's worktree + branch + store row (the worktree-manager
    * path). Called after a landing: once merged, the worktree has no value and
    * keeping it is how 30+ stale worktrees accumulated.
@@ -255,6 +261,27 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
     if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
+  }
+
+  /**
+   * Snapshot what was delivered, on the edge INTO `review`. The branch is reaped
+   * the moment the task lands, so the branch NAME cannot be the handle the audit
+   * holds onto: the commit can (git keeps unreachable objects 90 days here).
+   * Without this the board's "done" is a column, not a claim about main — which
+   * is exactly how 139 lines were lost on 19/07 without anyone noticing.
+   * Best-effort: a git hiccup must never refuse a delivery.
+   */
+  async function captureDelivery<T extends { id: string; status: string }>(task: T, prevStatus?: string): Promise<T> {
+    if (task.status !== "review" || prevStatus === "review" || !opts?.taskDeliveryRef) return task;
+    try {
+      const ref = await opts.taskDeliveryRef(task.id);
+      if (!ref) return task; // in-place task: nothing to compare against main
+      svc.recordDelivery({ taskId: task.id, branch: ref.branch, commit: ref.commit });
+      // Return the REFRESHED row so the response and the broadcast already carry
+      // the snapshot — otherwise the board only learns about it on a refetch.
+      return (svc.get(task.id)?.task as T | undefined) ?? task;
+    } catch { /* best-effort: never block a delivery on git */ }
+    return task;
   }
 
   async function landTask(projectId: string, taskId: string): Promise<void> {
@@ -913,7 +940,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const body = (await readJSON(req)) as any;
           try {
             const prevStatus = svc.get(taskId, { projectId })?.task.status;
-            const task = svc.update({
+            let task = svc.update({
               taskId, actor: "human", by: HUMAN, projectId,
               patch: {
                 status: typeof body?.status === "string" ? body.status : undefined,
@@ -936,6 +963,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 planFirst: typeof body?.planFirst === "boolean" ? body.planFirst : undefined,
               },
             });
+            task = await captureDelivery(task, prevStatus);
             broadcastToAll({ type: "task:updated", projectId, task });
             emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus);
             // Auto-dispatch trigger: the human dragging a task INTO todo is the
@@ -1123,7 +1151,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }
         try {
           const prevStatus = svc.get(item.taskId, { projectId: sess.projectId })?.task.status;
-          const task = svc.update({
+          let task = svc.update({
             taskId: item.taskId,
             actor: "agent",
             by: sess.author,
@@ -1140,6 +1168,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               description: typeof body?.description === "string" ? body.description : undefined,
             },
           });
+          task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
           emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus);
           return json(task);

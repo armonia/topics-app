@@ -100,6 +100,14 @@ export interface BoardTask {
   blockedByTaskId: string | null;
   /** When blocked, hand the new agent the blocker's session context instead of a cold start. */
   reuseBlockerContext: boolean;
+  /** Branch the task delivered on, snapshot at review-time (diagnostics). */
+  deliveryBranch: string | null;
+  /** Tip of that branch at review-time — the durable handle the audit checks. */
+  deliveryCommit: string | null;
+  /** Landing audit verdict: is the delivered work actually on main?
+   *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
+  landingState: "landed" | "unlanded" | "unverifiable" | null;
+  landingCheckedAt: string | null;
 }
 
 export interface TaskComment {

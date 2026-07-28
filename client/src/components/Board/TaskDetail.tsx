@@ -828,6 +828,17 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           <button onClick={() => setError(null)} className="shrink-0 rounded p-0.5 hover:bg-white/10"><X className="h-3 w-3" /></button>
         </div>
       )}
+      {/* Verdetto dell'audit di landing: un task chiuso il cui lavoro non è su
+          main. Sta QUI, in cima al drawer, e non solo come commento nel thread —
+          il commento si perde, la banda no. */}
+      {task?.status === 'done' && task.landingState === 'unlanded' && (
+        <div className="shrink-0 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-300">
+          ⚠️ Chiuso ma <strong>non su main</strong>: il commit consegnato
+          {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
+          {task.deliveryBranch ? <> (branch <code className="rounded bg-black/30 px-1">{task.deliveryBranch}</code>)</> : null}
+          {' '}non risulta nel contenuto di main. Landa il branch, o recupera il commit prima che venga potato.
+        </div>
+      )}
       {!task ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-neutral-500" />
