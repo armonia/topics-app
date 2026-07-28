@@ -370,6 +370,23 @@ const streamThinkingChunkSchema = z.object({
   topicId: z.string().optional(),
 }).passthrough();
 
+/**
+ * Contesto reale del modello dopo una chiamata (1b.5). `used`/`size` sono la
+ * forma che poi diventerà `usage_update` ACP (Fase 3.1): tenerli obbligatori
+ * qui è ciò che impedisce a un provider di mandare metà del rapporto.
+ */
+const streamContextSchema = z.object({
+  type: z.literal('stream:context'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+  used: z.number(),
+  size: z.number(),
+  percent: z.number(),
+  level: z.enum(['ok', 'warn', 'critical']),
+  estimated: z.boolean(),
+  model: z.string().optional(),
+}).passthrough();
+
 const streamErrorSchema = z.object({
   type: z.literal('stream:error'),
   sessionKey: z.string(),
@@ -683,6 +700,7 @@ const OUTBOUND_SCHEMAS = {
   // Stream cluster (provider streaming)
   'stream:start': streamStartSchema,
   'stream:content_chunk': streamContentChunkSchema,
+  'stream:context': streamContextSchema,
   'stream:thinking_start': streamThinkingStartSchema,
   'stream:thinking_end': streamThinkingEndSchema,
   'stream:thinking_chunk': streamThinkingChunkSchema,

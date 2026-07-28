@@ -21,6 +21,8 @@ import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "..
 import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
+import { recordSessionContext } from "../db/session-context";
+import { contextWindowFor, classifyContext } from "../usage/context-window";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
@@ -576,6 +578,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // calls in the same turn (which grow again as work resumes) can't
           // overwrite it. See onContextSize below.
           let postCompactionFilled = false;
+          // Last context size broadcast for the ring. `onContextSize` fires once
+          // per model call, so a turn with thirty tool calls would otherwise
+          // write the same row and push the same event thirty times.
+          let lastContextUsed = -1;
           // Reattach after a server restart continues the SAME bubble the client
           // was watching (reuse + in-place JSONL replay) instead of spawning a
           // duplicate turn / leaving a ghost spinner. Normal sends always get a
@@ -1378,8 +1384,45 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             },
 
-            onContextSize: (tokens) => {
-              // Post-compaction context size. The FIRST model call after the
+            onContextSize: (tokens, model) => {
+              // 1) Il ring del contesto reale (1b.5). Questo numero — il
+              //    prompt di UNA chiamata — è l'unica misura onesta di "quanto
+              //    ha in pancia il modello", e fino a ieri moriva qui dentro:
+              //    serviva solo a riempire il marker di compaction. La barra
+              //    che l'umano vedeva misura un'altra cosa (il preventivo
+              //    dell'envelope che iniettiamo NOI), quindi di fatto il dato
+              //    più guardato a ogni turno non era da nessuna parte.
+              try {
+                const window = contextWindowFor(model ?? overrideModel ?? null);
+                const usage = classifyContext(tokens, window);
+                // Scrittura solo quando il numero cambia davvero: in un turno
+                // lungo questo handler scatta a ogni chiamata al modello.
+                if (usage.used !== lastContextUsed) {
+                  lastContextUsed = usage.used;
+                  recordSessionContext(ctx.db, {
+                    sessionKey,
+                    usedTokens: usage.used,
+                    windowTokens: usage.size,
+                    estimated: usage.estimated,
+                    model: model ?? overrideModel ?? null,
+                  });
+                  const uevt = {
+                    type: "stream:context" as const,
+                    sessionKey,
+                    topicId: matchedTopic?.id,
+                    used: usage.used,
+                    size: usage.size,
+                    percent: usage.percent,
+                    level: usage.level,
+                    estimated: usage.estimated,
+                    ...(model ? { model } : {}),
+                  };
+                  if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, uevt);
+                  else broadcastToAll(uevt);
+                }
+              } catch (err) { console.error("[context] ring update failed:", err); }
+
+              // 2) Post-compaction context size. The FIRST model call after the
               // boundary is the only honest measurement: its prompt IS the
               // compacted context. Previously this was backfilled from the
               // final `result` usage, which AGGREGATES every call in the turn —

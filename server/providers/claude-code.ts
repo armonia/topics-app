@@ -1971,11 +1971,15 @@ export class ClaudeCodeProvider implements AIProvider {
     // made the post-compaction divider claim the context had grown. Sidechain
     // (sub-agent) calls have their own context and are excluded.
     if (event.type === "assistant" && !parentToolUseId && handler?.onContextSize) {
-      const mu = (event.message as { usage?: Record<string, unknown> } | undefined)?.usage;
+      const msg = event.message as { usage?: Record<string, unknown>; model?: unknown } | undefined;
+      const mu = msg?.usage;
       if (mu) {
         const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
         const size = n(mu.input_tokens) + n(mu.cache_read_input_tokens) + n(mu.cache_creation_input_tokens);
-        if (size > 0) handler.onContextSize(size);
+        // The model comes from the SAME event as the usage: it is the model
+        // that actually served this call, which is what sizes the window.
+        const model = typeof msg?.model === "string" && msg.model ? msg.model : undefined;
+        if (size > 0) handler.onContextSize(size, model);
       }
     }
     if (parentToolUseId && eventContent && handler) {

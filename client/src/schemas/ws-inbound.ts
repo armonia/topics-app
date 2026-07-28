@@ -210,6 +210,14 @@ const streamCompactionSchema = z.looseObject({
   markerId: z.string(),
 });
 
+const streamContextSchema = z.looseObject({
+  type: z.literal('stream:context'),
+  sessionKey: z.string(),
+  used: z.number(),
+  size: z.number(),
+  percent: z.number(),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const INBOUND_SCHEMAS = {
@@ -226,6 +234,7 @@ const INBOUND_SCHEMAS = {
   'stream:content_chunk': streamContentChunkSchema,
   'stream:error': streamErrorSchema,
   'stream:compaction': streamCompactionSchema,
+  'stream:context': streamContextSchema,
   'typing': typingBroadcastSchema,
   'ui:bundle-updated': uiBundleUpdatedSchema,
   'ui:bundle-rev': uiBundleRevSchema,
