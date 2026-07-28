@@ -117,6 +117,14 @@ export interface Task {
   model: string | null;
   /** Dependency: not dispatch-eligible until this task is done/archived. */
   blockedByTaskId: string | null;
+  /** Branch the task delivered on, snapshotted at the transition into `review`. */
+  deliveryBranch: string | null;
+  /** Branch tip at delivery time — the handle that outlives the reaped branch. */
+  deliveryCommit: string | null;
+  /** Landing audit verdict: is the delivered content actually on main?
+   *  null = never audited (pre-audit task, or no delivery recorded). */
+  landingState: "landed" | "unlanded" | "unverifiable" | null;
+  landingCheckedAt: string | null;
   /** Dispatch in the BLOCKER agent's conversation instead of a fresh topic. */
   reuseBlockerContext: boolean;
   /** Direct-children counters (filled by list/get for board badges). */
@@ -439,6 +447,19 @@ export interface TaskService {
   setModel(args: { taskId: string; model: string | null }): Task;
   /** Accumulate agent effort on the task (dispatcher, at each turn end). */
   recordAgentUsage(args: { taskId: string; addMs: number; addTokens: number; addCacheReadTokens?: number }): Task;
+  /**
+   * Snapshot what the agent delivered, at the moment it delivers it (→ review).
+   * The branch is reaped once it lands, so the COMMIT is the only durable handle
+   * the landing audit can hold onto. Re-recorded on every new delivery (a
+   * reject→resume→review round trip delivers a new tip).
+   */
+  recordDelivery(args: { taskId: string; branch: string | null; commit: string | null }): void;
+  /** Tasks worth auditing: alive, delivered (review/done) and carrying a commit. */
+  listLandingAuditCandidates(): Array<{ id: string; projectId: string; deliveryBranch: string | null; deliveryCommit: string | null }>;
+  /** Persist a landing-audit verdict. */
+  recordLandingState(args: { taskId: string; state: "landed" | "unlanded" | "unverifiable"; checkedAt: string }): void;
+  /** How many alive tasks are delivered but provably NOT on main (board badge). */
+  countUnlanded(projectId?: string): number;
   /** Read the per-board dispatch config (defaults when no row exists). */
   getBoardSettings(projectId: string): BoardSettings;
   /** Upsert the per-board dispatch config. `autoDispatch` routes to the global switch. */
@@ -552,6 +573,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       priorityAuto: r.priority_auto == null ? true : !!r.priority_auto,
       model: resolveModel(r),
       blockedByTaskId: r.blocked_by_task_id ?? null,
+      deliveryBranch: r.delivery_branch ?? null,
+      deliveryCommit: r.delivery_commit ?? null,
+      landingState: r.landing_state ?? null,
+      landingCheckedAt: r.landing_checked_at ?? null,
       reuseBlockerContext: !!r.reuse_blocker_context,
       subtaskCount: 0,
       subtaskDoneCount: 0,
@@ -1258,6 +1283,41 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare("UPDATE tasks SET model = ?, updated_at = ? WHERE id = ?")
         .run(model || null, now(), taskId);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    recordDelivery({ taskId, branch, commit }): void {
+      // A new delivery invalidates any previous verdict: re-audit from scratch
+      // rather than leave a stale "landed" on top of fresh, unlanded commits.
+      db.prepare(
+        "UPDATE tasks SET delivery_branch = ?, delivery_commit = ?, landing_state = NULL, landing_checked_at = NULL WHERE id = ?",
+      ).run(branch || null, commit || null, taskId);
+    },
+
+    listLandingAuditCandidates() {
+      return db.prepare(
+        `SELECT id, project_id, delivery_branch, delivery_commit
+           FROM tasks
+          WHERE archived = 0 AND delivery_commit IS NOT NULL
+            AND status IN ('review', 'done')`,
+      ).all().map((r: any) => ({
+        id: r.id,
+        projectId: r.project_id,
+        deliveryBranch: r.delivery_branch ?? null,
+        deliveryCommit: r.delivery_commit ?? null,
+      }));
+    },
+
+    recordLandingState({ taskId, state, checkedAt }): void {
+      db.prepare("UPDATE tasks SET landing_state = ?, landing_checked_at = ? WHERE id = ?")
+        .run(state, checkedAt, taskId);
+    },
+
+    countUnlanded(projectId?: string): number {
+      const sql =
+        "SELECT COUNT(*) AS n FROM tasks WHERE archived = 0 AND landing_state = 'unlanded'" +
+        (projectId ? " AND project_id = ?" : "");
+      const r = (projectId ? db.prepare(sql).get(projectId) : db.prepare(sql).get()) as any;
+      return r?.n ?? 0;
     },
 
     getGlobalAutoDispatch(): boolean {

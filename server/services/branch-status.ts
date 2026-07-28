@@ -53,7 +53,40 @@ export async function branchStatusFromRepo(
 ): Promise<BranchStatus> {
   if (!branch) return "gone";
   if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) !== 0) return "gone";
+  return statusOfExistingRef(repoPath, branch, mainRef);
+}
 
+/**
+ * Same verdict for an arbitrary commit-ish (a recorded delivery SHA), not just a
+ * live branch name. The landing audit needs this: a task's branch is reaped once
+ * it lands, so the only durable handle on "what the agent delivered" is the
+ * commit it delivered — and that object outlives the branch (gc.pruneExpire is
+ * 90 days here). `gone` = the object is no longer in the repo, so the question
+ * can't be answered rather than answered "not landed".
+ */
+export async function commitStatusFromRepo(
+  repoPath: string,
+  commit: string | null,
+  mainRef = "main",
+): Promise<BranchStatus> {
+  if (!commit) return "gone";
+  if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])) !== 0) return "gone";
+  return statusOfExistingRef(repoPath, commit, mainRef);
+}
+
+/**
+ * Full SHA of a commit-ish, or null when the repo doesn't have it. Used to
+ * snapshot what a task delivered: the branch is reaped on landing, the SHA is
+ * what survives.
+ */
+export async function resolveCommit(repoPath: string, ref: string): Promise<string | null> {
+  const sha = (await gitOut(repoPath, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])).trim();
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+}
+
+/** The shared verdict for a ref that is known to exist. */
+async function statusOfExistingRef(repoPath: string, ref: string, mainRef: string): Promise<BranchStatus> {
+  const branch = ref;
   // (1) Classic ancestry: the tip is already on main.
   if ((await gitExit(repoPath, ["merge-base", "--is-ancestor", branch, mainRef])) === 0) return "merged";
 

@@ -19,7 +19,8 @@ function freshDb(): Database {
     parent_task_id TEXT REFERENCES tasks(id), output_url TEXT, plan_first INTEGER NOT NULL DEFAULT 0,
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1
+    priority_auto INTEGER NOT NULL DEFAULT 1,
+    delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -490,6 +491,42 @@ describe("board router (human, project-scoped)", () => {
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
+  });
+
+  test("delivery snapshot: entering review records branch + commit, once", async () => {
+    // The audit's whole premise: the branch is reaped on landing, so the COMMIT
+    // recorded at delivery is the only durable handle on "what was delivered".
+    let calls = 0;
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskDeliveryRef: async () => { calls += 1; return { branch: "topics/purple-finch", commit: "56aaa3f9".padEnd(40, "0") }; },
+    });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const rev = await (await call(r, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "review" }))!.json();
+    expect(rev.deliveryBranch).toBe("topics/purple-finch");
+    expect(rev.deliveryCommit.startsWith("56aaa3f9")).toBe(true);
+    expect(calls).toBe(1);
+    // A second PATCH that does NOT re-enter review must not re-snapshot: the
+    // delivery is the moment of hand-off, not "the last time anything changed".
+    await call(r, "PATCH", `/api/boards/pX/tasks/${t.id}`, { priority: 1 });
+    expect(calls).toBe(1);
+  });
+
+  test("delivery snapshot: an in-place task (no branch worktree) records nothing", async () => {
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, { taskDeliveryRef: async () => null });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const rev = await (await call(r, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "review" }))!.json();
+    expect(rev.deliveryCommit).toBeNull();
+    expect(rev.landingState).toBeNull();
+  });
+
+  test("delivery snapshot: a git failure never refuses the delivery", async () => {
+    const r = createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskDeliveryRef: async () => { throw new Error("git exploded"); },
+    });
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    const resp = (await call(r, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).status).toBe("review");
   });
 
   test("GET /api/all-boards/tasks is the global cross-project feed", async () => {

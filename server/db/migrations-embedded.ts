@@ -63,6 +63,7 @@ import m054 from "./migrations/055-task-preview-image.sql" with { type: "text" }
 import m055 from "./migrations/056-compaction-markers.sql" with { type: "text" };
 import m056 from "./migrations/057-compaction-post-tokens-sanity.sql" with { type: "text" };
 import m057 from "./migrations/058-task-dispatch-defer.sql" with { type: "text" };
+import m058 from "./migrations/059-task-delivery-landing.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -130,4 +131,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 56, name: "056-compaction-markers.sql", sql: m055 },
   { version: 57, name: "057-compaction-post-tokens-sanity.sql", sql: m056 },
   { version: 58, name: "058-task-dispatch-defer.sql", sql: m057 },
+  { version: 59, name: "059-task-delivery-landing.sql", sql: m058 },
 ];

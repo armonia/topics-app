@@ -587,6 +587,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
     };
   }, [safeRefetch]);
 
+  // Task chiusi la cui consegna NON risulta su main (verdetto dell'audit
+  // periodico). Deliberatamente NON filtrato dai filtri di header: è un allarme
+  // sull'integrità della board, non una vista.
+  const unlandedTasks = useMemo(
+    () => tasks.filter((t) => t.status === 'done' && t.landingState === 'unlanded'),
+    [tasks],
+  );
+
   const byStatus = useMemo(() => {
     const m: Record<TaskStatus, BoardTask[]> = { backlog: [], todo: [], in_progress: [], review: [], done: [] };
     for (const t of tasks) {
@@ -772,6 +780,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         )}
         <GlobalSettingsMenu />
         <OverloadBadge />
+        {/* Landing audit: task chiusi il cui lavoro NON è su main. Zero = il
+            badge sparisce. Un click apre il primo, così il contatore è una
+            porta e non un numero da guardare. */}
+        {unlandedTasks.length > 0 && (
+          <button
+            onClick={() => setSelectedId(unlandedTasks[0]!.id)}
+            title={`${unlandedTasks.length} task chiusi il cui lavoro non risulta su main:\n${unlandedTasks.slice(0, 8).map((t) => `• ${t.text}`).join('\n')}`}
+            className="flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-medium text-rose-300 hover:bg-rose-500/30"
+            data-testid="unlanded-badge"
+          ><AlertTriangle className="h-3 w-3 shrink-0" /> {unlandedTasks.length} non su main</button>
+        )}
         <div className="ml-2 min-w-0">
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
