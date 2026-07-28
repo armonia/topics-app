@@ -741,6 +741,19 @@ export function createAppContext(baseDir: string): AppContext {
     return loadActiveThread(sessionKey);
   }
 
+  /**
+   * RIMPIAZZA l'intera sessione con `msgs`: cancella ogni messaggio e ogni
+   * scelta di ramo, poi reinserisce quello che gli si passa.
+   *
+   * Va bene per chi vuole davvero questo (svuotare una topic, importare una
+   * conversazione da fuori). NON va usata per TAGLIARE: `loadLocalMessages`
+   * restituisce solo il ramo attivo, quindi il giro
+   * `saveLocalMessages(loadLocalMessages().slice(0, n))` butta via ogni
+   * versione alternativa della sessione — comprese quelle nate molto prima del
+   * punto di taglio. Per troncare c'è `truncateSessionAfter`
+   * (server/db/message-tree.ts), che cancella solo il sottoalbero appeso
+   * all'ultimo messaggio tenuto.
+   */
   function saveLocalMessages(sessionKey: string, msgs: StoredMessage[]): void {
     db.transaction(() => {
       stmts.deleteMessagesBySession.run(sessionKey);

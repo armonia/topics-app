@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
+import { truncateSessionAfter } from "../db/message-tree";
 
 /**
  * Run a git command via async subprocess. The prior execSync froze Bun's single
@@ -70,7 +71,7 @@ async function hasUncommittedChanges(projectPath: string): Promise<boolean> {
 }
 
 export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
-  const { json, matchRoute, loadTopics, loadLocalMessages, saveLocalMessages, STATE_DIR } = ctx;
+  const { json, matchRoute, loadTopics, loadLocalMessages, STATE_DIR } = ctx;
 
   return async function checkpointsRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -133,10 +134,20 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
         const checkpoint = checkpoints[idx];
         if (!checkpoint) return json({ error: "Checkpoint not found" }, 404);
 
-        // Truncate messages to checkpoint count
+        // Taglia la conversazione al checkpoint, SENZA toccare i rami che
+        // stanno sopra.
+        //
+        // Prima qui c'era `saveLocalMessages(sessionKey, msgs.slice(0, n))`, che
+        // è un rimpiazzo totale della sessione: cancellava ogni messaggio e
+        // reinseriva il solo ramo attivo troncato. Ogni versione alternativa
+        // — ogni edit, ogni rigenerazione — spariva insieme, anche se nata
+        // prima del punto di ripristino e del tutto estranea al taglio.
+        // `truncateSessionAfter` cancella solo il sottoalbero appeso all'ultimo
+        // messaggio tenuto (vedi server/db/message-tree.ts).
         const msgs = loadLocalMessages(topic.sessionKey);
-        const truncated = msgs.slice(0, checkpoint.messageCount);
-        saveLocalMessages(topic.sessionKey, truncated);
+        const keep = Math.max(0, Math.min(checkpoint.messageCount, msgs.length));
+        const lastKeptId = keep > 0 ? msgs[keep - 1].id : null;
+        const truncation = truncateSessionAfter(ctx.db, topic.sessionKey, lastKeptId);
 
         // Remove checkpoints after this one
         const remaining = checkpoints.slice(0, idx + 1);
@@ -158,7 +169,7 @@ export function createCheckpointsRouter(ctx: AppContext): RouteHandler {
           }
         }
 
-        return json({ ok: true, messageCount: truncated.length, git: gitResult });
+        return json({ ok: true, messageCount: keep, removed: truncation.deletedMessages, git: gitResult });
       }
     }
 
