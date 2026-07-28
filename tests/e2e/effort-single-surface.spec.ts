@@ -73,11 +73,14 @@ test.describe.serial("Effort — una sola superficie, uno slider", () => {
     await expect(slider).toHaveAttribute("data-effort-tier", "low");
     await expect(slider).toHaveAttribute("data-effort-overridden", "true");
 
-    // …e finisce sul server, non solo nel DOM.
+    // …e finisce sul server, non solo nel DOM. Non esiste una GET per la
+    // singola topic (solo la PATCH): la verità sta nell'elenco.
     await expect
       .poll(async () => {
-        const res = await request.get(`/api/topics/${topicId}`);
-        return res.ok() ? ((await res.json()) as { effort?: string | null }).effort : undefined;
+        const res = await request.get(`/api/topics`);
+        if (!res.ok()) return undefined;
+        const data = (await res.json()) as { topics?: Record<string, { effort?: string | null }> };
+        return data.topics?.[topicId]?.effort;
       }, { timeout: 10_000 })
       .toBe("low");
   });

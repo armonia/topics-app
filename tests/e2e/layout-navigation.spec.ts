@@ -50,6 +50,24 @@ test.describe("Layout & Navigation", () => {
     const initialTabCount = await tabs.count();
     expect(initialTabCount).toBeGreaterThanOrEqual(1);
 
+    // Il (+) va verificato QUI, mentre la tab bar c'è: vive DENTRO la tab bar,
+    // e chiudendo l'ultima pane sparisce con lei (a zero pane si va sul vuoto
+    // "Welcome to Topics", dove la creazione passa dal "New (⌘N)" della
+    // sidebar). Prima questo blocco stava dopo la chiusura ed era avvolto in
+    // `if (count() > 0)`: passava sempre, perché il bottone non c'era mai.
+    const addPaneBtn = page.getByTitle("Add pane");
+    await expect(addPaneBtn.first()).toBeVisible({ timeout: 5000 });
+    await addPaneBtn.first().click();
+    // Add pane dropdown is portaled — target its stable testid.
+    const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
+    await expect(addMenu).toBeVisible({ timeout: 5000 });
+    // Should have pane type options
+    const menuButtons = addMenu.locator("button");
+    expect(await menuButtons.count()).toBeGreaterThan(0);
+    // Dismiss by pressing Escape
+    await page.keyboard.press("Escape");
+    await expect(addMenu).toBeHidden({ timeout: 5000 });
+
     // Right-click first tab and verify context menu items
     await layoutPage.rightClickTab(0);
     const items = await layoutPage.getContextMenuItems();
@@ -63,21 +81,10 @@ test.describe("Layout & Navigation", () => {
     // Verify context menu dismissed
     await expect(menu).toBeHidden({ timeout: 5000 });
 
-    // Test add pane (+) button: click it and verify dropdown menu appears
-    // The (+) button must BE there: gating this block on `count() > 0` meant a
-    // missing button silently skipped every assertion below and still reported
-    // green, so the test could not fail for the exact regression it names.
-    const addPaneBtn = page.getByTitle("Add pane");
-    await expect(addPaneBtn.first()).toBeVisible({ timeout: 5000 });
-    await addPaneBtn.first().click();
-    // Add pane dropdown is portaled — target its stable testid.
-    const addMenu = page.locator('[data-testid="pane-add-menu"]').first();
-    await expect(addMenu).toBeVisible({ timeout: 5000 });
-    // Should have pane type options
-    const menuButtons = addMenu.locator("button");
-    expect(await menuButtons.count()).toBeGreaterThan(0);
-    // Dismiss by pressing Escape
-    await page.keyboard.press("Escape");
+    // …e la chiusura ha davvero prodotto qualcosa: con l'ultima pane chiusa lo
+    // spazio di lavoro mostra il vuoto. Senza questa riga il click qui sopra
+    // poteva non fare nulla e il test restava verde.
+    await expect(page.getByText("Welcome to Topics")).toBeVisible({ timeout: 5000 });
   });
 
   test("LAYOUT-02: connection status indicator shows connected state", async ({
