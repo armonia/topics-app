@@ -25,11 +25,16 @@ const NIGHTLY_ONLY_SPECS = [
   "cross-window-topic-sync",
   "split-screen-sync",
   "pane-server-migration",
-  // The file-explorer family shares one project/DB across tests; on CI Linux
-  // the accumulated state renders a second tree, so treeitem locators resolve
-  // to >1 element and the failure cascades test-to-test (quarantining one just
-  // shifts it to the next). Off the PR gate as a class until the suite gets
-  // per-test DB isolation. TODO(e2e-isolation).
+  // La famiglia file-explorer condivide un progetto/DB fra i test; su CI Linux
+  // lo stato accumulato disegnava un secondo albero, i locator treeitem ne
+  // trovavano >1 e il fallimento cascava di test in test (mettere in quarantena
+  // uno lo spostava sul successivo).
+  // L'isolamento c'è (fixtures/hermetic.ts: ogni FILE riparte dallo snapshot di
+  // baseline del globalSetup, vedi services/db-snapshot.ts), ma è per-file, non
+  // per-test: dentro lo stesso file lo stato scorre ancora — ed è voluto, quasi
+  // tutte le suite sono `describe.serial` e si passano il topic creato nel
+  // beforeAll. Restano quindi fuori dal gate PR finché non sono riscritte
+  // test-per-test. TODO(e2e-isolation).
   "file-explorer",
   "file-context-menu",
   "file-external-drop",

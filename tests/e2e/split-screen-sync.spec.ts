@@ -17,6 +17,11 @@ import {
   getVisibleTabLabels,
   splitViaContextMenu,
 } from "./helpers/layout";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 

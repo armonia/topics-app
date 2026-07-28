@@ -4,6 +4,11 @@ import { createTopic, cleanupAll, deleteTopic, patchTopic, resetPaneStore } from
 import { seedMessage } from "./helpers/seed-messages";
 import { ensureTopicVisible, goToApp } from "./helpers";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 test.describe("Command Palette", () => {
   const TS = Date.now();

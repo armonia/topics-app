@@ -3,6 +3,11 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, waitForTopicVisible, resetPaneStore } from "./helpers/api-fixtures";
 import { readFileSync } from "fs";
 import { resolve as resolvePath } from "path";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 /**
  * T1 DOM co-browse (client) — the native rrweb reconstruction path. The mock WS

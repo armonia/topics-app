@@ -51,6 +51,10 @@ export TOPICS_PTY_SOCKET="${TOPICS_PTY_SOCKET:-/tmp/topics-pty-bridge-e2e-${BUN_
 # (nothing connects); required the moment a broker restart-survival test enables
 # the flag. Enable the feature for such a test with TOPICS_AI_BRIDGE=1.
 export TOPICS_AI_BRIDGE_SOCKET="${TOPICS_AI_BRIDGE_SOCKET:-/tmp/topics-ai-bridge-e2e-${BUN_PORT}.sock}"
+# Arma le route di reset della suite (`/api/test/checkpoint`, `/api/test/reset`).
+# Svuotano ogni tabella: esistono SOLO dove questa variabile c'è, e questo script
+# è l'unico posto che la mette. Vedi server/routes/e2e.ts.
+export TOPICS_E2E="${TOPICS_E2E:-1}"
 export GATEWAY_TOKEN="${GATEWAY_TOKEN:-test-token}"
 export GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18789}"
 

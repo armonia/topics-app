@@ -16,6 +16,11 @@ import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane, deleteTask } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 const BASE = E2E_BASE;
 const PROJECT_PATH = `/tmp/e2e-board-${Date.now()}`;

@@ -7,6 +7,11 @@ import {
   resetPaneStore,
   closeAllBrowserContexts,
 } from "./helpers/api-fixtures";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 /**
  * T2 — native <iframe> render mode (CodePen-style) for the WEB pane.

@@ -3,6 +3,11 @@ import { expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./helpers/api-fixtures";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 let projectTopicId: string | null = null;
 // A REAL directory: project-internal Shell/terminal panes cd into projectPath,

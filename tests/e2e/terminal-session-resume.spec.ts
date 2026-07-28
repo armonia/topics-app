@@ -8,6 +8,11 @@ import { spawn, execSync } from "child_process";
 import { resolve } from "path";
 import net from "net";
 import { E2E_BASE, E2E_PORT, testServerEnv } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 const BASE = E2E_BASE;
 const TEST_PORT = E2E_PORT;

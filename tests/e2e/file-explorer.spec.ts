@@ -3,6 +3,11 @@ import { test } from "./fixtures/file-explorer.fixture";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { execSync } from "child_process";
 import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "fs";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 test.describe("File Explorer & Git", () => {
   let topicId: string;

@@ -16,6 +16,11 @@ import {
 } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 const TS = Date.now();
 

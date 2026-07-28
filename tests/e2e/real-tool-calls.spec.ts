@@ -3,6 +3,11 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage, type SeedToolCall } from "./helpers/seed-messages";
 import { isGatewayAvailable } from "./helpers/gateway-health";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 /**
  * Real E2E tests for tool call and media rendering.

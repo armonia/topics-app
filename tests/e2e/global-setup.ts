@@ -20,6 +20,7 @@ import {
   descendantsOf,
   testServerEnv,
 } from "./helpers/test-server";
+import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
 // Port 13334 is the default, chosen to avoid conflicts with production services
@@ -61,6 +62,14 @@ function resolveChromiumPath(): string {
 }
 
 let serverProcess: ChildProcess | null = null;
+
+/**
+ * `true` da quando questo processo ha preso il lock della porta. Serve a
+ * `emergencyCleanup`: un Ctrl-C deve restituire la porta, ma un'uscita
+ * PRIMA dell'acquisizione (bundle assente, oppure lock rifiutato perché lo
+ * teneva un altro) non deve cancellare il lock di nessuno.
+ */
+let runLockHeld = false;
 
 /**
  * Chromium PIDs that were ALREADY running when this run started — i.e. someone
@@ -175,6 +184,16 @@ async function globalSetup() {
         `per un motivo finto. Lancia prima:\n\n    bun run build:client\n`
     );
   }
+
+  // Il lock PRIMA di qualsiasi passo distruttivo.
+  //
+  // Da qui in giù questo setup ammazza chi tiene la porta e cancella
+  // `topics.db`, assumendo che sia un residuo. Se invece è una run VIVA, quella
+  // run non muore: resta in piedi con il file SQLite sfilato da sotto e fallisce
+  // ogni test con `SQLITE_IOERR_VNODE`. Meglio fermarsi qui con un messaggio che
+  // dice chi c'è e come girare in parallelo (vedi helpers/run-lock.ts).
+  acquireRunLock(TEST_SERVER_PORT);
+  runLockHeld = true;
 
   // Disable TLS verification for localhost self-signed certs
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -336,6 +355,33 @@ async function globalSetup() {
 
   // Seed baseline data that legacy tests (Phase 1-2) expect
   await seedBaselineData();
+
+  // Fotografa QUESTO stato: è la baseline a cui ogni file di spec torna prima
+  // di partire (tests/e2e/fixtures/hermetic.ts). Va per forza qui, dopo il
+  // seed e prima del primo test — è l'unico istante in cui il DB contiene
+  // esattamente ciò che la suite assume e nulla di ciò che produrrà.
+  await checkpointBaseline();
+}
+
+/**
+ * Congela lo stato appena seminato come baseline della run.
+ *
+ * Fallire qui è meglio che proseguire: senza fotografia ogni `hermetic()`
+ * risponde 409 e la suite tornerebbe non ermetica — ma in silenzio, che è il
+ * modo in cui questo problema è già costato giorni di caccia al rosso mobile.
+ */
+async function checkpointBaseline() {
+  const res = await fetch(`${BASE}/api/test/checkpoint`, { method: "POST" }).catch((err) => {
+    throw new Error(`[global-setup] checkpoint della baseline non raggiungibile: ${(err as Error).message}`);
+  });
+  if (!res.ok) {
+    throw new Error(
+      `[global-setup] checkpoint della baseline fallito: ${res.status} ${res.statusText}\n` +
+        `Le route /api/test/* esistono solo con TOPICS_E2E=1 (vedi helpers/test-server.ts + scripts/start-test-server.sh).`,
+    );
+  }
+  const body = (await res.json()) as { tables?: number; rows?: number };
+  console.log(`[global-setup] Baseline fotografata: ${body.tables} tabelle, ${body.rows} righe`);
 }
 
 /**
@@ -421,6 +467,13 @@ async function seedBaselineData() {
 
 // Cleanup on crash/interrupt — kill test server + Chromium processes
 function emergencyCleanup() {
+  // Per primo il lock: se Ctrl-C arriva a metà run, la porta deve tornare
+  // libera subito. `releaseRunLock` toglie solo il lock NOSTRO, quindi
+  // chiamarlo qui non può mai scoprire la porta a un'altra run.
+  if (runLockHeld) {
+    runLockHeld = false;
+    try { releaseRunLock(TEST_SERVER_PORT); } catch {}
+  }
   try {
     if (serverProcess?.pid) process.kill(-serverProcess.pid, 'SIGTERM');
   } catch {}

@@ -2,6 +2,11 @@ import { test, expect } from "@playwright/test";
 import { openTwoDevices, tabFor, closeTabViaX } from "./helpers/multi-client";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 /**
  * Cross-device browser-tab close — the "l'ho chiusa da app, ma sta ancora su

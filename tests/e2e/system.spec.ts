@@ -2,6 +2,11 @@ import { test, expect } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { mockOpenClawAvailable } from "./helpers/openclaw";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 test.describe("System & Infrastructure", () => {
   // Metà dei test qui prende il composer con un locator STRICT

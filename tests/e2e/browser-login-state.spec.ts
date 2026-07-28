@@ -8,6 +8,11 @@
 import { test, expect } from "./fixtures/browser-v2.fixture";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 const BASE = E2E_BASE;
 const HEADERS = { "Content-Type": "application/json" };

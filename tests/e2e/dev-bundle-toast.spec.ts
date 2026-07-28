@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { goToApp } from "./helpers";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 /**
  * "Gestiamo meglio l'hot-reload" (2026-07-20). The dev bundle-freshness path no

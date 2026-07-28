@@ -9,6 +9,11 @@ import {
   MOCK_TIMELINE_EVENTS,
 } from "./fixtures/agent.fixture";
 import { resetPaneStore } from "./helpers/api-fixtures";
+import { hermetic } from "./fixtures/hermetic";
+
+// Confine ermetico: questo file riparte dalla baseline del globalSetup, non
+// dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
+hermetic(test);
 
 test.describe("Agent Management", () => {
   test.beforeEach(async ({ agentPage, page, request }) => {

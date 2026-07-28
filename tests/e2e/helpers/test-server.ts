@@ -73,6 +73,10 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     // Stessa storia per il broker stream-json.
     TOPICS_AI_BRIDGE_SOCKET: `/tmp/topics-ai-bridge-e2e-${port}.sock`,
     NO_TLS: "1",
+    // Arma le route di reset (`/api/test/checkpoint`, `/api/test/reset`). Sono
+    // distruttive per costruzione — svuotano ogni tabella — quindi esistono solo
+    // dove questa variabile c'è: vedi server/routes/e2e.ts.
+    TOPICS_E2E: "1",
     GATEWAY_TOKEN: process.env.GATEWAY_TOKEN || "test-token",
     GATEWAY_URL: process.env.GATEWAY_URL || "http://127.0.0.1:18789",
   };
