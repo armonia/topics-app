@@ -8,7 +8,7 @@
 //   server → bridge: {"t":"offer","peer":ID,"target":CDP_TARGET_ID,"sdp":OFFER}
 //                    {"t":"ice","peer":ID,"candidate":C,"sdpMid":M,"sdpMLineIndex":I}
 //                    {"t":"close","peer":ID}
-//   bridge → server: {"t":"ready"}
+//   bridge → server: {"t":"ready","build":EXE_MTIME_MS}
 //                    {"t":"answer","peer":ID,"sdp":ANSWER}
 //                    {"t":"ice","peer":ID,...}            (reserved; non-trickle on LAN)
 //                    {"t":"error","peer":ID,"message":M}
@@ -19,9 +19,9 @@ mod cdp;
 mod encode;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
@@ -46,10 +46,48 @@ use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
 use webrtc::track::track_local::TrackLocal;
 
+/// Nessuna connessione viva da tanto così = siamo un orfano, si esce.
+///
+/// Il broker è UNO e ci parla in continuazione: se per cinque minuti non c'è
+/// nessuno attaccato al socket, il server che ci ha generato è morto e non
+/// tornerà — è reparentato a PID 1 il processo, non il legame. Restare vivi non
+/// serve a nessuno e costa: il produttore CDP continua a ritentare, il canale
+/// JPEG a girare, e ci si ritrova col caso osservato di un sidecar orfano da sei
+/// giorni al 42% di CPU. Uscire è gratis perché `ensure()` (server/webrtc-bridge.ts)
+/// rigenera il sidecar al primo offer che serve davvero.
+const IDLE_EXIT_SECS: u64 = 300;
+
+/// Epoch in secondi dell'ultimo momento in cui il socket aveva un padrone.
+static LAST_ACTIVITY: AtomicU64 = AtomicU64::new(0);
+/// Connessioni broker attualmente aperte (praticamente sempre 0 o 1).
+static LIVE_CONNS: AtomicUsize = AtomicUsize::new(0);
+
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// mtime in ms del nostro stesso eseguibile: l'identità della BUILD che sta
+/// girando. Va nel `ready`, così il server può accorgersi di aver adottato un
+/// sidecar più vecchio del binario che spedirebbe lui — che è esattamente ciò
+/// che succede a un orfano, visto che risponde al socket e quindi supera il
+/// `tryConnect()` che avrebbe dovuto innescarne la mietitura.
+fn exe_stamp() -> u64 {
+    std::env::current_exe()
+        .and_then(std::fs::metadata)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// One shared H.264 stream for a CDP target — fanned out to every peer on that target.
 struct TargetStream {
     track: Arc<TrackLocalStaticSample>,
     need_keyframe: Arc<AtomicBool>,
+    /// Refcount degli spettatori. Si incrementa in `acquire_target` e si
+    /// decrementa in `release_target`, entrambi sotto il lock di `targets`: è
+    /// quel lock a renderlo un refcount vero e non un contatore ottimistico.
     peers: AtomicUsize,
     cdp_abort: AbortHandle,
     writer_abort: AbortHandle,
@@ -58,6 +96,9 @@ struct TargetStream {
 struct PeerEntry {
     pc: Arc<RTCPeerConnection>,
     target: String,
+    /// La connessione broker che ha creato questo peer. Quando quella cade, i
+    /// suoi peer non hanno più nessuno che possa chiuderli: li chiude l'EOF.
+    conn: u64,
 }
 
 struct Hub {
@@ -96,10 +137,19 @@ impl Hub {
 
     /// Returns the shared TargetStream for `target_id`, spawning the CDP→encoder→track
     /// pipeline the first time. Never holds the map lock across an await.
-    fn get_or_create_target(self: &Arc<Self>, target_id: &str) -> Arc<TargetStream> {
+    ///
+    /// Prende anche UNA quota del refcount: chi chiama DEVE rilasciarla con
+    /// `release_target`, sia quando il peer se ne va sia quando la negoziazione
+    /// fallisce a metà. Contare qui, e non a negoziazione riuscita, è la
+    /// differenza fra un pipeline che muore col suo ultimo spettatore e uno che
+    /// resta a codificare per sempre: la vecchia versione incrementava dopo un
+    /// paio di `await` fallibili, e ogni offer andato storto lasciava dietro un
+    /// target con zero peer e il produttore CDP vivo.
+    fn acquire_target(self: &Arc<Self>, target_id: &str) -> Arc<TargetStream> {
         {
             let map = self.targets.lock().unwrap();
             if let Some(ts) = map.get(target_id) {
+                ts.peers.fetch_add(1, Ordering::SeqCst);
                 return ts.clone();
             }
         }
@@ -134,14 +184,23 @@ impl Hub {
         };
 
         // CDP producer with a retry loop (Chromium may relaunch; the pane may not exist yet).
+        // Backoff esponenziale 1s→30s: il caso normale è una manciata di tentativi mentre
+        // Chromium riparte, ma se il target non tornerà MAI (pane chiusa, Chromium spento)
+        // ritentare una volta al secondo per ore è solo CPU bruciata per niente. Ogni
+        // stream riuscito riazzera l'attesa, così una riconnessione vera resta immediata.
         let cdp_task = {
             let target_id = target_id.to_string();
             tokio::spawn(async move {
+                let mut backoff = Duration::from_secs(1);
                 loop {
-                    if let Err(e) = cdp::attach_and_stream(target_id.clone(), 1, jpeg_tx.clone()).await {
-                        eprintln!("[cdp] stream ended ({target_id}): {e} — retry in 1s");
+                    match cdp::attach_and_stream(target_id.clone(), 1, jpeg_tx.clone()).await {
+                        Ok(()) => backoff = Duration::from_secs(1),
+                        Err(e) => {
+                            eprintln!("[cdp] stream ended ({target_id}): {e} — retry in {:?}", backoff);
+                        }
                     }
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_secs(30));
                 }
             })
         };
@@ -159,32 +218,63 @@ impl Hub {
         if let Some(existing) = map.get(target_id) {
             ts.cdp_abort.abort();
             ts.writer_abort.abort();
+            existing.peers.fetch_add(1, Ordering::SeqCst);
             return existing.clone();
         }
+        ts.peers.fetch_add(1, Ordering::SeqCst);
         map.insert(target_id.to_string(), ts.clone());
         ts
     }
 
-    /// Tears down a target's pipeline once its last peer left.
-    fn drop_target(&self, target_id: &str) {
-        if let Some(ts) = self.targets.lock().unwrap().remove(target_id) {
-            eprintln!("[hub] target {target_id} idle — tearing down");
-            ts.cdp_abort.abort();
-            ts.writer_abort.abort();
+    /// Restituisce la quota presa da `acquire_target` e, se era l'ultima, smonta
+    /// il pipeline. Il decremento avviene sotto il lock di `targets` — lo stesso
+    /// di `acquire_target` — così un peer che entra mentre l'ultimo esce non può
+    /// ritrovarsi con un target appena abortito.
+    fn release_target(&self, target_id: &str, ts: &Arc<TargetStream>) {
+        let mut map = self.targets.lock().unwrap();
+        if ts.peers.fetch_sub(1, Ordering::SeqCst) > 1 {
+            return;
         }
+        // Rimuovi solo se nella mappa c'è ancora QUESTO pipeline: un target con
+        // lo stesso id può essere già stato ricreato da un altro spettatore.
+        if map.get(target_id).map(|cur| Arc::ptr_eq(cur, ts)).unwrap_or(false) {
+            map.remove(target_id);
+        }
+        drop(map);
+        eprintln!("[hub] target {target_id} idle — tearing down");
+        ts.cdp_abort.abort();
+        ts.writer_abort.abort();
     }
 
     /// Build a PeerConnection for one viewer, attach the shared track, answer the offer.
-    async fn negotiate(self: &Arc<Self>, peer: &str, target: &str, offer_sdp: String) -> Result<String> {
-        let ts = self.get_or_create_target(target);
+    ///
+    /// Ogni uscita da qui deve essere bilanciata: presa la quota del target,
+    /// o la si consegna al `PeerEntry` (successo) o la si restituisce (errore).
+    async fn negotiate(self: &Arc<Self>, peer: &str, target: &str, offer_sdp: String, conn: u64) -> Result<String> {
+        let ts = self.acquire_target(target);
+        match self.negotiate_inner(&ts, peer, target, offer_sdp, conn).await {
+            Ok(sdp) => Ok(sdp),
+            Err(e) => {
+                self.release_target(target, &ts);
+                Err(e)
+            }
+        }
+    }
 
+    async fn negotiate_inner(
+        self: &Arc<Self>,
+        ts: &Arc<TargetStream>,
+        peer: &str,
+        target: &str,
+        offer_sdp: String,
+        conn: u64,
+    ) -> Result<String> {
         // Host candidates only — LAN/localhost needs no STUN, and a public STUN just
         // stalls gathering (and can't traverse NAT anyway; that needs TURN).
         let pc = Arc::new(self.api.new_peer_connection(RTCConfiguration::default()).await?);
         pc.add_track(ts.track.clone() as Arc<dyn TrackLocal + Send + Sync>).await?;
         // A new viewer on an existing stream must get a keyframe to start decoding.
         ts.need_keyframe.store(true, Ordering::Relaxed);
-        ts.peers.fetch_add(1, Ordering::SeqCst);
 
         {
             let peer_id = peer.to_string();
@@ -213,7 +303,21 @@ impl Hub {
         let cands = local.sdp.lines().filter(|l| l.starts_with("a=candidate")).count();
         eprintln!("[peer {peer}] answer with {cands} candidate(s)");
 
-        self.peers.lock().unwrap().insert(peer.to_string(), PeerEntry { pc, target: target.to_string() });
+        let prev = self
+            .peers
+            .lock()
+            .unwrap()
+            .insert(peer.to_string(), PeerEntry { pc, target: target.to_string(), conn });
+        // Ri-negoziazione sullo stesso peer id (il client rifà l'offer dopo una
+        // caduta ICE): la PeerConnection vecchia va chiusa e la sua quota resa,
+        // altrimenti resta appesa a un target che nessuno guarda più.
+        if let Some(old) = prev {
+            let _ = old.pc.close().await;
+            let old_ts = self.targets.lock().unwrap().get(&old.target).cloned();
+            if let Some(old_ts) = old_ts {
+                self.release_target(&old.target, &old_ts);
+            }
+        }
         Ok(local.sdp)
     }
 
@@ -233,17 +337,40 @@ impl Hub {
             // Was this the last peer on its target? Tear the pipeline down if so.
             // IMPORTANT: bind the clone to a `let` so the targets MutexGuard is dropped
             // HERE — `if let Some(ts) = self.targets.lock()...cloned() { … }` would hold
-            // the guard for the whole block, and drop_target() re-locks targets. A
+            // the guard for the whole block, and release_target() re-locks targets. A
             // std::sync::Mutex is NOT reentrant, so that self-deadlocks the targets map:
             // the first peer to disconnect would then wedge every subsequent negotiation
-            // (get_or_create_target blocks on lock() forever) until the sidecar is killed.
+            // (acquire_target blocks on lock() forever) until the sidecar is killed.
             let ts = self.targets.lock().unwrap().get(&entry.target).cloned();
             if let Some(ts) = ts {
-                if ts.peers.fetch_sub(1, Ordering::SeqCst) <= 1 {
-                    self.drop_target(&entry.target);
-                }
+                self.release_target(&entry.target, &ts);
             }
             eprintln!("[peer {peer}] closed");
+        }
+    }
+
+    /// Il broker se n'è andato: chiude tutti i peer che aveva aperto.
+    ///
+    /// Senza questo, un riavvio del server lascia dietro peer registrati per
+    /// sempre — nessuno manderà mai il loro `close`, perché chi lo avrebbe
+    /// mandato è il processo appena morto. Ogni peer fantasma tiene in vita il
+    /// suo target, e il target tiene in vita cattura CDP + encoder: è così che
+    /// un sidecar arriva a girare per giorni al 40% di CPU senza uno spettatore.
+    async fn close_conn(self: &Arc<Self>, conn: u64) {
+        let ids: Vec<String> = self
+            .peers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, e)| e.conn == conn)
+            .map(|(id, _)| id.clone())
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        eprintln!("[hub] conn {conn} gone — closing {} orphaned peer(s)", ids.len());
+        for id in ids {
+            self.close_peer(&id).await;
         }
     }
 }
@@ -255,19 +382,54 @@ async fn main() -> Result<()> {
     let listener = UnixListener::bind(&socket_path)?;
     eprintln!("[webrtc-bridge] listening on {socket_path}");
 
+    LAST_ACTIVITY.store(now_secs(), Ordering::SeqCst);
+    spawn_idle_watchdog(socket_path.clone());
+
     let hub = Hub::new()?;
+    let mut next_conn: u64 = 0;
     loop {
         let (stream, _) = listener.accept().await?;
+        next_conn += 1;
+        let conn = next_conn;
         let hub = hub.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_conn(stream, hub).await {
+            LIVE_CONNS.fetch_add(1, Ordering::SeqCst);
+            let res = handle_conn(stream, hub.clone(), conn).await;
+            // Sempre, anche su errore di lettura: il broker non c'è più, e i peer
+            // che aveva aperto non hanno più nessuno che li chiuda.
+            hub.close_conn(conn).await;
+            LIVE_CONNS.fetch_sub(1, Ordering::SeqCst);
+            LAST_ACTIVITY.store(now_secs(), Ordering::SeqCst);
+            if let Err(e) = res {
                 eprintln!("[webrtc-bridge] conn error: {e}");
             }
         });
     }
 }
 
-async fn handle_conn(stream: UnixStream, hub: Arc<Hub>) -> Result<()> {
+/// Esce se restiamo senza padrone per `IDLE_EXIT_SECS`. Vedi la costante.
+fn spawn_idle_watchdog(socket_path: String) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            if LIVE_CONNS.load(Ordering::SeqCst) > 0 {
+                LAST_ACTIVITY.store(now_secs(), Ordering::SeqCst);
+                continue;
+            }
+            let idle = now_secs().saturating_sub(LAST_ACTIVITY.load(Ordering::SeqCst));
+            if idle >= IDLE_EXIT_SECS {
+                eprintln!("[webrtc-bridge] nessun broker da {idle}s — esco");
+                // Via il socket: lasciarlo lì fa fallire il `connect()` del prossimo
+                // server con ECONNREFUSED invece che con ENOENT. Stesso esito (si
+                // rigenera), ma senza lasciare in giro un file che sembra vivo.
+                let _ = std::fs::remove_file(&socket_path);
+                std::process::exit(0);
+            }
+        }
+    });
+}
+
+async fn handle_conn(stream: UnixStream, hub: Arc<Hub>, conn: u64) -> Result<()> {
     let (rd, mut wr) = stream.into_split();
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<String>();
 
@@ -280,7 +442,7 @@ async fn handle_conn(stream: UnixStream, hub: Arc<Hub>) -> Result<()> {
         }
     });
 
-    let _ = out_tx.send(json!({ "t": "ready" }).to_string());
+    let _ = out_tx.send(json!({ "t": "ready", "build": exe_stamp() }).to_string());
 
     let mut lines = BufReader::new(rd).lines();
     while let Some(line) = lines.next_line().await? {
@@ -298,12 +460,12 @@ async fn handle_conn(stream: UnixStream, hub: Arc<Hub>) -> Result<()> {
         let hub = hub.clone();
         let out_tx = out_tx.clone();
         // Handle each message concurrently so a slow negotiation can't block the read loop.
-        tokio::spawn(async move { dispatch(hub, out_tx, v).await });
+        tokio::spawn(async move { dispatch(hub, out_tx, v, conn).await });
     }
     Ok(())
 }
 
-async fn dispatch(hub: Arc<Hub>, out_tx: mpsc::UnboundedSender<String>, v: Value) {
+async fn dispatch(hub: Arc<Hub>, out_tx: mpsc::UnboundedSender<String>, v: Value, conn: u64) {
     match v["t"].as_str().unwrap_or("") {
         "offer" => {
             let peer = v["peer"].as_str().unwrap_or("").to_string();
@@ -313,7 +475,7 @@ async fn dispatch(hub: Arc<Hub>, out_tx: mpsc::UnboundedSender<String>, v: Value
                 let _ = out_tx.send(json!({ "t": "error", "peer": peer, "message": "offer missing peer/target/sdp" }).to_string());
                 return;
             }
-            match hub.negotiate(&peer, &target, sdp).await {
+            match hub.negotiate(&peer, &target, sdp, conn).await {
                 Ok(answer) => {
                     let _ = out_tx.send(json!({ "t": "answer", "peer": peer, "sdp": answer }).to_string());
                 }

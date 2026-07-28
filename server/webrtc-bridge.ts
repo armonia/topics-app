@@ -18,7 +18,7 @@ import { spawn, spawnSync, type ChildProcess } from "child_process";
 import net from "net";
 import { createInterface } from "readline";
 import { createHash } from "crypto";
-import { existsSync, openSync, closeSync } from "fs";
+import { existsSync, openSync, closeSync, statSync } from "fs";
 import { resolve, dirname, basename, join } from "path";
 
 /** Callbacks for one peer (one RTCPeerConnection), routed back to its WS. */
@@ -61,15 +61,22 @@ function resolveBin(): string | null {
   return null;
 }
 
+/** mtime in ms del binario: l'identità della build che ci aspettiamo dal sidecar. */
+function binStamp(path: string): number {
+  try { return Math.floor(statSync(path).mtimeMs); } catch { return 0; }
+}
+
 export function createWebrtcBridge(): WebrtcBridge {
   const disabled = process.env.TOPICS_DISABLE_WEBRTC_BRIDGE === "1";
   const bin = disabled ? null : resolveBin();
   const SOCK = socketPath();
+  const BIN_STAMP = bin ? binStamp(bin) : 0;
 
   let child: ChildProcess | null = null;
   let sock: net.Socket | null = null;
   let ready = false;
   let connecting = false;
+  let staleReaped = false; // già mietuto un sidecar di build sbagliata? (vedi case "ready")
   const outQueue: string[] = []; // lines buffered until the socket is ready
   const peers = new Map<string, PeerHandlers>();
 
@@ -97,10 +104,29 @@ export function createWebrtcBridge(): WebrtcBridge {
       return;
     }
     switch (msg.t) {
-      case "ready":
+      case "ready": {
+        // Il sidecar dichiara l'mtime del proprio eseguibile. Se non è quello del
+        // binario che spedirebbe questo server, abbiamo adottato un ORFANO di una
+        // build precedente — che è il caso che `reapOrphanBridges()` da solo non
+        // prende mai: l'orfano risponde al socket, quindi `tryConnect()` riesce e
+        // la mietitura non viene nemmeno tentata. Così un sidecar con un bug
+        // sopravvive a ogni riavvio del server, per giorni. Lo mietiamo qui.
+        const stamp = Number(msg.build ?? 0);
+        if (BIN_STAMP && stamp !== BIN_STAMP) {
+          if (!staleReaped) {
+            staleReaped = true; // una volta sola: meglio un sidecar vecchio che un ciclo di kill
+            console.warn(`[webrtc] sidecar orfano di build ${stamp || "ignota"} (attesa ${BIN_STAMP}) — lo rimpiazzo`);
+            resetBridge();
+            reapOrphanBridges();
+            return;
+          }
+        } else {
+          staleReaped = false;
+        }
         ready = true;
         flush();
         break;
+      }
       case "answer": {
         peers.get(msg.peer)?.onAnswer(String(msg.sdp ?? ""));
         break;
