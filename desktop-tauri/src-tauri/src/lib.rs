@@ -5603,10 +5603,73 @@ fn disk_asset_response(public_dir: &std::path::Path, path: &str) -> Option<(Vec<
             if i > 0 {
                 eprintln!("[hot-reload] disk fallback {path:?} -> {cand:?}");
             }
+            // L'HTML servito da disco va TIMBRATO col suo rev, come fa il server
+            // (stampBundleRev): senza il meta il client disattiva del tutto il
+            // controllo di freschezza e la "Nuova versione disponibile" non può
+            // uscire, mai. Vedi bundle_rev_from_html.
+            if cand.ends_with(".html") {
+                if let Ok(html) = String::from_utf8(bytes.clone()) {
+                    let rev = bundle_rev_from_html(&html);
+                    return Some((stamp_bundle_rev(&html, &rev).into_bytes(), mime));
+                }
+            }
             return Some((bytes, mime));
         }
     }
     None
+}
+
+/// Rev del bundle di un index.html: i nomi `/assets/index-*` che referenzia,
+/// deduplicati e ordinati (`/assets/index-A.css,/assets/index-B.js`).
+///
+/// DEVE restare byte-compatibile con `readBundleRev` in
+/// `server/lib/dev-bundle-reload.ts` — stessa stringa, stesso ordine. Il client
+/// confronta il valore timbrato qui con quello che il SERVER gli annuncia via
+/// WS (`ui:bundle-rev` / `ui:bundle-updated`): qualunque divergenza si
+/// vedrebbe come una "nuova versione disponibile" perenne, che è esattamente il
+/// loop fantasma già pagato una volta (2026-07-26). Solo `index-*` di proposito:
+/// l'hash dell'entry copre transitivamente ogni chunk.
+///
+/// A mano invece che con `regex`: questa crate non ha quella dipendenza e la
+/// classe di caratteri è quella del regex JS, `[A-Za-z0-9._-]`.
+fn bundle_rev_from_html(html: &str) -> String {
+    const PREFIX: &str = "/assets/index-";
+    let bytes = html.as_bytes();
+    let mut names: Vec<&str> = Vec::new();
+    let mut i = 0usize;
+    while let Some(off) = html[i..].find(PREFIX) {
+        let start = i + off;
+        let mut end = start + PREFIX.len();
+        while end < bytes.len() {
+            let c = bytes[end];
+            if c.is_ascii_alphanumeric() || c == b'.' || c == b'_' || c == b'-' {
+                end += 1;
+            } else {
+                break;
+            }
+        }
+        names.push(&html[start..end]);
+        i = end;
+    }
+    names.sort_unstable();
+    names.dedup();
+    names.join(",")
+}
+
+/// Inserisce `<meta name="topics-bundle-rev" content="…">` in testa allo `<head>`
+/// (fuori se non c'è): stesso tag, stesso nome e stessa posizione di
+/// `stampBundleRev` lato server, così il client legge UN solo numero comunque sia
+/// arrivato il documento. Rev vuoto ⇒ HTML invariato.
+fn stamp_bundle_rev(html: &str, rev: &str) -> String {
+    if rev.is_empty() {
+        return html.to_string();
+    }
+    let tag = format!("<meta name=\"topics-bundle-rev\" content=\"{rev}\">");
+    if html.contains("<head>") {
+        html.replacen("<head>", &format!("<head>{tag}"), 1)
+    } else {
+        format!("{tag}{html}")
+    }
 }
 
 /// Recursively compute the newest mtime under `dir` (as nanos since epoch) and a
@@ -5645,24 +5708,35 @@ fn public_dir_signature(dir: &std::path::Path) -> (u128, u64) {
     (newest, count)
 }
 
-/// Reload every APP-SHELL webview (`main` + any future `detach-*`), skipping the
-/// `browserpane-*` child webviews — those load the open web and must not be
-/// yanked back to the app. Runs on the main thread (the webview registry is only
-/// reliably reachable there).
-fn reload_app_shell_webviews(app: &tauri::AppHandle) {
+/// Segnala a ogni webview APP-SHELL (`main` + eventuali `detach-*`) che su disco
+/// c'è un bundle più nuovo, saltando le figlie `browserpane-*` (caricano il web
+/// aperto, non l'app).
+///
+/// AVVISA, non strattona. Prima qui c'era `window.location.reload()`: la finestra
+/// veniva ricaricata sotto le mani dell'utente a ogni build — pane vive azzerate,
+/// messaggio a metà perso — che è ESATTAMENTE la cosa rimossa dalla metà web il
+/// 2026-07-20 ("gestiamo meglio l'hot-reload"). Questo watcher era rimasto
+/// indietro. Ora fa quello che fa il server: emette `topics:bundle-stale`, la
+/// DevBundleToast mostra "Ricarica" e il momento lo sceglie l'utente. Stesso
+/// evento del mismatch di rev via WS e della guardia sui chunk 404 → una sola
+/// superficie UI, nessun doppione (il toast è un booleano).
+///
+/// Gira sul main thread (il registro delle webview è raggiungibile solo lì).
+fn notify_app_shell_bundle_stale(app: &tauri::AppHandle) {
     use tauri::Manager;
     for (label, wv) in app.webviews() {
         if label.starts_with("browserpane-") {
             continue;
         }
-        let _ = wv.eval("window.location.reload()");
+        let _ = wv.eval("window.dispatchEvent(new CustomEvent('topics:bundle-stale'))");
     }
 }
 
 /// Dep-free polling watcher (the `notify` crate was dropped when assets went
 /// embed-only; a 1s recursive mtime scan is plenty for a manual dogfood loop and
 /// adds no dependency). Blocks off-thread; on a signature change it waits for the
-/// writes to go quiet (500ms), then reloads the app-shell webviews once per burst.
+/// writes to go quiet (500ms), then AVVISA le webview app-shell una volta per
+/// burst (`topics:bundle-stale` → toast "Ricarica"), senza ricaricarle d'ufficio.
 fn spawn_public_watcher(app: tauri::AppHandle, public_dir: std::path::PathBuf) {
     std::thread::spawn(move || {
         let mut last = public_dir_signature(&public_dir);
@@ -5688,9 +5762,9 @@ fn spawn_public_watcher(app: tauri::AppHandle, public_dir: std::path::PathBuf) {
                 settled = again;
             }
             last = settled;
-            eprintln!("[hot-reload] /public changed — reloading app-shell webviews");
-            let app_for_reload = app.clone();
-            let _ = app.run_on_main_thread(move || reload_app_shell_webviews(&app_for_reload));
+            eprintln!("[hot-reload] /public changed — prompting app-shell webviews");
+            let app_for_notify = app.clone();
+            let _ = app.run_on_main_thread(move || notify_app_shell_bundle_stale(&app_for_notify));
         }
     });
 }
@@ -6184,8 +6258,8 @@ pub fn run() {
             // tauri://localhost — a `vite build` does nothing for a running binary.
             // The custom `tauri` protocol (see run() head) opts INTO disk-serving
             // /public when a dev marker is set; here we start the watcher that
-            // reloads the app-shell webviews when that on-disk /public changes, one
-            // reload per build burst. OFF (no watcher) when the marker is absent, so
+            // PROMPTS the app-shell webviews when that on-disk /public changes, one
+            // prompt per build burst. OFF (no watcher) when the marker is absent, so
             // release behavior is unchanged. Uses the SAME value the protocol handler
             // captured (resolved eagerly before the Builder — no race, no re-read).
             {
@@ -7042,5 +7116,72 @@ mod screenshot_tests {
             Some((-784, -1410)),
             "valid position on the attached external display must be honored"
         );
+    }
+}
+
+#[cfg(test)]
+mod bundle_rev_tests {
+    use super::{bundle_rev_from_html, stamp_bundle_rev};
+
+    /// Il rev DEVE essere identico a quello di `readBundleRev`
+    /// (server/lib/dev-bundle-reload.ts): stessi nomi, deduplicati, ordinati,
+    /// uniti da virgola. Se le due metà divergono il client vede un mismatch
+    /// eterno e mostra per sempre "Nuova versione disponibile".
+    #[test]
+    fn rev_matches_the_server_shape() {
+        let html = r#"<!doctype html><html><head>
+            <link rel="stylesheet" href="/assets/index-CbOOmmZR.css">
+            <script type="module" src="/assets/index-DR6ye0r0.js"></script>
+        </head><body></body></html>"#;
+        assert_eq!(
+            bundle_rev_from_html(html),
+            "/assets/index-CbOOmmZR.css,/assets/index-DR6ye0r0.js"
+        );
+    }
+
+    /// Ordine di apparizione irrilevante + duplicati collassati: il JS fa
+    /// `[...new Set(names)].sort()`, qui `sort` + `dedup`. Stesso risultato.
+    #[test]
+    fn rev_is_sorted_and_deduped() {
+        let html = r#"<head><script src="/assets/index-Zz.js"></script>
+            <script src="/assets/index-Aa.css"></script>
+            <script src="/assets/index-Zz.js"></script></head>"#;
+        assert_eq!(bundle_rev_from_html(html), "/assets/index-Aa.css,/assets/index-Zz.js");
+    }
+
+    /// Solo `index-*`: i chunk lazy (hast-util, micromark, CodeMirror…) non
+    /// entrano nel rev, altrimenti tornerebbe il loop fantasma del 2026-07-26.
+    #[test]
+    fn rev_ignores_non_entry_chunks() {
+        let html = r#"<head><script src="/assets/index-Aa.js"></script>
+            <link rel="modulepreload" href="/assets/mermaid.core-B2tWQShl.js"></head>"#;
+        assert_eq!(bundle_rev_from_html(html), "/assets/index-Aa.js");
+    }
+
+    /// Nessun asset (index.html non ancora costruito / mid-rsync) ⇒ nessun rev,
+    /// nessun timbro: meglio "controllo non applicabile" di un rev sbagliato.
+    #[test]
+    fn no_assets_means_no_stamp() {
+        let html = "<html><head></head><body>ciao</body></html>";
+        assert_eq!(bundle_rev_from_html(html), "");
+        assert_eq!(stamp_bundle_rev(html, ""), html);
+    }
+
+    /// Il meta va SUBITO dopo `<head>`, come `stampBundleRev` lato server.
+    #[test]
+    fn stamp_goes_first_in_head() {
+        let out = stamp_bundle_rev("<html><head><title>x</title></head>", "/assets/index-Aa.js");
+        assert_eq!(
+            out,
+            "<html><head><meta name=\"topics-bundle-rev\" content=\"/assets/index-Aa.js\"><title>x</title></head>"
+        );
+    }
+
+    /// Documento senza `<head>`: il tag va in testa, non si perde.
+    #[test]
+    fn stamp_without_head_prepends() {
+        let out = stamp_bundle_rev("<body>x</body>", "/assets/index-Aa.js");
+        assert!(out.starts_with("<meta name=\"topics-bundle-rev\""));
+        assert!(out.ends_with("<body>x</body>"));
     }
 }
