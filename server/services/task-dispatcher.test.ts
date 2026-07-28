@@ -1166,3 +1166,209 @@ describe("priority", () => {
     });
   });
 });
+
+/**
+ * Il buco che questa rete chiude: `inFlight` è SOLO memoria. Se il server resta
+ * vivo ma la sessione sotto muore senza che la promise del turno settli mai, il
+ * task è invisibile a ogni sweep (`reconcile` salta tutto ciò che è inFlight) e
+ * la card resta ferma su `working` fino al wall-clock — 20 minuti nel caso
+ * migliore. Qui la memoria viene incrociata con la liveness reale del processo.
+ *
+ * Il contrappeso, altrettanto testato: un agente che pensa a lungo è MUTO ma
+ * vivo, e un reaper a inattività aveva già ucciso turni vivi (fix 1790f859). Da
+ * qui l'isteresi a due sweep, la grazia sui run appena nati e la regola che
+ * "non lo so" non è mai "è morto".
+ */
+describe("task-dispatcher — rete di sicurezza sulla liveness", () => {
+  /** Harness + un interruttore sulla liveness del processo (il probe del provider). */
+  function liveness(initial: boolean | null = true, extra: Partial<DispatcherDeps> = {}) {
+    const probe = { alive: initial as boolean | null, calls: 0 };
+    const h = harness({
+      // La grazia protegge la finestra di spawn, non il test: qui i turni
+      // nascono già "vecchi" così lo sweep può giudicarli subito.
+      livenessGraceMs: 0,
+      isTurnAlive: () => { probe.calls++; return probe.alive; },
+      ...extra,
+    });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    return { ...h, probe };
+  }
+
+  /** Un task dispatchato e col turno APERTO (la promise non settla mai). */
+  async function dispatched(h: ReturnType<typeof liveness>) {
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+    expect(h.turns.length).toBe(1);
+  }
+
+  const deathNote = (h: ReturnType<typeof liveness>) =>
+    h.svc.get("t1")!.comments.some((c) => c.author === "system" && c.content.includes("sessione dell'agent è morta"));
+
+  it("un sweep solo NON tocca niente, due sweep consecutivi recuperano il task", async () => {
+    const h = liveness(true);
+    await dispatched(h);
+
+    h.probe.alive = false;
+    await h.dispatcher.reconcile();
+    await flush();
+    // Primo sweep: sospetto, non sentenza.
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+    expect(h.turns.length).toBe(1);
+    expect(deathNote(h)).toBe(false);
+    expect(h.task("t1")!.dispatchAttempts).toBe(1);
+
+    await h.dispatcher.reconcile();
+    await flush();
+    // Secondo sweep: il turno è chiuso e il task riprende sulla STESSA sessione.
+    expect(deathNote(h)).toBe(true);
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.task("t1")!.assignedTopicId).toBe("topic-1"); // stesso tab, stesso worktree
+    expect(h.task("t1")!.dispatchAttempts).toBe(2);
+    expect(h.turns.length).toBe(2);
+    expect(h.turns[1].sessionKey).toBe("topic:topic-1");
+    expect(h.turns[1].contextMode).toBe("lean");
+    expect(h.dispatcher.isInFlight("t1")).toBe(true); // il run nuovo tiene lo slot
+  });
+
+  it("una sessione VIVA ma muta non viene mai toccata (pensare a lungo non è morire)", async () => {
+    const h = liveness(true);
+    await dispatched(h);
+
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+    expect(h.turns.length).toBe(1);          // nessun turno nuovo: quello vivo prosegue
+    expect(h.task("t1")!.dispatchAttempts).toBe(1);
+    expect(deathNote(h)).toBe(false);
+    expect(h.probe.calls).toBeGreaterThan(0); // il probe è stato davvero interrogato
+  });
+
+  it("'non lo so' non è 'è morto': un probe che non sa non seppellisce nulla", async () => {
+    const h = liveness(null);
+    await dispatched(h);
+
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+    expect(h.turns.length).toBe(1);
+    expect(deathNote(h)).toBe(false);
+  });
+
+  it("un probe che LANCIA vale 'non lo so' (fail-safe, mai un turno ucciso su un errore)", async () => {
+    const h = liveness(true, { isTurnAlive: () => { throw new Error("provider gone"); } });
+    await dispatched(h);
+
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+    expect(h.turns.length).toBe(1);
+    expect(deathNote(h)).toBe(false);
+  });
+
+  it("un run appena nato è immune: il figlio può non essere ancora spawnato", async () => {
+    // Grazia lunga = ogni turno di questo test è "giovane": il provider non ha
+    // ancora registrato il processo (assemblaggio del contesto) e rispondere
+    // 'morto' è normale, non una sentenza.
+    const h = liveness(false, { livenessGraceMs: 60_000 });
+    await dispatched(h);
+
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+    expect(h.turns.length).toBe(1);
+    expect(deathNote(h)).toBe(false);
+  });
+
+  it("un sweep vivo AZZERA il sospetto: due morti NON consecutive non bastano", async () => {
+    const h = liveness(true);
+    await dispatched(h);
+
+    h.probe.alive = false;
+    await h.dispatcher.reconcile(); await flush();  // sospetto 1
+    h.probe.alive = true;
+    await h.dispatcher.reconcile(); await flush();  // vivo → azzerato
+    h.probe.alive = false;
+    await h.dispatcher.reconcile(); await flush();  // sospetto 1 di nuovo, non 2
+
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+    expect(h.turns.length).toBe(1);
+    expect(deathNote(h)).toBe(false);
+  });
+
+  it("il task sepolto NON riceve anche il recupero da riavvio (una morte, una nota)", async () => {
+    const h = liveness(true);
+    await dispatched(h);
+
+    h.probe.alive = false;
+    await h.dispatcher.reconcile(); await flush();
+    await h.dispatcher.reconcile(); await flush();
+
+    const notes = h.svc.get("t1")!.comments.filter((c) => c.author === "system");
+    expect(notes.some((c) => c.content.includes("Il server è ripartito"))).toBe(false);
+    expect(notes.filter((c) => c.content.includes("sessione dell'agent è morta")).length).toBe(1);
+  });
+
+  it("lo zombie che settla DOPO non contabilizza due volte né sfratta il run nuovo", async () => {
+    // Il turno morto resta appeso finché il wall-clock non lo taglia, minuti dopo:
+    // quando finalmente settla, il task ha già un altro run vivo addosso.
+    const resolvers: Array<() => void> = [];
+    const h = liveness(true, {
+      runTurn: (sessionKey, content, opts) =>
+        new Promise<void>((res) => {
+          (h as any).turns.push({ sessionKey, content, contextMode: opts?.contextMode });
+          resolvers.push(res);
+        }),
+    });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(resolvers.length).toBe(1);
+
+    h.probe.alive = false;
+    await h.dispatcher.reconcile(); await flush();
+    await h.dispatcher.reconcile(); await flush();
+    expect(resolvers.length).toBe(2);                 // il run di recupero è partito
+    expect(h.task("t1")!.dispatchAttempts).toBe(2);
+
+    // Ora il primo turno (lo zombie) settla finalmente.
+    resolvers[0]!();
+    await flush();
+
+    expect(h.dispatcher.isInFlight("t1")).toBe(true); // lo slot è ancora del run nuovo
+    expect(h.task("t1")!.dispatchAttempts).toBe(2);   // nessun secondo onTurnEnd
+    expect(resolvers.length).toBe(2);                 // e nessun terzo turno
+    expect(h.task("t1")!.status).toBe("in_progress");
+  });
+
+  it("senza il probe la rete è spenta: il comportamento resta quello di prima", async () => {
+    const h = harness();                              // niente isTurnAlive
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    for (let i = 0; i < 5; i++) { await h.dispatcher.reconcile(); await flush(); }
+
+    expect(h.dispatcher.isInFlight("t1")).toBe(true);
+    expect(h.turns.length).toBe(1);
+  });
+
+  it("budget esaurito: la sessione morta consegna il lavoro all'umano invece di riprovare a vuoto", async () => {
+    const h = liveness(true);
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 1 });
+    await dispatched(h);
+    // L'agente aveva lavorato e commentato prima di morire: la consegna di
+    // sistema deve portarlo in review, non parcheggiarlo come fallito.
+    h.svc.addComment({ taskId: "t1", author: "claude", content: "Fatto metà lavoro." });
+
+    h.probe.alive = false;
+    await h.dispatcher.reconcile(); await flush();
+    await h.dispatcher.reconcile(); await flush();
+
+    expect(h.task("t1")!.status).toBe("review");
+    expect(h.turns.length).toBe(1);                   // nessun turno in più: budget finito
+    expect(h.dispatcher.isInFlight("t1")).toBe(false); // slot libero
+  });
+});

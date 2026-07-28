@@ -99,6 +99,30 @@ export interface DispatcherDeps {
    *  finish it). Injected alongside hasLiveSession. */
   reattach?: (sessionKey: string, opts: { timeoutMs: number }) => Promise<void>;
   /**
+   * Is the agent PROCESS behind this session still alive? (provider
+   * `isTurnProcessAlive` — the same probe the stream watchdog trusts to tell a
+   * thinking-but-mute child from a dead one.)
+   *
+   * The dispatcher's own "a turn is running" bookkeeping is `inFlight`, which is
+   * pure memory: it clears when the turn's promise settles. If the child dies in
+   * a way that never settles that promise, the task is invisible to every sweep
+   * (`reconcile` skips whatever is inFlight) and the card sits on `working` until
+   * the wall-clock timeout — 20 minutes in the best case, forever in the worst.
+   * This probe is what closes that hole (see `sweepDeadTurns`).
+   *
+   * Three answers, on purpose:
+   *   true  → alive (a long silence is NOT death: a thinking agent is alive)
+   *   false → the process is gone
+   *   null  → the host CAN'T TELL (no provider probe). Never buries anything —
+   *           ignorance must not read as death.
+   * Absent ⇒ the net is off entirely (tests/degraded keep the old behaviour).
+   *
+   * NB: deliberately NOT `hasLiveSession`, which answers false whenever the
+   * ai-bridge broker is off — as a liveness signal that would bury every live
+   * turn on a non-broker host.
+   */
+  isTurnAlive?: (sessionKey: string) => boolean | null;
+  /**
    * Usage consumed so far by this session (from its transcript usage records,
    * deduplicated by API message id — see transcript-usage.ts). Best-effort —
    * absent/throwing = zeros. The dispatcher records the PER-TURN DELTA on the
@@ -166,6 +190,14 @@ export interface DispatcherDeps {
    * Default 60000.
    */
   retryBackoffMs?: number;
+  /**
+   * How long a turn is IMMUNE to the liveness net after its session is bound.
+   * The provider registers its child only once the turn actually spawns (context
+   * assembly first), so a young run legitimately probes as "no process". Default
+   * 60000 — with the 10s reconcile poll a dead session is buried in ~60-70s
+   * instead of the 20-minute wall-clock, and a starting one is never touched.
+   */
+  livenessGraceMs?: number;
 }
 
 export interface TaskDispatcher {
@@ -193,9 +225,14 @@ export interface TaskDispatcher {
    */
   resume(taskId: string, humanMessage: string): Promise<void>;
   /**
-   * Boot + periodic sweep. A restart-orphaned in-progress task RESUMES on its
-   * own persisted session (topic/worktree/CLI --resume) when it still has one;
-   * only orphans without a resumable session are requeued. Then tick every board.
+   * Boot + periodic sweep. Three passes:
+   *  0. LIVENESS: a turn we still believe is running but whose agent process is
+   *     gone (dead for two consecutive sweeps) is closed and recovered — the case
+   *     "server alive, session dead", invisible to the orphan pass by definition.
+   *  1. ORPHANS: a restart-orphaned in-progress task RESUMES on its own persisted
+   *     session (topic/worktree/CLI --resume) when it still has one; only orphans
+   *     without a resumable session are requeued.
+   *  2. Then tick every board with queued todos.
    */
   reconcile(): Promise<void>;
   /** Cancel all timers (test teardown / shutdown). */
@@ -232,6 +269,11 @@ const CHIP_BLOCKED = "blocked";
 // until it elapses — then the tick re-dispatches it. It never produced output, so
 // it must never read as a delivery.
 const CHIP_WAITING = "waiting";
+// Consecutive sweeps that must all say "the process is gone" before the liveness
+// net closes a turn. Two, not one: a single sweep can catch a legitimate blind
+// spot (a child mid-respawn, a probe that answered during a restart window), and
+// killing a live turn is far worse than recovering one sweep later.
+const LIVENESS_DEAD_SWEEPS = 2;
 // The two states that mean "a dispatch turn is genuinely live" — reconcile only
 // requeues orphans in these states, so a human dragging a review/done task into
 // In Progress (dispatch_state null/needs_input) is never falsely "orphaned".
@@ -273,11 +315,56 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { return deps.svc.getBoardSettings(projectId).dispatchRetryBackoffS * 1000; } catch { return 60_000; }
   }
 
+  const livenessGraceMs = deps.livenessGraceMs ?? 60_000;
+
   // Pending debounced launches, keyed by taskId (the grace window).
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /**
+   * One in-flight run: a turn being set up, running, or winding down.
+   *
+   * `runId` exists because a run can now be BURIED by the liveness net while its
+   * promise is still pending (a dead child whose stream never closed). The zombie
+   * eventually settles — minutes later, on the wall-clock timeout — and must not
+   * then run the end-of-turn accounting a second time nor delete the slot of the
+   * NEW run that replaced it. Every owner checks its own id before touching
+   * anything: identity, not mere presence.
+   */
+  interface RunSlot {
+    runId: number;
+    /** Empty during setup (worktree/topic creation): nothing to probe yet. */
+    sessionKey: string;
+    /** When the session was bound — the liveness grace counts from here. */
+    sessionAt: number;
+    /** Consecutive sweeps that found the process dead (hysteresis, see LIVENESS_DEAD_SWEEPS). */
+    deadSweeps: number;
+  }
   // In-flight launches, keyed by taskId — presence means "a turn is running or
   // being set up for this task"; keeps reconcile/tick from double-launching.
-  const inFlight = new Map<string, { sessionKey: string }>();
+  const inFlight = new Map<string, RunSlot>();
+  let nextRunId = 1;
+
+  /** Claim the slot for a new run. Returns its id — the owner's proof. */
+  function beginRun(taskId: string, sessionKey: string): number {
+    const runId = nextRunId++;
+    inFlight.set(taskId, { runId, sessionKey, sessionAt: Date.now(), deadSweeps: 0 });
+    return runId;
+  }
+  /** Setup finished: the run now has a real session to probe. */
+  function bindRunSession(taskId: string, runId: number, sessionKey: string): void {
+    const slot = inFlight.get(taskId);
+    if (!slot || slot.runId !== runId) return;
+    slot.sessionKey = sessionKey;
+    slot.sessionAt = Date.now();
+    slot.deadSweeps = 0;
+  }
+  /** True while this run is still the task's owner (not buried, not superseded). */
+  function ownsRun(taskId: string, runId: number): boolean {
+    return inFlight.get(taskId)?.runId === runId;
+  }
+  /** Release the slot — but only if it's still ours (a zombie never evicts a live run). */
+  function endRun(taskId: string, runId: number): void {
+    if (ownsRun(taskId, runId)) inFlight.delete(taskId);
+  }
   // Tasks already told "il repo è occupato da una sessione esterna" during the
   // CURRENT hold episode — cleared when the repo frees, so a later hold can
   // note again without spamming one comment per 10s reconcile poll.
@@ -420,11 +507,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     settings: { useWorktree: boolean; timeoutMin: number; effort: string; mcp: string; model?: string },
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
-    inFlight.set(taskId, { sessionKey: "" });
+    const runId = beginRun(taskId, "");
     let worktreeId: string | undefined;
     try {
       let task = deps.svc.get(taskId)?.task;
-      if (!task) { inFlight.delete(taskId); return; }
+      if (!task) return;
 
       // Context reuse (opt-in on the task): ride the BLOCKER agent's topic —
       // same conversation, same worktree/cwd the topic already carries — so
@@ -446,7 +533,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
               "Auto-dispatch fermato: worktree richiesto ma il progetto non è un repo git registrato. " +
               "Disattiva 'worktree isolato' nelle impostazioni del board per eseguire in-place.",
           }));
-          inFlight.delete(taskId);
           return;
         }
         worktreeId = await deps.createWorktree(resolved.projectStoreId);
@@ -511,7 +597,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             // fleet's schemas never enter the agent's per-call context.
             mcpPolicy: settings.mcp === "inherit" ? undefined : "bridge-only",
           });
-      inFlight.set(taskId, { sessionKey });
+      bindRunSession(taskId, runId, sessionKey);
 
       // Point the claim at the REAL topic (claim bound a placeholder) and flip
       // the chip to working. assigned_topic_id is the "apri tab" deep-link target.
@@ -530,6 +616,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       } catch (err) {
         log(`turn failed for task ${taskId}`, err);
       }
+      // Buried by the liveness net while this promise hung on a dead child: the
+      // net already closed the turn (accounting + recovery) and a fresh run may
+      // own the task by now. A zombie books nothing and touches no worktree —
+      // the replacement run is working in it. (An abandoned worktree, if the
+      // recovery ends up parking the task, is the worktree GC's job.)
+      if (!ownsRun(taskId, runId)) return;
       endLiveTurn(taskId);
       recordUsage(taskId, t0, usage0, sessionKey);
       onTurnEnd(taskId, Date.now() - t0);
@@ -557,7 +649,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       } catch { /* best-effort */ }
       if (worktreeId) await cleanupWorktree(worktreeId);
     } finally {
-      inFlight.delete(taskId);
+      endRun(taskId, runId);
     }
   }
 
@@ -772,7 +864,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       return;
     }
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
-    inFlight.set(taskId, { sessionKey });
+    const runId = beginRun(taskId, sessionKey);
     try {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       let timeoutMin = 20;
@@ -786,11 +878,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // & co. only compounds cache write/read. Lean = role prompt + cwd only.
       try { await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000, contextMode: "lean" }); }
       catch (err) { log(`resume turn failed for ${taskId}`, err); }
+      if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
       recordUsage(taskId, t0, usage0, sessionKey);
       onTurnEnd(taskId, Date.now() - t0);
     } finally {
-      inFlight.delete(taskId);
+      endRun(taskId, runId);
     }
   }
 
@@ -804,7 +897,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!t || !t.assignedTopicId || t.status !== "in_progress") return;
     if (inFlight.has(taskId)) return;
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
-    inFlight.set(taskId, { sessionKey });
+    const runId = beginRun(taskId, sessionKey);
     try {
       emit(deps.svc.setDispatchState({ taskId, state: CHIP_WORKING }));
       let timeoutMin = 20;
@@ -814,11 +907,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
       try { await deps.reattach!(sessionKey, { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
       catch (err) { log(`reattach turn failed for ${taskId}`, err); }
+      if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
       recordUsage(taskId, t0, usage0, sessionKey);
       onTurnEnd(taskId, Date.now() - t0);
     } finally {
-      inFlight.delete(taskId);
+      endRun(taskId, runId);
     }
   }
 
@@ -1053,7 +1147,85 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
   }
 
+  /**
+   * Close a run whose agent process is gone, and hand the task back to the normal
+   * end-of-turn policy.
+   *
+   * The slot is released FIRST: a dead run must stop being counted as live the
+   * moment we know it's dead (the board's concurrency cap counts `in_progress`
+   * rows, so this frees the double-launch guard, not the cap — the cap frees when
+   * the recovery below decides the task's fate). Then the accounting the turn
+   * never got to do
+   * (usage booked, live ticker stopped), then `onTurnEnd` — the SAME road every
+   * other turn ending takes, which decides between continuing on the session,
+   * backing off, delivering what was produced, or parking. No fifth guard with
+   * its own opinion.
+   */
+  function buryDeadRun(taskId: string, runId: number): void {
+    if (!ownsRun(taskId, runId)) return;
+    const slot = inFlight.get(taskId)!;
+    inFlight.delete(taskId);
+    const lt = liveTurns.get(taskId);
+    endLiveTurn(taskId);
+    const t0 = lt?.turnStartedAt ?? Date.now();
+    if (lt) recordUsage(taskId, t0, lt.usage0, slot.sessionKey);
+    log(`liveness: sessione ${slot.sessionKey} morta con il turno ancora aperto → recupero il task ${taskId}`);
+    try {
+      deps.svc.addComment({
+        taskId, author: "system",
+        content:
+          "La sessione dell'agent è morta mentre il turno era ancora aperto (il processo non c'è più): " +
+          "riprendo il task invece di lasciarlo fermo su 'lavora'.",
+      });
+    } catch { /* dedupe/best-effort */ }
+    onTurnEnd(taskId, Date.now() - t0);
+  }
+
+  /**
+   * Rete di sicurezza sulla liveness (il buco: `inFlight` è solo memoria).
+   *
+   * `reconcile` salta ogni task in `inFlight`, e quel set si svuota SOLO quando la
+   * promise del turno settla. Un figlio che muore senza mai chiudere il suo stream
+   * lascia la promise appesa: card ferma su `working`, slot occupato, nessuno sweep
+   * che la guardi. Qui si incrocia la memoria con la realtà del processo.
+   *
+   * Due cautele, entrambe pagate a caro prezzo in passato:
+   *  - ISTERESI a due sweep consecutivi (~20s) più una grazia dalla nascita del
+   *    run: il probe dice "morto" anche nella finestra in cui il turno esiste ma
+   *    il figlio non è ancora nato (assemblaggio del contesto).
+   *  - il segnale è la LIVENESS DEL PROCESSO, mai l'inattività: un agente che
+   *    pensa a lungo, o che sta compattando, è muto ma vivissimo — un reaper a
+   *    idle aveva già ucciso turni vivi (fix 1790f859).
+   *
+   * Restituisce i task appena sepolti: il ciclo orfani di `reconcile` deve
+   * saltarli, o li "recupererebbe" una seconda volta con la nota sbagliata.
+   */
+  function sweepDeadTurns(): Set<string> {
+    const buried = new Set<string>();
+    const probe = deps.isTurnAlive;
+    if (!probe) return buried;
+    const now = Date.now();
+    const doomed: Array<{ taskId: string; runId: number }> = [];
+    for (const [taskId, slot] of inFlight) {
+      if (!slot.sessionKey) continue;                       // setup: nessuna sessione da sondare
+      if (now - slot.sessionAt < livenessGraceMs) continue; // troppo giovane per giudicarla
+      let alive: boolean | null;
+      try { alive = probe(slot.sessionKey); } catch { alive = null; }
+      if (alive !== false) { slot.deadSweeps = 0; continue; } // vivo, o "non so": mai seppellire
+      slot.deadSweeps++;
+      if (slot.deadSweeps >= LIVENESS_DEAD_SWEEPS) doomed.push({ taskId, runId: slot.runId });
+    }
+    for (const d of doomed) {
+      buryDeadRun(d.taskId, d.runId);
+      buried.add(d.taskId);
+    }
+    return buried;
+  }
+
   async function reconcile(): Promise<void> {
+    // 0) Turns whose agent process died without ever settling their promise —
+    //    the one case the orphan pass below can't see (it skips `inFlight`).
+    const justBuried = sweepDeadTurns();
     // 1) Recover orphaned in-progress tasks (server restarted mid-turn): they are
     //    in_progress + mid-dispatch chip, but we have no live launch for them.
     let running: Task[] = [];
@@ -1061,6 +1233,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch (err) { log("reconcile list failed", err); }
     for (const t of running) {
       if (inFlight.has(t.id)) continue; // we own it, leave it
+      // Just buried above: its recovery is already scheduled (onTurnEnd). Without
+      // this it would ALSO look like a restart orphan and get a second, wrong
+      // recovery ("il server è ripartito", which never happened).
+      if (justBuried.has(t.id)) continue;
       // Only touch tasks that were genuinely mid-dispatch (starting/working)
       // when the process died — including a claim that never got its topic
       // bound (claim precedes bindTopic, so an early crash leaves the binding
