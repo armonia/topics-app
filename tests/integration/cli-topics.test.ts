@@ -91,7 +91,10 @@ describe("Phase H · topics CLI", () => {
   });
 
   test("auth login with TOPICS_DASHBOARD_URL prints the open command target", () => {
-    const result = runCli(["auth", "login"], { TOPICS_DASHBOARD_URL: "http://example.test" });
+    const result = runCli(["auth", "login"], {
+      TOPICS_DASHBOARD_URL: "http://example.test",
+      TOPICS_NO_OPEN: "1", // don't spawn a real browser tab during tests
+    });
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("http://example.test");
   });

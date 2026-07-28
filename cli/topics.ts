@@ -164,6 +164,9 @@ async function cmdAuth(sub: string) {
   if (sub === "login") {
     const url = process.env.TOPICS_DASHBOARD_URL || "http://localhost:3333";
     console.log(`opening ${url}`);
+    // TOPICS_NO_OPEN lets tests (and headless callers) exercise the command
+    // without hijacking the user's default browser with a real tab.
+    if (process.env.TOPICS_NO_OPEN) return;
     const opener = process.platform === "darwin" ? "/usr/bin/open" :
                    process.platform === "win32" ? "cmd" : "/usr/bin/xdg-open";
     const args = process.platform === "win32" ? ["/c", "start", url] : [url];
