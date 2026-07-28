@@ -1552,6 +1552,28 @@ html.electron-mac [role="region"][aria-label$=" panel"] > .bg-surface {
   contain: layout;
 }
 
+/* Stessa medicina un livello più in basso, sulla lista messaggi.
+ *
+ * Misurato con `sample` sul WebContent (2026-07-28): 766 campioni su 845 dei
+ * callback rAF stavano in `Element::offsetParent()` → `Document::updateLayout()`,
+ * cioè react-virtuoso che misura (`useSize`: ResizeObserver → rAF → lettura di
+ * offsetParent) e in quell'istante forza un layout SINCRONO. Il layout non si
+ * fermava alla lista: risaliva e ridiscendeva 7 livelli di flex annidati, perché
+ * un contenitore flex che si rilaya rilaya TUTTI i figli. Costo: 740 campioni,
+ * ~26% del main thread, per misurare l'altezza di una lista.
+ *
+ * `contain: layout` chiude la propagazione al bordo dello scroller: quello che
+ * cambia dentro la lista non sporca più gli antenati fino alla card. Solo
+ * `layout`, come per [data-split-card]: il box continua a dimensionarsi dal suo
+ * contesto flex (`flex-1 min-h-0`), è già `position: relative` (quindi i figli
+ * assoluti — overlay di drop, ring — risolvono già contro di lui) e nessun
+ * discendente è `position: fixed` (i modali della chat vivono nel composer, che
+ * è FRATELLO dello scroller, non figlio). `overflow-y: auto` clippa già, quindi
+ * niente cambia in pittura o scroll. */
+[data-testid='chat-scroll-container'] {
+  contain: layout;
+}
+
 /* Every split is a rounded card; the native window vibrancy frosts its chrome.
  * NO box-shadow/border — over the frosted gaps a dark shadow reads as an ugly
  * black halo, and a hairline ring as an unwanted border. The radius + the small
