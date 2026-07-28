@@ -3,6 +3,7 @@
  * Full implementation lives here in Task 6.
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface SelectElementOverlayProps {
   contextId: string;
@@ -188,12 +189,17 @@ export function SelectElementOverlay({
         onClick={handleClick}
         data-testid="browser-select-element-overlay"
       />
-      {hoverBox && (
+      {/* SU PORTALE: `hoverBox` è in coordinate di VIEWPORT (le manda la pagina
+          remota), e il guscio delle pane ha `contain: layout` (PaneKeepAlive),
+          che farebbe da containing block. Senza portale il riquadro di
+          evidenziazione finirebbe spostato di tutto l'offset della pane. */}
+      {hoverBox && createPortal(
         <div
           className="fixed z-50 pointer-events-none border-2 border-primary bg-primary/10"
           style={{ left: hoverBox.left, top: hoverBox.top, width: hoverBox.w, height: hoverBox.h }}
           data-testid="browser-select-element-highlight"
-        />
+        />,
+        document.body,
       )}
       <div className="absolute top-2 left-2 z-50 px-3 py-1.5 bg-primary text-white text-[11px] rounded-md shadow-md pointer-events-none">
         Select Element — Esc to cancel

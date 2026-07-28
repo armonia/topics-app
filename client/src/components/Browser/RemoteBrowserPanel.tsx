@@ -1,4 +1,5 @@
 import { BrowserToolbar } from './BrowserToolbar';
+import { createPortal } from 'react-dom';
 import { Globe, Loader2, ChevronUp, ChevronDown, X, AlertTriangle, RotateCw, Check, Download, Puzzle, Boxes, MonitorPlay } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { useRemoteBrowser } from '../../hooks/useRemoteBrowser';
@@ -924,8 +925,12 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
 
         {/* Phase 30 BROWSER-CHAT-02 — click ripple animation. position: fixed
             anchors to viewport coords (browser.lastClickPos uses e.clientX/Y),
-            so no container-relative translation needed. Decorative only. */}
-        {showRipple && browser.lastClickPos && (
+            so no container-relative translation needed. Decorative only.
+            SU PORTALE: il guscio delle pane ha `contain: layout` (PaneKeepAlive),
+            che crea un containing block — senza portale queste coordinate di
+            viewport verrebbero interpretate rispetto alla pane e il cerchietto
+            comparirebbe nel posto sbagliato. */}
+        {showRipple && browser.lastClickPos && createPortal(
           <span
             key={browser.lastClickPos.t}
             className="fixed pointer-events-none rounded-full bg-app-primary/40 z-50 animate-ripple"
@@ -936,7 +941,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
               height: 24,
             }}
             data-testid="browser-click-ripple"
-          />
+          />,
+          document.body,
         )}
 
         {/* Phase 30 BROWSER-CHAT-04 — agent lock overlay. Renders when the WS

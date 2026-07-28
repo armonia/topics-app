@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, Zap, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { ScriptRunner } from './ScriptRunner';
@@ -208,9 +209,14 @@ export function ProjectSidebar({
     );
   }
 
-  // On mobile: render as overlay on top of content
+  // On mobile: render as overlay on top of content.
+  // Su PORTALE, per lo stesso motivo del modale delle impostazioni: la sidebar
+  // vive dentro la pane progetto, e il guscio delle pane ha `contain: layout`
+  // (vedi PaneKeepAlive). Un containing block in mezzo trasformerebbe questo
+  // drawer a tutta altezza in un riquadro grande quanto la pane. Il portale lo
+  // riporta ad ancorarsi al viewport.
   if (isMobile) {
-    return (
+    return createPortal(
       <>
         <div className="fixed inset-0 bg-black/50 z-40" onClick={onToggleCollapse} aria-hidden="true" />
         <div className="fixed inset-y-0 left-0 z-50 w-[280px] bg-elevated flex flex-col overflow-hidden shadow-lg border-r border-app-border">
@@ -287,7 +293,8 @@ export function ProjectSidebar({
             </div>
           </div>
         </div>
-      </>
+      </>,
+      document.body,
     );
   }
 
