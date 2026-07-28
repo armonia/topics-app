@@ -85,6 +85,9 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const kbdRef = useRef<HTMLTextAreaElement | null>(null);
   const replayerRef = useRef<Replayer | null>(null);
+  /** Riallinea il parcheggio del timer live (definita nell'effetto sotto). Sta
+   *  in una ref perché `handle` può correre prima che la closure esista. */
+  const parkWhenHiddenRef = useRef<(() => void) | null>(null);
   // Recorded source dimensions (from the Meta event) + the current fit scale.
   const dimsRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const scaleRef = useRef(1);
@@ -385,6 +388,10 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
         setPainted(true);
         applyScale();
         attachNavGuard();
+        // Un replayer NATO mentre la pane è nascosta deve parcheggiarsi subito:
+        // l'IntersectionObserver ha già deciso, ma non c'era ancora niente da
+        // fermare quando l'ha fatto.
+        parkWhenHiddenRef.current?.();
         return;
       }
       replayerRef.current?.addEvent(event as never);
@@ -395,9 +402,53 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
     const ro = new ResizeObserver(() => applyScale());
     ro.observe(root);
 
+    // ── Parcheggio del timer live ────────────────────────────────────────────
+    // Il Replayer in `liveMode` tiene un loop `requestAnimationFrame` acceso
+    // PER SEMPRE, anche a zero eventi: è il modo in cui rrweb pianifica il
+    // futuro. Misurato nell'app vera (sonda in lib/devLayoutProbe.ts,
+    // 2026-07-28): 915 rAF in 15s, cioè 61/s — il 62% di TUTTI i rAF dell'app,
+    // da un mirror che spesso nessuno sta guardando. E un rAF in coda non è
+    // gratis: obbliga WebKit a un rendering update completo ogni frame, ed è lì
+    // che finiva il layout dell'intero albero delle pane.
+    //
+    // Quindi il timer vive solo mentre il mirror è VISIBILE. L'IntersectionObserver
+    // copre da solo i due casi che contano — tab nascosta (`display:none` ⇒
+    // nessun box ⇒ non interseca) e mirror fuori dal viewport — e
+    // `visibilitychange` aggiunge la finestra nascosta.
+    //
+    // Gli eventi continuano ad ARRIVARE mentre è parcheggiato: `addEvent` li
+    // accoda, e al risveglio `startLive` con una baseline fresca li scarica
+    // tutti insieme. Il mirror si riallinea in un colpo invece di perdere pezzi.
+    let parked = false;
+    let intersecting = true;
+    const park = () => {
+      if (parked || !replayerRef.current) return;
+      parked = true;
+      try { replayerRef.current.pause(); } catch { parked = false; }
+    };
+    const wake = () => {
+      if (!parked || !replayerRef.current) return;
+      parked = false;
+      try { replayerRef.current.startLive(Date.now() - 100); } catch { /* riparte al prossimo evento */ }
+    };
+    const sync = () => {
+      if (intersecting && !document.hidden) wake();
+      else park();
+    };
+    parkWhenHiddenRef.current = sync;
+    const io = new IntersectionObserver((entries) => {
+      intersecting = entries.some((e) => e.isIntersecting);
+      sync();
+    });
+    io.observe(root);
+    document.addEventListener('visibilitychange', sync);
+
     return () => {
       unsubscribe();
       ro.disconnect();
+      io.disconnect();
+      document.removeEventListener('visibilitychange', sync);
+      parkWhenHiddenRef.current = null;
       navGuardAbortRef.current?.abort();
       navGuardAbortRef.current = null;
       if (acc.timer) clearTimeout(acc.timer);
