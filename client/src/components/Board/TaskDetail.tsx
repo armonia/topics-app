@@ -10,8 +10,9 @@ import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
+import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
@@ -35,9 +36,17 @@ function hostLabel(url: string): string {
  *  worktree or the diff is empty ("non mostrare modifiche se non ci sono") — it
  *  probes eagerly and owns its own section chrome so an unchanged task shows no
  *  bar at all. */
-export function TaskChangesSection({ projectId, taskId, bump }: { projectId: string; taskId: string; bump?: string | number }) {
+export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
+  projectId: string; taskId: string; bump?: string | number;
+  /** Le note sono partite come commento: il thread ha una riga in più. */
+  onSent?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<DiffBundle | 'loading' | 'error' | null>(null);
+  const [notes, setNotes] = useState<DiffNote[]>([]);
+  const [sendingNotes, setSendingNotes] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const notesLoaded = useRef(false);
   const fetchDiff = useCallback(() => {
     setState('loading');
     boardApi.taskDiff(projectId, taskId).then(setState).catch(() => setState('error'));
@@ -45,8 +54,52 @@ export function TaskChangesSection({ projectId, taskId, bump }: { projectId: str
   // Eager (not lazy): visibility depends on whether the worktree has changes, so
   // we must probe up-front. Re-runs when the task advances (bump) — the agent
   // may have committed more.
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount: setState lands after the await, not synchronously
   useEffect(() => { fetchDiff(); }, [fetchDiff, bump]);
+  // Bozza di revisione dal server: una nota scritta e non ancora spedita è
+  // lavoro, e sopravvive a reload e hot-reload come la bozza del commento.
+  useEffect(() => {
+    notesLoaded.current = false;
+    let alive = true;
+    boardDrafts.getReviewNotes(taskId).then((n) => {
+      if (!alive) return;
+      setNotes((cur) => (cur.length ? cur : n));
+      notesLoaded.current = true;
+      // Con note in sospeso la sezione si apre da sé: altrimenti l'unica traccia
+      // di quel lavoro sta dietro una barra chiusa.
+      if (n.length) setOpen(true);
+    }).catch(() => { notesLoaded.current = true; });
+    return () => { alive = false; };
+  }, [taskId]);
+  useEffect(() => {
+    if (notesLoaded.current) boardDrafts.putReviewNotes(taskId, notes);
+  }, [notes, taskId]);
+
+  const review = useMemo(() => ({
+    notes,
+    onAddNote: (n: Omit<DiffNote, 'id'>) =>
+      setNotes((cur) => [...cur, { ...n, id: `${Date.now().toString(36)}-${cur.length}` }]),
+    onRemoveNote: (id: string) => setNotes((cur) => cur.filter((n) => n.id !== id)),
+  }), [notes]);
+
+  // UN commento per tutta la revisione: su un task in review ogni commento fa
+  // reject-with-text e risveglia l'agente (server/routes/tasks.ts), quindi una
+  // nota per volta sarebbe un turno buttato per nota.
+  const sendNotes = async () => {
+    if (!notes.length || sendingNotes) return;
+    setSendingNotes(true);
+    setNotesError(null);
+    try {
+      await boardApi.comment(projectId, taskId, formatReviewNotes(notes));
+      setNotes([]);
+      onSent?.();
+    } catch (e) {
+      // Le note NON si svuotano: sono lavoro scritto a mano, e un invio fallito
+      // in silenzio (barra ferma, nessun motivo) è il modo migliore per farle
+      // scartare per sfinimento.
+      setNotesError(e instanceof Error ? e.message : 'invio fallito');
+    } finally { setSendingNotes(false); }
+  };
+
   const bundle = state && typeof state === 'object' ? state : null;
   const fileCount = bundle && bundle.code !== 'no_worktree' ? bundle.stat.length : 0;
   // Nothing to show → nothing at all (no empty bar): still probing, errored, no
@@ -57,11 +110,42 @@ export function TaskChangesSection({ projectId, taskId, bump }: { projectId: str
       <button onClick={() => setOpen((s) => !s)} className="flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 hover:text-neutral-300">
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         Modifiche <span className="normal-case tracking-normal text-neutral-600">· {fileCount} file</span>
+        {notes.length > 0 && (
+          <span className="ml-1 rounded bg-indigo-500/20 px-1 text-[9px] normal-case tracking-normal text-indigo-300">
+            {notes.length} in sospeso
+          </span>
+        )}
       </button>
       {open && (
-        <div className="mt-1.5 max-h-[42vh] overflow-y-auto">
-          <UnifiedDiff bundle={bundle} defaultOpenFirst />
-        </div>
+        <>
+          <div className="mt-1.5 max-h-[42vh] overflow-y-auto">
+            <UnifiedDiff bundle={bundle} defaultOpenFirst review={review} />
+          </div>
+          {notes.length > 0 && (
+            <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
+              <span className="min-w-0 flex-1 text-[11px] text-neutral-300">
+                {notesError
+                  ? <span className="text-rose-300">Invio fallito: {notesError} — le note sono ancora qui, riprova.</span>
+                  : <>{notes.length} {notes.length === 1 ? 'commento' : 'commenti'} sul diff, non ancora inviati</>}
+              </span>
+              <button
+                onClick={() => setNotes([])}
+                disabled={sendingNotes}
+                className="rounded px-2 py-0.5 text-[11px] text-neutral-400 hover:text-neutral-200 disabled:opacity-40"
+              >
+                Scarta
+              </button>
+              <button
+                onClick={sendNotes}
+                disabled={sendingNotes}
+                className="flex items-center gap-1 rounded bg-indigo-500/25 px-2 py-0.5 text-[11px] text-indigo-100 hover:bg-indigo-500/40 disabled:opacity-40"
+              >
+                {sendingNotes ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                Invia all'agente
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1181,7 +1265,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               chat composer area ("sopra la chat era fastidioso"). It renders
               NOTHING when there's no worktree / an empty diff (owns its own
               section chrome), so an unchanged task shows no "Modifiche" bar. */}
-          {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} />}
+          {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
           {/* "Spazio di lavoro" — the task's ONE GroupLayout (Thread + browser
               tabs + Piano + media, the app's real PaneTabBar). Collapsible like
               the other sections: the tab bar sits UNDER this label. Default open;

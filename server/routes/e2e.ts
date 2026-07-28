@@ -1,5 +1,5 @@
 /**
- * Superficie di RESET per la suite E2E — montata SOLO su un server di test.
+ * Superficie di TEST per la suite E2E — montata SOLO su un server di test.
  *
  * Il problema che risolve sta in `server/services/db-snapshot.ts`: un solo
  * server serve ~50 file di spec in serie sullo stesso SQLite, quindi ogni file
@@ -10,6 +10,13 @@
  *                              globalSetup, una volta per run);
  *   POST /api/test/reset       lo rimette esattamente com'era (lo chiama ogni
  *                              file di spec, prima del proprio `beforeAll`).
+ *
+ * Più un verbo di SETUP, per lo stesso motivo (arrivare a uno stato che le API
+ * pubbliche non sanno costruire):
+ *
+ *   POST /api/test/tasks/:id/bind-topic   lega un task alla topic dell'agente,
+ *                              come il dispatcher — così si può testare la
+ *                              superficie dei task dispatchati senza agente.
  *
  * **Gate.** Tutto risponde `null` — cioè 404 — se `TOPICS_E2E` non vale "1".
  * Non è cosmesi: `reset` cancella ogni riga di ogni tabella. Sul server vero
@@ -34,6 +41,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { restoreDb, snapshotDb, type DbSnapshot } from "../services/db-snapshot";
+import { createTaskService } from "../services/tasks";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -104,6 +112,32 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
         afterInsert: (d) => { d.run("UPDATE ui_state SET server_seq = server_seq + ?", [maxSeq]); },
       });
       return json({ ok: true, ...result, takenAt: snap.takenAt });
+    }
+
+    // POST /api/test/tasks/:taskId/bind-topic {topicId} — lega un task alla
+    // topic dell'agente, come farebbe il dispatcher.
+    //
+    // Serve a testare la SUPERFICIE dei task dispatchati (il diff del worktree,
+    // i commenti che tornano all'agente) senza far partire un agente vero: la
+    // catena che il server percorre è task → `assigned_topic_id` → topic →
+    // `worktreeId` → worktree, e il primo anello si può creare solo
+    // dispatchando. Tutto il resto è già raggiungibile via API pubbliche
+    // (`POST /api/worktrees`, `POST /api/topics {worktreeId}`), quindi manca
+    // questo e basta. Chiama il servizio vero — nessuna seconda copia della
+    // logica che possa invecchiare.
+    const bind = /^\/api\/test\/tasks\/([^/]+)\/bind-topic$/.exec(pathname);
+    if (method === "POST" && bind) {
+      const body = (await _req.json().catch(() => null)) as { topicId?: string } | null;
+      if (!body?.topicId) return json({ error: "topicId required" }, 400);
+      try {
+        const task = createTaskService(db).bindTopic({
+          taskId: decodeURIComponent(bind[1]),
+          topicId: body.topicId,
+        });
+        return json({ ok: true, task });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
     }
 
     return null;

@@ -338,6 +338,26 @@ export interface DiffBundle {
   code?: string;
 }
 
+/**
+ * Nota di revisione ancorata a una riga del diff, in sospeso finché non parte
+ * come commento all'agente. Vive qui e non accanto al componente perché è una
+ * forma DI DATI della board: la bozza la persiste in ui-state (`boardDrafts`),
+ * e `lib/` non può dipendere da `components/`.
+ */
+export interface DiffNote {
+  id: string;
+  /** Path `b/` del file, come lo mostra la card del diff. */
+  path: string;
+  /** Riga a cui è appesa la nota, nel lato indicato da `side`. */
+  line: number;
+  /** `new` = riga del file dopo la modifica; `old` = riga rimossa. */
+  side: 'new' | 'old';
+  /** La riga stessa, ricitata all'agente: senza, "riga 42" è ambiguo dopo un edit. */
+  code: string;
+  /** Testo scritto dall'umano. */
+  body: string;
+}
+
 /** A project's unpushed state for the Publish control. */
 export interface PublishProject {
   projectId: string;
@@ -472,6 +492,11 @@ const TASK_DRAFTS_KEY = 'board-task-drafts';
 const TASK_DRAFTS_CAP = 50;
 let taskDraftsCache: Record<string, string> | null = null;
 
+const REVIEW_NOTES_KEY = 'board-review-notes';
+/** Più basso del cap delle bozze: una review in sospeso è per definizione una alla volta. */
+const REVIEW_NOTES_CAP = 10;
+let reviewNotesCache: Record<string, DiffNote[]> | null = null;
+
 export const boardDrafts = {
   getComposer: () => uiGet<ComposerDraft>('board-composer-draft'),
   putComposer: (d: ComposerDraft) => uiPutDebounced('board-composer-draft', d),
@@ -490,5 +515,21 @@ export const boardDrafts = {
     const keys = Object.keys(taskDraftsCache);
     for (let i = 0; i < keys.length - TASK_DRAFTS_CAP; i++) delete taskDraftsCache[keys[i]];
     uiPutDebounced(TASK_DRAFTS_KEY, taskDraftsCache, text ? 800 : 0);
+  },
+
+  /** Note di revisione ancorate al diff, in sospeso finché non si spediscono. */
+  async getReviewNotes(taskId: string): Promise<DiffNote[]> {
+    if (!reviewNotesCache) reviewNotesCache = (await uiGet<Record<string, DiffNote[]>>(REVIEW_NOTES_KEY)) ?? {};
+    return reviewNotesCache[taskId] ?? [];
+  },
+  putReviewNotes(taskId: string, notes: DiffNote[]): void {
+    if (!reviewNotesCache) reviewNotesCache = {};
+    if (notes.length) reviewNotesCache[taskId] = notes;
+    else delete reviewNotesCache[taskId];
+    const keys = Object.keys(reviewNotesCache);
+    for (let i = 0; i < keys.length - REVIEW_NOTES_CAP; i++) delete reviewNotesCache[keys[i]];
+    // Svuotare è immediato: dopo l'invio non deve esistere una finestra in cui
+    // un reload resuscita note già spedite.
+    uiPutDebounced(REVIEW_NOTES_KEY, reviewNotesCache, notes.length ? 800 : 0);
   },
 };
