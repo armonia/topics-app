@@ -32,13 +32,15 @@ function fakeClock() {
   };
 }
 
-function harness(watched = false) {
+function harness(watched = false, layout = true) {
   const clock = fakeClock();
   const written: TerminalChunk[] = [];
   let isWatched = watched;
+  let hasLayout = layout;
   const coalescer = createWriteCoalescer({
     write: (chunk) => { written.push(chunk); },
     isWatched: () => isWatched,
+    hasLayout: () => hasLayout,
     setTimer: clock.setTimer,
     clearTimer: clock.clearTimer,
   });
@@ -47,10 +49,63 @@ function harness(watched = false) {
     written,
     coalescer,
     watch(v: boolean) { isWatched = v; },
+    layout(v: boolean) { hasLayout = v; },
   };
 }
 
 describe('createWriteCoalescer', () => {
+  // Regressione: una pane dentro `display:none` non ha box, xterm misura 0 e
+  // NON mette 0 in cache (WidthCache v6), quindi ogni scarico rimisura ogni
+  // glifo — il caso peggiore, non il migliore. Senza layout non si scarica a
+  // tempo: si aspetta il ritorno della visibilità.
+  test('senza layout → non arma il timer e non scarica a tempo', () => {
+    const h = harness(false, false);
+    h.coalescer.push('a');
+    h.coalescer.push('b');
+    expect(h.clock.armed).toBe(0);
+    h.clock.fire(); // nessun timer da far scattare
+    expect(h.written).toEqual([]);
+    expect(h.coalescer.pendingBytes).toBe(2);
+  });
+
+  test('nascosta DOPO che il timer era armato → il timer viene disinnescato', () => {
+    const h = harness(false, true);
+    h.coalescer.push('a');
+    expect(h.clock.armed).toBe(1);
+    h.layout(false);
+    h.coalescer.push('b');
+    expect(h.clock.armed).toBe(0);
+    h.clock.fire();
+    expect(h.written).toEqual([]);
+  });
+
+  test('senza layout il tetto di byte scarica lo stesso — mai perdere byte', () => {
+    const clock = fakeClock();
+    const written: TerminalChunk[] = [];
+    const coalescer = createWriteCoalescer({
+      write: (chunk) => { written.push(chunk); },
+      isWatched: () => false,
+      hasLayout: () => false,
+      maxPendingBytes: 4,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+    coalescer.push('abc');
+    expect(written).toEqual([]);
+    coalescer.push('de');
+    expect(written).toEqual(['abc', 'de']);
+    expect(coalescer.pendingBytes).toBe(0);
+  });
+
+  test('torna il layout → flush() esplicito consegna in ordine', () => {
+    const h = harness(false, false);
+    h.coalescer.push('a');
+    h.coalescer.push('b');
+    h.layout(true);
+    h.coalescer.flush();
+    expect(h.written).toEqual(['a', 'b']);
+  });
+
   test('guardato → scrive subito, nessun timer armato', () => {
     const h = harness(true);
     h.coalescer.push('a');
