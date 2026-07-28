@@ -142,6 +142,11 @@ describe('client inbound registry contract', () => {
       // (collapsed to one marker per anchor client-side).
       'stream:compaction',
       'stream:content_chunk',
+      // stream:context joined with the real-context ring (1b.5): quanti token
+      // ha in pancia il modello ADESSO (input+cache_read+cache_creation
+      // dell'ultima chiamata) e su che finestra — il numero che prima esisteva
+      // sul server e non arrivava mai a schermo.
+      'stream:context',
       'stream:end',
       'stream:error',
       'stream:start',

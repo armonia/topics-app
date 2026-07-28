@@ -202,6 +202,7 @@ describe('outbound registry contract', () => {
       'session:state',
       'stream:catchup',
       'stream:content_chunk',
+      'stream:context',
       'stream:end',
       'stream:error',
       'stream:resumed',
@@ -245,9 +246,12 @@ describe('outbound registry contract', () => {
   // presence:windows joined the outbound registry in 724284d3 (cross-window
   // presence protocol), taking the count from 81 → 82; browser:close-pane
   // joined with the remote pane-close capability (PR #8), 82 → 83;
-  // browser:focus-pane joined with the "manage any tab" capability, 83 → 84.
-  test('all 84 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(84);
+  // browser:focus-pane joined with the "manage any tab" capability, 83 → 84;
+  // stream:context joined with the real-context ring (1b.5) — the honest
+  // input+cache_read+cache_creation of the last call, finally on the wire
+  // instead of dying inside the compaction backfill, 84 → 85.
+  test('all 85 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(85);
   });
 });
 
