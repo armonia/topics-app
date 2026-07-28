@@ -66,9 +66,24 @@ function playCompletionTone(): void {
 
     osc.start();
     osc.stop(ctx.currentTime + 0.25);
-    osc.onended = () => {
+
+    // Closing exactly once, whatever happens. `onended` is the happy path, but it
+    // is NOT guaranteed: if the context never leaves `suspended` (autoplay policy,
+    // a machine with no audio device, the window backgrounded at the wrong moment)
+    // the oscillator never runs and the callback never fires — and an unclosed
+    // AudioContext is not garbage: WebKit keeps a live RemoteAudioDestinationProxy
+    // render thread per context, forever. One ding per agent completion means a
+    // long session quietly accumulates them. The timer is the backstop; whichever
+    // arrives first wins and the other becomes a no-op.
+    let closed = false;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      clearTimeout(fallback); // sempre inizializzato: `close` non parte mai sincrono
       ctx.close().catch(() => {});
     };
+    const fallback = setTimeout(close, 1000);
+    osc.onended = close;
   } catch {
     /* never propagate audio errors — they're cosmetic */
   }
