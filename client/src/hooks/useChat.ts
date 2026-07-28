@@ -6,11 +6,24 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
+import {
+  EXPIRED_QUEUE_KEY,
+  OUTBOUND_QUEUE_KEY,
+  decideQueuedMessage,
+  enqueue,
+  moveToExpired,
+  queueItemKey,
+  readQueue,
+  removeItem as removeQueueItem,
+  removeSession as removeQueueSession,
+  writeQueue,
+  type QueueStorage,
+  type QueuedMessage,
+} from './outboundQueue';
 
 // --- Message cache helpers (localStorage) ---
 const CACHE_PREFIX = 'messages-cache-';
 const CACHE_MAX_MESSAGES = 50;
-const QUEUE_KEY = 'messages-outbound-queue';
 
 // The chat pane always loads the COMPLETE thread — never a fixed window. The
 // old value here was 100: any topic past 100 messages loaded only its most
@@ -51,13 +64,7 @@ export interface SendMessageOptions {
   model?: string;
 }
 
-interface QueuedMessage {
-  sessionKey: string;
-  content: string;
-  timestamp: string;
-  options?: SendMessageOptions;
-  id?: string; // unique id for dedup — prevents re-sending already-delivered messages
-}
+export type { QueuedMessage };
 
 function cacheMessages(sessionKey: string, msgs: ChatMessage[]) {
   try {
@@ -81,26 +88,19 @@ function clearCachedMessages(sessionKey: string) {
   try { localStorage.removeItem(CACHE_PREFIX + sessionKey); } catch {}
 }
 
-function getOutboundQueue(): QueuedMessage[] {
-  try {
-    const raw = localStorage.getItem(QUEUE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
+/**
+ * Adattatore verso `localStorage` per le due code di `outboundQueue.ts`. I
+ * metodi risolvono `localStorage` alla chiamata, non alla definizione: dove non
+ * esiste, l'errore cade nel try/catch del modulo invece che all'import.
+ */
+const queueStorage: QueueStorage = {
+  getItem: (k) => localStorage.getItem(k),
+  setItem: (k, v) => localStorage.setItem(k, v),
+  removeItem: (k) => localStorage.removeItem(k),
+};
 
-function pushToOutboundQueue(msg: QueuedMessage) {
-  try {
-    const queue = getOutboundQueue();
-    queue.push(msg);
-    localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
-  } catch {}
-}
-
-function clearOutboundQueue() {
-  try { localStorage.removeItem(QUEUE_KEY); } catch {}
-}
+const getOutboundQueue = (): QueuedMessage[] => readQueue(queueStorage, OUTBOUND_QUEUE_KEY);
+const getExpiredQueue = (): QueuedMessage[] => readQueue(queueStorage, EXPIRED_QUEUE_KEY);
 
 function getInitialMessages(): Record<string, ChatMessage[]> {
   try {
@@ -157,7 +157,10 @@ export function useChat() {
   const [orphanedSessions, setOrphanedSessions] = useState<Set<string>>(new Set());
   const [cachedSessions, setCachedSessions] = useState<Set<string>>(new Set());
   const [pendingQueue, setPendingQueue] = useState<QueuedMessage[]>(getOutboundQueue);
-  const [expiredMessages, setExpiredMessages] = useState<QueuedMessage[]>([]);
+  // Gli scaduti si idratano dallo storage, non partono vuoti: il banner "N
+  // messages not sent" col retry deve sopravvivere al reload, altrimenti la
+  // scadenza equivale a buttare via il messaggio senza dirlo.
+  const [expiredMessages, setExpiredMessages] = useState<QueuedMessage[]>(getExpiredQueue);
   const abortControllersRef = useRef<Record<string, AbortController>>({});
   const wsHandlersRef = useRef<Set<(event: WSMessage) => void>>(new Set());
   const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -1199,8 +1202,7 @@ export function useChat() {
       const isNetworkError = err instanceof TypeError || (err instanceof Error && err.message.includes('fetch'));
       if (isNetworkError && !streamStarted) {
         const queued: QueuedMessage = { sessionKey, content, timestamp: new Date().toISOString(), options, id: crypto.randomUUID() };
-        pushToOutboundQueue(queued);
-        setPendingQueue(prev => [...prev, queued]);
+        setPendingQueue(enqueue(queueStorage, OUTBOUND_QUEUE_KEY, queued));
         // Mark the user message as queued (keep it visible)
         setMessages(prev => {
           const sessionMessages = prev[sessionKey] || [];
@@ -1386,11 +1388,8 @@ export function useChat() {
 
       // Clear any queued outbound messages for this session — the server already has them
       const queue = getOutboundQueue();
-      const filtered = queue.filter(q => q.sessionKey !== sessionKey);
-      if (filtered.length !== queue.length) {
-        if (filtered.length === 0) clearOutboundQueue();
-        else try { localStorage.setItem(QUEUE_KEY, JSON.stringify(filtered)); } catch {}
-        setPendingQueue(filtered);
+      if (queue.some(q => q.sessionKey === sessionKey)) {
+        setPendingQueue(removeQueueSession(queueStorage, OUTBOUND_QUEUE_KEY, sessionKey));
       }
 
       // Restore streaming state from server (for cross-device sync)
@@ -1684,47 +1683,66 @@ export function useChat() {
     hydratedSessionsRef.current.delete(sessionKey);
   }, []);
 
-  // Drain outbound queue on reconnect
+  // Ritentativo del drain per gli item rinviati (sessione occupata). Un solo
+  // timer alla volta; si autospegne quando la coda non rinvia più nulla.
+  const drainRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const drainQueueRef = useRef<(() => Promise<void>) | null>(null);
+  const DRAIN_RETRY_MS = 2_000;
+  const scheduleDrainRetry = useCallback(() => {
+    if (drainRetryRef.current) return;
+    drainRetryRef.current = setTimeout(() => {
+      drainRetryRef.current = null;
+      void drainQueueRef.current?.();
+    }, DRAIN_RETRY_MS);
+  }, []);
+  useEffect(() => () => {
+    if (drainRetryRef.current) clearTimeout(drainRetryRef.current);
+  }, []);
+
+  // Drain outbound queue on reconnect.
+  //
+  // Invariante: la coda durevole si tocca UN ITEM ALLA VOLTA, e un item ne esce
+  // solo quando è stato consegnato o deliberatamente scartato. La versione
+  // precedente svuotava tutto in testa al drain e teneva gli item in una
+  // variabile locale: bastava chiudere la tab a metà per perderli, e un item su
+  // sessione occupata veniva semplicemente saltato — cioè cancellato. Vedi
+  // `outboundQueue.ts` per la decisione item-per-item.
   const drainQueue = useCallback(async () => {
     // Prevent concurrent drains (e.g. rapid WS reconnects)
     if (drainingRef.current) return;
     drainingRef.current = true;
 
+    let deferred = 0;
     try {
       const queue = getOutboundQueue();
       if (queue.length === 0) return;
 
-      clearOutboundQueue();
-      setPendingQueue([]);
-
-      // Discard stale queued messages (>5min old)
-      const MAX_QUEUE_AGE_MS = 5 * 60 * 1000;
       const now = Date.now();
 
       for (const item of queue) {
-        const age = now - new Date(item.timestamp).getTime();
-        if (age > MAX_QUEUE_AGE_MS) {
-          setExpiredMessages(prev => [...prev, item]);
+        const verdict = decideQueuedMessage(item, {
+          now,
+          locked: isSendLocked(item.sessionKey),
+          sessionMessages: messagesRef.current[item.sessionKey] || [],
+        });
+
+        if (verdict.action === 'expire') {
+          // Cambia coda, non evapora: resta offerto in retry anche dopo un reload.
+          moveToExpired(queueStorage, item);
+          setExpiredMessages(getExpiredQueue());
+          setPendingQueue(getOutboundQueue());
           continue;
         }
 
-        // Skip if session already has an active send (sendMessage guard will also block, but avoid the UI churn)
-        if (isSendLocked(item.sessionKey)) {
+        if (verdict.action === 'defer') {
+          // La sessione sta già spedendo: l'item RESTA in coda. Nessuna scrittura.
+          deferred += 1;
           continue;
         }
 
-        // Dedup: skip if this message was already delivered or is currently being processed.
-        const sessionMsgs = messagesRef.current[item.sessionKey] || [];
-        const userMsgIdx = sessionMsgs.findLastIndex(m => m.role === 'user' && m.content === item.content && !m.queued);
-        if (userMsgIdx >= 0) {
-          const msgsAfter = sessionMsgs.slice(userMsgIdx + 1);
-          // Already delivered (has assistant response)
-          const alreadyDelivered = msgsAfter.some(m => m.role === 'assistant' && m.content);
-          // Still in-flight: assistant is streaming (partial) or user msg was already un-queued (partial: false)
-          const inFlight = msgsAfter.some(m => m.role === 'assistant') || isSendLocked(item.sessionKey);
-          if (alreadyDelivered || inFlight) {
-            continue;
-          }
+        if (verdict.action === 'drop') {
+          setPendingQueue(removeQueueItem(queueStorage, OUTBOUND_QUEUE_KEY, item));
+          continue;
         }
 
         // Un-mark the queued user message
@@ -1743,29 +1761,50 @@ export function useChat() {
 
         try {
           await sendMessageRef.current!(item.sessionKey, item.content, item.options);
+          // Esce di coda solo ADESSO, a tentativo concluso: per tutta la durata
+          // dell'invio è rimasto scritto su disco, quindi una tab che muore a
+          // metà lo ritrova. Si toglie anche quando `sendMessage` ha risposto
+          // `false`, perché in quel caso è LUI che ha già deciso il destino del
+          // messaggio — o l'ha ri-accodato da sé (rete giù, id nuovo, che questa
+          // rimozione per id vecchio non tocca) o ha alzato l'errore lasciando
+          // il messaggio visibile in chat. Tenerlo qui significherebbe
+          // rispedirlo a un server che potrebbe averlo già preso.
+          setPendingQueue(removeQueueItem(queueStorage, OUTBOUND_QUEUE_KEY, item));
         } catch {
-          // If still failing, re-queue
-          pushToOutboundQueue(item);
-          setPendingQueue(prev => [...prev, item]);
+          // `sendMessage` non lancia mai: se succede è un bug, e l'item resta in
+          // coda esattamente dov'è. Si riprova al prossimo giro.
+          deferred += 1;
         }
       }
     } finally {
       drainingRef.current = false;
       // Clear any "queued" error banner now that we've processed the queue
       setError(prev => (prev?.includes('queued') ? null : prev));
+      // Qualcosa è rimasto in coda per una sessione occupata: il lock si
+      // libererà da solo (fine turno, o scadenza a 60s) ma nessun evento ci
+      // richiamerebbe. Ripassiamo noi, finché la coda non si svuota o gli item
+      // scadono. Senza questo, "resta in coda" diventerebbe "resta lì per
+      // sempre" — meno grave della perdita, ma comunque un messaggio non
+      // spedito.
+      if (deferred > 0) scheduleDrainRetry();
     }
-  }, [messagesRef]);
+  }, [messagesRef, scheduleDrainRetry]);
+  drainQueueRef.current = drainQueue;
 
   const retryExpired = useCallback(async (item: QueuedMessage) => {
-    setExpiredMessages(prev => prev.filter(m => m !== item));
+    const key = queueItemKey(item);
+    const without = (list: QueuedMessage[]) => list.filter(m => queueItemKey(m) !== key);
+    writeQueue(queueStorage, EXPIRED_QUEUE_KEY, without(getExpiredQueue()));
+    setExpiredMessages(prev => without(prev));
     try {
       await sendMessageRef.current?.(item.sessionKey, item.content, item.options);
     } catch {
-      setExpiredMessages(prev => [...prev, item]);
+      setExpiredMessages(enqueue(queueStorage, EXPIRED_QUEUE_KEY, item));
     }
   }, []);
 
   const clearExpired = useCallback(() => {
+    writeQueue(queueStorage, EXPIRED_QUEUE_KEY, []);
     setExpiredMessages([]);
   }, []);
 
