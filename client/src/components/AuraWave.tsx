@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { readAuraEnergy, subscribeAuraTick } from '../lib/auraActivity';
+import { readAuraEnergy, subscribeAuraTick, wakeAuraTicker } from '../lib/auraActivity';
 
 // The "working" aura: a soft, blurred wave of iridescent smoke hugging the
 // pane's edge while a session works. It replaces the old rotating-band + orbiter
@@ -269,22 +269,28 @@ export function AuraWave({ activityId, radius = DEFAULT_RADIUS, muted = false }:
     let visible = true;
     const io = new IntersectionObserver((entries) => {
       visible = entries[entries.length - 1].isIntersecting;
+      // Il ticker si parcheggia quando NESSUNA aura interseca: se questa torna
+      // sullo schermo va risvegliato, altrimenti resterebbe ferma per sempre.
+      if (visible) wakeAuraTicker();
     });
     io.observe(host);
 
     let last = performance.now();
-    const tick = (now: number): void => {
+    // Il valore di ritorno dice al ticker se qualcuno ha davvero visto qualcosa:
+    // se nessun'aura disegna, il loop smette di chiedere frame.
+    const tick = (now: number): boolean => {
       let dt = (now - last) / 1000;
       last = now;
       if (dt > 0.05) dt = 0.05; // clamp on resume → no phase jump
       // `last` is already refreshed above, so dt stays small when we resume.
-      if (!visible) return;
+      if (!visible) return false;
       const target = readAuraEnergy(activityId);
       energy += (target - energy) * Math.min(1, dt / 0.6);
       const speedMul = 0.45 + 1.9 * (energy * energy * (3 - 2 * energy));
       ph += BASE_SPEED * speedMul * dt;
       phSlow += dt;
       draw();
+      return true;
     };
     const unsubscribe = subscribeAuraTick(tick);
 
