@@ -454,11 +454,16 @@ export function useChat() {
 
   // Handle WebSocket stream events (cross-window sync)
   // ── Live-delta coalescing (CHAT-PERF-01) ───────────────────────────────────
-  // Cross-window WS mirroring delivers content/thinking one frame per token;
-  // committing each as its own render makes the streaming bubble re-parse
-  // markdown per token (O(n²) over a turn). Buffer per session and flush at
-  // most once per animation frame — parity with the foreground SSE path, which
-  // already batches per read-cycle (see sendMessage). Any NON-delta event
+  // Every streaming path delivers content/thinking one frame per token —
+  // cross-window WS mirroring AND the foreground SSE readers alike. (The
+  // comment here used to claim SSE "batches per read-cycle": measured against
+  // the real server it does not, `reader.read()` returns one chunk per token on
+  // loopback, so that batch is exactly 1.) Committing each token as its own
+  // render makes the streaming bubble re-parse markdown per token (O(n²) over a
+  // turn) and, since `messages` lives in App's state, re-renders from the root
+  // 50-150 times a second. Buffer per session and flush at most once per
+  // animation frame, so the cost is capped by the frame rate instead of by the
+  // token rate. ALL THREE readers route through here. Any NON-delta event
   // flushes synchronously first, so the chronological `blocks` timeline stays
   // correctly ordered: a tool block must never jump ahead of text before it.
   const liveDeltaBufferRef = useRef<Map<string, { content: string; thinking: string }>>(new Map());
@@ -963,6 +968,22 @@ export function useChat() {
           let thinkingBatch = '';
           let isDone = false;
 
+          // Ordering guarantee — the same contract handleStreamEvent honours at
+          // :512-516. Anything that touches the `blocks` timeline (a tool call, a
+          // tool result, the final `partial:false`) must see the text that came
+          // BEFORE it already committed, or the tool row jumps ahead of the
+          // sentence that introduces it. Two levels of pending text exist:
+          // `contentBatch`/`thinkingBatch` for this read-cycle, and the rAF buffer
+          // spanning cycles. Drain them in that order.
+          const commitTextBefore = (): void => {
+            if (contentBatch || thinkingBatch) {
+              bufferLiveDelta(sessionKey, contentBatch || undefined, thinkingBatch || undefined);
+              contentBatch = '';
+              thinkingBatch = '';
+            }
+            flushLiveDeltas(sessionKey);
+          };
+
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
 
@@ -1027,6 +1048,7 @@ export function useChat() {
 
               // Handle tool calls
               if (delta?.tool_calls) {
+                commitTextBefore();
                 for (const tc of delta.tool_calls) {
                   if (tc.function?.name) {
                     const toolCall: ToolCall = {
@@ -1049,6 +1071,7 @@ export function useChat() {
               if (delta?.tool_result) {
                 const { id: trId, status: trStatus, result: trResult } = delta.tool_result;
                 if (trId) {
+                  commitTextBefore();
                   setMessages(prev => {
                     const msgs = [...(prev[sessionKey] || [])];
                     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -1081,13 +1104,23 @@ export function useChat() {
             }
           }
 
-          // Flush batched deltas as a single state update
+          // Hand this read-cycle's deltas to the rAF coalescer instead of
+          // committing them straight away. The comment above used to claim this
+          // path "batches per read-cycle" — measured against the real server it
+          // does not: writeSSE emits one frame per delta and `reader.read()`
+          // returns one chunk per token, so the batch is exactly 1 and this was a
+          // setMessages PER TOKEN, from the ROOT (messages lives in App's state).
+          // Chromium throttles itself under that load; WebKit — the engine the
+          // Tauri shell actually runs — does not: 300 tokens produced 300 React
+          // commits, ~115/s at 150 tok/s. Coalescing caps it at the frame rate and,
+          // more importantly, makes the cost self-limiting instead of unbounded.
           if (contentBatch || thinkingBatch) {
-            appendToLastMessage(sessionKey, contentBatch || undefined, thinkingBatch || undefined);
+            bufferLiveDelta(sessionKey, contentBatch || undefined, thinkingBatch || undefined);
           }
 
           // Finalize after flushing so content is up to date
           if (isDone && assistantMessageCreated) {
+            flushLiveDeltas(sessionKey); // `partial:false` must not race the last token
             if (currentContent.includes('{{BROWSER:') || currentContent.includes('{{TOPIC_SWITCH:') || currentContent.includes('{{TOPIC_NEW:') || currentContent.includes('{{PROJECT_')) {
               currentContent = cleanInvisibleMarkers(currentContent);
               updateLastMessage(sessionKey, { content: currentContent, partial: false });
@@ -1097,6 +1130,10 @@ export function useChat() {
           }
         }
       } finally {
+        // An aborted or failed stream must not leave the last tokens stranded in
+        // the buffer: commit whatever arrived, then let the history reload below
+        // reconcile against the server's authoritative copy.
+        flushLiveDeltas(sessionKey);
         reader.releaseLock();
       }
 
@@ -1204,7 +1241,7 @@ export function useChat() {
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, appendToLastMessage, addToolCallToLastMessage, updateLastMessage, messagesRef]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, messagesRef, bufferLiveDelta, flushLiveDeltas]);
 
   // Keep sendMessage ref in sync for stream:end auto-drain
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
@@ -1508,14 +1545,19 @@ export function useChat() {
             } catch {}
           }
 
+          // Same coalescing as the sendMessage reader above — this branch has no
+          // tool calls or tool results, so there is no `blocks` timeline to keep
+          // ordered and the buffer can simply absorb every cycle.
           if (contentBatch || thinkingBatch) {
-            appendToLastMessage(sessionKey, contentBatch || undefined, thinkingBatch || undefined);
+            bufferLiveDelta(sessionKey, contentBatch || undefined, thinkingBatch || undefined);
           }
           if (isDone) {
+            flushLiveDeltas(sessionKey); // `partial:false` must not race the last token
             updateLastMessage(sessionKey, { partial: false });
           }
         }
       } finally {
+        flushLiveDeltas(sessionKey);
         reader.releaseLock();
       }
 
@@ -1535,7 +1577,7 @@ export function useChat() {
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, appendToLastMessage, updateLastMessage, loadHistory]);
+  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas]);
 
   const editMessage = useCallback(
     (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>
