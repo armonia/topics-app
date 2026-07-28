@@ -24,6 +24,14 @@
  */
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
 import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
+import {
+  classifyTurnError,
+  consumesAttempt,
+  describeTurnEnd,
+  needsHuman,
+  shouldResume,
+  type TurnEndInfo,
+} from "../providers/stop-reason";
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
 const DEFAULT_RETRY_CAP = 2;
@@ -86,7 +94,7 @@ export interface DispatcherDeps {
    * turns), so a resume/continuation doesn't need the full envelope re-injected
    * into history — that only compounds cache write/read on every later call.
    */
-  runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number; contextMode?: "full" | "lean" }) => Promise<void>;
+  runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number; contextMode?: "full" | "lean" }) => Promise<TurnEndInfo | void>;
   /**
    * True if a still-running agent turn for this session survived a server
    * restart in the ai-bridge broker (provider.hasLiveSession). When present and
@@ -97,7 +105,7 @@ export interface DispatcherDeps {
   hasLiveSession?: (sessionKey: string) => Promise<boolean>;
   /** Drive a REATTACH turn to completion (adopt the surviving broker child and
    *  finish it). Injected alongside hasLiveSession. */
-  reattach?: (sessionKey: string, opts: { timeoutMs: number }) => Promise<void>;
+  reattach?: (sessionKey: string, opts: { timeoutMs: number }) => Promise<TurnEndInfo | void>;
   /**
    * Is the agent PROCESS behind this session still alive? (provider
    * `isTurnProcessAlive` — the same probe the stream watchdog trusts to tell a
@@ -608,13 +616,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const t0 = Date.now();
       const usage0 = sessionUsage(sessionKey);
       startLiveTurn(task, sessionKey, t0, usage0, chosenModel ?? null);
+      let turnEnd: TurnEndInfo | undefined;
       try {
         // Kickoff = the ONE turn that needs the full context envelope (grounds
         // the fresh session in the project). A reused-blocker topic also gets
         // full — it's a new task, worth re-grounding.
-        await deps.runTurn(sessionKey, kickoff, { timeoutMs, contextMode: "full" });
+        turnEnd = (await deps.runTurn(sessionKey, kickoff, { timeoutMs, contextMode: "full" })) || undefined;
       } catch (err) {
         log(`turn failed for task ${taskId}`, err);
+        turnEnd = classifyTurnError(err);
       }
       // Buried by the liveness net while this promise hung on a dead child: the
       // net already closed the turn (accounting + recovery) and a fresh run may
@@ -624,7 +634,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (!ownsRun(taskId, runId)) return;
       endLiveTurn(taskId);
       recordUsage(taskId, t0, usage0, sessionKey);
-      onTurnEnd(taskId, Date.now() - t0);
+      onTurnEnd(taskId, Date.now() - t0, turnEnd);
       // The worktree holds the agent's work: keep it when the task advanced to
       // review/done (it's the deliverable), delete it when the attempt was
       // discarded (requeued/parked) so retries don't orphan a worktree each time.
@@ -696,7 +706,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch { return null; }
   }
 
-  function onTurnEnd(taskId: string, turnMs?: number): void {
+  function onTurnEnd(taskId: string, turnMs?: number, turnEnd?: TurnEndInfo): void {
+    // Chi non la sa la dichiara `end_turn` — non è un default innocuo, è
+    // l'ipotesi più benevola: "l'agent ha finito". Sbagliarla verso `error`
+    // farebbe scattare backoff su turni sani.
+    const end: TurnEndInfo = turnEnd ?? { end: "end_turn" };
     const cur = deps.svc.get(taskId)?.task;
     if (!cur) { pendingResume.delete(taskId); return; }
     // Human input buffered mid-turn → continue on the same tab instead of the
@@ -741,28 +755,41 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // it on the same topic (and worktree) instead of releasing and re-kicking
       // from scratch — a fresh restart re-plans, re-creates the step checklist
       // and burns the whole retry budget on any task bigger than one timeout.
-      if (cur.assignedTopicId) {
+      if (cur.assignedTopicId && shouldResume(end)) {
         const cap = retryCap(cur.projectId);
         const backoff = backoffMs(cur.projectId);
         let bumped: Task | null = null;
-        try { bumped = deps.svc.bumpDispatchAttempt({ taskId, maxAttempts: cap }); } catch { /* park below */ }
+        // Uno stop premuto dall'UMANO non è un fallimento dell'agent e non gli
+        // costa un tentativo (`consumesAttempt`): si riprende senza bruciare
+        // budget. Il nostro tetto a orologio invece SÌ, o il freno contro un
+        // task che gira in tondo non frenerebbe mai.
+        const free = !consumesAttempt(end);
+        try {
+          bumped = free
+            ? (deps.svc.get(taskId)?.task ?? null)
+            : deps.svc.bumpDispatchAttempt({ taskId, maxAttempts: cap });
+        } catch { /* park below */ }
         if (bumped) {
-          // A turn that died in seconds is a provider outage (connection cut,
-          // credit/limit), not a timeout: back off before resuming, or the
-          // instant failures park the task while the outage is still on.
-          const quickDeath = turnMs !== undefined && turnMs < backoff;
+          // Backoff prima di riprendere quando il turno è caduto per un guasto:
+          // riprovare subito dentro un'interruzione del provider brucia i
+          // tentativi mentre l'interruzione è ancora in corso. La durata resta
+          // un indizio valido quando la ragione non è arrivata fin qui.
+          const outage = end.end === "error" || (turnMs !== undefined && turnMs < backoff);
+          const attempt = free
+            ? `tentativo ${bumped.dispatchAttempts}/${cap}, non conteggiato`
+            : `tentativo ${bumped.dispatchAttempts}/${cap}`;
           try {
             deps.svc.addComment({
               taskId, author: "system",
-              content: quickDeath
-                ? `Turno caduto subito (probabile problema momentaneo del provider): riprovo tra ${Math.round(backoff / 1000)}s sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${cap}).`
-                : `Turno interrotto senza arrivare a review (probabile timeout): l'agent continua sulla stessa sessione (tentativo ${bumped.dispatchAttempts}/${cap}).`,
+              content: outage
+                ? `${describeTurnEnd(end)}: riprovo tra ${Math.round(backoff / 1000)}s sulla stessa sessione (${attempt}).`
+                : `${describeTurnEnd(end)}: l'agent continua sulla stessa sessione (${attempt}).`,
             });
           } catch { /* best-effort */ }
           emit(bumped);
           // Deferred at least a tick: the caller's finally still holds the
           // inFlight slot; quick deaths wait out the backoff.
-          setTimeout(() => { void resume(taskId, "", { continuation: true }); }, quickDeath ? backoff : 0);
+          setTimeout(() => { void resume(taskId, "", { continuation: true }); }, outage ? backoff : 0);
           return;
         }
       }
@@ -773,12 +800,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // RECOVERED into the system note (honest — the agent's turn is over, it can't
       // comment itself here; we never fake an agent comment). Only a task that
       // produced literally nothing (no fresh comment AND no session words) fails.
+      // …oppure il turno è finito in un modo che nessun ritentativo può
+      // sbloccare (`needsHuman`: il modello si è rifiutato). Riprovare identico
+      // otterrebbe lo stesso rifiuto: si arriva subito all'umano, con la ragione
+      // scritta invece che dopo aver bruciato tutto il budget.
       const fresh = hasFreshAgentComment(cur);
       const recovered = fresh ? null : recoverAgentWords(cur);
-      if (cur.assignedTopicId && (fresh || recovered)) {
-        const base =
-          `L'agent ha lavorato ${cur.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
-          "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
+      if (cur.assignedTopicId && (fresh || recovered || needsHuman(end))) {
+        const base = needsHuman(end)
+          ? `${describeTurnEnd(end)}. Nessun ritentativo automatico può sbloccarlo: ` +
+            "l'ho portato in review perché lo guardi tu (rimandandolo indietro riparte sulla stessa sessione)."
+          : `L'agent ha lavorato ${cur.dispatchAttempts} turni ma non ha spostato il task in review da solo. ` +
+            "L'ho portato io in review: valuta cosa ha prodotto, oppure rimandalo indietro (un rifiuto lo fa ripartire sulla stessa sessione).";
         const reason = recovered
           ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
           : base;
@@ -806,7 +839,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         taskId,
         requeue: false,
         parkState: CHIP_FAILED,
-        reason: `Il turno è terminato senza arrivare a review dopo ${cur.dispatchAttempts} tentativi e senza produrre output. Parcheggiato in backlog.`,
+        reason: `${describeTurnEnd(end)}. Nessun output dopo ${cur.dispatchAttempts} tentativi: parcheggiato in backlog.`,
       }));
       return;
     }
@@ -876,12 +909,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // Resume (human answer) or continuation (post-timeout nudge): the session
       // already carries the full envelope from kickoff — re-injecting CLAUDE.md
       // & co. only compounds cache write/read. Lean = role prompt + cwd only.
-      try { await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000, contextMode: "lean" }); }
-      catch (err) { log(`resume turn failed for ${taskId}`, err); }
+      let turnEnd: TurnEndInfo | undefined;
+      try { turnEnd = (await deps.runTurn(sessionKey, content, { timeoutMs: Math.max(1, timeoutMin) * 60_000, contextMode: "lean" })) || undefined; }
+      catch (err) { log(`resume turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
       recordUsage(taskId, t0, usage0, sessionKey);
-      onTurnEnd(taskId, Date.now() - t0);
+      onTurnEnd(taskId, Date.now() - t0, turnEnd);
     } finally {
       endRun(taskId, runId);
     }
@@ -905,12 +939,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const t0 = Date.now();
       const usage0 = sessionUsage(sessionKey);
       startLiveTurn(t, sessionKey, t0, usage0, t.model ?? null);
-      try { await deps.reattach!(sessionKey, { timeoutMs: Math.max(1, timeoutMin) * 60_000 }); }
-      catch (err) { log(`reattach turn failed for ${taskId}`, err); }
+      let turnEnd: TurnEndInfo | undefined;
+      try { turnEnd = (await deps.reattach!(sessionKey, { timeoutMs: Math.max(1, timeoutMin) * 60_000 })) || undefined; }
+      catch (err) { log(`reattach turn failed for ${taskId}`, err); turnEnd = classifyTurnError(err); }
       if (!ownsRun(taskId, runId)) return; // buried mid-turn (see launch)
       endLiveTurn(taskId);
       recordUsage(taskId, t0, usage0, sessionKey);
-      onTurnEnd(taskId, Date.now() - t0);
+      onTurnEnd(taskId, Date.now() - t0, turnEnd);
     } finally {
       endRun(taskId, runId);
     }
@@ -1178,7 +1213,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           "riprendo il task invece di lasciarlo fermo su 'lavora'.",
       });
     } catch { /* dedupe/best-effort */ }
-    onTurnEnd(taskId, Date.now() - t0);
+    // Qui la ragione la sappiamo per costruzione: il processo dell'agent non
+    // c'è più. Non è un `cancelled` — nessuno l'ha fermato, è morto.
+    onTurnEnd(taskId, Date.now() - t0, { end: "error", cause: "process-died" });
   }
 
   /**

@@ -78,6 +78,12 @@ const streamEndSchema = z.object({
   usagePromptTokens: z.number().optional(),
   usageCompletionTokens: z.number().optional(),
   costCents: z.number().optional(),
+  // PERCHÉ il turno è finito, col vocabolario di ACP (server/providers/stop-reason).
+  // Assente quando lo stream è finito in errore: `error` non è una ragione ACP.
+  stopReason: z.enum(['end_turn', 'max_tokens', 'max_turn_requests', 'refusal', 'cancelled']).optional(),
+  // CHI l'ha fermato — `cancelled` da solo non distingue lo stop dell'umano dal
+  // nostro watchdog, e a valle sono due politiche opposte.
+  stopCause: z.enum(['user', 'watchdog', 'wall-clock', 'session-reset', 'process-died', 'provider-error']).optional(),
 });
 
 // ---- Coordination broadcasts (mirrors of inbound) --------------------------

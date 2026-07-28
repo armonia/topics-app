@@ -67,6 +67,8 @@ import { createDashboardRouter } from "./server/routes/dashboard";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider } from "./server/providers";
 import { aiBridgeEnabled } from "./server/providers/claude-code";
+import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
+import { recordTurnEnd, takeTurnEnd } from "./server/providers/turn-end-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickTaskModel } from "./server/services/task-model-picker";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
@@ -394,8 +396,15 @@ async function abortHeadlessTurn(sessionKey: string): Promise<void> {
   } catch { /* best-effort */ }
 }
 
-async function runHeadlessTurn(sessionKey: string, content: string, opts: { timeoutMs: number; contextMode?: "full" | "lean" }): Promise<void> {
+async function runHeadlessTurn(
+  sessionKey: string,
+  content: string,
+  opts: { timeoutMs: number; contextMode?: "full" | "lean" },
+): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
+  // Butta via un eventuale residuo: una fine depositata e mai ritirata è di un
+  // turno vecchio, e attribuirla a questo sarebbe la bugia che 0.4 elimina.
+  takeTurnEnd(sessionKey);
   // contextMode "lean" (resume/continuation): the chat route skips re-injecting
   // the heavy context envelope (CLAUDE.md/README/memory/…) since the persistent
   // CLI session already has it — see assembleTopicContext(leanContext).
@@ -404,7 +413,9 @@ async function runHeadlessTurn(sessionKey: string, content: string, opts: { time
     new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
     url, "/api/chat", "POST",
   );
-  if (!resp || !resp.body) return;
+  // Nessuno stream = la route non ha nemmeno iniziato il turno: è un guasto,
+  // non una fine normale (dirla `end_turn` sarebbe la solita bugia).
+  if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat" };
   // The turn self-drives server-side (consumeGateway) whether or not we read the
   // SSE mirror; we drain it only to learn when the turn ENDS (the reconciliation
   // signal). A wall-clock backstop aborts a runaway turn.
@@ -417,21 +428,32 @@ async function runHeadlessTurn(sessionKey: string, content: string, opts: { time
   }, opts.timeoutMs);
   try { while (true) { const { done } = await reader.read(); if (done) break; } }
   finally { clearTimeout(deadline); try { reader.releaseLock(); } catch { /* already released */ } }
-  if (timedOut) throw new Error("turn exceeded wall-clock timeout");
+  // Il tetto a orologio è NOSTRO: vince su qualunque fine la route abbia
+  // depositato nel frattempo (l'abort che manda arriva dopo).
+  if (timedOut) {
+    takeTurnEnd(sessionKey);
+    return cancelled("wall-clock", `timeout after ${opts.timeoutMs}ms`);
+  }
+  // La route ha depositato il PERCHÉ finalizzando; il drain finisce con `[DONE]`,
+  // che la finalizzazione scrive dopo. Se manca, il turno è comunque finito.
+  return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
 }
 
 // Reattach variant: POST /api/chat with mode:"reattach" and NO user message —
 // the route calls provider.reattach (adopt the surviving broker turn) instead of
 // sendChat. Same SSE drain to learn when the turn ends. Used by the dispatcher's
 // reconcile REATTACH branch after a server restart.
-async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number }): Promise<void> {
+async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number }): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
   const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach" });
+  // Stesso patto di runHeadlessTurn: residuo via prima di iniziare.
+  takeTurnEnd(sessionKey);
   const resp = await topicsRouter(
     new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
     url, "/api/chat", "POST",
   );
-  if (!resp || !resp.body) return;
+  // Nessuno stream = il turno adottato non c'era più: non è una fine normale.
+  if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat (reattach)" };
   const reader = resp.body.getReader();
   let timedOut = false;
   const deadline = setTimeout(() => {
@@ -441,7 +463,13 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
   }, opts.timeoutMs);
   try { while (true) { const { done } = await reader.read(); if (done) break; } }
   finally { clearTimeout(deadline); try { reader.releaseLock(); } catch { /* already released */ } }
-  if (timedOut) throw new Error("reattach turn exceeded wall-clock timeout");
+  // Il tetto a orologio è NOSTRO e vince: prima lanciava un errore generico che
+  // il dispatcher classificava come guasto del provider — era la stessa bugia.
+  if (timedOut) {
+    takeTurnEnd(sessionKey);
+    return cancelled("wall-clock", `reattach timeout after ${opts.timeoutMs}ms`);
+  }
+  return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
 }
 
 // Ad-hoc dirs the server already references: topic projectPaths + terminal
@@ -2076,7 +2104,10 @@ const staleStreamTimer = setInterval(() => {
         const marker = "⚠️ Risposta interrotta: nessuna attività per 3 minuti (il processo potrebbe essersi bloccato o disconnesso). Riprova.";
         db.run("UPDATE messages SET partial = 0, streamed_at = NULL, content = ? WHERE id = ?", [marker, stream.messageId]);
       }
-      broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "stale_timeout" });
+      // Il turno è morto senza un `result` pulito: chi lo sta guidando (il
+      // dispatcher) deve leggere "fermato dal watchdog", non la fine di default.
+      recordTurnEnd(sessionKey, cancelled("watchdog", "stale stream sweep"));
+      broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "stale_timeout", stopReason: "cancelled", stopCause: "watchdog" });
     }
   }
 }, STALE_STREAM_CHECK_INTERVAL_MS);
@@ -2127,6 +2158,11 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     if (topic && !topic.archived && midTurnAtBoot.has(s.id)) {
       console.log(`[chat-reattach] adopting surviving mid-turn broker session ${s.id}`);
       runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 })
+        // Il turno adottato finisce comunque: se non è finito bene, il log dice
+        // PERCHÉ invece di tacere (0.4).
+        .then((end) => {
+          if (end.end !== "end_turn") console.warn(`[chat-reattach] ${s.id}: ${describeTurnEnd(end)}`);
+        })
         .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
         .finally(() => {
           // The turn is over (completed, died, or timed out): clear any

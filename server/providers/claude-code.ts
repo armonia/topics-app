@@ -27,6 +27,7 @@ import { SidechainTracker } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
+import { cancelled, classifyResultEvent } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
 
 // ============ Config ============
@@ -1285,7 +1286,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // Notify the stream handler so the route flushes any partial assistant
     // content as a finalized message instead of an error stub.
     if (pp.streamHandler) {
-      pp.streamHandler.onAborted?.();
+      pp.streamHandler.onAborted?.({ turnEnd: cancelled(reason) });
       pp.streamHandler = null;
     }
     this.stopHeartbeat(pp);
@@ -1713,7 +1714,12 @@ export class ClaudeCodeProvider implements AIProvider {
   private finalizeDeadReattach(pp: PersistentProcess): void {
     pp.alive = false;
     if (pp.pendingResolve) { const r = pp.pendingResolve; pp.pendingResolve = null; pp.pendingReject = null; r({ runId: "" }); }
-    if (pp.streamHandler) { pp.streamHandler.onAborted?.(); pp.streamHandler = null; }
+    // Riattacco a un processo che nel frattempo è morto: il turno non l'ha
+    // fermato nessuno, è finito il processo sotto.
+    if (pp.streamHandler) {
+      pp.streamHandler.onAborted?.({ turnEnd: { end: "error", cause: "process-died" } });
+      pp.streamHandler = null;
+    }
     this.cleanupTimers(pp);
   }
 
@@ -1790,8 +1796,17 @@ export class ClaudeCodeProvider implements AIProvider {
         // prologue), so the lost session stays invisible.
       } else if (graceful) {
         // Flush any partial assistant content as a finalized message (same path
-        // as an explicit abort) instead of an error stub.
-        pp.streamHandler.onAborted?.();
+        // as an explicit abort) instead of an error stub. CHI ha fermato il turno
+        // viaggia con esso: uno stop dell'umano e uno del watchdog sono lo stesso
+        // `cancelled` di ACP ma due politiche opposte a valle (`consumesAttempt`).
+        // Senza `aborting` non ha premuto nessuno: è il figlio uscito pulito a
+        // turno aperto. Resta `cancelled` senza causa — meglio "annullato" che
+        // una causa inventata.
+        pp.streamHandler.onAborted?.({
+          turnEnd: pp.aborting
+            ? cancelled(pp.abortReason === "watchdog" ? "watchdog" : "user")
+            : { end: "cancelled" },
+        });
       } else {
         pp.streamHandler.onError(`Process exited with code ${code}`);
       }
@@ -1888,6 +1903,9 @@ export class ClaudeCodeProvider implements AIProvider {
       if (!resultText || resultText === "waiting for message") return;
 
       if (handler) {
+        // PERCHÉ è finito: la CLI lo dice qui e finora lo buttavamo via. A valle
+        // il dispatcher lo deduceva dalla durata («probabile timeout»).
+        const turnEnd = classifyResultEvent(event);
         const usage = event.usage ?? {};
         const cacheCreation = usage.cache_creation_input_tokens ?? 0;
         const cacheRead = usage.cache_read_input_tokens ?? 0;
@@ -1901,6 +1919,7 @@ export class ClaudeCodeProvider implements AIProvider {
           },
           durationMs: event.duration_ms,
           costUsd: event.total_cost_usd,
+          turnEnd,
         });
         pp.streamHandler = null;
         // Stream finished — drop heartbeat. The sendChatInternal `finally`

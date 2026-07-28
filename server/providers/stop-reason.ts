@@ -1,0 +1,228 @@
+/**
+ * PERCHÉ un turno è finito — detto una volta sola, con il vocabolario di ACP.
+ *
+ * Prima nessuno lo sapeva. Il dispatcher scriveva sulla card «Turno interrotto
+ * senza arrivare a review (probabile timeout)» e «Turno caduto subito
+ * (probabile problema momentaneo del provider)»: due INDOVINELLI, dedotti da
+ * quanto era durato il turno, perché la vera ragione non arrivava mai fin lì —
+ * il provider la conosceva e la buttava via.
+ *
+ * Indovinare non è gratis: le politiche di ripresa sono diverse per ragioni
+ * diverse. Un contesto pieno va ripreso subito (la sessione compatta e
+ * riparte), un rifiuto del modello NON va ripreso affatto (riprovare uguale
+ * ottiene lo stesso rifiuto e brucia il budget), e uno stop premuto da un umano
+ * non è un fallimento dell'agente e non deve costargli un tentativo. Con un
+ * unico "probabile timeout" tutti e tre finivano nello stesso ramo.
+ *
+ * Il vocabolario è quello di ACP (Agent Client Protocol) perché è lo stesso che
+ * la fase 3 del piano espone verso l'esterno: nominarlo qui in modo diverso
+ * significherebbe tradurlo due volte.
+ */
+
+/** Le cinque ragioni di ACP. */
+export type StopReason =
+  /** L'agente ha finito il suo turno da solo. */
+  | "end_turn"
+  /** Limite di token raggiunto (contesto pieno o output troncato). */
+  | "max_tokens"
+  /** Il turno ha esaurito le richieste al modello che gli erano concesse. */
+  | "max_turn_requests"
+  /** Il modello si è rifiutato. */
+  | "refusal"
+  /** Qualcuno ha fermato il turno: l'umano, il watchdog, il tetto a orologio. */
+  | "cancelled";
+
+/**
+ * Le cinque ACP più `error`. ACP un turno CRASHATO non lo chiama "fermato" —
+ * risponde con un errore di protocollo, che è un'altra cosa. Noi però dobbiamo
+ * distinguerlo (un crash si riprova, un rifiuto no) e il dispatcher legge un
+ * campo solo: quindi vive qui, marcato per quello che è, e `isAcpStopReason` lo
+ * tiene fuori da tutto ciò che parla ACP sul filo.
+ */
+export type TurnEnd = StopReason | "error";
+
+export const ACP_STOP_REASONS: readonly StopReason[] = [
+  "end_turn",
+  "max_tokens",
+  "max_turn_requests",
+  "refusal",
+  "cancelled",
+];
+
+export function isAcpStopReason(value: unknown): value is StopReason {
+  return typeof value === "string" && (ACP_STOP_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * CHI ha fermato il turno. `cancelled` da solo non basta a decidere: uno stop
+ * premuto da un umano e il nostro stesso tetto a orologio sono lo stesso
+ * `reason` ACP ma due politiche opposte (vedi `consumesAttempt`).
+ */
+export type StopCause =
+  /** L'umano ha premuto stop. */
+  | "user"
+  /** Il watchdog dello stream: nessun evento per troppo tempo, processo morto. */
+  | "watchdog"
+  /** Il tetto a orologio del dispatcher ha tagliato il turno. */
+  | "wall-clock"
+  /** La sessione `--resume` non esisteva più: reset trasparente, si rispawna. */
+  | "session-reset"
+  /** Il processo figlio è uscito con codice diverso da zero. */
+  | "process-died"
+  /** Il provider ha risposto errore (rete, credito, limite). */
+  | "provider-error";
+
+export interface TurnEndInfo {
+  end: TurnEnd;
+  cause?: StopCause;
+  /** Testo grezzo che ha portato alla classificazione — per il log, non per l'UI. */
+  detail?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Classificazione
+
+/**
+ * Un limite di token si presenta con parole diverse a seconda di chi risponde
+ * (CLI, API, gateway). Sono tutte varianti della stessa cosa e vanno nello
+ * stesso ramo: il turno non è fallito, il contesto è pieno.
+ */
+const MAX_TOKENS_RE =
+  /(max(imum)?[ _-]?tokens?)|(context[ _-]?(length|window)[^.]{0,24}exceed)|(prompt is too long)|(input length and `max_tokens`)|(too many tokens)/i;
+
+/**
+ * Un rifiuto è una POSIZIONE del modello, non un guasto: riprovare identico
+ * ottiene lo stesso rifiuto. Deliberatamente stretto — un falso positivo qui
+ * manda in review un task che si sarebbe ripreso da solo, ed è meglio un
+ * ritentativo di troppo che una card parcheggiata per una parola.
+ */
+const REFUSAL_RE =
+  /\b(refus(al|ed|es)|declined to (assist|answer|comply)|stop_reason["' :]+refusal)\b/i;
+
+/** Il turno ha esaurito le richieste al modello concesse (`--max-turns`). */
+const MAX_TURNS_RE = /error_max_turns|max[ _-]?turns? (exceeded|reached)/i;
+
+/**
+ * Dall'evento `result` finale della CLI Claude Code
+ * (`--output-format stream-json`).
+ *
+ * Forma: `{ type: "result", subtype: "success" | "error_max_turns" |
+ * "error_during_execution", is_error?: boolean, errors?: string[], result?: string }`.
+ * `subtype` da solo non basta: `error_during_execution` è il cestino dove
+ * finiscono contesto pieno, rifiuto e guasto vero, che sono tre politiche
+ * diverse — quindi si guarda anche il testo.
+ */
+export function classifyResultEvent(event: {
+  subtype?: unknown;
+  is_error?: unknown;
+  errors?: unknown;
+  result?: unknown;
+}): TurnEndInfo {
+  const subtype = typeof event.subtype === "string" ? event.subtype : "";
+  const errored = event.is_error === true || subtype.startsWith("error");
+  const text = [
+    subtype,
+    ...(Array.isArray(event.errors) ? event.errors.map((e) => String(e)) : []),
+    errored && typeof event.result === "string" ? event.result : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (!errored) return { end: "end_turn" };
+  if (MAX_TURNS_RE.test(text)) return { end: "max_turn_requests", detail: text };
+  // Il contesto pieno prima del rifiuto: un messaggio di limite token può
+  // contenere la parola "refuse" in una spiegazione, mai il contrario.
+  if (MAX_TOKENS_RE.test(text)) return { end: "max_tokens", detail: text };
+  if (REFUSAL_RE.test(text)) return { end: "refusal", detail: text };
+  return { end: "error", cause: "provider-error", detail: text };
+}
+
+/** Un turno fermato da qualcuno: sempre `cancelled`, la causa dice da chi. */
+export function cancelled(cause: StopCause, detail?: string): TurnEndInfo {
+  return { end: "cancelled", cause, detail };
+}
+
+/**
+ * Dall'errore con cui è morta la promise del turno. È la strada che percorrono
+ * i marcatori interni del provider (`ABORTED`, `SESSION_RESET`, `PROCESS_DIED_n`,
+ * `RATE_LIMIT`) e il tetto a orologio del dispatcher.
+ */
+export function classifyTurnError(err: unknown, fallbackCause?: StopCause): TurnEndInfo {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (/wall-clock/i.test(msg)) return cancelled("wall-clock", msg);
+  if (/^ABORTED$/.test(msg)) return cancelled(fallbackCause ?? "user", msg);
+  if (/^SESSION_RESET$/.test(msg)) return cancelled("session-reset", msg);
+  if (/^PROCESS_DIED/.test(msg)) return { end: "error", cause: "process-died", detail: msg };
+  if (MAX_TOKENS_RE.test(msg)) return { end: "max_tokens", detail: msg };
+  if (MAX_TURNS_RE.test(msg)) return { end: "max_turn_requests", detail: msg };
+  if (REFUSAL_RE.test(msg)) return { end: "refusal", detail: msg };
+  return { end: "error", cause: fallbackCause ?? "provider-error", detail: msg };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Politica del dispatcher — la tabella, in un posto solo
+
+/**
+ * Il turno va ripreso da solo, o il task deve fermarsi?
+ *
+ * `refusal` è l'unico "no": riprovare identico ottiene lo stesso rifiuto, e
+ * ripeterlo fino al tetto dei tentativi brucia il budget per finire comunque
+ * in mano all'umano — tanto vale arrivarci subito, con la ragione scritta.
+ */
+export function shouldResume(info: TurnEndInfo): boolean {
+  return info.end !== "refusal";
+}
+
+/**
+ * Il turno costa un tentativo?
+ *
+ * Il piano dice «cancelled → nessun tentativo consumato», e per uno stop premuto
+ * da un umano è giusto: non è un fallimento dell'agente. Ma il tetto a orologio
+ * e il watchdog emettono lo STESSO `cancelled`, e sono l'unico freno contro un
+ * task che gira in tondo: se non consumassero un tentativo, `retryCap` non
+ * verrebbe mai raggiunto e la card ripartirebbe per sempre. Quindi la regola è
+ * più stretta di com'è scritta nel piano — non consuma solo ciò che ha fermato
+ * l'UMANO — e la differenza sta tutta nella causa, che è esattamente il motivo
+ * per cui `StopCause` esiste.
+ *
+ * `session-reset` non consuma per un motivo diverso: la sessione `--resume` era
+ * sparita, il provider rispawna e rimanda da solo. Non è un turno andato male,
+ * è lo stesso turno che riparte.
+ */
+export function consumesAttempt(info: TurnEndInfo): boolean {
+  if (info.end !== "cancelled") return true;
+  return info.cause !== "user" && info.cause !== "session-reset";
+}
+
+/** Serve l'umano: nessun ritentativo automatico può sbloccarlo. */
+export function needsHuman(info: TurnEndInfo): boolean {
+  return info.end === "refusal";
+}
+
+/** Riga leggibile per il commento sulla card — al posto di «probabile timeout». */
+export function describeTurnEnd(info: TurnEndInfo): string {
+  switch (info.end) {
+    case "end_turn":
+      return "Turno concluso dall'agente senza portare il task in review";
+    case "max_tokens":
+      return "Contesto pieno (limite di token)";
+    case "max_turn_requests":
+      return "Turno esaurito: raggiunto il tetto di richieste al modello";
+    case "refusal":
+      return "Il modello si è rifiutato di procedere";
+    case "cancelled":
+      switch (info.cause) {
+        case "user": return "Turno fermato a mano";
+        case "watchdog": return "Turno fermato dal watchdog (nessun segno di vita dallo stream)";
+        case "wall-clock": return "Turno tagliato dal limite di tempo";
+        case "session-reset": return "Sessione persa e riavviata: stesso turno, processo nuovo";
+        default: return "Turno annullato";
+      }
+    case "error":
+      switch (info.cause) {
+        case "process-died": return "Il processo dell'agente è morto";
+        case "provider-error": return "Errore del provider";
+        default: return "Turno finito in errore";
+      }
+  }
+}

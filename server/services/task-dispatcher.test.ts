@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
+import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 
 // Self-contained schema (mirrors migrations 001 + 026 + 031, tasks-relevant
 // subset). PRAGMA foreign_keys + the assigned_topic_id FK are faithful to prod
@@ -77,7 +78,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   const worktreesCreated: string[] = [];
   const topicsCreated: { name: string; projectPath: string; worktreeId?: string; effort?: string; model?: string; standalone?: boolean }[] = [];
   const turns: { sessionKey: string; content: string; contextMode?: "full" | "lean" }[] = [];
-  let resolveTurn: (() => void) | null = null;
+  let resolveTurn: ((info?: TurnEndInfo) => void) | null = null;
   let rejectTurn: ((e: unknown) => void) | null = null;
 
   const deps: DispatcherDeps = {
@@ -93,7 +94,7 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
     },
     createWorktree: async (storeId) => { worktreesCreated.push(storeId); return `wt-${storeId}`; },
     runTurn: (sessionKey, content, opts) =>
-      new Promise<void>((res, rej) => { turns.push({ sessionKey, content, contextMode: opts?.contextMode }); resolveTurn = res; rejectTurn = rej; }),
+      new Promise<TurnEndInfo | void>((res, rej) => { turns.push({ sessionKey, content, contextMode: opts?.contextMode }); resolveTurn = res; rejectTurn = rej; }),
     broadcast: (m) => events.push(m),
     graceMs: 10,
     retryBackoffMs: 0, // instant harness turns must not wait out the outage backoff
@@ -104,6 +105,8 @@ function harness(overrides: Partial<DispatcherDeps> = {}) {
   return {
     db, svc, dispatcher, events, worktreesCreated, topicsCreated, turns,
     finishTurn: () => { resolveTurn?.(); },
+    /** Chiude il turno DICENDO perché è finito (0.4) — come fa il provider vero. */
+    finishTurnWith: (info: TurnEndInfo) => { resolveTurn?.(info); },
     failTurn: (e: unknown) => { rejectTurn?.(e); },
     task: (id: string) => svc.get(id)?.task,
   };
@@ -354,6 +357,86 @@ describe("task-dispatcher", () => {
     // The thread explains what happened (visible history, not a silent retry).
     const comments = h.svc.get("t1")!.comments;
     expect(comments.some((c) => c.author === "system" && c.content.includes("stessa sessione"))).toBe(true);
+  });
+
+  // ── 0.4 — il PERCHÉ del turno arriva fin qui e decide la politica ─────────
+  // Prima il dispatcher lo indovinava dalla durata («probabile timeout»,
+  // «probabile problema momentaneo del provider») e trattava tutte le fini allo
+  // stesso modo: un rifiuto del modello girava fino a bruciare il budget, e uno
+  // stop premuto da un umano costava un tentativo all'agent.
+
+  it("un RIFIUTO del modello va subito all'umano: nessun ritentativo, ragione scritta", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith({ end: "refusal" });
+    await flush();
+    const t = h.task("t1")!;
+    // Riprovare identico otterrebbe lo stesso rifiuto: non si riprende.
+    expect(t.status).toBe("review");
+    expect(h.turns.length).toBe(1);
+    const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
+    expect(notes).toContain("rifiutato");
+  });
+
+  it("uno STOP dell'umano riprende senza costare un tentativo", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith(cancelled("user"));
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.status).toBe("in_progress");
+    expect(t.dispatchAttempts).toBe(1); // NON bumpato: non è un fallimento dell'agent
+    expect(h.turns.length).toBe(2); // ma il lavoro riprende
+    const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
+    expect(notes).toContain("Turno fermato a mano");
+    expect(notes).toContain("non conteggiato");
+  });
+
+  it("…ma il TETTO A OROLOGIO sì, o il freno non frenerebbe mai", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith(cancelled("wall-clock"));
+    await flush();
+    const t = h.task("t1")!;
+    expect(t.dispatchAttempts).toBe(2);
+    const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
+    expect(notes).toContain("limite di tempo");
+    expect(notes).not.toContain("probabile"); // niente più indovinelli
+  });
+
+  it("il CONTESTO PIENO si riprende e lo dice: non è un fallimento", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.finishTurnWith({ end: "max_tokens" });
+    await flush();
+    expect(h.task("t1")!.status).toBe("in_progress");
+    expect(h.turns.length).toBe(2);
+    expect(h.svc.get("t1")!.comments.map((c) => c.content).join("\n")).toContain("Contesto pieno");
+  });
+
+  it("un turno morto per errore dice l'errore, e la promise rotta viene classificata", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    h.failTurn(new Error("PROCESS_DIED_137"));
+    await flush();
+    const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
+    expect(notes).toContain("processo dell'agente è morto");
+    expect(h.turns.length).toBe(2); // un guasto si riprende
   });
 
   it("parks in backlog when the retry budget is exhausted mid-continuation", async () => {
