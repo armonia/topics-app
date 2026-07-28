@@ -24,6 +24,8 @@ import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compactio
 import { recordSessionContext } from "../db/session-context";
 import { contextWindowFor, classifyContext } from "../usage/context-window";
 import { getSnapshotManager } from "../providers/snapshot-manager";
+import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
+import { recordTurnEnd } from "../providers/turn-end-registry";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
 import { calculateCost } from "../usage/pricing";
@@ -720,6 +722,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
             console.warn(`[StreamWS] Grace expired without recovery on ${sessionKey} → finalize as timeout`);
             streamState = "finalized";
+            // Il figlio è morto e nessuno ha parlato: è il watchdog a fermare il
+            // turno. Senza questo, chi guida un turno headless leggerebbe la fine
+            // di default (`end_turn`) e crederebbe a una consegna riuscita.
+            recordTurnEnd(sessionKey, cancelled("watchdog", "grace expired"));
             const timeoutMsg = "⚠️ Response timed out. The AI service took too long to respond. Please try again.";
             // Replace the soft annotation with the hard timeout marker.
             fullContent = stripSlowAnnotation(fullContent);
@@ -738,7 +744,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             topicProvider.abort?.(sessionKey, undefined, "watchdog")?.catch((err: any) => console.warn(`[StreamWS] Provider abort on grace-expiry failed:`, err));
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: timeoutMsg });
-              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog" });
               finalizeTurnActivity(matchedTopic);
             }
             // No separate "grace expired" log line — the soft-timeout entry
@@ -770,6 +776,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
             console.error(`[StreamWS] Hard cap (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached and provider process is DEAD on ${sessionKey} → finalize`);
             streamState = "finalized";
+            recordTurnEnd(sessionKey, cancelled("watchdog", "hard cap reached"));
             const msg = `⚠️ Hard timeout (${STREAM_HARD_TIMEOUT_MS / 60_000} min) reached. The provider stopped responding.`;
             fullContent = stripSlowAnnotation(fullContent);
             if (!fullContent.trim()) fullContent = msg;
@@ -782,7 +789,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             topicProvider.abort?.(sessionKey, undefined, "watchdog")?.catch((err: any) => console.warn(`[StreamWS] Provider abort on hard-timeout failed:`, err));
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: msg });
-              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id });
+              broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic.id, messageId: partialMsg.id, stopReason: "cancelled", stopCause: "watchdog" });
               finalizeTurnActivity(matchedTopic);
             }
             logStreamHardTimeout({
@@ -842,7 +849,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           hardTimer = setTimeout(handleHardTimeout, STREAM_HARD_TIMEOUT_MS);
 
           // Helper: finalize the stream (called on done/error/abort)
-          const finalizeStream = async (reason: "done" | "error" | "aborted", errorMsg?: string) => {
+          const finalizeStream = async (
+            reason: "done" | "error" | "aborted",
+            errorMsg?: string,
+            /**
+             * PERCHÉ il turno è finito, quando il provider lo sa. Manca solo
+             * quando finalizza un timer nostro (soft/hard watchdog): lì la
+             * ragione la conosce il chiamante e la passa esplicitamente.
+             */
+            turnEnd?: TurnEndInfo,
+          ) => {
             // Idempotent. A timeout path (handleGraceExpiry/handleHardTimeout) may
             // have already finalized and aborted this stream; a late provider
             // callback — `onDone` from an orphaned turn, or `onAborted` from the
@@ -874,6 +890,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               });
             }
             streamState = "finalized";
+
+            // La ragione della fine, decisa UNA volta. Se il provider non l'ha
+            // detta si ricava da com'è finito lo stream: `error` porta con sé il
+            // testo, che è l'unico posto dove un limite di token o un rifiuto
+            // possono ancora essere riconosciuti.
+            const endInfo: TurnEndInfo = turnEnd
+              ?? (reason === "error"
+                ? classifyTurnError(errorMsg ?? "", "provider-error")
+                : reason === "aborted"
+                ? { end: "cancelled" }
+                : { end: "end_turn" });
+            // Depositata PRIMA di chiudere l'SSE: chi guida un turno headless la
+            // ritira appena il drain finisce, e il drain finisce con `[DONE]`.
+            recordTurnEnd(sessionKey, endInfo);
 
             if (reason === "error" && errorMsg) {
               if (!fullContent.trim()) fullContent = `⚠️ ${errorMsg}`;
@@ -958,6 +988,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 usagePromptTokens,
                 usageCompletionTokens,
                 costCents,
+                // Vocabolario ACP sul filo. `error` NON è una ragione ACP: resta
+                // fuori da `stopReason` e viaggia come `reason` dello stream.
+                ...(isAcpStopReason(endInfo.end) ? { stopReason: endInfo.end } : {}),
+                ...(endInfo.cause ? { stopCause: endInfo.cause } : {}),
               });
               finalizeTurnActivity(matchedTopic);
             }
@@ -1493,7 +1527,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   }
                 }
               }
-              finalizeStream("done");
+              finalizeStream("done", undefined, message?.turnEnd);
             },
 
             onError: (error: string) => {
@@ -1509,7 +1543,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   fullContent = abortedText;
                 }
               }
-              finalizeStream("aborted");
+              finalizeStream("aborted", undefined, message?.turnEnd);
             },
           };
 

@@ -8,6 +8,7 @@
 
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type { CompactionMarker } from "./claude/compaction";
+import type { TurnEndInfo } from "./stop-reason";
 
 // ============ Message Types ============
 
@@ -54,6 +55,13 @@ export interface ProviderDoneMessage {
   costUsd?: number;
   /** Raw upstream payload — providers may surface their native shape here. */
   raw?: unknown;
+  /**
+   * PERCHÉ il turno è finito, col vocabolario di ACP. Il provider lo SA (glielo
+   * dice l'evento `result`, o il marcatore con cui muore la promise) e prima lo
+   * buttava via: chi stava a valle poteva solo indovinarlo dalla durata. Vedi
+   * `./stop-reason`.
+   */
+  turnEnd?: TurnEndInfo;
   [key: string]: unknown;
 }
 
