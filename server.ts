@@ -2521,9 +2521,21 @@ async function backfillDeliveries(): Promise<void> {
 const LANDING_AUDIT_INTERVAL_MS = 30 * 60_000;
 async function runLandingAudit() {
   await backfillDeliveries().catch((err) => console.warn("[landing-audit] backfill failed", err));
+  // `tasks.project_id` is the BOARD id — `projectIdForPath(path)`, a one-way
+  // hash — not a ProjectStore UUID. Asking the store for it returns undefined
+  // for every real board, and the audit reads a missing repo as "can't tell":
+  // wired that way the counter sat on `unverifiable` forever and could never
+  // catch the failure it exists for. Invert the hash the way the dispatcher
+  // does (resolveProject), building the candidate list ONCE per sweep — it
+  // scans the workspace dir, and re-scanning it per task buys nothing.
+  const candidates = buildProjectCandidates({
+    projectStore: ctx.projectStore,
+    workspaceDir: DISPATCH_WORKSPACE_DIR,
+    extraPaths: dispatchExtraPaths,
+  });
   return auditLandings({
     listCandidates: () => dispatcherSvc.listLandingAuditCandidates(),
-    repoPath: (projectId) => ctx.projectStore.get(projectId)?.path ?? null,
+    repoPath: (projectId) => resolveProjectPath(projectId, candidates)?.path ?? null,
     commitStatus: (repoPath, commit) => commitStatusFromRepo(repoPath, commit),
     record: (taskId, state, checkedAt) => dispatcherSvc.recordLandingState({ taskId, state, checkedAt }),
     previousState: (taskId) => dispatcherSvc.get(taskId)?.task.landingState ?? null,

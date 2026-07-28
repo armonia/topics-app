@@ -114,4 +114,22 @@ describe("auditLandings", () => {
     expect(s.checked).toBe(0);
     expect(h.recorded).toHaveLength(0);
   });
+
+  // REGRESSIONE: il wiring cercava `tasks.project_id` (l'id di BOARD, un hash
+  // di percorso) dentro il ProjectStore, che indicizza per UUID. `repoPath`
+  // tornava null per OGNI task e l'audit stampava `unverifiable` su tutto,
+  // silenziosamente: un contatore che non ha mai verificato niente, esattamente
+  // il fallimento che doveva intercettare. Un audit cieco deve dirlo.
+  it("un audit che non risolve NIENTE lo dice nel log invece di tacere", async () => {
+    const h = harness({ tasks: [task("a"), task("b"), task("c")], repo: () => null });
+    const s = await auditLandings(h.deps);
+    expect(s).toEqual({ checked: 3, landed: 0, unlanded: 0, unverifiable: 3 });
+    expect(h.logs.some((l) => l.includes("3/3") && l.includes("non verificabili"))).toBe(true);
+  });
+
+  it("nessun rumore quando ogni verdetto è certo", async () => {
+    const h = harness({ tasks: [task("a"), task("b")], status: () => "merged" });
+    await auditLandings(h.deps);
+    expect(h.logs).toHaveLength(0);
+  });
 });
