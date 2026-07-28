@@ -113,6 +113,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // pieno solo quando questa pane è DAVVERO guardata — attiva, app a fuoco e
   // documento visibile — altrimenti si accumula e si scarica a ~4Hz, in ordine.
   const isWatchedRef = useRef(false);
+  /** La pane ha un box nel layout? Falso dentro `display:none` (PaneKeepAlive).
+   *  Tenuto da un IntersectionObserver: sapere la visibilità COSTA se la si
+   *  chiede a `offsetParent`, che forza un layout sincrono — l'observer la
+   *  consegna gratis, fuori dal main thread. */
+  const hasLayoutRef = useRef(true);
   const coalescerRef = useRef<WriteCoalescer | null>(null);
 
   // ── Lossless reattach ──────────────────────────────────────────────────
@@ -190,10 +195,29 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     window.addEventListener('focus', sync);
     window.addEventListener('blur', sync);
     document.addEventListener('visibilitychange', sync);
+
+    // Presenza nel layout, gratis. Un elemento dentro `display:none` non ha box
+    // e quindi non interseca mai: l'observer distingue "nascosto" da "solo non
+    // a fuoco" senza leggere `offsetParent`, che forzerebbe un layout sincrono
+    // proprio nel percorso che stiamo cercando di alleggerire. Al ritorno del
+    // layout si scarica l'arretrato, altrimenti si tornerebbe sulla pane
+    // trovando uno schermo vecchio.
+    const host = containerRef.current;
+    const io = host
+      ? new IntersectionObserver((entries) => {
+          const visible = entries.some((e) => e.isIntersecting);
+          const was = hasLayoutRef.current;
+          hasLayoutRef.current = visible;
+          if (visible && !was) coalescerRef.current?.flush();
+        })
+      : null;
+    if (host && io) io.observe(host);
+
     return () => {
       window.removeEventListener('focus', sync);
       window.removeEventListener('blur', sync);
       document.removeEventListener('visibilitychange', sync);
+      io?.disconnect();
     };
   }, [isActive]);
 
@@ -292,6 +316,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     const coalescer = createWriteCoalescer({
       write: (chunk) => term.write(chunk),
       isWatched: () => isWatchedRef.current,
+      hasLayout: () => hasLayoutRef.current,
     });
     coalescerRef.current = coalescer;
 

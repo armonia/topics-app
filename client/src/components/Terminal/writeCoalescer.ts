@@ -16,9 +16,19 @@
  * Cosa fa. Scrive subito solo quando quel terminale è davvero guardato; negli
  * altri casi accumula e scarica a bassa cadenza. Due casi coperti:
  *
- *  · pane NON attiva → è dentro un guscio `display:none` (PaneKeepAlive), quindi
- *    il redraw non costa layout né paint, ma il lavoro DOM in JS lo fa lo
- *    stesso. Nessuno può vederla: cadenza bassa, zero perdita.
+ *  · pane NON attiva → è dentro un guscio `display:none` (PaneKeepAlive). Qui
+ *    l'assunzione scritta prima ("il redraw non costa layout né paint, solo
+ *    lavoro DOM in JS") era SBAGLIATA, ed è il caso peggiore, non il migliore.
+ *    Il renderer DOM misura la larghezza dei glifi con `offsetWidth` su uno
+ *    `span` nascosto, e `WidthCache.get` **non memorizza una misura pari a 0**
+ *    (`if (width > 0)`, xterm v6). Dentro `display:none` ogni misura torna 0,
+ *    quindi la cache non si popola MAI: ogni scarico rimisura ogni glifo di ogni
+ *    riga, per sempre, e ogni misura è una lettura che sporca stile e layout.
+ *    Misurato nell'app vera (sonda in lib/devLayoutProbe.ts, 2026-07-28): 643
+ *    `offsetWidth` forzati in 15 secondi, primo costo dell'app mentre si scrive
+ *    in un terminale. Per questo una pane SENZA LAYOUT non viene scaricata a
+ *    tempo: si accumula e si scarica quando torna visibile (o al tetto di byte).
+ *    Nessuno può vederla: zero perdita di contenuto, ordine dei byte intatto.
  *  · app non a fuoco o nascosta → è la condizione NORMALE di un'app companion,
  *    ed è la stessa soglia che `useAnimationPause` usa già per fermare le
  *    animazioni CSS. Il terminale resta VIVO (aggiorna 4 volte al secondo, non
@@ -58,6 +68,15 @@ export interface WriteCoalescerOptions {
   write: (chunk: TerminalChunk) => void;
   /** True quando quel terminale è davvero guardato ⇒ scrittura immediata. */
   isWatched: () => boolean;
+  /**
+   * True se il terminale ha un box nel layout (non è dentro un `display:none`).
+   * Quando è false lo scarico a tempo è SOSPESO: ridisegnare senza layout non
+   * mostra niente a nessuno e costa il doppio (vedi la nota sulla WidthCache in
+   * testa al file). L'arretrato esce al ritorno della visibilità — chi possiede
+   * il terminale chiama `flush()` — o al tetto di byte. Assente ⇒ sempre true,
+   * così il comportamento storico resta invariato per chi non lo passa.
+   */
+  hasLayout?: () => boolean;
   flushMs?: number;
   maxPendingBytes?: number;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
@@ -71,6 +90,7 @@ function byteLength(chunk: TerminalChunk): number {
 export function createWriteCoalescer({
   write,
   isWatched,
+  hasLayout = () => true,
   flushMs = BACKGROUND_FLUSH_MS,
   maxPendingBytes = MAX_PENDING_BYTES,
   setTimer = setTimeout,
@@ -114,6 +134,13 @@ export function createWriteCoalescer({
       bytes += byteLength(chunk);
       if (bytes >= maxPendingBytes) {
         flush();
+        return;
+      }
+      // Senza layout non si scarica a tempo: si aspetta il ritorno della
+      // visibilità. Un timer già armato viene disinnescato — la pane può essere
+      // stata nascosta DOPO che era partito.
+      if (!hasLayout()) {
+        disarm();
         return;
       }
       if (timer === null) timer = setTimer(() => { timer = null; flush(); }, flushMs);
