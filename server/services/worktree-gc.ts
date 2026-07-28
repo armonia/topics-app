@@ -73,6 +73,56 @@ export function decideWorktreeReap(input: WorktreeReapInput): WorktreeReapDecisi
 
 // ─────────────────────────────────────────────────────────────────────────
 
+export type LandOutcome = "landed" | "nothing" | "conflict" | "skipped";
+
+export interface PostLandInput {
+  /** What `tryLand` reported. */
+  outcome: LandOutcome;
+  /** Branch state re-read from the repo AFTER the land attempt. */
+  branchAfter: BranchStatus;
+  /** Non-junk uncommitted paths still in the worktree AFTER the land. */
+  dirtAfter: string[];
+}
+
+/**
+ * The post-land guard — the ONE place that decides whether a landing earned the
+ * right to destroy a branch. Pure, so both callers (the GC sweep and the manual
+ * `landTask`) share the exact same contract instead of each growing their own
+ * half of it.
+ *
+ * Why it exists: `tryLand` reporting `"landed"` — or `"nothing"`, meaning "the
+ * branch has no commits main doesn't" — is a CLAIM, not proof. On 2026-07-19 a
+ * task's only copy of 139 lines (the `watching` phase) was reaped on the back of
+ * that claim: the branch was deleted, the commit survived only in the reflog.
+ * The old code said as much in a comment — *"landed OR nothing (superseded) →
+ * the branch holds nothing to lose now"* — and never checked.
+ *
+ * So we re-READ the repo after the attempt and reap only against evidence:
+ *   • conflict/skipped → the land didn't happen at all;
+ *   • dirt still in the tree → uncommitted work is the only copy (task `e8780726`,
+ *     the same hole seen from the other side: not-landed vs not-committed);
+ *   • branch still `unmerged` → the content is provably NOT on main.
+ * Anything else and the branch keeps living until a human says otherwise.
+ */
+export function decidePostLandReap(input: PostLandInput): WorktreeReapDecision {
+  if (input.outcome === "conflict" || input.outcome === "skipped") {
+    return { action: "keep", reason: `land ${input.outcome}` };
+  }
+  if (input.dirtAfter.length > 0) {
+    return { action: "keep", reason: `modifiche non committate dopo il land (${input.dirtAfter.length} file)` };
+  }
+  // `gone` = the land itself deleted the ref; there is no branch left to lose.
+  if (input.branchAfter === "unmerged") {
+    return {
+      action: "keep",
+      reason: `land '${input.outcome}' ma il contenuto NON risulta su main — branch conservato`,
+    };
+  }
+  return { action: "reap", reason: `land '${input.outcome}' verificato su main` };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
 export interface GcWorktree {
   id: string;
   projectId: string;
@@ -109,9 +159,15 @@ export interface WorktreeGcDeps {
   /** The worktree's board opted into auto-merge. */
   autoMergeEnabled: (projectId: string) => boolean;
   /** Land the task's branch. Returns the coarse outcome. */
-  tryLand: (taskId: string) => Promise<"landed" | "nothing" | "conflict" | "skipped">;
+  tryLand: (taskId: string) => Promise<LandOutcome>;
   /** Reap worktree + branch + row (worktreeManager.delete). */
   reap: (worktreeId: string) => Promise<boolean>;
+  /**
+   * Surface a refused reap on the task itself (a system comment). A branch kept
+   * because its content never reached main is exactly the failure that went
+   * unnoticed for 8 days — it must be visible where the human looks.
+   */
+  noteOnTask?: (taskId: string, message: string) => void;
   log: (msg: string) => void;
 }
 
@@ -173,13 +229,28 @@ export async function sweepWorktrees(deps: WorktreeGcDeps): Promise<WorktreeGcSu
         // commits can't be landed → keep it for a human rather than lose work.
         if (!taskId) { summary.kept += 1; continue; }
         const outcome = await deps.tryLand(taskId);
-        if (outcome === "conflict" || outcome === "skipped") {
-          deps.log(`[worktree-gc] keep ${wt.branchName ?? wt.id}: land ${outcome}`);
+        if (outcome === "landed") summary.landed += 1;
+
+        // VERIFY BEFORE DESTROY. Re-read the repo — the land's own verdict is
+        // not evidence (see `decidePostLandReap`).
+        const [branchAfter, dirtAfter] = await Promise.all([
+          deps.branchStatus(wt).catch(() => "unmerged" as BranchStatus),
+          deps.diskPresent(wt.absPath)
+            ? deps.realDirt(wt.absPath).catch(() => [] as string[])
+            : Promise.resolve([] as string[]),
+        ]);
+        const post = decidePostLandReap({ outcome, branchAfter, dirtAfter });
+        if (post.action === "keep") {
+          deps.log(`[worktree-gc] keep ${wt.branchName ?? wt.id}: ${post.reason}`);
+          if (outcome === "landed" || outcome === "nothing") {
+            deps.noteOnTask?.(
+              taskId,
+              `⚠️ Worktree NON ripulito: ${post.reason}. Il branch \`${wt.branchName ?? wt.id}\` è stato conservato — verifica a mano prima di cancellarlo.`,
+            );
+          }
           summary.kept += 1;
           continue;
         }
-        if (outcome === "landed") summary.landed += 1;
-        // landed OR nothing (superseded) → the branch holds nothing to lose now.
       }
 
       const ok = await deps.reap(wt.id);
