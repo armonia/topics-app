@@ -99,6 +99,22 @@ let timerId: ReturnType<typeof setTimeout> | null = null;
 
 /** Cadenza quando la finestra è visibile ma non a fuoco. */
 const UNFOCUSED_INTERVAL_MS = 80;
+/**
+ * Cadenza quando la finestra È a fuoco: ~30fps, non il refresh del display.
+ *
+ * Prima qui c'era `requestAnimationFrame` nudo, cioè un frame OGNI frame — su un
+ * pannello a 100Hz, cento disegni al secondo per un'onda di fumo sfocata. Misurato
+ * nell'app vera (sonda in lib/devLayoutProbe.ts, 2026-07-28) questo ticker era il
+ * primo consumatore di rAF rimasto: 549 chiamate in 15s, 37/s. E il costo non è
+ * il disegno — il canvas è a 1/3 di risoluzione — ma il rAF stesso: obbliga
+ * WebKit a un rendering update completo, e lì dentro gira il layout.
+ *
+ * 30fps su un'onda che si muove lentamente e sfocata non si distingue dai 100:
+ * è l'unico punto dove limitare il frame rate è la scelta GIUSTA e non una pezza,
+ * perché qui i frame in più non li vede nessuno. Ovunque altro la strada resta
+ * togliere il lavoro per frame, non i frame.
+ */
+const FOCUSED_INTERVAL_MS = 33;
 
 function parked(): boolean {
   return rafId === 0 && timerId === null;
@@ -115,19 +131,21 @@ function disarm(): void {
   }
 }
 
-/** Arma UNA sola continuazione — rAF a fuoco, timeout+rAF altrimenti. */
+/**
+ * Arma UNA sola continuazione: attesa + rAF, con la cadenza che dipende dal
+ * fuoco. Il rAF serve solo ad allineare il disegno al vsync — è l'ATTESA a
+ * decidere quanti frame chiediamo, e fra un tick e l'altro non resta niente in
+ * coda, così il renderer può stare fermo davvero.
+ */
 function schedule(): void {
   if (subscribers.size === 0 || document.hidden) return;
   if (rafId || timerId !== null) return;
-  if (document.hasFocus()) {
-    rafId = requestAnimationFrame(loop);
-    return;
-  }
+  const wait = document.hasFocus() ? FOCUSED_INTERVAL_MS : UNFOCUSED_INTERVAL_MS;
   timerId = setTimeout(() => {
     timerId = null;
     if (subscribers.size === 0 || document.hidden) return;
     rafId = requestAnimationFrame(loop);
-  }, UNFOCUSED_INTERVAL_MS);
+  }, wait);
 }
 
 function loop(now: number): void {
