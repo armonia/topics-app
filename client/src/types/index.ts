@@ -633,6 +633,29 @@ export interface WSStreamCompactionMessage {
   createdAt: string;
 }
 /**
+ * Il contesto REALE del modello, misurato su UNA chiamata
+ * (`input + cache_read + cache_creation`) contro la finestra di quel modello.
+ *
+ * Da non confondere con il preventivo dell'envelope che mostra il Context
+ * Inspector (`ContextBudgetBar`): quello è "cosa sto iniettando io", questo è
+ * "cosa ha in pancia il modello adesso". Due domande diverse.
+ */
+export interface ContextUsage {
+  used: number;
+  size: number;
+  /** 0–100, satura a 100. */
+  percent: number;
+  level: 'ok' | 'warn' | 'critical';
+  /** true = finestra dedotta dal default perché il modello non è in tabella. */
+  estimated: boolean;
+  model?: string;
+}
+export interface WSStreamContextMessage extends ContextUsage {
+  type: 'stream:context';
+  sessionKey: string;
+  topicId?: string;
+}
+/**
  * A tool call paused the stream and is asking the user for input.
  * The client opens the inline `ToolInputForm` against `schema`; on
  * submission it `POST /api/chat/tool-response` with the resolved
@@ -1117,6 +1140,7 @@ export type WSMessage =
   | WSStreamToolDetailMessage
   | WSStreamErrorMessage
   | WSStreamCompactionMessage
+  | WSStreamContextMessage
   | WSStreamToolUserInputRequiredMessage
   | WSStreamCatchupMessage
   | WSTypingMessage

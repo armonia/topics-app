@@ -31,7 +31,17 @@ export function ContextBudgetBar({ sources, totalTokens, budgetLimit, budgetPerc
   return (
     <div data-testid="context-budget-bar" className="px-4 py-3 border-b border-app-border">
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[12px] font-medium text-app-text">Context Budget</span>
+        {/* Etichetta esplicita: questo è il PREVENTIVO di ciò che iniettiamo
+            noi all'inizio del turno, non il contesto vivo del modello. Quello
+            è il ring nel composer, misurato sull'ultima chiamata. Due domande
+            diverse: chiamarli tutti e due "Context" faceva sembrare che il
+            13% dell'envelope fosse il 13% della finestra. */}
+        <span
+          className="text-[12px] font-medium text-app-text"
+          title="What Topics injects at the start of a turn (memory, prompt, template, files, pinned). The live model context is the ring in the composer."
+        >
+          Injected Context (estimate)
+        </span>
         <span data-testid="budget-percent" className={`text-[12px] font-semibold tabular-nums ${isCritical ? 'text-red-500' : isWarning ? 'text-amber-500' : 'text-app-text-secondary'}`}>
           {formatTokens(totalTokens)} / {formatTokens(budgetLimit)} ({budgetLimit > 0 ? budgetPercent : 0}%)
         </span>

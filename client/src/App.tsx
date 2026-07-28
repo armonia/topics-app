@@ -570,6 +570,16 @@ function App() {
     return () => window.removeEventListener('topics:open-terminal-pane', handler as EventListener);
   }, [handleTerminalClick]);
 
+  // Preavviso di compaction nel composer → "Nuova chat". Stesso bus del picker
+  // di progetto: la strip vive dentro ChatInput, tre livelli sotto, e l'unica
+  // alternativa sarebbe stata infilare onNewChat in ChatPane → ChatInput solo
+  // per un bottone che compare sopra il 90% di contesto.
+  useEffect(() => {
+    const handler = () => { if (appSettings.enableNewChat) handleQuickCreateTopic(); };
+    window.addEventListener('topics:new-chat', handler);
+    return () => window.removeEventListener('topics:new-chat', handler);
+  }, [handleQuickCreateTopic, appSettings.enableNewChat]);
+
   // Native tray menu (Tauri) click on an attention row → open/focus that topic,
   // exactly like a sidebar click. The Rust `nav:` handler dispatches this DOM
   // CustomEvent into the webview (no @tauri-apps/event dependency).

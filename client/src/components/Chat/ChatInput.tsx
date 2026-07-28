@@ -15,6 +15,7 @@ import { SessionConfigPopover } from './SessionConfigPopover';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { ContextRing } from '../Shared/ContextRing';
 import { useContextInspector } from '../../hooks/useContextInspector';
+import { useRealContext, formatTokens } from '../../hooks/useRealContext';
 import { POPOVER_PANEL, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
 import { Menu } from '../Shared/Menu';
@@ -459,6 +460,36 @@ export function ChatInput({
   const isDraftTopic = topic.id.startsWith('draft:');
   const { budgetPercent } = useContextInspector(isDraftTopic ? null : topic.id);
 
+  // Il ring mostra due numeri diversi, e finora ne mostrava solo il secondo:
+  //   • `realContext` = quanto ha in pancia il modello ADESSO, misurato sulla
+  //     sua ultima chiamata. È la domanda che l'umano si fa a ogni turno;
+  //   • `budgetPercent` = il preventivo dell'envelope che iniettiamo NOI
+  //     (memory, prompt, file, pinned). Utile, ma è un'altra domanda — e
+  //     mostrarla da sola sotto l'etichetta "Context" faceva credere che
+  //     fosse la prima.
+  // Quando la misura reale esiste vince lei; il preventivo resta dentro il
+  // Context Inspector, dove è etichettato per quello che è.
+  const realContext = useRealContext(isDraftTopic ? null : topic.sessionKey, onMessage);
+  const ringPercent = realContext ? realContext.percent : budgetPercent;
+  const ringTitle = realContext
+    ? `Model context: ${formatTokens(realContext.used)} / ${realContext.estimated ? '≈' : ''}${formatTokens(realContext.size)} (${realContext.percent}%)${realContext.model ? ` — ${realContext.model}` : ''}`
+    : `Injected context (estimate): ${budgetPercent}%`;
+
+  // Preavviso di compaction. Oggi la compaction si scopre a cose fatte, dal
+  // divider; con la misura reale diventa prevedibile — ed è l'unico momento in
+  // cui l'umano può ancora scegliere (compattare adesso, o aprire una chat
+  // nuova e tenersi questa intatta).
+  // La chiusura è per livello, non per sempre: chi archivia l'avviso al 72%
+  // non sta dicendo "non avvisarmi più" per quando arriverà al 93%.
+  const [dismissedContextLevel, setDismissedContextLevel] = useState<'warn' | 'critical' | null>(null);
+  useEffect(() => { setDismissedContextLevel(null); }, [topic.sessionKey]);
+  const contextNotice = (() => {
+    if (!realContext || realContext.level === 'ok') return null;
+    const rank = { ok: 0, warn: 1, critical: 2 } as const;
+    if (rank[realContext.level] <= rank[dismissedContextLevel ?? 'ok']) return null;
+    return { ...realContext, level: realContext.level as 'warn' | 'critical' };
+  })();
+
   // Context Inspector popover. Anchored to the ring button below; dismisses on
   // outside-pointer / Escape via the shared useDismissable contract (the ring
   // ref is in `refs` so clicking it to close doesn't immediately re-open).
@@ -852,6 +883,52 @@ export function ChatInput({
         </div>
       )}
 
+      {/* Preavviso di compaction — la scelta si offre PRIMA, non dopo il divider */}
+      {contextNotice && (
+        <div
+          data-testid="context-notice"
+          data-context-level={contextNotice.level}
+          className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 rounded-xl border px-3 py-2 flex items-center gap-2 flex-shrink-0 ${
+            contextNotice.level === 'critical'
+              ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800/40'
+              : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/40'
+          }`}
+        >
+          <div className="flex-1 min-w-0">
+            <div className={`text-[11px] font-medium ${contextNotice.level === 'critical' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'}`}>
+              {contextNotice.level === 'critical'
+                ? `Context almost full — ${contextNotice.percent}%`
+                : `Context filling up — ${contextNotice.percent}%`}
+            </div>
+            <div className={`text-[11px] truncate ${contextNotice.level === 'critical' ? 'text-red-600 dark:text-red-500' : 'text-amber-600 dark:text-amber-500'}`}>
+              {formatTokens(contextNotice.used)} / {contextNotice.estimated ? '≈' : ''}{formatTokens(contextNotice.size)} — compacting soon drops detail. Compact now, or start a fresh chat.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setDismissedContextLevel(contextNotice.level); void sendMessageDirect('/compact'); }}
+            className={`px-2.5 py-1 text-[11px] text-white rounded-md transition-colors flex-shrink-0 ${contextNotice.level === 'critical' ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}
+          >
+            Compact now
+          </button>
+          <button
+            type="button"
+            onClick={() => { setDismissedContextLevel(contextNotice.level); window.dispatchEvent(new CustomEvent('topics:new-chat')); }}
+            className="px-2.5 py-1 text-[11px] rounded-md border border-app-border-light text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0"
+          >
+            New chat
+          </button>
+          <button
+            type="button"
+            onClick={() => setDismissedContextLevel(contextNotice.level)}
+            className="text-app-text-tertiary hover:text-app-text p-0.5 flex-shrink-0"
+            title="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {othersTyping && (
         <div className={`${isMobile ? 'mx-2' : 'mx-3'} mb-1 flex items-center gap-2 px-3`}>
           <div className="flex gap-1 flex-shrink-0">
@@ -1051,13 +1128,15 @@ export function ChatInput({
                         ? 'bg-primary/10 text-primary'
                         : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
                     }`}
-                    title={`Context: ${budgetPercent}%`}
+                    title={ringTitle}
                     aria-label="Toggle context inspector"
                     aria-haspopup="dialog"
                     aria-expanded={showContextPopover}
                     data-testid="chat-input-context-ring"
+                    data-context-percent={ringPercent}
+                    data-context-source={realContext ? 'model' : 'envelope'}
                   >
-                    <ContextRing percent={budgetPercent} size={14} />
+                    <ContextRing percent={ringPercent} size={14} />
                   </button>
                 )}
                 {onProviderOverrideChange && (

@@ -1,10 +1,29 @@
 import { readFileSync, existsSync } from "fs";
 import type { AppContext, RouteHandler } from "../types";
+import { getSessionContext } from "../db/session-context";
+import { classifyContext } from "../usage/context-window";
 
 export function createContextRouter(ctx: AppContext): RouteHandler {
   const { GATEWAY_URL, GATEWAY_TOKEN, json, loadTopics, loadLocalMessages } = ctx;
 
   return async function contextRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+
+    // Il contesto REALE dell'ultima chiamata al modello — la stessa cosa che
+    // l'evento WS `stream:context` manda durante lo streaming, qui per chi
+    // apre l'app a turno finito. Senza questo il ring resterebbe vuoto fino
+    // al messaggio successivo, cioè proprio quando serve saperlo.
+    //
+    // Da non confondere con `GET /api/context` qui sotto, che stima il
+    // PREVENTIVO dell'envelope che iniettiamo noi (memory, prompt, file): due
+    // domande diverse, entrambe legittime, mai lo stesso numero.
+    if (method === "GET" && pathname === "/api/context/live") {
+      const sessionKey = url.searchParams.get("sessionKey");
+      if (!sessionKey) return json({ error: "sessionKey required" }, 400);
+      const row = getSessionContext(ctx.db, sessionKey);
+      if (!row) return json({ context: null });
+      const usage = classifyContext(row.usedTokens, { tokens: row.windowTokens, known: !row.estimated });
+      return json({ context: { ...usage, model: row.model, measuredAt: row.measuredAt } });
+    }
 
     if (method === "GET" && pathname === "/api/context") {
       const sessionKey = url.searchParams.get("sessionKey");

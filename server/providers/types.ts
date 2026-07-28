@@ -297,8 +297,14 @@ export interface StreamHandler {
    * on a long turn and must never be read as "how big is the context now"
    * (that made the post-compaction divider report a context EXPLOSION).
    * Fires once per assistant message; sub-agent (sidechain) calls are excluded.
+   *
+   * `model` is the model that produced THAT call — the only honest source for
+   * the denominator of the ring. Resolving it from the request options instead
+   * would be wrong the moment the CLI falls back to another model mid-turn
+   * (fast mode, overload), and a 200k window under a 1M model reads "90% full"
+   * on a session that is at 18%.
    */
-  onContextSize?: (tokens: number) => void;
+  onContextSize?: (tokens: number, model?: string) => void;
   onDone: (message?: ProviderDoneMessage) => void;
   onError: (error: string) => void;
   onAborted?: (message?: ProviderDoneMessage) => void;
