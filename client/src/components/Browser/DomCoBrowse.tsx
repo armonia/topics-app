@@ -61,6 +61,11 @@ const RELAYED_KEYS = new Set([
   'Home', 'End', 'PageUp', 'PageDown',
 ]);
 
+/** Senza eventi per questo tempo il timer live si parcheggia: una pagina remota
+ *  ferma non deve tenere sveglio il renderer. Abbastanza largo da non tagliare la
+ *  coda di applicazione di rrweb (che lavora ~100ms dietro il tempo reale). */
+const IDLE_PARK_MS = 400;
+
 /** Coalesce relayed scroll deltas at this cadence (ms) so we don't flood the WS. */
 const SCROLL_RELAY_INTERVAL = 60;
 /** Below this touch travel a touch is treated as a tap (→ click), not a scroll. */
@@ -88,6 +93,8 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
   /** Riallinea il parcheggio del timer live (definita nell'effetto sotto). Sta
    *  in una ref perché `handle` può correre prima che la closure esista. */
   const parkWhenHiddenRef = useRef<(() => void) | null>(null);
+  /** Segnala traffico in arrivo al parcheggio del timer live (idem, via ref). */
+  const noteActivityRef = useRef<(() => void) | null>(null);
   // Recorded source dimensions (from the Meta event) + the current fit scale.
   const dimsRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const scaleRef = useRef(1);
@@ -358,6 +365,8 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
     const handle = (raw: unknown) => {
       const event = raw as RrwebEvent;
       if (!event || typeof event.type !== 'number') return;
+      // Traffico: sveglia il timer se era parcheggiato e riarma l'inattività.
+      noteActivityRef.current?.();
       // Meta (type 4) carries the recorded viewport — drive the fit from it.
       if (event.type === EVENT_META && event.data) {
         dimsRef.current = { w: event.data.width || dimsRef.current.w, h: event.data.height || dimsRef.current.h };
@@ -419,8 +428,16 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
     // Gli eventi continuano ad ARRIVARE mentre è parcheggiato: `addEvent` li
     // accoda, e al risveglio `startLive` con una baseline fresca li scarica
     // tutti insieme. Il mirror si riallinea in un colpo invece di perdere pezzi.
+    //
+    // Non basta però la visibilità: col mirror IN VISTA il timer tornava a
+    // pompare a frame pieno (858 rAF in 15s, misurati) anche davanti a una
+    // pagina remota completamente FERMA. Quindi il timer segue anche il flusso:
+    // dopo `IDLE_PARK_MS` senza eventi si parcheggia, e il prossimo evento lo
+    // risveglia. Una pagina che anima davvero (video, spinner) manda eventi di
+    // continuo e resta sveglia da sé; una pagina statica costa zero.
     let parked = false;
     let intersecting = true;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const park = () => {
       if (parked || !replayerRef.current) return;
       parked = true;
@@ -435,6 +452,14 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
       if (intersecting && !document.hidden) wake();
       else park();
     };
+    // Chiamata a ogni evento in arrivo: sveglia e riarma il conto alla rovescia.
+    const noteActivity = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      sync();
+      if (!intersecting || document.hidden) return;
+      idleTimer = setTimeout(() => { idleTimer = null; park(); }, IDLE_PARK_MS);
+    };
+    noteActivityRef.current = noteActivity;
     parkWhenHiddenRef.current = sync;
     const io = new IntersectionObserver((entries) => {
       intersecting = entries.some((e) => e.isIntersecting);
@@ -448,7 +473,9 @@ export default function DomCoBrowse({ registerDomSink, sendInput, agentActive }:
       ro.disconnect();
       io.disconnect();
       document.removeEventListener('visibilitychange', sync);
+      if (idleTimer) clearTimeout(idleTimer);
       parkWhenHiddenRef.current = null;
+      noteActivityRef.current = null;
       navGuardAbortRef.current?.abort();
       navGuardAbortRef.current = null;
       if (acc.timer) clearTimeout(acc.timer);
