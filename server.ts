@@ -77,6 +77,7 @@ import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./server/services/app-settings";
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
+import { createE2eRouter } from "./server/routes/e2e";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isLoopbackAddress, isAuthGatedPath } from "./server/lib/auth-gate";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
@@ -607,6 +608,16 @@ const taskDispatcher = createTaskDispatcher({
     return typeof p?.hasLiveSession === "function" ? p.hasLiveSession(sessionKey) : Promise.resolve(false);
   },
   reattach: (sessionKey, opts) => runHeadlessReattach(sessionKey, opts),
+  // Liveness net: is the agent CHILD of this session still there? Same probe the
+  // stream watchdog uses to tell a thinking-but-mute turn from a dead one (it
+  // covers direct AND broker mode — the daemon's `exit` frame flips pp.alive).
+  // A provider without the probe answers null = "can't tell", and the dispatcher
+  // never buries a turn on ignorance.
+  isTurnAlive: (sessionKey) => {
+    const p = getProvider("claude-code") as unknown as { isTurnProcessAlive?: (sk: string) => boolean };
+    if (typeof p?.isTurnProcessAlive !== "function") return null;
+    try { return p.isTurnProcessAlive(sessionKey); } catch { return null; }
+  },
   // Usage consumed by the dispatched session so far, from its Claude Code
   // transcript (jsonl_path is kept fresh by the session tracker). The reader
   // (transcript-usage.ts) is incremental (per-path byte offset — the live
@@ -835,6 +846,9 @@ const pushRouter = createPushRouter(ctx);
 const uiStateRouter = createUiStateRouter(ctx);
 const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
+// Reset della suite E2E. Si auto-disarma (risponde 404) se TOPICS_E2E ≠ "1",
+// che è il caso di ogni server non di test — vedi server/routes/e2e.ts.
+const e2eRouter = createE2eRouter(ctx);
 
 const claudeHooksRouter = createClaudeHooksRouter(ctx, claudeSessionTracker);
 // Replay JSONL tails for any session whose state was lost on the previous
@@ -1434,6 +1448,7 @@ const server = Bun.serve<WSData>({
         || await providersRouter(req, url, pathname, method)
         || await appSettingsRouter(req, url, pathname, method)
         || await claudeHooksRouter(req, url, pathname, method)
+        || await e2eRouter(req, url, pathname, method)
 ;
 
       if (response) {
