@@ -10,7 +10,7 @@
  */
 
 import { spawn, execFileSync, execSync, type ChildProcess } from "child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import {
@@ -85,6 +85,10 @@ async function snapshotBundle(): Promise<string> {
   const src = resolve(__dirname, "../../public");
   const dest = publicDirForPort(E2E_PORT);
   for (let attempt = 1; attempt <= 3; attempt++) {
+    // La freschezza si ricontrolla a OGNI tentativo: fra una copia stracciata e
+    // la successiva possono passare secondi, e in mezzo il watcher può aver
+    // ricominciato da capo.
+    await waitForFreshBundle(src);
     rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
     // execFileSync, non execSync: niente shell di mezzo, quindi un percorso con
@@ -107,14 +111,124 @@ async function snapshotBundle(): Promise<string> {
   );
 }
 
-/** Gli asset che `index.html` cita ma che nella copia non ci sono. */
+/**
+ * Cosa manca perché `dir` sia un bundle servibile. Vuoto = va bene.
+ *
+ * Non basta "gli asset citati esistono": `index.html` stesso può essere a metà.
+ * Visto davvero — la copia ha beccato vite fra il `create` e il `write`, e ne è
+ * uscito un `index.html` di ZERO byte. Un file vuoto non cita nessun asset,
+ * quindi il controllo degli asset passava a vuoto, il server serviva una pagina
+ * bianca e tutti i test fallivano dicendo che non trovavano la sidebar. Prima
+ * si verifica che il file sia INTERO (chiuso, e con dentro l'entry del client),
+ * poi che ciò che cita ci sia.
+ */
 function missingBundleAssets(dir: string): string[] {
   const entry = join(dir, "index.html");
   if (!existsSync(entry)) return ["index.html"];
   const html = readFileSync(entry, "utf8");
+  if (!html.trim()) return ["index.html (vuoto)"];
+  if (!/<\/html>\s*$/.test(html)) return ["index.html (troncato)"];
   const refs = new Set<string>();
   for (const m of html.matchAll(/(?:src|href)="(\/[^"]+)"/g)) refs.add(m[1]);
+  // Senza il modulo di entry la pagina si carica e non fa niente: bianca, e il
+  // rosso accusa il primo componente che qualcuno cerca.
+  if (![...refs].some((r) => /^\/assets\/.*\.js$/.test(r))) return ["index.html (senza entry /assets/*.js)"];
   return [...refs].filter((ref) => !existsSync(join(dir, ref.replace(/^\//, ""))));
+}
+
+/** Quanto si aspetta che il watcher finisca di ricostruire, prima di arrendersi. */
+const BUNDLE_FRESH_TIMEOUT_MS = 90_000;
+
+/**
+ * Aspetta che `public/` sia più NUOVO dell'ultimo sorgente del client.
+ *
+ * Congelare il bundle toglie la non-ermeticità (vedi `snapshotBundle`), ma da
+ * solo introduce un rischio peggiore: se la fotografia viene scattata mentre il
+ * watcher non ha ancora ricostruito, la run intera gira sul codice di PRIMA — in
+ * silenzio, e stavolta in modo perfettamente riproducibile. È già successo: un
+ * `aria-label` appena cambiato non era nel bundle, il test falliva citando la
+ * versione vecchia della stringa e il rosso sembrava un bug del componente.
+ * Un test verde su codice vecchio è peggio di un test rosso: mente.
+ *
+ * Il confronto è mtime dell'`index.html` prodotto contro il sorgente toccato più
+ * di recente — ma prima ancora il bundle dev'essere INTERO
+ * (`missingBundleAssets`): a metà rebuild `index.html` ha già l'mtime nuovo ed è
+ * ancora vuoto, e il solo mtime direbbe "pronto" su una pagina bianca.
+ *
+ * Si ASPETTA invece di fallire subito, perché il caso normale è proprio questo:
+ * si salva un file e si lancia la suite un secondo dopo, mentre
+ * `vite build --watch` sta ancora macinando.
+ *
+ * I `*.test.ts(x)` sono esclusi apposta: non sono nel grafo dei moduli
+ * dell'entry, quindi salvarne uno non produce nessun rebuild e l'attesa non
+ * finirebbe mai.
+ */
+async function waitForFreshBundle(publicDir: string): Promise<void> {
+  const entry = join(publicDir, "index.html");
+  const deadline = Date.now() + BUNDLE_FRESH_TIMEOUT_MS;
+  let announced = false;
+  let newest: { path: string; mtimeMs: number };
+
+  for (;;) {
+    // Il sorgente si rilegge a ogni giro: se qualcuno salva mentre aspettiamo,
+    // il traguardo si sposta in avanti — che è la risposta giusta.
+    newest = newestClientSource();
+    // Coerente PRIMA che recente: durante un rebuild `index.html` esiste già,
+    // con l'mtime nuovo, ma può essere ancora vuoto — e un mtime da solo
+    // direbbe "pronto" su una pagina bianca.
+    const coherent = missingBundleAssets(publicDir).length === 0;
+    const builtAt = coherent ? statSync(entry).mtimeMs : 0;
+    if (coherent && builtAt >= newest.mtimeMs) {
+      if (announced) console.log(`[global-setup] Bundle aggiornato, si prosegue.`);
+      return;
+    }
+    if (Date.now() >= deadline) break;
+    if (!announced) {
+      announced = true;
+      console.log(
+        coherent
+          ? `[global-setup] Bundle più vecchio di ${newest.path}: aspetto il build del client…`
+          : `[global-setup] Bundle a metà (${missingBundleAssets(publicDir)[0]}): aspetto il build del client…`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  const missing = missingBundleAssets(publicDir);
+  const stato = missing.length
+    ? `manca ${missing.join(", ")}`
+    : `il bundle è fermo a ${new Date(statSync(entry).mtimeMs).toLocaleTimeString()}, ` +
+      `l'ultimo sorgente è delle ${new Date(newest.mtimeMs).toLocaleTimeString()}`;
+  throw new Error(
+    `[global-setup] Il bundle del client non è utilizzabile: ${stato}.\n` +
+      `Ultimo file toccato: ${newest.path}\n\n` +
+      `La suite girerebbe sul codice di PRIMA (o su una pagina bianca) e il rosso ` +
+      `accuserebbe il componente sbagliato.\n` +
+      `Probabile: \`bun run dev:client\` non è su, oppure il build è fallito. Lancia:\n\n` +
+      `    bun run build:client\n\n` +
+      `(Se il file è appena stato creato e non lo importa ancora nessuno, il watcher ` +
+      `non ha nulla da ricostruire: importalo o fai un build a mano.)`,
+  );
+}
+
+/** Il sorgente del client toccato più di recente, esclusi i test. */
+function newestClientSource(): { path: string; mtimeMs: number } {
+  const roots = [resolve(__dirname, "../../client/src"), resolve(__dirname, "../../client/index.html")];
+  let best = { path: roots[0], mtimeMs: 0 };
+
+  const visit = (p: string): void => {
+    const st = statSync(p);
+    if (st.isDirectory()) {
+      for (const name of readdirSync(p)) visit(join(p, name));
+      return;
+    }
+    // Non nel grafo dei moduli: non fa scattare nessun rebuild.
+    if (/\.test\.[cm]?[jt]sx?$/.test(p)) return;
+    if (st.mtimeMs > best.mtimeMs) best = { path: p, mtimeMs: st.mtimeMs };
+  };
+
+  for (const root of roots) if (existsSync(root)) visit(root);
+  return best;
 }
 
 let serverProcess: ChildProcess | null = null;
@@ -222,24 +336,28 @@ async function startTestServer(): Promise<void> {
 }
 
 async function globalSetup() {
-  // Il bundle deve esistere PRIMA di accendere il server, o ogni test mente.
+  // Il bundle deve esistere ED ESSERE AGGIORNATO prima di ogni altra cosa, o
+  // ogni test mente — in due modi diversi.
   //
-  // `public/` è gitignored: in un checkout fresco — un worktree di agente, una
-  // clone pulita, una CI senza step di build — semplicemente non c'è. Il server
-  // di test parte lo stesso e serve una pagina vuota, quindi TUTTI i test
-  // falliscono sul primo `waitForSelector('[aria-label="Topics sidebar"]')`:
-  // ~500 rossi che accusano il componente sbagliato e mandano a caccia di un
-  // bug che non esiste (visto: chat.spec.ts sembrava rotto sullo scroll, era
-  // `bun run build:client` fallito in silenzio per node_modules mancanti).
-  // Un errore solo, che dice cosa lanciare, vale più di una suite rossa.
-  const bundleEntry = resolve(__dirname, "../../public/index.html");
-  if (!existsSync(bundleEntry)) {
-    throw new Error(
-      `[global-setup] Bundle del client assente: ${bundleEntry}\n` +
-        `Il server di test servirebbe una pagina vuota e ogni test fallirebbe ` +
-        `per un motivo finto. Lancia prima:\n\n    bun run build:client\n`
-    );
-  }
+  // Assente: `public/` è gitignored, quindi in un checkout fresco — un worktree
+  // di agente, una clone pulita, una CI senza step di build — semplicemente non
+  // c'è. Il server di test parte lo stesso e serve una pagina vuota, quindi
+  // TUTTI i test falliscono sul primo
+  // `waitForSelector('[aria-label="Topics sidebar"]')`: ~500 rossi che accusano
+  // il componente sbagliato e mandano a caccia di un bug che non esiste (visto:
+  // chat.spec.ts sembrava rotto sullo scroll, era `bun run build:client` fallito
+  // in silenzio per node_modules mancanti).
+  //
+  // Vecchio: la suite gira sul codice di ieri e il verde non dimostra niente.
+  //
+  // Il controllo ASPETTA (vedi waitForFreshBundle) invece di fallire subito,
+  // perché il caso normale è lanciare i test un secondo dopo aver salvato,
+  // mentre il watcher sta ancora ricostruendo — e in quella finestra `public/`
+  // è vuota. Fallire lì sarebbe la stessa flakiness, spostata di un metro.
+  //
+  // Sta QUI, prima del lock e dei passi distruttivi: se manca il build non c'è
+  // motivo di ammazzare la porta di nessuno.
+  await waitForFreshBundle(resolve(__dirname, "../../public"));
 
   // Il lock PRIMA di qualsiasi passo distruttivo.
   //
