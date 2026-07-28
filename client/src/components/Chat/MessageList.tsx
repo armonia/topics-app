@@ -16,6 +16,15 @@ import {
   consumeScrollToMessage,
   markScrollToMessageFired,
 } from '../../state/scrollToMessage';
+import {
+  reduceScroll,
+  shouldPin,
+  isUserScrollUp,
+  initialScrollAuthority,
+  AT_BOTTOM_TOLERANCE_PX,
+  type ScrollAuthorityState,
+  type ScrollEvent,
+} from './scrollAuthority';
 
 interface MessageListProps {
   isMobile: boolean;
@@ -98,18 +107,17 @@ export function MessageList({
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const scrollerElRef = useRef<HTMLElement | null>(null);
+  // UNA sola autorità sull'ancoraggio (1b.3). Prima erano tre ref che si
+  // riparavano a vicenda — `isScrolledUpRef`, `userIntentUpRef`,
+  // `scrollGuardRef` — e otto punti che pinnavano il fondo, ognuno con un
+  // sottoinsieme DIVERSO di quei tre come guardia; ogni bug live è nato da un
+  // punto che leggeva il sottoinsieme sbagliato. Ora la decisione sta tutta in
+  // `reduceScroll` (puro, testato in scrollAuthority.test.ts) e qui restano
+  // solo gli EFFETTI: mandare l'evento e, se la risposta è sì, pinnare.
+  const authorityRef = useRef<ScrollAuthorityState>(initialScrollAuthority);
+  // Specchio a schermo di `!anchored`: serve solo a bottone "torna in fondo" e
+  // banner. Non è una seconda autorità — nessuno lo legge per decidere.
   const [isScrolledUp, setIsScrolledUp] = useState(false);
-  const isScrolledUpRef = useRef(false);
-  // Streaming stick-to-bottom intent. During a stream the app PINS the scroller
-  // to the bottom itself (content grows in place). Virtuoso then reports
-  // atBottom=false whenever a big tool block grows the content BELOW the pinned
-  // position — that is NOT a user scroll, and latching "scrolled up" on it froze
-  // the view mid-stream ("perde l'aggancio da solo"). We only honor a scroll-up
-  // when the USER drives it: a wheel-up or a real decrease of scrollTop (the
-  // app's own pin only ever raises scrollTop). Reset on stream (re)start, topic
-  // switch, an explicit scroll-to-bottom, and whenever the view returns to the
-  // bottom.
-  const userIntentUpRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const prevStreamingRef = useRef(false);
   const [newMsgCount, setNewMsgCount] = useState(0);
@@ -118,9 +126,6 @@ export function MessageList({
   const prevTopicIdRef = useRef(topic.id);
   const needsScrollRef = useRef(false);
   const prevLoadingRef = useRef(false);
-  // Guard: ignore atBottomStateChange for a brief period after forced scrolls
-  // to prevent Virtuoso's layout measurement from falsely setting isScrolledUp=true
-  const scrollGuardRef = useRef(false);
   // Read settings into state instead of calling loadSettings() in the render
   // body — MessageList re-renders on every streaming token, so the old inline
   // read ran a synchronous localStorage.getItem + JSON.parse per token on the
@@ -174,11 +179,48 @@ export function MessageList({
     [filteredMessages, compactionMarkers],
   );
 
-  // Helper: activate scroll guard for a brief period after forced scrolls
-  const activateScrollGuard = useCallback(() => {
-    scrollGuardRef.current = true;
-    setTimeout(() => { scrollGuardRef.current = false; }, 600);
-  }, []);
+  // ── I due soli verbi dello scroll ─────────────────────────────────────────
+  // `pinToBottom` incolla, `dispatchScroll` chiede all'autorità cosa fare. Ogni
+  // punto che prima decideva da sé ora usa questi.
+
+  /** C'è un salto da palette che possiede la viewport per questa topic? */
+  const jumpPending = useCallback(() => !!peekScrollToMessage(topic.id), [topic.id]);
+
+  /**
+   * Incolla lo scroller al fondo. `frames: 2` per i casi in cui l'altezza
+   * dell'item appena aggiunto (o del Footer, che segue il composer via
+   * ResizeObserver) viene misurata un frame dopo. `force` salta il veto del
+   * salto da palette: lo usa SOLO il bottone "torna in fondo", che è l'utente
+   * che chiede esplicitamente il contrario del salto.
+   *
+   * `viaVirtuoso` non è una SECONDA autorità: è il primo passo di UNA sequenza
+   * ordinata. Con una lista virtualizzata l'ultimo item può non essere montato,
+   * e scrivere `scrollTop` da soli incolla a un `scrollHeight` che non contiene
+   * ancora la coda; `scrollToIndex('LAST')` lo materializza, il rAF successivo
+   * incolla sull'altezza vera. Chi decide resta sempre e solo `reduceScroll`.
+   */
+  const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean }) => {
+    if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
+    if (opts?.viaVirtuoso) virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
+    const run = () => {
+      const el = scrollerElRef.current;
+      // Ri-controllo dentro il frame: uno scroll dell'utente arrivato fra la
+      // programmazione e l'esecuzione non va sovrascritto da un pin ormai vecchio.
+      if (!el) return;
+      if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
+      el.scrollTop = el.scrollHeight;
+    };
+    if (opts?.frames === 2) requestAnimationFrame(() => requestAnimationFrame(run));
+    else requestAnimationFrame(run);
+  }, [jumpPending]);
+
+  /** Manda un evento all'autorità, applica il nuovo stato, e pinna se lo dice lei. */
+  const dispatchScroll = useCallback((event: ScrollEvent, pinOpts?: { viaVirtuoso?: boolean; frames?: 1 | 2 }) => {
+    const decision = reduceScroll(authorityRef.current, event, Date.now());
+    authorityRef.current = decision.state;
+    setIsScrolledUp(!decision.state.anchored);
+    if (decision.pin) pinToBottom(pinOpts);
+  }, [pinToBottom]);
 
   // True once THIS instance has watched a loadHistory cycle complete FOR THE
   // CURRENT TOPIC — the only moment the thread is known authoritative. The
@@ -194,17 +236,16 @@ export function MessageList({
     if (prevTopicIdRef.current !== topic.id) {
       prevTopicIdRef.current = topic.id;
       needsScrollRef.current = true;
-      isScrolledUpRef.current = false;
-      userIntentUpRef.current = false;
       lastScrollTopRef.current = 0;
       sawLoadCompleteRef.current = false;
-      setIsScrolledUp(false);
       setNewMsgCount(0);
       setShowNewBanner(false);
       prevMsgCountRef.current = 0;
-      activateScrollGuard();
+      // Riparte ancorata e arma la guardia: la lista si rimonta e si rimisura
+      // tutta. Il pin vero lo fa l'effetto che aspetta il caricamento.
+      dispatchScroll({ type: 'topic-switch' });
     }
-  }, [topic.id, activateScrollGuard]);
+  }, [topic.id, dispatchScroll]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -215,14 +256,9 @@ export function MessageList({
     if (needsScrollRef.current && filteredMessages.length > 0 && !currentLoading) {
       if (peekScrollToMessage(topic.id)) return;
       needsScrollRef.current = false;
-      activateScrollGuard();
-      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
-      requestAnimationFrame(() => {
-        const el = scrollerElRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
+      dispatchScroll({ type: 'scroll-to-bottom' }, { viaVirtuoso: true });
     }
-  }, [filteredMessages.length, currentLoading, activateScrollGuard, topic.id]);
+  }, [filteredMessages.length, currentLoading, dispatchScroll, topic.id]);
 
   // Scroll to bottom after loadHistory completes (loading: true → false).
   // On page refresh or tab switch, Virtuoso mounts at the bottom via
@@ -235,14 +271,9 @@ export function MessageList({
     if (wasLoading && !currentLoading && filteredMessages.length > 0) {
       // Pending palette jump wins over the bottom anchor — see the effect above.
       if (peekScrollToMessage(topic.id)) return;
-      activateScrollGuard();
-      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
-      requestAnimationFrame(() => {
-        const el = scrollerElRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
+      dispatchScroll({ type: 'scroll-to-bottom' }, { viaVirtuoso: true });
     }
-  }, [currentLoading, filteredMessages.length, activateScrollGuard, topic.id]);
+  }, [currentLoading, filteredMessages.length, dispatchScroll, topic.id]);
 
   // ── Palette jump: scroll to a searched message ────────────────────────────
   // A ⌘K message hit registers a pending target (scrollToMessage.ts) before
@@ -284,7 +315,8 @@ export function MessageList({
     // fired entry keeps those guards active for a short grace and lets the
     // post-reload pass re-run this jump; the store purges it afterwards.
     markScrollToMessageFired(topic.id);
-    activateScrollGuard();
+    // Niente guardia da armare: il veto del salto vive in `shouldPin`, in un
+    // posto solo, e vale finché la grazia del salto non scade.
     // rAF so we land AFTER any bottom-anchor rAF a prior effect queued in this
     // same frame (belt to the peek-guards' suspenders — event-path timing).
     requestAnimationFrame(() => {
@@ -293,7 +325,7 @@ export function MessageList({
     setJumpHighlightId(targetId);
     if (jumpHighlightTimer.current) clearTimeout(jumpHighlightTimer.current);
     jumpHighlightTimer.current = setTimeout(() => setJumpHighlightId(null), 2400);
-  }, [topic.id, filteredMessages, currentLoading, activateScrollGuard]);
+  }, [topic.id, filteredMessages, currentLoading]);
   useEffect(() => {
     if (!currentLoading && filteredMessages.length > 0) tryScrollToTarget();
   }, [currentLoading, filteredMessages.length, tryScrollToTarget]);
@@ -329,41 +361,24 @@ export function MessageList({
 
   // Force scroll anchor when streaming starts (user just sent a message).
   // When new items are added (user msg + assistant placeholder), Virtuoso may
-  // briefly report atBottom=false before followOutput catches up, which would
-  // set isScrolledUpRef=true and block our streaming scroll. Reset it here.
+  // briefly report atBottom=false before followOutput catches up: senza
+  // riancorare qui quel falso negativo bloccherebbe il pin per tutto il turno.
   // This effect is declared BEFORE the streaming scroll effect so React runs
   // it first in the same render cycle.
   useEffect(() => {
-    if (_currentStreaming && !prevStreamingRef.current) {
-      isScrolledUpRef.current = false;
-      userIntentUpRef.current = false;
-      setIsScrolledUp(false);
-      activateScrollGuard();
-    }
+    if (_currentStreaming && !prevStreamingRef.current) dispatchScroll({ type: 'stream-start' });
     prevStreamingRef.current = _currentStreaming;
-  }, [_currentStreaming, activateScrollGuard]);
+  }, [_currentStreaming, dispatchScroll]);
 
   // Auto-scroll during streaming: the last message content grows in-place
   // (no new items added), so Virtuoso's followOutput doesn't trigger.
   // We set scrollTop = scrollHeight directly on the scroller DOM element,
   // bypassing Virtuoso's item-height measurement which may lag the actual layout.
-  // Uses isScrolledUpRef (not state) to avoid re-triggering on scroll changes.
+  // Non decide niente: chiede a `shouldPin` (che include il veto del salto da
+  // palette) e incolla. Il ri-controllo dentro il frame è dentro `pinToBottom`.
   useEffect(() => {
-    if (_currentStreaming && !isScrolledUpRef.current && !userIntentUpRef.current) {
-      // Pending palette jump wins over the streaming pin as well — the user
-      // explicitly asked to look at an older message; the pin resumes once
-      // the jump's short grace expires (scrollToMessage.ts).
-      if (peekScrollToMessage(topic.id)) return;
-      requestAnimationFrame(() => {
-        const el = scrollerElRef.current;
-        // Re-check inside the rAF: a scroll-up between scheduling this frame and
-        // running it (releaseToUser) must not be overridden by a now-stale pin.
-        if (el && !isScrolledUpRef.current && !userIntentUpRef.current) {
-          el.scrollTop = el.scrollHeight;
-        }
-      });
-    }
-  }, [filteredMessages, _currentStreaming, topic.id]);
+    if (_currentStreaming) pinToBottom();
+  }, [filteredMessages, _currentStreaming, pinToBottom]);
 
   // Detect a GENUINE user scroll-up so the streaming bottom-pin can yield to it.
   // A wheel-up is unambiguous; on touch (no wheel) a real DECREASE of scrollTop
@@ -372,33 +387,24 @@ export function MessageList({
   // what separates "the user wants to read history" from "a tool block just grew
   // the content" (which must keep the view stuck). Bound to topic.id so it
   // re-binds when the Virtuoso scroller remounts on a topic swap.
+  //
+  // Perché non basta aspettare `atBottomStateChange(false)` di Virtuoso: durante
+  // lo stream il pin gira a ogni chunk e ributterebbe la vista in fondo PRIMA
+  // che quell'evento arrivi — l'utente resterebbe inchiodato al fondo. Lo
+  // sgancio deve essere immediato, ed è la transizione `user-scrolled-up` a
+  // farlo (fuori dallo stream invece non sgancia: decide la geometria, così un
+  // colpo di rotellina da pochi pixel non fa comparire il bottone).
   useEffect(() => {
     const el = scrollerElRef.current;
     if (!el) return;
     lastScrollTopRef.current = el.scrollTop;
-    // A genuine scroll-up must release the streaming bottom-pin IMMEDIATELY.
-    // Setting userIntentUpRef alone isn't enough: the streaming pin effect fires
-    // on every content chunk gated only on isScrolledUpRef and keeps yanking the
-    // view to the bottom BEFORE Virtuoso's atBottomStateChange(false) can run to
-    // flip isScrolledUpRef — so atBottom never turns false and the user stays
-    // trapped at the bottom ("can't scroll up mid-stream"). Flip isScrolledUpRef
-    // here too, closing that race: the pin yields at once and ScrollToBottom
-    // appears. atBottomStateChange(true) clears both again on return to bottom.
-    const releaseToUser = () => {
-      userIntentUpRef.current = true;
-      if (_currentStreaming && !isScrolledUpRef.current) {
-        isScrolledUpRef.current = true;
-        setIsScrolledUp(true);
-      }
-    };
+    const releaseToUser = () => dispatchScroll({ type: 'user-scrolled-up', streaming: _currentStreaming });
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY < 0) releaseToUser();
     };
     const onScroll = () => {
       const st = el.scrollTop;
-      // >24px drop = the user pulled the view up; smaller deltas are Virtuoso
-      // remeasure jitter (the app's pin only ever raises scrollTop).
-      if (st < lastScrollTopRef.current - 24) releaseToUser();
+      if (isUserScrollUp(lastScrollTopRef.current, st)) releaseToUser();
       lastScrollTopRef.current = st;
     };
     el.addEventListener('wheel', onWheel, { passive: true });
@@ -407,7 +413,7 @@ export function MessageList({
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('scroll', onScroll);
     };
-  }, [topic.id, _currentStreaming]);
+  }, [topic.id, _currentStreaming, dispatchScroll]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
@@ -420,29 +426,21 @@ export function MessageList({
   useEffect(() => {
     const grew = filteredMessages.length > prevAppendLenRef.current;
     prevAppendLenRef.current = filteredMessages.length;
-    if (grew && !_currentStreaming && !isScrolledUpRef.current) {
-      // A pending palette jump vetoes this pin too: the jump's own load
-      // replaces 0 → N messages, which counts as "grew" here — and this
-      // effect is declared AFTER the jump effect, so its rAF ran last and
-      // dragged the fresh jump back to the bottom (the 4th and final
-      // bottom-anchor mechanism in the palette-jump bug chain).
-      if (peekScrollToMessage(topic.id)) return;
-      activateScrollGuard();
-      requestAnimationFrame(() => {
-        const el = scrollerElRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
-    }
-  }, [filteredMessages, _currentStreaming, activateScrollGuard, topic.id]);
+    // Il veto del salto da palette è dentro `pinToBottom` (la sua load
+    // sostituisce 0 → N messaggi, che qui conta come "grew" — e questo effetto
+    // è dichiarato DOPO quello del salto, quindi il suo rAF girava per ultimo e
+    // riportava il salto in fondo: il 4° e ultimo meccanismo della catena).
+    if (grew && !_currentStreaming) pinToBottom();
+  }, [filteredMessages, _currentStreaming, pinToBottom]);
 
   // A message the USER just sent must ALWAYS snap the view to the bottom —
   // even if they were reading scrolled-up history — because sending is an
   // explicit intent to follow the reply. Unlike the inbound-append effect
   // above (which respects scroll-up for peer/system messages), this fires
-  // ONLY when the newly appended last message is the user's own, and bypasses
-  // the isScrolledUpRef gate. Double-rAF so the freshly measured item height
-  // lands before we pin (mirrors the streaming pin). The palette-jump veto
-  // still wins.
+  // ONLY when the newly appended last message is the user's own, and va per la
+  // transizione `user-sent` — l'unico evento che RIANCORA una vista sganciata.
+  // Double-rAF so the freshly measured item height lands before we pin
+  // (mirrors the streaming pin). The palette-jump veto still wins.
   const prevSendLenRef = useRef(filteredMessages.length);
   useEffect(() => {
     const grew = filteredMessages.length > prevSendLenRef.current;
@@ -450,18 +448,10 @@ export function MessageList({
     if (!grew) return;
     const last = filteredMessages[filteredMessages.length - 1];
     if (last?.role !== 'user') return;
-    if (peekScrollToMessage(topic.id)) return;
-    isScrolledUpRef.current = false;
-    userIntentUpRef.current = false;
-    setIsScrolledUp(false);
-    activateScrollGuard();
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = scrollerElRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
-    });
-  }, [filteredMessages, activateScrollGuard, topic.id]);
+    // Inviare È l'intento di seguire la risposta: la transizione `user-sent`
+    // riancora anche una vista che l'utente aveva portato indietro a leggere.
+    dispatchScroll({ type: 'user-sent' }, { frames: 2 });
+  }, [filteredMessages, dispatchScroll]);
 
   // Re-pin the bottom when the COMPOSER changes height. Its height feeds the
   // Virtuoso Footer — the ONLY bottom spacer — asynchronously via a
@@ -477,15 +467,8 @@ export function MessageList({
     const changed = inputAreaHeight !== prevInputAreaHeightRef.current;
     prevInputAreaHeightRef.current = inputAreaHeight;
     if (!changed) return;
-    if (isScrolledUpRef.current) return;
-    if (peekScrollToMessage(topic.id)) return;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = scrollerElRef.current;
-        if (el && !isScrolledUpRef.current) el.scrollTop = el.scrollHeight;
-      });
-    });
-  }, [inputAreaHeight, topic.id]);
+    pinToBottom({ frames: 2 });
+  }, [inputAreaHeight, pinToBottom]);
 
   // Detect new messages while scrolled up
   useEffect(() => {
@@ -518,15 +501,13 @@ export function MessageList({
         // from the bottom if the restored offset rounds to max.
         if (target > 0 && Math.abs(el.scrollTop - target) > 2) {
           el.scrollTop = target;
-          // Match the "scrolled up" state so autoscroll heuristics know we
-          // are intentionally not at the bottom. A restored undo offset uses a
-          // tight 50 px band (independent of the looser 150 px atBottomThreshold
-          // used for the live bottom-follow) so a deliberate restore isn't
-          // rounded back to the bottom.
-          if (el.scrollHeight - target - el.clientHeight > 50) {
-            isScrolledUpRef.current = true;
-            setIsScrolledUp(true);
-          }
+          // L'autorità deve sapere che NON siamo più in fondo. La banda del
+          // ripristino è più stretta di quella live (RESTORE_DETACH_PX): un
+          // ripristino deliberato non va arrotondato al fondo.
+          dispatchScroll({
+            type: 'offset-restored',
+            distanceFromBottom: el.scrollHeight - target - el.clientHeight,
+          });
         }
         restoredForTopicRef.current = topic.id;
       });
@@ -571,19 +552,15 @@ export function MessageList({
   }, [topic.id, onScrollOffsetChange]);
 
   const scrollToBottom = useCallback(() => {
-    activateScrollGuard();
-    isScrolledUpRef.current = false;
-    userIntentUpRef.current = false;
+    // `force`: è l'utente che chiede il fondo. Un eventuale salto da palette in
+    // corso è esattamente ciò a cui sta dicendo di no — non può vetarlo.
+    const decision = reduceScroll(authorityRef.current, { type: 'scroll-to-bottom' }, Date.now());
+    authorityRef.current = decision.state;
     setIsScrolledUp(false);
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
-    // Pin via DOM on next frame to prevent any drift after Virtuoso settles
-    requestAnimationFrame(() => {
-      const el = scrollerElRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    });
+    pinToBottom({ viaVirtuoso: true, force: true });
     setNewMsgCount(0);
     setShowNewBanner(false);
-  }, [activateScrollGuard]);
+  }, [pinToBottom]);
 
   // data-testid on the outer wrapper ensures the selector is always queryable
   // regardless of loading/empty/Virtuoso state (pane-undo.spec.ts relies on
@@ -690,53 +667,34 @@ export function MessageList({
           // 150 (not 50) so the redesign's initial bottom-anchor — which
           // settles ~1 short message (≈60–150px) above the true bottom as
           // Virtuoso lazily remeasures item heights — still counts as
-          // "at bottom". At 50px that lag latched isScrolledUpRef=true, which
+          // "at bottom". At 50px that lag latched "scrolled up", which
           // permanently suppressed the append-auto-scroll effect (a new inbound
-          // message no longer stuck to the bottom — chat-scroll.spec:29). This
-          // matches the 150px "genuinely scrolled up" cutoff in
-          // atBottomStateChange below and the app's own at-bottom tolerance.
-          atBottomThreshold={150}
+          // message no longer stuck to the bottom — chat-scroll.spec:29). Stessa
+          // costante dell'autorità: AT_BOTTOM_TOLERANCE_PX.
+          atBottomThreshold={AT_BOTTOM_TOLERANCE_PX}
           atBottomStateChange={(atBottom) => {
             if (atBottom) {
-              // Back at the bottom → re-stick and forget any prior scroll-up
-              // intent, so the next content growth pins again.
-              isScrolledUpRef.current = false;
-              userIntentUpRef.current = false;
-              setIsScrolledUp(false);
+              // Tornare in fondo perdona tutto: la crescita successiva riaggancia.
+              dispatchScroll({ type: 'reached-bottom' });
               setNewMsgCount(0);
               setShowNewBanner(false);
               return;
             }
-            // atBottom === false.
-            // During a stream the app pins the bottom itself; Virtuoso reports
-            // atBottom=false whenever a tool block grows the content below the
-            // pinned position. That is NOT a user scroll — re-assert the pin and
-            // stay stuck, so the view never "loses the anchor on its own". A
-            // genuine user scroll-up (wheel-up / scrollTop drop, tracked above)
-            // sets userIntentUpRef and falls through to release the pin, keeping
-            // history readable mid-stream.
-            if (_currentStreaming && !userIntentUpRef.current) {
-              if (peekScrollToMessage(topic.id)) return;
-              requestAnimationFrame(() => {
-                const el = scrollerElRef.current;
-                if (el && !userIntentUpRef.current) el.scrollTop = el.scrollHeight;
-              });
-              return;
-            }
-            // Non-streaming: keep the original forced-scroll bounce guard — only
-            // suppress brief false "not at bottom" reports (<150px), but let a
-            // genuine user scroll-up (>150px) through.
-            if (scrollGuardRef.current) {
-              const el = scrollerElRef.current;
-              if (el) {
-                const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-                if (distFromBottom < 150) return;
-              } else {
-                return;
-              }
-            }
-            isScrolledUpRef.current = true;
-            setIsScrolledUp(true);
+            // atBottom === false. Da qui NON si distingue chi l'ha causato: lo
+            // decide l'autorità. Durante lo stream questo evento non è mai
+            // l'utente (quello passa da `user-scrolled-up` e ha già sganciato):
+            // è un tool block che è cresciuto sotto la posizione pinnata, e si
+            // resta incollati. Fuori dallo stream conta la geometria, con la
+            // guardia contro il rimbalzo dei nostri stessi scroll forzati.
+            const el = scrollerElRef.current;
+            dispatchScroll({
+              type: 'left-bottom',
+              streaming: _currentStreaming,
+              // Senza scroller non c'è geometria da misurare (Virtuoso ce l'ha
+              // sempre quando emette questo evento): 0 = "non so quanto", che
+              // dentro la guardia non sgancia e fuori sì, come prima.
+              distanceFromBottom: el ? el.scrollHeight - el.scrollTop - el.clientHeight : 0,
+            });
           }}
           increaseViewportBy={{ top: 400, bottom: 400 }}
           itemContent={(idx, msg) => {
