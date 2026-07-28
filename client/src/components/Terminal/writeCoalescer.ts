@@ -45,6 +45,21 @@ export type TerminalChunk = string | Uint8Array;
 export const BACKGROUND_FLUSH_MS = 250;
 
 /**
+ * Cadenza per un terminale VISIBILE ma senza il fuoco della tastiera (~15Hz).
+ *
+ * Perché esiste una terza cadenza. La scrittura immediata serve a UNA cosa sola:
+ * l'eco di quello che stai battendo. Un terminale che non ha il cursore non ha
+ * nessun eco da rendere immediato — sta solo mostrando output — e in uno split
+ * con più gruppi ce ne sono diversi "attivi" insieme, ognuno dei quali
+ * ricostruiva le proprie righe a ogni frame. Ogni ricostruzione sporca il
+ * layout, e l'animatore del caret (misurato al 24% del main thread) forza un
+ * layout SINCRONO dell'intero documento a ogni frame per ridisegnare il cursore:
+ * più righe sporche ci trova, più costa quel layout. 15Hz su un log che scorre
+ * è indistinguibile dai 60, ma divide per quattro le righe sporche per frame.
+ */
+export const VISIBLE_FLUSH_MS = 66;
+
+/**
  * Tetto della coda. Superato, si scarica SUBITO invece di scartare: buttare via
  * dei byte in mezzo a una sequenza di escape lascerebbe il terminale in uno
  * stato ANSI corrotto (colori incollati, cursore perso). Meglio un redraw in più
@@ -77,7 +92,10 @@ export interface WriteCoalescerOptions {
    * così il comportamento storico resta invariato per chi non lo passa.
    */
   hasLayout?: () => boolean;
-  flushMs?: number;
+  /** Cadenza di scarico. Può essere una funzione: la si rilegge a ogni arming,
+   *  così cambiare stato (visibile ↔ in secondo piano) cambia la cadenza senza
+   *  ricreare il coalescer. */
+  flushMs?: number | (() => number);
   maxPendingBytes?: number;
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (id: ReturnType<typeof setTimeout>) => void;
@@ -143,7 +161,10 @@ export function createWriteCoalescer({
         disarm();
         return;
       }
-      if (timer === null) timer = setTimer(() => { timer = null; flush(); }, flushMs);
+      if (timer === null) {
+        const ms = typeof flushMs === 'function' ? flushMs() : flushMs;
+        timer = setTimer(() => { timer = null; flush(); }, ms);
+      }
     },
     flush() {
       if (disposed) return;

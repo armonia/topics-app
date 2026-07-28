@@ -25,6 +25,7 @@ import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionL
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { TaskAutoMerge } from "../services/task-automerge";
+import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -87,6 +88,13 @@ export interface TasksRouterOpts {
    * gate: an agent delivery with uncommitted work is refused with coaching.
    */
   taskWorktreeDirt?: (taskId: string) => Promise<string[] | null>;
+  /**
+   * The task branch's state relative to main, read from the PROJECT repo by
+   * CONTENT (so a squash-land still reads "merged"). `null` ⇒ the task has no
+   * branch worktree. Gates the post-land reap: a branch whose content isn't on
+   * main is never destroyed, whatever the merge step claimed.
+   */
+  taskBranchStatus?: (taskId: string) => Promise<BranchStatus | null>;
   /**
    * Delete the task's worktree + branch + store row (the worktree-manager
    * path). Called after a landing: once merged, the worktree has no value and
@@ -218,6 +226,37 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * slow/failed git op never blocks the caller; all outcomes surface as system
    * comments. NEVER pushes (the release/publish pipeline stays the sole pusher).
    */
+  /**
+   * Reap the task's worktree ONLY when the land can be shown to have worked —
+   * the same guard the periodic GC applies (`decidePostLandReap`), so the manual
+   * "Landa su main" path can't destroy what the sweep would have protected.
+   * Both halves matter: uncommitted work in the tree (task `e8780726`) and a
+   * branch whose content never reached main (the `watching`-phase loss).
+   */
+  async function reapAfterLand(taskId: string, outcome: LandOutcome): Promise<void> {
+    if (!opts?.deleteTaskWorktree) return;
+    const [dirtAfter, branchAfter] = await Promise.all([
+      opts.taskWorktreeDirt?.(taskId).catch(() => null) ?? Promise.resolve(null),
+      opts.taskBranchStatus?.(taskId).catch(() => "unmerged" as BranchStatus) ?? Promise.resolve(null),
+    ]);
+    // No branch worktree to reason about (in-place task) → nothing to reap.
+    if (dirtAfter === null && branchAfter === null) return;
+    const post = decidePostLandReap({
+      outcome,
+      branchAfter: branchAfter ?? "gone",
+      dirtAfter: dirtAfter ?? [],
+    });
+    if (post.action === "keep") {
+      svc.addComment({
+        taskId, author: "system",
+        content: `⚠️ Worktree NON ripulito: ${post.reason}. Il branch del task è stato conservato — recupera il lavoro o cancellalo a mano.`,
+      });
+      return;
+    }
+    const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
+    if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
+  }
+
   async function landTask(projectId: string, taskId: string): Promise<void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
@@ -234,10 +273,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const res = await autoMerge.tryMerge(taskId, task.text);
       if (res.status === "merged") {
         svc.addComment({ taskId, author: "system", content: `Mergiato su main (commit ${res.commit}).` });
-        if (opts?.deleteTaskWorktree) {
-          const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
-          if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
-        }
+        await reapAfterLand(taskId, "landed");
         if (res.landedNotLive) {
           // Landed on main, but the shared checkout (the live server's cwd) is parked
           // on another branch — so the code is on main yet NOT running. Say it loudly:
@@ -268,11 +304,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           }
         }
       } else if (res.status === "nothing") {
-        if (opts?.deleteTaskWorktree) {
-          const dirt = opts?.taskWorktreeDirt ? await opts.taskWorktreeDirt(taskId).catch(() => null) : [];
-          if (!dirt || dirt.length === 0) await opts.deleteTaskWorktree(taskId).catch(() => false);
-          else svc.addComment({ taskId, author: "system", content: "Worktree NON ripulito: contiene modifiche non committate — recuperale o cancellalo a mano." });
-        }
+        // "nothing" = the branch has no commits main lacks BY ANCESTRY. That is
+        // the exact claim that cost us the `watching` phase — verify it against
+        // the repo (content, not ancestry) before destroying anything.
+        await reapAfterLand(taskId, "nothing");
       } else if (res.status === "conflict") {
         svc.update({ taskId, actor: "human", by: "user", projectId, patch: { status: "in_progress" } });
         svc.addComment({ taskId, author: "system", content: "Merge automatico in conflitto con main — rimando all'agent per risolvere." });

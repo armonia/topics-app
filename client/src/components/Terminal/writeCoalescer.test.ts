@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { createWriteCoalescer, type TerminalChunk } from './writeCoalescer';
+import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type TerminalChunk } from './writeCoalescer';
 
 /**
  * Orologio finto: i timer non partono davvero, li facciamo scadere noi. Serve a
@@ -54,6 +54,30 @@ function harness(watched = false, layout = true) {
 }
 
 describe('createWriteCoalescer', () => {
+  // Terza cadenza: un terminale VISIBILE ma senza il cursore della tastiera non
+  // ha nessun eco da rendere immediato, e in uno split ce ne sono diversi che
+  // altrimenti ricostruirebbero le righe a 60Hz tutti insieme.
+  test('la cadenza si rilegge a ogni arming: visibile 66ms, in secondo piano 250ms', () => {
+    const clock = fakeClock();
+    const written: TerminalChunk[] = [];
+    let visible = true;
+    const coalescer = createWriteCoalescer({
+      write: (chunk) => { written.push(chunk); },
+      isWatched: () => false,
+      flushMs: () => (visible ? VISIBLE_FLUSH_MS : BACKGROUND_FLUSH_MS),
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+    coalescer.push('a');
+    expect(clock.delays).toEqual([VISIBLE_FLUSH_MS]);
+    clock.fire();
+    visible = false;
+    coalescer.push('b');
+    expect(clock.delays).toEqual([BACKGROUND_FLUSH_MS]);
+    clock.fire();
+    expect(written).toEqual(['a', 'b']);
+  });
+
   // Regressione: una pane dentro `display:none` non ha box, xterm misura 0 e
   // NON mette 0 in cache (WidthCache v6), quindi ogni scarico rimisura ogni
   // glifo — il caso peggiore, non il migliore. Senza layout non si scarica a

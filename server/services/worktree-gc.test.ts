@@ -4,7 +4,7 @@
  * live turn and degrade to keep on a landing that can't complete.
  */
 import { describe, test, expect } from "bun:test";
-import { decideWorktreeReap, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
+import { decidePostLandReap, decideWorktreeReap, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
 
 describe("decideWorktreeReap — safety contract", () => {
   const base = {
@@ -55,6 +55,42 @@ describe("decideWorktreeReap — safety contract", () => {
   });
 });
 
+describe("decidePostLandReap — verify before destroy", () => {
+  const base = { outcome: "landed" as const, branchAfter: "merged" as const, dirtAfter: [] as string[] };
+
+  test("landed + content verified on main → reap", () => {
+    expect(decidePostLandReap(base).action).toBe("reap");
+  });
+
+  test("branch deleted by the land itself → reap (no branch left to lose)", () => {
+    expect(decidePostLandReap({ ...base, branchAfter: "gone" }).action).toBe("reap");
+  });
+
+  // THE REGRESSION. 2026-07-19: tryLand said "nothing", the branch was reaped,
+  // 139 lines survived only in the reflog.
+  test("land 'nothing' but branch still UNMERGED → keep, never reap", () => {
+    const d = decidePostLandReap({ ...base, outcome: "nothing", branchAfter: "unmerged" });
+    expect(d.action).toBe("keep");
+    expect(d.reason).toContain("NON risulta su main");
+  });
+
+  test("land 'landed' but branch still UNMERGED → keep (the claim was wrong)", () => {
+    expect(decidePostLandReap({ ...base, branchAfter: "unmerged" }).action).toBe("keep");
+  });
+
+  test("uncommitted work in the tree beats a successful land → keep (task e8780726)", () => {
+    const d = decidePostLandReap({ ...base, dirtAfter: ["server/foo.ts"] });
+    expect(d.action).toBe("keep");
+    expect(d.reason).toContain("non committate");
+  });
+
+  for (const outcome of ["conflict", "skipped"] as const) {
+    test(`land '${outcome}' → keep even if the branch reads merged`, () => {
+      expect(decidePostLandReap({ ...base, outcome }).action).toBe("keep");
+    });
+  }
+});
+
 // ── sweep orchestration ──────────────────────────────────────────────────
 
 function wt(id: string, over: Partial<GcWorktree> = {}): GcWorktree {
@@ -101,10 +137,13 @@ describe("sweepWorktrees", () => {
 
   test("lands unmerged clean commits before reaping", async () => {
     const calls: string[] = [];
+    let landed = false;
     const s = await sweepWorktrees(makeDeps({
       listWorktrees: () => [wt("unmerged")],
-      branchStatus: async () => "unmerged",
-      tryLand: async (id) => { calls.push(`land:${id}`); return "landed"; },
+      // Unmerged before the land, merged after it — the post-land re-read is
+      // what earns the reap.
+      branchStatus: async () => (landed ? "merged" : "unmerged"),
+      tryLand: async (id) => { calls.push(`land:${id}`); landed = true; return "landed"; },
       reap: async (id) => { calls.push(`reap:${id}`); return true; },
       resolveTask: () => ({ taskId: "t9", status: "done", archived: false }),
     }));
@@ -112,6 +151,40 @@ describe("sweepWorktrees", () => {
     expect(calls).toEqual(["land:t9", "reap:unmerged"]);
     expect(s.landed).toBe(1);
     expect(s.reaped).toBe(1);
+  });
+
+  // The 2026-07-19 regression, end to end through the sweep.
+  test("land says 'nothing' but the branch is still unmerged → keep + note on the task", async () => {
+    const reaped: string[] = [];
+    const notes: Array<[string, string]> = [];
+    const s = await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("purple-finch")],
+      branchStatus: async () => "unmerged", // still unmerged AFTER the land
+      tryLand: async () => "nothing",
+      reap: async (id) => { reaped.push(id); return true; },
+      noteOnTask: (taskId, msg) => notes.push([taskId, msg]),
+      resolveTask: () => ({ taskId: "b01711ff", status: "done", archived: false }),
+    }));
+    expect(reaped).toEqual([]);
+    expect(s.kept).toBe(1);
+    expect(notes).toHaveLength(1);
+    expect(notes[0][0]).toBe("b01711ff");
+    expect(notes[0][1]).toContain("topics/purple-finch");
+  });
+
+  test("land succeeded but dirt appeared in the tree → keep (uncommitted work wins)", async () => {
+    const reaped: string[] = [];
+    let landed = false;
+    const s = await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("dirty-after")],
+      // Clean at decision time, dirty when re-read after the land.
+      realDirt: async () => (landed ? ["server/foo.ts"] : []),
+      branchStatus: async () => (landed ? "merged" : "unmerged"),
+      tryLand: async () => { landed = true; return "landed"; },
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(reaped).toEqual([]);
+    expect(s.kept).toBe(1);
   });
 
   test("a merge conflict keeps the worktree (no reap)", async () => {

@@ -775,6 +775,15 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     if (!wt || wt.mode !== "branch") return null;
     return worktreeRealDirt(wt.absPath);
   },
+  // Post-landing reap guard: the branch's state relative to main read by
+  // CONTENT (survives squash-landing). null = no branch worktree to protect.
+  taskBranchStatus: async (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch" || !wt.branchName) return null;
+    const repoPath = ctx.projectStore.get(wt.projectId)?.path;
+    if (!repoPath) return null;
+    return branchStatusFromRepo(repoPath, wt.branchName);
+  },
   // Post-landing reap: merged (or empty) worktrees have no remaining value —
   // the manager path removes worktree + branch + row, serialized per project.
   deleteTaskWorktree: async (taskId) => {
@@ -2348,6 +2357,13 @@ function runWorktreeGc() {
         }
       } catch { /* best-effort */ }
       return ctx.worktreeManager.delete(worktreeId);
+    },
+    // A reap refused because the work isn't provably on main must be VISIBLE:
+    // the same class of loss went unnoticed for 8 days precisely because the
+    // sweep only ever spoke to the server log.
+    noteOnTask: (taskId, message) => {
+      try { dispatcherSvc.addComment({ taskId, author: "system", content: message }); }
+      catch (err) { console.warn("[worktree-gc] noteOnTask failed", err); }
     },
     log: (msg) => console.log(msg),
   }).catch((err) => { console.error("[worktree-gc] sweep failed", err); return null; });

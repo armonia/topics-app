@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { Copy, Check, RotateCw, Clock } from 'lucide-react';
 import { attachTerminalTouchScroll } from './touchScroll';
-import { createWriteCoalescer, type WriteCoalescer } from './writeCoalescer';
+import { createWriteCoalescer, BACKGROUND_FLUSH_MS, VISIBLE_FLUSH_MS, type WriteCoalescer } from './writeCoalescer';
 import { enqueueFit, cancelFit } from '../../lib/staggeredFit';
 import { serverWsBase } from '../../lib/shell/net';
 import { isTauri } from '../../lib/shell';
@@ -118,6 +118,10 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
    *  chiede a `offsetParent`, che forza un layout sincrono — l'observer la
    *  consegna gratis, fuori dal main thread. */
   const hasLayoutRef = useRef(true);
+  /** La pane è quella attiva e la finestra è a fuoco — ma la tastiera potrebbe
+   *  essere altrove (chat, un altro terminale dello split). Distingue la cadenza
+   *  "visibile" da quella "in secondo piano". */
+  const isVisibleRef = useRef(false);
   const coalescerRef = useRef<WriteCoalescer | null>(null);
 
   // ── Lossless reattach ──────────────────────────────────────────────────
@@ -186,15 +190,27 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // uno schermo vecchio fino allo scadere del timer.
   useEffect(() => {
     const sync = () => {
-      const watched = isActive && !document.hidden && document.hasFocus();
+      const visible = isActive && !document.hidden && document.hasFocus();
+      isVisibleRef.current = visible;
+      // Scrittura IMMEDIATA solo dove c'è un eco da rendere immediato, cioè dove
+      // sta il cursore della tastiera. Gli altri terminali visibili mostrano
+      // output e basta: vanno benissimo a VISIBLE_FLUSH_MS, e così smettono di
+      // sporcare il layout a ogni frame tutti insieme.
+      const el = containerRef.current;
+      const focused = visible && !!el && el.contains(document.activeElement);
       const wasWatched = isWatchedRef.current;
-      isWatchedRef.current = watched;
-      if (watched && !wasWatched) coalescerRef.current?.flush();
+      isWatchedRef.current = focused;
+      if (focused && !wasWatched) coalescerRef.current?.flush();
     };
     sync();
     window.addEventListener('focus', sync);
     window.addEventListener('blur', sync);
     document.addEventListener('visibilitychange', sync);
+    // Il fuoco si sposta anche DENTRO il documento (da un terminale all'altro,
+    // o verso la chat) senza che la finestra lo perda: senza questi due il
+    // terminale appena lasciato resterebbe in scrittura immediata.
+    document.addEventListener('focusin', sync);
+    document.addEventListener('focusout', sync);
 
     // Presenza nel layout, gratis. Un elemento dentro `display:none` non ha box
     // e quindi non interseca mai: l'observer distingue "nascosto" da "solo non
@@ -217,6 +233,8 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       window.removeEventListener('focus', sync);
       window.removeEventListener('blur', sync);
       document.removeEventListener('visibilitychange', sync);
+      document.removeEventListener('focusin', sync);
+      document.removeEventListener('focusout', sync);
       io?.disconnect();
     };
   }, [isActive]);
@@ -317,6 +335,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       write: (chunk) => term.write(chunk),
       isWatched: () => isWatchedRef.current,
       hasLayout: () => hasLayoutRef.current,
+      flushMs: () => (isVisibleRef.current ? VISIBLE_FLUSH_MS : BACKGROUND_FLUSH_MS),
     });
     coalescerRef.current = coalescer;
 
