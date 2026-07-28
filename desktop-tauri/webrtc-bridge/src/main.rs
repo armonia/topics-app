@@ -188,15 +188,55 @@ impl Hub {
         // Chromium riparte, ma se il target non tornerà MAI (pane chiusa, Chromium spento)
         // ritentare una volta al secondo per ore è solo CPU bruciata per niente. Ogni
         // stream riuscito riazzera l'attesa, così una riconnessione vera resta immediata.
+        //
+        // …e dopo CDP_GIVE_UP di fallimenti CONSECUTIVI il pipeline si smonta da solo.
+        // Senza resa, un target sparito lasciava dietro per sempre un thread encoder,
+        // una task writer e una track: misurati 8 pipeline orfane e 676.317 righe di
+        // "[cdp] stream ended" — il 92% di un log di errore da 70MB, dentro cui gli
+        // errori VERI erano introvabili. Cinque minuti di "Connection refused" di fila
+        // vogliono dire che la porta CDP non ascolta più: quel target_id non torna
+        // (a Chromium riavviato i target hanno id nuovi). Rimuovendosi dalla mappa il
+        // sistema resta auto-riparante — la prossima offer ricrea il pipeline da zero —
+        // e lo spettatore rimasto vede il video fermo esattamente come già oggi, ma
+        // senza risorse appese dietro.
         let cdp_task = {
             let target_id = target_id.to_string();
+            let hub = Arc::downgrade(self);
             tokio::spawn(async move {
+                const CDP_GIVE_UP: Duration = Duration::from_secs(300);
                 let mut backoff = Duration::from_secs(1);
+                let mut dry = Duration::ZERO;
+                let mut last_err: Option<String> = None;
                 loop {
                     match cdp::attach_and_stream(target_id.clone(), 1, jpeg_tx.clone()).await {
-                        Ok(()) => backoff = Duration::from_secs(1),
+                        Ok(()) => {
+                            backoff = Duration::from_secs(1);
+                            dry = Duration::ZERO;
+                            last_err = None;
+                        }
                         Err(e) => {
-                            eprintln!("[cdp] stream ended ({target_id}): {e} — retry in {:?}", backoff);
+                            // Logga solo quando l'errore CAMBIA: un target sparito ripete
+                            // la stessa riga per settimane e seppellisce tutto il resto.
+                            let msg = e.to_string();
+                            if last_err.as_deref() != Some(msg.as_str()) {
+                                eprintln!("[cdp] stream ended ({target_id}): {msg} — retry in {backoff:?}");
+                                last_err = Some(msg);
+                            }
+                            dry += backoff;
+                            if dry >= CDP_GIVE_UP {
+                                eprintln!(
+                                    "[cdp] target {target_id} irraggiungibile da {CDP_GIVE_UP:?} — smonto il pipeline"
+                                );
+                                // Fuori dalla mappa: la prossima offer ne costruisce uno nuovo.
+                                // `release_target` regge la rimozione anticipata (confronta
+                                // per Arc::ptr_eq e non trova più questo target).
+                                if let Some(hub) = hub.upgrade() {
+                                    hub.targets.lock().unwrap().remove(&target_id);
+                                }
+                                // Uscendo si droppa `jpeg_tx`: il thread encoder chiude, con
+                                // lui `sample_tx`, e la task writer termina da sola.
+                                return;
+                            }
                         }
                     }
                     tokio::time::sleep(backoff).await;
