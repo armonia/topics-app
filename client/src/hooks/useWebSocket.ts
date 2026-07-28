@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ConnectionStatus, WSMessage, UnreadData } from '../types';
+import { topicsApi } from '../lib/api';
 import { dispatchFrame, dispatchLifecycle } from '../lib/wsFrameBus';
 import { CLIENT_PROTOCOL_VERSION, CLIENT_CAPABILITIES, CLIENT_VERSION } from '../schemas/ws-handshake';
 import { validateInbound } from '../schemas/ws-inbound';
 import { serverWsBase } from '../lib/shell/net';
+import { applyUnreadUpdate, clearUnreadFor, hasUnread } from '../state/unread';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
@@ -23,6 +25,27 @@ export function useWebSocket(): UseWebSocketReturn {
   const [displayStatus, setDisplayStatus] = useState<ConnectionStatus>('connected');
   const connectingGraceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [unreadData, setUnreadData] = useState<UnreadData>({});
+  // Specchio sincrono di `unreadData`. Serve a `sendWS`, che sul ping di focus
+  // deve sapere SUBITO se c'è davvero qualcosa da azzerare prima di azzerarlo
+  // ottimisticamente: lo stato React lo leggerebbe un render troppo tardi, e la
+  // decisione arriverebbe sempre dopo lo zero, cioè sempre sbagliata.
+  const unreadRef = useRef<UnreadData>({});
+  /**
+   * Unico punto di scrittura dell'unread: aggiorna il ref (verità sincrona) e
+   * poi lo stato. Il valore passato a `setUnreadData` è già calcolato, mai una
+   * funzione updater: gli updater in StrictMode vengono invocati due volte e
+   * scriverci dentro il ref lo corromperebbe.
+   *
+   * I riduttori in `state/unread` restituiscono `prev` identico quando non
+   * cambia niente, e qui quell'identità diventa il gate: nessun `setState`,
+   * quindi nessun render dell'albero.
+   */
+  const applyUnread = useCallback((next: (prev: UnreadData) => UnreadData) => {
+    const computed = next(unreadRef.current);
+    if (computed === unreadRef.current) return;
+    unreadRef.current = computed;
+    setUnreadData(computed);
+  }, []);
   const [lastConnectedAt, setLastConnectedAt] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
@@ -134,19 +157,21 @@ export function useWebSocket(): UseWebSocketReturn {
 
         // Handle unread init
         if (data.type === 'unread:init') {
-          setUnreadData(data.data || {});
+          applyUnread(() => data.data || {});
           return;
         }
 
-        // Handle unread updates
+        // Handle unread updates.
+        //
+        // Bail su valore INVARIATO. `unreadData` risale fino ad App e da lì
+        // scende nel provider delle notifiche e nella sidebar: una nuova
+        // identità di oggetto ri-renderizza l'albero intero. Un
+        // `unread:updated` che riporta il conteggio che avevamo già è però il
+        // caso PIÙ frequente — ogni client lo riceve ogni volta che qualcuno,
+        // ovunque, apre una tab — e pagarlo con un render globale era il costo
+        // più grosso dello switch di tab. Restituire `prev` lo azzera.
         if (data.type === 'unread:updated') {
-          setUnreadData(prev => ({
-            ...prev,
-            [data.topicId]: {
-              lastReadAt: prev[data.topicId]?.lastReadAt || new Date().toISOString(),
-              unreadCount: data.unreadCount,
-            },
-          }));
+          applyUnread(prev => applyUnreadUpdate(prev, data.topicId, data.unreadCount));
         }
 
         // Forward to all handlers
@@ -179,7 +204,7 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onerror = () => {
       // onclose will handle reconnection
     };
-  }, [clearOfflineTimer, startOfflineTimer]);
+  }, [clearOfflineTimer, startOfflineTimer, applyUnread]);
 
   useEffect(() => {
     // Keep the self-reference current so scheduled reconnects invoke the
@@ -231,27 +256,40 @@ export function useWebSocket(): UseWebSocketReturn {
   }, [connect, clearOfflineTimer]);
 
   const sendWS = useCallback((message: WSMessage) => {
-    // Optimistic local unread clear. The focus ping is the single signal that
-    // the user is now LOOKING at a topic (sent right alongside markRead in the
-    // chat focus effects). Zero its unread locally in the SAME tick instead of
-    // waiting for the server to round-trip `unread:updated{0}`: that latency was
-    // the window where the tab's active-suppression and the real count disagreed,
-    // so the badge dropped then popped back as focus moved between tabs/split
-    // groups. The next server `unread:updated` reconciles to truth, so the
-    // optimistic zero is safe (self-heals if a message lands in the same tick).
+    // Il ping di focus è l'UNICO segnale che l'utente sta guardando una topic,
+    // quindi è qui che vive tutta la logica di "letto": azzeramento locale
+    // ottimistico + la POST che lo rende persistente. Prima ogni punto che
+    // mandava il focus chiamava anche `topicsApi.markRead` per conto suo — e
+    // siccome una ChatPane vive dentro una ChatPanel, un solo cambio di tab
+    // faceva partire la stessa POST due volte.
+    //
+    // Azzerare localmente nello STESSO tick, invece di aspettare il round-trip
+    // di `unread:updated{0}`: quella latenza era la finestra in cui la
+    // soppressione della tab attiva e il conteggio vero non erano d'accordo, e
+    // il badge spariva per poi ricomparire mentre il focus si spostava fra tab
+    // e gruppi. Il successivo `unread:updated` riconcilia con la verità, quindi
+    // lo zero ottimistico è sicuro (si auto-corregge se nel frattempo arriva un
+    // messaggio).
     const m = message as unknown as { type?: string; topicId?: string | null };
     if (m.type === 'focus') {
       // Track the focused topic so onopen can re-announce it after a reconnect.
       lastFocusTopicRef.current = m.topicId ?? null;
       if (m.topicId) {
         const tid = m.topicId;
-        setUnreadData(prev => (prev[tid]?.unreadCount ? { ...prev, [tid]: { ...prev[tid], unreadCount: 0 } } : prev));
+        // Letto PRIMA dello zero ottimistico: dopo, il conteggio sarebbe
+        // sempre 0 e la POST non partirebbe mai.
+        const daAzzerare = hasUnread(unreadRef.current, tid);
+        applyUnread(prev => clearUnreadFor(prev, tid));
+        // Niente da azzerare ⇒ niente round-trip. Era il costo per-switch più
+        // caro: la POST fa riscrivere al server l'intera tabella unread e poi
+        // trasmette a TUTTI i client un `unread:updated{0}` che non cambia nulla.
+        if (daAzzerare) topicsApi.markRead(tid).catch(() => {});
       }
     }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     }
-  }, []);
+  }, [applyUnread]);
 
   const onMessage = useCallback((handler: (msg: WSMessage) => void) => {
     handlersRef.current.add(handler);

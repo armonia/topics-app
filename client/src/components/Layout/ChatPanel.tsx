@@ -5,7 +5,7 @@ import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { SessionActivityBar } from '../Shared/SessionActivity';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab, CompactionMarker } from '../../types';
-import { topicsApi, commandApi } from '../../lib/api';
+import { commandApi } from '../../lib/api';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 import { CommandMenu } from '../Shared/CommandMenu';
@@ -105,7 +105,9 @@ export function ChatPanel({
 
   const currentMessages = getSessionMessages(topic.sessionKey);
 
-  useEffect(() => { if (isFocused && !isDraft) { topicsApi.markRead(topic.id).catch(() => {}); sendFocusTopic(sendWS, topic.id); } }, [isFocused, isDraft, topic.id, sendWS]);
+  // Solo il ping di focus: l'azzeramento locale e la POST di lettura li fa
+  // `sendWS`, e solo quando c'è davvero qualcosa di non letto.
+  useEffect(() => { if (isFocused && !isDraft) { sendFocusTopic(sendWS, topic.id); } }, [isFocused, isDraft, topic.id, sendWS]);
 
   const addSystemMessage = useCallback((content: string) => { fetch(`/api/topics/${topic.id}/system-message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then(() => loadHistory(topic.sessionKey)); }, [topic.id, topic.sessionKey, loadHistory]);
   const handleCommandStatus = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); addSystemMessage(r.output || 'Status retrieved'); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);

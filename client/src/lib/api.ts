@@ -680,11 +680,33 @@ export interface CommandResult {
 
 export interface CustomSlashCommand { name: string; description: string; kind: 'command' | 'skill'; }
 
+/**
+ * Cache di processo della lista comandi. La lista è GLOBALE — non dipende dalla
+ * topic — ma a chiederla è `ChatInput`, che esiste una volta per pane: aprendo
+ * dodici tab si facevano dodici richieste identiche, ognuna col suo parse e il
+ * suo setState. Una sola promise condivisa le collassa, e siccome è anche la
+ * promise in volo, N composer montati nello stesso tick aspettano tutti quella.
+ *
+ * La lista cambia solo quando l'utente aggiunge un comando o una skill su
+ * disco: fuori dalla portata dell'app, e comunque roba da ricarica — che
+ * ricrea il modulo e con esso la cache. Se un giorno servisse invalidarla a
+ * caldo, basta azzerare `slashCommandsCache`.
+ */
+let slashCommandsCache: Promise<CustomSlashCommand[]> | null = null;
+
 /** The user's custom slash commands + skills (for composer autocomplete). The
  *  headless CLI expands them; the composer only surfaces them. Best-effort. */
 export const slashCommandsApi = {
   async list(): Promise<CustomSlashCommand[]> {
-    return request<CustomSlashCommand[]>('/slash-commands');
+    if (!slashCommandsCache) {
+      // Una richiesta fallita non deve restare in cache come fallimento
+      // permanente: si scarta la promise così il prossimo chiamante riprova.
+      slashCommandsCache = request<CustomSlashCommand[]>('/slash-commands').catch((e) => {
+        slashCommandsCache = null;
+        throw e;
+      });
+    }
+    return slashCommandsCache;
   },
 };
 
