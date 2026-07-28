@@ -1478,10 +1478,26 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     }
 
     // POST /api/topics/:id/read
+    //
+    // Idempotente e SILENZIOSA quando non c'è niente da azzerare. Il client la
+    // chiamava a ogni cambio di tab, e a contatore già a zero il no-op costava
+    // caro su entrambi i lati: `saveUnread` riscrive TUTTE le righe (legge la
+    // tabella, cancella le sparite, fa l'upsert di ognuna, in transazione) e il
+    // `broadcastToAll` sveglia OGNI client connesso con un `unread:updated{0}`
+    // che non cambia nulla ma gli fa comunque validare il frame e ri-renderizzare.
+    // Con una dozzina di tab aperte era il costo principale dello switch.
+    //
+    // `lastReadAt` non avanza in questo ramo, di proposito: è informativo. A
+    // decidere se un messaggio conta come non letto è `isTopicFocused` (il ping
+    // WS `focus`, che il client continua a mandare sempre), non questa data.
     {
       const params = matchRoute(pathname, "/api/topics/:id/read");
       if (params && method === "POST") {
         const unread = loadUnread();
+        // Riga assente = già a zero: `updateUnreadCount` se la crea da sé quando
+        // arriva il primo messaggio non letto, quindi materializzarla qui è
+        // un'altra scrittura inutile.
+        if ((unread[params.id]?.unreadCount ?? 0) === 0) return json({ ok: true });
         unread[params.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
         saveUnread(unread);
         broadcastToAll({ type: "unread:updated", topicId: params.id, unreadCount: 0 });

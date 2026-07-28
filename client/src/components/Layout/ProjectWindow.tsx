@@ -5,7 +5,6 @@ import { useTopics } from '../../contexts/TopicsContext';
 import { ProjectSidebar } from '../Project/ProjectSidebar';
 import { GroupLayout } from './GroupLayout';
 import { ChatPane } from '../Chat/ChatPane';
-import { topicsApi } from '../../lib/api';
 import {
   createPaneId,
   getTerminalSessionFromPaneId,
@@ -227,7 +226,8 @@ export function ProjectWindowPane({
   useEffect(() => {
     if (!isProjectFocused) return;
     if (activeTopicId) {
-      topicsApi.markRead(activeTopicId).catch(() => {});
+      // Il solo ping di focus: `sendWS` ci attacca da sé l'azzeramento locale e
+      // la POST di lettura, ma solo se c'è davvero qualcosa di non letto.
       sendFocusTopic(sendWS, activeTopicId);
     } else {
       // Active pane is non-chat (terminal, browser, etc.) — clear server focus

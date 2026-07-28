@@ -31,6 +31,12 @@ describe("filterUniqueSourceFiles", () => {
 describe("branchStatusFromRepo", () => {
   let repo: string;
 
+  // Timeout esplicito: questo hook fa una ventina di `git` SINCRONI per montare
+  // il repo di prova, e i 5s di default di bun li copre solo a macchina scarica.
+  // Quando la suite gira insieme a un build o a un E2E, ogni spawn scivola a
+  // qualche centinaio di ms e l'hook sfora — un rosso che non dice niente sul
+  // codice sotto test. Il vero limite di questo test è la durata degli spawn,
+  // non la logica, quindi il tetto sta largo.
   beforeAll(() => {
     repo = mkdtempSync(join(tmpdir(), "bstat-"));
     git(repo, "init", "-q", "-b", "main");
@@ -69,7 +75,7 @@ describe("branchStatusFromRepo", () => {
     git(repo, "checkout", "-q", "-b", "ancestor", "main");
 
     git(repo, "checkout", "-q", "main");
-  });
+  }, 60_000);
 
   afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
 

@@ -308,8 +308,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     : (detachedTopicId ? [detachedTopicId] : []);
 
   const {
-    isOwnStream, getSessionMessages, addMessageFromWS, clearSession,
-    loadHistory, appendMediaToLastAssistant, sendMessage, drainQueue,
+    loadHistory, sendMessage, drainQueue,
   } = chatStreamHandlers;
 
   // ---- 1. State ----
@@ -334,6 +333,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // guard — without these it would close over the first render's values.
   const workspaceProjectsRef = useRefMirror(workspaceProjects);
   const terminalSessionsRef = useRefMirror(terminalSessions);
+  // Gli handler di chat letti dai cluster WS, mirrorati. I cluster si iscrivono
+  // UNA VOLTA e pescano da qui: metterli fra le dipendenze dell'effect voleva
+  // dire rifare unsubscribe+subscribe a ogni cambio di identità, e
+  // `getSessionMessages` cambia identità a ogni token di stream (dipende da
+  // `messages`). Era un ciclo di teardown per chunk — e il Cluster 1 nel
+  // teardown butta via anche i timer di riconciliazione del thread, quindi la
+  // riconciliazione debounced poteva non arrivare mai durante uno stream.
+  const chatHandlersRef = useRefMirror(chatStreamHandlers);
+  const applyTopicFromWSRef = useRefMirror(applyTopicFromWS);
   // openPanel is declared far below (it depends on many of the above), but the
   // stable WS effects need to call it. Declare the mirror ref here (before
   // those effects) and sync it after openPanel's declaration — referencing the
@@ -997,17 +1005,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     const timers = threadReconcileTimersRef.current;
     const unsub = onWSMessage((msg) => {
       if (msg.type === 'topic:archived' || msg.type === 'topic:updated' || msg.type === 'topic:created') {
-        if (msg.topic) applyTopicFromWS(msg.topic);
+        if (msg.topic) applyTopicFromWSRef.current(msg.topic);
       }
       if (msg.type === 'topic:updated' && msg.topic?.sessionKey) {
         const t = msg.topic;
         if (!openPanelsRef.current.includes(t.id)) return;
-        if (isOwnStream(t.sessionKey)) return;
+        if (chatHandlersRef.current.isOwnStream(t.sessionKey)) return;
         const pending = timers.get(t.sessionKey);
         if (pending) clearTimeout(pending);
         timers.set(t.sessionKey, setTimeout(() => {
           timers.delete(t.sessionKey);
-          loadHistory(t.sessionKey);
+          chatHandlersRef.current.loadHistory(t.sessionKey);
         }, 400));
       }
     });
@@ -1016,7 +1024,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
     };
-  }, [onWSMessage, applyTopicFromWS, openPanelsRef, isOwnStream, loadHistory]);
+  }, [onWSMessage, openPanelsRef, chatHandlersRef, applyTopicFromWSRef]);
 
   // WS Cluster 2: message sync (notifications, media, clear, agents-spawned)
   useEffect(() => {
@@ -1028,18 +1036,18 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // Falls back to last-of-role/content match for legacy emissions that
       // pre-date the messageId field (still in flight from older servers).
       if (msg.type === 'message:new') {
-        if (isOwnStream(msg.sessionKey)) return;
+        if (chatHandlersRef.current.isOwnStream(msg.sessionKey)) return;
         const fullContent = msg.content ?? msg.preview ?? '';
         if (!fullContent) return;
         const id = msg.messageId;
-        const existingMessages = getSessionMessages(msg.sessionKey);
+        const existingMessages = chatHandlersRef.current.getSessionMessages(msg.sessionKey);
         if (id && existingMessages.some(m => m.id === id)) return;
         if (!id) {
           // Legacy fallback: dedupe by last-of-role content match.
           const lastMsgOfRole = [...existingMessages].reverse().find(x => x.role === msg.role);
           if (lastMsgOfRole && lastMsgOfRole.content === fullContent) return;
         }
-        addMessageFromWS(msg.sessionKey, {
+        chatHandlersRef.current.addMessageFromWS(msg.sessionKey, {
           id,
           role: msg.role,
           content: fullContent,
@@ -1064,17 +1072,17 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       // message:media
       if (msg.type === 'message:media') {
-        appendMediaToLastAssistant(msg.sessionKey, msg.media);
+        chatHandlersRef.current.appendMediaToLastAssistant(msg.sessionKey, msg.media);
       }
       // clear
       if (msg.type === 'clear') {
-        clearSession(msg.sessionKey);
+        chatHandlersRef.current.clearSession(msg.sessionKey);
       }
       // agents:spawned
       if (msg.type === 'agents:spawned') {
         const parentTopic = topicsRef.current[msg.topicId];
         if (parentTopic) {
-          addMessageFromWS(parentTopic.sessionKey, {
+          chatHandlersRef.current.addMessageFromWS(parentTopic.sessionKey, {
             role: 'assistant',
             content: `{{AGENT_SPAWN:${msg.sessionKey}|${msg.label || 'Claude Code'}}}`,
             timestamp: new Date().toISOString(),
@@ -1082,7 +1090,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         }
       }
     });
-  }, [onWSMessage, isOwnStream, getSessionMessages, addMessageFromWS, appendMediaToLastAssistant, clearSession, focusedPanelIdRef, topicsRef]);
+  }, [onWSMessage, focusedPanelIdRef, topicsRef, chatHandlersRef]);
 
   // WS Cluster 3: topic switch + topic switch complete (CRITIQUE C13)
   // ownTopicSwitchesRef writer + reader co-located here.
@@ -1091,7 +1099,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     return onWSMessage((msg) => {
       if (msg.type === 'topic:switch') {
         const fromSK = msg.fromSessionKey;
-        if (!fromSK || isOwnStream(fromSK)) {
+        if (!fromSK || chatHandlersRef.current.isOwnStream(fromSK)) {
           if (fromSK) ownTopicSwitchesRef.current.add(fromSK);
           // Register the pane BEFORE pushing into openPanels — same trap the
           // open-project handler below documents: Effect B's REORDER_PANES
@@ -1112,19 +1120,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (msg.type === 'topic:switch:complete') {
         if (!ownTopicSwitchesRef.current.has(msg.fromSessionKey)) return;
         ownTopicSwitchesRef.current.delete(msg.fromSessionKey);
-        clearSession(msg.fromSessionKey);
-        loadHistory(msg.fromSessionKey);
+        const h = chatHandlersRef.current;
+        h.clearSession(msg.fromSessionKey);
+        h.loadHistory(msg.fromSessionKey);
         if (msg.userContent) {
-          addMessageFromWS(msg.toSessionKey, { role: 'user', content: msg.userContent, timestamp: new Date().toISOString() });
+          h.addMessageFromWS(msg.toSessionKey, { role: 'user', content: msg.userContent, timestamp: new Date().toISOString() });
         }
         if (msg.assistantContent) {
-          addMessageFromWS(msg.toSessionKey, { role: 'assistant', content: msg.assistantContent, timestamp: new Date().toISOString() });
+          h.addMessageFromWS(msg.toSessionKey, { role: 'assistant', content: msg.assistantContent, timestamp: new Date().toISOString() });
         }
         setOpenPanels(prev => prev.filter(id => id !== msg.fromTopicId));
         setFocusedPanelId(msg.toTopicId);
       }
     });
-  }, [onWSMessage, isOwnStream, clearSession, loadHistory, addMessageFromWS, openPanelsRef, topicsRef]);
+  }, [onWSMessage, openPanelsRef, topicsRef, chatHandlersRef]);
 
   // WS Cluster 4: open-project broadcast
   useEffect(() => {

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
-import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, topicsApi, contextAnalysisApi } from '../../lib/api';
+import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi } from '../../lib/api';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
@@ -433,9 +433,17 @@ function ChatPaneComponent({
   // (followOutput="smooth" for new items, explicit scrollToIndex for streaming updates)
   useEffect(() => { if (!currentStreaming && messageQueue.length > 0) { const next = messageQueue[0]; setMessageQueue(prev => prev.slice(1)); sendMessage(topic.sessionKey, next); } }, [currentStreaming, messageQueue, sendMessage, topic.sessionKey]);
   useEffect(() => { loadHistory(topic.sessionKey); setReplyingTo(null); setAutoNameTriggered(false); }, [topic.sessionKey, loadHistory]);
-  useEffect(() => { if (isFocused) setTimeout(() => textareaRef.current?.focus(), 50); }, [isFocused]);
+  // `preventScroll` perché il composer è ancorato in fondo alla pane ed è già
+  // in vista: lo scroll-into-view implicito di `focus()` non lo sposta di un
+  // pixel, ma per stabilirlo il browser deve calcolare il layout di tutti gli
+  // antenati scrollabili — inclusa la lista virtualizzata dei messaggi. A ogni
+  // cambio di tab era lavoro buttato, e sulla lista poteva pure strattonare la
+  // posizione di scroll.
+  useEffect(() => { if (isFocused) setTimeout(() => textareaRef.current?.focus({ preventScroll: true }), 50); }, [isFocused]);
   // Mark topic as read when this chat pane gains focus (covers ProjectWindow usage)
-  useEffect(() => { if (isFocused && topic.id) { topicsApi.markRead(topic.id).catch(() => {}); sendFocusTopic(sendWS, topic.id); } }, [isFocused, topic.id, sendWS]);
+  // Solo il ping di focus: l'azzeramento locale e la POST di lettura li fa
+  // `sendWS`, e solo quando c'è davvero qualcosa di non letto.
+  useEffect(() => { if (isFocused && topic.id) { sendFocusTopic(sendWS, topic.id); } }, [isFocused, topic.id, sendWS]);
 
   // After first assistant response, call server auto-name for project path detection
   // Skip for draft topics (not yet persisted on server)
