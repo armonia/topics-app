@@ -107,7 +107,15 @@ export function createAppContext(baseDir: string): AppContext {
   const STATE_DIR = resolveStateDir(baseDir);
   const TOPICS_FILE = join(STATE_DIR, "topics.json");
   const UNREAD_FILE = join(STATE_DIR, "unread.json");
-  const PUBLIC_DIR = join(baseDir, "public"); // READ-ONLY asset — stays in the bundle
+  // Bundle del client. È un asset READ-ONLY e resta dentro il bundle.
+  //
+  // Sovrascrivibile perché la suite E2E deve servire una FOTOGRAFIA di
+  // `public/`, non la cartella viva: `vite build --watch` la riscrive (svuota e
+  // ricrea `index.html`) mentre i test girano, e in quella finestra il server
+  // risponde "no such file or directory" — l'app non si carica e falliscono
+  // test che non c'entrano nulla, ogni volta uno diverso. Vedi
+  // `tests/e2e/global-setup.ts` (snapshotBundle) e `helpers/test-server.ts`.
+  const PUBLIC_DIR = process.env.TOPICS_PUBLIC_DIR || join(baseDir, "public");
   const UPLOADS_DIR = join(STATE_DIR, "uploads");
   const CONTEXT_DIR = join(STATE_DIR, "context-files");
   const OPENCLAW_DIR = process.env.APP_DATA_DIR || process.env.OPENCLAW_DIR || `${process.env.HOME}/.openclaw`;

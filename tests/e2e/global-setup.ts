@@ -9,8 +9,8 @@
  * percorsi vengono da `helpers/test-server.ts`, che li deriva da `E2E_PORT`.
  */
 
-import { spawn, execSync, type ChildProcess } from "child_process";
-import { existsSync, readdirSync } from "fs";
+import { spawn, execFileSync, execSync, type ChildProcess } from "child_process";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import {
@@ -18,6 +18,7 @@ import {
   E2E_PORT,
   dataDirForPort,
   descendantsOf,
+  publicDirForPort,
   testServerEnv,
 } from "./helpers/test-server";
 import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
@@ -59,6 +60,61 @@ function resolveChromiumPath(): string {
     }
   } catch { /* ignore */ }
   return "";
+}
+
+/**
+ * Congela il bundle del client sotto la DATA_DIR dello shard e ritorna il
+ * percorso della copia.
+ *
+ * `public/` è una cartella VIVA: `vite build --watch` (il `dev:client` che
+ * l'utente tiene su, per contratto — vedi CLAUDE.md) la riscrive a ogni
+ * salvataggio, e per qualche decina di millisecondi `index.html` non esiste.
+ * Un test che carica la pagina in quella finestra prende un 404 dal server e
+ * fallisce per un motivo finto: nell'ultima run intera sono caduti tre test dei
+ * terminali, con lo screenshot che diceva "no such file or directory …
+ * public/index.html". Il rosso si sposta a ogni run perché dipende da QUANDO si
+ * salva un file, non da cosa fa il codice — esattamente il tipo di non-ermeticità
+ * che questa suite deve smettere di avere.
+ *
+ * La copia viene VALIDATA, non solo fatta: se `cp` è passato mentre il watcher
+ * riscriveva, `index.html` può puntare a un asset che nella copia non c'è. In
+ * quel caso si riprova invece di servire un bundle rotto — che sarebbe lo stesso
+ * fallimento di prima, solo congelato per tutta la run.
+ */
+async function snapshotBundle(): Promise<string> {
+  const src = resolve(__dirname, "../../public");
+  const dest = publicDirForPort(E2E_PORT);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    rmSync(dest, { recursive: true, force: true });
+    mkdirSync(dest, { recursive: true });
+    // execFileSync, non execSync: niente shell di mezzo, quindi un percorso con
+    // uno spazio o un apice non diventa una riga di comando diversa.
+    execFileSync("cp", ["-R", `${src}/.`, `${dest}/`]);
+    const missing = missingBundleAssets(dest);
+    if (missing.length === 0) {
+      console.log(`[global-setup] Bundle congelato in ${dest}`);
+      return dest;
+    }
+    console.warn(
+      `[global-setup] Copia del bundle incoerente (tentativo ${attempt}/3), asset mancanti: ${missing.join(", ")}`,
+    );
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  throw new Error(
+    `[global-setup] Non sono riuscito a fotografare un bundle coerente da ${src}.\n` +
+      `Probabile: un build del client in corso che riscrive public/ di continuo. ` +
+      `Aspetta che finisca e rilancia.`,
+  );
+}
+
+/** Gli asset che `index.html` cita ma che nella copia non ci sono. */
+function missingBundleAssets(dir: string): string[] {
+  const entry = join(dir, "index.html");
+  if (!existsSync(entry)) return ["index.html"];
+  const html = readFileSync(entry, "utf8");
+  const refs = new Set<string>();
+  for (const m of html.matchAll(/(?:src|href)="(\/[^"]+)"/g)) refs.add(m[1]);
+  return [...refs].filter((ref) => !existsSync(join(dir, ref.replace(/^\//, ""))));
 }
 
 let serverProcess: ChildProcess | null = null;
@@ -248,7 +304,6 @@ async function globalSetup() {
   // <repo>/data/browser-state/. Belt-and-braces: clean both locations
   // before the test server boots so restoreAllContexts doesn't re-hydrate
   // a context with stale cookies that would skew BROWSER-CHAT-01 asserts.
-  const { rmSync } = await import("fs");
   for (const dir of [join(TEST_DATA_DIR, "browser-state"), join(process.cwd(), "data", "browser-state")]) {
     try {
       if (existsSync(dir)) {
@@ -285,6 +340,11 @@ async function globalSetup() {
       console.warn(`[global-setup] Failed to wipe ${p}: ${(err as Error).message}`);
     }
   }
+
+  // Il bundle si congela QUI: dopo l'ultimo passo che tocca il disco e prima
+  // che il server apra la porta, così ciò che serve per tutta la run è un
+  // insieme di file che nessuno riscriverà più.
+  await snapshotBundle();
 
   // Start isolated test server
   await startTestServer();

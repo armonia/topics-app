@@ -210,17 +210,28 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       const box = await screenshotImg.first().boundingBox();
       const cx = (box?.width ?? 200) / 2;
       const cy = (box?.height ?? 200) / 2;
-      // Click a small MARGIN over the minimum: a click whose input rides the WS
-      // just after a frame won't pair with the very next frame, so a strict
-      // 1-click-1-sample loop can land one short (flake). Over-sampling collects
-      // >= the minimum reliably without weakening the p95 bound below.
-      const clickCount = PERF.input_latency_sample_size_min + 6;
-      for (let i = 0; i < clickCount; i++) {
+      // Si clicca FINCHÉ i campioni bastano, non un numero fisso di volte.
+      //
+      // Un click e un frame non sono accoppiati: se il click successivo parte
+      // prima che arrivi un frame, sovrascrive `lastInputAt` e il campione
+      // precedente non nasce. Quante coppie si perdono dipende da come i click
+      // cadono rispetto ai frame mockati a 30fps — cioè dal caso. Con un margine
+      // fisso (`min + 6`) bastava perderne sette per un rosso: `Expected: >= 20,
+      // Received: 19` con una p95 sanissima (55ms su un tetto di 150). Il numero
+      // di click non è il contratto; il contratto è "almeno N campioni, e la
+      // loro p95 sta sotto il tetto". Il tetto sotto NON si tocca: si campiona
+      // finché ce n'è abbastanza per misurarlo.
+      const wantedSamples = PERF.input_latency_sample_size_min;
+      const maxClicks = wantedSamples * 5; // ~80% di perdita e regge ancora
+      const clickDeadline = Date.now() + 15_000; // < timeout del test (30s)
+      let clicks = 0;
+      while (samples.length < wantedSamples && clicks < maxClicks && Date.now() < clickDeadline) {
         // Click around center; small jitter keeps each click distinct.
         await screenshotImg.first().click({
-          position: { x: cx + (i % 5) - 2, y: cy + (i % 7) - 3 },
+          position: { x: cx + (clicks % 5) - 2, y: cy + (clicks % 7) - 3 },
           force: true,
         });
+        clicks++;
         await page.evaluate(
           () =>
             new Promise<void>((r) =>
@@ -229,10 +240,11 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
         );
       }
 
-      // Drain samples; compute p95.
+      // Drain samples; compute p95. L'ultimo click può avere un frame ancora in
+      // volo: la poll gli dà il tempo di atterrare.
       await expect
         .poll(() => samples.length, { timeout: 8000 })
-        .toBeGreaterThanOrEqual(PERF.input_latency_sample_size_min);
+        .toBeGreaterThanOrEqual(wantedSamples);
       const sorted = [...samples].sort((a, b) => a - b);
       const p95 = sorted[Math.ceil(0.95 * (sorted.length - 1))];
       console.log(
