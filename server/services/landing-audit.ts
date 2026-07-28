@@ -104,5 +104,16 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
   if (summary.unlanded > 0) {
     deps.log(`[landing-audit] ${summary.unlanded}/${summary.checked} task consegnati NON sono su main`);
   }
+  // `unverifiable` è conservativo per scelta, e per questo è anche il posto
+  // dove un audit rotto si nasconde: se `repoPath` non risolve più nulla, ogni
+  // task diventa "non so" e il contatore resta muto mentre non verifica NIENTE
+  // (è successo: il wiring cercava il board id nel ProjectStore, dove non c'è
+  // mai stato). Un verdetto mancante va DETTO, non solo contato.
+  if (summary.unverifiable > 0) {
+    deps.log(
+      `[landing-audit] ${summary.unverifiable}/${summary.checked} non verificabili ` +
+      "(commit potato o progetto non risolto)",
+    );
+  }
   return summary;
 }
