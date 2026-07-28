@@ -756,10 +756,29 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
 
       {/* Terminal area — chrome-glass matches the project sidebar's frosted
           vibrancy under Electron (xterm bg is transparent so it shows through);
-          inline bg is the opaque web fallback + covers any sub-cell edge gap. */}
+          inline bg is the opaque web fallback + covers any sub-cell edge gap.
+
+          `contain: layout paint` = CONFINE DI LAYOUT. Il renderer DOM di xterm
+          ricostruisce le righe con `replaceChildren` a ogni scarico: senza
+          contenimento quella sporcizia risale fino alla radice, e siccome il
+          layout flex NON è incrementale (un container che si rilaya rilaya TUTTI
+          i suoi figli) un singolo carattere in un terminale rilayava l'INTERO
+          albero delle pane — 10+ livelli di flex annidati, ~9ms. Peggio: con un
+          campo di testo a fuoco, `OpacityCaretAnimator` forza un
+          `Document::updateLayout()` sincrono ad ogni rendering update, quindi
+          quel layout lo pagavamo anche una seconda volta per frame (misurato con
+          `sample` sul WebContent: 2425 campioni su 3426 del main thread).
+          Contenendo, il ricalcolo si ferma al bordo del terminale.
+          `paint` è gratis qui — `overflow-hidden` già ritaglia — e nessun
+          discendente è `position: fixed` (xterm, il ring e il bottone copia sono
+          tutti `absolute` dentro questo stesso box, che era già il loro
+          containing block via `relative`). */}
       <div
         className="flex-1 min-h-0 relative overflow-hidden chrome-glass"
-        style={{ backgroundColor: isDarkRef.current ? DARK_THEME.background : LIGHT_THEME.background }}
+        style={{
+          backgroundColor: isDarkRef.current ? DARK_THEME.background : LIGHT_THEME.background,
+          contain: 'layout paint',
+        }}
       >
         <div
           ref={containerRef}
