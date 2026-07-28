@@ -74,6 +74,15 @@ argomenti loggati del tool contengono **solo** il placeholder (INJECT-01). Una f
 `redactSecrets()` avvolge i logger e i dump del tool (screenshot/HTML) con sostituzione
 `***` sui valori risolti della sessione (INJECT-02).
 
+### D2-bis — Origin binding (difesa distinta dall'allowlist)
+L'allowlist dice *quali domini* l'agente può autenticare; l'origin binding garantisce che
+il segreto finisca **su quel dominio**. Al momento della risoluzione il resolver confronta
+il dominio della credenziale con l'origin del **frame in cui si digita** (eTLD+1, non
+sottostringa) e rifiuta su mismatch — redirect, navigazione intermedia, iframe
+cross-origin. Senza questo, un redirect ostile dentro un flusso di login su dominio
+allowlisted riceverebbe la password: è la difesa che i password manager applicano di
+default (INJECT-03).
+
 ### D3 — Schema vault e audit
 Keychain `service = "io.armonia.topics.cred/" + dominio`, `account = campo`
 (`username`/`password`/`totp_seed`/…), coerente con `keychain-access-groups`.
@@ -136,6 +145,19 @@ read-only), redaction hard.
   regex OTP, mai proiettare `text` generico; degrado se manca FDA.
 - **Migrazione distruttiva**: mai `rm`, sempre trash e solo dopo verde; rollback testato.
 - **Attribuzione TCC dei sidecar**: evitata mettendo Keychain/chat.db nel Rust (D1).
+- **`keychain-access-groups` potrebbe non essere concedibile con firma self-signed**: è un
+  entitlement *ristretto*, normalmente validato tramite provisioning profile Apple; con un
+  certificato self-signed può essere ignorato o far fallire l'avvio. In quel caso la via
+  corretta NON è il Developer ID ma il **keychain file-based** (generic password + ACL
+  sull'eseguibile, come già fa `chrome-cookies.ts` con `security -ws`), che dà lo stesso
+  accesso non-interattivo senza entitlement ristretti. **Da verificare in Phase 0 prima di
+  scrivere il resto**: se l'entitlement non regge, si ripiega sull'ACL e il piano non
+  cambia altrove.
+- **`chat.db` è in modalità WAL**: `immutable=1` è pensato per DB realmente immutabili e su
+  un database che Messages sta scrivendo può restituire letture incoerenti; `mode=ro`
+  richiede però di poter aprire i file `-wal`/`-shm`. Ordine da provare: `mode=ro` come
+  default, `immutable=1` solo come fallback esplicito e documentato, mai una copia del DB
+  (duplicherebbe messaggi personali su disco).
 
 ## Testing
 - **Unit (Rust)**: `cred_get`/rotazione/kill-switch (Keychain mock o gruppo di test),
