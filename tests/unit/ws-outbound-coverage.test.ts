@@ -17,7 +17,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { REGISTERED_OUTBOUND_TYPES } from "../../server/schemas/ws-outbound";
+import { REGISTERED_OUTBOUND_TYPES } from "../../shared/ws-outbound";
 
 const ROOT = join(import.meta.dir, "..", "..");
 

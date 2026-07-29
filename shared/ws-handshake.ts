@@ -1,24 +1,28 @@
 /**
- * v3 foundations WS-02 — Schema-stable WebSocket handshake.
+ * v3 foundations WS-02 — Schema-stable WebSocket handshake. CANONICO.
  *
- * The handshake exchanges version + capabilities at connection time so
- * either side can detect protocol drift and surface a structured upgrade
- * prompt instead of crashing silently.
+ * Fino al 29/07 questo file esisteva DUE volte (`server/schemas/` e
+ * `client/src/schemas/`), con in cima un commento "KEEP IN SYNC" — cioè la
+ * sincronia affidata alla buona volontà di chi tocca il file. Vive qui perché
+ * `shared/` è l'unica cartella che entrambi i progetti TS possono importare
+ * senza violare il confine composite (TS6307), quindi la sincronia non è più
+ * una promessa: è la stessa costante.
  *
- * Flow:
- *   1. Client opens /ws.
- *   2. Server immediately emits `connected` (existing message, byte-compat
- *      with v2.x clients) followed by `welcome` (new in v3).
- *   3. Client optionally sends `hello` with its own version and capability
- *      list. Old clients that don't send hello are treated as v1.
- *   4. Server logs the hello and, if `clientProtocolVersion <
- *      SERVER_PROTOCOL_VERSION`, may emit `upgrade-required` (future work;
- *      for now just logs since SERVER_PROTOCOL_VERSION is 1).
+ * Flusso:
+ *   1. Il client apre /ws.
+ *   2. Il server manda subito `connected` (byte-compat coi client v2.x) e poi
+ *      `welcome` (nuovo in v3).
+ *   3. Il client può mandare `hello` con la propria versione e capacità. Un
+ *      client che non lo manda vale v1.
+ *   4. Il server logga l'hello e, se `clientProtocolVersion <
+ *      SERVER_PROTOCOL_VERSION`, potrà emettere `upgrade-required` (per ora
+ *      solo log: SERVER_PROTOCOL_VERSION è 1).
  *
- * KEEP IN SYNC with `client/src/schemas/ws-handshake.ts` (mirror; TS6307
- * forbids cross-project imports).
+ * Idioma `zod/mini` (API funzionale, tree-shakable): questi schemi finiscono
+ * nel bundle client, e la versione method-heavy di zod nel chunk d'ingresso
+ * costa. `.safeParse` è identico nelle due varianti.
  */
-import { z } from 'zod';
+import { z } from 'zod/mini';
 
 // ----- Server -> Client: welcome --------------------------------------------
 
@@ -27,7 +31,7 @@ export const welcomeMessageSchema = z.object({
   /** Human-readable server version (from package.json). */
   serverVersion: z.string(),
   /** Integer protocol version. Compare against client's to detect drift. */
-  protocolVersion: z.number().int(),
+  protocolVersion: z.int(),
   /** Stable capability identifiers the server supports. */
   capabilities: z.array(z.string()),
   /** Server-side wall-clock (ms since epoch). Clients can use for clock skew. */
@@ -45,7 +49,7 @@ export const helloMessageSchema = z.object({
   /** Human-readable client version (from package.json). */
   clientVersion: z.string(),
   /** Integer protocol version. */
-  protocolVersion: z.number().int(),
+  protocolVersion: z.int(),
   /** Capabilities the client knows how to use. Empty = legacy. */
   capabilities: z.array(z.string()),
 });
@@ -61,14 +65,21 @@ export type HelloMessage = z.infer<typeof helloMessageSchema>;
  */
 export const upgradeRequiredSchema = z.object({
   type: z.literal('upgrade-required'),
-  minClientProtocolVersion: z.number().int(),
-  currentClientProtocolVersion: z.number().int(),
+  minClientProtocolVersion: z.int(),
+  currentClientProtocolVersion: z.int(),
   message: z.string(),
 });
 
 export type UpgradeRequiredMessage = z.infer<typeof upgradeRequiredSchema>;
 
 // ----- Public API -----------------------------------------------------------
+
+/** Errore Zod appiattito in una riga leggibile (`campo: messaggio; …`). */
+export function formatZodIssues(error: { issues: readonly { path: PropertyKey[]; message: string }[] }): string {
+  return error.issues
+    .map((iss) => `${iss.path.length ? iss.path.join('.') : '<root>'}: ${iss.message}`)
+    .join('; ');
+}
 
 export type WelcomeParseResult =
   | { ok: true; data: WelcomeMessage }
@@ -77,12 +88,7 @@ export type WelcomeParseResult =
 export function parseWelcomeMessage(value: unknown): WelcomeParseResult {
   const result = welcomeMessageSchema.safeParse(value);
   if (result.success) return { ok: true, data: result.data };
-  return {
-    ok: false,
-    error: result.error.issues
-      .map((iss) => `${iss.path.length ? iss.path.join('.') : '<root>'}: ${iss.message}`)
-      .join('; '),
-  };
+  return { ok: false, error: formatZodIssues(result.error) };
 }
 
 export type HelloParseResult =
@@ -92,10 +98,5 @@ export type HelloParseResult =
 export function parseHelloMessage(value: unknown): HelloParseResult {
   const result = helloMessageSchema.safeParse(value);
   if (result.success) return { ok: true, data: result.data };
-  return {
-    ok: false,
-    error: result.error.issues
-      .map((iss) => `${iss.path.length ? iss.path.join('.') : '<root>'}: ${iss.message}`)
-      .join('; '),
-  };
+  return { ok: false, error: formatZodIssues(result.error) };
 }

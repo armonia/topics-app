@@ -19,7 +19,7 @@ import {
   DEFAULT_WINDOW_MS,
   type ExternalClaudeSession,
 } from "../lib/external-claude-sessions";
-import type { OutboundMessage } from "../schemas/ws-outbound";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 
 /** Per-project rollup — what the board badge renders. */
 export interface ExternalSessionProjectSummary {

@@ -1,295 +1,45 @@
 /**
- * Client-side mirror of `server/schemas/ws-outbound.ts` — used to validate
- * inbound WS messages received from the server.
+ * Validazione dei frame WS in ARRIVO dal server.
  *
- * Why a mirror: TS6307 forbids the composite client project from importing
- * `server/`. The Zod schemas are duplicated; the wire contract is the same
- * — both sides validate against an identical shape.
+ * Non è più uno specchio. Fino al 29/07 questo file ridefiniva a mano 26 dei
+ * tipi che il server emette, con in testa un "KEEP IN SYNC with
+ * server/schemas/ws-outbound.ts": due registri per lo stesso filo, quindi
+ * deriva garantita — e infatti divergevano (il client accettava un
+ * `topic:switch` senza `fromSessionKey`, campo che il server manda SEMPRE).
  *
- * Strategy: the client doesn't need the FULL list of 94 server-side
- * schemas. Most inbound messages are dispatched generically into the WS
- * frame bus; only a handful are read by hand in components. We model a
- * representative subset and the validator passes through unknown types
- * exactly like the server-side validator does. The PRIMARY value is
- * catching:
- *   1. Protocol drift after a server upgrade (client too old to parse
- *      a new required field).
- *   2. Server-side bugs that emit malformed payloads despite the
- *      `devValidateOutbound` hook on the server (which only runs in DEV).
+ * Ora il registro è UNO SOLO, in `shared/ws-outbound.ts`, importabile da
+ * entrambi i progetti TS senza violare il confine composite (TS6307). Questo
+ * modulo resta solo per dare al contratto il NOME giusto dal punto di vista del
+ * client: ciò che per il server è "outbound", qui è "inbound".
  *
- * KEEP IN SYNC with `server/schemas/ws-outbound.ts` for any type the
- * client reads by hand (the registry below). Other types fall through
- * silently.
- *
- * v3 foundations WS-01 client-side wrap-up.
- *
- * Uses `zod/mini` (functional, tree-shakable API) so these client-bundled
- * schemas don't drag the method-heavy core into the critical entry chunk.
- * `z.looseObject({...})` replaces `.passthrough()`; `.safeParse` is identical.
+ * Aggiungere un tipo = aggiungerlo allo schema condiviso. Qui non c'è niente
+ * da tenere in sincronia, e non deve tornarci.
  */
-import { z } from 'zod/mini';
+import {
+  validateOutbound,
+  isRegisteredOutboundType,
+  REGISTERED_OUTBOUND_TYPES,
+  type ValidationResult,
+} from '../../../shared/ws-outbound';
 
-// ---- High-frequency types the client reads by hand ------------------------
+/** I tipi che il server sa mandare — cioè quelli che il client può ricevere. */
+export const REGISTERED_INBOUND_TYPES = REGISTERED_OUTBOUND_TYPES;
 
-const connectedSchema = z.looseObject({
-  type: z.literal('connected'),
-  clientId: z.string(),
-});
-
-const pongSchema = z.looseObject({ type: z.literal('pong') });
-
-const errorMessageSchema = z.looseObject({
-  type: z.literal('error'),
-  message: z.string(),
-});
-
-const welcomeSchema = z.looseObject({
-  type: z.literal('welcome'),
-  serverVersion: z.string(),
-  protocolVersion: z.int(),
-  capabilities: z.array(z.string()),
-  serverTime: z.number(),
-  clientId: z.string(),
-});
-
-const dashboardUpdatedSchema = z.looseObject({
-  type: z.literal('dashboard:updated'),
-});
-
-const unreadInitSchema = z.looseObject({
-  type: z.literal('unread:init'),
-  data: z.record(
-    z.string(),
-    z.looseObject({
-      lastReadAt: z.string(),
-      unreadCount: z.number(),
-    }),
-  ),
-});
-
-const unreadUpdatedSchema = z.looseObject({
-  type: z.literal('unread:updated'),
-  topicId: z.string(),
-  unreadCount: z.number(),
-});
-
-const streamEndSchema = z.looseObject({
-  type: z.literal('stream:end'),
-  sessionKey: z.string(),
-  messageId: z.string(),
-});
-
-const streamCatchupSchema = z.looseObject({
-  type: z.literal('stream:catchup'),
-  sessionKey: z.string(),
-  messageId: z.string(),
-});
-
-const typingBroadcastSchema = z.looseObject({
-  type: z.literal('typing'),
-  topicId: z.string(),
-  clientId: z.string(),
-  text: z.string(),
-});
-
-// Dev bundle hot-delivery (server/lib/dev-bundle-reload.ts): the built client
-// changed on disk; devBundleReload.ts reloads the window to pick it up. `rev`
-// (sorted /assets/* names) lets the client skip the reload when it already
-// runs that bundle.
-const uiBundleUpdatedSchema = z.looseObject({
-  type: z.literal('ui:bundle-updated'),
-  at: z.number(),
-  rev: z.optional(z.string()),
-});
-
-// Connect-time freshness check (same rev semantics): sent to each client on
-// WS open so a window that missed the deploy-time broadcast still converges.
-const uiBundleRevSchema = z.looseObject({
-  type: z.literal('ui:bundle-rev'),
-  rev: z.string(),
-});
-
-const presenceWindowsSchema = z.looseObject({
-  type: z.literal('presence:windows'),
-  windows: z.array(
-    z.looseObject({
-      windowId: z.string(),
-      clientId: z.string(),
-      windowLabel: z.optional(z.string()),
-      detached: z.optional(z.boolean()),
-      topicIds: z.array(z.string()),
-      focusedTopicId: z.optional(z.string()),
-    }),
-  ),
-});
-
-const topicCreatedSchema = z.looseObject({
-  type: z.literal('topic:created'),
-  topic: z.looseObject({ id: z.string() }),
-});
-
-const topicUpdatedSchema = z.looseObject({
-  type: z.literal('topic:updated'),
-  topic: z.looseObject({ id: z.string() }),
-});
-
-const topicArchivedSchema = z.looseObject({
-  type: z.literal('topic:archived'),
-  topic: z.looseObject({ id: z.string() }),
-});
-
-const topicSwitchSchema = z.looseObject({
-  type: z.literal('topic:switch'),
-  fromTopicId: z.string(),
-  // Optional inbound for forward/backward compat with a server that predates
-  // the field; the open+focus guard degrades to "no origin scoping" if absent.
-  fromSessionKey: z.optional(z.string()),
-  toTopicId: z.string(),
-  toSessionKey: z.string(),
-});
-
-const uiStateInitSchema = z.looseObject({
-  type: z.literal('ui-state:init'),
-  data: z.unknown(),
-  meta: z.optional(z.unknown()),
-});
-
-const uiStateUpdatedSchema = z.looseObject({
-  type: z.literal('ui-state:updated'),
-  key: z.string(),
-  value: z.unknown(),
-});
-
-// Delta shape (finding #11): replaces the old bulk-PUT → full `ui-state:init`
-// fan-out. `entries[key]` carries only the keys a bulk PUT actually changed —
-// see syncWS.ts/projectLayoutSync.ts/tombstoneSync.ts, the three modules that
-// read this frame by hand. `data` is intentionally `unknown`: its shape is
-// per-key (pane-store-v2 snapshot, project tab-identity record, tombstone
-// entry list, …), validated downstream by each consumer, not here.
-const uiStatePatchEntrySchema = z.looseObject({
-  data: z.optional(z.unknown()),
-  payload_version: z.optional(z.number()),
-  server_seq: z.optional(z.number()),
-});
-
-const uiStatePatchSchema = z.looseObject({
-  type: z.literal('ui-state:patch'),
-  sourceClientId: z.optional(z.nullable(z.string())),
-  entries: z.optional(z.record(z.string(), uiStatePatchEntrySchema)),
-});
-
-const messageNewSchema = z.looseObject({
-  type: z.literal('message:new'),
-  sessionKey: z.string(),
-  role: z.string(),
-  messageId: z.string(),
-  content: z.string(),
-});
-
-const streamStartSchema = z.looseObject({
-  type: z.literal('stream:start'),
-  sessionKey: z.string(),
-  messageId: z.string(),
-});
-
-const streamContentChunkSchema = z.looseObject({
-  type: z.literal('stream:content_chunk'),
-  sessionKey: z.string(),
-  content: z.string(),
-});
-
-const streamErrorSchema = z.looseObject({
-  type: z.literal('stream:error'),
-  sessionKey: z.string(),
-  error: z.string(),
-});
-
-const streamCompactionSchema = z.looseObject({
-  type: z.literal('stream:compaction'),
-  sessionKey: z.string(),
-  markerId: z.string(),
-});
-
-const streamContextSchema = z.looseObject({
-  type: z.literal('stream:context'),
-  sessionKey: z.string(),
-  // Blocco `usage_update` ACP (3.1): `used`/`size` obbligatori lì dentro.
-  usage: z.object({
-    sessionUpdate: z.literal('usage_update'),
-    used: z.number(),
-    size: z.number(),
-    cost: z.optional(z.object({ amount: z.number(), currency: z.string() })),
-  }),
-  percent: z.number(),
-});
-
-// ---- Registry --------------------------------------------------------------
-
-const INBOUND_SCHEMAS = {
-  'connected': connectedSchema,
-  'pong': pongSchema,
-  'error': errorMessageSchema,
-  'welcome': welcomeSchema,
-  'dashboard:updated': dashboardUpdatedSchema,
-  'unread:init': unreadInitSchema,
-  'unread:updated': unreadUpdatedSchema,
-  'stream:end': streamEndSchema,
-  'stream:catchup': streamCatchupSchema,
-  'stream:start': streamStartSchema,
-  'stream:content_chunk': streamContentChunkSchema,
-  'stream:error': streamErrorSchema,
-  'stream:compaction': streamCompactionSchema,
-  'stream:context': streamContextSchema,
-  'typing': typingBroadcastSchema,
-  'ui:bundle-updated': uiBundleUpdatedSchema,
-  'ui:bundle-rev': uiBundleRevSchema,
-  'presence:windows': presenceWindowsSchema,
-  'topic:created': topicCreatedSchema,
-  'topic:updated': topicUpdatedSchema,
-  'topic:archived': topicArchivedSchema,
-  'topic:switch': topicSwitchSchema,
-  'ui-state:init': uiStateInitSchema,
-  'ui-state:updated': uiStateUpdatedSchema,
-  'ui-state:patch': uiStatePatchSchema,
-  'message:new': messageNewSchema,
-} as const;
-
-export const REGISTERED_INBOUND_TYPES = Object.keys(INBOUND_SCHEMAS).sort();
-
-export type InboundValidationResult =
-  | { ok: true }
-  | { ok: false; error: string; type?: string };
+export type InboundValidationResult = ValidationResult;
 
 /**
- * Validate an inbound WS frame. Returns ok:true for types the client
- * doesn't know about (passthrough), ok:true for known types that pass
- * the schema, ok:false with the path-qualified Zod error otherwise.
+ * Valida un frame in arrivo. `ok: true` per i tipi senza schema (passthrough,
+ * identico al lato server), `ok: true` per i tipi registrati che passano,
+ * `ok: false` con l'errore Zod qualificato per path altrimenti.
  *
- * Failure is non-fatal in production — the dispatcher should log + drop
- * the frame to avoid crashing the React tree, mirroring the server-side
- * graceful-degradation contract.
+ * Il fallimento non è fatale in produzione: chi chiama logga e SCARTA il frame,
+ * invece di far esplodere l'albero React — stesso contratto di degradazione
+ * graziosa del lato server.
  */
 export function validateInbound(msg: unknown): InboundValidationResult {
-  if (typeof msg !== 'object' || msg === null) {
-    return { ok: false, error: '<root>: expected object' };
-  }
-  const type = (msg as { type?: unknown }).type;
-  if (typeof type !== 'string') {
-    return { ok: false, error: 'type: missing or not a string' };
-  }
-  const schema = (INBOUND_SCHEMAS as Record<string, z.ZodMiniType>)[type];
-  if (!schema) return { ok: true };
-  const result = schema.safeParse(msg);
-  if (result.success) return { ok: true };
-  return {
-    ok: false,
-    type,
-    error: result.error.issues
-      .map((iss) => `${iss.path.length ? iss.path.join('.') : '<root>'}: ${iss.message}`)
-      .join('; '),
-  };
+  return validateOutbound(msg);
 }
 
 export function isRegisteredInboundType(type: string): boolean {
-  return type in INBOUND_SCHEMAS;
+  return isRegisteredOutboundType(type);
 }

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { OutboundMessage } from "./schemas/ws-outbound";
+import type { OutboundMessage } from "../shared/ws-outbound";
 import {
   applySessionTransition,
   applyProfileTransition,

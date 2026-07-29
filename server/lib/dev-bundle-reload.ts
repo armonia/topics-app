@@ -1,6 +1,6 @@
 import { watch, existsSync, readFileSync, type FSWatcher } from "node:fs";
 import { join } from "node:path";
-import type { OutboundMessage } from "../schemas/ws-outbound";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 
 /**
  * Dev bundle hot-delivery: when the BUILT client in PUBLIC_DIR changes (a

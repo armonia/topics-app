@@ -20,9 +20,23 @@
  *
  * Adding a new schema: drop another entry in OUTBOUND_SCHEMAS keyed by the
  * type string. The validator picks it up automatically.
+ *
+ * PERCHÉ vive in `shared/` (3.3, 29/07): fino a ieri il client ne teneva una
+ * COPIA a mano (`client/src/schemas/ws-inbound.ts`, un sottoinsieme dei tipi
+ * "letti a mano") con in testa un "KEEP IN SYNC". Due registri che descrivono
+ * lo STESSO filo divergono per costruzione: il client ne validava 26 su 102 e
+ * nessuno si accorgeva se un campo cambiava lato server. `shared/` è l'unica
+ * cartella che i due progetti TS possono importare senza violare il confine
+ * composite (TS6307), quindi ora il contratto è UNO e la deriva è impossibile,
+ * non solo sconsigliata.
+ *
+ * Idioma `zod/mini` per lo stesso motivo: questo modulo finisce nel bundle
+ * client, dove la variante method-heavy di zod pesa nel chunk d'ingresso.
+ * `z.looseObject({...})` è il `.passthrough()` della API funzionale e
+ * `.safeParse` è identico.
  */
-import { z } from 'zod';
-import { welcomeMessageSchema } from './ws-handshake';
+import { z } from 'zod/mini';
+import { welcomeMessageSchema, formatZodIssues } from './ws-handshake';
 
 // ---- Connection lifecycle --------------------------------------------------
 
@@ -71,19 +85,19 @@ const streamEndSchema = z.object({
   // (a dev-only warning — the message was still delivered) even though those
   // shapes are correct. Optional + the known companion fields below make the
   // schema a faithful contract of what the server actually emits.
-  messageId: z.string().optional(),
-  topicId: z.string().optional(),
-  reason: z.string().optional(),
-  latencyMs: z.number().optional(),
-  usagePromptTokens: z.number().optional(),
-  usageCompletionTokens: z.number().optional(),
-  costCents: z.number().optional(),
+  messageId: z.optional(z.string()),
+  topicId: z.optional(z.string()),
+  reason: z.optional(z.string()),
+  latencyMs: z.optional(z.number()),
+  usagePromptTokens: z.optional(z.number()),
+  usageCompletionTokens: z.optional(z.number()),
+  costCents: z.optional(z.number()),
   // PERCHÉ il turno è finito, col vocabolario di ACP (server/providers/stop-reason).
   // Assente quando lo stream è finito in errore: `error` non è una ragione ACP.
-  stopReason: z.enum(['end_turn', 'max_tokens', 'max_turn_requests', 'refusal', 'cancelled']).optional(),
+  stopReason: z.optional(z.enum(['end_turn', 'max_tokens', 'max_turn_requests', 'refusal', 'cancelled'])),
   // CHI l'ha fermato — `cancelled` da solo non distingue lo stop dell'umano dal
   // nostro watchdog, e a valle sono due politiche opposte.
-  stopCause: z.enum(['user', 'watchdog', 'wall-clock', 'session-reset', 'process-died', 'provider-error']).optional(),
+  stopCause: z.optional(z.enum(['user', 'watchdog', 'wall-clock', 'session-reset', 'process-died', 'provider-error'])),
 });
 
 // ---- Coordination broadcasts (mirrors of inbound) --------------------------
@@ -111,7 +125,7 @@ const dragAcceptedBroadcastSchema = z.object({
   type: z.literal('drag:accepted'),
   topicId: z.string(),
   targetWindowId: z.string(),
-  sourceWindowId: z.string().optional(),
+  sourceWindowId: z.optional(z.string()),
 });
 
 // ---- Cross-window presence -------------------------------------------------
@@ -125,10 +139,10 @@ const presenceWindowsBroadcastSchema = z.object({
     z.object({
       windowId: z.string(),
       clientId: z.string(),
-      windowLabel: z.string().optional(),
-      detached: z.boolean().optional(),
+      windowLabel: z.optional(z.string()),
+      detached: z.optional(z.boolean()),
       topicIds: z.array(z.string()),
-      focusedTopicId: z.string().optional(),
+      focusedTopicId: z.optional(z.string()),
     }),
   ),
 });
@@ -151,10 +165,10 @@ const topicSwitchSchema = z.object({
  * Topic events carry a `topic` object whose shape evolves frequently
  * (Topic type lives across many migrations). We validate the WRAPPER —
  * type + topic-must-be-object-with-id — and accept any additional fields
- * inside topic. When a canonical Topic Zod schema lands, swap z.object
- * `.passthrough()` for the strict reference here.
+ * inside topic. When a canonical Topic Zod schema lands, swap the
+ * `z.looseObject` for the strict reference here.
  */
-const topicObjectShape = z.object({ id: z.string() }).passthrough();
+const topicObjectShape = z.looseObject({ id: z.string() });
 
 const topicCreatedSchema = z.object({
   type: z.literal('topic:created'),
@@ -171,98 +185,98 @@ const topicArchivedSchema = z.object({
   topic: topicObjectShape,
 });
 
-const topicSwitchCompleteSchema = z.object({
+const topicSwitchCompleteSchema = z.looseObject({
   type: z.literal('topic:switch:complete'),
-}).passthrough();
+});
 
 // ---- Worktree events -------------------------------------------------------
 
-const worktreeObjectShape = z.object({ id: z.string() }).passthrough();
+const worktreeObjectShape = z.looseObject({ id: z.string() });
 
-const worktreeNewSchema = z.object({
+const worktreeNewSchema = z.looseObject({
   type: z.literal('worktree:new'),
   worktree: worktreeObjectShape,
-  payload_version: z.number().optional(),
-}).passthrough();
+  payload_version: z.optional(z.number()),
+});
 
-const worktreeUpdatedSchema = z.object({
+const worktreeUpdatedSchema = z.looseObject({
   type: z.literal('worktree:updated'),
   worktree: worktreeObjectShape,
-  payload_version: z.number().optional(),
-}).passthrough();
+  payload_version: z.optional(z.number()),
+});
 
-const worktreeDeletedSchema = z.object({
+const worktreeDeletedSchema = z.looseObject({
   type: z.literal('worktree:deleted'),
-  worktree: z.object({ id: z.string() }).passthrough(),
-  payload_version: z.number().optional(),
-}).passthrough();
+  worktree: z.looseObject({ id: z.string() }),
+  payload_version: z.optional(z.number()),
+});
 
 // ---- UI state events -------------------------------------------------------
 
-const uiStateUpdatedSchema = z.object({
+const uiStateUpdatedSchema = z.looseObject({
   type: z.literal('ui-state:updated'),
   key: z.string(),
   value: z.unknown(),
-  payload_version: z.number().optional(),
-  server_seq: z.number().optional(),
-  sourceClientId: z.string().optional(),
-}).passthrough();
+  payload_version: z.optional(z.number()),
+  server_seq: z.optional(z.number()),
+  sourceClientId: z.optional(z.string()),
+});
 
-const uiStatePatchSchema = z.object({
+const uiStatePatchSchema = z.looseObject({
   type: z.literal('ui-state:patch'),
-  sourceClientId: z.string().optional(),
+  sourceClientId: z.optional(z.string()),
   entries: z.array(z.unknown()),
-}).passthrough();
+});
 
 // ---- Provider snapshot -----------------------------------------------------
 
-const providersSnapshotSchema = z.object({
+const providersSnapshotSchema = z.looseObject({
   type: z.literal('providers:snapshot'),
   snapshot: z.unknown(), // Provider snapshot shape varies; keep loose.
-}).passthrough();
+});
 
 // ---- Stream catchup --------------------------------------------------------
 
-const streamCatchupSchema = z.object({
+const streamCatchupSchema = z.looseObject({
   type: z.literal('stream:catchup'),
   sessionKey: z.string(),
   messageId: z.string(),
-}).passthrough(); // toolCalls, blocks, content, thinking, isThinking are optional rich fields.
+}); // toolCalls, blocks, content, thinking, isThinking are optional rich fields.
 
 // ---- Project events --------------------------------------------------------
 
-const projectObjectShape = z.object({ id: z.string() }).passthrough();
+const projectObjectShape = z.looseObject({ id: z.string() });
 
-const projectNewSchema = z.object({
+const projectNewSchema = z.looseObject({
   type: z.literal('project:new'),
   project: projectObjectShape,
-  payload_version: z.number().optional(),
-}).passthrough();
+  payload_version: z.optional(z.number()),
+});
 
-const projectArchivedSchema = z.object({
+const projectArchivedSchema = z.looseObject({
   type: z.literal('project:archived'),
   project: projectObjectShape,
-  payload_version: z.number().optional(),
-}).passthrough();
+  payload_version: z.optional(z.number()),
+});
 
-const projectUpdatedSchema = z.object({
+const projectUpdatedSchema = z.looseObject({
   type: z.literal('project:updated'),
   project: projectObjectShape,
-  payload_version: z.number().optional(),
-}).passthrough();
+  payload_version: z.optional(z.number()),
+});
 
-const projectDeletedSchema = z.object({
+const projectDeletedSchema = z.looseObject({
   type: z.literal('project:deleted'),
-  project: z.object({ id: z.string() }).passthrough(),
-  payload_version: z.number().optional(),
-}).passthrough();
+  project: z.looseObject({ id: z.string() }),
+  payload_version: z.optional(z.number()),
+});
 
 // ---- Error envelope --------------------------------------------------------
 
-const errorMessageSchema = z.object({
+const errorMessageSchema = z.looseObject({
   type: z.literal('error'),
   message: z.string(),
-}).passthrough();
+});
 
 // ---- Welcome (v3 WS-02 handshake echo on outbound side) --------------------
 // Reuse the canonical handshake schema (same project — no TS6307) so the
@@ -270,111 +284,111 @@ const errorMessageSchema = z.object({
 
 // ---- Agent lifecycle cluster ----------------------------------------------
 
-const agentProfileShape = z.object({ id: z.string() }).passthrough();
+const agentProfileShape = z.looseObject({ id: z.string() });
 
-const agentProfileCreatedSchema = z.object({
+const agentProfileCreatedSchema = z.looseObject({
   type: z.literal('agent:profile:created'),
   profile: agentProfileShape,
-}).passthrough();
+});
 
-const agentProfileUpdatedSchema = z.object({
+const agentProfileUpdatedSchema = z.looseObject({
   type: z.literal('agent:profile:updated'),
   profile: agentProfileShape,
-}).passthrough();
+});
 
-const agentProfileDeletedSchema = z.object({
+const agentProfileDeletedSchema = z.looseObject({
   type: z.literal('agent:profile:deleted'),
   agentId: z.string(),
-}).passthrough();
+});
 
-const agentAssignedSchema = z.object({
+const agentAssignedSchema = z.looseObject({
   type: z.literal('agent:assigned'),
-  assignment: z.object({ agentId: z.string(), topicId: z.string() }).passthrough(),
-}).passthrough();
+  assignment: z.looseObject({ agentId: z.string(), topicId: z.string() }),
+});
 
-const agentUnassignedSchema = z.object({
+const agentUnassignedSchema = z.looseObject({
   type: z.literal('agent:unassigned'),
   agentId: z.string(),
   topicId: z.string(),
-}).passthrough();
+});
 
-const agentStatusSchema = z.object({
+const agentStatusSchema = z.looseObject({
   type: z.literal('agent:status'),
   agentId: z.string(),
   status: z.string(),
-  previousStatus: z.string().optional(),
-}).passthrough();
+  previousStatus: z.optional(z.string()),
+});
 
-const agentHeartbeatSchema = z.object({
+const agentHeartbeatSchema = z.looseObject({
   type: z.literal('agent:heartbeat'),
   agentId: z.string(),
   timestamp: z.string(),
-}).passthrough();
+});
 
-const agentSessionPausedSchema = z.object({
+const agentSessionPausedSchema = z.looseObject({
   type: z.literal('agent:session:paused'),
   sessionKey: z.string(),
-}).passthrough();
+});
 
-const agentSessionResumedSchema = z.object({
+const agentSessionResumedSchema = z.looseObject({
   type: z.literal('agent:session:resumed'),
   sessionKey: z.string(),
-}).passthrough();
+});
 
-const agentEscalationSchema = z.object({
+const agentEscalationSchema = z.looseObject({
   type: z.literal('agent:escalation'),
-}).passthrough();
+});
 
-const agentsSessionsSchema = z.object({
+const agentsSessionsSchema = z.looseObject({
   type: z.literal('agents:sessions'),
   sessions: z.array(z.unknown()),
-}).passthrough();
+});
 
-const agentsSpawnedSchema = z.object({
+const agentsSpawnedSchema = z.looseObject({
   type: z.literal('agents:spawned'),
   topicId: z.string(),
   sessionKey: z.string(),
-  label: z.string().optional(),
-}).passthrough();
+  label: z.optional(z.string()),
+});
 
-const agentsStoppedSchema = z.object({
+const agentsStoppedSchema = z.looseObject({
   type: z.literal('agents:stopped'),
   sessionKey: z.string(),
-}).passthrough();
+});
 
 // ---- Stream cluster (server → client message streaming) -------------------
 
-const streamStartSchema = z.object({
+const streamStartSchema = z.looseObject({
   type: z.literal('stream:start'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
+  topicId: z.optional(z.string()),
   messageId: z.string(),
-}).passthrough();
+});
 
-const streamContentChunkSchema = z.object({
+const streamContentChunkSchema = z.looseObject({
   type: z.literal('stream:content_chunk'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
+  topicId: z.optional(z.string()),
   content: z.string(),
-}).passthrough();
+});
 
-const streamThinkingStartSchema = z.object({
+const streamThinkingStartSchema = z.looseObject({
   type: z.literal('stream:thinking_start'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
-const streamThinkingEndSchema = z.object({
+const streamThinkingEndSchema = z.looseObject({
   type: z.literal('stream:thinking_end'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
-const streamThinkingChunkSchema = z.object({
+const streamThinkingChunkSchema = z.looseObject({
   type: z.literal('stream:thinking_chunk'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
 /**
  * Contesto reale del modello dopo una chiamata (1b.5), nella forma standard
@@ -384,125 +398,125 @@ const streamThinkingChunkSchema = z.object({
  * la UI a indovinare il denominatore. Costruito in `usage/usage-update.ts`,
  * mai a mano. Fuori dal blocco resta solo la nostra presentazione.
  */
-const streamContextSchema = z.object({
+const streamContextSchema = z.looseObject({
   type: z.literal('stream:context'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
+  topicId: z.optional(z.string()),
   usage: z.object({
     sessionUpdate: z.literal('usage_update'),
     used: z.number(),
     size: z.number(),
-    cost: z.object({ amount: z.number(), currency: z.string() }).optional(),
+    cost: z.optional(z.object({ amount: z.number(), currency: z.string() })),
   }),
   percent: z.number(),
   level: z.enum(['ok', 'warn', 'critical']),
   estimated: z.boolean(),
-  model: z.string().optional(),
-}).passthrough();
+  model: z.optional(z.string()),
+});
 
-const streamErrorSchema = z.object({
+const streamErrorSchema = z.looseObject({
   type: z.literal('stream:error'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
+  topicId: z.optional(z.string()),
   error: z.string(),
-}).passthrough();
+});
 
-const streamSlowSchema = z.object({
+const streamSlowSchema = z.looseObject({
   type: z.literal('stream:slow'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
-const streamResumedSchema = z.object({
+const streamResumedSchema = z.looseObject({
   type: z.literal('stream:resumed'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
 // Il turno ha compattato il contesto. Emesso DUE volte per lo stesso marker:
 // la prima quando la compattazione avviene (`preTokens`), la seconda quando il
 // risultato successivo rivela la dimensione post (`postTokens` riempito da
 // backfillPostTokens) — stesso `markerId`, il divider si aggiorna in loco.
-const streamCompactionSchema = z.object({
+const streamCompactionSchema = z.looseObject({
   type: z.literal('stream:compaction'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
+  topicId: z.optional(z.string()),
   markerId: z.string(),
   // Il marker è ancorato DOPO questo messaggio; null quando la compattazione
   // cade a inizio thread (nessun messaggio precedente a cui appenderlo).
-  afterMessageId: z.string().nullable(),
+  afterMessageId: z.nullable(z.string()),
   trigger: z.enum(['auto', 'manual', 'unknown']),
-  preTokens: z.number().optional(),
-  postTokens: z.number().optional(),
+  preTokens: z.optional(z.number()),
+  postTokens: z.optional(z.number()),
   createdAt: z.string(),
-}).passthrough();
+});
 
-const streamToolCallSchema = z.object({
+const streamToolCallSchema = z.looseObject({
   type: z.literal('stream:tool_call'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-  toolCall: z.object({ id: z.string() }).passthrough(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+  toolCall: z.looseObject({ id: z.string() }),
+});
 
-const streamToolDetailSchema = z.object({
+const streamToolDetailSchema = z.looseObject({
   type: z.literal('stream:tool_detail'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
-const streamToolResultSchema = z.object({
+const streamToolResultSchema = z.looseObject({
   type: z.literal('stream:tool_result'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
-const streamToolUpdateSchema = z.object({
+const streamToolUpdateSchema = z.looseObject({
   type: z.literal('stream:tool_update'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
-const streamToolUserInputRequiredSchema = z.object({
+const streamToolUserInputRequiredSchema = z.looseObject({
   type: z.literal('stream:tool_user_input_required'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
 // ---- Message cluster (legacy + new) ---------------------------------------
 
-const messageLegacySchema = z.object({
+const messageLegacySchema = z.looseObject({
   type: z.literal('message'),
   sessionKey: z.string(),
-  message: z.object({ id: z.string() }).passthrough(),
-}).passthrough();
+  message: z.looseObject({ id: z.string() }),
+});
 
-const messageNewSchema = z.object({
+const messageNewSchema = z.looseObject({
   type: z.literal('message:new'),
-  topicId: z.string().optional(),
+  topicId: z.optional(z.string()),
   sessionKey: z.string(),
   role: z.string(),
   messageId: z.string(),
   content: z.string(),
-  preview: z.string().optional(),
-}).passthrough();
+  preview: z.optional(z.string()),
+});
 
-const messageMediaSchema = z.object({
+const messageMediaSchema = z.looseObject({
   type: z.literal('message:media'),
   sessionKey: z.string(),
-  topicId: z.string().optional(),
+  topicId: z.optional(z.string()),
   media: z.unknown(),
-}).passthrough();
+});
 
-const messagePlanStatusSchema = z.object({
+const messagePlanStatusSchema = z.looseObject({
   type: z.literal('message:plan-status'),
   topicId: z.string(),
   messageId: z.string(),
   planStatus: z.string(),
-}).passthrough();
+});
 
 // ---- Misc / domain-specific outbound --------------------------------------
 
-const browserNavigateSchema = z.object({
+const browserNavigateSchema = z.looseObject({
   type: z.literal('browser:navigate'),
   topicId: z.string(),
   url: z.string(),
@@ -511,149 +525,149 @@ const browserNavigateSchema = z.object({
   // registered under a random id that never matched the agent's contextId, so
   // every browser_* tool fell back to an invisible Playwright phantom. Optional
   // for back-compat with older clients/messages — omit, never send null.
-  contextId: z.string().optional(),
-}).passthrough();
+  contextId: z.optional(z.string()),
+});
 
 // Fallback open: when open_browser_pane's normal broadcast mounted no visible
 // pane (the spawner terminal/topic isn't a rendered tab), the server asks the
 // primary window to force a visible browser pane open under `contextId`.
-const browserForceOpenSchema = z.object({
+const browserForceOpenSchema = z.looseObject({
   type: z.literal('browser:force-open'),
   contextId: z.string(),
   url: z.string(),
-}).passthrough();
+});
 
 // Remote pane close (close_browser_pane MCP tool / REST): whichever window
 // renders `browser:<contextId>` closes it through its normal close flow (X
 // button semantics — tombstone, persist, native teardown). Server-side state
 // edits can't do this: live clients re-persist their in-memory layout and
 // clobber the removal, so the CLIENT must originate the close.
-const browserClosePaneSchema = z.object({
+const browserClosePaneSchema = z.looseObject({
   type: z.literal('browser:close-pane'),
   contextId: z.string(),
-}).passthrough();
+});
 
 // Remote pane focus (browser_focus_tab MCP tool / REST): whichever window
 // renders `browser:<contextId>` brings that tab to the front. Same client-
 // originated model as close-pane — tab activation is device-local UI state, so
 // the CLIENT applies it; non-owning windows no-op (idempotent broadcast).
-const browserFocusPaneSchema = z.object({
+const browserFocusPaneSchema = z.looseObject({
   type: z.literal('browser:focus-pane'),
   contextId: z.string(),
-}).passthrough();
+});
 
 // Apertura ACCANTO a una pane esistente: un terminale Claude Code ha chiamato
 // open_browser_pane, e il browser va messo di fianco a CHI l'ha aperto (la
 // chat passa invece dal `browser:navigate` mirato al topic). `paneId` è la
 // pane del terminale (`terminal:<sessionId>`); qualunque layout la renda —
 // standalone o dentro un progetto — apre il browser lì.
-const browserOpenNearPaneSchema = z.object({
+const browserOpenNearPaneSchema = z.looseObject({
   type: z.literal('browser:open-near-pane'),
   paneId: z.string(),
   // contextId deterministico (`term-<terminalId>`) sotto cui la pane registra
   // il target nativo: è ciò che permette al terminale di GUIDARE la stessa
   // pane, non solo di aprirla. Assente → il singleton sceglie un id.
-  contextId: z.string().optional(),
+  contextId: z.optional(z.string()),
   url: z.string(),
-}).passthrough();
+});
 
 // Browser di proprietà del TASK (dietro TOPICS_TASK_BROWSER): i layout globali
 // ignorano di proposito questo frame, così la tab non finisce nel pane-store
 // condiviso — la consuma solo il gruppo in-drawer del task.
-const browserOpenTaskTabSchema = z.object({
+const browserOpenTaskTabSchema = z.looseObject({
   type: z.literal('browser:open-task-tab'),
   taskId: z.string(),
   contextId: z.string(),
   url: z.string(),
-}).passthrough();
+});
 
 // "Porta in primo piano la pane di questo topic". `projectPath` arriva inline
 // (invece di leggerlo dal topic) così il client non deve aspettare che atterri
 // un `topic:updated` precedente per sapere dentro quale progetto annidarlo.
-const paneFocusSuggestSchema = z.object({
+const paneFocusSuggestSchema = z.looseObject({
   type: z.literal('pane:focus-suggest'),
   topicId: z.string(),
-  taskId: z.string().optional(),
-  projectPath: z.string().optional(),
-}).passthrough();
+  taskId: z.optional(z.string()),
+  projectPath: z.optional(z.string()),
+});
 
-const clearSchema = z.object({
+const clearSchema = z.looseObject({
   type: z.literal('clear'),
-}).passthrough();
+});
 
-const cronUpdatedSchema = z.object({
+const cronUpdatedSchema = z.looseObject({
   type: z.literal('cron:updated'),
   jobs: z.array(z.unknown()),
-}).passthrough();
+});
 
-const gatewayStatusSchema = z.object({
+const gatewayStatusSchema = z.looseObject({
   type: z.literal('gateway:status'),
-}).passthrough();
+});
 
-const machineShape = z.object({ id: z.string() }).passthrough();
+const machineShape = z.looseObject({ id: z.string() });
 
-const machineUpdatedSchema = z.object({
+const machineUpdatedSchema = z.looseObject({
   type: z.literal('machine:updated'),
   machine: machineShape,
-}).passthrough();
+});
 
-const machineUpsertedSchema = z.object({
+const machineUpsertedSchema = z.looseObject({
   type: z.literal('machine:upserted'),
   machine: machineShape,
-}).passthrough();
+});
 
 // La DELETE manda solo `{ id }` dentro `machine` — l'helper `emit` del router
 // impacchetta sempre il payload sotto la stessa chiave, quindi la forma sul
 // filo resta identica agli altri due eventi machine:*.
-const machineDeletedSchema = z.object({
+const machineDeletedSchema = z.looseObject({
   type: z.literal('machine:deleted'),
   machine: machineShape,
-}).passthrough();
+});
 
-const memoryUpdatedSchema = z.object({
+const memoryUpdatedSchema = z.looseObject({
   type: z.literal('memory:updated'),
   scope: z.string(),
-  topicId: z.string().optional(),
-}).passthrough();
+  topicId: z.optional(z.string()),
+});
 
-const openProjectSchema = z.object({
+const openProjectSchema = z.looseObject({
   type: z.literal('open-project'),
   projectPath: z.string(),
-}).passthrough();
+});
 
-const topicsReorderedSchema = z.object({
+const topicsReorderedSchema = z.looseObject({
   type: z.literal('topics:reordered'),
   order: z.array(z.string()),
-}).passthrough();
+});
 
-const uiStateInitSchema = z.object({
+const uiStateInitSchema = z.looseObject({
   type: z.literal('ui-state:init'),
   data: z.unknown(),
-  meta: z.unknown().optional(),
-}).passthrough();
+  meta: z.optional(z.unknown()),
+});
 
-const scriptsOutputSchema = z.object({
+const scriptsOutputSchema = z.looseObject({
   type: z.literal('scripts:output'),
-}).passthrough();
+});
 
-const scriptsUpdatedSchema = z.object({
+const scriptsUpdatedSchema = z.looseObject({
   type: z.literal('scripts:updated'),
-}).passthrough();
+});
 
-const terminalSessionsSchema = z.object({
+const terminalSessionsSchema = z.looseObject({
   type: z.literal('terminal:sessions'),
-}).passthrough();
+});
 
 // Battito di attività per sessione pty, tracciato sul percorso dati centrale:
 // copre OGNI sessione, montata o no. `finished` marca la transizione
 // attivo→inattivo (turno concluso) ed è ciò che alza la notifica.
-const terminalActivitySchema = z.object({
+const terminalActivitySchema = z.looseObject({
   type: z.literal('terminal:activity'),
   id: z.string(),
   busy: z.boolean(),
-  finished: z.boolean().optional(),
-  kind: z.enum(['shell', 'claude-code', 'claude-code-team']).optional(),
-}).passthrough();
+  finished: z.optional(z.boolean()),
+  kind: z.optional(z.enum(['shell', 'claude-code', 'claude-code-team'])),
+});
 
 // ---- Board / task cluster --------------------------------------------------
 
@@ -661,91 +675,91 @@ const terminalActivitySchema = z.object({
 // solo le colonne su cui il client indicizza davvero (id per la mappa, projectId
 // per il filtro di board, status per la colonna kanban): il resto passa, così
 // una colonna nuova sul server non fa fallire la validazione di un client vecchio.
-const taskObjectShape = z.object({
+const taskObjectShape = z.looseObject({
   id: z.string(),
   projectId: z.string(),
   status: z.string(),
-}).passthrough();
+});
 
-const taskCreatedSchema = z.object({
+const taskCreatedSchema = z.looseObject({
   type: z.literal('task:created'),
   projectId: z.string(),
   task: taskObjectShape,
-}).passthrough();
+});
 
-const taskUpdatedSchema = z.object({
+const taskUpdatedSchema = z.looseObject({
   type: z.literal('task:updated'),
   projectId: z.string(),
   task: taskObjectShape,
-}).passthrough();
+});
 
-const taskDeletedSchema = z.object({
+const taskDeletedSchema = z.looseObject({
   type: z.literal('task:deleted'),
   projectId: z.string(),
   taskId: z.string(),
-}).passthrough();
+});
 
 // Il fronte "task ENTRATO in review", emesso IN AGGIUNTA a `task:updated` e solo
 // sulla transizione: è il segnale di fine-lavoro che alza il banner OS e la
 // web-push, senza dipendere dall'inferenza fragile sulla sessione idle.
-const taskReviewReadySchema = z.object({
+const taskReviewReadySchema = z.looseObject({
   type: z.literal('task:review-ready'),
   projectId: z.string(),
   taskId: z.string(),
   taskTitle: z.string(),
-  reason: z.string().optional(),
-}).passthrough();
+  reason: z.optional(z.string()),
+});
 
 // Anteprima LIVE del consumo mentre il turno gira (ogni 4s, mai persistita): la
 // card somma `baseMs` + (adesso − turnStartedAt), quindi il tempo mostrato è
 // solo ESECUZIONE — le pause tra un turno e l'altro non entrano mai nel conto.
-const taskUsageLiveSchema = z.object({
+const taskUsageLiveSchema = z.looseObject({
   type: z.literal('task:usage-live'),
   projectId: z.string(),
   taskId: z.string(),
   turnStartedAt: z.number(),
   baseMs: z.number(),
   liveTokens: z.number(),
-  model: z.string().nullable(),
-}).passthrough();
+  model: z.nullable(z.string()),
+});
 
 // L'interruttore auto-dispatch è GLOBALE, non per progetto: ogni header di board
 // aperto — non solo quello del progetto toccato — deve girare la pill.
-const boardDispatchSchema = z.object({
+const boardDispatchSchema = z.looseObject({
   type: z.literal('board:dispatch'),
   autoDispatch: z.boolean(),
-}).passthrough();
+});
 
 // Il cap macchina-wide vive sulla riga riservata '*'. `maxAgentsAuto` è un
 // BOOLEANO ("scegli tu in base alla capacità"), non un numero.
-const boardGlobalCapSchema = z.object({
+const boardGlobalCapSchema = z.looseObject({
   type: z.literal('board:global-cap'),
   maxAgentsAuto: z.boolean(),
   maxAgents: z.number(),
-}).passthrough();
+});
 
-const boardSettingsSchema = z.object({
+const boardSettingsSchema = z.looseObject({
   type: z.literal('board:settings'),
   projectId: z.string(),
-  settings: z.object({}).passthrough(),
-}).passthrough();
+  settings: z.looseObject({}),
+});
 
 // ---- Dev bundle hot-delivery ----------------------------------------------
 
 // Il bundle client è cambiato su disco. `rev` (i nomi ordinati di /assets/*)
 // permette al client di NON ricaricarsi se già gira quella revisione.
-const uiBundleUpdatedSchema = z.object({
+const uiBundleUpdatedSchema = z.looseObject({
   type: z.literal('ui:bundle-updated'),
   at: z.number(),
-  rev: z.string().optional(),
-}).passthrough();
+  rev: z.optional(z.string()),
+});
 
 // Stesso `rev`, ma alla connessione: una finestra che era chiusa al momento del
 // deploy converge lo stesso, invece di restare indietro fino al reload manuale.
-const uiBundleRevSchema = z.object({
+const uiBundleRevSchema = z.looseObject({
   type: z.literal('ui:bundle-rev'),
   rev: z.string(),
-}).passthrough();
+});
 
 // ---- External Claude sessions (il censimento di ciò che Topics NON ha avviato) ----
 
@@ -754,68 +768,68 @@ const uiBundleRevSchema = z.object({
 // si versiona il protocollo, non con una modifica di contorno. È anche il
 // motivo per cui lo scan statico dei test non lo vedeva: senza `:` nel nome
 // non passava il filtro — l'ha stanato il compilatore, non la regex.
-const externalClaudeSessionShape = z.object({
+const externalClaudeSessionShape = z.looseObject({
   sessionId: z.string(),
   cwd: z.string(),
-  projectPath: z.string().nullable(),
-  projectId: z.string().nullable(),
+  projectPath: z.nullable(z.string()),
+  projectId: z.nullable(z.string()),
   lastActivityMs: z.number(),
   state: z.enum(['active', 'idle']),
-}).passthrough();
+});
 
-const externalSessionProjectShape = z.object({
+const externalSessionProjectShape = z.looseObject({
   projectId: z.string(),
   projectPath: z.string(),
   total: z.number(),
   active: z.number(),
   lastActivityMs: z.number(),
-}).passthrough();
+});
 
-const externalSessionsSchema = z.object({
+const externalSessionsSchema = z.looseObject({
   type: z.literal('external-sessions'),
   sessions: z.array(externalClaudeSessionShape),
   projects: z.array(externalSessionProjectShape),
-}).passthrough();
+});
 
 // ---- Legacy chat:* events (replaced by topic:* in v3, kept for compat) ----
 
-const chatObjectShape = z.object({ id: z.string() }).passthrough();
+const chatObjectShape = z.looseObject({ id: z.string() });
 
-const chatCreatedSchema = z.object({
+const chatCreatedSchema = z.looseObject({
   type: z.literal('chat:created'),
   chat: chatObjectShape,
-}).passthrough();
+});
 
-const chatUpdatedSchema = z.object({
+const chatUpdatedSchema = z.looseObject({
   type: z.literal('chat:updated'),
   chat: chatObjectShape,
-}).passthrough();
+});
 
-const chatArchivedSchema = z.object({
+const chatArchivedSchema = z.looseObject({
   type: z.literal('chat:archived'),
   chat: chatObjectShape,
-}).passthrough();
+});
 
-const chatDeletedSchema = z.object({
+const chatDeletedSchema = z.looseObject({
   type: z.literal('chat:deleted'),
   chatId: z.string(),
-}).passthrough();
+});
 
 // ---- Provider niche events -------------------------------------------------
 
-const providerCurrentSchema = z.object({
+const providerCurrentSchema = z.looseObject({
   type: z.literal('provider:current'),
-}).passthrough();
+});
 
-const providerChangedSchema = z.object({
+const providerChangedSchema = z.looseObject({
   type: z.literal('provider:changed'),
-}).passthrough();
+});
 
 // ---- Git status -----------------------------------------------------------
 
-const gitStatusSchema = z.object({
+const gitStatusSchema = z.looseObject({
   type: z.literal('git:status'),
-}).passthrough();
+});
 
 // ---- Claude session state + events (highest-traffic live path) ------------
 
@@ -823,27 +837,27 @@ const gitStatusSchema = z.object({
  * `session:state` is the hot phase-machine broadcast. We validate the
  * WRAPPER — sessionKey (nullable for terminal sessions) + a state object that
  * must carry claudeSessionId + phase — and accept the rest of the rich
- * ClaudeSessionState via .passthrough() (it evolves across migrations).
+ * ClaudeSessionState via z.looseObject (it evolves across migrations).
  */
-const sessionStateSchema = z.object({
+const sessionStateSchema = z.looseObject({
   type: z.literal('session:state'),
-  sessionKey: z.string().nullable(),
-  state: z.object({
+  sessionKey: z.nullable(z.string()),
+  state: z.looseObject({
     claudeSessionId: z.string(),
     phase: z.string(),
-  }).passthrough(),
-}).passthrough();
+  }),
+});
 
 /**
  * `claude-event` carries a notification event whose inner shape is still
  * settling (Phase F triple-layer capture). Validate the wrapper + the
  * suppressed flag; keep the event payload loose.
  */
-const claudeEventSchema = z.object({
+const claudeEventSchema = z.looseObject({
   type: z.literal('claude-event'),
   event: z.unknown(),
-  suppressed: z.boolean().optional(),
-}).passthrough();
+  suppressed: z.optional(z.boolean()),
+});
 
 // ---- Registry --------------------------------------------------------------
 
@@ -995,7 +1009,7 @@ export type OutboundType = keyof typeof OUTBOUND_SCHEMAS;
  * dev) e i fixture in `tests/unit/ws-outbound-schema.test.ts`.
  *
  * PERCHÉ solo il `type` e non l'intero payload inferito da Zod: gli schemi sono
- * `.passthrough()`, quindi inferiscono un index signature `[k: string]: unknown`
+ * `z.looseObject`, quindi inferiscono un index signature `[k: string]: unknown`
  * — e un'INTERFACCIA TypeScript (`Task`, `Topic`, `Machine`…) non è assegnabile
  * a un tipo con index signature, perché le interfacce non ne ricevono uno
  * implicito. Pretendere il payload completo qui vorrebbe dire riscrivere ogni
@@ -1010,7 +1024,9 @@ export interface OutboundMessage {
 
 export type ValidationResult =
   | { ok: true }
-  | { ok: false; error: string };
+  /** `type` c'è quando il frame ne aveva uno leggibile — serve al log lato client
+   *  per dire QUALE messaggio è stato scartato, non solo che qualcosa è caduto. */
+  | { ok: false; error: string; type?: string };
 
 /**
  * Validate an outbound message at emit time. Returns ok:true for types
@@ -1026,19 +1042,14 @@ export function validateOutbound(msg: unknown): ValidationResult {
   if (typeof type !== 'string') {
     return { ok: false, error: 'type: missing or not a string' };
   }
-  const schema = (OUTBOUND_SCHEMAS as Record<string, z.ZodTypeAny>)[type];
+  const schema = (OUTBOUND_SCHEMAS as Record<string, z.ZodMiniType>)[type];
   if (!schema) {
     // Unmodeled type — passthrough is OK. Future commits add more schemas.
     return { ok: true };
   }
   const result = schema.safeParse(msg);
   if (result.success) return { ok: true };
-  return {
-    ok: false,
-    error: result.error.issues
-      .map((iss) => `${iss.path.length ? iss.path.join('.') : '<root>'}: ${iss.message}`)
-      .join('; '),
-  };
+  return { ok: false, type, error: formatZodIssues(result.error) };
 }
 
 /**

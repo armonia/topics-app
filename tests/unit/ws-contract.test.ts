@@ -31,7 +31,7 @@ import {
   welcomeMessageSchema,
   helloMessageSchema,
   upgradeRequiredSchema,
-} from '../../server/schemas/ws-handshake';
+} from '../../shared/ws-handshake';
 import {
   SERVER_PROTOCOL_VERSION,
   SERVER_CAPABILITIES,
@@ -52,28 +52,37 @@ interface FieldShape {
   literalKeys: Record<string, string | number | boolean | null>;
 }
 
+// I due sapori di zod espongono la stessa def sotto DUE nomi: `_def` nella
+// variante piena, `def` in `zod/mini` (che `shared/ws-*` usa perché finisce nel
+// bundle client). Leggerne uno solo faceva sembrare senza literal — e quindi
+// "cambiato" — uno schema identico: il contratto è lo stesso, cambia l'involucro.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function defOf(field: any): any {
+  return field?._def ?? field?.def;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isOptional(field: any): boolean {
   if (!field || typeof field !== 'object') return false;
   // Zod 4: `isOptional()` is the canonical API. Also check the def.type
-  // as a fallback for nested wrappers.
+  // as a fallback for nested wrappers (and for zod/mini, which has no methods).
   if (typeof field.isOptional === 'function') {
     return field.isOptional();
   }
-  return field._def?.type === 'optional';
+  return defOf(field)?.type === 'optional';
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function unwrapField(field: any): any {
   // Strip optional/nullable wrappers to inspect the inner type. Zod 4
-  // uses `_def.type === 'optional' | 'nullable'` and `_def.innerType`.
+  // uses `def.type === 'optional' | 'nullable'` and `def.innerType`.
   let inner = field;
   while (
     inner &&
-    (inner._def?.type === 'optional' || inner._def?.type === 'nullable') &&
-    inner._def.innerType
+    (defOf(inner)?.type === 'optional' || defOf(inner)?.type === 'nullable') &&
+    defOf(inner).innerType
   ) {
-    inner = inner._def.innerType;
+    inner = defOf(inner).innerType;
   }
   return inner;
 }
@@ -92,18 +101,19 @@ function objectSignature(schema: any): FieldShape {
   for (const [key, field] of Object.entries(shape)) {
     (isOptional(field) ? optional : required).push(key);
     const inner = unwrapField(field);
-    const tn = inner?._def?.type;
+    const innerDef = defOf(inner);
+    const tn = innerDef?.type;
     if (tn === 'enum') {
       // Zod 4: enum entries are stored as { value: value } object.
-      const entries = inner._def.entries ?? {};
+      const entries = innerDef.entries ?? {};
       const values = Object.values(entries) as string[];
       enums[key] = [...values].sort();
     }
     if (tn === 'array') arrays.push(key);
-    if (tn === 'number') numbers.push(key);
+    if (tn === 'number' || tn === 'int') numbers.push(key);
     if (tn === 'literal') {
-      // Zod 4: _def.values is an array (supports multi-value literal); take [0].
-      const v = inner._def.values?.[0] ?? inner.value;
+      // Zod 4: def.values is an array (supports multi-value literal); take [0].
+      const v = innerDef.values?.[0] ?? inner.value;
       literals[key] = v;
     }
   }

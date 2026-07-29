@@ -24,7 +24,7 @@
  */
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
 import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
-import type { OutboundMessage } from "../schemas/ws-outbound";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 import {
   classifyTurnError,
   consumesAttempt,

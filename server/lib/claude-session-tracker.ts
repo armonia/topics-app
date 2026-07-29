@@ -11,7 +11,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import type { OutboundMessage } from "../schemas/ws-outbound";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 import { promises as fsp, statSync } from 'fs';
 import { homedir } from 'os';
 import {

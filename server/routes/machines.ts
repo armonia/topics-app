@@ -2,7 +2,7 @@
  * Routes — `/api/machines` (Phase D · migration 020)
  */
 import type { AppContext, RouteHandler } from "../types";
-import type { OutboundType } from "../schemas/ws-outbound";
+import type { OutboundType } from "../../shared/ws-outbound";
 import { MachineInUseError } from "../services/machine-store";
 
 const NAME_MAX = 200;

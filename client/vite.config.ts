@@ -134,6 +134,14 @@ export default defineConfig({
     // `true` wildcard, which accepted every Host header. IP-literal access
     // (e.g. a raw 100.x Tailscale addr) bypasses this check in Vite anyway.
     allowedHosts: ['localhost', '127.0.0.1', '.ts.net'],
+    fs: {
+      // `client/src/schemas/ws-*.ts` importa il contratto WS da `shared/`, che
+      // sta FUORI da questa root. In build Rollup lo risolve da sé; in dev
+      // `fs.strict` lo servirebbe solo grazie all'inferenza della workspace
+      // root (lockfile del repo). Dichiararlo esplicitamente evita che un
+      // 403 in dev dipenda da un'euristica di Vite.
+      allow: [path.resolve(__dirname), path.resolve(__dirname, '../shared')],
+    },
     // Backend the dev bundle talks to. Default :3330 (staging convention); set
     // VITE_PROXY_TARGET to point elsewhere, e.g. the live prod server on :3333
     // (real data) when you want the dev chip/HMR against production data without

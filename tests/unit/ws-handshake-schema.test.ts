@@ -15,7 +15,7 @@ import {
   parseHelloMessage,
   type WelcomeMessage,
   type HelloMessage,
-} from '../../server/schemas/ws-handshake';
+} from '../../shared/ws-handshake';
 import {
   SERVER_PROTOCOL_VERSION,
   SERVER_CAPABILITIES,

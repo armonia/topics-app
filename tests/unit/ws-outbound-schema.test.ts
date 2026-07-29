@@ -9,7 +9,7 @@ import {
   validateOutbound,
   isRegisteredOutboundType,
   REGISTERED_OUTBOUND_TYPES,
-} from '../../server/schemas/ws-outbound';
+} from '../../shared/ws-outbound';
 
 // ----- Registered types: round-trip valid payloads --------------------------
 
