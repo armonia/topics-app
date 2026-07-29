@@ -10,9 +10,11 @@
 //      `-webkit-app-region: drag` (class `.app-drag-region`) / `no-drag`
 //      (`.app-no-drag`). Tauri uses the `data-tauri-drag-region` attribute
 //      (`deep` = drag the whole subtree minus interactive children; `false` =
-//      opt out). We mirror the existing Electron classes onto those attributes
-//      so no chrome markup needs per-host edits and tab drag-reorder (the
-//      `.app-no-drag` tabs) keeps working.
+//      opt out). L'attributo lo emette adesso il RENDER (`lib/shell/dragRegion.ts`,
+//      costanti `DRAG_REGION` / `NO_DRAG_REGION` sparse accanto alla classe):
+//      prima lo specchiava un MutationObserver su `document.body` con
+//      `subtree: true`, che con xterm costava migliaia di record al secondo per
+//      non trovare quasi mai niente. Vedi quel file per la misura.
 
 import { isTauri } from './index';
 import { tauriInvoke } from './tauri';
@@ -25,38 +27,4 @@ export function showTrafficLights(): void {
 /** Hide the macOS traffic lights. No-op on web / non-mac. */
 export function hideTrafficLights(): void {
   if (isTauri) { void tauriInvoke('set_traffic_lights', { visible: false }); }
-}
-
-let dragWired = false;
-
-/** Tauri-only: mirror Electron's drag CSS classes onto Tauri drag attributes so
- *  the same chrome (sidebar header, project header, tab strips) drags the window.
- *  `.app-drag-region` → `deep` (whole subtree drags; Tauri auto-excludes
- *  buttons/links/inputs/role=tab), `.app-no-drag` → `false` (explicit opt-out,
- *  e.g. the draggable reorder tabs). Idempotent per element via the `:not(...)`
- *  guard; a debounced observer covers panes/tabs mounted later. */
-export function wireTauriDragRegions(): void {
-  if (!isTauri || dragWired || typeof document === 'undefined') return;
-  dragWired = true;
-
-  const apply = (): void => {
-    document
-      .querySelectorAll('.app-drag-region:not([data-tauri-drag-region])')
-      .forEach((el) => el.setAttribute('data-tauri-drag-region', 'deep'));
-    document
-      .querySelectorAll('.app-no-drag:not([data-tauri-drag-region])')
-      .forEach((el) => el.setAttribute('data-tauri-drag-region', 'false'));
-  };
-
-  apply();
-
-  // Re-apply when chrome is added (new pane/tab/project). Trailing-debounced so
-  // it runs at most a few times a second even under heavy DOM churn (streaming
-  // chat appends nodes constantly); the `:not(...)` guard keeps each pass cheap.
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const observer = new MutationObserver(() => {
-    if (timer) return;
-    timer = setTimeout(() => { timer = null; apply(); }, 250);
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
 }

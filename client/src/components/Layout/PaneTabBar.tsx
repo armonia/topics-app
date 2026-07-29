@@ -35,6 +35,7 @@ import {
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { releaseNativeFocus } from '../../lib/shell/tauri';
+import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
 // Every pane type closes through the same soft-confirm path: hovering the X
 // reveals an empty "mark as done" circle, clicking it starts the 3 s L→R
@@ -630,6 +631,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // the indices now reflect the global tab order, not the per-group order.
   const hasMenuItems = onNewChat || availableTypes.length > 0;
 
+  // La zona di trascinamento si DERIVA dalla classe che finisce nel DOM, non da
+  // "il chiamante ha passato una className": la barra standalone ne passa una
+  // che contiene `app-drag-region`, e legarsi alla presenza della prop lasciava
+  // proprio quella scoperta. Beccato da `tests/e2e/drag-regions.spec.ts`.
+  const barClass = className ?? 'flex-initial py-1 pr-0 min-w-0 app-drag-region';
+
   return (
     // `flex-initial` (flex: 0 1 auto), NOT `flex-shrink-0`: as a flex child the
     // root must be allowed to SHRINK below its content width, otherwise the
@@ -642,7 +649,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
     // lets it collapse far enough for the scroll strip to take over. The
     // standalone tab bar already passes its own `flex-1 … min-w-0` and scrolled
     // fine — this brings the project-group default in line.
-    <div className={className ?? "flex-initial py-1 pr-0 min-w-0 app-drag-region"} data-testid="panel-tab-bar" data-group-id={groupId ?? ''} style={{ position: 'relative' }}>
+    <div className={barClass} {...(barClass.includes('app-drag-region') ? DRAG_REGION : {})} data-testid="panel-tab-bar" data-group-id={groupId ?? ''} style={{ position: 'relative' }}>
       {/* Scrollable tab area */}
       <div
         ref={scrollContainerRef}
@@ -803,17 +810,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             data-pane-id={pane.id}
             data-active={isSelected ? 'true' : 'false'}
             role="tab"
-            // Tauri: exclude this tab from window-drag SYNCHRONOUSLY at mount.
-            // The `.app-no-drag` class only becomes a Tauri opt-out once the
-            // debounced (250ms) MutationObserver in wireTauriDragRegions mirrors
-            // it to this attribute — so a freshly mounted tab (e.g. right after a
-            // browser split spawns a new cell + tab strip) spends up to ~250ms
-            // inside its `deep` drag-region ancestor: mousedown drags the WINDOW,
-            // not the tab, and the tab "feels frozen / won't drag". Setting the
-            // attribute declaratively removes that gap. Inert in Electron/web
-            // (unknown data-* attribute); the observer's `:not([data-tauri-drag-
-            // region])` guard then skips it, so no double-processing.
-            data-tauri-drag-region="false"
             style={{ width: 150, minWidth: 150, maxWidth: 150, flexShrink: 0 }}
             // overflow-hidden clips a tab whose trailing widgets (project git
             // status + spinner + notification badge + close) would otherwise
@@ -828,6 +824,15 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                     ? SELECTED_SURFACE_SOFT
                     : `text-app-text-tertiary hover:text-app-text ${RESTING_SURFACE}`
             } ${isDragged ? 'opacity-40' : ''}`}
+            // Fuori dal trascinamento della finestra, SINCRONAMENTE al montaggio.
+            // Questa riga era già scritta a mano proprio qui, e il commento che
+            // portava spiegava perché: la classe `.app-no-drag` diventava un
+            // opt-out solo quando il MutationObserver debounced (250 ms) la
+            // specchiava sull'attributo, e in quei 250 ms una tab appena montata
+            // stava dentro un antenato `deep` — il mousedown trascinava la
+            // FINESTRA, non la tab, che "sembrava congelata". Adesso vale per
+            // ogni zona, non solo per questa, perché l'observer non c'è più.
+            {...NO_DRAG_REGION}
             // Tauri: a native browser pane (sibling WKWebView) can hold AppKit
             // first-responder; yank it back to the chrome on pointer-down so the
             // tab switch isn't swallowed by the pane. No-op off Tauri / fire-and-forget.
@@ -1006,7 +1011,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           sidebar's project-header "+" renders the SAME component with
           different `availableTypes` and a hover-revealed trigger. */}
       {hasMenuItems && (
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pr-1">
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pr-1" {...NO_DRAG_REGION}>
           <PaneAddMenu
             scope={addMenuScope}
             onNewChat={onNewChat}

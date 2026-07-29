@@ -40,6 +40,7 @@ import {
   isDetachedWindow,
 } from './spaceHelpers';
 import type { AttentionTier, Topic, TerminalSessionInfo } from '../../types';
+import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
 interface AttentionSets {
   awaitingInputTopics: Set<string>;
@@ -154,7 +155,7 @@ export function SpaceSwitcher() {
       // the sidebar) is frosted, so an opaque strip read as a flat slab wedged
       // between two sheets of glass — the "non è coerente col resto" half of the
       // report. Same token they use, no new values.
-      className="flex items-center gap-1 h-8 border-b border-app-border chrome-glass flex-shrink-0 overflow-x-auto app-drag-region"
+      className="flex items-center gap-1 h-8 border-b border-app-border chrome-glass flex-shrink-0 overflow-x-auto app-drag-region" {...DRAG_REGION}
       style={{ paddingLeft: ROW_INSET, paddingRight: ROW_INSET }}
       data-testid="space-switcher"
       role="tablist"
@@ -183,6 +184,7 @@ export function SpaceSwitcher() {
             className={`h-6 px-2.5 flex items-center gap-1.5 rounded-md text-[12px] whitespace-nowrap transition-colors cursor-pointer app-no-drag flex-shrink-0 ${
               isActive ? SELECTED_SURFACE : `${RESTING_SURFACE} text-app-text-secondary hover:text-app-text`
             }`}
+            {...NO_DRAG_REGION}
             title={chip.name}
           >
             <span className="truncate max-w-[120px]">{chip.name}</span>
@@ -204,7 +206,7 @@ export function SpaceSwitcher() {
             dispatch({ type: 'SPACE_UPSERT', payload: { space: { id, name: nextSpaceName(spaces) } } });
             dispatch({ type: 'SET_ACTIVE_SPACE', payload: { id } });
           }}
-          className={`h-6 w-6 flex items-center justify-center rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors cursor-pointer app-no-drag flex-shrink-0`}
+          className={`h-6 w-6 flex items-center justify-center rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors cursor-pointer app-no-drag flex-shrink-0`} {...NO_DRAG_REGION}
           title="Nuovo Spazio"
           aria-label="Nuovo Spazio"
         >

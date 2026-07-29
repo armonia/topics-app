@@ -58,6 +58,7 @@ import { CodexIcon } from './CodexIcon';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useMobile } from '../../hooks/useMobile';
 import { getPaneConfig, getAddableTypesForScope, type PaneScope } from '../../state/pane/adapters';
+import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { computeMenuPosition } from '../../lib/popoverPosition';
 import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
@@ -468,6 +469,7 @@ export function PaneAddMenu({
         ref={buttonRef}
         onClick={handleClick}
         className={`${triggerBase} ${noElectronDrag ? 'app-no-drag' : ''} ${triggerClassName}`}
+        {...(noElectronDrag ? NO_DRAG_REGION : {})}
         title={triggerTitle}
         style={noElectronDrag ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) : undefined}
         data-testid="pane-add-menu-trigger"

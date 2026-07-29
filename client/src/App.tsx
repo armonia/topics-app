@@ -26,7 +26,6 @@ import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
 import { useSidebarFlipPush } from './hooks/useSidebarFlipPush';
 import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
-import { wireTauriDragRegions } from './lib/shell/window';
 import { initDevBundleReload } from './lib/devBundleReload';
 import { initDevLayoutProbe } from './lib/devLayoutProbe';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
@@ -58,6 +57,7 @@ import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
+import { DRAG_REGION, NO_DRAG_REGION } from './lib/shell/dragRegion';
 import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middleware';
 import { usePaneStore } from './state/pane/store';
 import { useSignalsSync } from './state/useSignalsSync';
@@ -127,11 +127,6 @@ function App() {
       });
     }
   }, []);
-
-  // Tauri: make the Electron drag-region chrome draggable under WKWebView by
-  // mirroring `.app-drag-region`/`.app-no-drag` onto Tauri's drag attributes.
-  // No-op off Tauri; safe to run once on mount.
-  useEffect(() => { wireTauriDragRegions(); }, []);
 
   // Dev bundle freshness: when the server (behind its dev flag) says /public
   // was rebuilt, OR a lazy chunk 404s against a rebuilt bundle, surface a
@@ -902,8 +897,7 @@ function App() {
             the same 6px the tab strip, the sidebar cards, and the list's
             vertical padding use — one inset on every sidebar axis. */}
         <div
-          data-tauri-drag-region="deep"
-          className={`flex items-center justify-between gap-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`}
+          className={`flex items-center justify-between gap-2 border-b border-app-border flex-shrink-0 app-drag-region ${isMobile ? 'h-12' : 'h-10'}`} {...DRAG_REGION}
           style={{ paddingRight: ROW_INSET, paddingLeft: ROW_INSET }}
         >
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -911,14 +905,14 @@ function App() {
             {isMobile && (
               <button
                 onClick={() => setSidebarCollapsed(true)}
-                className="w-10 h-10 -ml-1 mr-1 flex items-center justify-center text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 rounded-md app-no-drag"
+                className="w-10 h-10 -ml-1 mr-1 flex items-center justify-center text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5 rounded-md app-no-drag" {...NO_DRAG_REGION}
                 aria-label="Close sidebar"
               >
                 <X size={22} aria-hidden="true" />
               </button>
             )}
             {/* Topics button - opens combined settings & tools menu */}
-            <div className="app-no-drag" ref={topicsMenuRef}>
+            <div className="app-no-drag" {...NO_DRAG_REGION} ref={topicsMenuRef}>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -942,7 +936,7 @@ function App() {
                 and the tree skeleton — no stray spinner in the header. The
                 middle of the header stays empty (drag region on Electron). */}
           </div>
-          <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} style={{ pointerEvents: 'auto' }}>
+          <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-1'} relative z-50 app-no-drag`} {...NO_DRAG_REGION} style={{ pointerEvents: 'auto' }}>
             {/* Activity / Agents / Remote Access moved into the Topics ▾ menu;
                 the header right side is the Search launcher + the canonical
                 "+" add menu — two icon-only RESTING_SURFACE twins. */}
@@ -952,7 +946,7 @@ function App() {
                 canonical search. */}
             <button
               onClick={() => { setSearchScope('all'); setShowSearch(true); }}
-              className={`${isMobile ? 'h-9 px-2.5' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`}
+              className={`${isMobile ? 'h-9 px-2.5' : 'h-7 px-2'} flex items-center gap-1.5 rounded-md ${RESTING_SURFACE} text-app-text-muted hover:text-app-text transition-colors flex-shrink-0 cursor-pointer app-no-drag`} {...NO_DRAG_REGION}
               style={{ pointerEvents: 'auto' }}
               title="Search (⌘K)"
               aria-label="Search — open the command palette"

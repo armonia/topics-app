@@ -15,6 +15,7 @@ import { useContextInspector } from '../../hooks/useContextInspector';
 import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
 import { useTopicLoading, useTopicWatching } from '@/state/signals';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
+import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -152,15 +153,15 @@ export function ChatPanel({
         {!bodyOnly && <div className={`flex items-center ${headerLeft
           ? 'pr-0 h-12 md:h-10 md:border-b md:border-app-border'
           : 'gap-1.5 px-2 border-b border-app-border h-10'
-        } select-none flex-shrink-0 bg-surface app-drag-region`}>
+        } select-none flex-shrink-0 bg-surface app-drag-region`} {...DRAG_REGION}>
           {onToggleSidebar && !headerLeft && <SidebarToggleButton onClick={onToggleSidebar} />}
           {headerLeft ? (
-            <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
+            <div className="flex-1 flex items-center min-w-0 overflow-visible app-no-drag" {...NO_DRAG_REGION} onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
               {headerLeft}
-              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1"><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
+              {onToggleSidebar && <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1" {...NO_DRAG_REGION}><SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" /></div>}
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" draggable onDragStart={onDragStart}>
+            <div className="flex items-center gap-1.5 min-w-0 cursor-grab active:cursor-grabbing app-no-drag" {...NO_DRAG_REGION} draggable onDragStart={onDragStart}>
               <span className="text-[14px] font-medium truncate text-app-text" style={{ maxWidth: 'min(200px, 40vw)' }}>{topic.name}</span>
               {topic.provider === 'openclaw' && (
                 <span className="text-[11px] px-1 py-px rounded bg-primary/10 text-primary font-medium flex items-center gap-0.5 flex-shrink-0" title="Cloud (OpenClaw)">
@@ -189,7 +190,7 @@ export function ChatPanel({
                   detail: { contextId: spawnedBrowserCtx },
                 }));
               }}
-              className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors app-no-drag"
+              className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-primary transition-colors app-no-drag" {...NO_DRAG_REGION}
               title="Vai al browser aperto da questa chat"
               aria-label="Vai al browser"
               data-testid="chat-jump-to-browser"
@@ -202,7 +203,7 @@ export function ChatPanel({
           {!headerLeft && (
             <button
               onClick={(e) => { e.stopPropagation(); openContextInspector(); }}
-              className={`${'w-7 h-7'} flex items-center justify-center rounded transition-colors app-no-drag hover:bg-app-hover text-app-text-tertiary hover:text-app-text`}
+              className={`${'w-7 h-7'} flex items-center justify-center rounded transition-colors app-no-drag hover:bg-app-hover text-app-text-tertiary hover:text-app-text`} {...NO_DRAG_REGION}
               title="Context Inspector"
               aria-label="Context Inspector"
             >
@@ -211,13 +212,13 @@ export function ChatPanel({
           )}
           {!headerLeft && (
             <>
-              <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
+              <button onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} {...NO_DRAG_REGION} title="Topic settings" aria-label="Topic settings"><Settings size={14} /></button>
               {!isMobile && <CommandMenu onStatus={handleCommandStatus} onClear={handleCommandClear} onModel={handleCommandModel} onReasoning={handleCommandReasoning} isLoading={commandLoading} />}
-              {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag`} title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
-              {!isMobile && <button onClick={(e) => { e.stopPropagation(); void popOutTopic(topic.id).then((opened) => { if (opened) onClose(); }); }} disabled={!canPopOut} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag disabled:opacity-40 disabled:cursor-not-allowed" title="Sposta in una nuova finestra" aria-label="Sposta in una nuova finestra"><ExternalLink size={14} /></button>}
+              {pinnedMessages.length > 0 && <button onClick={(e) => { e.stopPropagation(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-yellow-500/70 hover:text-yellow-500 transition-colors app-no-drag`} {...NO_DRAG_REGION} title={`${pinnedMessages.length} pinned`} aria-label={`${pinnedMessages.length} pinned messages`}><Pin size={14} /></button>}
+              {!isMobile && <button onClick={(e) => { e.stopPropagation(); void popOutTopic(topic.id).then((opened) => { if (opened) onClose(); }); }} disabled={!canPopOut} className="w-7 h-7 flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag disabled:opacity-40 disabled:cursor-not-allowed" {...NO_DRAG_REGION} title="Sposta in una nuova finestra" aria-label="Sposta in una nuova finestra"><ExternalLink size={14} /></button>}
             </>
           )}
-          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} title="Close panel" aria-label="Close panel"><X size={14} /></button>}
+          {showCloseButton && <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={`${'w-7 h-7'} flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary hover:text-app-text transition-colors app-no-drag`} {...NO_DRAG_REGION} title="Close panel" aria-label="Close panel"><X size={14} /></button>}
         </div>}
 
         {/* Mobile "what is this session doing" strip — front-and-centre on the

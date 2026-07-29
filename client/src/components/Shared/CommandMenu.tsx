@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { Terminal, Trash2, Cpu, Brain, ChevronDown, Check, Loader } from 'lucide-react';
 import { Menu } from './Menu';
+import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
 interface CommandMenuProps {
   onStatus: () => void;
@@ -42,7 +43,7 @@ export function CommandMenu({
       <button
         ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
-        className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text-hover transition-colors app-no-drag"
+        className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text-hover transition-colors app-no-drag" {...NO_DRAG_REGION}
         title="Commands"
       >
         {isLoading ? (
