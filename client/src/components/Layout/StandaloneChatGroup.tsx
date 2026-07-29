@@ -38,6 +38,7 @@ import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg } from '../../lib/paneCellBg';
 import { PaneKeepAlive } from './PaneKeepAlive';
+import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
 const RemoteBrowserPanel = lazy(() => import('../Browser/RemoteBrowserPanel').then(m => ({ default: m.RemoteBrowserPanel })));
 const SingleTerminalPane = lazy(() => import('../Terminal/SingleTerminalPane').then(m => ({ default: m.SingleTerminalPane })));
@@ -780,10 +781,10 @@ export function StandaloneChatGroup({
             Previously every pane-type branch rendered its own copy of
             this header; consolidating it lets the body switch underneath
             without re-mounting the tab bar / re-running its hooks. */}
-        <div className="chrome-glass flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" style={{ position: 'relative' }}>
-          <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag">{tabBar}</div>
+        <div className="chrome-glass flex items-center pr-0 h-10 border-b border-app-border select-none flex-shrink-0 bg-surface app-drag-region" {...DRAG_REGION} style={{ position: 'relative' }}>
+          <div className="flex-1 flex items-center min-w-0 overflow-hidden app-no-drag" {...NO_DRAG_REGION}>{tabBar}</div>
           {onToggleSidebar && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1">
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center app-no-drag z-10 pl-1" {...NO_DRAG_REGION}>
               <SidebarToggleButton onClick={onToggleSidebar} size="sm" className="!w-6 !h-6 bg-surface !rounded-md" />
             </div>
           )}

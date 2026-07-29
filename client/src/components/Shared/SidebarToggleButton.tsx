@@ -1,5 +1,6 @@
 import { PanelLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
 interface SidebarToggleButtonProps {
   onClick: (e?: React.MouseEvent) => void;
@@ -28,7 +29,7 @@ export function SidebarToggleButton({
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(e); }}
-      className={`${dim} flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0 ${className}`}
+      className={`${dim} flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0 ${className}`} {...NO_DRAG_REGION}
       title={title}
       aria-label={title}
     >
