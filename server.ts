@@ -156,6 +156,11 @@ const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast
   loadTopics, loadUnread, saveUnread,
   activeStreams, getMessageById, getMimeType, logRequest, db } = ctx;
 
+/** Last index.html we served successfully, with the bundle rev it carried. The
+ *  fallback for a request that lands while /public is being rewritten — see the
+ *  `GET /` handler. */
+let lastGoodShell: { html: string; rev: string } | null = null;
+
 // Phase 30 BROWSER-CHAT-03 — registry of active /ws/browser/:contextId
 // connections keyed by contextId. Multiple panels may watch the same context
 // (UI plus E2E spies); the broadcast iterates the whole set. Populated by the
@@ -1377,7 +1382,30 @@ const server = Bun.serve<WSData>({
     // Static files
     const isDevPort = PORT === 3330;
     if (method === "GET" && (pathname === "/" || pathname === "/index.html")) {
-      let html = await Bun.file(join(PUBLIC_DIR, "index.html")).text();
+      // Last-known-good shell. /public is rewritten in place by the build-watch
+      // agent (com.armonia.topics-build-watch), so a page load that lands mid
+      // rebuild used to read a missing index.html, throw, and answer 500 — the
+      // app "doesn't open", for a window that has nothing to do with the app.
+      // Serving the previous shell instead turns a rebuild into something the
+      // user never sees. The rev is cached WITH the html: re-deriving it from
+      // a half-written /public would stamp an empty rev and trip the client's
+      // "new version available" detector.
+      let html: string;
+      let rev: string;
+      try {
+        const fresh = await Bun.file(join(PUBLIC_DIR, "index.html")).text();
+        if (!fresh.trim()) throw new Error("index.html is empty");
+        html = fresh;
+        rev = readBundleRev(PUBLIC_DIR);
+        lastGoodShell = { html: fresh, rev };
+      } catch (err) {
+        if (!lastGoodShell) {
+          console.error(`[Static] index.html unreadable and no cached shell:`, err);
+          return new Response("Bundle not built yet — run `cd client && bun run build`.", { status: 503, headers: { "Cache-Control": "no-store" } });
+        }
+        console.warn(`[Static] index.html unreadable (build in flight?) — serving the last good shell`);
+        ({ html, rev } = lastGoodShell);
+      }
       if (isDevPort) {
         html = html
           .replace(/\/icons\/icon-180\.png/g, '/icons/icon-180-dev.png')
@@ -1387,7 +1415,7 @@ const server = Bun.serve<WSData>({
       // Stamp the rev this HTML represents so the client never has to re-derive
       // it from its own DOM (which drifts as Vite injects lazy-chunk preloads —
       // the phantom "nuova versione disponibile" loop).
-      html = stampBundleRev(html, readBundleRev(PUBLIC_DIR));
+      html = stampBundleRev(html, rev);
       // no-STORE, not no-cache: the app shell must never sit in a cache. With
       // `no-cache` WKWebView still served a stale index.html after a deploy
       // (revalidation didn't fire reliably), so the desktop kept booting the
