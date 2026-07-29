@@ -578,6 +578,13 @@ export interface WSAgentsStoppedMessage {
 export interface WSTerminalSessionsMessage {
   type: 'terminal:sessions';
   sessions: TerminalSessionInfo[];
+  /**
+   * `sessions: []` va creduto, o vuol dire "non lo so ancora"? Il server
+   * trasmette anche prima che `reconcileSessions` abbia finito, quindi il secondo
+   * caso è reale a ogni riavvio. Facoltativo: un bundle vecchio non lo manda, e
+   * assente significa "non lo so". Vedi `hooks/rosterTrust.ts`.
+   */
+  reconciled?: boolean;
 }
 
 /** Per-session pty activity. Server-tracked from the central pty data path so
