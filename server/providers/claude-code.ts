@@ -905,6 +905,8 @@ export class ClaudeCodeProvider implements AIProvider {
   private processes = new Map<string, PersistentProcess>();
   private queues = new Map<string, Promise<void>>();
   private started = false;
+  /** Unsubscribe for the broker reconnect hook armed in start(). */
+  private unsubscribeReconnect: (() => void) | null = null;
 
   constructor(config: ClaudeCodeProviderConfig) {
     this.config = config;
@@ -918,11 +920,31 @@ export class ClaudeCodeProvider implements AIProvider {
 
   start(): void {
     this.started = true;
+    // A dropped broker socket takes every attachment with it (the daemon wipes
+    // the closed socket from each session's `attached` map). The children keep
+    // running and keep writing to their stores, so nothing looks wrong — the
+    // turns simply never end again. `onReconnect` existed for exactly this and
+    // had no subscriber; this is it.
+    if (USE_AI_BRIDGE) {
+      try {
+        this.unsubscribeReconnect = getAiBridgeClient().onReconnect(() => {
+          const live = [...this.processes.keys()].filter((k) => this.processes.get(k)?.alive);
+          if (live.length === 0) return;
+          console.warn(`[claude-code] Broker socket reconnected — re-attaching ${live.length} live session(s)`);
+          for (const key of live) {
+            this.resyncStream(key).catch((err) => console.warn(`[claude-code] Re-attach after reconnect failed for ${key}:`, err));
+          }
+        });
+      } catch (err) {
+        console.warn("[claude-code] Could not arm the broker reconnect hook:", err);
+      }
+    }
     console.log("[claude-code] Provider started");
   }
 
   stop(): void {
     this.started = false;
+    if (this.unsubscribeReconnect) { this.unsubscribeReconnect(); this.unsubscribeReconnect = null; }
     for (const [key, pp] of this.processes) {
       if (USE_AI_BRIDGE && pp.alive) {
         // The child lives in the DETACHED ai-bridge daemon and must SURVIVE a
@@ -1524,7 +1546,23 @@ export class ClaudeCodeProvider implements AIProvider {
         // Il pid del figlio è l'ancora delle shell in background: senza, una
         // `bun run dev` lasciata da questa sessione è indistinguibile da una
         // uguale avviata altrove. Vedi `providers/session-pids.ts`.
-        .then(({ pid }) => { setSessionCliPid(sessionKey, pid); })
+        .then(async ({ pid, resumed }) => {
+          setSessionCliPid(sessionKey, pid);
+          // `resumed` = the daemon handed us a child that was ALREADY running
+          // (it outlives our restarts by design) instead of spawning one. Old
+          // daemons don't attach us on that branch, so this turn's stdin write
+          // would land on a child whose stdout we never hear: no text, no tool
+          // events, and a stream that hangs on "stream lento — il provider è
+          // ancora connesso" until the hard cap. Attaching LIVE (no replay —
+          // the past turns of that child are already in the DB) closes it, and
+          // is a harmless no-op against a daemon that attaches us itself.
+          if (!resumed) return;
+          console.log(`[claude-code] Adopted live broker child for ${sessionKey} (pid ${pid}) — attaching to its stream`);
+          // consumedOffset must land ON the attach point, not stay at 0: it is
+          // where resyncStream() re-attaches from, and 0 against an adopted
+          // child's store would re-fold that child's whole history.
+          pp.consumedOffset = (await client.attachLive(sessionKey)).fromOffset;
+        })
         .catch((err) => this.onSessionErrored(pp, err instanceof Error ? err : new Error(String(err))));
     } else {
       const proc = spawn(resolveCliPath(), args, { cwd: workspace, stdio: ["pipe", "pipe", "pipe"], env });
@@ -1626,6 +1664,62 @@ export class ClaudeCodeProvider implements AIProvider {
   isTurnProcessAlive(sessionKey: string): boolean {
     const pp = this.processes.get(sessionKey);
     return !!pp && pp.alive;
+  }
+
+  /**
+   * Re-attach the broker stream of a LIVE turn, losslessly, from the last byte
+   * we consumed. The self-heal for the whole "we stopped hearing a child that
+   * is still working" family: a socket reconnect, a daemon that acked a spawn
+   * without attaching us, any future variant. Every one of them looks identical
+   * from outside — the child runs, the bytes pile up in the store, and the turn
+   * never ends because nothing arrives to end it.
+   *
+   * Idempotent and cheap: if we ARE still attached, `attach` from consumedOffset
+   * replays zero bytes and the daemon just refreshes our delivery cursor. Safe
+   * to call speculatively, which is exactly what the route's watchdog does.
+   *
+   * Precondition, and why the callers all satisfy it: call this only after a
+   * stretch of SILENCE (grace expiry, the stale sweeper, a socket reconnect).
+   * `consumedOffset` advances when onData folds a chunk, so calling it while
+   * frames are still in flight in the socket buffer would replay bytes that are
+   * about to arrive anyway — duplicated deltas. After a minute of nothing there
+   * is nothing in flight, and after a reconnect the in-flight bytes are gone
+   * for good, which is precisely what makes the replay the right answer.
+   *
+   * Returns true when a live session was re-attached (the caller may recover),
+   * false when there was nothing to resync (no broker, dead child, no process).
+   */
+  async resyncStream(sessionKey: string): Promise<boolean> {
+    if (!USE_AI_BRIDGE) return false;
+    const pp = this.processes.get(sessionKey);
+    if (!pp || !pp.alive) return false;
+    // Snapshot BEFORE the await: the replay this attach triggers is folded
+    // synchronously by onData, so by the time it resolves pp.consumedOffset has
+    // already moved — reading it after would log the destination, not the gap.
+    const from = pp.consumedOffset;
+    try {
+      const res = await getAiBridgeClient().attach(sessionKey, from);
+      // A LIVE daemon answering "I don't have that session" (or "its child is
+      // gone") is proof the child died: the daemon is the authority on that,
+      // and if it died WITH the daemon (daemon crash, then the client respawns
+      // a fresh empty one) no `exit` frame will ever arrive to say so. Without
+      // this the process stays `alive` in our map forever, isTurnProcessAlive
+      // keeps vouching for it, and the route's grace window extends for good —
+      // a turn that can never end. Finalize it as a died turn instead: the
+      // caller's promise settles, the queue unlocks, the route closes the
+      // bubble. A daemon we simply can't REACH throws instead, and lands in the
+      // catch below without finalizing anything.
+      if (res.missing || !res.alive) {
+        console.warn(`[claude-code] Stream resync for ${sessionKey}: the broker no longer has a live child — finalizing the turn as died`);
+        this.finalizeDeadReattach(pp);
+        return false;
+      }
+      console.log(`[claude-code] Stream resync for ${sessionKey}: re-attached from offset ${from}, recovered ${Math.max(0, res.endOffset - from)} byte(s)`);
+      return true;
+    } catch (err: any) {
+      console.warn(`[claude-code] Stream resync failed for ${sessionKey}: ${err?.message ?? err}`);
+      return false;
+    }
   }
 
   /** True if a still-running broker session exists for `sessionKey`. The signal

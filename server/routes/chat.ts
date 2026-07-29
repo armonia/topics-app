@@ -733,6 +733,19 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // from finalizing the vouched-for stream underneath us.
             if (topicProvider.isTurnProcessAlive?.(sessionKey)) {
               console.warn(`[StreamWS] Grace expired but provider process is alive on ${sessionKey} (compaction/long silence) — extending grace ${STREAM_GRACE_MS / 1000}s`);
+              // "Alive but silent" has TWO causes that look identical here: the
+              // child really is quiet (compaction, a long tool), or we stopped
+              // hearing a child that never stopped talking (a broker attachment
+              // lost to a reconnect / a spawn that acked without attaching).
+              // Extending alone turns the second one into a turn that never
+              // ends — the freeze this watchdog is supposed to catch. So ask
+              // the provider to re-attach from the last byte we consumed first:
+              // a no-op when we are attached, a full recovery when we are not
+              // (the missed output arrives and resetStreamTimer strips the slow
+              // annotation on its own).
+              (topicProvider as { resyncStream?: (sk: string) => Promise<boolean> }).resyncStream?.(sessionKey)
+                .then((did) => { if (did) console.warn(`[StreamWS] Resync issued for ${sessionKey} — recovering the stream if it was detached`); })
+                .catch((err) => console.warn(`[StreamWS] Resync on grace-expiry failed for ${sessionKey}:`, err));
               updateStreamContent(sessionKey, fullContent, fullThinking);
               graceTimer = setTimeout(handleGraceExpiry, STREAM_GRACE_MS);
               return;

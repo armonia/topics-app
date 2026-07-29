@@ -2099,8 +2099,19 @@ finalizeOrphanedRunningTools();
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
+// One rescue round per silent stream: the sweeper's 3-min silence has two
+// causes, a dead turn and a turn we stopped HEARING (a broker attachment lost
+// to a socket reconnect / a spawn acked without an attach — the child keeps
+// working and the store keeps filling, we just get nothing). Declaring the
+// second one dead is how a live turn ended as "nessuna attività per 3 minuti"
+// while it was still running. So when the provider vouches the child is ALIVE
+// we spend one round asking it to re-attach; if the next tick is still silent
+// we finalize as before. Bounded (one extra 3-min round), and the entry is
+// dropped as soon as the stream leaves the map.
+const staleStreamRescued = new Set<string>();
 const staleStreamTimer = setInterval(() => {
   const now = Date.now();
+  for (const key of staleStreamRescued) if (!activeStreams.has(key)) staleStreamRescued.delete(key);
   for (const [sessionKey, stream] of activeStreams.entries()) {
     if (!activeStreams.has(sessionKey)) continue;
     // Fast path — DB says the partial assistant message is already finalized
@@ -2114,7 +2125,24 @@ const staleStreamTimer = setInterval(() => {
     }
     const lastActivity = new Date(stream.lastActivity).getTime();
     if (now - lastActivity > STALE_STREAM_TIMEOUT_MS) {
+      if (!staleStreamRescued.has(sessionKey)) {
+        const prov = getProvider("claude-code") as {
+          isTurnProcessAlive?: (sk: string) => boolean;
+          resyncStream?: (sk: string) => Promise<boolean>;
+        } | undefined;
+        if (prov?.isTurnProcessAlive?.(sessionKey)) {
+          staleStreamRescued.add(sessionKey);
+          console.warn(`[StaleStream] ${sessionKey} silent for 3 min but its child is ALIVE — re-attaching the stream and granting one more round before finalizing`);
+          prov.resyncStream?.(sessionKey)
+            .catch((err) => console.warn(`[StaleStream] resync failed for ${sessionKey}:`, err));
+          // Push lastActivity forward so the rescue gets a full round to land;
+          // real output re-bumps it and the stream leaves this path entirely.
+          ctx.updateStreamActivity(sessionKey);
+          continue;
+        }
+      }
       console.log(`[StaleStream] Auto-clearing stale stream for ${sessionKey}`);
+      staleStreamRescued.delete(sessionKey);
       const topicId = ctx.getTopicBySessionKey(sessionKey)?.id;
       // Finalize any tool call left 'running'. Previously the sweeper did a bare
       // `activeStreams.delete`, bypassing endStream — so a hung tool kept its

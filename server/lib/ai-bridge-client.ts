@@ -232,6 +232,21 @@ export class AiBridgeClient {
     return { endOffset: m.endOffset, alive: m.alive, exitCode: m.exitCode ?? null, missing: m.missing === true };
   }
 
+  /**
+   * Attach to an already-live session WITHOUT replaying its store: only what
+   * the child emits from now on. `attach` has no "live-only" offset of its own
+   * (and `fromOffset` is int32-coerced daemon-side, so a sentinel like
+   * MAX_SAFE_INTEGER would wrap to 0 and replay everything) — so we read the
+   * current `endOffset` from `list` and attach there. Bytes appended between
+   * the two round-trips are still delivered: `attach` replays [from, endOffset]
+   * as of when it lands.
+   */
+  async attachLive(id: string): Promise<AttachResult & { fromOffset: number }> {
+    const info = (await this.list()).find((s) => s.id === id);
+    const fromOffset = info?.endOffset ?? 0;
+    return { ...(await this.attach(id, fromOffset)), fromOffset };
+  }
+
   write(id: string, data: string): void { this.send({ type: "write", id, data }); }
   detach(id: string): void { this.send({ type: "detach", id }); }
   signal(id: string, sig: string): void { this.send({ type: "signal", id, signal: sig }); }
