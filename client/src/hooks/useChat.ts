@@ -72,13 +72,118 @@ export interface SendMessageOptions {
 
 export type { QueuedMessage };
 
+/**
+ * Tetto in BYTE per voce di cache.
+ *
+ * `CACHE_MAX_MESSAGES` limita il NUMERO di messaggi, non la loro dimensione — e
+ * un messaggio con tool call e blocchi pesa quanto cinquanta righe di testo.
+ * Misurato sul localStorage vivo il 2026-07-29: una singola voce da **2.383.940
+ * byte** (50 messaggi, ~47 KB l'uno), cioe' quasi meta' dell'intera quota per
+ * UNA conversazione.
+ */
+const CACHE_MAX_BYTES = 256 * 1024;
+
+/**
+ * Tetto complessivo all'idratazione. Sotto questo, quanta cache si porta in heap
+ * al boot resta una cosa che sappiamo invece di una che scopriamo.
+ */
+const CACHE_TOTAL_BUDGET = 2 * 1024 * 1024;
+
+/**
+ * SOLO le voci di cache dei messaggi.
+ *
+ * ATTENZIONE, e non e' teorica: `messages-cache-` e `messages-outbound-queue`
+ * cominciano uguale. Un filtro su `messages-` sfoltirebbe le CODE DELL'UTENTE —
+ * i messaggi scritti e non ancora consegnati — e l'header di `outboundQueue.ts`
+ * dice esattamente cosa significa: "se questa coda perde una riga, la perde per
+ * sempre e senza dirlo". Questo predicato esiste per non far mai quel errore.
+ */
+function isCacheKey(key: string): boolean {
+  return key.startsWith(CACHE_PREFIX);
+}
+
+/** Le voci di cache oggi presenti, dalla piu' grossa alla piu' piccola. */
+function cacheEntriesBySize(): { key: string; bytes: number }[] {
+  const out: { key: string; bytes: number }[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || !isCacheKey(key)) continue;
+    out.push({ key, bytes: localStorage.getItem(key)?.length ?? 0 });
+  }
+  return out.sort((a, b) => b.bytes - a.bytes);
+}
+
+/**
+ * Fa spazio buttando le voci di cache PIU' GROSSE.
+ *
+ * Le piu' grosse e non le piu' vecchie, perche' l'eta' non e' scritta da nessuna
+ * parte: la voce e' un array nudo, e i due lettori la validano con
+ * `Array.isArray`. Aggiungere un campo `savedAt` significherebbe cambiare lo
+ * schema sotto i piedi di quei lettori e far fallire la validazione in silenzio.
+ * La dimensione e' un criterio onesto: la voce che occupa mezza quota e' anche
+ * quella che, ricaricandosi dal server, costa meno di quanto stava costando.
+ */
+function evictCacheSpace(targetBytes: number): void {
+  let freed = 0;
+  for (const e of cacheEntriesBySize()) {
+    if (freed >= targetBytes) break;
+    try {
+      localStorage.removeItem(e.key);
+      freed += e.bytes;
+    } catch {
+      break;
+    }
+  }
+}
+
+/**
+ * Scrive la cache di una sessione, restando dentro il proprio tetto.
+ *
+ * IL BUG CHE CHIUDE. Il 2026-07-29 il localStorage dell'app era a **5.245.244
+ * byte contro una quota WebKit di 5.242.880**: oltre il limite. Di quei byte,
+ * 4.563.206 su 22 voci erano `messages-cache-*` — l'87% della quota per una
+ * cache il cui unico scopo e' mostrare la chat piu' in fretta al boot.
+ *
+ * E la conseguenza non era la memoria, era la PERDITA DI DATI: con la quota
+ * satura ogni `setItem` dell'app falliva, e nel database non c'era traccia ne'
+ * di `messages-outbound-queue` ne' di `messages-expired-queue` — le code dei
+ * messaggi scritti e non ancora consegnati non erano mai state scritte. Insieme
+ * a loro: bozze del composer, offset di scroll, snapshot delle pane.
+ *
+ * Falliva in silenzio perche' qui c'era un `catch {}` nudo. Adesso l'errore di
+ * quota si riconosce, si fa spazio, e si riprova una volta.
+ */
 function cacheMessages(sessionKey: string, msgs: ChatMessage[]) {
+  const settled = msgs.filter((m) => !m.partial);
+  // Taglia dalla CODA: i messaggi recenti sono quelli che l'utente si aspetta di
+  // rivedere aprendo la chat. Si scende finche' la voce non sta nel suo tetto.
+  let take = Math.min(settled.length, CACHE_MAX_MESSAGES);
+  let payload = JSON.stringify(settled.slice(-take));
+  while (take > 1 && payload.length > CACHE_MAX_BYTES) {
+    take = Math.floor(take / 2);
+    payload = JSON.stringify(settled.slice(-take));
+  }
+  const key = CACHE_PREFIX + sessionKey;
   try {
-    const toCache = msgs
-      .filter(m => !m.partial)
-      .slice(-CACHE_MAX_MESSAGES);
-    localStorage.setItem(CACHE_PREFIX + sessionKey, JSON.stringify(toCache));
-  } catch {}
+    localStorage.setItem(key, payload);
+  } catch {
+    // `QuotaExceededError` puo' arrivare anche da voci di ALTRE origini: si fa
+    // spazio fra le nostre cache e si riprova UNA volta. Se fallisce ancora, la
+    // cache di questa sessione salta — ed e' l'esito giusto, perche' e' la cosa
+    // meno importante che quella quota contiene.
+    try {
+      evictCacheSpace(Math.max(payload.length * 2, 512 * 1024));
+      localStorage.setItem(key, payload);
+    } catch {
+      // Un warn e non il silenzio: la versione muta di questa riga ha tenuto
+      // nascosto per mesi un localStorage saturo, e con lui la coda dei messaggi
+      // non consegnati.
+      console.warn('[chat] cache dei messaggi non scritta: localStorage pieno', {
+        sessionKey,
+        bytes: payload.length,
+      });
+    }
+  }
 }
 
 function getCachedMessages(sessionKey: string): ChatMessage[] | null {
@@ -108,19 +213,31 @@ const queueStorage: QueueStorage = {
 const getOutboundQueue = (): QueuedMessage[] => readQueue(queueStorage, OUTBOUND_QUEUE_KEY);
 const getExpiredQueue = (): QueuedMessage[] => readQueue(queueStorage, EXPIRED_QUEUE_KEY);
 
+/**
+ * Idrata la cache al boot, entro un budget.
+ *
+ * Prima portava in stato React TUTTO cio' che trovava: il 2026-07-29 erano 4,5 MB
+ * di JSON parsati all'avvio, per conversazioni che l'utente magari non riaprira'
+ * mai in quella sessione. Adesso le voci si prendono dalla piu' piccola in su
+ * finche' il budget regge, e le altre restano su disco: la loro chat si
+ * ricarichera' dal server all'apertura, che e' esattamente cio' che succede per
+ * ogni sessione non ancora in cache.
+ */
 function getInitialMessages(): Record<string, ChatMessage[]> {
   try {
     const result: Record<string, ChatMessage[]> = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith(CACHE_PREFIX)) {
-        const sessionKey = key.slice(CACHE_PREFIX.length);
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) result[sessionKey] = parsed;
-        }
-      }
+    let budget = CACHE_TOTAL_BUDGET;
+    // Dalla piu' piccola: a parita' di budget si idratano PIU' conversazioni, e
+    // quella enorme e' anche quella che il server ricarica volentieri.
+    const entries = cacheEntriesBySize().reverse();
+    for (const { key, bytes } of entries) {
+      if (bytes > budget) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) continue;
+      result[key.slice(CACHE_PREFIX.length)] = parsed as ChatMessage[];
+      budget -= bytes;
     }
     return result;
   } catch {
@@ -866,6 +983,17 @@ export function useChat() {
         // Clear any stale "queued" error banner on successful stream completion
         setError(prev => (prev?.includes('queued') ? null : prev));
         // Strip any remaining browser markers (handles split-across-chunks case)
+        //
+        // La scrittura in cache sta FUORI dall'updater. Un updater di `setState`
+        // deve essere puro: React lo esegue due volte in StrictMode e puo'
+        // rieseguirlo quando gli pare. Dentro c'era una `cacheMessages`, cioe'
+        // una serializzazione dell'intera conversazione piu' una scrittura su
+        // localStorage — che a quota piena scandisce anche tutte le altre voci
+        // per fare spazio. Il pattern "mitigazione dentro il percorso caldo" e'
+        // esattamente quello che oggi, sul tetto delle pane, ha fatto crescere
+        // la memoria dodici volte.
+        {
+        const cacheOnEnd: { msgs: ChatMessage[] | null } = { msgs: null };
         setMessages(prev => {
           const msgs = prev[sessionKey] || [];
           const last = msgs[msgs.length - 1];
@@ -876,15 +1004,16 @@ export function useChat() {
             if (cleaned !== last.content) {
               const updated = [...msgs];
               updated[msgs.length - 1] = { ...last, content: cleaned, partial: false };
-              // Cache after stream finishes
-              cacheMessages(sessionKey, updated);
+              cacheOnEnd.msgs = updated;
               return { ...prev, [sessionKey]: updated };
             }
           }
-          // Cache after stream finishes
-          cacheMessages(sessionKey, msgs);
+          cacheOnEnd.msgs = msgs;
           return prev;
         });
+        // Cache after stream finishes
+        if (cacheOnEnd.msgs) cacheMessages(sessionKey, cacheOnEnd.msgs);
+        }
         {
           // Persist latency / token usage / cost from the stream:end payload
           // onto the last message so the footer can render them. All four
