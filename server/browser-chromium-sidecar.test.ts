@@ -160,10 +160,14 @@ test("dispose reaps immediately regardless of refCount", async () => {
 
 test("loadExtensions thunk is evaluated at LAUNCH (not construction) and passed to the launcher", async () => {
   let thunkCalls = 0;
-  let captured: string[] | null = null;
+  // Collected into an array rather than a `let … | null`: tsc narrows such a
+  // binding to its `null` initializer at the assertion, because the only write
+  // lives in a callback it can't prove ran. The array records the same thing —
+  // what the launcher actually received — and reads honestly.
+  const captured: (string[] | undefined)[] = [];
   const launcher: SidecarLauncher = {
     async launch({ port, loadExtensions }) {
-      captured = loadExtensions;
+      captured.push(loadExtensions);
       return { cdpEndpoint: `ws://127.0.0.1:${port}/x`, kill: () => {} };
     },
   };
@@ -175,20 +179,21 @@ test("loadExtensions thunk is evaluated at LAUNCH (not construction) and passed 
   expect(thunkCalls).toBe(0); // NOT evaluated at construction
   await sidecar.acquire();
   expect(thunkCalls).toBe(1); // evaluated once, at launch
-  expect(captured).toEqual(["/ext/a", "/ext/b"]);
+  expect(captured).toEqual([["/ext/a", "/ext/b"]]);
   sidecar.dispose();
 });
 
 test("a static loadExtensions array still works (back-compat)", async () => {
-  let captured: string[] | null = null;
+  // Same collector shape as the thunk test above, for the same narrowing reason.
+  const captured: (string[] | undefined)[] = [];
   const launcher: SidecarLauncher = {
     async launch({ port, loadExtensions }) {
-      captured = loadExtensions;
+      captured.push(loadExtensions);
       return { cdpEndpoint: `ws://127.0.0.1:${port}/x`, kill: () => {} };
     },
   };
   const sidecar = createChromiumSidecar({ discover: () => [eng("chrome")], launcher, loadExtensions: ["/only/one"] });
   await sidecar.acquire();
-  expect(captured).toEqual(["/only/one"]);
+  expect(captured).toEqual([["/only/one"]]);
   sidecar.dispose();
 });

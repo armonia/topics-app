@@ -49,7 +49,10 @@ function makeStubProc() {
 }
 
 function makeProviderWithStubProcess(sessionKey: string) {
-  const provider = new ClaudeCodeProvider({ type: "claude-code", binPath: "claude" });
+  // `binPath` was passed here but ClaudeCodeProviderConfig has never had such a
+  // field and nothing ever read it — dead test data that only surfaced once the
+  // *.test.ts files were pulled into the typecheck.
+  const provider = new ClaudeCodeProvider({ type: "claude-code" });
   const stub = makeStubProc();
   const pp: any = {
     proc: stub,

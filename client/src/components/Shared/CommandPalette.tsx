@@ -14,6 +14,7 @@ import { searchApi } from '../../lib/api';
 import { requestScrollToMessage } from '../../state/scrollToMessage';
 import { PANE_CONFIG } from '../../state/pane/adapters';
 import { MODAL_BACKDROP } from '../../lib/modalStyles';
+import { isDesktop } from '../../lib/shell';
 
 export interface CommandAction {
   id: string;
@@ -84,7 +85,6 @@ interface CommandPaletteProps {
   themeMode: string;
   projectPath?: string;
   onOpenFile?: (path: string, lineNumber?: number) => void;
-  isElectron?: boolean;
   closedTabs?: ClosedTabRecord[];
   onReopenClosedTab?: (record: ClosedTabRecord) => void;
 }
@@ -111,7 +111,6 @@ export function CommandPalette({
   themeMode,
   projectPath,
   onOpenFile,
-  isElectron,
   closedTabs,
   onReopenClosedTab,
 }: CommandPaletteProps) {
@@ -581,8 +580,14 @@ export function CommandPalette({
             Always at the bottom. Action items are NOT duplicated into the
             result list (the bar is the canonical surface). */}
         <div className="border-t border-app-border px-2 py-1.5 flex items-center gap-1 flex-wrap flex-shrink-0">
+          {/* ⌘N is bound unconditionally (useKeyboardShortcuts.ts:202) but only
+              REACHES us in the desktop shell — a browser tab keeps it for
+              itself. So the hint is gated on the shell, read straight from
+              lib/shell. It used to hang off an `isElectron` prop that NO caller
+              ever passed, which made the hint dead code: always undefined, so
+              ⌘N was never advertised, not even on desktop. */}
           {enableNewChat && (
-            <ActionPill icon={<Plus size={12} />} label="New Chat" onClick={() => { onNewTopic(); onClose(); }} shortcut={isElectron ? '⌘N' : undefined} />
+            <ActionPill icon={<Plus size={12} />} label="New Chat" onClick={() => { onNewTopic(); onClose(); }} shortcut={isDesktop ? '⌘N' : undefined} />
           )}
           {onNewClaude && (
             <ActionPill icon={<ClaudeIcon size={12} />} label="Claude" onClick={() => { onNewClaude(); onClose(); }} />

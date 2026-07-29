@@ -10,7 +10,11 @@
 // This file is ADDITIVE and currently imported by nobody — it changes no runtime
 // behaviour until callsites migrate. Migration is incremental and reversible.
 
-export type ShellKind = 'electron' | 'tauri' | 'web';
+/** The shells that actually exist. 'electron' was a member until 2026-07-29
+ *  even though `detectShell` has never been able to return it (the Electron
+ *  shell was archived in v2.0.0) — a phantom variant that every `switch` had to
+ *  pretend to handle and no exhaustiveness check could help with. */
+export type ShellKind = 'tauri' | 'web';
 
 declare global {
   interface Window {

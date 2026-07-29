@@ -569,8 +569,13 @@ export function loadActiveBranchForReplay(sessionKey: string): ReplayTurn[] {
   let activeRows: Row[] = [];
   let cursor: string | null = null;
   while (true) {
-    const key = cursor ?? "__root__";
-    const candidates = childrenOf.get(key) ?? [];
+    // Both annotated on purpose: `cursor` is reassigned from `chosen.id` at the
+    // bottom of this loop, so under `noImplicitAny` tsc sees key → candidates →
+    // chosen → cursor → key and gives up (TS7022, "referenced in its own
+    // initializer"). Naming the types cuts the cycle; they are what the map
+    // already declares.
+    const key: string = cursor ?? "__root__";
+    const candidates: Row[] = childrenOf.get(key) ?? [];
     if (candidates.length === 0) break;
     let chosen: Row | undefined;
     if (candidates.length === 1) {

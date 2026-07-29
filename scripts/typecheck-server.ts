@@ -3,14 +3,13 @@
  * Server typecheck RATCHET.
  *
  * The server runs on Bun with no build-time tsc step, so type errors piled up
- * unchecked (AUDIT-2026-06-19.md priority #3). Fixing all of them at once is
- * risky on hot paths, so instead we grandfather the current count and forbid it
- * from rising: CI fails if a change introduces a NEW server type error.
+ * unchecked (AUDIT-2026-06-19.md priority #3). Fixing all of them at once was
+ * judged risky on hot paths, so the count was grandfathered and forbidden from
+ * rising: CI fails if a change introduces a NEW server type error.
  *
- * The backlog has now been fully burned down: BASELINE is 0, so this is a HARD
- * gate — any new server type error fails CI. Keep it at 0. A future step can
- * tighten tsconfig.server.json further (e.g. flip full `strict` on, which would
- * surface the remaining implicit-any spots).
+ * The backlog is gone and the config is now FULL `strict`, with the *.test.ts
+ * files included (they had been excluded, leaving ~21k lines outside every
+ * gate). BASELINE is 0 and this is a hard gate. Keep it there.
  */
 import { spawnSync } from "node:child_process";
 
