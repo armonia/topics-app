@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { liveBrowserViews } from '../lib/shell/nativeBrowserRoster';
 
 /**
  * "C'è qualcuno che sta guardando questa finestra?"
@@ -25,7 +26,24 @@ export function isWindowAwake(): boolean {
   if (document.hidden) return false;
   // Fail OPEN se l'API non c'è (embedder vecchi, doppioni nei test): un poll che
   // smette di girare in silenzio è peggio di uno che gira di troppo.
-  return typeof document.hasFocus === 'function' ? document.hasFocus() : true;
+  if (typeof document.hasFocus !== 'function') return true;
+  if (document.hasFocus()) return true;
+  // `hasFocus()` FALSO non vuol dire "nessuno guarda" quando esistono WKWebView
+  // FIGLIE: un click dentro una pane browser nativa rende key la figlia, e il
+  // documento ospite legge false ESATTAMENTE mentre l'utente sta usando l'app.
+  // Il caso è già documentato in `hooks/useTauriBrowser.ts` (~riga 93), dove per
+  // questo i poll restano gated su `visibilityState` e non sul fuoco.
+  //
+  // È anche la spiegazione del "terminale che lagga": la cadenza di scrittura di
+  // xterm scende a 4 Hz quando l'app risulta in secondo piano, e con sei
+  // progetti che ospitano pane browser bastava un click nella pagina per
+  // buttarci dentro TUTTI i terminali visibili.
+  //
+  // Quindi: se questa pagina possiede webview figlie vive, il fuoco del
+  // documento non è un segnale, e si fallisce aperto — coerente con la riga
+  // sopra. Senza figlie (web, o desktop senza pane browser) resta il gate
+  // stretto di prima, che è quello che spegne i cicli con l'app in background.
+  return liveBrowserViews().size > 0;
 }
 
 let awake = isWindowAwake();
