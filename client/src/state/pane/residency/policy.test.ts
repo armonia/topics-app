@@ -17,7 +17,7 @@ function input(over: Partial<ResidencyInput> = {}): ResidencyInput {
     held: new Set(),
     lastTouchedAt: new Map(),
     now: NOW,
-    budget: { heavy: 2, light: 3 },
+    budget: { native: Infinity, heavy: 2, light: 3 },
     minDwellMs: 1000,
     ...over,
   };
@@ -41,12 +41,33 @@ function touched(ages: Record<string, number>): Map<string, number> {
 }
 
 describe('residencyClassOf', () => {
-  test('solo browser e project sono cari', () => {
-    expect(residencyClassOf('browser')).toBe('heavy');
+  test('browser è NATIVE, project è heavy, il resto leggero', () => {
+    // La distinzione non è "quanto pesa" ma "smontarla restituisce qualcosa?".
+    // Una pane browser possiede una WKWebView, e wry non la dealloca mai
+    // (vedi la nota su `native` in policy.ts): sfrattarla e' in perdita secca.
+    expect(residencyClassOf('browser')).toBe('native');
+    // `project` e' cara ma di solo DOM: smontarla libera davvero.
     expect(residencyClassOf('project')).toBe('heavy');
     for (const t of ['chat', 'terminal', 'files', 'git', 'kanban', 'agents', 'session-viewer']) {
       expect(residencyClassOf(t)).toBe('light');
     }
+  });
+
+  test('una pane browser non viene MAI sfrattata, per quante se ne aprano', () => {
+    // Il caso che ha fatto crescere l'app a 4,1 GB in un'ora e mezza: sfratto,
+    // rientro, e un processo WebContent in piu' che non morira'.
+    const keys = Array.from({ length: 30 }, (_, i) => `browser-${i}`);
+    const d = computeResident(
+      input({
+        candidates: keys.map((key) => ({ key, cls: 'native' as const })),
+        visible: new Set([keys[0]!]),
+        budget: RESIDENCY_BUDGET,
+        minDwellMs: MIN_DWELL_MS,
+        lastTouchedAt: touched(Object.fromEntries(keys.map((k, i) => [k, 600_000 + i * 1000]))),
+      }),
+    );
+    expect(d.evicted.size).toBe(0);
+    expect(d.resident.size).toBe(30);
   });
 
   test('un tipo sconosciuto ricade su leggero invece di rompersi', () => {
@@ -137,7 +158,7 @@ describe('computeResident — budget e ordine', () => {
     const d = computeResident(
       input({
         candidates: heavy('vecchissima', 'media', 'recente'),
-        budget: { heavy: 1, light: 3 },
+        budget: { native: Infinity, heavy: 1, light: 3 },
         lastTouchedAt: touched({ vecchissima: 90_000, media: 50_000, recente: 5000 }),
       }),
     );
@@ -152,7 +173,7 @@ describe('computeResident — budget e ordine', () => {
     const d = computeResident(
       input({
         candidates: heavy('mai-vista-1', 'mai-vista-2', 'antica'),
-        budget: { heavy: 10, light: 10 }, // posto in abbondanza
+        budget: { native: Infinity, heavy: 10, light: 10 }, // posto in abbondanza
         lastTouchedAt: touched({ antica: 10_000_000 }),
       }),
     );
@@ -171,10 +192,10 @@ describe('computeResident — budget e ordine', () => {
   test("a parità di recency l'esito è deterministico, non dipende dall'ordine di input", () => {
     const same = touched({ a: 9000, b: 9000, c: 9000 });
     const one = computeResident(
-      input({ candidates: heavy('a', 'b', 'c'), budget: { heavy: 1, light: 0 }, lastTouchedAt: same }),
+      input({ candidates: heavy('a', 'b', 'c'), budget: { native: Infinity, heavy: 1, light: 0 }, lastTouchedAt: same }),
     );
     const other = computeResident(
-      input({ candidates: heavy('c', 'b', 'a'), budget: { heavy: 1, light: 0 }, lastTouchedAt: same }),
+      input({ candidates: heavy('c', 'b', 'a'), budget: { native: Infinity, heavy: 1, light: 0 }, lastTouchedAt: same }),
     );
     expect(sorted(one.resident)).toEqual(sorted(other.resident));
   });
@@ -184,7 +205,7 @@ describe('computeResident — budget e ordine', () => {
       input({
         candidates: heavy('visibile', 'a', 'b'),
         visible: new Set(['visibile']),
-        budget: { heavy: 0, light: 0 },
+        budget: { native: Infinity, heavy: 0, light: 0 },
         lastTouchedAt: touched({ a: 60_000, b: 70_000 }),
       }),
     );
@@ -198,7 +219,7 @@ describe('computeResident — budget e ordine', () => {
     const d = computeResident(
       input({
         candidates: heavy(...keys),
-        budget: { heavy: Infinity, light: Infinity },
+        budget: { native: Infinity, heavy: Infinity, light: Infinity },
         lastTouchedAt: touched(Object.fromEntries(keys.map((k, i) => [k, 100_000 + i]))),
       }),
     );
@@ -214,7 +235,7 @@ describe('computeResident — unione di superfici', () => {
     const d = computeResident(
       input({
         candidates: [...heavy('condivisa', 'a'), ...heavy('condivisa', 'b')],
-        budget: { heavy: 2, light: 0 },
+        budget: { native: Infinity, heavy: 2, light: 0 },
         lastTouchedAt: touched({ condivisa: 1000, a: 2000, b: 3000 }),
       }),
     );
@@ -226,7 +247,7 @@ describe('computeResident — unione di superfici', () => {
     const d = computeResident(
       input({
         candidates: [{ key: 'x', cls: 'light' }, { key: 'x', cls: 'heavy' }],
-        budget: { heavy: 0, light: 5 },
+        budget: { native: Infinity, heavy: 0, light: 5 },
         lastTouchedAt: touched({ x: 60_000 }),
       }),
     );
