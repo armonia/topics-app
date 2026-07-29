@@ -5,6 +5,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
 import { resolveStateDir } from "../lib/data-dir";
 import { getTerminalSessionById } from "./terminal";
+import { getSessionCliPid } from "../providers/session-pids";
 
 interface ScriptProcess {
   processId: string;
@@ -29,8 +30,25 @@ interface ScriptProcess {
   logQueue?: Promise<void>;
   /** 'script' = launched by Topics (run_script / UI), output captured. 'detected'
    *  = a listening server found under a Claude PTY that Topics did NOT spawn, so
-   *  we have its pid/ports but not its stdout. Defaults to 'script'. */
-  source?: "script" | "detected";
+   *  we have its pid/ports but not its stdout. 'shell' = una shell che l'agente
+   *  ha lasciato in background con `Bash(run_in_background)`: il suo output
+   *  arriva dai `BashOutput` dello stream, il pid dall'albero del CLI (3.5).
+   *  Defaults to 'script'. */
+  source?: "script" | "detected" | "shell";
+  /** Solo per `source: 'shell'`. */
+  shell?: {
+    /** L'id che il CLI usa nei suoi `BashOutput`/`KillShell`. */
+    shellId: string;
+    /** La sessione che l'ha avviata: chiude il cerchio con `session-pids`. */
+    sessionKey: string;
+    topicId: string | null;
+    /** Pid del CLI padre — l'albero dentro cui cercare il processo vero. */
+    ownerPid: number | null;
+    /** Quante volte abbiamo provato a risolvere il pid senza riuscirci. Serve
+     *  a smettere di frugare nella tabella dei processi per una shell che è
+     *  morta prima ancora di essere vista. */
+    resolveAttempts: number;
+  };
 }
 
 // Serializable subset for persistence
@@ -73,7 +91,10 @@ function saveState() {
   const data = {
     // Detected processes are ephemeral (re-discovered every detector cycle) and
     // were not spawned by us, so never persist them — only Topics-launched scripts.
-    running: Array.from(runningScripts.values()).filter(sp => sp.source !== "detected").map(sp => ({
+    // Le shell in background stanno nella stessa categoria, e in più: un pid
+    // scritto su disco e riletto dopo un riavvio può essere stato riciclato dal
+    // sistema, e ci si appenderebbe un bottone «Stop».
+    running: Array.from(runningScripts.values()).filter(sp => !sp.source || sp.source === "script").map(sp => ({
       processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
       projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
       startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
@@ -554,6 +575,238 @@ export function unregisterPreviewProcess(taskId: string): void {
   }
 }
 
+// ── Shell in background lasciate dall'agente (3.5) ────────────────────────────
+// `Bash(run_in_background: true)` non è un tool che finisce: è un processo che
+// resta. Finora l'unica traccia era la card nel transcript — un ricordo, non uno
+// stato: scorreva via, non si contava, e non c'era un posto dove ammazzarla.
+// Qui entra nello STESSO registro dei processi, così eredita il pannello che
+// esiste già: conteggio nell'intestazione, log, bottone Stop.
+//
+// L'output arriva dai `BashOutput` che l'agente stesso fa (non lo catturiamo
+// noi: il figlio è del CLI). Il pid si cerca nell'albero del CLI della
+// sessione; finché non si trova, la voce c'è lo stesso — sapere che una shell
+// è viva vale anche senza poterla fermare, e il contrario (un bottone che non
+// fa niente) sarebbe peggio del bottone assente.
+
+function shellProcessKey(sessionKey: string, shellId: string): string {
+  const s = sessionKey.replace(/[^A-Za-z0-9_.:-]/g, "-");
+  const id = shellId.replace(/[^A-Za-z0-9_.-]/g, "-");
+  return `shell:${s}:${id}`;
+}
+
+/** Etichetta corta per la riga del pannello: il comando, senza il romanzo. */
+function shellLabel(command: string): string {
+  const oneLine = command.replace(/\s+/g, " ").trim();
+  return oneLine.length > 48 ? `${oneLine.slice(0, 47)}…` : oneLine || "shell";
+}
+
+export function registerBackgroundShell(entry: {
+  sessionKey: string;
+  topicId: string | null;
+  shellId: string;
+  command: string;
+  cwd: string;
+  ownerPid: number | null;
+}): void {
+  const processId = shellProcessKey(entry.sessionKey, entry.shellId);
+  // Ri-registrare la stessa shell non deve azzerarne l'output: l'agente può
+  // rilanciare lo stesso id dopo un reattach.
+  const existing = runningScripts.get(processId);
+  if (existing) {
+    if (existing.shell) existing.shell.ownerPid = entry.ownerPid ?? existing.shell.ownerPid;
+    return;
+  }
+  runningScripts.set(processId, {
+    processId,
+    scriptName: shellLabel(entry.command),
+    command: entry.command,
+    projectPath: entry.cwd,
+    status: "running",
+    pid: null,
+    startedAt: new Date().toISOString(),
+    output: [`[shell in background dell'agente — id ${entry.shellId}]`],
+    outputBytes: 0,
+    proc: null,
+    source: "shell",
+    shell: {
+      shellId: entry.shellId,
+      sessionKey: entry.sessionKey,
+      topicId: entry.topicId,
+      ownerPid: entry.ownerPid,
+      resolveAttempts: 0,
+    },
+  });
+  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+}
+
+/** Un `BashOutput` dell'agente: output nuovo e, se c'è, stato aggiornato. */
+export function noteBackgroundShellOutput(
+  sessionKey: string,
+  shellId: string,
+  patch: { output?: string; status?: "running" | "completed" | "failed" | "killed"; exitCode?: number },
+): void {
+  const sp = runningScripts.get(shellProcessKey(sessionKey, shellId));
+  if (!sp || sp.source !== "shell") return;
+  if (patch.output) appendOutput(sp, patch.output);
+  if (patch.status && patch.status !== "running") {
+    finishBackgroundShell(sp, patch.status, patch.exitCode);
+    return;
+  }
+  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+}
+
+/** L'agente ha chiamato `KillShell`, o il processo è sparito dalla macchina. */
+export function closeBackgroundShell(
+  sessionKey: string,
+  shellId: string,
+  status: "completed" | "failed" | "killed",
+  exitCode?: number,
+): void {
+  const sp = runningScripts.get(shellProcessKey(sessionKey, shellId));
+  if (!sp || sp.source !== "shell") return;
+  finishBackgroundShell(sp, status, exitCode);
+}
+
+/** Vista sola-lettura sulle shell note, vive e appena concluse. */
+export function listBackgroundShells(): Array<{
+  shellId: string;
+  sessionKey: string;
+  topicId: string | null;
+  command: string;
+  status: ScriptProcess["status"];
+  pid: number | null;
+  exitCode?: number;
+  output: string[];
+}> {
+  const out: ReturnType<typeof listBackgroundShells> = [];
+  for (const sp of [...runningScripts.values(), ...recentScripts]) {
+    if (sp.source !== "shell" || !sp.shell) continue;
+    out.push({
+      shellId: sp.shell.shellId,
+      sessionKey: sp.shell.sessionKey,
+      topicId: sp.shell.topicId,
+      command: sp.command,
+      status: sp.status,
+      pid: sp.pid,
+      ...(sp.exitCode != null ? { exitCode: sp.exitCode } : {}),
+      output: [...sp.output],
+    });
+  }
+  return out;
+}
+
+/** Sposta la shell fra i «recenti» con l'esito giusto. Non persiste nulla: le
+ *  shell non sopravvivono al processo che le ha generate. */
+function finishBackgroundShell(
+  sp: ScriptProcess,
+  status: "completed" | "failed" | "killed",
+  exitCode?: number,
+): void {
+  if (sp.status !== "running") return;
+  sp.status = status === "completed" ? "done" : "error";
+  sp.completedAt = new Date().toISOString();
+  if (exitCode != null) sp.exitCode = exitCode;
+  else if (status === "killed") sp.exitCode = sp.exitCode ?? -1;
+  appendOutput(sp, `\n[shell ${status === "killed" ? "terminata" : status === "failed" ? "fallita" : "conclusa"}]`);
+  runningScripts.delete(sp.processId);
+  addToRecent(sp);
+  invalidateScriptsCache();
+  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+}
+
+/**
+ * Trova il processo vero di ogni shell ancora senza pid, e chiude quelle il cui
+ * processo non c'è più. Gira nel ciclo del detector, che ha già la tabella dei
+ * processi in cache.
+ *
+ * Il vincolo che rende sicuro il match: il candidato deve essere DISCENDENTE del
+ * CLI di quella sessione e la sua riga di comando deve contenere il comando
+ * della shell. Solo l'una o solo l'altra condizione non basterebbero — due
+ * topic che lanciano `bun run dev` sono indistinguibili senza l'albero, e
+ * l'albero da solo contiene anche il CLI e i suoi MCP.
+ */
+async function reconcileBackgroundShells(): Promise<boolean> {
+  const shells = [...runningScripts.values()].filter(sp => sp.source === "shell" && sp.status === "running");
+  if (!shells.length) return false;
+
+  let changed = false;
+  const claimed = new Set<number>();
+  for (const sp of runningScripts.values()) if (sp.pid) claimed.add(sp.pid);
+
+  for (const sp of shells) {
+    const meta = sp.shell!;
+    // Pid noto: l'unica domanda è se è ancora vivo.
+    if (sp.pid) {
+      if (!isPidAlive(sp.pid)) { finishBackgroundShell(sp, "completed"); changed = true; }
+      continue;
+    }
+    // L'ancora si rilegge ogni giro invece di fidarsi di quella salvata: lo
+    // spawn del CLI è asincrono (il pid può arrivare dopo la registrazione) e
+    // alla chiusura della sessione sparisce dal registro. Il pid salvato, da
+    // solo, sarebbe un numero che il sistema può aver già riciclato.
+    const owner = getSessionCliPid(meta.sessionKey);
+    if (owner) meta.ownerPid = owner;
+    // Senza CLI padre vivo non c'è albero in cui cercare, né nessuno che ci
+    // dica come è finita: la shell è morta con lui. Chiuderla è la lettura
+    // onesta — una riga «running» eterna è una bugia che il pannello non
+    // potrebbe più correggere.
+    if (!owner || !isPidAlive(owner)) {
+      finishBackgroundShell(sp, "completed");
+      changed = true;
+      continue;
+    }
+    if (meta.resolveAttempts >= SHELL_RESOLVE_MAX_ATTEMPTS) continue;
+    meta.resolveAttempts++;
+    const pid = await resolveShellPid(owner, sp.command, claimed);
+    if (pid) { sp.pid = pid; claimed.add(pid); changed = true; }
+  }
+  return changed;
+}
+
+// Dopo N cicli (≈1 minuto) smettiamo di frugare: se il processo non si è fatto
+// trovare, o è finito subito o non è ispezionabile. La voce resta viva finché
+// il CLI padre è vivo — quello che sappiamo davvero.
+const SHELL_RESOLVE_MAX_ATTEMPTS = 15;
+
+/** Il comando come lo cerchiamo in `ps`: una riga, senza spazi ripetuti. */
+function normalizeCommandLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+async function resolveShellPid(
+  ownerPid: number,
+  command: string,
+  claimed: Set<number>,
+): Promise<number | null> {
+  const needle = normalizeCommandLine(command);
+  if (needle.length < 3) return null;
+  const tree = await getDescendantPids(ownerPid);
+  tree.delete(ownerPid); // il CLI stesso non è mai la shell
+  const candidates = [...tree].filter(p => !claimed.has(p));
+  if (!candidates.length) return null;
+  const argv = await getCommandsForPids(candidates);
+  for (const [pid, cmd] of argv) {
+    if (normalizeCommandLine(cmd).includes(needle)) return pid;
+  }
+  return null;
+}
+
+/** argv di più pid in una sola `ps`. */
+async function getCommandsForPids(pids: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  if (!pids.length) return out;
+  try {
+    const proc = Bun.spawn(["ps", "-o", "pid=,command=", "-p", pids.join(",")], { stdout: "pipe", stderr: "ignore" });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    for (const line of text.split("\n")) {
+      const m = line.trim().match(/^(\d+)\s+(.+)$/);
+      if (m) out.set(+m[1], m[2]);
+    }
+  } catch { /* ps transitoria: si riprova al ciclo dopo */ }
+  return out;
+}
+
 // ── Auto-detection of servers started inside Claude PTY sessions ──────────────
 // Claude often starts a dev server with a bare shell command (`bun run dev`)
 // instead of the run_script MCP tool. That process is a descendant of the
@@ -644,6 +897,12 @@ function isWithin(child: string, parent: string): boolean {
 }
 
 async function runDetectionCycle(ctx: AppContext): Promise<void> {
+  // Le shell in background si riconciliano SEMPRE, anche quando non c'è
+  // nessuna sessione Claude idonea al detector delle porte: una shell non deve
+  // per forza ascoltare su una porta per essere viva (è l'intero motivo per cui
+  // il pannello finora non la vedeva).
+  if (await reconcileBackgroundShells()) broadcastScriptsUpdate(ctx);
+
   if (!_detectionSource) return;
   // Active Claude sessions in REAL project dirs (skip the infra/config tree).
   const sessions = _detectionSource().filter(s => s.ptyPid > 0 && !isInfraCwd(s.cwd));
@@ -890,6 +1149,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
       startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
       source: sp.source ?? "script",
+      ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
       ports: sp.pid ? (portsByPid.get(sp.pid) ?? []) : [],
     }));
     const recentList = recentScripts.filter(match).map(sp => ({
@@ -897,6 +1157,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
       startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
       source: sp.source ?? "script",
+      ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
       ports: [] as number[],
     }));
     return { scripts: [...runningList, ...recentList] };
@@ -910,15 +1171,26 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     exitCode: sp.exitCode,
   });
 
-  /** Terminate a running script (process-group kill + delayed SIGKILL) and clean up. */
-  function killRunningScript(sp: ScriptProcess): void {
-    if (sp.source === "detected") {
+  /**
+   * Terminate a running script (process-group kill + delayed SIGKILL) and clean up.
+   * Torna `false` quando non c'è niente da ammazzare: una shell il cui processo
+   * non è ancora stato individuato nell'albero del CLI. Togliere la riga in quel
+   * caso sarebbe la bugia peggiore — il processo resterebbe vivo, ma invisibile.
+   */
+  function killRunningScript(sp: ScriptProcess): boolean {
+    if (sp.source === "detected" || sp.source === "shell") {
       // We didn't spawn it (no `proc`, no exit handler). Kill the pid + its
       // descendant tree directly — NOT a process-group kill, to avoid any chance
       // of signalling the Claude PTY's group. Remove it immediately so Stop feels
       // instant; the detector confirms on its next cycle.
       const dpid = sp.pid;
-      runningScripts.delete(sp.processId);
+      if (sp.source === "shell") {
+        if (!dpid) return false;
+        // Una shell finisce fra i «recenti» con l'esito giusto invece di sparire:
+        // il pannello è anche il posto dove si legge cosa aveva stampato.
+        finishBackgroundShell(sp, "killed");
+      }
+      else runningScripts.delete(sp.processId);
       if (dpid && isPidAlive(dpid)) {
         getDescendantPids(dpid).then(async tree => {
           const pids = [...tree];
@@ -938,7 +1210,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         }).catch(() => { try { process.kill(dpid, "SIGTERM"); } catch {} });
       }
       broadcastScriptsUpdate(ctx);
-      return;
+      return true;
     }
     const pid = sp.pid;
     if (!pid || !isPidAlive(pid)) {
@@ -950,7 +1222,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       addToRecent(sp);
       saveState();
       broadcastScriptsUpdate(ctx);
-      return;
+      return true;
     }
     try {
       process.kill(-pid, "SIGTERM");
@@ -965,6 +1237,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       if (sp.status !== "running") return;
       try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch {}
     }, 5000);
+    return true;
   }
 
   return async function processesRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -1054,7 +1327,11 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     if (stopMatch) {
       const sp = runningScripts.get(stopMatch[1]);
       if (!sp) return json({ error: "Process not found or already stopped" }, 404);
-      killRunningScript(sp);
+      if (!killRunningScript(sp)) {
+        // Shell dell'agente di cui non abbiamo ancora trovato il processo: il
+        // «no» esplicito è meglio di un ok che non ferma niente.
+        return json({ error: "shell_pid_unknown", message: "Processo non ancora individuato: fermala dalla chat con KillShell." }, 409);
+      }
       return json({ ok: true });
     }
 
@@ -1098,7 +1375,9 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         if (!sp || sp.projectPath !== r.path) {
           return json({ error: "Process not found in this project or already stopped" }, 404);
         }
-        killRunningScript(sp);
+        if (!killRunningScript(sp)) {
+          return json({ error: "shell_pid_unknown", message: "Processo non ancora individuato: usa KillShell sull'id della shell." }, 409);
+        }
         return json({ ok: true });
       }
     }

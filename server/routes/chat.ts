@@ -20,6 +20,13 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
+import { classifyShellToolResult } from "../providers/claude/background-shell";
+import { getSessionCliPid } from "../providers/session-pids";
+import {
+  closeBackgroundShell,
+  noteBackgroundShellOutput,
+  registerBackgroundShell,
+} from "./processes";
 import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
 import { getActiveGoal, replaceSteps } from "../services/goals";
 import { recordSessionContext } from "../db/session-context";
@@ -844,6 +851,52 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             armSoftTimer();
           };
 
+          /**
+           * Tiene vive nel pannello Processi le shell che l'agente lascia in
+           * background (3.5). Il transcript le mostra una volta e le dimentica;
+           * qui diventano stato: si contano, si leggono, si fermano.
+           *
+           * Non butta mai il turno: un registro che non si aggiorna è una riga
+           * mancante nel pannello, non un motivo per far fallire una chat.
+           */
+          const trackBackgroundShell = (
+            detail: import("../types").ToolCallDetail | undefined,
+            result: string,
+            isError: boolean,
+          ) => {
+            try {
+              const action = classifyShellToolResult(detail, result, isError);
+              if (!action) return;
+              if (action.kind === "start") {
+                // La cwd della topic viene PRIMA di quella del tool: il pannello
+                // raggruppa per progetto, e una shell lanciata in `client/`
+                // appartiene comunque al progetto che l'utente sta guardando —
+                // con la cwd del tool finirebbe in un gruppo che non esiste.
+                const cwd = (matchedTopic ? ctx.resolveTopicCwd(matchedTopic) : null)
+                  || action.cwd
+                  || process.cwd();
+                registerBackgroundShell({
+                  sessionKey,
+                  topicId: matchedTopic?.id ?? null,
+                  shellId: action.shellId,
+                  command: action.command,
+                  cwd,
+                  ownerPid: getSessionCliPid(sessionKey),
+                });
+              } else if (action.kind === "output") {
+                noteBackgroundShellOutput(sessionKey, action.shellId, {
+                  ...(action.output ? { output: action.output } : {}),
+                  ...(action.status ? { status: action.status } : {}),
+                  ...(action.exitCode != null ? { exitCode: action.exitCode } : {}),
+                });
+              } else {
+                closeBackgroundShell(sessionKey, action.shellId, "killed");
+              }
+            } catch (err) {
+              console.warn("[shell] registro non aggiornato:", err);
+            }
+          };
+
           // Hard timer is armed once at stream start and is the only timer
           // never reset by events. Soft timer arms lazily on first event /
           // when no tools are running.
@@ -1384,6 +1437,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 broadcastToAll({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail, endedAt });
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
               }
+              // Le shell in background non finiscono col tool: restano.
+              // Registrarle qui è l'unico punto in cui passano — dopo, esistono
+              // solo nel transcript. Vedi `providers/claude/background-shell.ts`.
+              trackBackgroundShell(detail, result, isError === true);
+
               // Remove from tracked list (it's already finalized)
               const idx = trackedToolCallIds.indexOf(toolCallId);
               if (idx >= 0) trackedToolCallIds.splice(idx, 1);

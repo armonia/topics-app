@@ -30,6 +30,7 @@ import { detectUserInputRequest } from "./ask-user-detector";
 import { cancelled, classifyResultEvent } from "./stop-reason";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import { warnThrottled } from "../lib/warn-throttled";
+import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 
 // ============ Config ============
 
@@ -1515,12 +1516,16 @@ export class ClaudeCodeProvider implements AIProvider {
       // waits for the child to exist. spawn and write share the socket FIFO,
       // but spawn's send sits behind an ensureConnected microtask.
       pp.ready = client.spawn(sessionKey, { cliPath: resolveCliPath(), args, cwd: workspace, env })
-        .then(() => { /* child up (or resumed) */ })
+        // Il pid del figlio è l'ancora delle shell in background: senza, una
+        // `bun run dev` lasciata da questa sessione è indistinguibile da una
+        // uguale avviata altrove. Vedi `providers/session-pids.ts`.
+        .then(({ pid }) => { setSessionCliPid(sessionKey, pid); })
         .catch((err) => this.onSessionErrored(pp, err instanceof Error ? err : new Error(String(err))));
     } else {
       const proc = spawn(resolveCliPath(), args, { cwd: workspace, stdio: ["pipe", "pipe", "pipe"], env });
       const rl = createInterface({ input: proc.stdout! });
       rl.on("line", onLine);
+      setSessionCliPid(sessionKey, proc.pid);
       pp.proc = proc;
       pp.readline = rl;
       pp.io = directIO(proc);
@@ -1770,6 +1775,10 @@ export class ClaudeCodeProvider implements AIProvider {
   // pending turn and surfaces the error to a live stream, then drops timers.
   private onSessionClosed(pp: PersistentProcess, code: number | null): void {
     pp.alive = false;
+    // Il CLI è morto: il suo pid non è più un'ancora valida (il sistema può
+    // riciclare il numero). Le shell che gli pendevano sotto le riconcilia
+    // `routes/processes.ts` guardando se il processo è ancora vivo.
+    clearSessionCliPid(pp.sessionKey);
     // A user-requested stop (aborting) or a clean exit (code 0) is NOT a crash:
     // the CLI exits code 0 on SIGINT, and a persistent session can also exit 0
     // between/after turns. Only a non-zero exit with a turn still open is a real
