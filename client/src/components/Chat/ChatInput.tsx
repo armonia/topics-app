@@ -925,12 +925,20 @@ export function ChatInput({
         >
           <div className="flex-1 min-w-0">
             <div className={`text-[11px] font-medium ${contextNotice.level === 'critical' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'}`}>
-              {contextNotice.level === 'critical'
-                ? `Context almost full — ${contextNotice.percent}%`
-                : `Context filling up — ${contextNotice.percent}%`}
+              {/* Due motivi, due frasi. Dire "quasi pieno — 47%" perché è scattata
+                  la soglia assoluta è un avviso che non si può capire: su una
+                  finestra da 1M il problema non è la capienza, è che ogni chiamata
+                  rilegge per intero un prompt già enorme. */}
+              {contextNotice.reason === 'cost'
+                ? `Every call re-reads ${formatTokens(contextNotice.used)}`
+                : contextNotice.level === 'critical'
+                  ? `Context almost full — ${contextNotice.percent}%`
+                  : `Context filling up — ${contextNotice.percent}%`}
             </div>
             <div className={`text-[11px] truncate ${contextNotice.level === 'critical' ? 'text-red-600 dark:text-red-500' : 'text-amber-600 dark:text-amber-500'}`}>
-              {formatTokens(contextNotice.used)} / {contextNotice.estimated ? '≈' : ''}{formatTokens(contextNotice.size)} — compacting soon drops detail. Compact now, or start a fresh chat.
+              {contextNotice.reason === 'cost'
+                ? `${formatTokens(contextNotice.used)} / ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)} — room to spare, but every tool call pays for all of it. Compact now, or start a fresh chat.`
+                : `${formatTokens(contextNotice.used)} / ${contextNotice.estimated ? '≈' : ''}${formatTokens(contextNotice.size)} — compacting soon drops detail. Compact now, or start a fresh chat.`}
             </div>
           </div>
           <button

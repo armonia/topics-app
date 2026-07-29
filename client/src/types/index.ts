@@ -443,6 +443,8 @@ export interface ContextUsage {
   /** 0–100, satura a 100. */
   percent: number;
   level: 'ok' | 'warn' | 'critical';
+  /** Perché il livello non è `ok`. Vedi `ContextUpdatePayload.reason`. */
+  reason?: 'window' | 'cost';
   /** true = finestra dedotta dal default perché il modello non è in tabella. */
   estimated: boolean;
   model?: string;
@@ -461,6 +463,10 @@ export interface ContextUpdatePayload {
   usage: AcpUsageUpdate;
   percent: number;
   level: 'ok' | 'warn' | 'critical';
+  /** Perché il livello non è `ok`: `window` = la finestra sta finendo,
+   *  `cost` = la finestra è ampia ma ogni chiamata rilegge già un prompt grosso.
+   *  Due motivi diversi meritano due messaggi diversi. */
+  reason?: 'window' | 'cost';
   estimated: boolean;
   model?: string;
 }

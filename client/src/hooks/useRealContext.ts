@@ -13,6 +13,7 @@ function flatten(p: ContextUpdatePayload): ContextUsage {
     size: p.usage.size,
     percent: p.percent,
     level: p.level,
+    ...(p.reason ? { reason: p.reason } : {}),
     estimated: p.estimated,
     ...(p.model ? { model: p.model } : {}),
   };

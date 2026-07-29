@@ -66,7 +66,7 @@ describe("contextLevel", () => {
 describe("classifyContext", () => {
   it("calcola percentuale e livello dalla misura reale", () => {
     expect(classifyContext(150_000, { tokens: 200_000, known: true })).toEqual({
-      used: 150_000, size: 200_000, percent: 75, level: "warn", estimated: false,
+      used: 150_000, size: 200_000, percent: 75, level: "warn", reason: "window", estimated: false,
     });
   });
 
@@ -150,5 +150,51 @@ describe("windowForMeasure — il denominatore si ricalcola, il numeratore no", 
   it("senza modello corrente usa quello che ha risposto", () => {
     expect(windowForMeasure(measure({ model: "claude-haiku-4-5" }), null))
       .toEqual({ tokens: 200_000, known: true });
+  });
+});
+
+describe("soglie assolute — il prezzo per chiamata, non solo la capienza", () => {
+  // Su una finestra da 1M il 70% è 700k: una sessione che gira a 380k non riceve
+  // un fiato, mentre ogni chiamata rilegge quei 380k (~14 chiamate per turno
+  // misurate = oltre cinque milioni di token per turno).
+  const win1m = { tokens: 1_000_000, known: true };
+
+  it("avvisa a 200k anche se percentualmente è il 20% di un milione", () => {
+    const u = classifyContext(200_000, win1m);
+    expect(u.percent).toBe(20);
+    expect(u.level).toBe("warn");
+    expect(u.reason).toBe("cost");
+  });
+
+  it("critico a 400k, sempre al 40%", () => {
+    const u = classifyContext(400_000, win1m);
+    expect(u.percent).toBe(40);
+    expect(u.level).toBe("critical");
+    expect(u.reason).toBe("cost");
+  });
+
+  it("sotto entrambe le soglie resta ok e senza motivo da spiegare", () => {
+    const u = classifyContext(150_000, win1m);
+    expect(u.level).toBe("ok");
+    expect(u.reason).toBeUndefined();
+  });
+
+  it("la capienza vince come spiegazione quando scattano entrambe", () => {
+    // 190k su 200k: 95% E sopra i 200k assoluti? no — 190k < 200k, quindi solo %.
+    const stretta = classifyContext(190_000, { tokens: 200_000, known: true });
+    expect(stretta.level).toBe("critical");
+    expect(stretta.reason).toBe("window");
+    // 950k su 1M: entrambe passate, la finestra è la spiegazione più urgente.
+    const entrambe = classifyContext(950_000, win1m);
+    expect(entrambe.reason).toBe("window");
+  });
+
+  it("il ring resta blu dove il preavviso scatta per costo (colore = percentuale)", () => {
+    // Separazione voluta: ContextRing colora su `percent`, il notice legge `level`.
+    // Un anello rosso al 40% sarebbe la stessa confusione che il fix delle finestre
+    // ha appena eliminato.
+    const u = classifyContext(400_000, win1m);
+    expect(u.percent).toBeLessThan(70);
+    expect(u.level).toBe("critical");
   });
 });
