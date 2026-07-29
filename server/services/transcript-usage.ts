@@ -23,6 +23,20 @@ export interface SessionUsage {
   inputTokens: number;
   outputTokens: number;
   cacheWriteTokens: number;
+  /**
+   * La quota di `cacheWriteTokens` scritta con TTL a UN'ORA, che costa 2× un token
+   * fresco invece di 1.25×.
+   *
+   * Il TTL sta scritto nell'usage (`cache_creation.ephemeral_1h_input_tokens`) e
+   * non va inferito dal tempo fra le richieste. Tariffare tutto a 1.25× — quello
+   * che si faceva prima, perché si credeva che la CLI aggregasse le due durate —
+   * sottostimava il conto: su una sessione reale il 100% delle scritture era a
+   * un'ora, e il costo passava da $149,69 a $175,75.
+   *
+   * Sottoinsieme di `cacheWriteTokens`, non un addendo: la quota a cinque minuti
+   * è la differenza fra i due.
+   */
+  cacheWrite1hTokens: number;
   cacheReadTokens: number;
   /** input + output + cacheWrite, deduplicated — the board-facing counter. */
   billableTokens: number;
@@ -32,6 +46,7 @@ export const ZERO_USAGE: SessionUsage = Object.freeze({
   inputTokens: 0,
   outputTokens: 0,
   cacheWriteTokens: 0,
+  cacheWrite1hTokens: 0,
   cacheReadTokens: 0,
   billableTokens: 0,
 });
@@ -43,7 +58,7 @@ interface PathState {
   partial: Buffer;
   /** message.id values already counted (bounded FIFO). */
   seenIds: Set<string>;
-  totals: { input: number; output: number; cacheWrite: number; cacheRead: number };
+  totals: { input: number; output: number; cacheWrite: number; cacheWrite1h: number; cacheRead: number };
 }
 
 const MAX_SEEN_IDS = 8192;
@@ -51,7 +66,7 @@ const MAX_TRACKED_PATHS = 128;
 const READ_CHUNK = 1 << 20; // 1MB
 
 function freshState(): PathState {
-  return { byteOffset: 0, partial: Buffer.alloc(0), seenIds: new Set(), totals: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 } };
+  return { byteOffset: 0, partial: Buffer.alloc(0), seenIds: new Set(), totals: { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 } };
 }
 
 export function createTranscriptUsageReader(): { read(path: string): SessionUsage } {
@@ -77,15 +92,18 @@ export function createTranscriptUsageReader(): { read(path: string): SessionUsag
     state.totals.input += u.input_tokens ?? 0;
     state.totals.output += u.output_tokens ?? 0;
     state.totals.cacheWrite += u.cache_creation_input_tokens ?? 0;
+    // Il bucket a un'ora arriva SCORPORATO dal provider: si legge, non si indovina.
+    state.totals.cacheWrite1h += u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
     state.totals.cacheRead += u.cache_read_input_tokens ?? 0;
   }
 
   function toUsage(state: PathState): SessionUsage {
-    const { input, output, cacheWrite, cacheRead } = state.totals;
+    const { input, output, cacheWrite, cacheWrite1h, cacheRead } = state.totals;
     return {
       inputTokens: input,
       outputTokens: output,
       cacheWriteTokens: cacheWrite,
+      cacheWrite1hTokens: cacheWrite1h,
       cacheReadTokens: cacheRead,
       billableTokens: input + output + cacheWrite,
     };

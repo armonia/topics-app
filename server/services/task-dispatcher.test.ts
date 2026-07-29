@@ -276,7 +276,7 @@ describe("task-dispatcher", () => {
 
   it("books wall-clock + usage delta (billable + cache reads) on the task at each turn end", async () => {
     // Fake transcript usage: zeros before the turn, real numbers after it.
-    let usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, billableTokens: 0 };
+    let usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, cacheReadTokens: 0, billableTokens: 0 };
     const h = harness({ getSessionUsage: () => usage });
     h.svc.updateBoardSettings(PID, { autoDispatch: true });
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -284,7 +284,7 @@ describe("task-dispatcher", () => {
     await flush();
 
     // The turn consumed these (billable = in+out+cacheWrite, dedup upstream).
-    usage = { inputTokens: 34, outputTokens: 200, cacheWriteTokens: 1000, cacheReadTokens: 55_000, billableTokens: 1234 };
+    usage = { inputTokens: 34, outputTokens: 200, cacheWriteTokens: 1000, cacheWrite1hTokens: 1000, cacheReadTokens: 55_000, billableTokens: 1234 };
     h.finishTurn();
     await flush();
 

@@ -43,6 +43,8 @@ export interface ContextUpdate {
   /** 0–100, satura a 100. */
   percent: number;
   level: ContextUsage["level"];
+  /** Perché il livello non è `ok`: finestra che finisce, o prompt già costoso per chiamata. */
+  reason?: ContextUsage["reason"];
   /** true = finestra dedotta dal default perché il modello non è in tabella. */
   estimated: boolean;
   /** Modello che ha servito la chiamata: è lui a dimensionare la finestra. */
@@ -110,6 +112,7 @@ export function buildContextUpdate(args: {
     },
     percent: usage.percent,
     level: usage.level,
+    ...(usage.reason ? { reason: usage.reason } : {}),
     estimated: usage.estimated,
     ...(model ? { model } : {}),
   };
@@ -134,6 +137,7 @@ export function contextUpdateFromUsage(
     },
     percent: usage.percent,
     level: usage.level,
+    ...(usage.reason ? { reason: usage.reason } : {}),
     estimated: usage.estimated,
     ...(model ? { model } : {}),
   };
