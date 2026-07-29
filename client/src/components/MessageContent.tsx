@@ -18,6 +18,7 @@ import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import type { ToolCall } from '../types';
+import { releaseAudio } from '../lib/releaseAudio';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { PlanView } from './Chat/PlanView';
@@ -277,6 +278,12 @@ function VoiceMessagePlayer({ path, isUserMessage }: { path: string; isUserMessa
       audio.removeEventListener('timeupdate', onTime);
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
+      // Togliere i listener non basta: un media element con una sorgente
+      // caricata resta agganciato al proprio renderer audio, che in WebKit e'
+      // un thread vivo nel processo WebContent. Con le chat che si smontano
+      // (tetto di residenza), ogni messaggio vocale ascoltato ne lasciava uno.
+      // Vedi lib/releaseAudio.ts per la misura che ha portato qui.
+      releaseAudio(audio);
     };
   }, []);
 
