@@ -43,8 +43,14 @@ const BASE = E2E_BASE;
  */
 const LIGHT_BUDGET = 12;
 
-/** Quante chat seminare. Deve superare `LIGHT_BUDGET + 1` per mordere. */
-const PANE_COUNT = 20;
+/**
+ * Quante chat seminare. Deve superare `LIGHT_BUDGET + 1` per mordere, e non di
+ * più: ogni tab in più è un `ChatPane` montato con la sua `loadHistory`, e la
+ * passeggiata è già la cosa più lenta di questa spec. Con venti, sotto sharding
+ * a quattro processi, i tre test sforavano i 30 s di default — passavano da soli
+ * e cadevano in compagnia, che è il modo peggiore di fallire.
+ */
+const PANE_COUNT = 16;
 
 /**
  * Attesa perché la decisione si applichi: `MIN_DWELL_MS` (4000) protegge chi è
@@ -62,6 +68,13 @@ async function shellCount(page: Page): Promise<number> {
 }
 
 test.describe("Tetto di residenza delle pane", () => {
+  // Il tetto si misura ASPETTANDO: `MIN_DWELL_MS` + `EVICT_DELAY_MS` sono ~5,5 s
+  // di orologio vero che non si possono accorciare senza misurare un'altra cosa,
+  // e prima ci sono sedici montaggi di chat. Sotto sharding i 30 s di default
+  // non bastano, e il timeout arriva PRIMA dell'asserzione: un rosso che non
+  // dice niente su ciò che il test doveva dimostrare.
+  test.describe.configure({ timeout: 120_000 });
+
   const topics: { id: string; name: string }[] = [];
 
   test.beforeAll(async ({ request }) => {
@@ -129,7 +142,7 @@ test.describe("Tetto di residenza delle pane", () => {
     // le visibili (una sola, non siamo in split) più il budget della classe.
     await expect
       .poll(() => shellCount(page), {
-        timeout: SETTLE_MS + 5000,
+        timeout: SETTLE_MS + 20000,
         message: `i gusci montati devono scendere a ${LIGHT_BUDGET + 1}`,
       })
       .toBeLessThanOrEqual(LIGHT_BUDGET + 1);
