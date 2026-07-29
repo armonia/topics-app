@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useId, useMemo, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Paperclip, Mic, MicOff, Volume2, VolumeX, Send, Square, MessageSquare, Phone, PhoneOff, MoreHorizontal, ClipboardList, Zap, Trash2, Cpu, Brain, HelpCircle, Users, Pause, Play, UserPlus, FolderOpen, Globe, Download, Gauge, Target } from 'lucide-react';
 import { decideComposerAction } from './composerAction';
@@ -18,6 +18,7 @@ import { useContextInspector } from '../../hooks/useContextInspector';
 import { useRealContext, formatTokens } from '../../hooks/useRealContext';
 import { POPOVER_PANEL, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { useDismissable } from '@/hooks/useDismissable';
+import { chatFocus } from '../../state/chatFocus';
 import { Menu } from '../Shared/Menu';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
@@ -656,6 +657,18 @@ export function ChatInput({
     }
   }, [currentMessages, currentStreaming, autoTTS, speak]);
 
+  // `chat:insert-text` / `chat:attach-image` sono BROADCAST su window: le sente
+  // ogni ChatInput montato, e le pane nascoste restano montate. Il registro
+  // dice quale composer è il destinatario (l'ultimo usato) — vedi chatFocus.
+  const composerId = useId();
+  useEffect(() => {
+    chatFocus.register(composerId);
+    return () => chatFocus.unregister(composerId);
+  }, [composerId]);
+  useEffect(() => {
+    if (isFocused) chatFocus.focus(composerId);
+  }, [isFocused, composerId]);
+
   // Phase 30 BROWSER-CHAT-04 — listen for chat:insert-text custom events
   // dispatched by SelectElementOverlay (Cmd+Shift+E pick) and other loosely
   // coupled producers. Inserts the provided text into the chat input prefixed
@@ -664,13 +677,28 @@ export function ChatInput({
     const handler = (e: Event) => {
       const ce = e as CustomEvent<{ text?: string }>;
       const incoming = ce.detail?.text;
-      if (!incoming) return;
+      if (!incoming || !chatFocus.isRecipient(composerId)) return;
       setMessage(message ? `${message}\n\n${incoming}` : incoming);
       textareaRef.current?.focus();
     };
     window.addEventListener('chat:insert-text', handler as EventListener);
     return () => window.removeEventListener('chat:insert-text', handler as EventListener);
-  }, [message, setMessage, textareaRef]);
+  }, [message, setMessage, textareaRef, composerId]);
+
+  // 4.2 — stessa strada per le IMMAGINI: il click-to-edit allega il ritaglio
+  // dell'elemento selezionato. Entra in `pendingImages`, cioè nella stessa coda
+  // di un incolla — così parte con l'invio e si toglie con la solita ×, senza
+  // un secondo percorso di allegati da tenere in vita.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ dataUrl?: string; mimeType?: string }>;
+      const dataUrl = ce.detail?.dataUrl;
+      if (!dataUrl || !chatFocus.isRecipient(composerId)) return;
+      setPendingImages(prev => [...prev, { dataUrl, mimeType: ce.detail?.mimeType || 'image/png' }]);
+    };
+    window.addEventListener('chat:attach-image', handler as EventListener);
+    return () => window.removeEventListener('chat:attach-image', handler as EventListener);
+  }, [setPendingImages, composerId]);
 
   // Built-in app commands (handled by the composer) + the user's custom
   // commands/skills (which fall through to the child, expanded by the CLI).

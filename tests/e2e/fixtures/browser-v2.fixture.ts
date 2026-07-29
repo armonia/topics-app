@@ -1,5 +1,6 @@
 import { test as base, type Page, type Route, type WebSocketRoute } from "@playwright/test";
 import { BrowserProcessPage } from "./browser.fixture";
+import type { ElementDescription } from "../../../shared/element-describe";
 
 /**
  * Phase 30 BROWSER-CHAT-02..04 fixture extension.
@@ -389,6 +390,25 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
     text?: string;
   }): Promise<void> {
     await this.page.route(/\/api\/browsers\/[^/]+\/inspect$/, async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(canned),
+        });
+      } else {
+        await route.fallback();
+      }
+    });
+  }
+
+  /**
+   * Mock POST /api/browsers/:id/describe-element — l'endpoint del CLICK (4.2),
+   * quello che torna markup + stile calcolato + ritaglio. `/inspect` resta
+   * separato: lo chiama l'hover, e i due test non devono incrociarsi.
+   */
+  async mockDescribeElement(canned: ElementDescription): Promise<void> {
+    await this.page.route(/\/api\/browsers\/[^/]+\/describe-element$/, async (route) => {
       if (route.request().method() === 'POST') {
         await route.fulfill({
           status: 200,

@@ -364,11 +364,33 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       hasScreenshot: true,
     });
     // B2 FIX: bbox uses {x, y, w, h} matching production.
+    // L'HOVER passa da /inspect…
     await browserProcessPageV2.mockInspect({
       path: "/html/body[1]/div[1]/h1[1]",
       cssPath: "h1.title",
       bbox: { x: 100, y: 50, w: 200, h: 30 },
       text: "Example Domain",
+    });
+    // …il CLICK da /describe-element (4.2): markup + stile + ritaglio.
+    await browserProcessPageV2.mockDescribeElement({
+      path: "/html/body[1]/div[1]/h1[1]",
+      cssPath: "h1.title",
+      selector: "body > div.wrap > h1.title",
+      bbox: { x: 100, y: 50, w: 200, h: 30 },
+      text: "Example Domain",
+      html: '<h1 class="title">Example Domain</h1>',
+      htmlTruncated: false,
+      ancestors: ["body", "div.wrap"],
+      styles: { display: "block", "font-size": "32px" },
+      viewport: { w: 1280, h: 720 },
+      url: "https://example.com",
+      // 1×1 PNG trasparente: al test serve che l'evento parta, non cosa mostra.
+      screenshot: {
+        dataUrl:
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+        w: 216,
+        h: 46,
+      },
     });
 
     const topic = await createTopic(request, `E2E-SelectElement-${Date.now()}`);
@@ -388,6 +410,12 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
         window.addEventListener("chat:insert-text", (e) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (window as any).__chatInsertEvents.push((e as CustomEvent).detail);
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__chatImageEvents = [];
+        window.addEventListener("chat:attach-image", (e) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (window as any).__chatImageEvents.push((e as CustomEvent).detail);
         });
       });
 
@@ -417,11 +445,9 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
         force: true,
       });
 
-      // Spy must capture the dispatched event with the canonical text format.
-      // SelectElementOverlay.tsx:153:
-      //   `Selected element: ${info.cssPath} @ ${info.path} (bbox: ${info.bbox.x},${info.bbox.y},${info.bbox.w},${info.bbox.h})${info.text ? ` text: "${info.text}"` : ''}`
-      // With our mock cssPath="h1.title" + bbox={x:100,y:50,w:200,h:30}, the
-      // event detail.text contains "h1.title" AND "bbox: 100,50,200,30".
+      // 4.2 — il contratto non è più una riga: è il blocco di
+      // `formatElementContext` (identificazione + markup + stile calcolato),
+      // e l'immagine viaggia su un secondo evento.
       await expect
         .poll(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -435,11 +461,25 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
         () => (window as any).__chatInsertEvents as Array<{ text?: string }>,
       );
       const text = events[0]?.text ?? "";
-      expect(text).toMatch(/Selected element/i);
-      expect(text).toMatch(/h1\.title|h1/);
-      // B2 FIX: bbox format is "bbox: <x>,<y>,<w>,<h>" — with our mock
-      // {x:100, y:50, w:200, h:30} it renders as "bbox: 100,50,200,30".
-      expect(text).toMatch(/bbox:\s*100,\s*50,\s*200,\s*30/);
+      expect(text).toMatch(/Elemento selezionato/i);
+      expect(text).toContain("h1.title");
+      expect(text).toContain("body > div.wrap > h1.title");
+      expect(text).toMatch(/riquadro:\s*100,50/);
+      // Il markup e lo stile ci sono DAVVERO, e in due blocchi distinti: è la
+      // differenza fra "so dove hai cliccato" e "so cosa devo modificare".
+      expect(text).toContain("```html");
+      expect(text).toContain('<h1 class="title">Example Domain</h1>');
+      expect(text).toContain("```css");
+      expect(text).toContain("font-size: 32px;");
+
+      // Il ritaglio arriva come allegato, non come testo.
+      const images = await page.evaluate(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        () => (window as any).__chatImageEvents as Array<{ dataUrl?: string; mimeType?: string }>,
+      );
+      expect(images.length).toBeGreaterThanOrEqual(1);
+      expect(images[0]?.dataUrl ?? "").toMatch(/^data:image\/png;base64,/);
+      expect(images[0]?.mimeType).toBe("image/png");
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

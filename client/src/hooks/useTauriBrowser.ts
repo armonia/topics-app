@@ -30,6 +30,12 @@ import { serverWsBase } from '../lib/shell/net';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
 import { stepZoom, DEFAULT_ZOOM } from '../lib/shell/zoomScale';
 import { parseBrowserWsMessage } from '../../../shared/browser-ws-messages';
+import {
+  DESCRIBE_ELEMENT_FN,
+  formatElementContext,
+  type ElementDescription,
+} from '../../../shared/element-describe';
+import { cropToElement } from '../lib/imageCrop';
 import type { NativeBrowserHandle, DeviceMode, BrowserConsoleEntry } from '@/components/Browser/browserDevTypes';
 import { DEVICE_PRESETS } from '@/components/Browser/browserDevTypes';
 
@@ -738,6 +744,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   // capturing click/Esc) and poll `window.__topicsPick` for the result, then
   // dispatch `chat:insert-text` — the same protocol the streaming/Electron
   // overlays use, so the chat input picks it up identically.
+  //
+  // 4.2: la RACCOLTA non è più scritta a mano qui. Il picker inietta la stessa
+  // `DESCRIBE_ELEMENT_FN` che il server valuta con Playwright, così il blocco
+  // che arriva in chat è identico nelle due pane. Al click segue uno snapshot
+  // della view, ritagliato sul riquadro (`cropToElement`) e allegato come
+  // immagine: è la parte che la WKWebView non sa fare da sola.
   const exitSelectMode = useCallback(() => {
     if (selectPollRef.current) { clearInterval(selectPollRef.current); selectPollRef.current = null; }
     setSelectMode(false);
@@ -754,11 +766,12 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       `var ov=document.createElement('div');ov.style.cssText='position:fixed;z-index:2147483647;border:2px solid #06f;background:rgba(0,102,255,.12);pointer-events:none;transition:all .04s';` +
       `var bn=document.createElement('div');bn.textContent='Click per selezionare un elemento · Esc per annullare';bn.style.cssText='position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#06f;color:#fff;font:12px -apple-system,sans-serif;padding:4px 12px;border-radius:99px;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.3)';` +
       `document.documentElement.appendChild(ov);document.documentElement.appendChild(bn);` +
-      `function cp(e){var p=[],n=0;while(e&&e.nodeType===1&&n++<8){var s=e.tagName.toLowerCase();if(e.id){p.unshift(s+'#'+e.id);break}var c=e.className&&e.className.toString().trim().split(/\\s+/)[0];if(c)s+='.'+c;var pa=e.parentNode;if(pa){var sb=Array.prototype.filter.call(pa.children,function(z){return z.tagName===e.tagName});if(sb.length>1)s+=':nth-of-type('+(sb.indexOf(e)+1)+')'}p.unshift(s);e=e.parentNode}return p.join(' > ')}` +
-      `function dp(e){var p=[];while(e&&e.nodeType===1){p.unshift(e.tagName.toLowerCase());e=e.parentNode}return p.join('/')}` +
+      `var describe=${DESCRIBE_ELEMENT_FN.toString()};` +
       `function at(x,y){return document.elementFromPoint(x,y)}` +
       `function mm(e){var el=at(e.clientX,e.clientY);if(!el||el===ov||el===bn)return;var r=el.getBoundingClientRect();ov.style.left=r.left+'px';ov.style.top=r.top+'px';ov.style.width=r.width+'px';ov.style.height=r.height+'px'}` +
-      `function ck(e){e.preventDefault();e.stopPropagation();var el=at(e.clientX,e.clientY);if(!el){return}var r=el.getBoundingClientRect();window.__topicsPick=JSON.stringify({cssPath:cp(el),domPath:dp(el),bbox:{x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height)},text:(el.innerText||el.textContent||'').trim().slice(0,120)});cl()}` +
+      // La descrizione si prende DENTRO il click: dopo `cl()` il riquadro non
+      // c'è più e lo stato :hover è già decaduto.
+      `function ck(e){e.preventDefault();e.stopPropagation();var d=null;try{d=describe({x:e.clientX,y:e.clientY})}catch(err){d=null}window.__topicsPick=d?JSON.stringify(d):'CANCEL';cl()}` +
       `function ke(e){if(e.key==='Escape'){window.__topicsPick='CANCEL';cl()}}` +
       `function cl(){window.__topicsSelMode=false;document.removeEventListener('mousemove',mm,true);document.removeEventListener('click',ck,true);document.removeEventListener('keydown',ke,true);try{ov.remove();bn.remove()}catch(e){}window.__topicsSelCleanup=null}` +
       `window.__topicsSelCleanup=cl;document.addEventListener('mousemove',mm,true);document.addEventListener('click',ck,true);document.addEventListener('keydown',ke,true)})()`;
@@ -775,11 +788,42 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           if (selectPollRef.current) { clearInterval(selectPollRef.current); selectPollRef.current = null; }
           setSelectMode(false);
           if (raw === 'CANCEL') return;
+          let info: ElementDescription;
           try {
-            const info = JSON.parse(raw) as { cssPath: string; domPath: string; bbox: { x: number; y: number; w: number; h: number }; text: string };
-            const payload = `Selected element on ${id}: ${info.cssPath} @ ${info.domPath} (bbox: ${info.bbox.x},${info.bbox.y},${info.bbox.w},${info.bbox.h})${info.text ? ` — "${info.text}"` : ''}`;
-            window.dispatchEvent(new CustomEvent('chat:insert-text', { detail: { text: payload } }));
-          } catch { /* malformed pick — ignore */ }
+            info = JSON.parse(raw) as ElementDescription;
+          } catch {
+            return; // pick malformato: meglio niente che un blocco a metà
+          }
+          void (async () => {
+            // Lo snapshot arriva DOPO il pick: il picker si è già smontato,
+            // quindi il riquadro blu non finisce dentro il ritaglio.
+            let crop: { dataUrl: string; w: number; h: number } | null = null;
+            try {
+              const shot = await tauriInvoke<string>('browser_screenshot', { id });
+              if (shot) {
+                crop = await cropToElement(
+                  `data:image/png;base64,${shot}`,
+                  info.bbox,
+                  info.viewport,
+                );
+              }
+            } catch { /* niente ritaglio: il blocco di testo vale comunque */ }
+            window.dispatchEvent(
+              new CustomEvent('chat:insert-text', {
+                detail: { text: formatElementContext(info, { screenshotAttached: !!crop }) },
+              }),
+            );
+            if (crop) {
+              window.dispatchEvent(
+                new CustomEvent('chat:attach-image', {
+                  detail: {
+                    dataUrl: crop.dataUrl,
+                    mimeType: crop.dataUrl.startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png',
+                  },
+                }),
+              );
+            }
+          })();
         })
         .catch(() => {});
     }, 150);
