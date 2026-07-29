@@ -42,7 +42,8 @@ function freshDb(): Database {
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
-    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT
+    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
+    delivered_by TEXT, delivered_reason TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -873,6 +874,90 @@ describe("board settings", () => {
     const done = s.reviewDecision({ taskId: t.id, by: "u", decision: "approve" });
     expect(done.status).toBe("done");
     expect(done.dispatchState).toBeNull();
+  });
+});
+
+/**
+ * 1.3 — in colonna Review una consegna dell'agente e un task che il sistema ha
+ * portato lì a fine turno avevano lo stesso aspetto. Sono due domande diverse:
+ * nella prima c'è un deliverable, nella seconda può non esserci niente.
+ */
+describe("deliveredBy (chi ha portato il task in review)", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  /** Agente pronto alla consegna: il gate del sommario vuole un commento suo. */
+  function readyForDelivery() {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.addComment({ taskId: t.id, author: "agent-1", content: "fatto, guarda demo/" });
+    return t;
+  }
+
+  test("un task nasce senza consegna", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    expect(t.deliveredBy).toBeNull();
+    expect(t.deliveredReason).toBeNull();
+  });
+
+  test("l'agente che consegna si firma", () => {
+    const t = readyForDelivery();
+    const rev = s.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review" } });
+    expect(rev.deliveredBy).toBe("agent");
+    expect(rev.deliveredReason).toBeNull();
+  });
+
+  test("l'umano che trascina in review non è l'agente", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    expect(s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "review" } }).deliveredBy).toBe("human");
+  });
+
+  test("il sistema si firma 'system' e dice PERCHÉ", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    const d = s.deliverToReviewBySystem({ taskId: t.id, reason: "budget finito", cause: "retries_exhausted" });
+    expect(d.status).toBe("review");
+    expect(d.deliveredBy).toBe("system");
+    expect(d.deliveredReason).toBe("retries_exhausted");
+    // Le due cause restano distinte: si decide diversamente nei due casi.
+    const t2 = s.create({ projectId: PID, text: "y" });
+    expect(s.deliverToReviewBySystem({ taskId: t2.id, reason: "rifiuto", cause: "model_refused" }).deliveredReason).toBe("model_refused");
+  });
+
+  test("senza causa nota resta 'system' e basta — mai una causa inventata", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    const d = s.deliverToReviewBySystem({ taskId: t.id, reason: "boh" });
+    expect(d.deliveredBy).toBe("system");
+    expect(d.deliveredReason).toBeNull();
+  });
+
+  test("consegna vera DOPO una di sistema: la causa se ne va con la firma", () => {
+    const t = readyForDelivery();
+    s.deliverToReviewBySystem({ taskId: t.id, reason: "budget finito", cause: "retries_exhausted" });
+    // Rifiutato → l'agent riparte → questa volta consegna lui.
+    s.reviewDecision({ taskId: t.id, by: "u", decision: "reject" });
+    s.addComment({ taskId: t.id, author: "agent-1", content: "ora sì" });
+    const again = s.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review" } });
+    expect(again.deliveredBy).toBe("agent");
+    // Una causa di sistema rimasta appiccicata direbbe "non l'ha consegnato
+    // l'agent" su una consegna dell'agent.
+    expect(again.deliveredReason).toBeNull();
+  });
+
+  test("la firma sopravvive all'approvazione: su done resta scritto com'è arrivato", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.deliverToReviewBySystem({ taskId: t.id, reason: "budget finito", cause: "retries_exhausted" });
+    const done = s.reviewDecision({ taskId: t.id, by: "u", decision: "approve" });
+    expect(done.status).toBe("done");
+    expect(done.deliveredBy).toBe("system");
+  });
+
+  test("un aggiornamento che NON entra in review non riscrive la firma", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.deliverToReviewBySystem({ taskId: t.id, reason: "budget finito", cause: "retries_exhausted" });
+    const same = s.update({ taskId: t.id, actor: "human", by: "u", patch: { priority: 1 } });
+    expect(same.deliveredBy).toBe("system");
+    // …e nemmeno un re-ingresso in review da già-in-review (non è una transizione).
+    const still = s.update({ taskId: t.id, actor: "human", by: "u", patch: { status: "review" } });
+    expect(still.deliveredBy).toBe("system");
   });
 });
 

@@ -66,6 +66,7 @@ import m057 from "./migrations/058-task-dispatch-defer.sql" with { type: "text" 
 import m058 from "./migrations/059-task-delivery-landing.sql" with { type: "text" };
 import m059 from "./migrations/060-session-context.sql" with { type: "text" };
 import m060 from "./migrations/061-review-checks.sql" with { type: "text" };
+import m061 from "./migrations/062-delivered-by.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -136,4 +137,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 59, name: "059-task-delivery-landing.sql", sql: m058 },
   { version: 60, name: "060-session-context.sql", sql: m059 },
   { version: 61, name: "061-review-checks.sql", sql: m060 },
+  { version: 62, name: "062-delivered-by.sql", sql: m061 },
 ];

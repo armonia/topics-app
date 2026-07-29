@@ -137,6 +137,16 @@ export interface Task {
   checksCommit: string | null;
   /** Evidenza per il reviewer: comando per comando, esito, durata e coda dell'output. */
   checks: CheckRun[] | null;
+  /**
+   * Chi ha portato il task in review l'ultima volta. `'system'` è il caso che
+   * cambia la domanda del reviewer: non è una consegna, è un turno finito male
+   * (tentativi esauriti, modello che si rifiuta) che qualcuno deve guardare —
+   * e può non esserci nessun deliverable sotto. null = mai passato di lì.
+   */
+  deliveredBy: "agent" | "human" | "system" | null;
+  /** Perché, in forma leggibile da codice. Solo per `deliveredBy === 'system'`;
+   *  la prosa completa resta nel commento di sistema del thread. */
+  deliveredReason: "retries_exhausted" | "model_refused" | null;
   /** Dispatch in the BLOCKER agent's conversation instead of a fresh topic. */
   reuseBlockerContext: boolean;
   /** Direct-children counters (filled by list/get for board badges). */
@@ -388,7 +398,16 @@ export interface TaskService {
    * hand-off. Reserved for the "did work, forgot to deliver" case; a task that
    * produced nothing still parks as `failed`.
    */
-  deliverToReviewBySystem(args: { taskId: string; reason: string }): Task;
+  /**
+   * Il sistema porta in review un task che l'agente non ha consegnato da solo.
+   * `cause` è la causa in forma leggibile da codice: la UI ci scrive sopra
+   * l'avviso giusto senza dover interpretare la prosa di `reason`.
+   */
+  deliverToReviewBySystem(args: {
+    taskId: string;
+    reason: string;
+    cause?: "retries_exhausted" | "model_refused";
+  }): Task;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
@@ -621,6 +640,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       checksAt: r.checks_at ?? null,
       checksCommit: r.checks_commit ?? null,
       checks: parseChecksJson(r.checks_json),
+      deliveredBy: r.delivered_by ?? null,
+      deliveredReason: r.delivered_reason ?? null,
       reuseBlockerContext: !!r.reuse_blocker_context,
       subtaskCount: 0,
       subtaskDoneCount: 0,
@@ -937,6 +958,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // a question (→ needs_input).
         if (patch.status === "review" && ["queued", "starting", "working"].includes(row.dispatch_state ?? "")) {
           put("dispatch_state", "delivered");
+        }
+        // Chi ha consegnato. Una card in review consegnata dall'agente e una
+        // portata lì dal sistema pongono al reviewer due domande diverse, e oggi
+        // hanno lo stesso aspetto. `deliverToReviewBySystem` scrive 'system' per
+        // conto suo; qui passa solo chi ha spinto il bottone davvero.
+        // `delivered_reason` si azzera: è la causa di QUESTA consegna, e questa
+        // non è di sistema.
+        if (patch.status === "review" && current !== "review") {
+          put("delivered_by", actor);
+          put("delivered_reason", null);
         }
         // A HUMAN dragging a task into todo is a fresh mandate: reset the
         // retry budget. Without this, a task parked at the cap could never be
@@ -1268,7 +1299,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deliverToReviewBySystem({ taskId, reason }): Task {
+    deliverToReviewBySystem({ taskId, reason, cause }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ts = now();
@@ -1278,9 +1309,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       // Hand to the human: keep assigned_topic_id (a rejection resumes this
       // agent), clear the stale error, chip = needs_input (a decision is wanted).
+      // `delivered_by = 'system'`: la card in review deve dire da sé che non è una
+      // consegna dell'agente — sotto può non esserci nessun deliverable.
       db.prepare(
-        "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = NULL, updated_at = ? WHERE id = ?",
-      ).run(ts, taskId);
+        "UPDATE tasks SET status = 'review', dispatch_state = 'needs_input', dispatch_error = NULL, " +
+          "delivered_by = 'system', delivered_reason = ?, updated_at = ? WHERE id = ?",
+      ).run(cause ?? null, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
       // Open the pending review approval so the review decision flow works, just
       // like an agent-initiated hand-off would.

@@ -24,7 +24,8 @@ function freshDb(): Database {
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1,
     delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
-    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT
+    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT,
+    delivered_by TEXT, delivered_reason TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
