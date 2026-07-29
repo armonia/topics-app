@@ -24,6 +24,7 @@
  */
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "./tasks";
 import { ZERO_USAGE, type SessionUsage } from "./transcript-usage";
+import type { OutboundMessage } from "../schemas/ws-outbound";
 import {
   classifyTurnError,
   consumesAttempt,
@@ -187,7 +188,7 @@ export interface DispatcherDeps {
    */
   externalSessionsAt?: (path: string) => Array<{ cwd: string; branch: string | null }>;
   /** Broadcast a WS message so live boards reflect chip/state changes. */
-  broadcast: (message: object) => void;
+  broadcast: (message: OutboundMessage) => void;
   log?: (msg: string, err?: unknown) => void;
   /** Grace window (ms) between the →todo signal and the claim. Default 6000. */
   graceMs?: number;

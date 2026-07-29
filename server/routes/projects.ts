@@ -17,6 +17,7 @@
  * 409 with clear messages.
  */
 import type { AppContext, RouteHandler } from "../types";
+import type { OutboundType } from "../schemas/ws-outbound";
 import { SlugConflictError, ProjectInUseError } from "../services/project-store";
 import { unwatchGitDir } from "../git-watcher";
 import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";
@@ -41,7 +42,7 @@ function stripCtrl(input: unknown): string | null {
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll } = ctx;
 
-  function emit(type: string, project: unknown) {
+  function emit(type: OutboundType, project: unknown) {
     broadcastToAll({ type, project, payload_version: 1 });
   }
 

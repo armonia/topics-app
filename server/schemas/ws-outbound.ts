@@ -747,6 +747,36 @@ const uiBundleRevSchema = z.object({
   rev: z.string(),
 }).passthrough();
 
+// ---- External Claude sessions (il censimento di ciò che Topics NON ha avviato) ----
+
+// Nome fuori convenzione (`external-sessions`, non `sessions:external`): è sul
+// filo da prima della v3 e il client lo ascolta così com'è. Si rinomina quando
+// si versiona il protocollo, non con una modifica di contorno. È anche il
+// motivo per cui lo scan statico dei test non lo vedeva: senza `:` nel nome
+// non passava il filtro — l'ha stanato il compilatore, non la regex.
+const externalClaudeSessionShape = z.object({
+  sessionId: z.string(),
+  cwd: z.string(),
+  projectPath: z.string().nullable(),
+  projectId: z.string().nullable(),
+  lastActivityMs: z.number(),
+  state: z.enum(['active', 'idle']),
+}).passthrough();
+
+const externalSessionProjectShape = z.object({
+  projectId: z.string(),
+  projectPath: z.string(),
+  total: z.number(),
+  active: z.number(),
+  lastActivityMs: z.number(),
+}).passthrough();
+
+const externalSessionsSchema = z.object({
+  type: z.literal('external-sessions'),
+  sessions: z.array(externalClaudeSessionShape),
+  projects: z.array(externalSessionProjectShape),
+}).passthrough();
+
 // ---- Legacy chat:* events (replaced by topic:* in v3, kept for compat) ----
 
 const chatObjectShape = z.object({ id: z.string() }).passthrough();
@@ -929,6 +959,8 @@ const OUTBOUND_SCHEMAS = {
   // Dev bundle hot-delivery
   'ui:bundle-updated': uiBundleUpdatedSchema,
   'ui:bundle-rev': uiBundleRevSchema,
+  // Census of Claude sessions Topics didn't start
+  'external-sessions': externalSessionsSchema,
   // Legacy chat:* (replaced by topic:* in v3, kept for backward compat)
   'chat:created': chatCreatedSchema,
   'chat:updated': chatUpdatedSchema,
@@ -949,6 +981,32 @@ const OUTBOUND_SCHEMAS = {
  * can lock the registry size (contract guard).
  */
 export const REGISTERED_OUTBOUND_TYPES = Object.keys(OUTBOUND_SCHEMAS).sort();
+
+/**
+ * I tipi che il server può mandare — DERIVATI dal registro, non riscritti a
+ * mano: aggiungere uno schema aggiunge il tipo, e non c'è modo di scordarsi
+ * l'uno o l'altro.
+ */
+export type OutboundType = keyof typeof OUTBOUND_SCHEMAS;
+
+/**
+ * La forma minima di un messaggio in uscita: il `type` deve stare nel registro,
+ * il resto del payload lo controlla lo schema a runtime (`validateOutbound`, in
+ * dev) e i fixture in `tests/unit/ws-outbound-schema.test.ts`.
+ *
+ * PERCHÉ solo il `type` e non l'intero payload inferito da Zod: gli schemi sono
+ * `.passthrough()`, quindi inferiscono un index signature `[k: string]: unknown`
+ * — e un'INTERFACCIA TypeScript (`Task`, `Topic`, `Machine`…) non è assegnabile
+ * a un tipo con index signature, perché le interfacce non ne ricevono uno
+ * implicito. Pretendere il payload completo qui vorrebbe dire riscrivere ogni
+ * call site per accontentare una regola di assegnabilità, non per correggere un
+ * bug. Il vincolo sul `type` invece paga subito: un broadcast con un tipo NUOVO
+ * (o costruito da una `string` qualsiasi) non compila finché non ha uno schema.
+ */
+export interface OutboundMessage {
+  type: OutboundType;
+  [key: string]: unknown;
+}
 
 export type ValidationResult =
   | { ok: true }

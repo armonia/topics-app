@@ -147,7 +147,7 @@ export function watchGitDir(
     debounceTimer = setTimeout(async () => {
       const status = await computeGitStatus(projectPath);
       if (status) {
-        const envelope: { type: string; projectPath: string; status: GitStatus; worktreeId?: string } = {
+        const envelope: { type: "git:status"; projectPath: string; status: GitStatus; worktreeId?: string } = {
           type: "git:status",
           projectPath,
           status,

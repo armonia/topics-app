@@ -17,6 +17,7 @@
  * `worktree:updated`.
  */
 import type { AppContext, RouteHandler } from "../types";
+import type { OutboundType } from "../schemas/ws-outbound";
 import {
   WorktreeNameConflictError,
   WorktreePathConflictError,
@@ -50,7 +51,7 @@ export function createWorktreesRouter(ctx: AppContext): RouteHandler {
     broadcastToAll,
   } = ctx;
 
-  function emit(type: string, worktree: unknown) {
+  function emit(type: OutboundType, worktree: unknown) {
     broadcastToAll({ type, worktree, payload_version: 1 });
   }
 

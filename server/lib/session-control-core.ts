@@ -21,6 +21,7 @@
  * themselves so the UI converges identically no matter which surface called.
  */
 import type { Topic } from "../types";
+import type { OutboundMessage } from "../schemas/ws-outbound";
 
 /** The subset of AppContext the switch/create cores dereference. */
 export interface SessionControlDeps {
@@ -28,7 +29,7 @@ export interface SessionControlDeps {
   loadTopics: () => { topics: Record<string, Topic> };
   saveSingleTopic: (topic: Topic) => void;
   slugify: (name: string) => string;
-  broadcastToAll: (message: object) => void;
+  broadcastToAll: (message: OutboundMessage) => void;
 }
 
 export type SwitchTopicResult =

@@ -1717,7 +1717,8 @@ async function readAgentOutput(
 }
 
 // Broadcast current terminal sessions list via WS
-let _broadcastToAll: ((msg: any) => void) | null = null;
+let _broadcastToAll: ((msg: OutboundMessage) => void) | null = null;
+import type { OutboundMessage } from "../schemas/ws-outbound";
 // Claude session tracker — the authoritative phase machine. Terminal claude
 // sessions register here so their hook-driven phase (running/tool-running)
 // becomes the solid "is it working" signal, instead of fragile pty bytes.

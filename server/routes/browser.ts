@@ -28,7 +28,7 @@ export function createBrowserRouter(
    *  count IS the number of OTHER devices watching the shared session. */
   getViewerCount: (contextId: string) => number = () => 0,
 ): RouteHandler {
-  const { readJSON, json, errorResponse, matchRoute, broadcast } = ctx;
+  const { readJSON, json, errorResponse, matchRoute } = ctx;
 
   return async function browserRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
 
@@ -470,7 +470,11 @@ export function createBrowserRouter(
         browserEngineRegistry.release(deleteMatch.id);
         browserService.setEngineHint(deleteMatch.id, "default");
       }
-      broadcast({ type: "browser-deleted", id: deleteMatch.id });
+      // NIENTE broadcast qui: la DELETE la chiama sempre il client che ha GIÀ
+      // chiuso la sua pane (usePaneLifecycle / useProjectLayout / useBrowserContexts),
+      // e la chiusura sugli ALTRI device passa da `browser:close-pane`. Il vecchio
+      // `browser-deleted` non lo ascoltava nessuno — un frame nel vuoto, per di
+      // più con un nome fuori dalla convenzione `namespace:evento`.
       return json({ ok: true });
     }
 

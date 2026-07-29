@@ -2,6 +2,7 @@
  * Routes — `/api/machines` (Phase D · migration 020)
  */
 import type { AppContext, RouteHandler } from "../types";
+import type { OutboundType } from "../schemas/ws-outbound";
 import { MachineInUseError } from "../services/machine-store";
 
 const NAME_MAX = 200;
@@ -13,7 +14,7 @@ function stripCtrl(input: unknown): string | null {
 
 export function createMachinesRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse, machineStore, broadcastToAll } = ctx;
-  const emit = (type: string, machine: unknown) =>
+  const emit = (type: OutboundType, machine: unknown) =>
     broadcastToAll({ type, machine, payload_version: 1 });
 
   return async function machinesRouter(req, _url, pathname, method) {

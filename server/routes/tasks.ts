@@ -20,6 +20,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AppContext, RouteHandler } from "../types";
+import type { OutboundMessage } from "../schemas/ws-outbound";
 import { getTerminalSessionById } from "./terminal";
 import { AUTO_PROJECT_ID, createTaskService, isLandActionLabel, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID } from "../services/tasks";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -47,7 +48,7 @@ const ERROR_STATUS: Record<string, number> = {
  * re-notifies. Emitted IN ADDITION to `task:updated`, never instead of it.
  */
 export function emitReviewReadyEdge(
-  broadcast: (m: object) => void,
+  broadcast: (m: OutboundMessage) => void,
   projectId: string,
   task: { id: string; text: string; status: string } | undefined | null,
   prevStatus: string | undefined,

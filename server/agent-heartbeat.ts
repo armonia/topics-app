@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { OutboundMessage } from "./schemas/ws-outbound";
 import {
   applySessionTransition,
   applyProfileTransition,
@@ -11,7 +12,7 @@ import {
 const HEARTBEAT_CHECK_INTERVAL_MS = 30_000; // 30 seconds
 const STALE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
 
-export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: object) => void): () => void {
+export function startHeartbeatChecker(db: Database, broadcastToAll: (msg: OutboundMessage) => void): () => void {
   const staleSessionsStmt = db.prepare(`
     SELECT id, agent_id, session_key, last_heartbeat, status
     FROM agent_sessions
