@@ -85,7 +85,15 @@ export default defineConfig({
   },
   build: {
     outDir: '../public',
-    emptyOutDir: true,
+    // Wipe /public only for a ONE-SHOT build (a deploy: no stale hashed assets
+    // left behind). NEVER in `--watch`: there /public is the bundle the prod
+    // server on :3333 is serving right now, and emptying it opens a window —
+    // seconds, on a loaded box — where index.html does not exist and every page
+    // load answers 500. That window is the "l'app non si apre" of the
+    // build-watch agent. Overwriting in place keeps a complete bundle on disk at
+    // all times; the stale chunks a long watch session accumulates are swept by
+    // the next one-shot build.
+    emptyOutDir: process.env.TOPICS_BUILD_WATCH !== '1',
     rollupOptions: {
       output: {
         manualChunks: {
