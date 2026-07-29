@@ -13,6 +13,9 @@ import { BRIDGED_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { nativeDelegateRegistry } from "../browser-native-delegate";
 import { collectLiveContextIds, listBrowserTabs, type TabInventoryDeps } from "../browser-tab-inventory";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
+import { getSessionContext } from "../db/session-context";
+import { classifyContext, windowForMeasure } from "../usage/context-window";
+import { contextUpdateFromUsage } from "../usage/usage-update";
 import { formatSubAgentExitMessage, formatSubAgentExitBody, type SubAgentExitInfo } from "./subagent-exit";
 import { createTaskService } from "../services/tasks";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
@@ -285,6 +288,22 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     worktreeStore,
     projectStore,
   } = ctx;
+
+  /**
+   * Ri-emette il ring dopo un cambio di modello, contro la finestra NUOVA.
+   *
+   * Rilegge la misura persistita — `used` non cambia, è la dimensione reale
+   * dell'ultima chiamata — e la classifica contro la finestra del modello appena
+   * scelto. Best-effort per costruzione: se non c'è ancora una misura non c'è
+   * nulla da correggere, e un errore qui non deve far fallire la PATCH.
+   */
+  function broadcastContextForModelChange(topic: Topic): void {
+    const row = getSessionContext(ctx.db, topic.sessionKey);
+    if (!row) return;
+    const usage = classifyContext(row.usedTokens, windowForMeasure(row, topic.model));
+    const update = contextUpdateFromUsage(usage, row.model);
+    broadcastToAll({ type: "stream:context", sessionKey: topic.sessionKey, topicId: topic.id, ...update });
+  }
 
   // Task lookup for the task-owned browser fork + tab-inventory label. One
   // instance over the shared db (same pattern as the dispatcher's service).
@@ -1313,6 +1332,13 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         if (effortChanged || spawnConfigChanged) {
           try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
           catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
+          // Il ring cambia DENOMINATORE, non numeratore: cambiare modello cambia
+          // la finestra, e l'ultima misura va riletta contro quella nuova. Senza
+          // questo il ring resta fermo sul vecchio rapporto fino al turno dopo —
+          // e uno che passa a 1M per fare spazio vede un anello che non si muove,
+          // che è indistinguibile da un ring rotto.
+          try { broadcastContextForModelChange(topic); }
+          catch (err) { console.warn(`[topics] context re-broadcast failed for ${topic.sessionKey}:`, err); }
         }
         return json(topic);
       }
