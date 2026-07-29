@@ -11,6 +11,8 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { CheckpointTimeline } from './CheckpointTimeline';
 import { TodoStrip } from './TodoStrip';
+import { GoalBar } from './GoalBar';
+import { useGoal } from '@/hooks/useGoal';
 import { SubAgentsStrip } from './SubAgentsStrip';
 import { selectLatestTodo } from './selectLatestTodo';
 import { useVoiceRecording } from './useVoiceRecording';
@@ -30,6 +32,8 @@ const SLASH_COMMANDS_HELP = [
   '/pause @name — Pause an agent',
   '/resume @name — Resume a paused agent',
   '/assign @name task — Create and assign a task to an agent',
+  "/goal <testo> — Dichiara l'obiettivo della chat (sopravvive alla compattazione)",
+  '/goal fatto | basta — Chiudi l\'obiettivo (raggiunto / abbandonato)',
   '/help — Show available commands',
 ];
 
@@ -269,6 +273,9 @@ function ChatPaneComponent({
   // Sticky current-todo strip (CHAT-TODO-01): mirror the latest TodoWrite above
   // the composer so the plan stays visible while typing.
   const latestTodo = useMemo(() => selectLatestTodo(currentMessages), [currentMessages]);
+  // 3.4 — l'obiettivo della topic. Quando c'è, è LUI la superficie del piano:
+  // vedi l'intestazione di GoalBar per il perché non convivono.
+  const { goal, declare: declareGoal, close: closeGoal } = useGoal(topic.id, onWSMessage);
   const currentMarkers = getCompactionMarkers?.(topic.sessionKey);
   const currentLoading = isSessionLoading(topic.sessionKey);
   const currentStreaming = isSessionStreaming(topic.sessionKey);
@@ -505,6 +512,38 @@ function ChatPaneComponent({
     if (cmd === '/clear') { if (!window.confirm('Clear conversation? A backup will be saved.')) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
+
+    // 3.4 — /goal: l'obiettivo della conversazione. Intercettato QUI, prima del
+    // modello: è stato della topic, non un messaggio, e mandarlo all'agente
+    // vorrebbe dire farglielo riscrivere in una forma che nessuno rilegge.
+    if (cmd === '/goal' || cmd.startsWith('/goal ')) {
+      const rest = text.slice('/goal'.length).trim();
+      try {
+        if (!rest) {
+          setCommandResult(goal
+            ? { type: 'success', message: `Obiettivo: ${goal.content}` }
+            : { type: 'error', message: "Nessun obiettivo attivo. Uso: /goal <obiettivo> · /goal fatto · /goal basta" });
+          return true;
+        }
+        if (rest === 'fatto' || rest === 'done') {
+          if (!goal) { setCommandResult({ type: 'error', message: 'Nessun obiettivo attivo' }); return true; }
+          await closeGoal('achieved');
+          setCommandResult({ type: 'success', message: `Obiettivo raggiunto: ${goal.content}` });
+          return true;
+        }
+        if (rest === 'basta' || rest === 'stop') {
+          if (!goal) { setCommandResult({ type: 'error', message: 'Nessun obiettivo attivo' }); return true; }
+          await closeGoal('abandoned');
+          setCommandResult({ type: 'success', message: `Obiettivo abbandonato: ${goal.content}` });
+          return true;
+        }
+        await declareGoal(rest);
+        setCommandResult({ type: 'success', message: `Obiettivo: ${rest}` });
+      } catch (e) {
+        setCommandResult({ type: 'error', message: errMessage(e) });
+      }
+      return true;
+    }
     if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { const r = await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: r.message || `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/effort') { setCommandResult({ type: 'error', message: 'Uso: /effort <low|medium|high|xhigh|max>' }); return true; }
     if (cmd.startsWith('/effort ')) { const tier = text.slice(8).trim().toLowerCase(); if (!tier) return false; setCommandLoading(true); try { const r = await commandApi.setEffort(topic.sessionKey, tier); setCommandResult({ type: 'success', message: r.message || `Effort set to: ${tier}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
@@ -555,7 +594,7 @@ function ChatPaneComponent({
     // dispatch the original text to the chat pipeline.
 
     return false;
-  }, [topic.sessionKey, topic.id, loadHistory]);
+  }, [topic.sessionKey, topic.id, loadHistory, goal, declareGoal, closeGoal]);
 
   const togglePlanMode = useCallback(() => {
     setPlanMode(prev => {
@@ -793,7 +832,16 @@ function ChatPaneComponent({
           home-indicator reservation (the user wants minimal bottom space), so it
           reaches the bottom edge and the OS indicator simply overlays it. */}
       <div ref={inputAreaRef} className="absolute bottom-0 left-0 right-0">
-        {latestTodo && <TodoStrip snapshot={latestTodo} />}
+        {goal ? (
+          <GoalBar
+            goal={goal}
+            fallback={latestTodo ?? undefined}
+            onClose={(status) => { void closeGoal(status); }}
+            onEdit={(content) => { void declareGoal(content); }}
+          />
+        ) : (
+          latestTodo && <TodoStrip snapshot={latestTodo} />
+        )}
         <SubAgentsStrip topicSessionKey={topic.sessionKey} />
         {aboveInputSlot}
         <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />

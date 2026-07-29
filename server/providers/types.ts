@@ -179,7 +179,7 @@ export type { ProviderStatus, ProviderRequirement } from "../../shared/types";
 
 // Import the types so the local references in this file resolve (a bare
 // `export … from` re-export does not create an in-module binding).
-import type { ProviderStatus, ProviderRequirement, ProvidersSnapshot } from "../../shared/types";
+import type { ProviderStatus, ProviderRequirement, ProvidersSnapshot, GoalStepStatus } from "../../shared/types";
 
 export interface ProviderDiagnostic {
   name: string;
@@ -302,6 +302,19 @@ export interface StreamHandler {
    * have never heard of.
    */
   onContextSize?: (tokens: number, model?: string, windowTokens?: number) => void;
+  /**
+   * L'agente ha dichiarato (o aggiornato) il suo piano — oggi solo ACP, che
+   * manda `session/update` con `sessionUpdate: "plan"`.
+   *
+   * È uno SNAPSHOT: l'elenco intero a ogni cambio di stato di un passo. Chi
+   * ascolta sostituisce, non accoda — accodare produrrebbe un piano che cresce
+   * di una copia a ogni spunta.
+   *
+   * Non è trascritto: il piano è stato della topic (i passi del goal), non un
+   * messaggio. Se finisse nel testo del modello sarebbe persistito, e a ogni
+   * tick il contesto avrebbe un elenco in più uguale al precedente.
+   */
+  onPlan?: (steps: Array<{ content: string; status: GoalStepStatus }>) => void;
   onDone: (message?: ProviderDoneMessage) => void;
   onError: (error: string) => void;
   onAborted?: (message?: ProviderDoneMessage) => void;

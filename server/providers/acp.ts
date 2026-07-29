@@ -418,6 +418,9 @@ export class AcpProvider implements AIProvider {
         case "tool_args":
           handler.onToolArgsUpdate?.(ev.toolCallId, ev.args);
           break;
+        case "plan":
+          handler.onPlan?.(ev.steps);
+          break;
         case "tool_update":
           handler.onToolUpdate?.(ev.toolCallId, ev.partialResult);
           break;
