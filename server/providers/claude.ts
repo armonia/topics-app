@@ -7,6 +7,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+import { applyPromptCache } from "./prompt-cache";
 import type {
   AIProvider,
   ChatMessage,
@@ -134,6 +135,11 @@ export class ClaudeProvider implements AIProvider {
       params.tools = options.tools;
     }
 
+    // DOPO i tools, che nel prefisso vengono per primi: marcare prima di averli
+    // messi lascerebbe fuori dalla cache proprio gli schemi, che sono la parte
+    // più stabile e più grossa di tutte.
+    applyPromptCache(params);
+
     // LIMITATION (Phase 30): single-turn tool emission only. Multi-turn
     // tool_use -> tool_result -> next-turn loop is deferred (would require
     // restarting the stream after handler.onToolResult fires). The existing
@@ -240,6 +246,7 @@ export class ClaudeProvider implements AIProvider {
     }
 
     this.applyThinking(params, model, maxTokens);
+    applyPromptCache(params);
 
     const anthropicStream = client.messages.stream(params, {
       signal: options?.signal,
@@ -312,6 +319,8 @@ export class ClaudeProvider implements AIProvider {
     if (system) {
       params.system = system;
     }
+
+    applyPromptCache(params);
 
     const response = await client.messages.create(params);
 

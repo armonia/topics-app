@@ -54,7 +54,10 @@ import {
   adaptEnvelope,
   assembleTopicContext,
   composeSystemMessages,
+  getInlineSentState,
   getProviderStrategy,
+  inlineScope,
+  markInlineSent,
   pushSnapshot,
   type ContextEnvelope,
 } from "../context";
@@ -86,6 +89,34 @@ export interface ChatDeps {
   updateUnreadCount: (topicId: string) => void;
   browserNavigatedTopics: Set<string>;
   WORKSPACE_DIR: string;
+}
+
+/**
+ * I due ingredienti dello scope di `inline-sent-state`: quale conversazione CLI
+ * stiamo servendo, e quante volte è stata compattata. Letture indicizzate su una
+ * riga sola — trascurabili accanto al turno di modello che stanno per precedere,
+ * e sempre best-effort: un errore qui deve costare una re-iniezione, non un send.
+ */
+function readClaudeSessionId(ctx: AppContext, sessionKey: string): string | null {
+  try {
+    const row = ctx.db
+      .prepare(`SELECT claude_session_id FROM claude_code_sessions WHERE session_key = ?`)
+      .get(sessionKey) as { claude_session_id?: string } | undefined;
+    return row?.claude_session_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function countCompactions(ctx: AppContext, sessionKey: string): number {
+  try {
+    const row = ctx.db
+      .prepare(`SELECT COUNT(*) AS n FROM compaction_markers WHERE session_key = ?`)
+      .get(sessionKey) as { n?: number } | undefined;
+    return row?.n ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService?: BrowserService): RouteHandler {
@@ -1733,7 +1764,29 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // to the provider. Best-effort — never throws.
             try { pushSnapshot(envForProvider); } catch (e) { console.warn("[Context] pushSnapshot failed:", e); }
 
-            const payload = adaptEnvelope(envForProvider);
+            // Deduplicazione del preambolo inline: la CLI process-resident ha
+            // già in conversazione ciò che le abbiamo detto ai turni scorsi, e
+            // riappenderlo costa in modo COMPOSTO (i token del turno k li
+            // rilegge ogni chiamata successiva). Lo scope lega la memoria a UNA
+            // conversazione CLI: sessione nuova o compattazione ⇒ mappa vuota ⇒
+            // il contesto completo riparte da solo.
+            const dedupOff = process.env.TOPICS_INLINE_CONTEXT_DEDUP === "0";
+            const sentScope = dedupOff ? null : inlineScope(
+              readClaudeSessionId(ctx, sessionKey),
+              countCompactions(ctx, sessionKey),
+            );
+            const payload = adaptEnvelope(
+              envForProvider,
+              sentScope ? { alreadySent: getInlineSentState(sessionKey, sentScope) } : undefined,
+            );
+            // Marcatura OTTIMISTICA: `sendChat` risolve a turno avviato, e un
+            // secondo messaggio accodato prima di allora si comporrebbe con la
+            // mappa vecchia, riemettendo tutto. Il caso speculare (marcato ma
+            // mai arrivato) lo chiude `rollbackInlineSent` nel `.catch` qui
+            // sotto — lo stesso ramo che avvisa l'utente del fallimento.
+            const rollbackInlineSent = (sentScope && payload.inlineSlots)
+              ? markInlineSent(sessionKey, sentScope, payload.inlineSlots)
+              : null;
             const userContent = payload.userContent;
             const historyForProvider = payload.history;
 
@@ -1783,6 +1836,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
             }).catch(async (err: any) => {
               console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
+              // Il turno non è mai arrivato alla CLI: quel preambolo non è in
+              // sessione, e il prossimo messaggio deve tornare a portarlo.
+              rollbackInlineSent?.();
               topicProvider.unregisterStreamHandler?.(sessionKey);
               endStream(sessionKey);
               const errorMsg = `⚠️ Failed to send message: ${err.message}`;
