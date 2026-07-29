@@ -1,4 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { releaseAudio } from '../lib/releaseAudio';
+
+
 
 // Type definitions for Web Speech API
 interface SpeechRecognitionResult {
@@ -167,10 +170,7 @@ export function useTextToSpeech() {
       const blob = await response.blob();
       url = URL.createObjectURL(blob);
 
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause();
-        URL.revokeObjectURL(ttsAudioRef.current.src);
-      }
+      releaseAudio(ttsAudioRef.current);
 
       const audio = new Audio(url);
       ttsAudioRef.current = audio;
@@ -195,18 +195,17 @@ export function useTextToSpeech() {
 
   const stop = useCallback(() => {
     if (ttsAudioRef.current) {
-      ttsAudioRef.current.pause();
-      ttsAudioRef.current.currentTime = 0;
+      // Rilascio pieno, non solo pausa: chi preme "stop" ha finito di
+      // ascoltare, e tenere vivo il renderer costa un thread per sempre.
+      releaseAudio(ttsAudioRef.current);
+      ttsAudioRef.current = null;
       setIsSpeaking(false);
     }
   }, []);
 
   useEffect(() => {
     return () => {
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause();
-        URL.revokeObjectURL(ttsAudioRef.current.src);
-      }
+      releaseAudio(ttsAudioRef.current);
     };
   }, []);
 
@@ -364,10 +363,7 @@ export function useVoiceCall(
       const url = URL.createObjectURL(blob);
 
       // Stop any previous audio
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause();
-        URL.revokeObjectURL(ttsAudioRef.current.src);
-      }
+      releaseAudio(ttsAudioRef.current);
 
       const audio = new Audio(url);
       ttsAudioRef.current = audio;
@@ -424,11 +420,8 @@ export function useVoiceCall(
       streamRef.current = null;
     }
 
-    if (ttsAudioRef.current) {
-      ttsAudioRef.current.pause();
-      URL.revokeObjectURL(ttsAudioRef.current.src);
-      ttsAudioRef.current = null;
-    }
+    releaseAudio(ttsAudioRef.current);
+    ttsAudioRef.current = null;
   }, []);
 
   const toggleCall = useCallback(() => {
@@ -452,11 +445,8 @@ export function useVoiceCall(
         streamRef.current.getTracks().forEach(t => t.stop());
         streamRef.current = null;
       }
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause();
-        URL.revokeObjectURL(ttsAudioRef.current.src);
-        ttsAudioRef.current = null;
-      }
+      releaseAudio(ttsAudioRef.current);
+      ttsAudioRef.current = null;
     };
   }, []);
 
