@@ -809,40 +809,13 @@ export function projectAttentionTier(
   return hasDone ? 'done' : null;
 }
 
-/** Is this pane producing output right now? Single entry point for every
- *  loading indicator, dispatching by pane type with derived keys. */
-export function usePaneLoading(pane: Pane): boolean {
-  const projectLoading = useProjectLoading(pane.type === 'project' ? projectPathOf(pane) : undefined);
-  const signals = useSignalsStore(
-    useShallow((s) => ({
-      live: s.liveStreamTopics,
-      hydrated: s.hydratedStreamTopics,
-      agent: s.agentActiveTopics,
-      term: s.terminalBusyIds,
-      browser: s.browserBusyPaneIds,
-      phaseActive: s.claudePhaseActiveTermIds,
-      phaseResting: s.claudePhaseRestingTermIds,
-    })),
-  );
-  switch (pane.type) {
-    case 'chat': {
-      const tid = topicIdOf(pane);
-      return !!tid && (signals.live.has(tid) || signals.hydrated.has(tid) || signals.agent.has(tid));
-    }
-    case 'terminal': {
-      const sid = terminalIdOf(pane);
-      return !!sid && terminalLoadingFrom(sid, signals.phaseActive, signals.term, signals.phaseResting);
-    }
-    case 'browser':
-      return signals.browser.has(pane.id);
-    case 'agents':
-      return signals.agent.size > 0;
-    case 'project':
-      return projectLoading;
-    default:
-      return false;
-  }
-}
+// `usePaneLoading(pane)` lived here: a per-pane dispatcher that subscribed to
+// SEVEN signal Sets through useShallow, so a single flip of `terminalBusyIds`
+// re-rendered every component holding it. It had ZERO callers — every loading
+// indicator goes through the id-based hooks below, which each subscribe to the
+// one Set they need. Removed rather than kept "just in case": the id-based
+// hooks are the API, and reviving a seven-Set subscription would undo the
+// per-signal narrowing they exist for.
 
 // ---- Id-based loading hooks (keep the spinner component API stable) ---------
 

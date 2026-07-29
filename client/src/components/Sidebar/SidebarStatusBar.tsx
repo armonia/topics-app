@@ -15,6 +15,8 @@ import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
 import { isDesktop } from '@/lib/shell';
 import { getVersion, relaunch } from '@/lib/shell/app';
+import { useAgentActivityCounts } from '@/state/signals';
+import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 
 declare const __BUILD_TIME__: string;
 declare const __BUILD_SHA__: string;
@@ -96,13 +98,16 @@ function formatBuildTime(iso: string): string {
 
 const SystemStatusPanel = lazy(() => import('./SystemStatusPanel').then(m => ({ default: m.SystemStatusPanel })));
 
-export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
+export function SidebarStatusBar({ wsStatus, dataNotice }: {
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
-  /** Live Claude Code agent counts: `working` = running/tool-running,
-   *  `awaiting` = parked for your input. Undefined hides the chip. */
-  agentCounts?: { working: number; awaiting: number; awaitingInput: number };
 } = {}) {
+  // Subscribed HERE, in the leaf that shows the number, not up in App.
+  // `useAgentActivityCounts` reads seven signal Sets through useShallow, so
+  // while App held it a single `terminal:activity` frame — several a second
+  // with a dozen live PTYs — re-rendered App, and with it PanelGrid and the
+  // whole sidebar, for a chip in the corner. Nothing else ever read it.
+  const agentCounts = useAgentActivityCounts(useTerminalSessions(), useTopics());
   // Slow polling for the status bar (60s)
   const { status } = useSystemStatus(true, 60000);
   const openclawAvailable = useOpenClawAvailable();

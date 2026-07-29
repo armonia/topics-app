@@ -61,7 +61,6 @@ import { flushPaneStoreNow, flushLocalPaneStoreNow } from './state/pane/middlewa
 import { usePaneStore } from './state/pane/store';
 import { useSignalsSync } from './state/useSignalsSync';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
-import { useAgentActivityCounts } from './state/signals';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { RESTING_SURFACE, ROW_INSET } from './lib/selectionStyles';
 import { normalizeTerminalAgent } from './lib/terminalAgents';
@@ -475,12 +474,6 @@ function App() {
   });
   const { closedTabs, removeClosedTab } = useClosedTabs();
 
-  // Live agent counts for the status bar. Counted from the SAME signals the tab
-  // spinners + blue "awaiting" fills use (useAgentActivityCounts) so the number
-  // can't drift from the surfaces — and, unlike raw phase counting, a claude-code
-  // session stuck at `starting` (hooks never fired) still counts as working via
-  // the pty-busy signal.
-  const agentCounts = useAgentActivityCounts(terminalSessions, topics);
 
   const sidebarContentRef = useRef<HTMLDivElement>(null);
 
@@ -1059,7 +1052,7 @@ function App() {
 
         {/* Status bar */}
         <ErrorBoundary fallbackMessage="Status bar error">
-        <SidebarStatusBar wsStatus={wsStatus} dataNotice={topicsError} agentCounts={agentCounts} />
+        <SidebarStatusBar wsStatus={wsStatus} dataNotice={topicsError} />
         </ErrorBoundary>
       </div>
 
