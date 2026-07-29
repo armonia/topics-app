@@ -846,10 +846,39 @@ function restoreDbSessionsOptimistically(): void {
   console.log(`[Terminal] Optimistically restored ${restored} session(s) from DB (bridge unreachable, PTYs preserved)`);
 }
 
+/**
+ * Il roster in memoria è già stato confrontato con la verità (il bridge, o il DB
+ * quando il bridge non risponde), oppure è ancora quello vuoto del boot?
+ *
+ * PERCHÉ ESISTE. `Bun.serve` parte senza attendere `reconcileSessions` (lanciato
+ * fire-and-forget in `createTerminalRouter`), quindi c'è una finestra in cui
+ * `GET /api/terminal/sessions` risponde **200 con `[]`** — indistinguibile, per chi
+ * la riceve, da "non c'è nessuna sessione". Il client la prendeva per oro colato:
+ * la scriveva nello stato E nella cache `terminal-sessions-cache` di localStorage,
+ * avvelenandola per il caricamento successivo. Da lì una pane terminale VIVA si
+ * ritrova `sessionListed === false` ed è a un riaggancio sfortunato dall'overlay
+ * "Sessione scaduta".
+ *
+ * È la stessa lezione che questo file ha già imparato una volta, dieci righe più
+ * sotto: distinguere "una risposta reale, anche vuota" da "NESSUNA risposta"
+ * (`answered.ok`). Lì valeva per il bridge, qui vale per chi interroga noi.
+ */
+let rosterReconciled = false;
+
+/** Il roster è confrontato con la verità: chi lo legge può fidarsi di un vuoto. */
+export function isRosterReconciled(): boolean {
+  return rosterReconciled;
+}
+
 async function reconcileSessions(attempt = 0): Promise<void> {
   // Standalone bundle: no bridge to reconcile against. Short-circuit so we don't
   // burn the 8× reconnect-retry cycle against a socket that will never answer.
-  if (isPtyBridgeDisabled()) return;
+  // Niente da riconciliare ⇒ il roster è autorevole da subito, non "mai".
+  if (isPtyBridgeDisabled()) {
+    rosterReconciled = true;
+    broadcastTerminalSessions();
+    return;
+  }
   // Ask the bridge which PTYs are still alive. CRITICAL: distinguish a real
   // answer (even an empty list) from NO answer (a timeout). The old code
   // resolved a timed-out `list` to `[]` and then ran the destructive branch
@@ -878,6 +907,11 @@ async function reconcileSessions(attempt = 0): Promise<void> {
     // NOT recreate/kill (that orphans them) — restore from DB optimistically.
     console.error("[Terminal] bridge 'list' never answered after retries — restoring DB sessions WITHOUT reconcile to preserve live PTYs");
     restoreDbSessionsOptimistically();
+    // Il bridge non ha risposto, ma il roster ora contiene ciò che il DB sa: è la
+    // migliore verità disponibile, e tenerlo "non autorevole" per sempre
+    // lascerebbe i client senza un vuoto di cui fidarsi mai più.
+    rosterReconciled = true;
+    broadcastTerminalSessions();
     return;
   }
 
@@ -1005,6 +1039,13 @@ async function reconcileSessions(attempt = 0): Promise<void> {
       }
     }
   }
+
+  // Da qui il roster è confrontato con la verità del bridge: un vuoto ora
+  // significa davvero "nessuna sessione". Il broadcast porta la promozione ai
+  // client già connessi, che altrimenti resterebbero con l'ultimo roster
+  // ricevuto e senza sapere che ora può essere creduto.
+  rosterReconciled = true;
+  broadcastTerminalSessions();
 }
 
 // --- Buffer request from bridge ---
@@ -1748,7 +1789,9 @@ function broadcastTerminalSessions() {
     // message → otherwise a finished session spins forever).
     busy: terminalActivity.get(s.id)?.busy ?? false,
   }));
-  _broadcastToAll({ type: 'terminal:sessions', sessions: list });
+  // `reconciled` dice se un `sessions: []` va creduto. Campo aggiuntivo, non
+  // sostitutivo: i client vecchi continuano a leggere solo `sessions`.
+  _broadcastToAll({ type: 'terminal:sessions', sessions: list, reconciled: rosterReconciled });
 }
 
 export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTracker): RouteHandler {

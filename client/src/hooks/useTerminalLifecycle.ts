@@ -12,15 +12,40 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TerminalSessionInfo, WSMessage } from '../types';
 import type { TerminalOps } from './appHookTypes';
+import { decideRosterTrust } from './rosterTrust';
 import { useRefMirror } from './useRefMirror';
 
 export interface UseTerminalLifecycleArgs {
   wsStatus: 'connecting' | 'connected' | 'reconnecting' | 'offline';
+  /**
+   * Istante dell'ultimo `ws.onopen`, da `useWebSocket`. È il trigger di re-fetch
+   * del roster, e sostituisce `wsStatus` in quel ruolo per una ragione precisa:
+   * `wsStatus` è `displayStatus`, che sopprime lo sfarfallio tenendo 'connected'
+   * per 3 s prima di ammettere una disconnessione (`useWebSocket.ts:341-356`).
+   * Un ciclo cade-e-torna più breve di 3 s non lo cambia MAI — e un hot-reload del
+   * server è esattamente quello. Risultato: dopo la riconnessione il roster non
+   * veniva mai richiesto di nuovo, e restava quello di prima della caduta.
+   * `lastConnectedAt` cambia a ogni handshake, quindi non può mancarne uno.
+   */
+  lastConnectedAt: number | null;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 export interface UseTerminalLifecycleReturn {
   sessions: TerminalSessionInfo[];
+  /**
+   * Il roster può essere creduto quando è VUOTO?
+   *
+   * `sessions: []` ha due significati che il tipo non distingue: "non ci sono
+   * sessioni" e "non lo so ancora". Il server risponde `200 []` finché
+   * `reconcileSessions` non ha finito — `Bun.serve` non lo attende — quindi il
+   * secondo caso è reale e frequente a ogni riavvio.
+   *
+   * Chi prende decisioni IRREVERSIBILI su un roster vuoto (dichiarare scaduta una
+   * pane, potarne una) deve guardare questo prima. Chi mostra soltanto una lista
+   * non ha bisogno di guardarlo.
+   */
+  rosterAuthoritative: boolean;
   refs: {
     /** Read-only ref. Lets pruneStaleTerminalPanes know whether the
      *  initial fetch completed (so it doesn't drop optimistic terminals
@@ -47,7 +72,7 @@ export interface UseTerminalLifecycleReturn {
 const GRACE_MS = 5000;
 
 export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTerminalLifecycleReturn {
-  const { wsStatus, onWSMessage } = args;
+  const { wsStatus, lastConnectedAt, onWSMessage } = args;
 
   const [sessions, setSessions] = useState<TerminalSessionInfo[]>(() => {
     try {
@@ -58,6 +83,19 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
   });
 
   const terminalSessionsLoadedRef = useRef(false);
+  /**
+   * Il roster è stato confermato almeno una volta? Deliberatamente SEPARATO da
+   * `terminalSessionsLoadedRef`: quello dice "una fetch è tornata" (e torna anche
+   * col `200 []` prematuro), questo dice "un vuoto qui va creduto". Tenerli
+   * distinti evita di cambiare il comportamento di `pruneStaleTerminalPanes`, che
+   * usa il primo e non ha bisogno del secondo.
+   *
+   * È stato, non ref, perché chi decide se dichiarare morta una pane sta in un
+   * altro albero e deve ri-renderizzarsi quando la promozione arriva. Il ref
+   * gemello serve solo a leggerlo dentro le callback senza aggiungere dipendenze.
+   */
+  const [rosterAuthoritative, setRosterAuthoritative] = useState(false);
+  const rosterAuthoritativeRef = useRef(false);
   // ISSUE 13 fix: track recently created terminal session IDs with timestamps
   // to avoid cleanup race when server WS broadcast hasn't caught up yet.
   const recentlyCreatedTerminalsRef = useRef<Map<string, number>>(new Map());
@@ -85,24 +123,56 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
     return keep.length ? [...incoming, ...keep] : incoming;
   }, [sessionsRef]);
 
+  /**
+   * Applica un roster in arrivo secondo `decideRosterTrust`, che è dove sta la
+   * regola. Qui c'è solo l'effetto: un vuoto sospetto non tocca né lo stato né la
+   * cache, così non distrugge ciò che sapevamo su sessioni ancora vive.
+   */
+  const applyRoster = useCallback((incoming: TerminalSessionInfo[], reconciled?: boolean) => {
+    const merged = mergeWithOptimistic(incoming);
+    const d = decideRosterTrust({
+      incoming: merged,
+      reconciled,
+      previous: sessionsRef.current,
+      wasAuthoritative: rosterAuthoritativeRef.current,
+    });
+    if (d.authoritative && !rosterAuthoritativeRef.current) {
+      rosterAuthoritativeRef.current = true;
+      setRosterAuthoritative(true);
+    }
+    if (!d.accept) return;
+    setSessions(merged);
+    if (d.cache) {
+      try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(merged)); } catch {}
+    }
+  }, [mergeWithOptimistic, sessionsRef]);
+
   const fetchTerminalSessions = useCallback(() => {
     fetch('/api/terminal/sessions').then(r => r.json()).then((data: TerminalSessionInfo[]) => {
       terminalSessionsLoadedRef.current = true;
-      const merged = mergeWithOptimistic(data);
-      setSessions(merged);
-      try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(merged)); } catch {}
+      // Nessun `reconciled` da questa via: il corpo è un array nudo e cambiargli
+      // forma romperebbe MCP, mobile e i test. Lo porta il broadcast.
+      applyRoster(data);
     }).catch(() => {});
-  }, [mergeWithOptimistic]);
+  }, [applyRoster]);
 
   // Fetch on mount
   useEffect(() => { fetchTerminalSessions(); }, [fetchTerminalSessions]);
 
-  // Re-fetch on WS reconnect
+  // Re-fetch a OGNI handshake della WebSocket principale, non al cambio di
+  // `wsStatus`: quello è `displayStatus`, che tiene 'connected' per 3 s per
+  // sopprimere lo sfarfallio, quindi un hot-reload del server (cade e torna in
+  // meno di 3 s) non lo cambiava mai e il roster non veniva mai richiesto di
+  // nuovo. `lastConnectedAt` cambia a ogni `ws.onopen`, quindi non se ne perde uno.
   useEffect(() => {
-    if (wsStatus === 'connected') {
-      fetchTerminalSessions();
-    }
-  }, [wsStatus, fetchTerminalSessions]);
+    if (lastConnectedAt === null) return;
+    fetchTerminalSessions();
+  }, [lastConnectedAt, fetchTerminalSessions]);
+  // `wsStatus` resta negli argomenti: è ancora il segnale giusto per il primo
+  // caricamento quando la WS era già connessa prima che questo hook montasse.
+  useEffect(() => {
+    if (wsStatus === 'connected' && lastConnectedAt === null) fetchTerminalSessions();
+  }, [wsStatus, lastConnectedAt, fetchTerminalSessions]);
 
   // WS terminal:sessions subscription — same optimistic-grace merge as the
   // fetch path (an unrelated broadcast can land before a new terminal's
@@ -110,12 +180,13 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
   useEffect(() => {
     return onWSMessage((msg) => {
       if (msg.type === 'terminal:sessions') {
-        const merged = mergeWithOptimistic(msg.sessions);
-        setSessions(merged);
-        try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(merged)); } catch {}
+        // Questa è la via che porta `reconciled`, ed è anche quella su cui il
+        // server manda un broadcast al solo momento della promozione: un client
+        // già connesso durante il boot viene raggiunto senza dover richiedere.
+        applyRoster(msg.sessions, msg.reconciled);
       }
     });
-  }, [onWSMessage, mergeWithOptimistic]);
+  }, [onWSMessage, applyRoster]);
 
   // Ops exposed to the panel hook (written via handleQuickCreateTerminal /
   // handleCloseTerminal — which live in usePanelLifecycle).
@@ -152,6 +223,7 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
 
   return {
     sessions,
+    rosterAuthoritative,
     refs: { terminalSessionsLoadedRef, recentlyCreatedTerminalsRef },
     ops: { addOptimisticSession, markRecentlyCreated, removeSession },
     pruneStaleTerminalPanes,

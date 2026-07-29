@@ -11,7 +11,8 @@ import { isTauri } from '../../lib/shell';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { registerWrappedLinkProvider, openLinkExternally } from './wrappedLinkProvider';
 import { signalsActions, useTerminalFinished, useTerminalReloading, useTerminalWorkingRing, useTerminalWatching } from '../../state/signals';
-import { useTerminalSessions } from '../../contexts/TopicsContext';
+import { useTerminalRosterAuthoritative, useTerminalSessions } from '../../contexts/TopicsContext';
+import { shouldDeclareExpired } from '../../hooks/rosterTrust';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import { AuraWave } from '../AuraWave';
 import { bumpAura } from '../../lib/auraActivity';
@@ -181,6 +182,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const lastInfoRef = useRef<(typeof terminalSessions)[number] | null>(null);
   useEffect(() => { if (sessionInfo) lastInfoRef.current = sessionInfo; }, [sessionInfo]);
   const sessionListedRef = useRef(sessionListed);
+  // Letto dentro `ws.onclose`, che vive nell'effetto keyed su sessionId e non
+  // deve ri-eseguire quando il roster viene promosso: ref, come sessionListedRef.
+  const rosterAuthoritative = useTerminalRosterAuthoritative();
+  const rosterAuthoritativeRef = useRef(rosterAuthoritative);
+  useEffect(() => { rosterAuthoritativeRef.current = rosterAuthoritative; }, [rosterAuthoritative]);
   const staleRef = useRef(stale);
   const reconnectRef = useRef<(() => void) | null>(null);
   useEffect(() => { staleRef.current = stale; }, [stale]);
@@ -563,7 +569,18 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         // we retry indefinitely (capped backoff) — that's the lossless
         // property: a reload can't strand a terminal whose session is alive.
         retryCount++;
-        if (sessionListedRef.current || retryCount <= RECONCILE_GRACE_RETRIES) {
+        // La decisione vive in `hooks/rosterTrust.ts` — pura e testata, perché è
+        // quella che ha prodotto "Sessione scaduta" su terminali VIVI e nessun
+        // test la copriva. Il gate nuovo (2026-07-30) è `rosterAuthoritative`:
+        // finché il roster non è stato confermato, la sua assenza non prova
+        // niente, dato che il server risponde `200 []` finché `reconcileSessions`
+        // non ha finito e `Bun.serve` non lo attende.
+        if (!shouldDeclareExpired({
+          sessionListed: sessionListedRef.current,
+          rosterAuthoritative: rosterAuthoritativeRef.current,
+          retryCount,
+          graceRetries: RECONCILE_GRACE_RETRIES,
+        })) {
           const delay = Math.min(500 * retryCount, 3000);
           retryTimer = setTimeout(connectWs, delay);
         } else {

@@ -415,7 +415,7 @@ function App() {
     isOwnStream,
   } = useChat();
 
-  const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage } = useWebSocket();
+  const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage, lastConnectedAt } = useWebSocket();
 
   // Live count of active (non-done) tasks across all projects — gates the
   // "Board generale" sidebar row and shows its badge.
@@ -452,7 +452,7 @@ function App() {
   // period ref + WS subscription. Exposes a pure pruneStaleTerminalPanes
   // helper used by the App-side cleanup effect below (CRITIQUE C5: NO
   // setOpenPanels crosses the seam).
-  const terminals = useTerminalLifecycle({ wsStatus, onWSMessage });
+  const terminals = useTerminalLifecycle({ wsStatus, lastConnectedAt, onWSMessage });
   const terminalSessions = terminals.sessions;
 
   // Phase 30 PANE-01: cross-device panels sync is owned by state/pane/middleware/syncWS.ts.
@@ -822,7 +822,7 @@ function App() {
   });
 
   return (
-    <TopicsProvider topics={topics} terminalSessions={terminalSessions} workspaceProjects={workspaceProjects}>
+    <TopicsProvider topics={topics} terminalSessions={terminalSessions} terminalRosterAuthoritative={terminals.rosterAuthoritative} workspaceProjects={workspaceProjects}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <SplitPositionProvider>
     <ToastProvider>

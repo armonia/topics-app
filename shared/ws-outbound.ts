@@ -687,6 +687,11 @@ const scriptsUpdatedSchema = z.looseObject({
 
 const terminalSessionsSchema = z.looseObject({
   type: z.literal('terminal:sessions'),
+  // Un `sessions: []` va creduto? Il server risponde/trasmette anche prima che
+  // `reconcileSessions` abbia finito, quindi un roster vuoto puo' significare
+  // "non lo so ancora". Facoltativo: i bundle vecchi non lo mandano, e chi lo
+  // riceve assente deve trattarlo come "non lo so". Vedi client/src/hooks/rosterTrust.ts.
+  reconciled: z.optional(z.boolean()),
 });
 
 // Battito di attività per sessione pty, tracciato sul percorso dati centrale:
