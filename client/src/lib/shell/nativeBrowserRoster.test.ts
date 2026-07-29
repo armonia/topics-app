@@ -43,4 +43,17 @@ describe('decideOrphans', () => {
   test('roster vuoto: niente da fare, non un errore', () => {
     expect(decideOrphans([], NOW, new Set())).toEqual([]);
   });
+
+  test("una webview elencata dal runtime e ignota al roster è un orfano", () => {
+    // È il caso che il solo roster non copre: dati del sito puliti, oppure un
+    // crash a metà apertura. `browser_list` la vede comunque, e senza una voce
+    // di questa pagina non può essere di nessuno.
+    const entries = [e('nota', NOW), e('ignota-al-roster', '__sconosciuta__')];
+    expect(decideOrphans(entries, NOW, new Set())).toEqual(['ignota-al-roster']);
+  });
+
+  test("una webview ignota al roster ma VIVA non si tocca", () => {
+    const entries = [e('appena-montata', '__sconosciuta__')];
+    expect(decideOrphans(entries, NOW, new Set(['appena-montata']))).toEqual([]);
+  });
 });

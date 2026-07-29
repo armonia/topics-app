@@ -25,6 +25,10 @@ const FIRST_SWEEP_MS = 2000;
  */
 const SWEEP_EVERY_MS = 30_000;
 
+/** Epoca di una webview che il runtime elenca e il roster non conosce: non l'ha
+ *  aperta questa pagina, e per la regola vale come "epoca precedente". */
+const UNKNOWN_EPOCH = '__sconosciuta__';
+
 /**
  * Chiude le WKWebView native che nessuno possiede più.
  *
@@ -42,7 +46,23 @@ export function useNativeBrowserReaper(): void {
 
     const sweep = async (): Promise<void> => {
       if (stopped) return;
-      const orphans = decideOrphans(readRoster(), PAGE_EPOCH, liveBrowserViews());
+      const roster = readRoster();
+      // `browser_list` è la verità del runtime, non una nostra copia: copre le
+      // webview che il roster non può conoscere — una pulizia dei dati del sito
+      // lo azzera, un crash a metà apertura lo lascia indietro. Un id che non
+      // compare nel roster non è stato aperto da QUESTA pagina (la voce si
+      // scrive prima della invoke), quindi entra come "epoca sconosciuta" e la
+      // regola di sempre decide.
+      //
+      // Sul binario dell'app che non ha ancora questo comando la invoke
+      // fallisce e si resta al solo roster: il reaper non ha BISOGNO della
+      // lista per funzionare, la usa se c'è.
+      const known = new Set(roster.map((e) => e.id));
+      const listed = await tauriInvoke<string[]>('browser_list').catch(() => null);
+      const entries = listed
+        ? [...roster, ...listed.filter((id) => !known.has(id)).map((id) => ({ id, epoch: UNKNOWN_EPOCH }))]
+        : roster;
+      const orphans = decideOrphans(entries, PAGE_EPOCH, liveBrowserViews());
       if (orphans.length === 0) return;
       // `browser_close` su un id senza webview è un no-op documentato
       // (`browser_close_inner`: `if let Some(wv) = …`), quindi una voce stantìa
