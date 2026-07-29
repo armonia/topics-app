@@ -13,10 +13,11 @@ import type { AcpAgentSpec } from "./acp/agents";
 
 // ============ Message Types ============
 
-export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
+// Dichiarato UNA volta in shared/types.ts (dove si chiama `ProviderChatMessage`,
+// perché nel client `ChatMessage` è il messaggio ricco della UI). Ri-esportato
+// col nome storico: i call site del server non cambiano.
+export type { ProviderChatMessage as ChatMessage } from "../../shared/types";
+import type { ProviderChatMessage as ChatMessage } from "../../shared/types";
 
 // ============ Stream Event Types ============
 
@@ -124,6 +125,9 @@ export interface AbortedEvent {
   message?: ProviderDoneMessage;
 }
 
+/** Cosa un provider AI emette verso il server. Omonimo ma NON parente dello
+ *  `StreamEvent` del client, che sono i messaggi WS `stream:*` che la chat
+ *  consuma — questi vengono tradotti prima di finire sul filo. */
 export type StreamEvent =
   | TextDeltaEvent
   | ThinkingDeltaEvent
@@ -158,33 +162,12 @@ export type ProviderCapability =
                      // Providers without this flag manage history internally
                      // (process-resident CLI, gateway-side session, etc.).
 
-/**
- * How a provider expects topic context (system blocks + history) to be
- * shaped. Read by `adaptEnvelope()` in `server/context/adapt.ts`.
- *
- * Lives here (not in `server/context/envelope.ts`) so the provider interface
- * can declare it without forcing `providers/types.ts` to import from the
- * context module — that would create a cycle, since `provider-strategy.ts`
- * needs to import `AIProvider` from here.
- *
- * - `history-aware`     System messages and prior turns are passed via
- *                       `options.history`. Stateless backends: claude,
- *                       openai, codex.
- * - `inline-system`     Provider does not accept history; system blocks are
- *                       inlined into the user turn as a `<context>...</context>`
- *                       preamble (claude-code CLI). Process-resident session.
- * - `gateway-stateful`  Gateway uses its own session state but ALSO accepts
- *                       `history` as a fallback for restart rehydration
- *                       (openclaw gateway).
- *
- * If a provider does not declare `contextStrategy`, the registry helper
- * `getProviderStrategy()` falls back to:
- *   capabilities.has("history") ? "history-aware" : "inline-system"
- */
-export type ProviderContextStrategy =
-  | "history-aware"
-  | "inline-system"
-  | "gateway-stateful";
+// `ProviderContextStrategy` è dichiarato in shared/types.ts (con la doc delle
+// tre strategie). Ri-esportato qui perché l'interfaccia `AIProvider` lo dichiara
+// e perché importarlo da `server/context/envelope.ts` farebbe ciclo:
+// `provider-strategy.ts` importa `AIProvider` da qui.
+export type { ProviderContextStrategy } from "../../shared/types";
+import type { ProviderContextStrategy } from "../../shared/types";
 
 // ============ Status & Diagnostics ============
 

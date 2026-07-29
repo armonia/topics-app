@@ -10,16 +10,10 @@
 import type { Database } from "bun:sqlite";
 import type { CompactionMarker } from "../providers/claude/compaction";
 
-export interface StoredCompactionMarker {
-  id: string;
-  topicId: string | null;
-  sessionKey: string;
-  afterMessageId: string | null;
-  trigger: "auto" | "manual" | "unknown";
-  preTokens?: number;
-  postTokens?: number;
-  createdAt: string;
-}
+// La riga vive in shared/types.ts: la legge anche il client, che la riceve in
+// `compactionMarkers[]` da GET /api/history.
+export type { StoredCompactionMarker } from "../../shared/types";
+import type { StoredCompactionMarker } from "../../shared/types";
 
 function normTrigger(v: unknown): StoredCompactionMarker["trigger"] {
   return v === "auto" || v === "manual" ? v : "unknown";

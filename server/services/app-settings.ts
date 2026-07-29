@@ -20,6 +20,8 @@
 
 import { getDatabase } from "../db";
 
+/** Config dei provider AI. Omonimo ma NON parente dell'`AppSettings` del
+ *  client (`client/src/types/index.ts`), che sono le preferenze della UI. */
 export interface AppSettings {
   aiProvider: string | null;
   claudeModel: string | null;

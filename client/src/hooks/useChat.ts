@@ -581,6 +581,8 @@ export function useChat() {
         // Render-only: no message mutation, no model resume.
         upsertMarker(sessionKey, {
           id: event.markerId,
+          sessionKey,
+          topicId: event.topicId ?? null,
           afterMessageId: event.afterMessageId ?? null,
           trigger: event.trigger,
           ...(typeof event.preTokens === 'number' ? { preTokens: event.preTokens } : {}),
