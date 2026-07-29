@@ -127,6 +127,54 @@ extern "C" {
     fn responsibility_get_pid_responsible_for_pid(pid: i32) -> i32;
     fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut u64) -> i32;
     fn proc_listpids(idtype: u32, typeinfo: u32, buffer: *mut i32, buffersize: i32) -> i32;
+    fn mach_timebase_info(info: *mut MachTimebaseInfo) -> i32;
+}
+
+/// Il rapporto fra un tick di `mach_absolute_time` e un nanosecondo.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct MachTimebaseInfo {
+    numer: u32,
+    denom: u32,
+}
+
+#[cfg(target_os = "macos")]
+static PERF_TIMEBASE: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
+
+/// Da tick di mach absolute time a nanosecondi.
+///
+/// IL BUG CHE CHIUDE, misurato il 2026-07-29: la status bar diceva **2%** con la
+/// CPU vera del gruppo al **46,6%** (delta di tempo CPU su finestra fissa di 15 s,
+/// dall'esterno, sugli stessi 25 pid). Fattore 41,67 — cioe' esattamente
+/// `numer/denom` di questo timebase su Apple Silicon (125/3).
+///
+/// La causa e' un'unita' di misura, non un calcolo: `ri_user_time` e
+/// `ri_system_time` di `rusage_info` NON sono nanosecondi. Il kernel li riempie da
+/// `task->total_user_time`, che e' in tick di mach absolute time. Su Intel il
+/// timebase e' 1/1 e i due numeri coincidono, quindi l'errore e' invisibile fino a
+/// che non si gira su Apple Silicon — dove un tick vale 41,67 ns e il contatore
+/// sottostima di quel fattore.
+///
+/// Verificato contro `ps -o time` (che e' tempo CPU reale) su 5 processi di eta'
+/// diversa: la lettura grezza stava a 1/41,67 del vero, la lettura convertita
+/// combacia alla seconda cifra decimale.
+#[cfg(target_os = "macos")]
+fn mach_ticks_to_ns(ticks: u64) -> u64 {
+    let (numer, denom) = *PERF_TIMEBASE.get_or_init(|| {
+        let mut tb = MachTimebaseInfo { numer: 0, denom: 0 };
+        // Se la chiamata fallisse, 1/1 e' la degradazione onesta: e' il timebase
+        // di Intel, quindi il numero torna a essere quello di prima invece di
+        // diventare un valore inventato.
+        if unsafe { mach_timebase_info(&mut tb) } == 0 && tb.numer > 0 && tb.denom > 0 {
+            (u64::from(tb.numer), u64::from(tb.denom))
+        } else {
+            (1, 1)
+        }
+    });
+    // Intermedio a 128 bit: `ticks * 125` sfora u64 solo oltre ~4,7 anni di CPU
+    // per processo, ma una moltiplicazione larga non costa niente e non puo'
+    // sbagliare.
+    ((u128::from(ticks) * u128::from(numer)) / u128::from(denom)) as u64
 }
 
 /// How long a discovered pid set is reused. Enumerating every process on the box
@@ -219,9 +267,11 @@ fn proc_memory(pid: i32) -> Option<(u64, u64)> {
 /// Tempo di CPU consumato da un pid dalla sua nascita, in nanosecondi.
 ///
 /// Stessi slot di `proc_memory`, che li leggeva gia' e li buttava via: 2 e'
-/// `ri_user_time`, 3 e' `ri_system_time`. E' la stessa grandezza che `ps -o time`
-/// riporta e su cui si misura la CPU dall'esterno — quindi il numero della status
-/// bar e quello di una sonda esterna parlano finalmente della stessa cosa.
+/// `ri_user_time`, 3 e' `ri_system_time`. Sono in tick di mach absolute time, non
+/// in nanosecondi — la conversione e' obbligatoria e il perche' sta su
+/// `mach_ticks_to_ns`. Convertiti, sono la stessa grandezza che `ps -o time`
+/// riporta e su cui si misura la CPU dall'esterno: il numero della status bar e
+/// quello di una sonda esterna parlano finalmente della stessa cosa.
 #[cfg(target_os = "macos")]
 fn proc_cpu_ns(pid: i32) -> Option<u64> {
     const RUSAGE_INFO_V2: i32 = 2;
@@ -229,7 +279,7 @@ fn proc_cpu_ns(pid: i32) -> Option<u64> {
     if unsafe { proc_pid_rusage(pid, RUSAGE_INFO_V2, buf.as_mut_ptr()) } != 0 {
         return None;
     }
-    Some(buf[2].saturating_add(buf[3]))
+    Some(mach_ticks_to_ns(buf[2].saturating_add(buf[3])))
 }
 
 /// Il campione precedente di CPU per pid: (nanosecondi cumulati, quando).
@@ -7036,6 +7086,95 @@ pub fn run() {
                 kill_sidecar();
             }
         });
+}
+
+/// La CPU della status bar ha già mentito tre volte, ogni volta con un numero
+/// plausibile: 224% e 85% quando il vero era 46% e 14% (finestra non
+/// deterministica di `sysinfo`), poi 2% quando il vero era 46,6% (slot di rusage
+/// letti come nanosecondi invece che come tick di mach absolute time).
+///
+/// Il primo test è quello che avrebbe preso l'ultimo, e il modo in cui lo fa è il
+/// punto: confronta `proc_pid_rusage` con `getrusage(RUSAGE_SELF)`, che misura la
+/// STESSA grandezza — il tempo di CPU di questo processo — in un'unità
+/// indipendente (secondi e microsecondi reali, non tick). Due letture della stessa
+/// cosa in due unità diverse: se l'unità è sbagliata, il rapporto lo dice.
+///
+/// Il primo tentativo confrontava invece col tempo di PARETE, e ho dovuto
+/// buttarlo: su questa macchina a load 47 un thread solo prendeva il 30% di un
+/// core, quindi il test falliva per il carico e non per il bug. Un test che
+/// dipende da quanto è occupata la macchina non è una guardia.
+#[cfg(all(test, target_os = "macos"))]
+mod perf_cpu_tests {
+    use super::{mach_ticks_to_ns, proc_cpu_ns};
+
+    /// `struct timeval`: secondi e microsecondi VERI, nessun tick di mezzo.
+    #[repr(C)]
+    #[derive(Default, Clone, Copy)]
+    struct TimeVal {
+        tv_sec: i64,
+        tv_usec: i32,
+    }
+
+    /// `struct rusage` di BSD. Servono solo i primi due campi; la coda esiste
+    /// perché il kernel scrive tutta la struttura.
+    #[repr(C)]
+    #[derive(Default)]
+    struct RUsage {
+        ru_utime: TimeVal,
+        ru_stime: TimeVal,
+        ru_rest: [i64; 14],
+    }
+
+    extern "C" {
+        fn getrusage(who: i32, usage: *mut RUsage) -> i32;
+    }
+
+    /// Tempo di CPU di questo processo in ns, dalla via completamente indipendente.
+    fn getrusage_self_ns() -> u64 {
+        const RUSAGE_SELF: i32 = 0;
+        let mut ru = RUsage::default();
+        assert_eq!(unsafe { getrusage(RUSAGE_SELF, &mut ru) }, 0, "getrusage");
+        let ns = |t: TimeVal| t.tv_sec as u64 * 1_000_000_000 + t.tv_usec as u64 * 1_000;
+        ns(ru.ru_utime) + ns(ru.ru_stime)
+    }
+
+    #[test]
+    fn il_tempo_di_cpu_e_in_nanosecondi_veri() {
+        // Brucia un po' di CPU: quanta non conta, conta che il contatore non sia
+        // ~0 — un confronto fra due zeri passerebbe qualunque cosa.
+        let start = std::time::Instant::now();
+        let mut x: u64 = 0;
+        while start.elapsed() < std::time::Duration::from_millis(300) {
+            x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        }
+        std::hint::black_box(x);
+
+        // Le tre letture sono di fila, e le due esterne fanno da forchetta: gli
+        // altri test del binario girano in parallelo e continuano a consumare CPU
+        // fra una syscall e l'altra.
+        let prima = getrusage_self_ns();
+        let nostro = proc_cpu_ns(std::process::id() as i32).expect("rusage sul nostro pid");
+        let dopo = getrusage_self_ns();
+
+        assert!(prima > 50_000_000, "CPU consumata troppo poca per confrontare: {prima} ns");
+        let rapporto = nostro as f64 / prima as f64;
+        assert!(
+            nostro >= prima / 20 * 19 && nostro <= dopo / 20 * 21,
+            "proc_pid_rusage dice {nostro} ns, getrusage dice {prima}..{dopo} ns \
+             (rapporto {rapporto:.3}): se è ~0,024 gli slot di rusage non sono \
+             stati convertiti da tick di mach absolute time a nanosecondi"
+        );
+    }
+
+    #[test]
+    fn la_conversione_del_timebase_e_monotona_e_non_azzera() {
+        // Le sole proprietà asseribili senza cablare il rapporto di UNA
+        // architettura: su Intel il timebase è 1/1 e la conversione è l'identità,
+        // su Apple Silicon è 125/3.
+        assert_eq!(mach_ticks_to_ns(0), 0);
+        assert!(mach_ticks_to_ns(1_000_000) >= 1_000_000);
+        assert!(mach_ticks_to_ns(2_000_000) > mach_ticks_to_ns(1_000_000));
+    }
 }
 
 #[cfg(test)]
