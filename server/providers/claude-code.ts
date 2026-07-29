@@ -228,7 +228,45 @@ export function mcpConfigPathForSession(sessionKey: string): string {
 //
 // Default-deny: chrome-devtools — a per-session real Chrome, redundant with
 // jarvis-browser / claude-in-chrome, and the single heaviest idle offender.
+//
 const DEFAULT_DENY_MCP = new Set(["chrome-devtools"]);
+
+/**
+ * Server che si RIAVVIANO a ogni spawn non entrano in una sessione di lavoro
+ * lunga — e la regola è strutturale, non una lista di nomi.
+ *
+ * Un server `stdio` lanciato con `npx -y <pkg>` (o `npm exec -y`, o `bunx`)
+ * risolve e scarica il pacchetto a ogni avvio: è cold-boot per costruzione, ed è
+ * fragile per la stessa ragione. Quando quel processo cade, la CLI toglie i suoi
+ * tool dallo schema e poi li rimette — e ogni giro cambia il PREFISSO del prompt.
+ * Un prefisso che cambia va riscritto in cache per intero, e in una sessione
+ * agentica la cache è il 96% del volume letto.
+ *
+ * Misurato sul transcript armonia-site (275 risposte): 8 richieste — il 2,9% —
+ * portano l'85% di TUTTE le scritture di cache della sessione, 1,97M token per
+ * ~$20-33. Sono le 8 che seguono una rimozione di tool-set, e il server che si
+ * muoveva era `wigolo` (`npx -y wigolo`), l'unico dei globali che soddisfa questa
+ * regola: gli altri sono `http` (nessun boot) o `node` su un path locale.
+ *
+ * Le chat non perdono niente di unico: la ricerca web resta con `exa` (http) e i
+ * WebSearch/WebFetch nativi. Per rimettere un server escluso da questa regola:
+ * `TOPICS_SESSION_MCP_ALLOW="wigolo,…"` (l'allowlist ha la precedenza) oppure
+ * `TOPICS_SESSION_MCP_COLDBOOT_OK=1` per disattivare la regola in blocco.
+ */
+export function isColdBootServer(def: unknown): boolean {
+  if (!def || typeof def !== "object") return false;
+  const d = def as { type?: string; command?: string; args?: unknown };
+  // Solo stdio: un server http non ha un processo da far ripartire.
+  if (d.type && d.type !== "stdio") return false;
+  const cmd = (d.command || "").split("/").pop() || "";
+  if (!/^(npx|bunx|pnpx)$/.test(cmd) && !(cmd === "npm" && Array.isArray(d.args) && d.args.includes("exec"))) {
+    return false;
+  }
+  // `npx pkg` senza `-y` si ferma a chiedere conferma e non parte affatto: è il
+  // flag di auto-conferma che rende il download silenzioso, e quindi ripetibile.
+  const args = Array.isArray(d.args) ? d.args.map(String) : [];
+  return args.includes("-y") || args.includes("--yes");
+}
 
 function parseCsvEnv(name: string): string[] {
   return (process.env[name] || "")
@@ -256,14 +294,30 @@ function resolveInheritedMcpServers(): Record<string, unknown> | null {
   }
   const allow = parseCsvEnv("TOPICS_SESSION_MCP_ALLOW");
   const deny = new Set([...parseCsvEnv("TOPICS_SESSION_MCP_DENY"), ...DEFAULT_DENY_MCP]);
+  const coldBootOk = process.env.TOPICS_SESSION_MCP_COLDBOOT_OK === "1";
+  const droppedForColdBoot: string[] = [];
   const out: Record<string, unknown> = {};
   for (const [name, def] of Object.entries(global)) {
     if (name === "topics") continue; // our bridge is added explicitly below
     if (allow.length > 0) {
       if (allow.includes(name)) out[name] = def;
-    } else if (!deny.has(name)) {
+    } else if (deny.has(name)) {
+      // già escluso per nome
+    } else if (!coldBootOk && isColdBootServer(def)) {
+      // Escluso dalla regola, non da una lista: vedi `isColdBootServer`.
+      droppedForColdBoot.push(name);
+    } else {
       out[name] = def;
     }
+  }
+  // Mai un'esclusione silenziosa: un tool che manca senza spiegazione è
+  // indistinguibile da un bug, e si finisce a cercarlo nel posto sbagliato.
+  if (droppedForColdBoot.length > 0) {
+    console.log(
+      `[claude-code] MCP esclusi perché si riavviano a ogni spawn (invalidano la cache del prompt): ` +
+        `${droppedForColdBoot.join(", ")} — per rimetterli: TOPICS_SESSION_MCP_ALLOW="${droppedForColdBoot.join(",")}" ` +
+        `oppure TOPICS_SESSION_MCP_COLDBOOT_OK=1`,
+    );
   }
   return out;
 }
