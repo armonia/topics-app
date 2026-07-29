@@ -28,6 +28,7 @@
     "check:any": "bun run scripts/check-any.ts",
     "check:nul": "bun run scripts/check-nul-bytes.ts",
     "check:deadcode": "bunx --bun knip",
+    "check:bundle": "bun run scripts/check-bundle-size.ts",
     "typecheck": "bun run typecheck:client && bun run typecheck:server && bun run typecheck:e2e",
     "typecheck:client": "cd client && ./node_modules/.bin/tsc -b",
     "typecheck:server": "bun run scripts/typecheck-server.ts",
