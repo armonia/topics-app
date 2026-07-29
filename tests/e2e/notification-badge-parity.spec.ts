@@ -91,4 +91,50 @@ test.describe("Notification badge parity (tab bar ≡ sidebar)", () => {
       await expect(page.locator(`[title="${title}"]`)).toHaveCount(0);
     }
   });
+
+  /**
+   * The other half of the contract, and the one that was broken: panes that are
+   * neither a chat nor a terminal. Their badge lives in `extraCounts` inside the
+   * TabNotification provider — `getBadgeCount` reads it for the TAB (pinned by
+   * tab-notifications.spec.ts TAB-BADGE-10/11), but `buildSidebarItems`
+   * hard-coded 0 and the utility row rendered no badge component at all. So an
+   * agents pane could light up its tab and stay silent in the sidebar: "vedo le
+   * notifiche nella tabbar ma non nella sidebar".
+   */
+  test("PARITY-02: an agents pane badges on BOTH surfaces, not just the tab", async ({
+    page,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "PARITY-02" });
+
+    const ws = await interceptWebSocket(page);
+
+    const AGENTS = "__agents__";
+    await page.request.put(`${BASE}/api/ui-state/panels`, {
+      data: { openPanels: [topicA.id, AGENTS] },
+    });
+    await page.request.put(`${BASE}/api/ui-state/panel-order`, {
+      data: { order: [topicA.id, AGENTS], pinned: [topicA.id, AGENTS] },
+    });
+    await resetPaneStore(page.request, [topicA.id, AGENTS]);
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', {
+      state: "visible",
+      timeout: 15000,
+    });
+    await page.locator(`[data-pane-id="${AGENTS}"]`).waitFor({ state: "visible", timeout: 10000 });
+    // Focus the CHAT so the agents pane is inactive on both surfaces — a focused
+    // pane suppresses its badge by design, on the tab and on the row alike.
+    await page.locator(`[data-pane-id="${topicA.id}"]`).click();
+
+    ws.send({ type: "agent:nudge", projectId: "p1", agentId: "a1" });
+
+    // (1) The tab lights up — the half that already worked.
+    const tabBadge = page.locator(`[data-pane-id="${AGENTS}"]`).locator("span.rounded-full.bg-primary");
+    await expect(tabBadge).toBeVisible({ timeout: 5000 });
+
+    // (2) The sidebar row lights up too — the half that was missing.
+    const sidebarRow = page.locator('[data-testid="sidebar-utility-agents"]');
+    await expect(sidebarRow).toBeVisible({ timeout: 5000 });
+    await expect(sidebarRow.locator("span.rounded-full.bg-primary")).toBeVisible({ timeout: 5000 });
+  });
 });

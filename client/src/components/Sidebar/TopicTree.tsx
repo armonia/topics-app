@@ -206,7 +206,12 @@ export function TopicTree({
 
   // ── Build unified items ──────────────────────────────────────────────────
 
-  const { lastNotifiedAt } = useTabNotifications();
+  // `extraCounts` rides along with lastNotifiedAt: it is the badge source for
+  // every pane that is neither a chat nor a terminal (agents panes,
+  // session-viewer). The tab bar has always read it via getBadgeCount; the
+  // sidebar hard-coded 0, which is how a badge could show on the tab and not on
+  // the row for the very same pane.
+  const { lastNotifiedAt, extraCounts } = useTabNotifications();
   // Attention signals — fed into buildSidebarItems so the sidebar badge counts
   // the same thing the tab bar does (Claude needs-you, finished terminal turns),
   // not just raw server unread.
@@ -271,11 +276,12 @@ export function TopicTree({
     claudeAttentionTopics,
     terminalFinishedIds,
     pinnedIds,
+    extraCounts,
     detachedTopicIds,
     paneTitleById,
     browserOriginById,
     sessionLastActivityById,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById]);
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, unreadData, showArchived, openPanels, projectOpenPanes, lastNotifiedAt, claudeAttentionTopics, terminalFinishedIds, pinnedIds, extraCounts, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -375,6 +381,11 @@ export function TopicTree({
       >
         <Icon size={13} className="flex-shrink-0 text-emerald-400" />
         <span className="text-[12px] flex-1 text-left truncate">{item.name}</span>
+        {/* Was missing entirely: the row rendered no badge at all, so an agents
+            pane could light up its TAB (pinned by tab-notifications.spec.ts
+            TAB-BADGE-10/11) and stay silent here. Suppressed while focused, the
+            same rule the chat row uses. */}
+        {!isFocused && <NotificationBadge count={item.notificationCount} />}
       </button>
     );
   };
