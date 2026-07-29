@@ -38,6 +38,11 @@ const HISTORY_FETCH_ALL = 0;
 // constant — no per-render identity, so it's not a hook dependency.
 const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
 
+// Quanto aspettiamo che il nostro SSE si chiuda da solo dopo che il server ha
+// annunciato la fine del turno via WS. Nel caso sano `[DONE]` arriva nello
+// stesso momento; questa finestra serve solo a non abortire un drain lento.
+const SSE_FAILSAFE_MS = 5000;
+
 const generateMessageId = () => `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
 // Topic/project/browser control moved from {{...}} markers to MCP/SDK tools,
@@ -164,6 +169,12 @@ export function useChat() {
   const abortControllersRef = useRef<Record<string, AbortController>>({});
   const wsHandlersRef = useRef<Set<(event: WSMessage) => void>>(new Set());
   const streamingTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Watchdog per il caso "il server ha finito, il nostro SSE no": vedi
+  // scheduleSSEFailsafe.
+  const sseFailsafeRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // `loadHistory` è definito molto più in basso: il failsafe lo raggiunge da
+  // qui senza dipendere dall'ordine di dichiarazione.
+  const loadHistoryRef = useRef<((sk: string) => Promise<boolean>) | null>(null);
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
   const localSSESessionsRef = useRef<Set<string>>(new Set());
   // Per-session timestamp of the last successful loadHistory fetch. Used to
@@ -252,10 +263,50 @@ export function useChat() {
     }
   }, []);
 
+  const clearSSEFailsafe = useCallback((sessionKey: string) => {
+    const t = sseFailsafeRef.current[sessionKey];
+    if (t) {
+      clearTimeout(t);
+      delete sseFailsafeRef.current[sessionKey];
+    }
+  }, []);
+
+  /**
+   * L'ultima rete di sicurezza contro la chat che resta a caricare per sempre.
+   *
+   * Mentre il nostro SSE è in volo scartiamo gli eventi WS della stessa
+   * sessione (sotto, in handleStreamEvent) per non contare due volte lo stesso
+   * contenuto — e il reconciler degli stream orfani salta le sessioni con SSE
+   * locale. Vuol dire che il turno lo chiude SOLO la risposta HTTP. Se quella
+   * resta aperta senza mai mandare `[DONE]` — è successo: il watchdog
+   * `[StaleStream]` lato server finalizzava il turno in DB e broadcastava
+   * `stream:end`, ma non aveva modo di chiudere la risposta — il lettore resta
+   * fermo su `read()` e lo spinner gira finché non ricarichi la pagina.
+   *
+   * Qui il `stream:end` via WS torna a valere qualcosa: non lo processiamo (lo
+   * farebbe due volte), ma lo prendiamo come "il server ha finito". Diamo
+   * all'SSE una finestra breve per chiudersi da solo — nel caso normale
+   * `[DONE]` arriva subito dopo — e se non chiude abortiamo il fetch. L'abort
+   * passa dal ramo AbortError di sendMessage, che finalizza il messaggio senza
+   * errori; poi ricarichiamo la history per prendere dal server il testo
+   * definitivo del turno.
+   */
+  const scheduleSSEFailsafe = useCallback((sessionKey: string) => {
+    if (sseFailsafeRef.current[sessionKey]) return; // già in attesa
+    sseFailsafeRef.current[sessionKey] = setTimeout(() => {
+      delete sseFailsafeRef.current[sessionKey];
+      if (!localSSESessionsRef.current.has(sessionKey)) return; // l'SSE ha chiuso da sé
+      console.warn(`[useChat] server ha chiuso il turno ma l'SSE è ancora aperto su ${sessionKey} — abort del fetch`);
+      abortControllersRef.current[sessionKey]?.abort();
+      loadHistoryRef.current?.(sessionKey);
+    }, SSE_FAILSAFE_MS);
+  }, []);
+
   // On unmount, clear any outstanding stream watchdog timers and abort in-flight
   // SSE requests so neither leaks past the hook's lifetime.
   useEffect(() => () => {
     for (const id of Object.values(streamingTimeoutRef.current)) clearTimeout(id);
+    for (const id of Object.values(sseFailsafeRef.current)) clearTimeout(id);
     for (const c of Object.values(abortControllersRef.current)) c.abort();
   }, []);
 
@@ -524,8 +575,15 @@ export function useChat() {
     }
 
     // Skip WS stream events for sessions with an active local SSE stream
-    // (sendMessage already processes these via HTTP response — avoid double content)
-    if (localSSESessionsRef.current.has(sessionKey)) return;
+    // (sendMessage already processes these via HTTP response — avoid double content).
+    // Gli eventi TERMINALI restano scartati come gli altri — processarli qui
+    // duplicherebbe la finalizzazione — ma non li buttiamo del tutto: dicono
+    // che il server ha chiuso il turno, e se il nostro SSE non chiude dietro
+    // sono l'unico modo per accorgersene. Vedi scheduleSSEFailsafe.
+    if (localSSESessionsRef.current.has(sessionKey)) {
+      if (event.type === 'stream:end' || event.type === 'stream:error') scheduleSSEFailsafe(sessionKey);
+      return;
+    }
 
     switch (event.type) {
       case 'stream:start':
@@ -862,7 +920,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
+  }, [addToolCallToLastMessage, updateLastMessage, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, upsertMarker]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1239,13 +1297,14 @@ export function useChat() {
       return false;
     } finally {
       releaseSendLock(sessionKey); // Release send lock
+      clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey); // Re-enable WS events for this session
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, addToolCallToLastMessage, updateLastMessage, messagesRef, bufferLiveDelta, flushLiveDeltas]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, messagesRef, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe]);
 
   // Keep sendMessage ref in sync for stream:end auto-drain
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
@@ -1445,6 +1504,8 @@ export function useChat() {
     }
   }, [resetStreamTimeout, messagesRef]);
 
+  useEffect(() => { loadHistoryRef.current = loadHistory; }, [loadHistory]);
+
   /** Edit a user message — creates a new branch and streams the assistant response. */
   /**
    * Shared SSE runner for the branch-forking endpoints (edit + regenerate).
@@ -1572,13 +1633,14 @@ export function useChat() {
       return false;
     } finally {
       releaseSendLock(sessionKey); // Release send lock
+      clearSSEFailsafe(sessionKey); // lo stream è chiuso: niente abort in ritardo
       localSSESessionsRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas]);
+  }, [addMessage, updateLastMessage, loadHistory, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe]);
 
   const editMessage = useCallback(
     (sessionKey: string, messageId: string, newContent: string): Promise<boolean> =>

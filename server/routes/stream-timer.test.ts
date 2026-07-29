@@ -25,6 +25,11 @@
  *      the CLI is mute for 3+ min while compacting) EXTENDS the grace
  *      window instead of finalizing — only a dead process (or the hard
  *      cap) finalizes as timeout.
+ *   8. Il soft timer è armato allo START, non al primo evento: un turno che
+ *      non emette MAI nulla deve finire nella stessa macchina a stati, non
+ *      nel silenzio.
+ *   9. Un abort deciso da fuori la route (sweeper StaleStream) finalizza e
+ *      spegne ogni timer: è il segnale che chiude la risposta SSE.
  *
  * The replica below is kept in one-to-one structural correspondence with
  * the route code; if either drifts, this file should fail and the
@@ -139,6 +144,9 @@ function build() {
     h.events.push("hard-timeout");
   };
   hardTimer = setTimeout(hardExpiry, STREAM_HARD_TIMEOUT_MS);
+  // Il soft timer parte allo start, non al primo evento: il silenzio iniziale
+  // (provider che non emette MAI nulla) è il caso che prima passava inosservato.
+  armSoft();
 
   const finalize = (reason: "done" | "aborted" | "error") => {
     if (softTimer) clearTimeout(softTimer);
@@ -152,7 +160,18 @@ function build() {
     h.events.push(`finalize:${reason}`);
   };
 
-  return { h, onEvent, onToolStart, onToolResult, finalize };
+  // Mirror del listener su `externalAbort.signal`: lo sweeper StaleStream ha
+  // già chiuso il turno in DB e via WS, qui resta da liberare il client SSE.
+  const externalAbort = () => {
+    if (h.state === "finalized") return;
+    if (softTimer) clearTimeout(softTimer);
+    if (graceTimer) clearTimeout(graceTimer);
+    if (hardTimer) clearTimeout(hardTimer);
+    h.state = "finalized";
+    h.events.push("sse-closed");
+  };
+
+  return { h, onEvent, onToolStart, onToolResult, finalize, externalAbort };
 }
 
 // We use bun's fake timers via setTimeout monkey-patching: bun:test's
@@ -349,6 +368,68 @@ describe("stream timer state machine", () => {
       // Never finalized: the child is alive throughout; the hard cap extended.
       expect(h.state).not.toBe("finalized");
       expect(h.events).not.toContain("hard-timeout");
+    });
+  });
+});
+
+/**
+ * Le due falle che lasciavano la chat "appesa a caricare" (2026-07-29).
+ */
+describe("turno che non parte / finalizzato da fuori", () => {
+  test("silenzio TOTALE dallo start: il soft timer scatta lo stesso", () => {
+    withFakeTimers((advance) => {
+      const { h } = build();
+      // Nessun evento: la CLI è viva ma non emette niente (MCP appeso, resume
+      // che non parte). Prima il soft timer si armava solo dal primo evento,
+      // quindi questo caso non produceva NÉ annotazione NÉ timeout.
+      advance(STREAM_TIMEOUT_MS + 1);
+      expect(h.events).toContain("soft-timeout");
+      expect(h.fullContent).toContain("stream lento");
+    });
+  });
+
+  test("silenzio totale + processo morto: si finalizza al termine della grace", () => {
+    withFakeTimers((advance) => {
+      const { h } = build();
+      advance(STREAM_TIMEOUT_MS + STREAM_GRACE_MS + 2);
+      expect(h.state).toBe("finalized");
+      expect(h.events).toContain("grace-expired");
+    });
+  });
+
+  test("silenzio totale ma processo vivo: si estende, non si uccide", () => {
+    withFakeTimers((advance) => {
+      const { h } = build();
+      h.providerAlive = true;
+      advance(STREAM_TIMEOUT_MS + STREAM_GRACE_MS * 5);
+      expect(h.state).not.toBe("finalized");
+      expect(h.events).toContain("grace-extended");
+    });
+  });
+
+  test("abort esterno (sweeper StaleStream): chiude l'SSE e spegne i timer", () => {
+    withFakeTimers((advance) => {
+      const { h, onEvent, externalAbort } = build();
+      onEvent();
+      externalAbort();
+      expect(h.state).toBe("finalized");
+      expect(h.events).toContain("sse-closed");
+      // Nessun timer sopravvive all'abort: niente soft/grace/hard in ritardo su
+      // uno stream già chiuso.
+      advance(STREAM_HARD_TIMEOUT_MS * 2);
+      expect(h.events.filter((e) => e === "soft-timeout")).toHaveLength(0);
+      expect(h.events).not.toContain("hard-timeout");
+    });
+  });
+
+  test("abort esterno dopo una finalizzazione normale: no-op", () => {
+    withFakeTimers(() => {
+      const { h, onEvent, finalize, externalAbort } = build();
+      onEvent();
+      finalize("done");
+      externalAbort();
+      expect(h.events).not.toContain("sse-closed");
+      expect(h.events.filter((e) => e.startsWith("finalize:"))).toEqual(["finalize:done"]);
     });
   });
 });
