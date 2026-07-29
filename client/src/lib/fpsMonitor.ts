@@ -90,9 +90,26 @@ function cancelPending() {
   if (timeoutId !== undefined) { clearTimeout(timeoutId); timeoutId = undefined; }
 }
 
+/** Is anybody actually looking at this window?
+ *
+ *  `document.hidden` alone is NOT that question: with the app merely BEHIND
+ *  another app — its window still on screen, just not focused — `hidden` is
+ *  false, so the monitor kept requesting frames to measure a number nobody was
+ *  reading. Each burst drags the whole `updateRendering` pipeline (intersection
+ *  and resize observations, style, layout) along with it.
+ *
+ *  Same predicate `useAnimationPause` uses to park the CSS animations, and for
+ *  the same reason — keep the two in step. */
+function windowAwake(): boolean {
+  if (document.hidden) return false;
+  // Fail OPEN when the API is absent (older embedders, test doubles): a monitor
+  // that silently stops measuring is worse than one that measures too much.
+  return typeof document.hasFocus === 'function' ? document.hasFocus() : true;
+}
+
 function scheduleMeasure() {
   cancelPending();
-  if (!running || document.hidden) return;
+  if (!running || !windowAwake()) return;
   frames = 0;
   windowStart = 0;
   rafId = requestAnimationFrame(measure);
@@ -141,6 +158,11 @@ function startLoop() {
   if (running) return;
   running = true;
   document.addEventListener('visibilitychange', onVisibility);
+  // blur/focus, not just visibilitychange: an unfocused-but-visible window
+  // never fires visibilitychange, which is exactly the state the monitor used
+  // to keep measuring through.
+  window.addEventListener('blur', onVisibility);
+  window.addEventListener('focus', onVisibility);
   scheduleMeasure();
 }
 
@@ -148,10 +170,12 @@ function stopLoop() {
   running = false;
   cancelPending();
   document.removeEventListener('visibilitychange', onVisibility);
+  window.removeEventListener('blur', onVisibility);
+  window.removeEventListener('focus', onVisibility);
 }
 
 function onVisibility() {
-  if (document.hidden) cancelPending();
+  if (!windowAwake()) cancelPending();
   else if (running) scheduleMeasure();
 }
 

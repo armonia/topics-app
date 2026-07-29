@@ -43,41 +43,32 @@ test.describe("Chat scroll behavior", () => {
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
 
-    // Wait for messages to load
-    await page.waitForTimeout(2000);
-
-    // Get the virtuoso scroller
     const scroller = page.locator('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]').first();
-    if (await scroller.count() === 0) {
-      // Fallback: find the message list container
-      test.skip(true, "Virtuoso scroller not found");
-      return;
-    }
+    await scroller.waitFor({ state: "visible", timeout: 15000 });
 
-    // Verify we're at the bottom (150px tolerance matches the app's own
-    // at-bottom threshold — AT_BOTTOM_TOLERANCE_PX in
-    // client/src/components/Chat/scrollAuthority.ts — the redesign lands ~1
-    // short message short of a tight 60px window).
-    const isAtBottom = await scroller.evaluate((el) => {
-      return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 150;
-    });
-    expect(isAtBottom).toBe(true);
+    // 150px tolerance matches the app's own at-bottom threshold
+    // (AT_BOTTOM_TOLERANCE_PX in client/src/components/Chat/scrollAuthority.ts);
+    // the redesign lands ~1 short message short of a tight 60px window.
+    const atBottom = () =>
+      scroller.evaluate((el) => Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 150);
 
-    // Add a new message
+    // POLL, don't sleep-then-sample. This assertion used to run once after a
+    // fixed waitForTimeout(2000) and failed 3 runs out of 4 on a warm machine:
+    // Virtuoso's initial bottom-anchor lands whenever the list finishes
+    // measuring, which is not on anybody's clock. Same reason the second
+    // assertion polls instead of sleeping — auto-scroll is a race with the
+    // WS frame, and the fixed wait was betting on it.
+    await expect.poll(atBottom, { timeout: 15000 }).toBe(true);
+
     await request.post(`${BASE}/api/topics/${topicId}/system-message`, {
       data: { content: `New message at ${Date.now()}` },
       ignoreHTTPSErrors: true,
     });
 
-    // Wait for the message to appear and auto-scroll
-    await page.waitForTimeout(2000);
-
-    // Should still be at the bottom (150px tolerance = app threshold,
-    // AT_BOTTOM_TOLERANCE_PX in Chat/scrollAuthority.ts)
-    const stillAtBottom = await scroller.evaluate((el) => {
-      return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 150;
-    });
-    expect(stillAtBottom).toBe(true);
+    // The list must END UP at the bottom; it may leave it for a frame while the
+    // new row is measured. Polling asserts the settled state, which is the
+    // behaviour under test.
+    await expect.poll(atBottom, { timeout: 15000 }).toBe(true);
   });
 
   test("does NOT auto-scroll when user has scrolled up", async ({ page, request }) => {

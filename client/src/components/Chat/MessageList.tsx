@@ -347,16 +347,45 @@ export function MessageList({
   // land while the scroller has no layout yet, and slow machines widen every
   // gap (CI-only failures). The poll closes them all: while a target is
   // PENDING for this topic it re-tries every 150ms until the jump fires or
-  // the store purges the target (TTL / post-fire grace). Idle cost is one
-  // Map lookup per tick — the peek short-circuits before any DOM read.
+  // the store purges the target (TTL / post-fire grace).
+  //
+  // ARMED, not always-on. It used to run unconditionally for the lifetime of
+  // every mounted MessageList — including the ones frozen behind PaneKeepAlive,
+  // which stops re-renders but not effects already mounted. With a dozen chats
+  // open that is dozens of timer wake-ups a second whose only job, 99.99% of
+  // the time, is one Map lookup that returns null. The cost was never the
+  // lookup; it was keeping the renderer's run loop awake.
+  //
+  // A target can only ever appear through `requestScrollToMessage`, which
+  // ALWAYS dispatches SCROLL_TO_MESSAGE_EVENT — so the event is a complete
+  // trigger, and the mount-time peek covers the one ordering it can't: a target
+  // registered before this list existed (palette opening a closed topic).
   const tryScrollToTargetRef = useRef(tryScrollToTarget);
   tryScrollToTargetRef.current = tryScrollToTarget;
   useEffect(() => {
-    const iv = window.setInterval(() => {
-      if (!peekScrollToMessage(topic.id)) return;
-      tryScrollToTargetRef.current();
-    }, 150);
-    return () => window.clearInterval(iv);
+    let iv: number | undefined;
+    const stop = () => {
+      if (iv !== undefined) { window.clearInterval(iv); iv = undefined; }
+    };
+    const arm = () => {
+      if (iv !== undefined) return;
+      iv = window.setInterval(() => {
+        // Self-disarming: the store purges the target on TTL or post-fire
+        // grace, so the poll cannot outlive the jump it was armed for.
+        if (!peekScrollToMessage(topic.id)) { stop(); return; }
+        tryScrollToTargetRef.current();
+      }, 150);
+    };
+    const onRequest = (e: Event) => {
+      if ((e as CustomEvent<{ topicId?: string }>).detail?.topicId === topic.id) arm();
+    };
+    window.addEventListener(SCROLL_TO_MESSAGE_EVENT, onRequest);
+    // Target registered before this list mounted (palette → closed topic).
+    if (peekScrollToMessage(topic.id)) arm();
+    return () => {
+      window.removeEventListener(SCROLL_TO_MESSAGE_EVENT, onRequest);
+      stop();
+    };
   }, [topic.id]);
 
   // Force scroll anchor when streaming starts (user just sent a message).
