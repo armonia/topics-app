@@ -42,6 +42,7 @@ export {
   hashSlot,
   inlineScope,
   markInlineSent,
+  rekeyInlineSent,
   resetInlineSent,
 } from "./inline-sent-state";
 

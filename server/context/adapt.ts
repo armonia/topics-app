@@ -145,6 +145,24 @@ function adaptInlineSystem(
   slots: SystemSlot[],
   alreadySent: ReadonlyMap<string, string> | undefined,
 ): ProviderPayload {
+  // Un comando built-in della CLI va consegnato NUDO. `/compact` & co. li parsa
+  // la CLI guardando l'inizio del messaggio: qualunque cosa messa davanti — anche
+  // un preambolo legittimo — glielo nasconde, e il comando finisce al modello, che
+  // risponde "`/compact` non esiste" e si fa pagare un turno mentre il contesto
+  // continua a crescere. Il bottone "compatta" nasce proprio quando la finestra si
+  // sta riempiendo, cioè nel momento in cui sbagliarlo costa di più.
+  //
+  // Gli slot NON vengono marcati (inlineSlots resta assente): quello che è
+  // cambiato parte al turno successivo, che e' un messaggio normale.
+  if (envelope.userMessage.content.trimStart().startsWith("/")) {
+    return {
+      userContent: envelope.userMessage.content,
+      adaptationNotes: [
+        "Slash command: sent verbatim, no <context> preamble (the CLI parses built-ins at the start of the message)",
+      ],
+    };
+  }
+
   const emitted: SystemSlot[] = [];
   const skipped: SystemSlotId[] = [];
   const inlineSlots: { slot: string; hash: string }[] = [];

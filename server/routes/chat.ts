@@ -59,6 +59,7 @@ import {
   inlineScope,
   markInlineSent,
   pushSnapshot,
+  rekeyInlineSent,
   type ContextEnvelope,
 } from "../context";
 import {
@@ -1793,8 +1794,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[] } = {};
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string } = {};
             if (overrideModel) sendOptions.model = overrideModel;
+            // Se abbiamo deduplicato, diamo al provider anche la versione integra:
+            // gli serve se la sessione CLI muore e deve rispedire su una appena
+            // coniata, che il preambolo non l'ha mai visto. `adaptEnvelope` è pura,
+            // quindi ricomporlo senza `alreadySent` costa quanto una join di stringhe.
+            if (sentScope && payload.inlineSlots) {
+              const full = adaptEnvelope(envForProvider).userContent;
+              if (full !== userContent) sendOptions.resetFallbackContent = full;
+            }
             if (historyForProvider) sendOptions.history = historyForProvider;
             // Phase 30 BROWSER-CHAT-04 — register browserTools for SDK-driven providers.
             // CLI/gateway providers (codex, claude-code, openclaw) ignore this field
@@ -1833,6 +1842,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 );
             drive.then((result) => {
               topicProvider.registerStreamHandler?.(sessionKey, result.runId, handler);
+              // Il primo turno di una sessione CLI ha composto lo scope quando la
+              // riga di `claude_code_sessions` non esisteva ancora — la crea lo
+              // spawn, dentro questa stessa sendChat. Ora l'id c'è: sposta lo stato
+              // sotto lo scope definitivo, invece di lasciarlo sotto `(none)#N` e
+              // farlo buttare al turno successivo (un preambolo intero in più,
+              // inchiodato nella conversazione e riletto per sempre).
+              // Solo a pari conteggio di compattazioni: se ne è arrivata una, il
+              // preambolo se l'è portato via e rimandarlo è l'esito corretto.
+              if (sentScope && payload.inlineSlots) {
+                try {
+                  const settled = inlineScope(readClaudeSessionId(ctx, sessionKey), countCompactions(ctx, sessionKey));
+                  rekeyInlineSent(sessionKey, sentScope, settled);
+                } catch { /* best-effort: al peggio si rimanda il contesto */ }
+              }
               console.log(`[StreamWS] chat.send OK for ${sessionKey}, runId: ${result.runId}`);
             }).catch(async (err: any) => {
               console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
