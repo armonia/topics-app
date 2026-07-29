@@ -78,7 +78,7 @@ fn register_ui_webview(window: &tauri::WebviewWindow, label: &str) {
 /// was wrong, and expensively so: measured on Attilio's box the shell alone reads
 /// 59 MB while the app really owns 24 processes and 6.9 GB of footprint. The
 /// status bar was understating usage by ~100x. See `responsible_pids`.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct PerfMetrics {
     version: String,
     /// Whole-app memory footprint in MB — this is Activity Monitor's "Memory"
@@ -224,9 +224,51 @@ fn proc_memory(pid: i32) -> Option<(u64, u64)> {
 /// a valid CPU average over the poll window, with zero added command latency.
 static PERF_SYS: std::sync::OnceLock<std::sync::Mutex<sysinfo::System>> = std::sync::OnceLock::new();
 
+/// Finestra minima fra due campionamenti della CPU, e durata di validita' del
+/// risultato.
+///
+/// IL BUG CHE CHIUDE, misurato il 2026-07-29: la status bar dichiarava 85%
+/// mentre la CPU vera del gruppo, misurata dall'esterno come delta di tempo CPU
+/// su una finestra fissa di 15 s, era 14,4%. Fattore sei.
+///
+/// La causa non e' il calcolo ma la FINESTRA. `PERF_SYS` e' uno solo, e
+/// `cpu_usage()` di sysinfo e' il delta contro l'ultimo refresh di CHIUNQUE. Il
+/// commento qui sopra assumeva un solo lettore — "the JS polls every 1.5-5s, so
+/// that's a valid CPU average over the poll window" — ma i lettori sono almeno
+/// due: la status bar (5 s, sempre montata) e il pannello perf del dropdown
+/// (1,5 s), piu' uno per ogni finestra staccata visibile. Quando due poll si
+/// incrociano, il secondo misura la CPU sui pochi millisecondi trascorsi dal
+/// primo, e su una finestra cosi' corta un singolo burst diventa l'intera
+/// media: il numero non misura piu' il carico, misura la sfortuna.
+/// Riproduzione: bastava APRIRE il dropdown perche' il numero salisse — cioe'
+/// l'atto di guardarlo lo cambiava.
+///
+/// La cura non e' un calcolo diverso, e' una finestra DETERMINISTICA: si
+/// campiona al massimo una volta ogni intervallo e, dentro quell'intervallo,
+/// ogni lettore riceve lo STESSO valore gia' calcolato. Cosi' N poller a
+/// cadenze qualsiasi, in N finestre, descrivono tutti la stessa finestra.
+const PERF_SAMPLE_WINDOW: std::time::Duration = std::time::Duration::from_millis(2000);
+
+/// L'ultima misura, con l'istante in cui e' stata presa. Serve a servire i
+/// lettori che arrivano DENTRO la finestra senza far ripartire il cronometro.
+static PERF_LAST: std::sync::OnceLock<std::sync::Mutex<Option<(std::time::Instant, PerfMetrics)>>> =
+    std::sync::OnceLock::new();
+
 #[tauri::command]
 fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
     let version = app.package_info().version.to_string();
+    // Dentro la finestra si restituisce la misura gia' presa. Non e' una cache
+    // per risparmiare lavoro: e' cio' che rende la finestra deterministica.
+    {
+        let cell = PERF_LAST.get_or_init(|| std::sync::Mutex::new(None));
+        if let Ok(g) = cell.lock() {
+            if let Some((taken, ref m)) = *g {
+                if taken.elapsed() < PERF_SAMPLE_WINDOW {
+                    return m.clone();
+                }
+            }
+        }
+    }
     let sys_mutex = PERF_SYS.get_or_init(|| std::sync::Mutex::new(sysinfo::System::new()));
     let own = match sysinfo::get_current_pid() {
         Ok(pid) => pid,
@@ -333,7 +375,7 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
     }
     const MB: f64 = 1_048_576.0;
 
-    PerfMetrics {
+    let out = PerfMetrics {
         version,
         total_mb: footprint as f64 / MB,
         resident_mb: resident as f64 / MB,
@@ -347,7 +389,14 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
         cpu_gpu,
         process_count: pids.len() as u32,
         partial,
+    };
+    // Pubblica la misura: chi legge nei prossimi PERF_SAMPLE_WINDOW riceve
+    // questa, invece di far ripartire il cronometro e misurare la CPU su pochi
+    // millisecondi. E' il pezzo che rende la finestra deterministica.
+    if let Ok(mut g) = PERF_LAST.get_or_init(|| std::sync::Mutex::new(None)).lock() {
+        *g = Some((std::time::Instant::now(), out.clone()));
     }
+    out
 }
 
 /// Loopback port the WKWebView reaches the data server through (plain HTTP/WS).
