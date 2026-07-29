@@ -1,17 +1,16 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { parseBrowserWsMessage, type BrowserWsMessage } from '../../../shared/browser-ws-messages';
+import type { ElementDescription } from '../../../shared/element-describe';
 import { serverWsBase } from '@/lib/shell/net';
 import { mapCoordinates } from './browserCoords';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
 // Phase 30 BROWSER-CHAT-04 — DOM info for the select-element pattern (Cursor Cmd+Shift+E).
-export interface SelectedElementInfo {
-  path: string;
-  cssPath: string;
-  bbox: { x: number; y: number; w: number; h: number };
-  text?: string;
-}
+// 4.2: non è più un sottoinsieme dichiarato a parte ma LA descrizione condivisa
+// (`shared/element-describe`), la stessa che gira nella pane nativa — così il
+// pick web e il pick nativo non possono divergere di campo.
+export type SelectedElementInfo = ElementDescription;
 
 /** A download the headless page triggered, saved server-side. `href` points at
  *  our own origin (user-clicked link) — the web pane has no native shelf. */

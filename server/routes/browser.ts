@@ -333,6 +333,34 @@ export function createBrowserRouter(
       }
     }
 
+    // --- 4.2 — descrizione COMPLETA dell'elemento sotto il punto ---
+    // Rotta a parte, e non un flag su /inspect, perché le due hanno cadenze
+    // opposte: /inspect lo chiama l'hover ogni 100 ms e deve restare a costo
+    // zero, questa la chiama il CLICK e in cambio fa markup + stile calcolato
+    // + uno screenshot ritagliato. `?screenshot=0` per chi vuole solo il DOM.
+    const describeMatch = matchRoute(pathname, "/api/browsers/:id/describe-element");
+    if (method === "POST" && describeMatch) {
+      const body = await readJSON(req);
+      const x = Number(body?.x);
+      const y = Number(body?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return errorResponse(400, "x and y required");
+      }
+      try {
+        const info = await browserService.describeElementAtPoint(
+          describeMatch.id,
+          { x, y },
+          { screenshot: body?.screenshot !== false },
+        );
+        if (!info) return errorResponse(404, "Element not found at point");
+        return json(info);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Routes/browser] /describe-element failed:`, msg);
+        return errorResponse(500, `Describe failed: ${msg}`);
+      }
+    }
+
     // --- Interact (unified REST endpoint for agents) ---
     const interactMatch = matchRoute(pathname, "/api/browsers/:id/interact");
     if (method === "POST" && interactMatch) {

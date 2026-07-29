@@ -5,6 +5,7 @@ import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLa
 import type { Topic } from "./types";
 import type { IndexedElement } from "./browser-tools";
 import type { BrowserWsMessage } from "../shared/browser-ws-messages";
+import { DESCRIBE_ELEMENT_FN, type ElementDescription } from "../shared/element-describe";
 import {
   extractIndexedElementsOnPage,
   captureAnnotatedScreenshotOnPage,
@@ -267,6 +268,16 @@ export interface BrowserService {
     bbox: { x: number; y: number; w: number; h: number };
     text?: string;
   } | null>;
+  /** 4.2 — la descrizione COMPLETA dell'elemento sotto il punto: markup potato,
+   *  stile calcolato, antenati e un ritaglio dello schermo. È quello che serve
+   *  a un modello per MODIFICARE l'elemento; `resolveElementAtPoint` basta solo
+   *  a nominarlo (e resta perché l'hover lo chiama ogni 100 ms).
+   *  Null alle stesse condizioni: contesto assente o punto vuoto. */
+  describeElementAtPoint(
+    contextId: string,
+    point: { x: number; y: number },
+    opts?: { screenshot?: boolean },
+  ): Promise<ElementDescription | null>;
 }
 
 export async function createBrowserService(opts: BrowserServiceOptions = {}): Promise<BrowserService> {
@@ -1644,6 +1655,66 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[BrowserService] resolveElementAtPoint failed for ${contextId}:`, msg);
         return null;
+      }
+    },
+
+    // 4.2 — click-to-edit pieno. La sonda (`DESCRIBE_ELEMENT_FN`, condivisa con
+    // la pane nativa) fa UNA sola evaluate; il ritaglio è UNO solo screenshot
+    // con `clip`. Due round-trip in tutto: questo endpoint lo chiama il CLICK,
+    // non l'hover — l'hover continua a passare da `resolveElementAtPoint`.
+    async describeElementAtPoint(contextId, point, opts) {
+      const entry = contexts.get(contextId);
+      if (!entry) return null;
+      const page = entry.page;
+      let described: ElementDescription | null;
+      try {
+        described = await page.evaluate(DESCRIBE_ELEMENT_FN, { x: point.x, y: point.y });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[BrowserService] describeElementAtPoint failed for ${contextId}:`, msg);
+        return null;
+      }
+      touchActivity(entry);
+      if (!described) return null;
+      if (opts?.screenshot === false) return described;
+
+      // Il ritaglio con un filo di margine: un bottone tagliato al pixel non
+      // dice dove sta, e il contorno è metà dell'informazione visiva.
+      // `clip` di Playwright, con fullPage false, è in CSS px RELATIVI AL
+      // VIEWPORT — le stesse coordinate di getBoundingClientRect, quindi la
+      // bbox ci va dentro così com'è.
+      const PAD = 8;
+      const vw = described.viewport.w || 1280;
+      const vh = described.viewport.h || 720;
+      const cx = Math.max(0, Math.floor(described.bbox.x - PAD));
+      const cy = Math.max(0, Math.floor(described.bbox.y - PAD));
+      const cw = Math.min(vw - cx, Math.ceil(described.bbox.w + PAD * 2));
+      const ch = Math.min(vh - cy, Math.ceil(described.bbox.h + PAD * 2));
+      if (cw < 2 || ch < 2) return described; // elemento a superficie nulla: niente da ritagliare
+
+      try {
+        // PNG per i ritagli piccoli (testo di UI: il JPEG lo impasta), JPEG per
+        // le selezioni grosse, dove il peso conta più del bordo netto.
+        const lossless = cw * ch <= 640 * 640;
+        const buf = await page.screenshot({
+          type: lossless ? "png" : "jpeg",
+          ...(lossless ? {} : { quality: 80 }),
+          clip: { x: cx, y: cy, width: cw, height: ch },
+        });
+        return {
+          ...described,
+          screenshot: {
+            dataUrl: `data:image/${lossless ? "png" : "jpeg"};base64,${buf.toString("base64")}`,
+            w: cw,
+            h: ch,
+          },
+        };
+      } catch (err: unknown) {
+        // Uno screenshot fallito (navigazione a metà, pagina che si chiude) non
+        // deve buttare via la descrizione: si consegna senza immagine.
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[BrowserService] ritaglio non riuscito per ${contextId}:`, msg);
+        return described;
       }
     },
   };

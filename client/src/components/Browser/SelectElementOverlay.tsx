@@ -4,6 +4,7 @@
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { formatElementContext, type ElementDescription } from '../../../../shared/element-describe';
 
 export interface SelectElementOverlayProps {
   contextId: string;
@@ -13,12 +14,7 @@ export interface SelectElementOverlayProps {
    *  is still accepted for any legacy caller. Same letterbox/aspect math. */
   surfaceRef: React.RefObject<HTMLImageElement | HTMLVideoElement | null>;
   pageScaleFactor: number;
-  onPick: (element: {
-    path: string;
-    cssPath: string;
-    bbox: { x: number; y: number; w: number; h: number };
-    text?: string;
-  }) => void;
+  onPick: (element: ElementDescription) => void;
   onCancel: () => void;
 }
 
@@ -148,22 +144,36 @@ export function SelectElementOverlay({
       const coords = mapCoordsToPage(e.clientX, e.clientY);
       if (!coords) return;
       try {
-        const res = await fetch(`/api/browsers/${encodeURIComponent(contextId)}/inspect`, {
+        // Il CLICK chiede la descrizione PIENA (markup + stile calcolato +
+        // ritaglio): l'hover resta su /inspect, che è l'endpoint a costo zero.
+        const res = await fetch(`/api/browsers/${encodeURIComponent(contextId)}/describe-element`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(coords),
         });
         if (!res.ok) return;
-        const info = await res.json();
-        if (info?.bbox) {
-          // Phase 30 BROWSER-CHAT-04 — dispatch chat:insert-text so any chat
-          // input wired to listen receives the picked element as a context
-          // message. Loosely coupled (no prop drilling). Parent's onPick can
-          // also subscribe to selectedElement state via the hook.
-          const text = `Selected element: ${info.cssPath} @ ${info.path} (bbox: ${info.bbox.x},${info.bbox.y},${info.bbox.w},${info.bbox.h})${info.text ? ` text: "${info.text}"` : ''}`;
-          window.dispatchEvent(new CustomEvent('chat:insert-text', { detail: { text } }));
-          onPick(info);
+        const info = (await res.json()) as ElementDescription;
+        if (!info?.bbox) return;
+        // Il testo e l'immagine viaggiano su due eventi window: chi li ascolta
+        // (ChatInput) decide da solo se è il destinatario — vedi chatFocus.
+        window.dispatchEvent(
+          new CustomEvent('chat:insert-text', {
+            detail: { text: formatElementContext(info, { screenshotAttached: !!info.screenshot }) },
+          }),
+        );
+        if (info.screenshot) {
+          window.dispatchEvent(
+            new CustomEvent('chat:attach-image', {
+              detail: {
+                dataUrl: info.screenshot.dataUrl,
+                mimeType: info.screenshot.dataUrl.startsWith('data:image/jpeg')
+                  ? 'image/jpeg'
+                  : 'image/png',
+              },
+            }),
+          );
         }
+        onPick(info);
       } catch {
         // Ignore — user can retry.
       }
