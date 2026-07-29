@@ -4,7 +4,7 @@ import { join } from "path";
 import { loadStorageState, saveStorageState, debouncedSaver, saveLastUrl, loadLastUrl } from "./browser-state-store";
 import type { Topic } from "./types";
 import type { IndexedElement } from "./browser-tools";
-import type { BrowserWsMessage } from "./browser-ws-messages";
+import type { BrowserWsMessage } from "../shared/browser-ws-messages";
 import {
   extractIndexedElementsOnPage,
   captureAnnotatedScreenshotOnPage,

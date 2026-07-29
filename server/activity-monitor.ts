@@ -2,33 +2,9 @@ import { watch, existsSync, readFileSync, statSync, writeFileSync, mkdirSync, op
 import { join, dirname } from "path";
 import { resolveStateDir } from "./lib/data-dir";
 
-export type ActivityCategory =
-  | 'tool:exec'
-  | 'tool:browser'
-  | 'tool:read'
-  | 'tool:write'
-  | 'tool:edit'
-  | 'tool:search'
-  | 'tool:message'
-  | 'memory'
-  | 'channel'
-  | 'cron'
-  | 'heartbeat'
-  | 'session'
-  | 'error'
-  | 'system';
-
-export interface ActivityEvent {
-  id: string;
-  timestamp: string;
-  category: ActivityCategory;
-  level: 'debug' | 'info' | 'warn' | 'error';
-  title: string;
-  detail?: string;
-  subsystem?: string;
-  sessionKey?: string;
-  raw?: string;
-}
+// Forme del feed: `shared/monitoring.ts` (le legge anche il client).
+export type { ActivityCategory, ActivityEvent } from "../shared/monitoring";
+import type { ActivityCategory, ActivityEvent } from "../shared/monitoring";
 
 type Subscriber = (events: ActivityEvent[]) => void;
 

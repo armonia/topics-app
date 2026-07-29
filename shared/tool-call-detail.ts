@@ -1,21 +1,24 @@
 /**
- * Zod schema for `ToolCallDetail` (v3 foundations NORM-01 foundation, client).
+ * Schema Zod di `ToolCallDetail` — UNO, per i due lati del filo.
  *
- * Mirror of `server/schemas/tool-call-detail.ts`. The TS6307 composite
- * project boundary forbids cross-import from `server/`, so the schema is
- * duplicated; the canonical TS type lives in `client/src/types/index.ts`.
+ * Fino al 29/07 questo schema esisteva due volte: `server/schemas/` e
+ * `client/src/schemas/`, ciascuno con in testa un "KEEP IN SYNC" e la stessa
+ * scusa — "TS6307 vieta l'import cross-progetto". Quella scusa è morta con
+ * `shared/`, l'unica cartella che entrambi i progetti TS includono (vedi
+ * `shared/ws-outbound.ts`): il vincolo strutturale è che il contratto sia UNO,
+ * non che due file restino gentilmente uguali.
  *
- * KEEP IN SYNC with:
- *   - `client/src/types/index.ts:ToolCallDetail` (the canonical client type)
- *   - `server/schemas/tool-call-detail.ts` (the server source of truth)
+ * Idioma `zod/mini` perché il modulo finisce nel bundle client, dove la
+ * variante method-heavy pesa nel chunk d\'ingresso: `z.optional(x)` sta per
+ * `x.optional()`, `.safeParse` è identico.
  *
- * Uses `zod/mini` (functional, tree-shakable API) so this client-bundled
- * schema doesn't drag the method-heavy core into the critical entry chunk.
- * `z.optional(...)` / `z.nullable(...)` replace the `.optional()` / `.nullable()`
- * methods; `.safeParse` is identical across full zod and zod/mini.
+ * L\'asserzione in fondo (`ZodInferredToolCallDetail`, verificata in
+ * `tests/unit/tool-call-detail-schema.test.ts` nelle due direzioni) tiene lo
+ * schema e il tipo di `shared/types.ts` strutturalmente uguali: se divergono,
+ * il typecheck del test si rompe.
  */
 import { z } from 'zod/mini';
-import type { ToolCallDetail } from '../types';
+import type { ToolCallDetail } from './types';
 
 const shellSchema = z.object({
   type: z.literal('shell'),
@@ -195,13 +198,17 @@ export type ParseResult =
   | { ok: false; error: string };
 
 /**
- * Validate and parse a value as a ToolCallDetail. Use at boundaries that
- * receive untrusted detail payloads (WS stream events, DB hydration of
- * legacy rows, etc.) instead of an unsafe cast.
+ * Valida un valore come `ToolCallDetail`. Da usare ai confini che ricevono un
+ * detail non fidato (righe DB legacy, risposte del provider, frame WS) invece
+ * di un cast al buio. In caso di errore la stringa contiene gli issue Zod
+ * qualificati per path, già pronti da loggare.
  */
 export function parseToolCallDetail(value: unknown): ParseResult {
   const result = toolCallDetailSchema.safeParse(value);
   if (result.success) {
+    // Cast: il tipo inferito da Zod e quello canonico sono strutturalmente
+    // uguali (asserito in fondo al file); l'unica differenza possibile sarebbe
+    // la readonly-ness, che Zod non emette.
     return { ok: true, data: result.data as ToolCallDetail };
   }
   const error = result.error.issues
@@ -210,4 +217,15 @@ export function parseToolCallDetail(value: unknown): ParseResult {
   return { ok: false, error };
 }
 
+/** Variante booleana per chi ha bisogno solo di un sì/no. */
+export function isToolCallDetail(value: unknown): value is ToolCallDetail {
+  return toolCallDetailSchema.safeParse(value).success;
+}
+
+/**
+ * Uguaglianza strutturale a compile-time: il tipo inferito dallo schema deve
+ * coincidere con `ToolCallDetail` di `shared/types.ts`. Verificata in
+ * `tests/unit/tool-call-detail-schema.test.ts` nelle DUE direzioni — la deriva
+ * rompe il typecheck del test.
+ */
 export type ZodInferredToolCallDetail = z.infer<typeof toolCallDetailSchema>;

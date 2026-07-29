@@ -17,7 +17,7 @@ import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
-import { parseToolCallDetail } from "./schemas/tool-call-detail";
+import { parseToolCallDetail } from "../shared/tool-call-detail";
 import { validateOutbound } from "../shared/ws-outbound";
 import type { OutboundMessage } from "../shared/ws-outbound";
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { parseBrowserWsMessage } from './browser-ws-messages';
+import { parseBrowserWsMessage } from '../shared/browser-ws-messages';
 
 // Protocol contract for the two variants added for native-grade streaming:
 // `resize` (client -> server) and `download` (server -> client). The Zod union

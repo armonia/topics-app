@@ -17,7 +17,7 @@ import {
   parseBrowserWsMessage,
   isBrowserWsMessage,
   type BrowserWsMessage,
-} from '../../server/browser-ws-messages';
+} from '../../shared/browser-ws-messages';
 
 describe('browserWsMessageSchema — valid round-trips', () => {
   const validMessages: BrowserWsMessage[] = [
@@ -183,6 +183,15 @@ describe('isBrowserWsMessage — backward-compat boolean guard', () => {
   });
 });
 
+/**
+ * `zod` espone le varianti su `.options`, `zod/mini` sotto `.def.options`: lo
+ * schema condiviso è in mini (finisce nel bundle client).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function variantsOf(schema: any): any[] {
+  return schema.options ?? schema.def?.options ?? [];
+}
+
 describe('schema completeness', () => {
   test('all 17 protocol variants are present', () => {
     // Snapshot test: if a new variant is added to the schema, this count
@@ -191,16 +200,16 @@ describe('schema completeness', () => {
     // (resize, download, engine toggle, stream/render toggles, rrweb
     // dom_event, and the WebRTC transport trio). See the frozen literal
     // list in tests/unit/ws-contract.test.ts for the per-variant rationale.
-    const variantCount = browserWsMessageSchema.options.length;
+    const variantCount = variantsOf(browserWsMessageSchema).length;
     expect(variantCount).toBe(17);
   });
 
   test('every variant uses a unique `type` literal', () => {
-    const literals = browserWsMessageSchema.options.map((opt) => {
-      // Zod 4: literal is in shape.type.value
+    const literals = variantsOf(browserWsMessageSchema).map((opt) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const shape: any = (opt as any).shape;
-      return shape.type.value;
+      const shape: any = (opt as any).shape ?? (opt as any).def?.shape;
+      // `zod` mette il valore su `.value`, `zod/mini` in `.def.values[0]`.
+      return shape.type.def?.values?.[0] ?? shape.type.value;
     });
     const unique = new Set(literals);
     expect(unique.size).toBe(literals.length);

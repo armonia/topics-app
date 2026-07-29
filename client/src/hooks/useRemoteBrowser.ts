@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { parseBrowserWsMessage, type BrowserWsMessage } from '@/types/browser-ws-messages';
+import { parseBrowserWsMessage, type BrowserWsMessage } from '../../../shared/browser-ws-messages';
 import { serverWsBase } from '@/lib/shell/net';
 import { mapCoordinates } from './browserCoords';
 

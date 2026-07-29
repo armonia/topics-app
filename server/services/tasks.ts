@@ -25,10 +25,17 @@ import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun, type ReviewCheck } from "./review-checks";
 
-export type TaskStatus = "backlog" | "todo" | "in_progress" | "review" | "done";
+// Stati e forma del thread stanno in `shared/board.ts`: il client li legge
+// dalla stessa dichiarazione invece di riscriverli. `export type … from`
+// ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono.
+export { TASK_STATUSES } from "../../shared/board";
+export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
+import { TASK_STATUSES } from "../../shared/board";
+import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
+
 export type Actor = "human" | "agent";
 
-const STATUSES: readonly TaskStatus[] = ["backlog", "todo", "in_progress", "review", "done"];
+const STATUSES: readonly TaskStatus[] = TASK_STATUSES;
 
 /**
  * Reserved board id for tasks created WITHOUT a project (e.g. work spanning
@@ -158,28 +165,6 @@ export interface Task {
   userCommentCount: number;
 }
 
-export interface TaskComment {
-  id: string;
-  taskId: string;
-  author: string;
-  content: string;
-  mentions: string[];
-  /** Attached files: absolute paths from /api/upload, served via /api/media. */
-  media: string[];
-  createdAt: string;
-  /**
-   * 'comment' = a human/agent message. 'status' = a transition event written
-   * by the service at every status write (content "from→to", author = who
-   * moved it) — the thread doubles as the status history. Status events never
-   * count as "the agent's last word" (review gate, delivered/needs_input chip).
-   * 'review-note' = machine-authored review evidence (e.g. the verifier's live
-   * preview screenshot). Like 'status', it is NOT "the agent's last word" and,
-   * crucially, it never travels the human POST /comments path — so it never
-   * triggers reject+resume: it informs the reviewer without waking the agent.
-   */
-  kind: "comment" | "status" | "review-note";
-}
-
 export interface CreateTaskInput {
   projectId: string;
   text: string;
@@ -241,76 +226,13 @@ export interface ListTasksInput {
   rootsOnly?: boolean;
 }
 
-/** Per-board dispatch config (mirrors the `board_settings` row). */
-export interface BoardSettings {
-  projectId: string;
-  /**
-   * GLOBAL start switch (reserved row `project_id='*'`), surfaced here so
-   * every per-board read keeps gating dispatch without knowing about the
-   * global row. Writing it through updateBoardSettings flips it for ALL boards.
-   */
-  autoDispatch: boolean;
-  /** Concurrency cap = max tasks running an agent at once on this board. */
-  maxAgents: number;
-  /** When true, the cap is auto-sized from live machine capacity (dispatch-capacity.ts)
-   *  and `maxAgents` is ignored for dispatch (kept as the manual fallback value). */
-  maxAgentsAuto: boolean;
-  dispatchEffort: string;
-  dispatchUseWorktree: boolean;
-  /**
-   * Auto-merge the task's worktree branch into the project's main checkout when a
-   * human approves it (review → done). Programmatic: clean merge lands locally (NO
-   * push); a conflict hands the branch back to the task's own agent to resolve; an
-   * unready checkout (dirty / not on main) is skipped. Default OFF — no existing
-   * board changes behaviour until it's turned on. Only meaningful with
-   * `dispatchUseWorktree` on (an in-place task has no branch to merge).
-   */
-  dispatchAutoMerge: boolean;
-  dispatchTimeoutMin: number;
-  /**
-   * MCP fleet for dispatched agents on this board (migration 049).
-   * 'bridge-only' (the NULL default) = only the topics bridge, dispatch tool
-   * profile — the global fleet's tool schemas never enter the agent's context.
-   * 'inherit' = escape hatch: the session inherits the user's full MCP fleet
-   * (for boards whose tasks genuinely need those tools).
-   */
-  dispatchMcp: string;
-  /**
-   * Default model for dispatched agents on this board.
-   * 'auto' (the NULL default) → the classifier picks a model per task (prior
-   * behaviour). A concrete model id (e.g. 'claude-opus-4-8') pins every dispatch
-   * on this board to it. An explicit per-task model still wins over the board default.
-   */
-  dispatchModel: string;
-  /** Launch attempts before a task is parked (default 2). */
-  dispatchRetryCap: number;
-  /** Backoff (s) before resuming a turn that died faster than it (outage guard, default 60). */
-  dispatchRetryBackoffS: number;
-  requireApprovalForDone: boolean;
-  requireReviewBeforeDone: boolean;
-  /**
-   * Comandi che devono essere verdi perché una consegna entri in review, eseguiti
-   * dal server nel worktree del task. Lista vuota = gate spento, che è il default:
-   * niente si inferisce da package.json (`npm test` qui è la suite E2E, venti
-   * minuti — un default così verrebbe spento il primo giorno).
-   */
-  reviewChecks: ReviewCheck[];
-}
 
-export interface UpdateBoardSettingsPatch {
-  autoDispatch?: boolean;
-  maxAgents?: number;
-  maxAgentsAuto?: boolean;
-  dispatchEffort?: string;
-  dispatchUseWorktree?: boolean;
-  dispatchAutoMerge?: boolean;
-  dispatchTimeoutMin?: number;
-  dispatchMcp?: string;
-  dispatchModel?: string;
-  dispatchRetryCap?: number;
-  dispatchRetryBackoffS?: number;
-  reviewChecks?: ReviewCheck[];
-}
+/**
+ * Il patch è DERIVATO da `BoardSettings` in `shared/board.ts`: elencarne i campi
+ * a mano voleva dire tenere allineate due liste (e il client ne teneva una terza,
+ * già indietro di due campi).
+ */
+export type UpdateBoardSettingsPatch = BoardSettingsPatch;
 
 /**
  * `tasks.checks_json` → `CheckRun[]`. Tollerante come il parser delle impostazioni:

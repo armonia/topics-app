@@ -19,25 +19,10 @@
  *   produrre rumore. Chi legge vuole il PRIMO motivo, non l'elenco.
  */
 
-/** Un comando dichiarato nelle impostazioni della board. */
-export interface ReviewCheck {
-  name: string;
-  cmd: string;
-}
-
-/** Esito di un comando. `tail` è la coda dell'output combinato (stdout+stderr). */
-export interface CheckRun {
-  name: string;
-  cmd: string;
-  ok: boolean;
-  /** Exit code; null se è stato ucciso (timeout o abort). */
-  code: number | null;
-  ms: number;
-  timedOut: boolean;
-  tail: string;
-  /** Valorizzato solo se il comando non è nemmeno partito (binario assente, cwd sparita). */
-  spawnError?: string;
-}
+// Le FORME (comando dichiarato, esito) stanno in `shared/board.ts`: le legge
+// anche il client per renderizzare il gate. Qui resta l'esecuzione.
+export type { ReviewCheck, CheckRun } from "../../shared/board";
+import type { ReviewCheck, CheckRun } from "../../shared/board";
 
 /** Quanti check al massimo: oltre, la "verifica" diventa una pipeline CI travestita. */
 export const MAX_CHECKS = 5;

@@ -15,27 +15,10 @@
  * This module is the pure, unit-testable home for those shapes and helpers.
  */
 
-/** Mirror of server/browser-login-state.ts `StorageCookie` (Playwright shape) —
- *  and of the Rust `CookieJson` the native cookie commands speak. */
-export interface StorageCookie {
-  name: string;
-  value: string;
-  domain?: string;
-  path?: string;
-  /** Epoch seconds; -1 (or absent) = session cookie. */
-  expires?: number;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: 'Strict' | 'Lax' | 'None';
-}
-export interface StorageOrigin {
-  origin: string;
-  localStorage: Array<{ name: string; value: string }>;
-}
-export interface StorageState {
-  cookies: StorageCookie[];
-  origins: StorageOrigin[];
-}
+// Il formato sta in `shared/browser-login-state.ts` — non è più uno specchio
+// del server: è la stessa dichiarazione.
+export type { StorageCookie, StorageOrigin, StorageState } from '../../../../shared/browser-login-state';
+import type { StorageCookie } from '../../../../shared/browser-login-state';
 
 /** Superset input `toCookieJson` accepts: a Playwright storage cookie (from a
  *  saved state) OR a CDP `Network.setCookies` param (from the server's Chrome

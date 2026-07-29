@@ -1,13 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-export interface JournalEvent {
-  id: string;
-  timestamp: string;
-  sessionKey: string;
-  type: 'tool_call' | 'message' | 'session_start' | 'session_end' | 'error';
-  summary: string;
-  detail?: string;
-}
+// Forma dell'evento: `shared/monitoring.ts`.
+export type { JournalEvent } from '../../../shared/monitoring';
+import type { JournalEvent } from '../../../shared/monitoring';
 
 interface UseJournalOptions {
   date?: string;

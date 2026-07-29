@@ -1,13 +1,8 @@
 import { useState, useCallback, useRef } from 'react';
 
-export interface Checkpoint {
-  idx: number;
-  messageCount: number;
-  timestamp: string;
-  description: string;
-  gitHash?: string;
-  gitBranch?: string;
-}
+// Forma del checkpoint: `shared/types.ts` (la scrive `server/routes/checkpoints.ts`).
+export type { Checkpoint } from '../../../shared/types';
+import type { Checkpoint } from '../../../shared/types';
 
 const API_BASE = '/api';
 

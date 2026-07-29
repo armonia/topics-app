@@ -32,30 +32,10 @@
 import type { ProviderUsage } from "../providers/types";
 import { classifyContext, contextWindowFor, type ContextUsage } from "./context-window";
 
-/** Costo cumulato della sessione, se il provider lo sa. Forma ACP. */
-export interface UsageCost {
-  amount: number;
-  /** Codice valuta ISO 4217. I provider che conosciamo riportano USD. */
-  currency: string;
-}
-
-/**
- * Il blocco ACP, verbatim. `sessionUpdate` è il discriminante richiesto dallo
- * standard: lo teniamo anche se il nostro envelope ha già `type`, perché è
- * quello che rende il blocco inoltrabile senza riscriverlo.
- */
-export interface AcpUsageUpdate {
-  sessionUpdate: "usage_update";
-  /** Token attualmente in contesto. */
-  used: number;
-  /** Dimensione totale della finestra, in token. */
-  size: number;
-  /** Costo cumulato della sessione. Opzionale in ACP e oggi mai valorizzato:
-   *  il costo lo conosciamo solo a fine turno (evento `result`), mentre questo
-   *  aggiornamento parte a ogni chiamata. Sta nel tipo perché è lì che va
-   *  quando lo avremo, non in un campo inventato altrove. */
-  cost?: UsageCost;
-}
+// Il blocco ACP e il suo costo stanno in `shared/types.ts`: è la forma che
+// arriva al client nel contatore di contesto, non un dettaglio del server.
+export type { UsageCost, AcpUsageUpdate } from "../../shared/types";
+import type { UsageCost, AcpUsageUpdate } from "../../shared/types";
 
 /** Quello che viaggia sul filo: il blocco ACP + la nostra presentazione. */
 export interface ContextUpdate {
