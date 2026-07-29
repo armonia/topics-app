@@ -483,14 +483,28 @@ export function ChatInput({
   // nuova e tenersi questa intatta).
   // La chiusura è per livello, non per sempre: chi archivia l'avviso al 72%
   // non sta dicendo "non avvisarmi più" per quando arriverà al 93%.
-  const [dismissedContextLevel, setDismissedContextLevel] = useState<'warn' | 'critical' | null>(null);
-  useEffect(() => { setDismissedContextLevel(null); }, [topic.sessionKey]);
+  // Il latch del dismiss è PER MOTIVO, non solo per livello.
+  //
+  // Da quando `critical` ha due trigger ortogonali — finestra piena (percentuale) e
+  // prompt costoso per chiamata (assoluto) — un solo latch li confondeva: zittire
+  // l'avviso di costo a 400k su un milione (40%, che si vede quasi subito) spegneva
+  // per sempre anche l'allarme vero di finestra piena a 900k, che è l'unico che non
+  // si può perdere. Due allarmi diversi, due latch.
+  const [dismissed, setDismissed] = useState<Record<'window' | 'cost', 'warn' | 'critical' | null>>(
+    { window: null, cost: null },
+  );
+  useEffect(() => { setDismissed({ window: null, cost: null }); }, [topic.sessionKey]);
   const contextNotice = (() => {
     if (!realContext || realContext.level === 'ok') return null;
     const rank = { ok: 0, warn: 1, critical: 2 } as const;
-    if (rank[realContext.level] <= rank[dismissedContextLevel ?? 'ok']) return null;
-    return { ...realContext, level: realContext.level as 'warn' | 'critical' };
+    // `reason` assente = payload di un server più vecchio: si degrada a "window",
+    // che è il comportamento storico.
+    const reason = realContext.reason ?? 'window';
+    if (rank[realContext.level] <= rank[dismissed[reason] ?? 'ok']) return null;
+    return { ...realContext, reason, level: realContext.level as 'warn' | 'critical' };
   })();
+  const dismissNotice = (n: { reason: 'window' | 'cost'; level: 'warn' | 'critical' }) =>
+    setDismissed((prev) => ({ ...prev, [n.reason]: n.level }));
 
   // Context Inspector popover. Anchored to the ring button below; dismisses on
   // outside-pointer / Escape via the shared useDismissable contract (the ring
@@ -943,21 +957,21 @@ export function ChatInput({
           </div>
           <button
             type="button"
-            onClick={() => { setDismissedContextLevel(contextNotice.level); void sendMessageDirect('/compact'); }}
+            onClick={() => { dismissNotice(contextNotice); void sendMessageDirect('/compact'); }}
             className={`px-2.5 py-1 text-[11px] text-white rounded-md transition-colors flex-shrink-0 ${contextNotice.level === 'critical' ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-500 hover:bg-amber-600'}`}
           >
             Compact now
           </button>
           <button
             type="button"
-            onClick={() => { setDismissedContextLevel(contextNotice.level); window.dispatchEvent(new CustomEvent('topics:new-chat')); }}
+            onClick={() => { dismissNotice(contextNotice); window.dispatchEvent(new CustomEvent('topics:new-chat')); }}
             className="px-2.5 py-1 text-[11px] rounded-md border border-app-border-light text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0"
           >
             New chat
           </button>
           <button
             type="button"
-            onClick={() => setDismissedContextLevel(contextNotice.level)}
+            onClick={() => dismissNotice(contextNotice)}
             className="text-app-text-tertiary hover:text-app-text p-0.5 flex-shrink-0"
             title="Dismiss"
           >

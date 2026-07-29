@@ -12,10 +12,16 @@
  *  • un modello sconosciuto non fa esplodere niente — cade sul default e lo
  *    DICHIARA (`estimated: true`), così la UI può dire "≈" invece di mentire
  *    con una precisione che non ha;
- *  • le soglie stanno QUI, non nel componente che disegna il cerchio: il
- *    preavviso di compaction e il colore del ring devono accendersi sullo
- *    stesso numero, altrimenti l'umano vede un anello ambra e un allarme rosso
- *    che si contraddicono.
+ *  • le soglie stanno QUI, non nel componente che disegna il cerchio.
+ *
+ * Fino al 30/07 questa testata dichiarava che ring e preavviso devono accendersi
+ * sullo STESSO numero. Non è più vero, ed è voluto: rispondono a due domande
+ * diverse. Il ring dice quanto è pieno il serbatoio e colora sulla PERCENTUALE;
+ * il preavviso dice quando conviene compattare e guarda anche i token ASSOLUTI,
+ * perché su una finestra da un milione il 40% sono già quattrocentomila token che
+ * ogni chiamata rilegge. Un anello blu con un avviso di costo non è una
+ * contraddizione: è la risposta giusta a due domande diverse, e il testo
+ * dell'avviso dice quale delle due ha parlato (`ContextReason`).
  */
 
 /**
@@ -163,9 +169,23 @@ export function contextWindowFor(model: string | null | undefined): ContextWindo
  * quando la tabella era sbagliata si corregge da sola invece di restare
  * congelata su un denominatore che non è mai stato vero.
  *
- * Se il modello non è in tabella si tiene la finestra registrata con la misura:
- * poteva essere DICHIARATA dal provider (Codex manda `model_context_window`), e
- * un dato dichiarato batte una nostra ipotesi.
+ * Se il modello non è in tabella si tiene la finestra registrata con la misura.
+ *
+ * LIMITE NOTO, dichiarato perché non si può dedurre: quando il modello È in
+ * tabella, la nostra voce vince anche su una finestra DICHIARATA dal provider
+ * (Codex manda `model_context_window`). `session_context` non distingue
+ * "dichiarata" da "dedotta" — ha solo `estimated`, che vuol dire "il modello non
+ * era in tabella" — quindi qui non c'è modo di sapere quale delle due è. Sintomo:
+ * su una sessione Codex l'evento vivo mostra la finestra del provider e una
+ * rilettura dopo un reload mostra la nostra, con due percentuali diverse sulla
+ * stessa misura.
+ *
+ * NON si risolve con un'euristica del tipo "se differisce allora era dichiarata":
+ * quando la tabella si corregge — com'è appena successo passando Sonnet 5 da 200k
+ * a 1M — tutte le righe vecchie differiscono, e verrebbero prese per dichiarate
+ * riportando indietro proprio il bug che il ricalcolo esiste per chiudere. Serve
+ * una colonna che registri l'origine del denominatore; finché non c'è, la tabella
+ * vince e questo commento è il posto dove è scritto.
  */
 export function windowForMeasure(
   measure: { model: string | null; windowTokens: number; estimated: boolean },
@@ -223,9 +243,26 @@ export const CONTEXT_CRITICAL_TOKENS = 400_000;
  */
 export function contextLevel(percent: number, used?: number): ContextLevel {
   const abs = typeof used === "number" && Number.isFinite(used) ? used : 0;
-  if (percent >= CONTEXT_CRITICAL_PERCENT || abs >= CONTEXT_CRITICAL_TOKENS) return "critical";
-  if (percent >= CONTEXT_WARN_PERCENT || abs >= CONTEXT_WARN_TOKENS) return "warn";
+  return worseLevel(levelFromPercent(percent), levelFromTokens(abs));
+}
+
+/** Il livello secondo la sola capienza. */
+function levelFromPercent(percent: number): ContextLevel {
+  if (percent >= CONTEXT_CRITICAL_PERCENT) return "critical";
+  if (percent >= CONTEXT_WARN_PERCENT) return "warn";
   return "ok";
+}
+
+/** Il livello secondo il solo prezzo per chiamata. */
+function levelFromTokens(used: number): ContextLevel {
+  if (used >= CONTEXT_CRITICAL_TOKENS) return "critical";
+  if (used >= CONTEXT_WARN_TOKENS) return "warn";
+  return "ok";
+}
+
+const LEVEL_RANK: Record<ContextLevel, number> = { ok: 0, warn: 1, critical: 2 };
+function worseLevel(a: ContextLevel, b: ContextLevel): ContextLevel {
+  return LEVEL_RANK[a] >= LEVEL_RANK[b] ? a : b;
 }
 
 /**
@@ -258,10 +295,16 @@ export function classifyContext(used: number, window: ContextWindow): ContextUsa
   const size = window.tokens > 0 ? window.tokens : DEFAULT_CONTEXT_WINDOW;
   const safeUsed = Number.isFinite(used) && used > 0 ? Math.round(used) : 0;
   const percent = Math.min(100, Math.round((safeUsed / size) * 100));
-  const level = contextLevel(percent, safeUsed);
-  // La capienza vince come spiegazione quando entrambe le soglie sono passate:
-  // «sta finendo la finestra» è più urgente di «costa molto per chiamata».
+  // Il motivo è la soglia che ha prodotto il LIVELLO, non la prima che è scattata.
+  // Confrontare «percent >= WARN» come faceva la prima versione sbagliava proprio
+  // nella fascia che conta: a 700k su 1M la capienza è solo a `warn` mentre il
+  // costo è già `critical`, e il messaggio usciva «Context almost full — 70%» in
+  // rosso, con trecentomila token liberi. A pari severità vince la capienza:
+  // «la finestra sta finendo» è più urgente di «costa molto per chiamata».
+  const byPercent = levelFromPercent(percent);
+  const byTokens = levelFromTokens(safeUsed);
+  const level = worseLevel(byPercent, byTokens);
   const reason: ContextReason | undefined =
-    level === "ok" ? undefined : percent >= CONTEXT_WARN_PERCENT ? "window" : "cost";
+    level === "ok" ? undefined : LEVEL_RANK[byPercent] >= LEVEL_RANK[byTokens] ? "window" : "cost";
   return { used: safeUsed, size, percent, level, ...(reason ? { reason } : {}), estimated: !window.known };
 }
