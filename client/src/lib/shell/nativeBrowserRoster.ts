@@ -1,123 +1,34 @@
 /**
- * Il registro delle WKWebView native aperte da questa app, e la regola per
- * riconoscere quelle che nessuno possiede più.
+ * Quali WKWebView native sono MONTATE adesso.
  *
- * IL BUCO CHE CHIUDE. Ogni pane browser è una webview FIGLIA della finestra
- * `main` (`lib.rs` → `window.add_child`). `useTauriBrowser` la distrugge
- * correttamente allo smontaggio (`browser_close`, dopo una grazia di 350 ms) —
- * ma un `location.reload()` non è uno smontaggio: distrugge il contesto JS
- * senza far girare nessuna cleanup, E non tocca le webview figlie, che
- * appartengono alla finestra e non alla pagina. Il risultato è che ogni ⌘R
- * lascia in giro una WKWebView per ogni pane browser aperta, senza più un
- * proprietario React e senza che nessun `browser_close` futuro le nomini mai.
+ * PERCHE' E' RIDOTTO A QUESTO. Prima qui viveva anche un roster persistito in
+ * `localStorage`, con l'epoca del caricamento di pagina, e un "reaper" che al
+ * boot chiudeva le webview rimaste da una pagina precedente. L'idea era chiudere
+ * gli orfani del ⌘R. Era sbagliata in entrambe le metà, e le due cose insieme
+ * facevano un danno preciso:
  *
- * I punti di reload sono quattro e sono tutti ordinari: la scorciatoia ⌘R, il
- * bottone nella status bar, il popover di versione, e l'auto-guarigione del
- * bundle stantìo in `main.tsx` — che scatta DA SOLA. Misurato sull'app viva il
- * 2026-07-29: **65 processi WebContent, 61 dei quali con zero CPU, per 11,7 GB
- * di footprint**. Il conto era arrivato a 14 GB.
+ *  1. Chiudere una webview NON libera niente. In `wry-0.55.1`,
+ *     `impl Drop for InnerWebView` chiama `self.webview.retain()` — incrementa
+ *     il conteggio dei riferimenti mentre distrugge (workaround deliberato per
+ *     un use-after-free, tauri-apps/wry#1733). Il processo WebContent resta vivo
+ *     per sempre, quindi il reaper non recuperava un byte.
+ *  2. `browser_open` e' IDEMPOTENTE su un label esistente — il commento in
+ *     `lib.rs` dice testualmente "Create (or, if it already exists, reuse)".
+ *     Dopo un ⌘R le pane si rimontano con lo stesso contextId e RIUSANO la
+ *     webview di prima: senza nessuno che le chiuda in mezzo, un reload non
+ *     costa un solo processo nuovo.
  *
- * COME. Il roster è persistito in `localStorage`, quindi sopravvive proprio a
- * ciò che causa il problema. Ogni apertura ci scrive la sua chiave con l'EPOCA
- * del caricamento di pagina corrente; ogni chiusura la toglie. Al boot l'epoca
- * cambia, e una voce rimasta con un'epoca vecchia è per DEFINIZIONE senza
- * proprietario: non è un'euristica sull'età o sulla memoria, è una tautologia —
- * la pagina che l'aveva aperta non esiste più.
+ * Il reaper si infilava esattamente in quel mezzo: due secondi dopo il boot
+ * vedeva l'epoca vecchia, chiudeva, e le pane rimontandosi ne creavano di nuove
+ * — con i processi vecchi rimasti in giro per il punto 1. Risultato: ogni ⌘R
+ * aggiungeva processi permanenti, e ricaricare due o tre volte mandava l'app in
+ * sovraccarico. Prima che lo scrivessi, ricaricare era gratis.
  *
- * Una pane che si rimonta dopo il reload riscrive la sua chiave con l'epoca
- * nuova, quindi si toglie da sola dalla lista dei condannati: il reaper non ha
- * bisogno di sapere quali pane esistono, gli basta chi ha parlato di recente.
+ * Resta solo il registro delle webview VIVE, che non e' persistito e serve a
+ * `state/windowAwake.ts`: se questa pagina possiede webview figlie, allora
+ * `document.hasFocus()` non e' un segnale affidabile (un click nella pagina
+ * rende key la figlia), e i cicli dell'app non vanno spenti.
  */
-
-const STORAGE_KEY = 'topics:native-browser-roster';
-
-export interface RosterEntry {
-  id: string;
-  /** L'epoca del caricamento di pagina che ha aperto questa webview. */
-  epoch: string;
-}
-
-/**
- * L'epoca di QUESTO caricamento di pagina. Nuova a ogni boot — un reload la
- * cambia, che è esattamente il segnale che serve. Niente `Date.now()` da solo:
- * due reload nello stesso millisecondo darebbero la stessa epoca e i loro
- * orfani si mimetizzerebbero a vicenda.
- */
-export const PAGE_EPOCH: string = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-
-function read(): RosterEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (e): e is RosterEntry =>
-        !!e && typeof e === 'object' &&
-        typeof (e as RosterEntry).id === 'string' &&
-        typeof (e as RosterEntry).epoch === 'string',
-    );
-  } catch {
-    // localStorage negato o JSON corrotto: un roster vuoto non fa danni — il
-    // reaper semplicemente non trova nulla da chiudere.
-    return [];
-  }
-}
-
-function write(entries: RosterEntry[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch {
-    /* quota o modalità privata: si perde la traccia, non la correttezza */
-  }
-}
-
-/** Una webview è stata aperta (o riusata) da questa pagina. */
-export function recordBrowserView(id: string): void {
-  const entries = read().filter((e) => e.id !== id);
-  entries.push({ id, epoch: PAGE_EPOCH });
-  write(entries);
-}
-
-/** La webview è stata chiusa per le vie normali: esce dal roster. */
-export function forgetBrowserView(id: string): void {
-  const entries = read();
-  const next = entries.filter((e) => e.id !== id);
-  if (next.length !== entries.length) write(next);
-}
-
-export function readRoster(): RosterEntry[] {
-  return read();
-}
-
-/**
- * Le chiavi da chiudere: quelle aperte da un caricamento di pagina PRECEDENTE e
- * di cui nessuna pane viva ha ancora rivendicato la proprietà.
- *
- * Pura di proposito — è l'unico pezzo che vale la pena testare, e testarlo
- * richiede solo tre liste.
- *
- * @param live le chiavi che una pane MONTATA sta usando adesso. Una pane che si
- *   rimonta dopo il reload riscrive comunque la sua voce con l'epoca corrente,
- *   quindi questo parametro è una cintura oltre alle bretelle: copre la finestra
- *   fra il montaggio e la scrittura del roster.
- */
-export function decideOrphans(
-  entries: readonly RosterEntry[],
-  currentEpoch: string,
-  live: ReadonlySet<string>,
-): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const e of entries) {
-    if (e.epoch === currentEpoch) continue; // aperta da questa pagina: viva
-    if (live.has(e.id)) continue; // già ripresa in carico da una pane montata
-    if (seen.has(e.id)) continue;
-    seen.add(e.id);
-    out.push(e.id);
-  }
-  return out;
-}
 
 /** Le pane browser MONTATE adesso. Non persistito: muore col caricamento. */
 const liveViews = new Set<string>();

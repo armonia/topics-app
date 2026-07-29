@@ -25,7 +25,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tauriInvoke } from '../lib/shell/tauri';
-import { recordBrowserView, forgetBrowserView, markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
+import { markBrowserViewLive, markBrowserViewDead } from '../lib/shell/nativeBrowserRoster';
 import { slotIsOccluded, onOcclusionChange } from '../lib/shell/browserOcclusion';
 import { serverWsBase } from '../lib/shell/net';
 import { executeNativeBrowserOp } from '../lib/shell/tauriBrowserOps';
@@ -486,11 +486,6 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     // browser_load_state). macOS 14+; degrades to the shared store on older.
     // browser_open is idempotent on an existing label (lib.rs), so reusing a view
     // whose close we just cancelled simply re-shows it.
-    // Nel roster PRIMA della invoke, non dopo: se il reload arriva mentre la
-    // apertura è in volo, la webview nasce comunque e senza la voce nessuno
-    // saprebbe più che esiste. Una voce di troppo per un'apertura fallita costa
-    // una `browser_close` a vuoto, che è un no-op (`browser_close_inner`).
-    recordBrowserView(id);
     markBrowserViewLive(id);
     void tauriInvoke('browser_open', { id, url: startUrl, x: -100000, y: 0, width: 800, height: 600, isolate: true })
       .then(() => {
@@ -513,7 +508,6 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       markBrowserViewDead(id);
       pendingBrowserCloses.set(id, setTimeout(() => {
         pendingBrowserCloses.delete(id);
-        forgetBrowserView(id);
         void tauriInvoke('browser_close', { id }).catch(() => {});
       }, BROWSER_CLOSE_GRACE_MS));
     };

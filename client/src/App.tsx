@@ -41,7 +41,6 @@ import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from './lib
 // label is hidden so the revealed lights occupy that spot.
 const isTauriMac = isTauri && typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
 import { useAnimationPause } from './hooks/useAnimationPause';
-import { useNativeBrowserReaper } from './hooks/useNativeBrowserReaper';
 import { useTerminalLifecycle } from './hooks/useTerminalLifecycle';
 import { usePanelLifecycle } from './hooks/usePanelLifecycle';
 import { useRefMirror } from './hooks/useRefMirror';
@@ -312,10 +311,6 @@ function App() {
   // Stop the always-running loaders / awaiting-pulse breathers from burning the
   // compositor while the window is backgrounded (minimized / occluded / blurred).
   useAnimationPause();
-  // Chiude le WKWebView rimaste senza proprietario dopo un reload della pagina:
-  // ⌘R non smonta le webview figlie, quindi ogni ricarica ne lasciava una per
-  // pane browser aperta. Vedi lib/shell/nativeBrowserRoster.ts.
-  useNativeBrowserReaper();
 
   // Modals
   const [showSearch, setShowSearch] = useState(false);
