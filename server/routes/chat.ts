@@ -22,7 +22,7 @@ import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } fr
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
 import { recordSessionContext } from "../db/session-context";
-import { contextWindowFor, classifyContext } from "../usage/context-window";
+import { buildContextUpdate } from "../usage/usage-update";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { recordTurnEnd } from "../providers/turn-end-registry";
@@ -1418,7 +1418,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
             },
 
-            onContextSize: (tokens, model) => {
+            onContextSize: (tokens, model, windowTokens) => {
               // 1) Il ring del contesto reale (1b.5). Questo numero — il
               //    prompt di UNA chiamata — è l'unica misura onesta di "quanto
               //    ha in pancia il modello", e fino a ieri moriva qui dentro:
@@ -1427,29 +1427,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               //    dell'envelope che iniettiamo NOI), quindi di fatto il dato
               //    più guardato a ogni turno non era da nessuna parte.
               try {
-                const window = contextWindowFor(model ?? overrideModel ?? null);
-                const usage = classifyContext(tokens, window);
+                // Forma standard `usage_update` ACP (3.1): il payload lo
+                // costruisce un posto solo, così l'evento vivo e
+                // `GET /api/context/live` non possono divergere.
+                const update = buildContextUpdate({ tokens, model, fallbackModel: overrideModel, windowTokens });
                 // Scrittura solo quando il numero cambia davvero: in un turno
                 // lungo questo handler scatta a ogni chiamata al modello.
-                if (usage.used !== lastContextUsed) {
-                  lastContextUsed = usage.used;
+                if (update.usage.used !== lastContextUsed) {
+                  lastContextUsed = update.usage.used;
                   recordSessionContext(ctx.db, {
                     sessionKey,
-                    usedTokens: usage.used,
-                    windowTokens: usage.size,
-                    estimated: usage.estimated,
+                    usedTokens: update.usage.used,
+                    windowTokens: update.usage.size,
+                    estimated: update.estimated,
                     model: model ?? overrideModel ?? null,
                   });
                   const uevt = {
                     type: "stream:context" as const,
                     sessionKey,
                     topicId: matchedTopic?.id,
-                    used: usage.used,
-                    size: usage.size,
-                    percent: usage.percent,
-                    level: usage.level,
-                    estimated: usage.estimated,
-                    ...(model ? { model } : {}),
+                    ...update,
                   };
                   if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, uevt);
                   else broadcastToAll(uevt);

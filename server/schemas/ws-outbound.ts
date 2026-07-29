@@ -377,16 +377,23 @@ const streamThinkingChunkSchema = z.object({
 }).passthrough();
 
 /**
- * Contesto reale del modello dopo una chiamata (1b.5). `used`/`size` sono la
- * forma che poi diventerà `usage_update` ACP (Fase 3.1): tenerli obbligatori
- * qui è ciò che impedisce a un provider di mandare metà del rapporto.
+ * Contesto reale del modello dopo una chiamata (1b.5), nella forma standard
+ * `usage_update` di ACP (3.1). Il blocco `usage` è l'oggetto ACP LETTERALE —
+ * si inoltra senza tradurlo — e `used`/`size` sono obbligatori lì dentro:
+ * è ciò che impedisce a un provider di mandare metà del rapporto e lasciare
+ * la UI a indovinare il denominatore. Costruito in `usage/usage-update.ts`,
+ * mai a mano. Fuori dal blocco resta solo la nostra presentazione.
  */
 const streamContextSchema = z.object({
   type: z.literal('stream:context'),
   sessionKey: z.string(),
   topicId: z.string().optional(),
-  used: z.number(),
-  size: z.number(),
+  usage: z.object({
+    sessionUpdate: z.literal('usage_update'),
+    used: z.number(),
+    size: z.number(),
+    cost: z.object({ amount: z.number(), currency: z.string() }).optional(),
+  }),
   percent: z.number(),
   level: z.enum(['ok', 'warn', 'critical']),
   estimated: z.boolean(),

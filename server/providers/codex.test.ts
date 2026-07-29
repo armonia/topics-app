@@ -18,6 +18,7 @@ interface RecordedHandler extends StreamHandler {
   errors: string[];
   done: { usage?: ProviderUsage; result?: string }[];
   aborted: { usage?: ProviderUsage; result?: string }[];
+  context: { tokens: number; model?: string; windowTokens?: number }[];
 }
 
 function makeHandler(): RecordedHandler {
@@ -27,7 +28,9 @@ function makeHandler(): RecordedHandler {
     errors: [],
     done: [],
     aborted: [],
+    context: [],
   } as unknown as RecordedHandler;
+  h.onContextSize = (tokens, model, windowTokens) => { h.context.push({ tokens, model, windowTokens }); };
   h.onTextDelta = (text, fullText) => { h.text.push({ delta: text, full: fullText }); };
   h.onToolStart = (id, _name, args) => { h.tools.push({ type: "start", id, payload: args }); };
   h.onToolUpdate = (id, partial) => { h.tools.push({ type: "update", id, payload: partial }); };
@@ -286,5 +289,100 @@ describe("routeCodexEvent — text + tool wiring", () => {
     expect(h.text).toHaveLength(0);
     expect(h.tools).toHaveLength(0);
     expect(h.errors).toHaveLength(0);
+  });
+});
+
+/**
+ * 3.1 — il ring del contesto vale anche per un provider non-Claude.
+ *
+ * Fino a qui Codex i token li aveva in mano (footer di fine turno) e il
+ * cerchietto restava vuoto per tutta la sessione: un payload standard che
+ * riempie un provider solo non è uno standard.
+ */
+describe("token_count → onContextSize (contesto vivo, 3.1)", () => {
+  const tokenCount = (over?: Record<string, unknown>) => ({
+    type: "token_count",
+    info: {
+      total_token_usage: { input_tokens: 900_000, cached_input_tokens: 100_000, output_tokens: 50_000 },
+      last_token_usage: { input_tokens: 8_000, cached_input_tokens: 128_000, output_tokens: 300 },
+      model_context_window: 272_000,
+      ...over,
+    },
+  });
+
+  test("legge last_token_usage, MAI il totale del turno", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", tokenCount(), h);
+    // 8_000 + 128_000 di cache. Il totale (1M) è la somma di tutte le
+    // chiamate del turno: leggerlo qui dichiarerebbe un contesto esploso.
+    expect(h.context).toEqual([{ tokens: 136_000, model: undefined, windowTokens: 272_000 }]);
+  });
+
+  test("l'output non entra nel contesto", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", tokenCount({
+      last_token_usage: { input_tokens: 1_000, output_tokens: 999_000 },
+    }), h);
+    expect(h.context[0]!.tokens).toBe(1_000);
+  });
+
+  test("senza finestra dichiarata passa undefined: il denominatore lo sceglie chi costruisce l'update", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", tokenCount({ model_context_window: undefined }), h);
+    expect(h.context[0]!.windowTokens).toBeUndefined();
+    expect(h.context[0]!.tokens).toBe(136_000);
+  });
+
+  test("etichetta il ring col modello del turno, quando è esplicito", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    const p = provider as unknown as { sessionState: Map<string, Record<string, unknown>> };
+    pushEvent(provider, "s1", { type: "future.noop" }, h); // semina lo stato
+    p.sessionState.get("s1")!.model = "gpt-5-codex";
+    pushEvent(provider, "s1", tokenCount(), h);
+    expect(h.context[0]!.model).toBe("gpt-5-codex");
+  });
+
+  test("un token_count senza last_token_usage non emette niente", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", { type: "token_count", info: { model_context_window: 272_000 } }, h);
+    pushEvent(provider, "s1", { type: "token_count" }, h);
+    expect(h.context).toHaveLength(0);
+  });
+
+  test("un last_token_usage a zero non accende un ring vuoto", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", tokenCount({
+      last_token_usage: { input_tokens: 0, output_tokens: 12 },
+    }), h);
+    expect(h.context).toHaveLength(0);
+  });
+
+  test("accetta anche le varianti camelCase del wrapper", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", {
+      type: "token_count",
+      info: {
+        lastTokenUsage: { inputTokens: 2_000, cacheRead: 1_000 },
+        modelContextWindow: 400_000,
+      },
+    }, h);
+    expect(h.context).toEqual([{ tokens: 3_000, model: undefined, windowTokens: 400_000 }]);
+  });
+
+  test("turn.completed NON accende il ring: la sua usage è un aggregato di turno", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", {
+      type: "turn.completed",
+      usage: { input_tokens: 900_000, output_tokens: 1_000 },
+    }, h);
+    expect(h.context).toHaveLength(0);
   });
 });

@@ -213,8 +213,13 @@ const streamCompactionSchema = z.looseObject({
 const streamContextSchema = z.looseObject({
   type: z.literal('stream:context'),
   sessionKey: z.string(),
-  used: z.number(),
-  size: z.number(),
+  // Blocco `usage_update` ACP (3.1): `used`/`size` obbligatori lì dentro.
+  usage: z.object({
+    sessionUpdate: z.literal('usage_update'),
+    used: z.number(),
+    size: z.number(),
+    cost: z.optional(z.object({ amount: z.number(), currency: z.string() })),
+  }),
   percent: z.number(),
 });
 

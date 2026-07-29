@@ -1,5 +1,22 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import type { ContextUsage, WSMessage } from '../types';
+import { useState, useEffect, useCallback } from 'react';
+import type { ContextUpdatePayload, ContextUsage, WSMessage } from '../types';
+
+/**
+ * Dal payload sul filo (blocco `usage_update` ACP + presentazione) alla forma
+ * piatta che disegna il ring. L'appiattimento sta QUI e solo qui: la UI non
+ * deve sapere che esiste un protocollo sotto, e il giorno che ACP aggiunge un
+ * campo si tocca questa riga, non i componenti.
+ */
+function flatten(p: ContextUpdatePayload): ContextUsage {
+  return {
+    used: p.usage.used,
+    size: p.usage.size,
+    percent: p.percent,
+    level: p.level,
+    estimated: p.estimated,
+    ...(p.model ? { model: p.model } : {}),
+  };
+}
 
 /**
  * Il contesto REALE della sessione: quanto era grande il prompt dell'ultima
@@ -21,25 +38,22 @@ export function useRealContext(
   sessionKey: string | null,
   onMessage?: (handler: (msg: WSMessage) => void) => () => void,
 ): ContextUsage | null {
-  const [usage, setUsage] = useState<ContextUsage | null>(null);
-
   // Guardia di staleness: la pane NON è keyata sulla sessione (il pannello di
-  // progetto scambia la topic attiva sul posto), quindi una fetch lenta per A
-  // può atterrare quando l'utente è già su B — e mostrerebbe il contesto di A
-  // sotto la chat di B.
-  const keyRef = useRef(sessionKey);
-  keyRef.current = sessionKey;
+  // progetto scambia la topic attiva sul posto), quindi una misura di A può
+  // atterrare quando l'utente è già su B. La sessione viaggia INSIEME alla
+  // misura e si confronta in render: così una misura di un'altra sessione non
+  // può comparire nemmeno per un frame, e non serve azzerare lo stato da un
+  // effect (che è un giro di render in più, e un `setState` dentro un effect).
+  const [measured, setMeasured] = useState<{ key: string | null; usage: ContextUsage } | null>(null);
 
   useEffect(() => {
-    setUsage(null);
     if (!sessionKey) return;
     let cancelled = false;
-    const key = sessionKey;
-    fetch(`/api/context/live?sessionKey=${encodeURIComponent(key)}`)
+    fetch(`/api/context/live?sessionKey=${encodeURIComponent(sessionKey)}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { context?: ContextUsage | null } | null) => {
-        if (cancelled || keyRef.current !== key) return;
-        if (data?.context) setUsage(data.context);
+      .then((data: { context?: ContextUpdatePayload | null } | null) => {
+        if (cancelled) return;
+        if (data?.context?.usage) setMeasured({ key: sessionKey, usage: flatten(data.context) });
       })
       .catch(() => { /* il ring è un'informazione: se non arriva, non si mostra */ });
     return () => { cancelled = true; };
@@ -47,9 +61,7 @@ export function useRealContext(
 
   const handle = useCallback((msg: WSMessage) => {
     if (msg.type !== 'stream:context') return;
-    if (msg.sessionKey !== keyRef.current) return;
-    const { used, size, percent, level, estimated, model } = msg;
-    setUsage({ used, size, percent, level, estimated, ...(model ? { model } : {}) });
+    setMeasured({ key: msg.sessionKey, usage: flatten(msg) });
   }, []);
 
   useEffect(() => {
@@ -57,7 +69,7 @@ export function useRealContext(
     return onMessage(handle);
   }, [onMessage, sessionKey, handle]);
 
-  return usage;
+  return measured && measured.key === sessionKey ? measured.usage : null;
 }
 
 /**

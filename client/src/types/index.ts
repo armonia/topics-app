@@ -650,7 +650,29 @@ export interface ContextUsage {
   estimated: boolean;
   model?: string;
 }
-export interface WSStreamContextMessage extends ContextUsage {
+/**
+ * Il blocco `usage_update` di ACP, verbatim (3.1). Arriva così sia dall'evento
+ * WS che da `GET /api/context/live`: `used` e `size` stanno QUI dentro e sono
+ * obbligatori — un provider non può mandare metà del rapporto e lasciare il
+ * ring a indovinare il denominatore. Il resto del payload è presentazione
+ * nostra e vive fuori dal blocco.
+ */
+export interface AcpUsageUpdate {
+  sessionUpdate: 'usage_update';
+  used: number;
+  size: number;
+  cost?: { amount: number; currency: string };
+}
+/** Payload sul filo: blocco ACP + presentazione. `useRealContext` lo appiattisce
+ *  in `ContextUsage` per la UI, che di ACP non deve sapere niente. */
+export interface ContextUpdatePayload {
+  usage: AcpUsageUpdate;
+  percent: number;
+  level: 'ok' | 'warn' | 'critical';
+  estimated: boolean;
+  model?: string;
+}
+export interface WSStreamContextMessage extends ContextUpdatePayload {
   type: 'stream:context';
   sessionKey: string;
   topicId?: string;

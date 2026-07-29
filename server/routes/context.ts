@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "fs";
 import type { AppContext, RouteHandler } from "../types";
 import { getSessionContext } from "../db/session-context";
 import { classifyContext } from "../usage/context-window";
+import { contextUpdateFromUsage } from "../usage/usage-update";
 
 export function createContextRouter(ctx: AppContext): RouteHandler {
   const { GATEWAY_URL, GATEWAY_TOKEN, json, loadTopics, loadLocalMessages } = ctx;
@@ -22,7 +23,10 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
       const row = getSessionContext(ctx.db, sessionKey);
       if (!row) return json({ context: null });
       const usage = classifyContext(row.usedTokens, { tokens: row.windowTokens, known: !row.estimated });
-      return json({ context: { ...usage, model: row.model, measuredAt: row.measuredAt } });
+      // Stessa forma dell'evento vivo (`usage_update` ACP, 3.1): chi apre
+      // l'app a turno finito legge lo stesso oggetto di chi era collegato.
+      const update = contextUpdateFromUsage(usage, row.model);
+      return json({ context: { ...update, measuredAt: row.measuredAt } });
     }
 
     if (method === "GET" && pathname === "/api/context") {

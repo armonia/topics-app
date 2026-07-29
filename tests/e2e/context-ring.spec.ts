@@ -60,9 +60,9 @@ test.describe.serial("Context ring — contesto reale + preavviso di compaction"
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
+          // Forma `usage_update` ACP (3.1): `used`/`size` dentro il blocco.
           context: {
-            used: 186_000,
-            size: 200_000,
+            usage: { sessionUpdate: "usage_update", used: 186_000, size: 200_000 },
             percent: 93,
             level: "critical",
             estimated: false,
