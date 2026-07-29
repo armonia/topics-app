@@ -68,3 +68,43 @@ describe("calculateCostWithCache — la cache paga la sua tariffa", () => {
     expect(calculateCostWithCache({ model: "modello-ignoto-xyz", freshInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 5_000_000 })).toBe(0);
   });
 });
+
+describe("cache a un'ora — 2x, non 1.25x", () => {
+  // Il commento che stava in pricing.ts diceva che la CLI aggrega le due durate e
+  // che lo scarto è «ordini di grandezza» sotto. Falso su entrambi i conti:
+  // l'usage porta `cache_creation` scorporato, e su una sessione reale il 100%
+  // delle scritture (2,32M token) era a un'ora — 17,6% di conto in meno.
+  const opus = { model: "claude-opus-5", freshInputTokens: 0, outputTokens: 0 };
+
+  test("una scrittura a un'ora costa il doppio di una a cinque minuti", () => {
+    const a5m = calculateCostWithCache({ ...opus, cacheCreationTokens: 1_000_000 });
+    const a1h = calculateCostWithCache({ ...opus, cacheCreation1hTokens: 1_000_000 });
+    expect(a1h / a5m).toBeCloseTo(2 / 1.25, 6);
+  });
+
+  test("le due quote si sommano invece di sovrascriversi", () => {
+    const misto = calculateCostWithCache({
+      ...opus,
+      cacheCreationTokens: 400_000,
+      cacheCreation1hTokens: 600_000,
+    });
+    const separate =
+      calculateCostWithCache({ ...opus, cacheCreationTokens: 400_000 }) +
+      calculateCostWithCache({ ...opus, cacheCreation1hTokens: 600_000 });
+    expect(misto).toBeCloseTo(separate, 10);
+  });
+
+  test("chi passa solo il totale ottiene il comportamento di prima", () => {
+    // Retrocompatibilità: nessun chiamante esistente cambia costo.
+    expect(calculateCostWithCache({ ...opus, cacheCreationTokens: 1_000_000 }))
+      .toBeCloseTo((1_000_000 * 15 * 1.25) / 1_000_000, 10);
+  });
+
+  test("sui numeri veri della sessione misurata: +17,6% sul solo write", () => {
+    const write = 2_316_086; // tutto a un'ora, misurato
+    const sbagliato = calculateCostWithCache({ ...opus, cacheCreationTokens: write });
+    const giusto = calculateCostWithCache({ ...opus, cacheCreation1hTokens: write });
+    expect(giusto - sbagliato).toBeCloseTo((write * 15 * 0.75) / 1_000_000, 6);
+    expect(giusto).toBeGreaterThan(sbagliato);
+  });
+});

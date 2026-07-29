@@ -74,14 +74,22 @@ const fmt = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (
 const pad = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s.padEnd(n));
 
 /** Il modello che ha risposto per ultimo, e quante volte il preambolo è ripartito. */
-function scanTranscript(path: string): { model: string | null; preambles: number; calls: number; lastCtx: number } {
+function scanTranscript(path: string): {
+  model: string | null;
+  preambles: number;
+  calls: number;
+  lastCtx: number;
+  /** Scritture di cache con TTL a un'ora: costano 2×, non 1.25×. */
+  write1h: number;
+} {
   let model: string | null = null;
   let preambles = 0;
   let calls = 0;
   let lastCtx = 0;
+  let write1h = 0;
   const seen = new Set<string>();
   let raw: string;
-  try { raw = readFileSync(path, "utf8"); } catch { return { model, preambles, calls, lastCtx }; }
+  try { raw = readFileSync(path, "utf8"); } catch { return { model, preambles, calls, lastCtx, write1h }; }
 
   for (const line of raw.split("\n")) {
     if (!line) continue;
@@ -111,8 +119,12 @@ function scanTranscript(path: string): { model: string | null; preambles: number
     calls++;
     if (rowModel) model = rowModel;
     lastCtx = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+    // Il TTL della scrittura è SCRITTO nell'usage, non va inferito: una scrittura
+    // a un'ora costa 2x, una a cinque minuti 1.25x. Su una sessione reale erano
+    // il 100% a un'ora, e tariffarle tutte a 1.25x sottostimava il conto del 17,6%.
+    write1h += u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
   }
-  return { model, preambles, calls, lastCtx };
+  return { model, preambles, calls, lastCtx, write1h };
 }
 
 const reader = createTranscriptUsageReader();
@@ -162,7 +174,9 @@ function render(): void {
       freshInputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens,
-      cacheCreationTokens: usage.cacheWriteTokens,
+      // Quote DISGIUNTE: quel che non è a un'ora è a cinque minuti.
+      cacheCreationTokens: Math.max(0, usage.cacheWriteTokens - scan.write1h),
+      cacheCreation1hTokens: scan.write1h,
     });
 
     const prev = previous.get(r.session_key);
