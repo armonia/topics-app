@@ -48,25 +48,28 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: client
 
-      # Use the LOCALLY pinned tsc (5.9.3): `bunx tsc` could fetch a newer major
-      # whose deprecation handling differs and re-break the build gate.
-      - name: Typecheck client (tsc -b)
-        run: ./node_modules/.bin/tsc -b
-        working-directory: client
+      # All three projects in one step. Each `typecheck:*` script uses the
+      # LOCALLY pinned tsc (5.9.3) — `bunx tsc` could fetch a newer major whose
+      # deprecation handling differs and re-break the build gate.
+      #
+      # This also finally RUNS `typecheck:e2e`, which existed in package.json
+      # for months without appearing in any workflow.
+      - name: Typecheck (client + server ratchet + e2e)
+        run: bun run typecheck
 
       - name: Lint client (eslint)
         run: bun run lint
         working-directory: client
 
-      # The server runs on Bun with no build-time tsc step. This ratchet
-      # typechecks it (tsconfig.server.json) and fails only if the error count
-      # rises above the grandfathered baseline — so new type errors are caught
-      # while the known backlog is burned down over time (audit #3).
-      - name: Typecheck server (ratchet)
-        run: bun run typecheck:server
-
       - name: Unit + integration tests
         run: bun test:unit
+
+      # Guards a real production contract: the dev-only pane mutation log must
+      # never reach the shipped bundle. The script has existed since phase 30
+      # and, like typecheck:e2e, had never been wired to a workflow — so the
+      # contract was only ever checked by hand.
+      - name: Verify dev overlay stripped from the production bundle
+        run: bun run verify:phase30-strip
 
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external

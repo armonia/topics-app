@@ -28,6 +28,8 @@
     "check:any": "bun run scripts/check-any.ts",
     "check:nul": "bun run scripts/check-nul-bytes.ts",
     "check:deadcode": "bunx --bun knip",
+    "typecheck": "bun run typecheck:client && bun run typecheck:server && bun run typecheck:e2e",
+    "typecheck:client": "cd client && ./node_modules/.bin/tsc -b",
     "typecheck:server": "bun run scripts/typecheck-server.ts",
     "typecheck:e2e": "./client/node_modules/.bin/tsc -p tsconfig.e2e.json --ignoreDeprecations 5.0",
     "test:e2e:shards": "./scripts/e2e-shards.sh",

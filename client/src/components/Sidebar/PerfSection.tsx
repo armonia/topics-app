@@ -98,7 +98,10 @@ export function PerfSection() {
   const topByCommand = (() => {
     const m = new Map<string, { cpu: number; count: number; isTopics: boolean }>();
     for (const p of topProcesses) {
-      const e = m.get(p.command) ?? { cpu: 0, count: 0, isTopics: /topics|electron/i.test(p.command) };
+      // `electron` dropped from the match: the shell was archived in v2.0.0, so
+      // no process on this machine is ever named after it — the alternation
+      // could only ever produce a false positive on someone else's app.
+      const e = m.get(p.command) ?? { cpu: 0, count: 0, isTopics: /topics/i.test(p.command) };
       e.cpu += p.cpu;
       e.count += 1;
       m.set(p.command, e);

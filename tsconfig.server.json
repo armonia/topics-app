@@ -1,9 +1,14 @@
 {
   // Server typecheck config. The server runs on Bun with NO build-time tsc step,
-  // so type errors accumulated unchecked (~440 `any`, drifting contracts). This
-  // gives the editor correct Bun globals (kills the spurious "Cannot find name
-  // 'Bun'/'bun:sqlite'" diagnostics) and powers a CI ratchet — see
-  // scripts/typecheck-server.ts and AUDIT-2026-06-19.md priority #3.
+  // so type errors used to accumulate unchecked. This gives the editor correct
+  // Bun globals (kills the spurious "Cannot find name 'Bun'/'bun:sqlite'"
+  // diagnostics) and powers a CI ratchet — see scripts/typecheck-server.ts.
+  //
+  // FULL `strict` since 2026-07-29. The old comment here claimed noImplicitAny
+  // "would flood on the ~440 untyped spots"; when actually measured, the whole
+  // backlog was FOUR errors in two files — burnt down by months of refactors
+  // with nobody updating the note. Don't reintroduce a scary number without
+  // running the compiler first.
   //
   // Pinned to the client's tsc (5.9.3); --ignoreDeprecations "5.0" is required
   // for the same reason as client/tsconfig.app.json.
@@ -16,15 +21,16 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "skipLibCheck": true,
-    // strict stays off (noImplicitAny would flood on the ~440 untyped spots),
-    // but strictNullChecks is ON: it catches real null-safety bugs AND makes
-    // discriminated-union narrowing (`if (!r.ok) … r.error`) work — without it,
-    // ~12 correctly-guarded result-type accesses were false positives.
-    "strict": false,
-    "strictNullChecks": true,
+    // `strictNullChecks` is implied by `strict`, but spelling it out is not
+    // redundant here: it is the one flag whose removal would silently break
+    // discriminated-union narrowing (`if (!r.ok) … r.error`) across the result
+    // types, and the previous config kept it on alone for exactly that reason.
+    "strict": true,
     "esModuleInterop": true,
     "resolveJsonModule": true
   },
-  "include": ["server", "server.ts", "shared"],
-  "exclude": ["**/*.test.ts"]
+  // The tests are typechecked too. Excluding them left 108 files / ~21k lines of
+  // server+shared tests outside every gate — and they cost exactly one error to
+  // bring in (a `binPath` the provider config never had).
+  "include": ["server", "server.ts", "shared"]
 }
