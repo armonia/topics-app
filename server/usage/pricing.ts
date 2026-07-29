@@ -64,12 +64,20 @@ export function calculateCost(model: string, inputTokens: number, outputTokens: 
  * conteneva già — gonfia il costo di circa dieci volte: un turno da ~$9 veniva
  * mostrato a $90.
  *
- * NB: la scrittura a 1 ora costa 2×, non 1.25×. La CLI aggrega le due durate in
- * `cache_creation_input_tokens`, quindi qui si usa la tariffa a 5 minuti; lo
- * scarto è sui soli token di scrittura, ordini di grandezza sotto l'errore che
- * questa funzione elimina.
+ * Le due durate hanno tariffe diverse: 1.25× a 5 minuti, 2× a un'ora. Qui c'era
+ * scritto che la CLI le aggrega in `cache_creation_input_tokens` e che lo scarto
+ * è «ordini di grandezza» sotto — **entrambe le cose sono false**, misurate il
+ * 30/07 su una sessione reale: l'usage porta `cache_creation` scorporato in
+ * `ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens`, e su quella sessione
+ * il 100% delle scritture (2,32M token) era a un'ora. Tariffarle tutte a 1.25×
+ * sottostimava il conto del 17,6%.
+ *
+ * Chi sa distinguere passi `cacheCreation1hTokens`; chi ha solo il totale
+ * continui a passare `cacheCreationTokens` e ottiene il comportamento di prima.
  */
 export const CACHE_WRITE_MULTIPLIER = 1.25;
+/** Scrittura con TTL a un'ora: il doppio di un token fresco. */
+export const CACHE_WRITE_1H_MULTIPLIER = 2;
 export const CACHE_READ_MULTIPLIER = 0.1;
 
 /**
@@ -83,7 +91,14 @@ export function calculateCostWithCache(args: {
   freshInputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
+  /** Scritture a 5 minuti (1.25×). Chi ha solo il totale lo passi qui, come prima. */
   cacheCreationTokens?: number;
+  /**
+   * Scritture a un'ora (2×), quota DISGIUNTA da `cacheCreationTokens` — sommarle
+   * entrambe con lo stesso totale conterebbe due volte. Viene da
+   * `usage.cache_creation.ephemeral_1h_input_tokens`.
+   */
+  cacheCreation1hTokens?: number;
 }): number {
   const pricing = findPricing(args.model);
   if (!pricing) {
@@ -94,6 +109,7 @@ export function calculateCostWithCache(args: {
   const inputCost =
     n(args.freshInputTokens) * pricing.input +
     n(args.cacheCreationTokens) * pricing.input * CACHE_WRITE_MULTIPLIER +
+    n(args.cacheCreation1hTokens) * pricing.input * CACHE_WRITE_1H_MULTIPLIER +
     n(args.cacheReadTokens) * pricing.input * CACHE_READ_MULTIPLIER;
   return (inputCost + n(args.outputTokens) * pricing.output) / 1_000_000;
 }
