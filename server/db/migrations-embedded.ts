@@ -69,6 +69,7 @@ import m060 from "./migrations/061-review-checks.sql" with { type: "text" };
 import m061 from "./migrations/062-delivered-by.sql" with { type: "text" };
 import m062 from "./migrations/063-provider-sessions.sql" with { type: "text" };
 import m063 from "./migrations/064-topic-goals.sql" with { type: "text" };
+import m064 from "./migrations/065-task-fanout.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -142,4 +143,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 62, name: "062-delivered-by.sql", sql: m061 },
   { version: 63, name: "063-provider-sessions.sql", sql: m062 },
   { version: 64, name: "064-topic-goals.sql", sql: m063 },
+  { version: 65, name: "065-task-fanout.sql", sql: m064 },
 ];

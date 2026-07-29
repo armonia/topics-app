@@ -11,13 +11,17 @@
 // Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
 // letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
-export { TASK_STATUSES } from '../../../shared/board';
+export { MAX_FANOUT, TASK_STATUSES } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
 } from '../../../shared/board';
 import type {
   TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
 } from '../../../shared/board';
+// Il tentativo di un fan-out: stesso contratto del server, stessa cartella condivisa.
+export { attemptHasWork, formatAttemptStat } from '../../../shared/task-attempt';
+export type { TaskAttempt, AttemptState } from '../../../shared/task-attempt';
+import type { TaskAttempt } from '../../../shared/task-attempt';
 
 /**
  * Reserved board id for tasks created WITHOUT a project (work spanning several
@@ -59,14 +63,16 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
 
 /**
  * Perché il sistema ha portato in review un task che l'agente non ha consegnato.
- * Due cause, due decisioni diverse per il reviewer — perciò due testi diversi e
- * non un generico "chiuso dal sistema".
+ * Cause diverse = decisioni diverse per il reviewer — perciò testi diversi e non
+ * un generico "chiuso dal sistema".
  */
-export const SYSTEM_DELIVERY_REASON: Record<'retries_exhausted' | 'model_refused', string> = {
+export const SYSTEM_DELIVERY_REASON: Record<'retries_exhausted' | 'model_refused' | 'fanout', string> = {
   retries_exhausted:
     "L'agent ha finito i tentativi senza mettere in review da solo: sotto può non esserci un deliverable. Rimandandolo indietro riparte sulla stessa sessione.",
   model_refused:
     "Il modello si è rifiutato di proseguire: nessun ritentativo automatico può sbloccarlo. Serve una decisione tua — rimandarlo indietro identico otterrebbe lo stesso rifiuto.",
+  fanout:
+    "Fan-out: più agenti hanno lavorato lo stesso task in parallelo, ognuno nel suo worktree. Scegli quale tentativo tenere dal pannello Tentativi — gli altri vengono buttati.",
 };
 
 /** Il testo giusto per una consegna di sistema, causa nota o meno. */
@@ -75,6 +81,13 @@ export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string
     ? SYSTEM_DELIVERY_REASON[reason]
     : "Non l'ha consegnato l'agent: ce l'ha portato il sistema a fine turno. Sotto può non esserci un deliverable — guarda il thread prima di aprire il diff.";
 }
+
+/** Etichetta corta per la chip sulla card (la prosa lunga è nel title). */
+export const SYSTEM_DELIVERY_CHIP: Record<'retries_exhausted' | 'model_refused' | 'fanout', string> = {
+  retries_exhausted: 'non consegnato',
+  model_refused: 'agent bloccato',
+  fanout: 'scegli il tentativo',
+};
 
 export interface BoardTask {
   id: string;
@@ -144,7 +157,7 @@ export interface BoardTask {
    *  male che qualcuno deve guardare, e sotto può non esserci un deliverable. */
   deliveredBy: 'agent' | 'human' | 'system' | null;
   /** Perché, quando `deliveredBy === 'system'`. La prosa sta nel thread. */
-  deliveredReason: 'retries_exhausted' | 'model_refused' | null;
+  deliveredReason: 'retries_exhausted' | 'model_refused' | 'fanout' | null;
 }
 
 export interface TaskWithThread {
@@ -405,9 +418,20 @@ export const boardApi = {
   /** Unified diff of the commits a publish would push (what ships). */
   publishDiff: (projectId: string) =>
     req<DiffBundle>(`/boards/${enc(projectId)}/publish-diff`),
-  /** Unified diff of what a dispatched task changed in its isolated worktree. */
-  taskDiff: (projectId: string, taskId: string) =>
-    req<DiffBundle>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/diff`),
+  /** Unified diff of what a dispatched task changed in its isolated worktree.
+   *  `attemptId` sposta la lettura su UN tentativo del fan-out invece che sul
+   *  task: è così che si confrontano N alternative prima di sceglierne una. */
+  taskDiff: (projectId: string, taskId: string, attemptId?: string) =>
+    req<DiffBundle>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/diff${attemptId ? `?attempt=${enc(attemptId)}` : ''}`),
+  /** I tentativi paralleli di un fan-out. Lista vuota = task dispatchato normalmente. */
+  attempts: (projectId: string, taskId: string) =>
+    req<{ attempts: TaskAttempt[] }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/attempts`).then(r => r.attempts),
+  /** Sceglie il vincitore: il task punta al suo worktree, gli altri vengono buttati. */
+  selectAttempt: (projectId: string, taskId: string, attemptId: string) =>
+    req<{ task: BoardTask; attempts: TaskAttempt[] }>(
+      `/boards/${enc(projectId)}/tasks/${enc(taskId)}/attempts/${enc(attemptId)}/select`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
   /** Scaffold a NEW workspace project (dir + CLAUDE.md); 409 on name collision. */
   createProject: (name: string) =>
     req<BoardProjectRef>('/all-boards/projects', { method: 'POST', body: JSON.stringify({ name }) }),

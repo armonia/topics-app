@@ -41,7 +41,8 @@ import { createTaskAutoMerge, worktreeRealDirt } from "./server/services/task-au
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { registerPreviewProcess, unregisterPreviewProcess } from "./server/routes/processes";
 import { sweepWorktrees, type TaskStatus as GcTaskStatus } from "./server/services/worktree-gc";
-import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit } from "./server/services/branch-status";
+import { branchStatusFromRepo, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
+import { createTaskAttemptStore } from "./server/services/task-attempts";
 import { auditLandings } from "./server/services/landing-audit";
 import { createTranscriptUsageReader, ZERO_USAGE } from "./server/services/transcript-usage";
 import { createDetachedTopic } from "./server/lib/session-control-core";
@@ -620,6 +621,26 @@ const taskDispatcher = createTaskDispatcher({
     );
     return { topicId: topic.id, sessionKey: topic.sessionKey };
   },
+  // ── Fan-out (dispatchFanOut > 1) ─────────────────────────────────────────
+  // Le quattro dipendenze che trasformano "un agente" in "N tentativi": dove si
+  // scrivono le righe, come si misura cosa ha prodotto ognuno, come si chiama il
+  // suo branch, e come si spegne la chat di un perdente. Assenti ⇒ il dispatcher
+  // resta al path storico, un agente per task.
+  attempts: createTaskAttemptStore(ctx.db),
+  attemptStats: async (worktreeId) => {
+    const wt = ctx.worktreeStore.get(worktreeId);
+    if (!wt || wt.mode !== "branch" || !wt.absPath || !existsSync(wt.absPath)) return null;
+    return worktreeDiffStat(wt.absPath);
+  },
+  worktreeBranch: (worktreeId) => ctx.worktreeStore.get(worktreeId)?.branchName ?? null,
+  archiveTopic: (topicId) => {
+    const topic = ctx.getTopicById(topicId);
+    if (!topic || topic.archived) return;
+    topic.archived = true;
+    topic.updatedAt = new Date().toISOString();
+    ctx.saveSingleTopic(topic);
+    ctx.broadcastToAll({ type: "topic:archived", topic });
+  },
   createWorktree: async (projectStoreId) => {
     const wt = await ctx.worktreeManager.create({ projectId: projectStoreId, mode: "branch", baseRef: "HEAD" });
     const ready = await ctx.worktreeManager.awaitMaterialisation(wt.id, 120_000);
@@ -855,6 +876,9 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   },
   // Reap the task's live preview server on land / approve / close.
   teardownPreview: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
+  // Fan-out: l'anteprima parte quando l'umano sceglie il vincitore, perché solo
+  // allora il worktree del task è quello giusto da mostrare.
+  preparePreview: (taskId) => previewManager?.prepareForReview(taskId) ?? Promise.resolve(),
   // NOTE: the server no longer SELF-RESTARTS when an approve lands server code
   // (removed 2026-07-18, Attilio: "l'auto-riavvio sporca tutto"). A landed
   // server change goes live either via the opt-in graceful hot-reload watch

@@ -23,14 +23,14 @@
  */
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
-import { parseReviewChecks, serializeReviewChecks, type CheckRun, type ReviewCheck } from "./review-checks";
+import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
 
 // Stati e forma del thread stanno in `shared/board.ts`: il client li legge
 // dalla stessa dichiarazione invece di riscriverli. `export type … from`
 // ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono.
 export { TASK_STATUSES } from "../../shared/board";
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
-import { TASK_STATUSES } from "../../shared/board";
+import { MAX_FANOUT, TASK_STATUSES } from "../../shared/board";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
 
 export type Actor = "human" | "agent";
@@ -153,7 +153,7 @@ export interface Task {
   deliveredBy: "agent" | "human" | "system" | null;
   /** Perché, in forma leggibile da codice. Solo per `deliveredBy === 'system'`;
    *  la prosa completa resta nel commento di sistema del thread. */
-  deliveredReason: "retries_exhausted" | "model_refused" | null;
+  deliveredReason: "retries_exhausted" | "model_refused" | "fanout" | null;
   /** Dispatch in the BLOCKER agent's conversation instead of a fresh topic. */
   reuseBlockerContext: boolean;
   /** Direct-children counters (filled by list/get for board badges). */
@@ -328,7 +328,7 @@ export interface TaskService {
   deliverToReviewBySystem(args: {
     taskId: string;
     reason: string;
-    cause?: "retries_exhausted" | "model_refused";
+    cause?: "retries_exhausted" | "model_refused" | "fanout";
   }): Task;
   /** Soft-delete (archive) — the row stays for history but drops off the board. */
   archive(args: { taskId: string; projectId?: string }): Task;
@@ -1382,6 +1382,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchTimeoutMin: r?.dispatch_timeout_min ?? 20,
         dispatchMcp: r?.dispatch_mcp ?? "bridge-only",
         dispatchModel: r?.dispatch_model ?? "auto",
+        // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
+        // un agente per task, com'è sempre stato.
+        dispatchFanOut: Math.max(1, r?.dispatch_fanout ?? 1),
         dispatchRetryCap: r?.dispatch_retry_cap ?? 2,
         dispatchRetryBackoffS: r?.dispatch_retry_backoff_s ?? 60,
         requireApprovalForDone: r ? !!r.require_approval_for_done : false,
@@ -1424,6 +1427,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // string pins the board to that model id. No allowlist here — the model set is
       // provider-driven (see /api/claude/models); an unknown id simply fails at spawn.
       if (patch.dispatchModel !== undefined) { sets.push("dispatch_model = ?"); params.push(patch.dispatchModel && patch.dispatchModel !== "auto" ? patch.dispatchModel : null); }
+      // Tetto a 5: oltre, il fan-out non è più "confronto fra alternative" ma un
+      // modo di saturare la macchina — e ogni tentativo è un agente vero che
+      // occupa uno slot del tetto globale.
+      if (patch.dispatchFanOut !== undefined) { sets.push("dispatch_fanout = ?"); params.push(clampInt(patch.dispatchFanOut, 1, MAX_FANOUT)); }
       if (patch.dispatchRetryCap !== undefined) { sets.push("dispatch_retry_cap = ?"); params.push(clampInt(patch.dispatchRetryCap, 1, 5)); }
       if (patch.dispatchRetryBackoffS !== undefined) { sets.push("dispatch_retry_backoff_s = ?"); params.push(clampInt(patch.dispatchRetryBackoffS, 10, 600)); }
       // NULL, non `[]`: "gate spento" è UNO stato solo, e due modi di scriverlo

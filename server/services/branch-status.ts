@@ -107,3 +107,45 @@ async function statusOfExistingRef(repoPath: string, ref: string, mainRef: strin
   const differs = await gitExit(repoPath, ["diff", "--quiet", branch, mainRef, "--", ...changed]);
   return differs === 0 ? "merged" : "unmerged";
 }
+
+/** Quanto ha prodotto un worktree rispetto al punto in cui ha forkato. */
+export interface WorktreeDiffStat {
+  /** Il tip, o `null` se il worktree non ha NESSUN commit oltre la base. */
+  commit: string | null;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+}
+
+/**
+ * La fotografia di un worktree a fine turno: commit di punta e diffstat rispetto
+ * al merge-base con `main`. È il numero che il confronto del fan-out mostra
+ * accanto a ogni tentativo.
+ *
+ * Conta SOLO il lavoro COMMITTATO — di proposito. Il contratto della board è che
+ * una consegna è ciò che sta su un commit (`review_needs_commit`); contare anche
+ * il working tree farebbe apparire "3 file, +120" un tentativo che non ha
+ * consegnato niente, e l'umano sceglierebbe un branch vuoto.
+ *
+ * Il merge-base, non `main`: se main è andato avanti mentre il tentativo
+ * lavorava, un diff contro la punta di main gli attribuirebbe anche il lavoro
+ * degli altri.
+ */
+export async function worktreeDiffStat(cwd: string, mainRef = "main"): Promise<WorktreeDiffStat | null> {
+  const head = await resolveCommit(cwd, "HEAD");
+  if (!head) return null; // repo senza commit / cartella sparita: niente da dire
+  const base = (await gitOut(cwd, ["merge-base", mainRef, "HEAD"])).trim() || mainRef;
+  if (base === head) return { commit: null, filesChanged: 0, insertions: 0, deletions: 0 };
+
+  const numstat = await gitOut(cwd, ["diff", "--numstat", base, head]);
+  let filesChanged = 0, insertions = 0, deletions = 0;
+  for (const line of numstat.split("\n")) {
+    if (!line.trim()) continue;
+    const [add, del] = line.split("\t");
+    filesChanged++;
+    // I binari escono come `-\t-`: contano come file toccato, non come righe.
+    insertions += Number.parseInt(add ?? "", 10) || 0;
+    deletions += Number.parseInt(del ?? "", 10) || 0;
+  }
+  return { commit: head, filesChanged, insertions, deletions };
+}

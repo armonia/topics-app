@@ -10,10 +10,10 @@ import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, attemptHasWork, formatAttemptStat, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
 import { formatReviewNotes } from './reviewNotes';
-import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, type TaskSurface } from './constants';
+import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, type TaskSurface } from './constants';
 import { friendlyModelLabel, fmtModel, commentTime, fmtMs, fmtLive, fmtTok, fmtUpdatedAt, autoGrow } from './format';
 import { StatusIcon, DispatchChip } from './atoms';
 import { ProjectPickerBody } from './ProjectPicker';
@@ -241,6 +241,153 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * "Tentativi" — il confronto del fan-out, e il posto dove si sceglie il vincitore.
+ *
+ * Disegna qualcosa SOLO quando i tentativi sono più di uno: un task dispatchato
+ * normalmente non ha righe `task_attempts` e questa sezione non esiste per lui.
+ *
+ * Niente punteggio e niente ordinamento "per merito": il diffstat sta accanto a
+ * ogni tentativo perché è un fatto, non un voto — mettere in cima "il più
+ * piccolo" o "il più veloce" darebbe a un numero l'autorità di una scelta che è
+ * di merito. Restano in ordine di lancio; la scelta è un click umano, e il modo
+ * onesto di farla è aprire i due diff.
+ */
+export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpenTopic }: {
+  projectId: string; taskId: string; bump?: string | number;
+  onChanged: () => void;
+  onOpenTopic?: (topicId: string) => void;
+}) {
+  const [attempts, setAttempts] = useState<TaskAttempt[]>([]);
+  const [openDiff, setOpenDiff] = useState<string | null>(null);
+  const [picking, setPicking] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    boardApi.attempts(projectId, taskId)
+      .then((a) => { if (alive) setAttempts(a); })
+      .catch(() => { /* nessun tentativo, nessuna sezione */ });
+    return () => { alive = false; };
+  }, [projectId, taskId, bump]);
+
+  const pick = async (attemptId: string) => {
+    if (picking) return;
+    setPicking(attemptId);
+    setError(null);
+    try {
+      const res = await boardApi.selectAttempt(projectId, taskId, attemptId);
+      setAttempts(res.attempts);
+      setOpenDiff(null);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'scelta fallita');
+    } finally { setPicking(null); }
+  };
+
+  if (attempts.length < 2) return null;
+  const decided = attempts.some((a) => a.state === 'selected');
+  const running = attempts.filter((a) => a.state === 'running').length;
+
+  return (
+    <div className="shrink-0 border-b border-white/10 px-3 py-2">
+      <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+        Tentativi <span className="normal-case tracking-normal text-neutral-600">· {attempts.length} in parallelo</span>
+        {running > 0 && (
+          <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] normal-case tracking-normal text-amber-300">
+            <Loader2 className="h-2.5 w-2.5 animate-spin" /> {running} in corso
+          </span>
+        )}
+      </div>
+      {!decided && running === 0 && (
+        <p className="mt-1 text-[11px] text-neutral-400">
+          Scegline uno: il task prende il suo branch, gli altri (worktree e chat) vengono buttati.
+        </p>
+      )}
+      {error && <p className="mt-1 text-[11px] text-rose-300">{error}</p>}
+      <div className="mt-1.5 space-y-1.5">
+        {attempts.map((a) => {
+          const won = a.state === 'selected';
+          const dead = a.state === 'discarded';
+          const work = attemptHasWork(a);
+          return (
+            <div
+              key={a.id}
+              data-testid={`task-attempt-${a.idx}`}
+              className={`rounded border px-2 py-1.5 ${
+                won ? 'border-emerald-500/40 bg-emerald-500/5' : dead ? 'border-white/5 bg-white/[0.02] opacity-50' : 'border-white/10 bg-white/[0.03]'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 text-[11px]">
+                <span className="font-medium text-neutral-200">Tentativo {a.idx}</span>
+                {won && <span className="rounded bg-emerald-500/25 px-1 text-[9px] text-emerald-200">scelto</span>}
+                {dead && <span className="rounded bg-white/10 px-1 text-[9px] text-neutral-400">scartato</span>}
+                <span className="text-neutral-500">{formatAttemptStat(a)}</span>
+                {a.branch && <span className="truncate font-mono text-[10px] text-neutral-600">{a.branch}</span>}
+              </div>
+              {a.summary && (
+                <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap text-[11px] leading-snug text-neutral-300">{a.summary}</p>
+              )}
+              <div className="mt-1 flex items-center gap-1.5">
+                {work && (
+                  <button
+                    onClick={() => setOpenDiff((cur) => (cur === a.id ? null : a.id))}
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-white/10"
+                  >{openDiff === a.id ? 'Chiudi il diff' : 'Vedi il diff'}</button>
+                )}
+                {a.topicId && onOpenTopic && !dead && (
+                  <button
+                    onClick={() => onOpenTopic(a.topicId!)}
+                    className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-neutral-300 hover:bg-white/10"
+                  >Apri la chat</button>
+                )}
+                {!decided && running === 0 && a.topicId && (
+                  <button
+                    onClick={() => pick(a.id)}
+                    disabled={!!picking}
+                    data-testid="task-attempt-pick"
+                    title={work ? undefined : "Questo tentativo non ha modificato niente: tenerlo significa consegnare un branch vuoto."}
+                    className="ml-auto flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-500 disabled:opacity-40"
+                  >
+                    {picking === a.id && <Loader2 className="h-3 w-3 animate-spin" />} Scegli questo
+                  </button>
+                )}
+              </div>
+              {openDiff === a.id && (
+                <AttemptDiff key={`${projectId}:${taskId}:${a.id}`} projectId={projectId} taskId={taskId} attemptId={a.id} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Il diff di UN tentativo, caricato solo quando lo si apre (N diff insieme
+ *  sarebbero N bundle in memoria per una scelta che se ne guarda uno per volta).
+ *  Montato con `key` sul tentativo: cambiare bersaglio RIMONTA, così lo stato
+ *  riparte da 'loading' senza un setState dentro l'effetto (che sarebbe un
+ *  render a cascata — e il lint lo rifiuta, giustamente). */
+function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; taskId: string; attemptId: string }) {
+  const [state, setState] = useState<DiffBundle | 'loading' | 'error'>('loading');
+  useEffect(() => {
+    let alive = true;
+    boardApi.taskDiff(projectId, taskId, attemptId)
+      .then((b) => { if (alive) setState(b); })
+      .catch(() => { if (alive) setState('error'); });
+    return () => { alive = false; };
+  }, [projectId, taskId, attemptId]);
+  if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-neutral-500"><Loader2 className="h-3 w-3 animate-spin" /> carico il diff…</div>;
+  if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">Diff non leggibile.</p>;
+  if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-neutral-500">Nessuna modifica da mostrare.</p>;
+  return (
+    <div className="mt-1.5 max-h-[38vh] overflow-y-auto">
+      <UnifiedDiff bundle={state} defaultOpenFirst />
     </div>
   );
 }
@@ -1359,6 +1506,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               chat composer area ("sopra la chat era fastidioso"). It renders
               NOTHING when there's no worktree / an empty diff (owns its own
               section chrome), so an unchanged task shows no "Modifiche" bar. */}
+          {/* "Tentativi" sta SOPRA "Modifiche" perché finché il vincitore non è
+              scelto il diff del task è quello del tentativo 1 — che può non
+              essere quello che si tiene. Prima si sceglie, poi si revisiona. */}
+          <TaskAttemptsSection projectId={projectId} taskId={taskId} bump={bump} onChanged={onChanged} onOpenTopic={onOpenTopic} />
           {task.assignedTopicId && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
           {/* "Spazio di lavoro" — the task's ONE GroupLayout (Thread + browser
               tabs + Piano + media, the app's real PaneTabBar). Collapsible like
@@ -1947,6 +2098,30 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         <span>Isola ogni agent in un git worktree</span>
         <input type="checkbox" checked={s.dispatchUseWorktree} onChange={(e) => patch({ dispatchUseWorktree: e.target.checked })} className="h-3.5 w-3.5 accent-emerald-500" />
       </label>
+
+      <label
+        className="flex items-center justify-between gap-2"
+        title="Quanti agent lavorano LO STESSO task in parallelo, ognuno nel suo worktree. A fine giro il task entra in review con il confronto dei tentativi e scegli tu quale tenere: gli altri (worktree, branch e chat) vengono buttati. Costa N volte: N agent veri, N slot del tetto di concorrenza. Richiede il worktree attivo."
+      >
+        <span>Tentativi in parallelo <span className="text-neutral-500">(fan-out)</span></span>
+        <div className="flex gap-0.5">
+          {FANOUT_CHOICES.map((n) => (
+            <button
+              key={n}
+              disabled={!s.dispatchUseWorktree}
+              onClick={() => patch({ dispatchFanOut: n })}
+              className={`rounded px-1.5 py-0.5 disabled:opacity-40 ${
+                (s.dispatchFanOut || 1) === n ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-neutral-400 enabled:hover:bg-white/10'
+              }`}
+            >{n}</button>
+          ))}
+        </div>
+      </label>
+      {s.dispatchUseWorktree && (s.dispatchFanOut || 1) > 1 && (
+        <p className="text-[11px] text-amber-300/80">
+          Ogni task in Todo parte {s.dispatchFanOut} volte e occupa {s.dispatchFanOut} slot del tetto: il conto dei token si moltiplica per {s.dispatchFanOut}.
+        </p>
+      )}
 
       <label className="flex cursor-pointer items-center justify-between" title="Su Approva, mergia il branch del task in main nel checkout principale. Merge pulito → landa in locale (niente push); conflitto → rimanda all'agent del task; checkout sporco o non su main → salta con un commento. Richiede il worktree attivo.">
         <span>Auto-merge su Approva</span>

@@ -21,6 +21,15 @@
 /** L'elenco degli stati. Il tipo lo segue: una sola verità, non due gemelle. */
 export const TASK_STATUSES = ['backlog', 'todo', 'in_progress', 'review', 'done'] as const;
 
+/**
+ * Tetto al fan-out (agenti paralleli sullo stesso task). Cinque, non "quanti ne
+ * vuoi": ogni tentativo è un agente vero, con il suo worktree e il suo costo, e
+ * oltre questo numero il confronto smette di essere leggibile da un umano prima
+ * ancora che la macchina si arrenda. Letto dal clamp del server, dal dispatcher
+ * e dal selettore nel pannello impostazioni — una sola verità.
+ */
+export const MAX_FANOUT = 5;
+
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export interface TaskComment {
@@ -112,6 +121,15 @@ export interface BoardSettings {
    * sul default della board.
    */
   dispatchModel: string;
+  /**
+   * Fan-out: quanti agenti lavorano IN PARALLELO lo stesso task, ognuno nel
+   * proprio worktree, prima che l'umano scelga quale tenere (migration 065).
+   * 1 (il default) = un agente, il path storico byte per byte. >1 occupa N slot
+   * del tetto globale di concorrenza, perché sono N agenti veri.
+   * Ha senso solo con `dispatchUseWorktree` acceso: senza isolamento gli N
+   * agenti si pesterebbero i piedi nella stessa cartella.
+   */
+  dispatchFanOut: number;
   /** Tentativi di lancio prima che un task venga parcheggiato (default 2). */
   dispatchRetryCap: number;
   /** Backoff (s) prima di riprendere un turno morto più in fretta di così (guardia outage, default 60). */
