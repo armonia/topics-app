@@ -12,7 +12,7 @@
  *   - the set holds TOPIC ids, keyed via each topic's sessionKey.
  */
 import { describe, test, expect } from "bun:test";
-import { deriveAwaitingFeedbackTopics, derivePhaseTerminals, AWAITING_FEEDBACK_PHASES, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
+import { deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics, derivePhaseTerminals, visibleTopicSignalCount, attentionTierForPhase, AWAITING_FEEDBACK_PHASES, AWAITING_INPUT_PHASES, type TerminalPhaseLite, type TerminalRosterTypeEntry } from "./signals";
 import type { Topic, ClaudeSessionState, ClaudeSessionPhase } from "../types";
 
 // Minimal Topic factory — only id + sessionKey are read by the derivation.
@@ -166,5 +166,78 @@ describe("derivePhaseTerminals — awaiting set", () => {
     ];
     const { awaiting } = derivePhaseTerminals(roster, new Map());
     expect(awaiting.size).toBe(0);
+  });
+});
+
+/**
+ * The gate that stops the status-bar count from advertising sessions nobody can
+ * see. Regression: the bar read "24 in attesa" while the sidebar showed none —
+ * 22 of them were ARCHIVED topics (some belonging to worktrees reaped weeks
+ * earlier), because the signal Sets are deliberately not archived-filtered and
+ * `.size` has no surface behind it to gate on.
+ *
+ * The Sets stay unfiltered on purpose: every per-row / per-tab consumer is
+ * already gated by the existence of its row or tab. Only the count needs this.
+ */
+describe("visibleTopicSignalCount", () => {
+  const archived = (id: string): Topic => ({ id, name: id, archived: true } as Topic);
+  const open = (id: string): Topic => ({ id, name: id, archived: false } as Topic);
+
+  test("counts only topics that are not archived", () => {
+    const topics = { a: open("a"), b: archived("b"), c: open("c") };
+    expect(visibleTopicSignalCount(new Set(["a", "b", "c"]), topics)).toBe(2);
+  });
+
+  test("an all-archived set counts zero — the exact shape of the 22-vs-0 bug", () => {
+    const topics = { x: archived("x"), y: archived("y"), z: archived("z") };
+    expect(visibleTopicSignalCount(new Set(["x", "y", "z"]), topics)).toBe(0);
+  });
+
+  test("an id with no topic at all is dropped, not counted", () => {
+    // A deleted topic must not keep nagging from the status bar.
+    expect(visibleTopicSignalCount(new Set(["ghost"]), { a: open("a") })).toBe(0);
+  });
+
+  test("an empty set counts zero", () => {
+    expect(visibleTopicSignalCount(new Set(), { a: open("a") })).toBe(0);
+  });
+
+  test("does not mutate its inputs", () => {
+    const ids = new Set(["a", "b"]);
+    const topics = { a: open("a"), b: archived("b") };
+    visibleTopicSignalCount(ids, topics);
+    expect(ids).toEqual(new Set(["a", "b"]));
+    expect(Object.keys(topics).sort()).toEqual(["a", "b"]);
+  });
+});
+
+/**
+ * The two tiers must stay separable: `awaiting-approval` is the LOUD one (a
+ * permission gate — answer me now), `awaiting-user`/`paused` merely mean the
+ * turn ended. The status-bar chip painted the whole union amber, so a pile of
+ * finished turns read as a pile of prompts.
+ */
+describe("awaiting tiers stay separable", () => {
+  test("the input subset is strictly inside the feedback set", () => {
+    for (const phase of [...AWAITING_INPUT_PHASES]) {
+      expect(AWAITING_FEEDBACK_PHASES.has(phase)).toBe(true);
+    }
+    expect(AWAITING_INPUT_PHASES.size).toBeLessThan(AWAITING_FEEDBACK_PHASES.size);
+  });
+
+  test("awaiting-user is 'done' (calm), awaiting-approval is 'input' (loud)", () => {
+    expect(attentionTierForPhase("awaiting-user")).toBe("done");
+    expect(attentionTierForPhase("paused")).toBe("done");
+    expect(attentionTierForPhase("awaiting-approval")).toBe("input");
+  });
+
+  test("deriveAwaitingInputTopics picks only the loud phase", () => {
+    const topics = { u: topic("u", "k-u"), a: topic("a", "k-a"), p: topic("p", "k-p") };
+    const sessions = new Map<string, ClaudeSessionState>([
+      ["k-u", session("awaiting-user")],
+      ["k-a", session("awaiting-approval")],
+      ["k-p", session("paused")],
+    ]);
+    expect(deriveAwaitingInputTopics(topics, sessions)).toEqual(new Set(["a"]));
   });
 });

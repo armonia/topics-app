@@ -480,7 +480,7 @@ function App() {
   // can't drift from the surfaces — and, unlike raw phase counting, a claude-code
   // session stuck at `starting` (hooks never fired) still counts as working via
   // the pty-busy signal.
-  const agentCounts = useAgentActivityCounts(terminalSessions);
+  const agentCounts = useAgentActivityCounts(terminalSessions, topics);
 
   const sidebarContentRef = useRef<HTMLDivElement>(null);
 

@@ -953,33 +953,67 @@ export function useAnyAgentActive(): boolean {
   return useSignalsStore((s) => s.agentActiveTopics.size > 0);
 }
 
+/** Pure: how many of `ids` belong to a topic that is actually ON SCREEN.
+ *
+ *  The topic signal Sets are deliberately NOT archived-filtered: they are keyed
+ *  by topic id and every per-row / per-tab consumer is already gated by the
+ *  existence of its row or tab (the sidebar even keeps a PINNED archived chat
+ *  visible on purpose — `buildSidebarItems`' pinned escape — and must keep its
+ *  badge). A raw `.size`, though, has no such gate, and that is how the status
+ *  bar came to advertise 22 parked sessions while the sidebar showed none: all
+ *  22 were archived topics, some of them reaped worktrees weeks old.
+ *
+ *  So the COUNT — the one consumer that reads the Sets without a surface behind
+ *  it — applies the gate here instead. An id whose topic no longer exists is
+ *  dropped too: a deleted topic must not keep nagging from the status bar. */
+export function visibleTopicSignalCount(
+  ids: ReadonlySet<string>,
+  topics: Record<string, Topic>,
+): number {
+  let n = 0;
+  for (const id of ids) {
+    const t = topics[id];
+    if (t && !t.archived) n++;
+  }
+  return n;
+}
+
 /**
  * Global live agent counts for the status bar, counted from the SAME signals the
- * tab spinners and blue "awaiting" fills read — so the number can never drift
- * from what's on screen:
- *   - working  = claude/codex sessions producing output right now. A terminal
+ * tab spinners and blue "awaiting" fills read — and, for the topic-keyed ones,
+ * narrowed to topics that are actually on screen (see `visibleTopicSignalCount`)
+ * so the number cannot drift from what you can see:
+ *   - working      = claude/codex sessions producing output right now. A terminal
  *     counts via `terminalLoadingFrom` (phase-active OR pty-busy-and-not-resting)
  *     — crucially the pty-busy fallback means a session stuck at `starting`
  *     (hooks never advanced it) still counts, which raw phase counting missed —
  *     plus chat topics mid-stream (live or hydrated).
- *   - awaiting = sessions parked for the user (the blue-fill set): claude
- *     terminals awaiting + chat topics awaiting.
+ *   - awaiting     = sessions parked for the user (the whole blue-fill set):
+ *     claude terminals awaiting + chat topics awaiting.
+ *   - awaitingInput= the LOUD subset of `awaiting` (`awaiting-approval`): blocked
+ *     on a permission, needs an answer now. Split out so the chip can paint the
+ *     two tiers the way `attentionTierForPhase` defines them instead of calling
+ *     everything amber — `awaiting-user` means "the turn ended", not "answer me".
  *
  * `roster` is the authoritative terminal session list (App's `terminalSessions`)
  * — needed to enumerate which ids are claude/codex and apply the loading rule.
+ * `topics` is App's topic map, the authority on what is archived.
  */
 export function useAgentActivityCounts(
   roster: ReadonlyArray<{ id: string; type: string }>,
-): { working: number; awaiting: number } {
+  topics: Record<string, Topic>,
+): { working: number; awaiting: number; awaitingInput: number } {
   const sig = useSignalsStore(
     useShallow((s) => ({
       active: s.claudePhaseActiveTermIds,
       resting: s.claudePhaseRestingTermIds,
       busy: s.terminalBusyIds,
       awaitingTerm: s.claudePhaseAwaitingTermIds,
+      awaitingInputTerm: s.claudePhaseAwaitingInputTermIds,
       liveStream: s.liveStreamTopics,
       hydratedStream: s.hydratedStreamTopics,
       awaitingTopics: s.awaitingFeedbackTopics,
+      awaitingInputTopics: s.awaitingInputTopics,
     })),
   );
   return useMemo(() => {
@@ -990,11 +1024,13 @@ export function useAgentActivityCounts(
     }
     // Chat sessions mid-reply (distinct id space from terminals → no overlap).
     const streamingTopics = new Set<string>([...sig.liveStream, ...sig.hydratedStream]);
-    working += streamingTopics.size;
-    // Awaiting = the blue-fill set across both surfaces.
-    const awaiting = sig.awaitingTerm.size + sig.awaitingTopics.size;
-    return { working, awaiting };
-  }, [roster, sig]);
+    working += visibleTopicSignalCount(streamingTopics, topics);
+    // Awaiting = the blue-fill set across both surfaces, and its loud subset.
+    const awaiting = sig.awaitingTerm.size + visibleTopicSignalCount(sig.awaitingTopics, topics);
+    const awaitingInput =
+      sig.awaitingInputTerm.size + visibleTopicSignalCount(sig.awaitingInputTopics, topics);
+    return { working, awaiting, awaitingInput };
+  }, [roster, topics, sig]);
 }
 
 // ---- Attention facade (read by the notification layer) ---------------------
