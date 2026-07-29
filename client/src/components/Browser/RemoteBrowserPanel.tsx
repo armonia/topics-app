@@ -15,6 +15,7 @@ import { isTauri } from '../../lib/shell';
 import { computeAutoShared, type ShareMode } from '../../lib/sharedAuto';
 import { useSharedViewerCount } from '../../hooks/useSharedViewerCount';
 import type { Topic } from '../../types';
+import { usePaneHold } from '../../state/pane/residency/holds';
 
 // T1 DOM co-browse — the native rrweb reconstruction view. Lazy so rrweb + its CSS
 // only load when a pane actually switches to DOM mode (default video path is free).
@@ -269,6 +270,9 @@ function useBackToSpawner(
 function TauriBrowserPanelInner({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible = true, onFocusPanel, topics, onSelfFocus, shared, shareMode, onToggleShare }: RemoteBrowserPanelProps) {
   const browser = useTauriBrowser(contextId, initialUrl, isVisible, onSelfFocus);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
+  // Niente sfratto mentre un agente sta guidando: smontare la pane toglie al
+  // server l'esecutore delle sue operazioni (server/browser-native-delegate.ts).
+  usePaneHold(browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
   const focusUrlBarRef = useRef<(() => void) | null>(null);
@@ -472,6 +476,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // the single-WKWebView Tauri renderer's memory in check — see useRemoteBrowser).
   const browser = useRemoteBrowser(contextId, isVisible);
   useReportBrowserActivity(contextId, browser.loading || browser.agentActive);
+  // Niente sfratto mentre un agente sta guidando: smontare la pane toglie al
+  // server l'esecutore delle sue operazioni (server/browser-native-delegate.ts).
+  usePaneHold(browser.agentActive);
   const { history, push: pushHistory } = useBrowserHistory(contextId);
   const backToSpawner = useBackToSpawner(contextId, onFocusPanel, topics);
 
