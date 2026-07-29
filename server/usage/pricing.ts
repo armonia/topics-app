@@ -51,3 +51,67 @@ export function calculateCost(model: string, inputTokens: number, outputTokens: 
   }
   return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
 }
+
+/**
+ * Moltiplicatori della cache rispetto al prezzo dell'input, uguali su tutta la
+ * famiglia Claude: SCRIVERE nella cache costa un quarto in più di un token
+ * fresco, RILEGGERLA costa un decimo.
+ *
+ * Perché contano così tanto: in un turno agentico lungo lo stesso prompt viene
+ * riletto dalla cache a ogni chiamata al modello, e l'aggregato di fine turno
+ * arriva a milioni di token di sola rilettura. Trattarli come input fresco —
+ * quello che faceva `calculateCost` da sola, ricevendo un `inputTokens` che li
+ * conteneva già — gonfia il costo di circa dieci volte: un turno da ~$9 veniva
+ * mostrato a $90.
+ *
+ * NB: la scrittura a 1 ora costa 2×, non 1.25×. La CLI aggrega le due durate in
+ * `cache_creation_input_tokens`, quindi qui si usa la tariffa a 5 minuti; lo
+ * scarto è sui soli token di scrittura, ordini di grandezza sotto l'errore che
+ * questa funzione elimina.
+ */
+export const CACHE_WRITE_MULTIPLIER = 1.25;
+export const CACHE_READ_MULTIPLIER = 0.1;
+
+/**
+ * Costo di una chiamata (o di un turno aggregato) con i token della cache
+ * tariffati per quello che sono. `freshInputTokens` sono i token di prompt che
+ * NON venivano dalla cache: chi chiama parte quasi sempre da un totale che li
+ * comprende tutti e tre, quindi sottragga prima (vedi `splitPromptTokens`).
+ */
+export function calculateCostWithCache(args: {
+  model: string;
+  freshInputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+}): number {
+  const pricing = findPricing(args.model);
+  if (!pricing) {
+    console.warn(`[usage] Unknown model "${args.model}" — cost will not be tracked. Add pricing to MODEL_PRICING.`);
+    return 0;
+  }
+  const n = (v: number | undefined) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  const inputCost =
+    n(args.freshInputTokens) * pricing.input +
+    n(args.cacheCreationTokens) * pricing.input * CACHE_WRITE_MULTIPLIER +
+    n(args.cacheReadTokens) * pricing.input * CACHE_READ_MULTIPLIER;
+  return (inputCost + n(args.outputTokens) * pricing.output) / 1_000_000;
+}
+
+/**
+ * Da "totale dei token di prompt" (fresco + scrittura + rilettura, che è come
+ * lo consegna il provider) alle tre quote separate. Non va mai sotto zero: un
+ * provider che riporta quote incoerenti deve produrre un costo basso, non un
+ * credito.
+ */
+export function splitPromptTokens(args: {
+  promptTokensTotal: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+}): { fresh: number; cacheRead: number; cacheCreation: number } {
+  const n = (v: number | undefined) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  const cacheRead = n(args.cacheReadTokens);
+  const cacheCreation = n(args.cacheCreationTokens);
+  const fresh = Math.max(0, n(args.promptTokensTotal) - cacheRead - cacheCreation);
+  return { fresh, cacheRead, cacheCreation };
+}

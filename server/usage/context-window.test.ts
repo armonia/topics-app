@@ -7,6 +7,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   contextWindowFor,
+  windowModelFor,
   classifyContext,
   contextLevel,
   DEFAULT_CONTEXT_WINDOW,
@@ -82,5 +83,33 @@ describe("classifyContext", () => {
   it("propaga `estimated` dalla finestra", () => {
     expect(classifyContext(1000, contextWindowFor("modello-ignoto")).estimated).toBe(true);
     expect(classifyContext(1000, contextWindowFor("claude-opus-4-6")).estimated).toBe(false);
+  });
+});
+
+/**
+ * `[1m]` è una MODALITÀ di servizio, non un modello diverso: il picker manda
+ * `claude-opus-5[1m]`, la CLI nei suoi eventi riporta `claude-opus-5` nudo. Chi
+ * dimensionava la finestra guardava il secondo e leggeva 200k — l'anello diceva
+ * "quasi pieno" a un sesto della capacità vera.
+ */
+describe("windowModelFor — il suffisso 1M sopravvive al nome nudo della CLI", () => {
+  it("la richiesta a 1M vince quando a rispondere è lo stesso modello", () => {
+    expect(windowModelFor("claude-opus-5", "claude-opus-5[1m]")).toBe("claude-opus-5[1m]");
+    expect(contextWindowFor(windowModelFor("claude-opus-5", "claude-opus-5[1m]")).tokens).toBe(1_000_000);
+    // Anche col suffisso di data che la CLI a volte aggiunge.
+    expect(contextWindowFor(windowModelFor("claude-opus-5-20260101", "claude-opus-5[1m]")).tokens).toBe(1_000_000);
+  });
+
+  it("un ripiego su un ALTRO modello porta la SUA finestra, non quella richiesta", () => {
+    // Fast mode / sovraccarico: ha risposto sonnet, la finestra è la sua.
+    expect(windowModelFor("claude-sonnet-5", "claude-opus-5[1m]")).toBe("claude-sonnet-5");
+    expect(contextWindowFor(windowModelFor("claude-sonnet-5", "claude-opus-5[1m]")).tokens).toBe(200_000);
+  });
+
+  it("senza 1M nella richiesta non inventa niente", () => {
+    expect(contextWindowFor(windowModelFor("claude-opus-5", "claude-opus-5")).tokens).toBe(200_000);
+    expect(windowModelFor(null, "claude-opus-5[1m]")).toBe("claude-opus-5[1m]");
+    expect(windowModelFor("claude-opus-5", null)).toBe("claude-opus-5");
+    expect(windowModelFor(null, null)).toBeNull();
   });
 });

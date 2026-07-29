@@ -30,7 +30,7 @@
  */
 
 import type { ProviderUsage } from "../providers/types";
-import { classifyContext, contextWindowFor, type ContextUsage } from "./context-window";
+import { classifyContext, contextWindowFor, windowModelFor, type ContextUsage } from "./context-window";
 
 // Il blocco ACP e il suo costo stanno in `shared/types.ts`: è la forma che
 // arriva al client nel contatore di contesto, non un dettaglio del server.
@@ -92,7 +92,15 @@ export function buildContextUpdate(args: {
     typeof args.windowTokens === "number" && Number.isFinite(args.windowTokens) && args.windowTokens > 0
       ? { tokens: Math.round(args.windowTokens), known: true }
       : null;
-  const usage = classifyContext(args.tokens, declared ?? contextWindowFor(model));
+  // Il nome che dimensiona la finestra non è sempre quello che ha servito la
+  // chiamata: `[1m]` è una modalità, e la CLI riporta il modello senza suffisso.
+  // `windowModelFor` tiene il suffisso della richiesta quando a rispondere è
+  // stato lo stesso modello, e lo lascia cadere quando la CLI è ripiegata su un
+  // altro. Vedi context-window.ts.
+  const usage = classifyContext(
+    args.tokens,
+    declared ?? contextWindowFor(windowModelFor(args.model, args.fallbackModel)),
+  );
   return {
     usage: {
       sessionUpdate: "usage_update",

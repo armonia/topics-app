@@ -36,7 +36,7 @@ import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from 
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
-import { calculateCost } from "../usage/pricing";
+import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
 import { parseMentions, resolveMentions } from "../mention-parser";
 import type { BrowserService } from "../browser-service";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
@@ -1645,7 +1645,24 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     costCents = Math.round(usdFromProvider * 100);
                   } else if (typeof inTok === "number" && typeof outTok === "number") {
                     try {
-                      const usd = calculateCost(message.model || overrideModel || "unknown", inTok, outTok);
+                      // `inTok` comprende i token letti DALLA CACHE, e in un turno
+                      // agentico lungo sono la quota schiacciante: lo stesso prompt
+                      // riletto a ogni chiamata al modello arriva a milioni. Tariffarli
+                      // come input fresco moltiplicava il costo per ~10 (un turno da
+                      // ~$9 mostrato a $90). Le quote arrivano separate dal provider:
+                      // si scorporano e ognuna paga la sua tariffa.
+                      const split = splitPromptTokens({
+                        promptTokensTotal: inTok,
+                        cacheReadTokens: usage.cacheRead,
+                        cacheCreationTokens: usage.cacheCreation,
+                      });
+                      const usd = calculateCostWithCache({
+                        model: message.model || overrideModel || "unknown",
+                        freshInputTokens: split.fresh,
+                        outputTokens: outTok,
+                        cacheReadTokens: split.cacheRead,
+                        cacheCreationTokens: split.cacheCreation,
+                      });
                       if (usd > 0) costCents = Math.round(usd * 100);
                     } catch { /* unknown model — skip cost, keep tokens */ }
                   }
