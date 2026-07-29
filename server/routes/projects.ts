@@ -17,7 +17,7 @@
  * 409 with clear messages.
  */
 import type { AppContext, RouteHandler } from "../types";
-import type { OutboundType } from "../schemas/ws-outbound";
+import type { OutboundType } from "../../shared/ws-outbound";
 import { SlugConflictError, ProjectInUseError } from "../services/project-store";
 import { unwatchGitDir } from "../git-watcher";
 import { existsSync, statSync, readFileSync, realpathSync } from "node:fs";

@@ -17,7 +17,7 @@
  * `worktree:updated`.
  */
 import type { AppContext, RouteHandler } from "../types";
-import type { OutboundType } from "../schemas/ws-outbound";
+import type { OutboundType } from "../../shared/ws-outbound";
 import {
   WorktreeNameConflictError,
   WorktreePathConflictError,

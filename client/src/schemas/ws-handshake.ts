@@ -1,38 +1,22 @@
 /**
- * Client mirror of `server/schemas/ws-handshake.ts` for the v3 foundations
- * WS-02 handshake protocol.
+ * Handshake WS lato client.
  *
- * Why a mirror: the composite TS project boundary (TS6307) forbids
- * cross-imports from `server/`. The Zod schema is duplicated; the
- * canonical type is derived via `z.infer` on both sides — drift is caught
- * by structural-equality assignability tests in the test files.
+ * Gli schemi (`hello`, `welcome`, `upgrade-required`) NON vivono più qui: erano
+ * una copia a mano di `server/schemas/ws-handshake.ts` tenuta insieme da un
+ * commento "KEEP IN SYNC". Ora sono in `shared/ws-handshake.ts`, unica fonte
+ * per i due progetti TS. Restano qui solo le costanti che descrivono QUESTA
+ * build del client — il server ha le sue in `server/ws-capabilities.ts`.
  */
-// Uses `zod/mini` (functional, tree-shakable API) so these client-bundled
-// schemas don't drag the method-heavy core into the critical entry chunk.
-// Parse methods (`.safeParse`) are identical across full zod and zod/mini.
-import { z } from 'zod/mini';
-
-// ----- Client -> Server: hello ----------------------------------------------
-
-export const helloMessageSchema = z.object({
-  type: z.literal('hello'),
-  clientVersion: z.string(),
-  protocolVersion: z.int(),
-  capabilities: z.array(z.string()),
-});
-
-export type HelloMessage = z.infer<typeof helloMessageSchema>;
-
-// ----- Server -> Client: upgrade-required (future) --------------------------
-
-export const upgradeRequiredSchema = z.object({
-  type: z.literal('upgrade-required'),
-  minClientProtocolVersion: z.int(),
-  currentClientProtocolVersion: z.int(),
-  message: z.string(),
-});
-
-export type UpgradeRequiredMessage = z.infer<typeof upgradeRequiredSchema>;
+export {
+  helloMessageSchema,
+  welcomeMessageSchema,
+  upgradeRequiredSchema,
+  parseHelloMessage,
+  parseWelcomeMessage,
+  type HelloMessage,
+  type WelcomeMessage,
+  type UpgradeRequiredMessage,
+} from '../../../shared/ws-handshake';
 
 // ----- Client capabilities advertised in hello ------------------------------
 

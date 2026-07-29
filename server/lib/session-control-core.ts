@@ -21,7 +21,7 @@
  * themselves so the UI converges identically no matter which surface called.
  */
 import type { Topic } from "../types";
-import type { OutboundMessage } from "../schemas/ws-outbound";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 
 /** The subset of AppContext the switch/create cores dereference. */
 export interface SessionControlDeps {

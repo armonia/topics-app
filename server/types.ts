@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
 import type { ToolCallStatus, UserInputSchema, ToolUserResponse } from "../shared/types";
-import type { OutboundMessage } from "./schemas/ws-outbound";
+import type { OutboundMessage } from "../shared/ws-outbound";
 
 // Re-export so existing imports `from "./types"` keep resolving.
 export type {

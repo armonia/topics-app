@@ -18,8 +18,8 @@ import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "./schemas/tool-call-detail";
-import { validateOutbound } from "./schemas/ws-outbound";
-import type { OutboundMessage } from "./schemas/ws-outbound";
+import { validateOutbound } from "../shared/ws-outbound";
+import type { OutboundMessage } from "../shared/ws-outbound";
 
 /**
  * v3 foundations WS-01 outbound validation hook. Runs in DEV mode only —
