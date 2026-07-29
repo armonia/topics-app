@@ -25,6 +25,7 @@ import { join } from "path";
 import type { ChatMessage } from "../providers/types";
 import type { AppContext, StoredMessage, Topic } from "../types";
 import { loadMemoryForTopic } from "../routes/memory";
+import { getActiveGoal, goalContextContent } from "../services/goals";
 import { buildProviderHistory } from "../utils/build-provider-history";
 
 import type {
@@ -200,6 +201,9 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   // (b) Topics-app-emitted blocks, in delivery order.
   if (topic) {
     pushSystemPromptBlock(systemBlocks, topic, isEnabled);
+    // L'obiettivo prima di tutto il resto, e anche nel turno lean: vedi
+    // `pushGoalBlock`.
+    pushGoalBlock(systemBlocks, topic, ctx);
     // Lean (dispatcher resume/continuation): system prompt + cwd awareness ONLY.
     // The persistent CLI session already carries CLAUDE.md/README, the browser
     // instructions, memory & co. from the kickoff turn — re-sending them just
@@ -716,6 +720,40 @@ function pushPinnedMessagesBlock(
     content,
     tokens: estimateTokens(content),
     enabled: isEnabled(id),
+    countInBudget: true,
+    editable: false,
+    injectedByTopicsApp: true,
+  });
+}
+
+/**
+ * Il goal attivo del topic (3.4). Va SEMPRE, anche in `leanContext`: è l'unico
+ * blocco che esiste proprio per sopravvivere alla compattazione — toglierlo dal
+ * turno di ripresa del dispatcher significherebbe togliere l'obiettivo esattamente
+ * al turno in cui il modello ha già perso tutto il resto.
+ *
+ * Non è disattivabile dall'ispettore: un obiettivo che l'umano ha dichiarato e
+ * che il modello non vede è la premessa del guasto che questo blocco previene.
+ * Per toglierlo si chiude il goal, che è una decisione, non un interruttore.
+ */
+function pushGoalBlock(blocks: SystemBlock[], topic: Topic, ctx: AppContext): void {
+  let content: string | null = null;
+  try {
+    content = goalContextContent(getActiveGoal(ctx.db, topic.id));
+  } catch (err) {
+    // Una topic senza tabella (DB vecchio) o una query che fallisce non deve
+    // far saltare l'assemblaggio: il resto del contesto vale comunque.
+    console.warn("[assemble] goal block skipped:", err);
+    return;
+  }
+  if (!content) return;
+  blocks.push({
+    id: "synthetic:goal",
+    label: "Obiettivo",
+    category: "synthetic",
+    content,
+    tokens: estimateTokens(content),
+    enabled: true,
     countInBudget: true,
     editable: false,
     injectedByTopicsApp: true,

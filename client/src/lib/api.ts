@@ -18,6 +18,8 @@ import type {
   ProviderSnapshotEntry,
   Project,
   Worktree,
+  TopicGoal,
+  GoalStepStatus,
 } from '../types';
 import { serverHttpBase } from './shell/net';
 
@@ -749,6 +751,49 @@ export interface MemoryData {
   globalContent: string;
   topicId: string;
 }
+
+/**
+ * Il goal della chat (3.4). Le rotte stanno in `server/routes/goals.ts`; il
+ * server annuncia ogni cambiamento con `goal:updated`, quindi dopo una scrittura
+ * NON serve rileggere: la barra si aggiorna dall'evento come si aggiornerebbe
+ * per una scrittura fatta da un'altra finestra. Un unico percorso, un unico bug
+ * possibile.
+ */
+export const goalApi = {
+  async get(topicId: string): Promise<{ goal: TopicGoal | null; history: TopicGoal[] }> {
+    return request(`/topics/${topicId}/goal`);
+  },
+
+  async set(topicId: string, content: string): Promise<{ goal: TopicGoal }> {
+    return request(`/topics/${topicId}/goal`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  /** Chiude quello attivo. `achieved` e `abandoned` non sono la stessa cosa per
+   *  chi rilegge lo storico, quindi la distinzione la fa chi chiude. */
+  async close(topicId: string, status: 'achieved' | 'abandoned'): Promise<{ goal: TopicGoal | null }> {
+    return request(`/topics/${topicId}/goal`, {
+      method: 'DELETE',
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  async reopen(goalId: string): Promise<{ goal: TopicGoal | null }> {
+    return request(`/goals/${goalId}/reopen`, { method: 'POST' });
+  },
+
+  async setSteps(
+    goalId: string,
+    steps: Array<{ content: string; status?: GoalStepStatus }>,
+  ): Promise<{ goal: TopicGoal | null }> {
+    return request(`/goals/${goalId}/steps`, {
+      method: 'PUT',
+      body: JSON.stringify({ steps }),
+    });
+  },
+};
 
 export const memoryApi = {
   async getForTopic(topicId: string): Promise<MemoryData> {

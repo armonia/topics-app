@@ -11,12 +11,25 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { Database } from "bun:sqlite";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import type { AppContext, StoredMessage, Topic, TopicsData } from "../types";
 import { assembleTopicContext } from "./assemble";
+import { replaceSteps, setGoal } from "../services/goals";
+
+/**
+ * Un DB vero, ma solo con lo schema che serve: `pushGoalBlock` interroga
+ * `ctx.db`, e un mock senza database renderebbe verde un blocco che in
+ * produzione non si accende mai.
+ */
+function makeGoalsDb(): Database {
+  const db = new Database(":memory:");
+  db.run(readFileSync(join(import.meta.dir, "..", "db", "migrations", "064-topic-goals.sql"), "utf-8"));
+  return db;
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Fixtures
@@ -63,6 +76,7 @@ function makeMockCtx(opts: {
   messages: StoredMessage[];
   topicsData?: TopicsData;
   projectDir?: string;
+  db?: Database;
 }): AppContext {
   const topicsData = opts.topicsData ?? {
     topics: opts.topic ? { [opts.topic.id]: opts.topic } : {},
@@ -74,6 +88,7 @@ function makeMockCtx(opts: {
     loadLocalMessages: (_sk: string) => opts.messages,
     loadTopics: () => topicsData,
     resolveTopicCwd: () => opts.projectDir ?? null,
+    db: opts.db ?? makeGoalsDb(),
   } as unknown as AppContext;
 }
 
@@ -666,5 +681,86 @@ describe("assembleTopicContext — graphify hint", () => {
     const env = assembleTopicContext(ctx2, { sessionKey: t2.sessionKey, providerName: "claude-code" });
     const aware = env.systemBlocks.find((b) => b.id === "template:project-awareness")!;
     expect(aware.content).not.toContain("graphify");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// 3.4 — l'obiettivo della topic
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("assembleTopicContext — blocco obiettivo", () => {
+  const baseDir = join(ROOT, "goal", "base");
+  const openclawDir = join(ROOT, "goal", "openclaw");
+  mkdirSync(join(baseDir, "memory"), { recursive: true });
+  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+
+  const topic = makeTopic({ id: "topic-goal", sessionKey: "topic:goal" });
+
+  function assemble(db: Database, opts: { leanContext?: boolean } = {}) {
+    const ctx = makeMockCtx({ baseDir, openclawDir, topic, messages: [], db });
+    return assembleTopicContext(ctx, {
+      sessionKey: topic.sessionKey,
+      providerName: "claude",
+      providerStrategy: "history-aware",
+      ...opts,
+    });
+  }
+
+  it("senza goal attivo non c'è nessun blocco", () => {
+    const env = assemble(makeGoalsDb());
+    expect(env.systemBlocks.map((b) => b.id)).not.toContain("synthetic:goal");
+  });
+
+  it("col goal attivo il blocco c'è e conta nel budget", () => {
+    const db = makeGoalsDb();
+    setGoal(db, { topicId: topic.id, content: "Sistemare il login" });
+    const block = assemble(db).systemBlocks.find((b) => b.id === "synthetic:goal")!;
+    expect(block).toBeDefined();
+    expect(block.content).toContain("Sistemare il login");
+    expect(block.enabled).toBe(true);
+    expect(block.countInBudget).toBe(true);
+    expect(block.editable).toBe(false);
+    expect(block.tokens).toBeGreaterThan(0);
+  });
+
+  it("SOPRAVVIVE al turno lean — è tutto il motivo per cui esiste", () => {
+    // Il turno lean è quello di ripresa del dispatcher: se l'obiettivo cadesse
+    // proprio lì, cadrebbe esattamente quando il modello ha già perso il resto.
+    const db = makeGoalsDb();
+    setGoal(db, { topicId: topic.id, content: "Non perdermi dopo la compattazione" });
+    const env = assemble(db, { leanContext: true });
+    const ids = env.systemBlocks.map((b) => b.id);
+    expect(ids).toContain("synthetic:goal");
+    // Guardia contro il falso positivo: nel turno lean gli altri NON ci sono.
+    expect(ids).not.toContain("synthetic:browser-instruction");
+    expect(ids).not.toContain("memory:global");
+  });
+
+  it("i passi del piano entrano nel blocco, col loro stato", () => {
+    const db = makeGoalsDb();
+    const goal = setGoal(db, { topicId: topic.id, content: "Rilasciare la 2.3" });
+    replaceSteps(db, goal.id, [
+      { content: "Scrivere il changelog", status: "completed" },
+      { content: "Taggare", status: "pending" },
+    ]);
+    const block = assemble(db).systemBlocks.find((b) => b.id === "synthetic:goal")!;
+    expect(block.content).toContain("[x] Scrivere il changelog");
+    expect(block.content).toContain("[ ] Taggare");
+  });
+
+  it("un goal chiuso esce dal contesto", () => {
+    const db = makeGoalsDb();
+    setGoal(db, { topicId: topic.id, content: "Fatto" });
+    db.run("UPDATE topic_goals SET status = 'achieved' WHERE topic_id = ?", [topic.id]);
+    expect(assemble(db).systemBlocks.map((b) => b.id)).not.toContain("synthetic:goal");
+  });
+
+  it("un DB senza la tabella non fa saltare l'assemblaggio", () => {
+    // Prod non ci arriva (le migration girano al boot), ma un envelope che
+    // esplode per un blocco accessorio sarebbe un guasto peggiore del blocco
+    // mancante: il resto del contesto vale comunque.
+    const env = assemble(new Database(":memory:"));
+    expect(env.systemBlocks.map((b) => b.id)).not.toContain("synthetic:goal");
+    expect(env.systemBlocks.length).toBeGreaterThan(0);
   });
 });

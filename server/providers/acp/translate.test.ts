@@ -163,13 +163,48 @@ describe("usage_update", () => {
   });
 });
 
-describe("rami muti, di proposito", () => {
-  test("plan non produce niente: è l'aggancio del 3.4, non testo del modello", () => {
+describe("plan → passi del goal (3.4)", () => {
+  test("le entries diventano un evento plan, non testo del modello", () => {
     expect(
-      tr({ sessionUpdate: "plan", entries: [{ content: "Leggere i file", priority: "high", status: "pending" }] }),
-    ).toEqual([]);
+      tr({
+        sessionUpdate: "plan",
+        entries: [
+          { content: "Leggere i file", priority: "high", status: "in_progress" },
+          { content: "Scrivere il test", priority: "low", status: "pending" },
+        ],
+      }),
+    ).toEqual([
+      {
+        kind: "plan",
+        steps: [
+          { content: "Leggere i file", status: "in_progress" },
+          { content: "Scrivere il test", status: "pending" },
+        ],
+      },
+    ]);
   });
 
+  test("uno stato sconosciuto vale pending: il passo esiste comunque", () => {
+    expect(tr({ sessionUpdate: "plan", entries: [{ content: "X", status: "boh" }] })).toEqual([
+      { kind: "plan", steps: [{ content: "X", status: "pending" }] },
+    ]);
+    expect(tr({ sessionUpdate: "plan", entries: [{ content: "Y" }] })).toEqual([
+      { kind: "plan", steps: [{ content: "Y", status: "pending" }] },
+    ]);
+  });
+
+  test("le voci vuote si scartano, ma un piano SVUOTATO si emette", () => {
+    // Un elenco che si svuota è un fatto («non c'è più un piano»): chi ascolta
+    // deve poter cancellare. Un `plan` senza `entries` del tutto non dice niente.
+    expect(tr({ sessionUpdate: "plan", entries: [{ content: "  " }] })).toEqual([
+      { kind: "plan", steps: [] },
+    ]);
+    expect(tr({ sessionUpdate: "plan", entries: [] })).toEqual([]);
+    expect(tr({ sessionUpdate: "plan" })).toEqual([]);
+  });
+});
+
+describe("rami muti, di proposito", () => {
   test("le altre superfici che non abbiamo restano mute", () => {
     for (const s of ["available_commands_update", "current_mode_update", "config_option_update", "session_info_update"]) {
       expect(tr({ sessionUpdate: s })).toEqual([]);

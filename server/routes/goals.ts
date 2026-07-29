@@ -1,0 +1,109 @@
+/**
+ * REST del goal di una chat (3.4). La logica sta in `services/goals.ts`; qui
+ * ci sono solo le rotte e l'UNICA cosa che il servizio non fa apposta: il
+ * broadcast.
+ *
+ * Perché il broadcast è qui e non nel servizio: il servizio lo chiamano anche
+ * l'envelope (in sola lettura) e il traduttore ACP, che gira dentro lo stream
+ * di un turno. Un servizio che notifica da sé finirebbe per mandare eventi da
+ * dentro un handler di stream, con l'ordine dei frame deciso dal caso. Chi
+ * cambia lo stato annuncia il cambiamento — e qui il chiamante è uno solo.
+ */
+
+import type { AppContext, RouteHandler } from "../types";
+import {
+  closeGoal,
+  getActiveGoal,
+  getGoal,
+  listGoals,
+  reopenGoal,
+  replaceSteps,
+  setGoal,
+} from "../services/goals";
+
+export function createGoalsRouter(ctx: AppContext): RouteHandler {
+  const { db, json, readJSON, matchRoute, errorResponse, broadcast } = ctx;
+
+  /** Annuncia lo stato ATTUALE della topic, non quello del goal toccato: chi
+   *  ascolta vuole sapere cosa perseguiamo adesso, e dopo un `close` la
+   *  risposta giusta è `null`, non il goal appena chiuso. */
+  function announce(topicId: string): void {
+    broadcast({ type: "goal:updated", topicId, goal: getActiveGoal(db, topicId) });
+  }
+
+  return async function goalsRouter(
+    req: Request,
+    _url: URL,
+    pathname: string,
+    method: string,
+  ): Promise<Response | null> {
+    // GET /api/topics/:id/goal → il goal attivo (o null) + lo storico.
+    {
+      const params = matchRoute(pathname, "/api/topics/:id/goal");
+      if (params && method === "GET") {
+        return json({ goal: getActiveGoal(db, params.id), history: listGoals(db, params.id) });
+      }
+
+      // PUT /api/topics/:id/goal → dichiara il goal (chiude il precedente).
+      if (params && method === "PUT") {
+        const body = await readJSON(req);
+        const content = typeof body?.content === "string" ? body.content.trim() : "";
+        if (!content) return errorResponse(400, "content required");
+        const createdBy = body?.createdBy === "agent" ? "agent" : "human";
+        const goal = setGoal(db, { topicId: params.id, content, createdBy });
+        announce(params.id);
+        return json({ goal }, 201);
+      }
+
+      // DELETE /api/topics/:id/goal → chiude quello attivo.
+      // `status` distingue «fatto» da «lasciato perdere»: default `abandoned`,
+      // perché è quello che significa una chiusura senza spiegazioni.
+      if (params && method === "DELETE") {
+        const active = getActiveGoal(db, params.id);
+        if (!active) return errorResponse(404, "no active goal");
+        const body = await readJSON(req).catch(() => null);
+        const status = body?.status === "achieved" ? "achieved" : "abandoned";
+        const goal = closeGoal(db, active.id, status);
+        announce(params.id);
+        return json({ goal });
+      }
+    }
+
+    // POST /api/goals/:id/reopen
+    {
+      const params = matchRoute(pathname, "/api/goals/:id/reopen");
+      if (params && method === "POST") {
+        const existing = getGoal(db, params.id);
+        if (!existing) return errorResponse(404, "goal not found");
+        const goal = reopenGoal(db, params.id);
+        announce(existing.topicId);
+        return json({ goal });
+      }
+    }
+
+    // PUT /api/goals/:id/steps → sostituisce l'elenco dei passi in blocco.
+    {
+      const params = matchRoute(pathname, "/api/goals/:id/steps");
+      if (params && method === "PUT") {
+        const existing = getGoal(db, params.id);
+        if (!existing) return errorResponse(404, "goal not found");
+        const body = await readJSON(req);
+        const raw = Array.isArray(body?.steps) ? body.steps : null;
+        if (!raw) return errorResponse(400, "steps array required");
+        const steps = raw.map((s: unknown) =>
+          typeof s === "string"
+            ? { content: s }
+            : {
+                content: String((s as { content?: unknown })?.content ?? ""),
+                status: (s as { status?: string })?.status,
+              },
+        );
+        replaceSteps(db, params.id, steps);
+        announce(existing.topicId);
+        return json({ goal: getGoal(db, params.id) });
+      }
+    }
+
+    return null;
+  };
+}

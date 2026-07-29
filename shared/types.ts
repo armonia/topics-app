@@ -652,3 +652,58 @@ export interface ClaudeSessionState {
   createdAt: number;
   updatedAt: number;
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Goal della chat (3.4)
+// ────────────────────────────────────────────────────────────────────────────
+
+export const GOAL_STATUSES = ['active', 'achieved', 'abandoned'] as const;
+export type GoalStatus = (typeof GOAL_STATUSES)[number];
+
+export const GOAL_STEP_STATUSES = ['pending', 'in_progress', 'completed'] as const;
+export type GoalStepStatus = (typeof GOAL_STEP_STATUSES)[number];
+
+/** Un passo del piano dichiarato dall'agente, nell'ordine in cui l'ha scritto. */
+export interface GoalStep {
+  id: string;
+  goalId: string;
+  position: number;
+  content: string;
+  status: GoalStepStatus;
+  updatedAt: string;
+}
+
+/**
+ * L'obiettivo di una conversazione: l'equivalente in chat di un task di board.
+ *
+ * Vive fuori dal transcript apposta — un messaggio verrebbe compattato, editato
+ * e ramificato, e finirebbe per esistere in tre versioni. Da qui l'envelope lo
+ * inietta come system block a ogni turno, quindi sopravvive alla compattazione:
+ * è l'unico pezzo di contesto di cui il modello non perde mai il filo.
+ */
+export interface TopicGoal {
+  id: string;
+  topicId: string;
+  content: string;
+  status: GoalStatus;
+  /** Chi l'ha scritto: 'human' (dettato) o 'agent' (proposto dal suo piano). */
+  createdBy: 'human' | 'agent';
+  createdAt: string;
+  /** Quando è passato a uno stato finale; null finché è `active`. */
+  closedAt: string | null;
+  steps: GoalStep[];
+}
+
+/**
+ * Forma del broadcast WS `goal:updated`.
+ *
+ * Porta il goal INTERO, non il solo id: è un oggetto piccolo che cambia di
+ * rado, e mandare un puntatore costringerebbe ogni finestra aperta a una GET
+ * per un dato che avevamo già in mano. `null` è lo stato legittimo «non c'è un
+ * obiettivo attivo» — spegne la barra senza bisogno di un evento a parte.
+ */
+export interface WSGoalUpdatedMessage {
+  type: 'goal:updated';
+  topicId: string;
+  goal: TopicGoal | null;
+}

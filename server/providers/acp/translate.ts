@@ -16,14 +16,17 @@
  *    identiche chiamate «read». Il `kind` viaggia negli args, dove la UI può
  *    prenderlo per l'icona senza che il testo ne soffra.
  *
- *  • **`plan` non produce niente, per ora.** È l'aggancio naturale del 3.4
- *    (goal nella chat nativa) e buttarlo dentro il testo del modello sarebbe
- *    peggio che ignorarlo: diventerebbe trascritto, quindi persistito, quindi
- *    parte del contesto. Resta un ramo esplicito con un test che lo blocca, così
- *    chi farà il 3.4 sa dove attaccarsi.
+ *  • **`plan` non diventa testo, diventa STATO.** L'aggancio lasciato aperto qui
+ *    per il 3.4 adesso è collegato: le `entries` del piano escono come un evento
+ *    `plan` e finiscono nei passi del goal della topic. Metterle nel testo del
+ *    modello sarebbe stato peggio che ignorarle — sarebbero diventate trascritto,
+ *    quindi persistite, quindi parte del contesto, e a ogni tick del piano il
+ *    contesto avrebbe una copia in più dello stesso elenco. Come stato invece
+ *    l'elenco è uno solo e viene riscritto.
  */
 
 import type { ToolArgs } from "../types";
+import type { GoalStepStatus } from "../../../shared/types";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Forme ACP v1 che ci servono (sottoinsieme: solo ciò che leggiamo)
@@ -85,7 +88,14 @@ export type AcpTranslated =
   | { kind: "tool_args"; toolCallId: string; args: ToolArgs }
   | { kind: "tool_update"; toolCallId: string; partialResult: string }
   | { kind: "tool_result"; toolCallId: string; result: string; isError: boolean }
-  | { kind: "context"; tokens: number; windowTokens?: number };
+  | { kind: "context"; tokens: number; windowTokens?: number }
+  /**
+   * Il piano dichiarato dall'agente. Elenco INTERO a ogni tick (è ACP a
+   * mandarlo così), quindi chi lo riceve sostituisce, non accumula.
+   * `priority` di ACP si scarta: non abbiamo una superficie che la mostri, e
+   * un campo persistito che nessuno legge invecchia peggio di uno assente.
+   */
+  | { kind: "plan"; steps: Array<{ content: string; status: GoalStepStatus }> };
 
 /**
  * Stato minimo fra un update e l'altro: quali tool call sono già state
@@ -104,10 +114,18 @@ export function newTranslateState(): AcpTranslateState {
 
 const TERMINAL_STATUS = new Set<AcpToolCallStatus>(["completed", "failed"]);
 
+const PLAN_STATUSES = new Set<GoalStepStatus>(["pending", "in_progress", "completed"]);
+
+/** Uno stato che non conosciamo vale `pending`: un passo esiste comunque, ed è
+ *  meglio mostrarlo da fare che non mostrarlo. */
+function planStatus(v: unknown): GoalStepStatus {
+  return PLAN_STATUSES.has(v as GoalStepStatus) ? (v as GoalStepStatus) : "pending";
+}
+
 /**
  * Un `session/update` → zero o più eventi nostri. Zero è un esito legittimo e
- * frequente (`plan`, `current_mode_update`, un chunk vuoto): il chiamante non
- * deve distinguere «non capito» da «capito, niente da mostrare».
+ * frequente (`current_mode_update`, un chunk vuoto): il chiamante non deve
+ * distinguere «non capito» da «capito, niente da mostrare».
  */
 export function translateSessionUpdate(
   update: AcpSessionUpdate | null | undefined,
@@ -132,11 +150,20 @@ export function translateSessionUpdate(
       const size = finite(update.size);
       return [{ kind: "context", tokens: used, ...(size ? { windowTokens: size } : {}) }];
     }
+    case "plan": {
+      const entries = Array.isArray(update.entries) ? update.entries : [];
+      const steps = entries
+        .map((e) => ({ content: String(e?.content ?? "").trim(), status: planStatus(e?.status) }))
+        .filter((e) => e.content.length > 0);
+      // Un piano svuotato è un fatto («non c'è più un piano»), non un
+      // non-evento: emetterlo permette a chi ascolta di cancellare l'elenco.
+      // Un `plan` senza `entries` del tutto, invece, non dice niente.
+      return entries.length ? [{ kind: "plan", steps }] : [];
+    }
     // `user_message_chunk` è l'eco del nostro stesso prompt (replay di
     // `session/load`): ri-emetterlo duplicherebbe il messaggio dell'umano.
     case "user_message_chunk":
-    // Vedi l'intestazione: agganci del 3.4 / superfici che non abbiamo.
-    case "plan":
+    // Superfici che non abbiamo.
     case "available_commands_update":
     case "current_mode_update":
     case "config_option_update":

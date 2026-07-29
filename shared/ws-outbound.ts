@@ -630,6 +630,37 @@ const memoryUpdatedSchema = z.looseObject({
   topicId: z.optional(z.string()),
 });
 
+// Il goal di una topic è cambiato (3.4). Payload GRASSO — il goal intero, passi
+// compresi — di proposito: è un oggetto piccolo che cambia raramente, e mandare
+// solo l'id costringerebbe ogni finestra aperta a una GET per un dato che
+// avevamo già in mano. `goal: null` è lo stato legittimo «non ce n'è uno
+// attivo», e serve a spegnere la barra senza inventarsi un evento a parte.
+const goalUpdatedSchema = z.looseObject({
+  type: z.literal('goal:updated'),
+  topicId: z.string(),
+  goal: z.nullable(
+    z.looseObject({
+      id: z.string(),
+      topicId: z.string(),
+      content: z.string(),
+      status: z.enum(['active', 'achieved', 'abandoned']),
+      createdBy: z.enum(['human', 'agent']),
+      createdAt: z.string(),
+      closedAt: z.nullable(z.string()),
+      steps: z.array(
+        z.looseObject({
+          id: z.string(),
+          goalId: z.string(),
+          position: z.number(),
+          content: z.string(),
+          status: z.enum(['pending', 'in_progress', 'completed']),
+          updatedAt: z.string(),
+        }),
+      ),
+    }),
+  ),
+});
+
 const openProjectSchema = z.looseObject({
   type: z.literal('open-project'),
   projectPath: z.string(),
@@ -954,6 +985,7 @@ const OUTBOUND_SCHEMAS = {
   'machine:upserted': machineUpsertedSchema,
   'machine:deleted': machineDeletedSchema,
   'memory:updated': memoryUpdatedSchema,
+  'goal:updated': goalUpdatedSchema,
   'open-project': openProjectSchema,
   'topics:reordered': topicsReorderedSchema,
   'ui-state:init': uiStateInitSchema,

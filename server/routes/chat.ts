@@ -21,6 +21,7 @@ import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "..
 import { getProvider, type AIProvider, type ChatMessage, type StreamHandler } from "../providers";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
+import { getActiveGoal, replaceSteps } from "../services/goals";
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { getSnapshotManager } from "../providers/snapshot-manager";
@@ -1415,6 +1416,33 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 else broadcastToAll(evt);
               } catch (err) {
                 console.error("[compaction] persist/broadcast failed:", err);
+              }
+            },
+
+            onPlan: (steps) => {
+              // 3.4: il piano dell'agente diventa i PASSI del goal della topic,
+              // non testo del trascritto — così sopravvive alla compattazione
+              // (l'envelope lo re-inietta) invece di scorrere via con la chat.
+              //
+              // Senza un goal attivo NON se ne inventa uno: un obiettivo
+              // dedotto da un elenco di passi è esattamente il tipo di
+              // deduzione che poi l'umano si ritrova iniettata nel contesto
+              // senza averla mai scritta. Il piano resta comunque visibile
+              // nella chat come TodoCard; qui non ha dove attaccarsi.
+              try {
+                resetStreamTimer();
+                const topicId = matchedTopic?.id;
+                if (!topicId) return;
+                const goal = getActiveGoal(ctx.db, topicId);
+                if (!goal) return;
+                replaceSteps(ctx.db, goal.id, steps);
+                broadcastToAll({
+                  type: "goal:updated" as const,
+                  topicId,
+                  goal: getActiveGoal(ctx.db, topicId),
+                });
+              } catch (err) {
+                console.error("[goal] plan persist failed:", err);
               }
             },
 

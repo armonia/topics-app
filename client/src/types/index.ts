@@ -18,6 +18,7 @@ import type {
   AcpUsageUpdate,
   ClaudeSessionState,
   WSProvidersSnapshotMessage,
+  WSGoalUpdatedMessage,
 } from '../../../shared/types';
 
 // ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────
@@ -232,6 +233,8 @@ export interface SearchResult {
 
 // --- Snapshot / settings -----------------------------------------------------
 export type { WSProvidersSnapshotMessage } from '../../../shared/types';
+// 3.4 — il goal della chat: forma unica in shared/, niente copia qui.
+export type { WSGoalUpdatedMessage, TopicGoal, GoalStep, GoalStatus, GoalStepStatus } from '../../../shared/types';
 
 export interface WSGatewayStatusMessage {
   type: 'gateway:status';
@@ -895,6 +898,7 @@ export interface WSTaskReviewReadyMessage {
 
 export type WSMessage =
   | WSProvidersSnapshotMessage
+  | WSGoalUpdatedMessage
   | WSGatewayStatusMessage
   | WSTopicUpdatedMessage
   | WSTopicsReorderedMessage

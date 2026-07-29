@@ -1,0 +1,231 @@
+/**
+ * Il goal di una chat: l'equivalente in conversazione di un task di board (3.4).
+ *
+ * Il problema che risolve. Sulla board l'obiettivo è un oggetto: sta lì, ha uno
+ * stato, e nessuno se lo dimentica. In chat l'obiettivo si scrive nel primo
+ * messaggio e poi scorre via — dopo una compattazione il modello non ce l'ha
+ * più, ed è esattamente il momento in cui ricomincia a fare la cosa sbagliata
+ * con grande sicurezza. Un goal è una riga di stato, non un messaggio: da qui
+ * `assembleTopicContext` lo re-inietta a OGNI turno, compreso quello lean del
+ * dispatcher.
+ *
+ * Le scelte non ovvie:
+ *
+ *  • **Un solo goal `active` per topic, imposto dal DB** (indice parziale unico
+ *    in `064-topic-goals.sql`). `setGoal` chiude il precedente nella STESSA
+ *    transazione che apre il nuovo: due goal attivi non sono uno stato
+ *    degradato, sono due istruzioni che litigano dentro lo stesso prompt.
+ *
+ *  • **I passi si riscrivono in blocco.** Un `plan` di ACP manda l'elenco
+ *    intero a ogni cambio di stato: fare la diff riga per riga sarebbe più
+ *    codice per lo stesso risultato, e un elenco parzialmente aggiornato è
+ *    peggio di uno sostituito. La sostituzione è una transazione, quindi
+ *    nessun lettore vede mai mezzo piano.
+ *
+ *  • **Nessun goal implicito.** Non si deduce dal primo messaggio, non si
+ *    inventa dal titolo della topic. Lo detta l'umano (`/goal`) o lo propone
+ *    l'agente col suo piano — e in quel caso `createdBy: 'agent'` lo dice,
+ *    così la UI non spaccia una deduzione per una decisione.
+ */
+
+import type { Database } from "bun:sqlite";
+import { GOAL_STEP_STATUSES } from "../../shared/types";
+export type { TopicGoal, GoalStep, GoalStatus, GoalStepStatus } from "../../shared/types";
+import type { TopicGoal, GoalStep, GoalStatus, GoalStepStatus } from "../../shared/types";
+
+const STEP_STATUSES: readonly string[] = GOAL_STEP_STATUSES;
+
+function normStepStatus(v: unknown): GoalStepStatus {
+  return STEP_STATUSES.includes(v as string) ? (v as GoalStepStatus) : "pending";
+}
+
+function mapStep(r: Record<string, unknown>): GoalStep {
+  return {
+    id: String(r.id),
+    goalId: String(r.goal_id),
+    position: Number(r.position) || 0,
+    content: String(r.content),
+    status: normStepStatus(r.status),
+    updatedAt: String(r.updated_at),
+  };
+}
+
+function mapGoal(r: Record<string, unknown>, steps: GoalStep[]): TopicGoal {
+  return {
+    id: String(r.id),
+    topicId: String(r.topic_id),
+    content: String(r.content),
+    status: (r.status === "achieved" || r.status === "abandoned" ? r.status : "active") as GoalStatus,
+    createdBy: r.created_by === "agent" ? "agent" : "human",
+    createdAt: String(r.created_at),
+    closedAt: r.closed_at != null ? String(r.closed_at) : null,
+    steps,
+  };
+}
+
+function stepsFor(db: Database, goalIds: string[]): Map<string, GoalStep[]> {
+  const out = new Map<string, GoalStep[]>();
+  if (!goalIds.length) return out;
+  const placeholders = goalIds.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT * FROM topic_goal_steps WHERE goal_id IN (${placeholders}) ORDER BY goal_id, position ASC`,
+    )
+    .all(...goalIds) as Record<string, unknown>[];
+  for (const r of rows) {
+    const step = mapStep(r);
+    const list = out.get(step.goalId) ?? [];
+    list.push(step);
+    out.set(step.goalId, list);
+  }
+  return out;
+}
+
+/** Il goal che il topic sta perseguendo adesso, o null. */
+export function getActiveGoal(db: Database, topicId: string): TopicGoal | null {
+  const row = db
+    .prepare(`SELECT * FROM topic_goals WHERE topic_id = ? AND status = 'active'`)
+    .get(topicId) as Record<string, unknown> | null;
+  if (!row) return null;
+  return mapGoal(row, stepsFor(db, [String(row.id)]).get(String(row.id)) ?? []);
+}
+
+/** Lo storico completo del topic, dal più recente. */
+export function listGoals(db: Database, topicId: string): TopicGoal[] {
+  const rows = db
+    .prepare(`SELECT * FROM topic_goals WHERE topic_id = ? ORDER BY created_at DESC, rowid DESC`)
+    .all(topicId) as Record<string, unknown>[];
+  const steps = stepsFor(db, rows.map((r) => String(r.id)));
+  return rows.map((r) => mapGoal(r, steps.get(String(r.id)) ?? []));
+}
+
+export function getGoal(db: Database, goalId: string): TopicGoal | null {
+  const row = db.prepare(`SELECT * FROM topic_goals WHERE id = ?`).get(goalId) as
+    | Record<string, unknown>
+    | null;
+  if (!row) return null;
+  return mapGoal(row, stepsFor(db, [goalId]).get(goalId) ?? []);
+}
+
+/**
+ * Dichiara il goal del topic. Se ce n'era uno attivo viene ABBANDONATO nella
+ * stessa transazione — non si accumulano obiettivi, se ne persegue uno.
+ *
+ * Un contenuto vuoto è un errore del chiamante, non un modo per cancellare:
+ * per chiudere c'è `closeGoal`, che dice anche COME è finita.
+ */
+export function setGoal(
+  db: Database,
+  input: { topicId: string; content: string; createdBy?: "human" | "agent" },
+): TopicGoal {
+  const content = input.content.trim();
+  if (!content) throw new Error("goal_content_required");
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE topic_goals SET status = 'abandoned', closed_at = ?
+        WHERE topic_id = ? AND status = 'active'`,
+    ).run(now, input.topicId);
+    db.prepare(
+      `INSERT INTO topic_goals (id, topic_id, content, status, created_by, created_at, closed_at)
+       VALUES (?, ?, ?, 'active', ?, ?, NULL)`,
+    ).run(id, input.topicId, content, input.createdBy ?? "human", now);
+  })();
+
+  return getGoal(db, id)!;
+}
+
+/**
+ * Chiude un goal. `achieved` o `abandoned`: la differenza è tutta lì, e serve
+ * a chi rilegge lo storico ("cosa avevamo mollato?" è una domanda diversa da
+ * "cosa avevamo finito?").
+ *
+ * Idempotente su un goal già chiuso: torna la riga com'è, senza sovrascrivere
+ * il `closedAt` originale — una seconda chiusura non deve riscrivere la storia.
+ */
+export function closeGoal(
+  db: Database,
+  goalId: string,
+  status: "achieved" | "abandoned",
+): TopicGoal | null {
+  const existing = getGoal(db, goalId);
+  if (!existing) return null;
+  if (existing.status !== "active") return existing;
+  db.prepare(`UPDATE topic_goals SET status = ?, closed_at = ? WHERE id = ?`).run(
+    status,
+    new Date().toISOString(),
+    goalId,
+  );
+  return getGoal(db, goalId);
+}
+
+/** Riapre un goal chiuso, abbandonando quello attivo se c'è. */
+export function reopenGoal(db: Database, goalId: string): TopicGoal | null {
+  const existing = getGoal(db, goalId);
+  if (!existing) return null;
+  if (existing.status === "active") return existing;
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE topic_goals SET status = 'abandoned', closed_at = ?
+        WHERE topic_id = ? AND status = 'active'`,
+    ).run(now, existing.topicId);
+    db.prepare(`UPDATE topic_goals SET status = 'active', closed_at = NULL WHERE id = ?`).run(goalId);
+  })();
+  return getGoal(db, goalId);
+}
+
+/**
+ * Sostituisce l'elenco dei passi. In blocco e in transazione: un `plan` di ACP
+ * riscrive l'elenco intero a ogni cambio di stato, e un elenco mezzo aggiornato
+ * è peggio di uno sostituito.
+ *
+ * Le voci vuote si scartano — un agente che manda una riga bianca non deve
+ * poter piantare una casella senza testo nella UI.
+ */
+export function replaceSteps(
+  db: Database,
+  goalId: string,
+  steps: Array<{ content: string; status?: string }>,
+): GoalStep[] {
+  const clean = steps
+    .map((s) => ({ content: String(s.content ?? "").trim(), status: normStepStatus(s.status) }))
+    .filter((s) => s.content.length > 0);
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    db.prepare(`DELETE FROM topic_goal_steps WHERE goal_id = ?`).run(goalId);
+    const insert = db.prepare(
+      `INSERT INTO topic_goal_steps (id, goal_id, position, content, status, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    clean.forEach((s, i) => insert.run(crypto.randomUUID(), goalId, i, s.content, s.status, now));
+  })();
+  return (stepsFor(db, [goalId]).get(goalId) ?? []);
+}
+
+/**
+ * Il testo che l'envelope inietta. Null quando non c'è un goal attivo: un
+ * blocco «Obiettivo: (nessuno)» costerebbe token per dire niente.
+ *
+ * Formato deliberatamente scarno. È un promemoria, non un prompt di ruolo: più
+ * parole ci si mette, più si spinge il modello a commentare l'obiettivo invece
+ * di perseguirlo.
+ */
+export function goalContextContent(goal: TopicGoal | null): string | null {
+  if (!goal || goal.status !== "active") return null;
+  const lines = [`Obiettivo di questa conversazione: ${goal.content}`];
+  if (goal.steps.length) {
+    lines.push("", "Piano dichiarato:");
+    for (const s of goal.steps) {
+      const mark = s.status === "completed" ? "x" : s.status === "in_progress" ? "~" : " ";
+      lines.push(`  [${mark}] ${s.content}`);
+    }
+  }
+  lines.push(
+    "",
+    "Resta su questo obiettivo. Se l'utente lo cambia, dillo esplicitamente invece di seguirlo in silenzio.",
+  );
+  return lines.join("\n");
+}

@@ -186,6 +186,7 @@ describe('outbound registry contract', () => {
       'external-sessions',
       'gateway:status',
       'git:status',
+      'goal:updated',
       'machine:deleted',
       'machine:updated',
       'machine:upserted',
@@ -280,8 +281,12 @@ describe('outbound registry contract', () => {
   // preteso un `type` del registro: il nome non ha i due punti, quindi la
   // regex dell'inventario lo scartava. È la prova che il vincolo di tipo
   // vede cose che una regex non può vedere.
-  test('all 102 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(102);
+  // 102 → 103: `goal:updated` (3.4). Il goal di una chat è l'unico stato che
+  // l'envelope re-inietta a ogni turno: se la barra in cima alla chat non lo
+  // seguisse dal vivo, due finestre sulla stessa topic mostrerebbero obiettivi
+  // diversi mentre il modello ne vede uno solo.
+  test('all 103 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(103);
   });
 });
 
