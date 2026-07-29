@@ -86,6 +86,28 @@ function totalAssetsRaw(): number {
   return raw;
 }
 
+/**
+ * `public/` contiene PIÙ DI UNA build sovrapposta?
+ *
+ * Vite emette un solo `index-<hash>.js` per build e svuota `outDir`, ma sulla
+ * macchina di sviluppo gira anche `bun run build:watch` (`vite build --watch`),
+ * che ricostruisce a ogni salvataggio: una build a mano che parte mentre il
+ * watcher sta scrivendo lascia in giro i chunk della build precedente. Misurato
+ * il 2026-07-29: **248 file in `public/assets` invece di 168**, e `total_assets`
+ * a 12,6 MB contro una baseline di 7,9.
+ *
+ * Il punto non è il numero sbagliato, è COSA dice il numero sbagliato. Il gate
+ * annunciava "il bundle è cresciuto del 58%" a chi non aveva toccato una riga di
+ * codice: alla seconda volta uno smette di crederci, e un cancello a cui non si
+ * crede è peggio di nessun cancello. Meglio dire la verità — "qui ci sono due
+ * build una sopra l'altra, questa misura non vuol dire niente" — e continuare a
+ * far valere gli altri due budget, che sono indirizzati per hash da `index.html`
+ * e quindi restano corretti anche in mezzo agli orfani.
+ */
+function overlaidBuilds(): number {
+  return readdirSync(ASSETS_DIR).filter((f) => /^index-[^/]+\.js$/.test(f)).length;
+}
+
 /** The eager entry: the largest `assets/index-*.js` on the critical path.
  *  Vite emits several `index-*` chunks; only the ones index.html links are
  *  eager, and the entry is the big one among them. */
@@ -122,7 +144,17 @@ const measured = {
 console.log(`entry eager    ${entry}`);
 console.log(`               raw ${fmt(measured.entry_eager.raw)}  gz ${fmt(measured.entry_eager.gz)}   (baseline raw ${fmt(baseline.entry_eager.raw)}  gz ${fmt(baseline.entry_eager.gz)})`);
 console.log(`critical path  ${measured.critical_path.files} files  raw ${fmt(measured.critical_path.raw)}  gz ${fmt(measured.critical_path.gz)}   (baseline raw ${fmt(baseline.critical_path.raw)}  gz ${fmt(baseline.critical_path.gz)})`);
-console.log(`total assets   raw ${fmt(measured.total_assets.raw)}   (baseline ${fmt(baseline.total_assets.raw)})`);
+const overlaid = overlaidBuilds();
+if (overlaid > 1) {
+  console.log(
+    `total assets   NON MISURABILE — ${ASSETS_DIR} contiene ${overlaid} build sovrapposte\n` +
+      `               (è il watcher \`build:watch\` che scrive in parallelo). Gli altri due\n` +
+      `               budget valgono comunque: sono indirizzati per hash da index.html.\n` +
+      `               Per misurare anche questo: ferma il watcher, svuota public/assets, ribuilda.`,
+  );
+} else {
+  console.log(`total assets   raw ${fmt(measured.total_assets.raw)}   (baseline ${fmt(baseline.total_assets.raw)})`);
+}
 
 const failures: string[] = [];
 const check = (label: string, got: number, base: number) => {
@@ -135,7 +167,7 @@ check("entry_eager.raw", measured.entry_eager.raw, baseline.entry_eager.raw);
 check("entry_eager.gz", measured.entry_eager.gz, baseline.entry_eager.gz);
 check("critical_path.raw", measured.critical_path.raw, baseline.critical_path.raw);
 check("critical_path.gz", measured.critical_path.gz, baseline.critical_path.gz);
-check("total_assets.raw", measured.total_assets.raw, baseline.total_assets.raw);
+if (overlaid <= 1) check("total_assets.raw", measured.total_assets.raw, baseline.total_assets.raw);
 
 // Structural, not just numeric: a 7th eager asset in index.html is a real
 // regression even when the bytes happen to fit — one more blocking request.
