@@ -102,6 +102,59 @@ function isCacheKey(key: string): boolean {
   return key.startsWith(CACHE_PREFIX);
 }
 
+/**
+ * Quali voci di cache buttare per stare dentro il budget.
+ *
+ * Pura, cosi' e' testabile senza toccare `localStorage`: prende le voci con la
+ * loro dimensione e restituisce le chiavi da rimuovere. Tiene le PIU' PICCOLE —
+ * a parita' di budget si conservano piu' conversazioni, e quella enorme e' anche
+ * quella che il server ricarica volentieri.
+ */
+export function decideCachePrune(
+  entries: readonly { key: string; bytes: number }[],
+  budget: number,
+): string[] {
+  const bySize = [...entries].sort((a, b) => a.bytes - b.bytes);
+  const remove: string[] = [];
+  let left = budget;
+  for (const e of bySize) {
+    if (e.bytes <= left) left -= e.bytes;
+    else remove.push(e.key);
+  }
+  return remove;
+}
+
+/**
+ * Libera la quota all'avvio, una volta sola.
+ *
+ * Il tetto per voce protegge le scritture FUTURE, ma le voci gia' su disco
+ * restano dove sono: il 2026-07-29 erano 4,5 MB, e finche' nessuno le tocca la
+ * quota resta satura — quindi restano rotte anche la coda dei messaggi in uscita,
+ * le bozze e gli snapshot delle pane, che di quella quota hanno bisogno.
+ * Aspettare "la prossima scrittura di una chat" vorrebbe dire lasciare l'utente
+ * senza coda per un tempo indeterminato.
+ *
+ * Tocca SOLO `messages-cache-*`: vedi `isCacheKey` per il motivo, che e' il
+ * pericolo piu' serio di tutto questo file.
+ */
+function pruneMessageCache(): void {
+  try {
+    const entries = cacheEntriesBySize();
+    const toRemove = decideCachePrune(entries, CACHE_TOTAL_BUDGET);
+    if (toRemove.length === 0) return;
+    let freed = 0;
+    for (const key of toRemove) {
+      freed += entries.find((e) => e.key === key)?.bytes ?? 0;
+      localStorage.removeItem(key);
+    }
+    console.info(
+      `[chat] potata la cache dei messaggi: ${toRemove.length} voci, ${Math.round(freed / 1024)} KB liberati`,
+    );
+  } catch {
+    /* niente localStorage: non c'e' niente da potare */
+  }
+}
+
 /** Le voci di cache oggi presenti, dalla piu' grossa alla piu' piccola. */
 function cacheEntriesBySize(): { key: string; bytes: number }[] {
   const out: { key: string; bytes: number }[] = [];
@@ -256,6 +309,12 @@ export function useChat() {
   // into the transcript by afterMessageId in MessageList. Populated live via
   // stream:compaction and on reload from /api/history.
   const [compactionMarkers, setCompactionMarkers] = useState<Record<string, CompactionMarker[]>>({});
+
+  // Libera la quota di localStorage all'avvio: il tetto per voce protegge le
+  // scritture future, ma cio' che e' gia' su disco resta li' — e con la quota
+  // piena restano rotte la coda dei messaggi in uscita, le bozze e gli snapshot
+  // delle pane.
+  useEffect(() => { pruneMessageCache(); }, []);
 
   // Si dichiara alla sonda di memoria. `messages` e' UN oggetto indicizzato per
   // sessionKey che vive in `App`: il tetto di residenza smonta la pane, ma i
