@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import { isWindowAwake } from '../state/windowAwake';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Shared FPS monitor (singleton).
@@ -98,14 +99,10 @@ function cancelPending() {
  *  reading. Each burst drags the whole `updateRendering` pipeline (intersection
  *  and resize observations, style, layout) along with it.
  *
- *  Same predicate `useAnimationPause` uses to park the CSS animations, and for
- *  the same reason — keep the two in step. */
-function windowAwake(): boolean {
-  if (document.hidden) return false;
-  // Fail OPEN when the API is absent (older embedders, test doubles): a monitor
-  // that silently stops measuring is worse than one that measures too much.
-  return typeof document.hasFocus === 'function' ? document.hasFocus() : true;
-}
+ *  La definizione ora vive in `state/windowAwake.ts`, condivisa con i poll
+ *  per-pane (`usePaneWatched`) e con `useAnimationPause`: erano tre copie della
+ *  stessa domanda, e tre copie divergono. */
+const windowAwake = isWindowAwake;
 
 function scheduleMeasure() {
   cancelPending();

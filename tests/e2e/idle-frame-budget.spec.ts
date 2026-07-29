@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import { goToApp, openTestChat } from "./helpers";
+import {
+  createTerminalSession,
+  deleteTerminalSession,
+  seedPaneStore,
+} from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -149,5 +154,50 @@ test.describe("perf: app a riposo", () => {
     // La lista misura, si assesta e smette: le prime notifiche sono legittime.
     await page.waitForTimeout(2500);
     reportAndAssert("chat", await measureQuietWindow(page));
+  });
+
+  // Terzo caso, e quello che mancava: i timer PER PANE. Shell e chat non ne
+  // montano nessuno; i poll, gli observer e i rAF del Tier 1 vivono nei
+  // terminali e nelle pane browser. Un terminale FERMO — nessun output, nessun
+  // input — non deve chiedere frame: xterm ridisegna solo quando arriva
+  // qualcosa, e finché non arriva niente il pane deve tacere come tutto il
+  // resto. Prima di questo caso, un IntersectionObserver per terminale e un
+  // coalescer che si ri-armava a vuoto sarebbero passati inosservati.
+  test("terminale aperto e fermo: nessun frame chiesto a vuoto", async ({ page, request }) => {
+    const session = await createTerminalSession(request, { cwd: "/tmp", name: "idle-probe" });
+    const paneId = `terminal:${session.id}`;
+    try {
+      await seedPaneStore(request, () => ({
+        panes: {
+          [paneId]: {
+            id: paneId,
+            type: "terminal",
+            title: "idle-probe",
+            terminalSessionId: session.id,
+          },
+        },
+        groups: {
+          "group:default": {
+            id: "group:default",
+            paneIds: [paneId],
+            splitRatio: 1,
+            splitAxis: "horizontal",
+          },
+        },
+        projects: {},
+        groupOrder: ["group:default"],
+        closedStack: [],
+      }));
+
+      await installFrameProbe(page);
+      await goToApp(page);
+      await page.locator(".xterm-rows").first().waitFor({ state: "visible", timeout: 20000 });
+      // Il prompt della shell arriva e si stampa: quel disegno è legittimo.
+      // Si misura DOPO, quando non deve più succedere niente.
+      await page.waitForTimeout(3000);
+      reportAndAssert("terminale", await measureQuietWindow(page));
+    } finally {
+      await deleteTerminalSession(request, session.id);
+    }
   });
 });
