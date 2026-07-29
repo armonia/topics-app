@@ -17,19 +17,89 @@
 
 import type { ChatMessage } from "../providers/types";
 import type { ContextEnvelope, ProviderPayload, SystemBlock } from "./envelope";
+import { hashSlot } from "./inline-sent-state";
+
+// ────────────────────────────────────────────────────────────────────────────
+// Slot taxonomy
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * L'unità di deduplicazione è lo SLOT COMPOSTO, non il `SystemBlock`.
+ *
+ * `composeSystemSlots` aggrega: tutti i `file:*` finiscono in un solo messaggio,
+ * project-awareness + tutti i `template:*` in un altro. Deduplicare per blocco
+ * vorrebbe dire riemettere `Context files for this topic:` con dentro il solo
+ * file cambiato — una frase FALSA rispetto a quello che la sessione ha già.
+ * Lo slot invece riparte intero, e resta coerente per costruzione.
+ */
+export type SystemSlotId =
+  | "prompt"
+  | "files"
+  | "template"
+  | "browser"
+  | "project-markers"
+  | "topic-switch"
+  | "memory"
+  | "pinned"
+  | "goal"
+  | "plan-mode";
+
+export interface SystemSlot {
+  slot: SystemSlotId;
+  content: string;
+}
+
+/** Nomi per la riga di ritiro, che la legge un modello e non un parser. */
+const SLOT_LABELS: Record<SystemSlotId, string> = {
+  prompt: "system prompt",
+  files: "context files",
+  template: "project files",
+  browser: "browser instructions",
+  "project-markers": "project controls",
+  "topic-switch": "topic directory",
+  memory: "memory",
+  pinned: "pinned messages",
+  goal: "goal",
+  "plan-mode": "plan mode",
+};
+
+/**
+ * Slot che NON si deduplicano mai: sono uno STATO corrente, non un documento.
+ * Plan mode costa poche centinaia di token e vale la pena riaffermarlo ad ogni
+ * turno in cui è attivo, invece di fidarsi che il modello se lo ricordi.
+ */
+const VOLATILE_SLOTS: ReadonlySet<SystemSlotId> = new Set<SystemSlotId>(["plan-mode"]);
+
+/** Stesso preventivo del resto dell'envelope (`SystemBlock.tokens`). */
+function estimateTokens(text: string): number {
+  return Math.round(text.length / 4);
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Public API
 // ────────────────────────────────────────────────────────────────────────────
 
-export function adaptEnvelope(envelope: ContextEnvelope): ProviderPayload {
-  const composedSystem = composeSystemMessages(envelope.systemBlocks);
+export interface AdaptOptions {
+  /**
+   * Slot che la sessione CLI possiede già, `slot → hash`. Sola lettura: questa
+   * funzione resta PURA — lo stato entra come argomento ed esce come
+   * `payload.inlineSlots`. Chi lo persiste è il chiamante.
+   *
+   * Assente o vuota ⇒ nessuna deduplicazione, cioè il primo turno di una
+   * sessione (ed è per questo che la regressione byte-per-byte continua a valere).
+   */
+  alreadySent?: ReadonlyMap<string, string>;
+}
+
+export function adaptEnvelope(envelope: ContextEnvelope, opts?: AdaptOptions): ProviderPayload {
+  const slots = composeSystemSlots(envelope.systemBlocks);
+  const composedSystem = slots.map((s) => sys(s.content));
 
   switch (envelope.providerStrategy) {
     case "history-aware":
       return adaptHistoryAware(envelope, composedSystem);
     case "inline-system":
-      return adaptInlineSystem(envelope, composedSystem);
+      return adaptInlineSystem(envelope, slots, opts?.alreadySent);
     case "gateway-stateful":
       return adaptGatewayStateful(envelope, composedSystem);
     default: {
@@ -56,19 +126,70 @@ function adaptHistoryAware(
   };
 }
 
+/**
+ * Invio DIFFERENZIALE del preambolo.
+ *
+ * La CLI è process-resident: quello che le abbiamo già detto è ancora nella sua
+ * conversazione. Riemetterlo non aggiunge informazione — appende byte identici a
+ * un contesto che ogni chiamata successiva rilegge per intero, e il costo è
+ * COMPOSTO: i ~2k token appesi al turno 12 li ripaga ogni richiesta dalla 13 in
+ * poi. Su una chat reale (topic "quadra", 33 turni, 663 risposte) erano 23,35M
+ * token su 146,5M, cioè il 15,9% della sessione, per ripetere trentadue volte un
+ * README che non era cambiato.
+ *
+ * Quindi uno slot parte se e solo se il suo contenuto è cambiato — l'hash decide.
+ * Niente si perde (CLAUDE.md modificato a metà sessione riparte), niente si ripete.
+ */
 function adaptInlineSystem(
   envelope: ContextEnvelope,
-  composedSystem: ChatMessage[],
+  slots: SystemSlot[],
+  alreadySent: ReadonlyMap<string, string> | undefined,
 ): ProviderPayload {
-  let userContent = envelope.userMessage.content;
-  if (composedSystem.length > 0) {
-    const preamble = composedSystem.map((m) => m.content).join("\n\n---\n\n");
-    userContent = `<context>\n${preamble}\n</context>\n\n${userContent}`;
+  const emitted: SystemSlot[] = [];
+  const skipped: SystemSlotId[] = [];
+  const inlineSlots: { slot: string; hash: string }[] = [];
+  let savedTokens = 0;
+
+  for (const s of slots) {
+    const hash = hashSlot(s.content);
+    // `inlineSlots` è lo stato RISULTANTE, non "cosa ho appena emesso": uno slot
+    // saltato resta in sessione eccome, ed è proprio il motivo per cui va
+    // riportato — altrimenti il turno dopo lo rimanderemmo.
+    inlineSlots.push({ slot: s.slot, hash });
+    if (!VOLATILE_SLOTS.has(s.slot) && alreadySent?.get(s.slot) === hash) {
+      skipped.push(s.slot);
+      savedTokens += estimateTokens(s.content);
+      continue;
+    }
+    emitted.push(s);
   }
+
+  // Uno slot SPARITO è informazione: senza dirlo, il modello resta a credere di
+  // essere in plan mode dopo che l'utente l'ha spento. Il ritiro esce una volta
+  // sola — lo slot lascia `inlineSlots`, quindi al turno dopo non è più "sparito".
+  const present = new Set<string>(slots.map((s) => s.slot));
+  const withdrawn = [...(alreadySent?.keys() ?? [])].filter((k) => !present.has(k));
+
+  const parts: string[] = [];
+  if (withdrawn.length > 0) {
+    const labels = withdrawn.map((k) => SLOT_LABELS[k as SystemSlotId] ?? k);
+    parts.push(`Context no longer in effect: ${labels.join(", ")}.`);
+  }
+  parts.push(...emitted.map((s) => s.content));
+
+  let userContent = envelope.userMessage.content;
+  // Niente da dire ⇒ il messaggio utente NUDO, senza un `<context></context>`
+  // vuoto. È il caso a regime, ed è ciò che rende un turno "riaccedi" tre token
+  // invece di millenovecentosettantatré.
+  if (parts.length > 0) {
+    userContent = `<context>\n${parts.join("\n\n---\n\n")}\n</context>\n\n${userContent}`;
+  }
+
   return {
     userContent,
     // No `history` field — process-resident CLI keeps its own session state.
-    adaptationNotes: buildInlineSystemNotes(envelope, composedSystem.length),
+    adaptationNotes: buildInlineSystemNotes(envelope, emitted.length, skipped, savedTokens, withdrawn),
+    inlineSlots,
   };
 }
 
@@ -106,18 +227,29 @@ function adaptGatewayStateful(
  * are skipped — they're surfaced for inspector visibility only.
  */
 export function composeSystemMessages(blocks: SystemBlock[]): ChatMessage[] {
+  return composeSystemSlots(blocks).map((s) => sys(s.content));
+}
+
+/**
+ * La stessa aggregazione di `composeSystemMessages`, con l'id dello slot accanto
+ * al contenuto. È la forma che serve alla deduplicazione inline; l'altra resta
+ * come wrapper per i chiamanti (e per la regressione byte-per-byte) che vogliono
+ * solo i `ChatMessage`.
+ */
+export function composeSystemSlots(blocks: SystemBlock[]): SystemSlot[] {
   const enabled = blocks.filter((b) => b.enabled && b.injectedByTopicsApp);
-  const messages: ChatMessage[] = [];
+  const messages: SystemSlot[] = [];
+  const push = (slot: SystemSlotId, content: string) => messages.push({ slot, content });
 
   // ── 1. System prompt ──
   const prompt = enabled.find((b) => b.id === "prompt:system");
-  if (prompt) messages.push(sys(prompt.content));
+  if (prompt) push("prompt", prompt.content);
 
   // ── 2. Context files (aggregated) ──
   const files = enabled.filter((b) => b.category === "file");
   if (files.length > 0) {
     const parts = files.map((f) => `--- File: ${f.label} ---\n${f.content}`);
-    messages.push(sys(`Context files for this topic:\n\n${parts.join("\n\n")}`));
+    push("files", `Context files for this topic:\n\n${parts.join("\n\n")}`);
   }
 
   // ── 3. Project template (aggregated) ──
@@ -135,20 +267,20 @@ export function composeSystemMessages(blocks: SystemBlock[]): ChatMessage[] {
       // available (or all of them were toggled off). Mirrors legacy behaviour.
       content += `\n\nProject root files: ${aware.adapterHints.projectListing}`;
     }
-    messages.push(sys(content));
+    push("template", content);
   }
 
   // ── 4. Browser instruction ──
   const browser = enabled.find((b) => b.id === "synthetic:browser-instruction");
-  if (browser) messages.push(sys(browser.content));
+  if (browser) push("browser", browser.content);
 
   // ── 5. Project markers ──
   const projectMarkers = enabled.find((b) => b.id === "synthetic:project-markers");
-  if (projectMarkers) messages.push(sys(projectMarkers.content));
+  if (projectMarkers) push("project-markers", projectMarkers.content);
 
   // ── 6. Topic switch directory ──
   const topicSwitch = enabled.find((b) => b.id === "synthetic:topic-switch-directory");
-  if (topicSwitch) messages.push(sys(topicSwitch.content));
+  if (topicSwitch) push("topic-switch", topicSwitch.content);
 
   // ── 7. Memory (aggregated, mirrors `loadMemoryForTopic`) ──
   const globalMem = enabled.find((b) => b.id === "memory:global");
@@ -157,20 +289,30 @@ export function composeSystemMessages(blocks: SystemBlock[]): ChatMessage[] {
     const parts: string[] = [];
     if (globalMem) parts.push(`### Global Memory\n${globalMem.content.trim()}`);
     if (topicMem) parts.push(`### Topic Memory\n${topicMem.content.trim()}`);
-    messages.push(sys(
+    push(
+      "memory",
       `\n\n## Memory\nThe following memories/notes have been saved for context:\n\n${parts.join("\n\n")}`,
-    ));
+    );
   }
 
   // ── 8. Pinned messages ──
   const pinned = enabled.find((b) => b.id === "pinned:messages");
   if (pinned) {
-    messages.push(sys(`Pinned messages from this conversation (important context):\n\n${pinned.content}`));
+    push("pinned", `Pinned messages from this conversation (important context):\n\n${pinned.content}`);
   }
 
-  // ── 9. Plan mode ──
+  // ── 9. Goal ──
+  // `assemble.ts` lo produce (`pushGoalBlock`, id `synthetic:goal`) con
+  // `injectedByTopicsApp: true` e `countInBudget: true` — l'ispettore lo mostra
+  // e lo conta nel budget — ma fino a questa change nessuno degli slot lo
+  // raccoglieva, quindi veniva scartato in silenzio e il modello non vedeva MAI
+  // l'obiettivo del topic. Bug preesistente, non introdotto dalla dedup.
+  const goal = enabled.find((b) => b.id === "synthetic:goal");
+  if (goal) push("goal", goal.content);
+
+  // ── 10. Plan mode ──
   const plan = enabled.find((b) => b.id === "synthetic:plan-mode");
-  if (plan) messages.push(sys(plan.content));
+  if (plan) push("plan-mode", plan.content);
 
   return messages;
 }
@@ -191,11 +333,29 @@ function buildHistoryAwareNotes(envelope: ContextEnvelope, composedCount: number
   return notes;
 }
 
-function buildInlineSystemNotes(envelope: ContextEnvelope, composedCount: number): string[] {
+function buildInlineSystemNotes(
+  envelope: ContextEnvelope,
+  composedCount: number,
+  skipped: SystemSlotId[],
+  savedTokens: number,
+  withdrawn: string[],
+): string[] {
   const notes: string[] = [];
   notes.push(
     `${composedCount} aggregated system message(s) inlined into user turn as <context> preamble (from ${countEmittedBlocks(envelope)} enabled source block(s))`,
   );
+  // Il salto va DICHIARATO: un preambolo che sparisce senza spiegazione, in un
+  // pannello che si chiama "ispettore", è indistinguibile da un bug.
+  if (skipped.length > 0) {
+    const labels = skipped.map((s) => SLOT_LABELS[s] ?? s).join(", ");
+    notes.push(
+      `${skipped.length} slot already in the CLI session, skipped (~${savedTokens.toLocaleString()} tokens saved): ${labels}`,
+    );
+  }
+  if (withdrawn.length > 0) {
+    const labels = withdrawn.map((s) => SLOT_LABELS[s as SystemSlotId] ?? s).join(", ");
+    notes.push(`${withdrawn.length} slot withdrawn — declared no longer in effect: ${labels}`);
+  }
   notes.push(
     `Provider does NOT receive the history field — the CLI session preserves prior turns process-side`,
   );

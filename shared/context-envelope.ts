@@ -368,4 +368,16 @@ export interface ProviderPayload<TTool = unknown> {
     tools?: TTool[];
   };
   adaptationNotes: string[];
+
+  /**
+   * Solo per la strategia `inline-system`: lo stato del preambolo DOPO questo
+   * turno — quali slot di contesto la sessione CLI possiede e con quale hash.
+   *
+   * Non è "cosa ho appena emesso": include anche gli slot SALTATI perché già in
+   * sessione, ed esclude quelli ritirati. È lo snapshot che il chiamante scrive
+   * in `server/context/inline-sent-state.ts` per decidere il turno successivo.
+   *
+   * Assente per le altre strategie, che non deduplicano nulla.
+   */
+  inlineSlots?: { slot: string; hash: string }[];
 }

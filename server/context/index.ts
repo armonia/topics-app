@@ -34,7 +34,16 @@ export {
 } from "./assemble";
 export type { AssembleArgs } from "./assemble";
 
-export { adaptEnvelope, composeSystemMessages } from "./adapt";
+export { adaptEnvelope, composeSystemMessages, composeSystemSlots } from "./adapt";
+export type { AdaptOptions, SystemSlot, SystemSlotId } from "./adapt";
+
+export {
+  getInlineSentState,
+  hashSlot,
+  inlineScope,
+  markInlineSent,
+  resetInlineSent,
+} from "./inline-sent-state";
 
 export {
   RING_SIZE,
