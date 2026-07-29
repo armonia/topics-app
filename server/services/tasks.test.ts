@@ -41,7 +41,8 @@ function freshDb(): Database {
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT
+    priority_auto INTEGER NOT NULL DEFAULT 1, preview_image TEXT,
+    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -51,7 +52,7 @@ function freshDb(): Database {
     auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
     dispatch_mcp TEXT,
-    dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER
+    dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER, review_checks TEXT
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -839,6 +840,31 @@ describe("board settings", () => {
     expect(other.dispatchEffort).toBe("medium");
   });
 
+  // Il gate pre-review è OPT-IN: nessuna board esistente cambia comportamento
+  // finché qualcuno non dichiara cosa vuol far girare.
+  test("checks pre-review: nessun comando di default", () => {
+    expect(s.getBoardSettings(PID).reviewChecks).toEqual([]);
+  });
+
+  test("checks pre-review: round-trip e normalizzazione a forma lunga", () => {
+    const bs = s.updateBoardSettings(PID, { reviewChecks: [{ name: "", cmd: "bun run typecheck" }] });
+    expect(bs.reviewChecks).toEqual([{ name: "bun run typecheck", cmd: "bun run typecheck" }]);
+    expect(s.getBoardSettings(PID).reviewChecks).toHaveLength(1);
+  });
+
+  test("checks pre-review: lista vuota SPEGNE il gate", () => {
+    s.updateBoardSettings(PID, { reviewChecks: [{ name: "t", cmd: "true" }] });
+    expect(s.updateBoardSettings(PID, { reviewChecks: [] }).reviewChecks).toEqual([]);
+    // NULL in colonna, non "[]": "spento" è uno stato solo.
+    const raw = db.prepare("SELECT review_checks FROM board_settings WHERE project_id = ?").get(PID) as any;
+    expect(raw.review_checks).toBeNull();
+  });
+
+  test("checks pre-review: i comandi NON si propagano alle altre board", () => {
+    s.updateBoardSettings(PID, { reviewChecks: [{ name: "t", cmd: "true" }] });
+    expect(s.getBoardSettings("other-board-zzz999").reviewChecks).toEqual([]);
+  });
+
   test("reviewDecision clears the dispatch chip on approve", () => {
     const t = s.create({ projectId: PID, text: "x" });
     // Drive it to review with a dispatch chip set, then approve.
@@ -847,6 +873,90 @@ describe("board settings", () => {
     const done = s.reviewDecision({ taskId: t.id, by: "u", decision: "approve" });
     expect(done.status).toBe("done");
     expect(done.dispatchState).toBeNull();
+  });
+});
+
+describe("recordChecks (evidenza dei checks pre-review)", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  const read = (id: string) => s.get(id, { projectId: PID })!.task;
+
+  test("un task nasce SENZA esito: null non è un verde", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    expect(t.checksState).toBeNull();
+    expect(t.checksAt).toBeNull();
+    expect(t.checksCommit).toBeNull();
+    expect(t.checks).toBeNull();
+  });
+
+  test("pass: stato, commit ed evidenza comando-per-comando rileggibili", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    const runs = [{ name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 1200, timedOut: false, tail: "" }];
+    s.recordChecks({ taskId: t.id, state: "pass", commit: "abc1234", runs });
+    const got = read(t.id);
+    expect(got.checksState).toBe("pass");
+    expect(got.checksCommit).toBe("abc1234");
+    expect(got.checksAt).toBeTruthy();
+    expect(got.checks).toEqual(runs);
+  });
+
+  test("running: nessun 'quando è finito', perché non è finito", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.recordChecks({ taskId: t.id, state: "running", commit: "abc1234", runs: null });
+    const got = read(t.id);
+    expect(got.checksState).toBe("running");
+    expect(got.checksAt).toBeNull();
+    expect(got.checks).toBeNull();
+  });
+
+  test("fail: la coda dell'output sopravvive al giro in DB (è l'unica prova che resta)", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.recordChecks({
+      taskId: t.id, state: "fail", commit: "deadbee",
+      runs: [
+        { name: "typecheck", cmd: "bun run typecheck", ok: true, code: 0, ms: 900, timedOut: false, tail: "" },
+        { name: "test", cmd: "bun test", ok: false, code: 1, ms: 4200, timedOut: false, tail: "1 fail\nexpected true" },
+      ],
+    });
+    const got = read(t.id);
+    expect(got.checksState).toBe("fail");
+    expect(got.checks).toHaveLength(2);
+    expect(got.checks![1].ok).toBe(false);
+    expect(got.checks![1].tail).toContain("expected true");
+  });
+
+  test("un giro nuovo SOSTITUISCE il precedente: niente verde scaduto appiccicato", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.recordChecks({ taskId: t.id, state: "fail", commit: "old", runs: [{ name: "t", cmd: "false", ok: false, code: 1, ms: 5, timedOut: false, tail: "boom" }] });
+    s.recordChecks({ taskId: t.id, state: "pass", commit: "new", runs: [{ name: "t", cmd: "true", ok: true, code: 0, ms: 5, timedOut: false, tail: "" }] });
+    const got = read(t.id);
+    expect(got.checksState).toBe("pass");
+    expect(got.checksCommit).toBe("new");
+    expect(got.checks).toHaveLength(1);
+    expect(got.checks![0].ok).toBe(true);
+  });
+
+  test("reset a null: 'mai girati' è uno stato raggiungibile", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.recordChecks({ taskId: t.id, state: "fail", commit: "abc", runs: [{ name: "t", cmd: "false", ok: false, code: 1, ms: 5, timedOut: false, tail: "boom" }] });
+    s.recordChecks({ taskId: t.id, state: null, commit: null, runs: null });
+    const got = read(t.id);
+    expect(got.checksState).toBeNull();
+    expect(got.checksCommit).toBeNull();
+    expect(got.checks).toBeNull();
+  });
+
+  test("un JSON storto in colonna vale 'nessuna evidenza', non un'eccezione a ogni lettura", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    db.prepare("UPDATE tasks SET checks_state = 'fail', checks_json = ? WHERE id = ?").run("{non json", t.id);
+    const got = read(t.id);
+    expect(got.checksState).toBe("fail");
+    expect(got.checks).toBeNull();
+  });
+
+  test("task inesistente → not_found, non una UPDATE a vuoto", () => {
+    expect(() => s.recordChecks({ taskId: "nope", state: "pass", commit: null, runs: null })).toThrow(TaskServiceError);
   });
 });
 

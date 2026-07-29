@@ -10,7 +10,7 @@ import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, type TaskSurface } from './constants';
@@ -28,6 +28,78 @@ import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 /** Hostname of a URL for a compact tab label, or '' if unparseable. */
 function hostLabel(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
+}
+
+/**
+ * Esito dei checks pre-review, accanto ai bottoni di decisione.
+ *
+ * Non disegna niente quando non sono mai girati: "nessun check" NON è un verde, e
+ * una spia verde su una board senza comandi dichiarati sarebbe una bugia che
+ * rassicura. Verde = una riga (è evidenza, non un rapporto); rosso = comando,
+ * exit code e coda dell'output, cioè quello che serve per capire senza aprire un
+ * terminale.
+ */
+function ChecksSection({ task }: { task: BoardTask }) {
+  const [open, setOpen] = useState(false);
+  if (!task.checksState) return null;
+
+  if (task.checksState === 'running') {
+    return (
+      <div className="flex items-center gap-1.5 rounded bg-white/5 px-2 py-1.5 text-[11px] text-neutral-300">
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-neutral-400" />
+        Checks pre-review in corso…
+      </div>
+    );
+  }
+
+  const runs = task.checks ?? [];
+  const failed = runs.find((r) => !r.ok);
+  const short = (r: CheckRun) => r.spawnError ? 'non è partito' : r.timedOut ? 'oltre il tempo massimo' : `exit ${r.code}`;
+  const when = task.checksAt ? new Date(task.checksAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : null;
+
+  if (task.checksState === 'pass') {
+    return (
+      <div className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-200">
+        <Check className="h-3 w-3 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">
+          Checks verdi{when ? ` alle ${when}` : ''}{runs.length ? ` — ${runs.map((r) => r.name).join(', ')}` : ''}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded bg-rose-500/10 text-[11px] text-rose-200">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-white/5"
+      >
+        {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+        <span className="min-w-0 flex-1 truncate">
+          Checks ROSSI{when ? ` alle ${when}` : ''}{failed ? ` — ${failed.name} (${short(failed)})` : ''}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-1.5 px-2 pb-2">
+          {runs.map((r, i) => (
+            <div key={i}>
+              <div className={r.ok ? 'text-emerald-300' : 'text-rose-200'}>
+                {r.ok ? '✓' : '✗'} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : ` — ${short(r)}`}
+              </div>
+              {!r.ok && (r.tail || r.spawnError) && (
+                <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-[10px] leading-snug text-neutral-300">
+                  {r.spawnError ?? r.tail}
+                </pre>
+              )}
+            </div>
+          ))}
+          <p className="text-neutral-400">
+            La strada normale è <b>Rifiuta</b>: l'agent riparte con questo output. Approvare qui significa accettarlo rosso.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Collapsible "Modifiche" panel in the task drawer: the unified diff of what
@@ -386,10 +458,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
 
   // Approve/reject from the detail itself — the review surface must not force a
   // round-trip back to the card. Same endpoint, same semantics.
-  const decide = async (decision: 'approve' | 'reject') => {
+  const decide = async (decision: 'approve' | 'reject', opts?: { force?: boolean }) => {
     if (busy) return;
     setBusy(true);
-    try { await boardApi.review(projectId, taskId, decision); setError(null); await load(); onChanged(); }
+    try { await boardApi.review(projectId, taskId, decision, undefined, opts); setError(null); await load(); onChanged(); }
     catch (e) { showError(e); }
     finally { setBusy(false); }
   };
@@ -1303,12 +1375,22 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     ))}
                   </div>
                 )}
+                {/* L'evidenza sta ATTACCATA alla decisione: il gate rifiuta un
+                    approve coi checks rossi, e scoprirlo da un 409 dopo il click
+                    sarebbe farsi spiegare da un errore quello che si poteva vedere. */}
+                <ChecksSection task={task} />
                 <div className="flex items-center gap-1.5">
                   <button
-                    disabled={busy} onClick={() => decide('approve')}
-                    title="Accetta e completa il task. NON fa il merge — per landare il branch su main usa 'Landa su main'."
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded bg-emerald-500/80 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                  >{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} Approva</button>
+                    disabled={busy} onClick={() => decide('approve', { force: task.checksState === 'fail' })}
+                    title={task.checksState === 'fail'
+                      ? "I checks pre-review sono rossi: approvando lo accetti comunque. La strada normale è Rifiuta, che rimanda l'output all'agent."
+                      : "Accetta e completa il task. NON fa il merge — per landare il branch su main usa 'Landa su main'."}
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
+                      task.checksState === 'fail'
+                        ? 'bg-amber-600/80 hover:bg-amber-600'
+                        : 'bg-emerald-500/80 hover:bg-emerald-500'
+                    }`}
+                  >{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} {task.checksState === 'fail' ? 'Approva comunque' : 'Approva'}</button>
                   <button
                     disabled={busy} onClick={() => decide('reject')}
                     title={isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni)" : 'Rifiuta'}
@@ -1853,9 +1935,63 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
         <input type="checkbox" checked={s.dispatchMcp === 'inherit'} onChange={(e) => patch({ dispatchMcp: e.target.checked ? 'inherit' : 'bridge-only' })} className="h-3.5 w-3.5 accent-emerald-500" />
       </label>
 
+      <ReviewChecksField checks={s.reviewChecks} onSave={(reviewChecks) => patch({ reviewChecks })} />
+
       {dispatchOn && (
         <p className="text-[11px] text-amber-300/80">Attivo: spostare un task in Todo avvierà un agent con permessi pieni.</p>
       )}
+    </div>
+  );
+}
+
+/**
+ * I comandi del gate pre-review, uno per riga. Testo libero e non una lista di
+ * checkbox su script noti: i comandi buoni sono composti (`bun run typecheck &&
+ * bun test`), cambiano da board a board, e un menu di scelte fisse costringerebbe
+ * a scegliere quello sbagliato.
+ *
+ * Si salva su blur / ⌘↵ e non a ogni tasto: un PATCH per carattere farebbe partire
+ * un salvataggio a metà comando.
+ */
+function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: (c: ReviewCheck[]) => void }) {
+  const asText = (list: ReviewCheck[]) => list.map((c) => c.cmd).join('\n');
+  const saved = asText(checks);
+  // `null` = allineato al server, e il testo mostrato È quello salvato. Niente
+  // copia locale da tenere in sync con un effect: se le impostazioni cambiano da
+  // un'altra finestra (o il parser normalizza quello che ho scritto) il campo
+  // segue da solo, ma solo finché non ho modifiche non salvate sotto le dita.
+  const [draft, setDraft] = useState<string | null>(null);
+  const text = draft ?? saved;
+  const dirty = draft !== null;
+
+  const commit = () => {
+    if (draft === null) return;
+    setDraft(null);
+    const next = text.split('\n').map((l) => l.trim()).filter(Boolean).map((cmd) => ({ name: cmd, cmd }));
+    if (asText(next) === saved) return;
+    onSave(next);
+  };
+
+  return (
+    <div className="space-y-1">
+      <label
+        className="flex items-center justify-between gap-2"
+        title="Eseguiti dal server nel worktree del task quando l'agent consegna. Uno rosso = review rifiutata, con l'output rimandato all'agent. Vuoto = nessun controllo. Tienili veloci: un gate da venti minuti lo spegni il primo giorno."
+      >
+        <span>Checks pre-review <span className="text-neutral-500">(un comando per riga)</span></span>
+        {checks.length > 0 && <span className="text-[10px] text-neutral-500">{checks.length}/5</span>}
+      </label>
+      <textarea
+        value={text}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }}
+        rows={Math.min(5, Math.max(2, text.split('\n').length))}
+        spellCheck={false}
+        placeholder={'bun run typecheck\nbun test'}
+        className="w-full resize-none rounded bg-white/5 px-1.5 py-1 font-mono text-[11px] text-neutral-100 outline-none placeholder:text-neutral-600 focus:bg-white/10"
+      />
+      {dirty && <p className="text-[10px] text-neutral-500">Salva uscendo dal campo (o ⌘↵).</p>}
     </div>
   );
 }

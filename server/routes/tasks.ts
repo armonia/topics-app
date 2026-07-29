@@ -26,6 +26,7 @@ import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { TaskAutoMerge } from "../services/task-automerge";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
+import { formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -101,6 +102,13 @@ export interface TasksRouterOpts {
    * to audit later.
    */
   taskDeliveryRef?: (taskId: string) => Promise<{ branch: string; commit: string } | null>;
+  /**
+   * Dove girano i checks pre-review: la cartella del worktree del task e il commit
+   * su cui sta in quel momento. `null` ⇒ nessun worktree di branch (task in-place),
+   * niente su cui eseguire → gate saltato. Il commit serve a datare l'esito: un
+   * "verde" vale per QUEL codice, non per il branch a vita.
+   */
+  taskCheckoutRef?: (taskId: string) => Promise<{ cwd: string; commit: string | null } | null>;
   /**
    * Delete the task's worktree + branch + store row (the worktree-manager
    * path). Called after a landing: once merged, the worktree has no value and
@@ -282,6 +290,50 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       return (svc.get(task.id)?.task as T | undefined) ?? task;
     } catch { /* best-effort: never block a delivery on git */ }
     return task;
+  }
+
+  /**
+   * Terzo gate strutturale sulla review, dopo il commit (`review_needs_commit`) e
+   * il riassunto (`review_needs_summary`): i comandi dichiarati sulla board devono
+   * essere VERDI. Non si chiede all'agente se ha fatto girare i test — si fanno
+   * girare, nel suo worktree, sul codice che ha appena committato.
+   *
+   * Ritorna `null` quando il gate non si applica (board senza comandi, task senza
+   * worktree di branch): "nessun check" non è un verde e non deve scriverne uno.
+   *
+   * Sincrono di proposito: se girasse in background il task entrerebbe in review
+   * SUBITO e il reviewer vedrebbe una consegna guardabile mentre i check ancora
+   * girano — cioè esattamente la cosa che il gate esiste per impedire. L'agente
+   * aspetta, e in cambio riceve l'output del comando rosso senza doverlo cercare.
+   */
+  async function runChecksGate(
+    taskId: string,
+    projectId: string,
+  ): Promise<{ ok: boolean; comment: string } | null> {
+    if (!opts?.taskCheckoutRef) return null;
+    let checks: ReviewCheck[] = [];
+    try { checks = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
+    if (!checks.length) return null;
+    const ref = await opts.taskCheckoutRef(taskId).catch(() => null);
+    if (!ref) return null;
+
+    // 'running' subito e in broadcast: i comandi possono durare minuti e una board
+    // ferma senza spiegazioni si legge come "si è impiantato".
+    try {
+      const t = svc.recordChecks({ taskId, state: "running", commit: ref.commit, runs: null });
+      broadcastToAll({ type: "task:updated", projectId, task: t });
+    } catch { /* il gate vale anche senza la spia */ }
+
+    const runs = await runReviewChecks(checks, { cwd: ref.cwd });
+    const ok = runs.length === checks.length && runs.every((r) => r.ok);
+    const comment = formatChecksComment(runs, { commit: ref.commit });
+    try {
+      svc.recordChecks({ taskId, state: ok ? "pass" : "fail", commit: ref.commit, runs });
+      svc.addComment({ taskId, author: "system", content: comment });
+      const t = svc.get(taskId, { projectId })?.task;
+      if (t) broadcastToAll({ type: "task:updated", projectId, task: t });
+    } catch { /* l'esito conta più della sua registrazione */ }
+    return { ok, comment };
   }
 
   async function landTask(projectId: string, taskId: string): Promise<void> {
@@ -638,6 +690,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchTimeoutMin: typeof body?.dispatchTimeoutMin === "number" ? body.dispatchTimeoutMin : undefined,
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
               dispatchModel: typeof body?.dispatchModel === "string" ? body.dispatchModel : undefined,
+              // Passa dal parser tollerante: il pannello manda una lista di
+              // stringhe (una riga = un comando), la board può averne una lunga
+              // salvata a mano. Una sola forma canonica esce da qui.
+              reviewChecks: body?.reviewChecks !== undefined
+                ? parseReviewChecks(JSON.stringify(body.reviewChecks))
+                : undefined,
             });
             broadcastToAll({ type: "board:settings", projectId, settings });
             // autoDispatch is global — every board header (not just this
@@ -798,6 +856,26 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         const body = (await readJSON(req)) as any;
         const decision = body?.decision === "approve" ? "approve" : body?.decision === "reject" ? "reject" : null;
         if (!decision) return json({ error: "decision must be 'approve' or 'reject'", code: "invalid_input" }, 400);
+        // Un task con i checks rossi non si accetta per distrazione. Non è un
+        // divieto: `force` lo scavalca, ed è per i casi in cui il rosso sei tu a
+        // saperlo innocuo (un comando che non c'entra, un test già noto). Serve a
+        // rendere l'eccezione una SCELTA, non il default silenzioso — la strada
+        // normale resta rimandarlo all'agente.
+        if (decision === "approve" && body?.force !== true) {
+          try {
+            const cur = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
+            if (cur?.checksState === "fail") {
+              const red = (cur.checks ?? []).find((r) => !r.ok);
+              return json({
+                error:
+                  `i checks pre-review sono ROSSI${red ? ` (\`${red.name}\`)` : ""}` +
+                  `${cur.checksAt ? ` — ultimo giro ${cur.checksAt}` : ""}. ` +
+                  "Rimandalo all'agente, oppure approva comunque se il rosso non c'entra con questa consegna.",
+                code: "checks_failed",
+              }, 409);
+            }
+          } catch { /* la spia non deve poter bloccare un'accettazione */ }
+        }
         try {
           const comment = typeof body?.comment === "string" ? body.comment : undefined;
           // "Landa e pubblica" = go online: accept + merge to main + push (deploy CI).
@@ -1128,14 +1206,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // Questions are exempt: an agent asking mid-work legitimately has a
         // dirty worktree. Prompt instructions alone never fixed this; the 409
         // coaches the retry like review_needs_summary does.
-        if (body?.status === "review" && opts?.taskWorktreeDirt) {
+        if (body?.status === "review") {
+          let isDelivery = false;
           try {
             const got = svc.get(item.taskId, { projectId: sess.projectId });
             const lastOwn = got ? [...got.comments].reverse().find(
               (c) => c.author !== "user" && c.author !== "system" && c.kind === "comment",
             ) : null;
             const isQuestion = !!lastOwn?.content?.includes("```question");
-            if (got && got.task.status !== "review" && !isQuestion) {
+            isDelivery = !!got && got.task.status !== "review" && !isQuestion;
+          } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
+
+          if (isDelivery && opts?.taskWorktreeDirt) {
+            try {
               const dirt = await opts.taskWorktreeDirt(item.taskId);
               if (dirt && dirt.length > 0) {
                 return json({
@@ -1146,8 +1229,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                   code: "review_needs_commit",
                 }, 409);
               }
+            } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
+          }
+
+          // Secondo gate, DOPO quello sul commit: i comandi girano sul codice
+          // committato, quindi ha senso solo una volta che c'è. Un rosso torna
+          // all'agente con l'output del comando — non "consegna rifiutata", il
+          // motivo vero, così la riparazione parte da lì e non da un'indagine.
+          if (isDelivery) {
+            const outcome = await runChecksGate(item.taskId, sess.projectId).catch(() => null);
+            if (outcome && !outcome.ok) {
+              return json({ error: outcome.comment, code: "review_needs_green_checks" }, 409);
             }
-          } catch { /* gate is best-effort: a git/store hiccup must never block a delivery */ }
+          }
         }
         try {
           const prevStatus = svc.get(item.taskId, { projectId: sess.projectId })?.task.status;

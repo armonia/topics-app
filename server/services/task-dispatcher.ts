@@ -452,6 +452,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   }
 
   function buildKickoff(task: Task): string {
+    // I comandi che il server farà girare da solo alla consegna. Dirglielo PRIMA
+    // costa tre righe e gli risparmia un giro completo: senza, scopre il gate solo
+    // quando lo sbatte, e il rosso arriva a lavoro già "finito".
+    let checks: { name: string; cmd: string }[] = [];
+    try { checks = deps.svc.getBoardSettings(task.projectId).reviewChecks; } catch { /* board senza gate */ }
     const parts: string[] = [];
     parts.push(`Sei l'owner esclusivo del task \`${task.id}\` su questo board Kanban.`);
     parts.push(
@@ -498,6 +503,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         `- Alla consegna, PRIMA di spostare in review: UN commento di sintesi con comment_task (1-2 frasi: cosa hai fatto QUESTO turno, dove guardare). Il server rifiuta la review se in questo turno non hai ancora commentato.`,
         `- SE hai committato codice sul tuo branch (lavoro landabile), in quel commento di consegna offri SOLO l'opzione: comment_task(..., options=["${LAND_ACTION_LABEL}"]). Se l'umano la sceglie, il SISTEMA fa il merge LOCALE su main (nessun push). Tu NON fare mai git merge/push a mano. La pubblicazione online (push + deploy) è un passo SEPARATO, deciso ed eseguito dall'umano dal controllo "Pubblica" della board con anteprima del diff — NON proporla, non è un'opzione del task. NON offrire l'opzione senza codice committato (una domanda, un piano, lavoro solo-headless).`,
         `- Se devi ASPETTARE una condizione esterna (un servizio che torna su, il carico macchina che scende, una finestra oraria): NON dormire con un poller tenendo occupato lo slot. Dichiara l'attesa con wait_for_condition(task_id="${task.id}", reason=<cosa aspetti>, minutes=<quanto riprovare, default 15>): il task torna in coda con la nota, lo slot si libera per altri, e il sistema lo ri-dispaccia da solo quando scade la finestra. NON è una consegna: non mandarlo in review "vuoto".`,
+        ...(checks.length
+          ? [
+              `- CHECKS PRE-REVIEW: alla consegna il server esegue da sé, nel tuo worktree, ${checks.length === 1 ? "questo comando" : "questi comandi"} — ${checks.map((c) => `\`${c.cmd}\``).join(", ")}. Se uno è rosso la review viene RIFIUTATA e ti torna l'output: falli girare tu prima, così non ci perdi un giro.`,
+            ]
+          : []),
         `- Quando il lavoro è completo sposta il task in \`review\` con: update_task(task_id="${task.id}", status="review"). NON puoi portarlo a \`done\` (serve l'ok umano).`,
         "- Se ti serve una decisione umana per procedere:",
         `  1. comment_task(task_id="${task.id}", content=<la domanda in una riga>, options=[<opzione 1>, <opzione 2>, ...])`,
