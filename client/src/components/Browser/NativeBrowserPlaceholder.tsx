@@ -263,10 +263,18 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
 
     const ro = new ResizeObserver(scheduleBounds);
     if (placeholderRef.current) ro.observe(placeholderRef.current);
-    // Observe body too — picks up sibling pane resize / sidebar collapse
-    // even when the placeholder's own size doesn't change.
-    ro.observe(document.body);
-
+    // NIENTE `ro.observe(document.body)`. Serviva a cogliere il resize di una
+    // pane sorella o il collasso della sidebar quando il box di QUESTA pane non
+    // cambia — ma `document.body` è lo stesso box per tutti, quindi ogni pane
+    // browser montata ne aggiungeva un'osservazione, e
+    // `updateIntersectionObservations`/`updateResizeObservations` girano dentro
+    // `updateRendering` con il layout aggiornato. N osservazioni della stessa
+    // scatola, N volte il costo, una sola informazione.
+    //
+    // Lo stesso segnale arriva già da tre parti che ci sono ancora: il resize
+    // della finestra (qui sotto), il MutationObserver sulle classi di `body`
+    // (tema, sidebar) e il ResizeObserver sul placeholder stesso — che è ciò che
+    // cambia davvero quando una pane sorella si ridimensiona.
     window.addEventListener('resize', scheduleBounds);
     window.addEventListener('scroll', scheduleBounds, { passive: true, capture: true });
 
@@ -340,8 +348,26 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
     // The slide brackets are the same ones the terminal fit-coalesce listens to
     // (useSidebarFitCoalesce dispatches them).
     let slideRaf = 0;
-    const slidePoll = () => { updateBounds(); slideRaf = requestAnimationFrame(slidePoll); };
-    const armSlidePoll = () => { if (!slideRaf) slideRaf = requestAnimationFrame(slidePoll); };
+    // La slide della sidebar dura 200 ms. Questo rAF però non aveva NESSUNA
+    // condizione di stop interna: si fermava solo su `topics:sidebar-resize-end`,
+    // e se quell'evento non arrivava — la sidebar chiusa mentre la pane si
+    // smonta, un ascoltatore rimosso a metà — girava per SEMPRE chiamando
+    // `updateBounds()` (un `getBoundingClientRect` più il confronto) a ogni
+    // frame, per un'animazione finita da un pezzo.
+    //
+    // La scadenza è generosa il doppio della slide: se in 400 ms non è finita,
+    // non è più una slide.
+    const SLIDE_POLL_MAX_MS = 400;
+    let slideDeadline = 0;
+    const slidePoll = (ts: number) => {
+      updateBounds();
+      if (ts > slideDeadline) { slideRaf = 0; return; }
+      slideRaf = requestAnimationFrame(slidePoll);
+    };
+    const armSlidePoll = () => {
+      slideDeadline = performance.now() + SLIDE_POLL_MAX_MS;
+      if (!slideRaf) slideRaf = requestAnimationFrame(slidePoll);
+    };
     const onSidebarSlideStart = () => {
       const animate = browser.animateBounds;
       // Responsive mode letterboxes to a fixed size top-left — the poll's rects

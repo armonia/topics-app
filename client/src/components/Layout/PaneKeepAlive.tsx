@@ -1,5 +1,6 @@
-import { useRef, type ReactNode } from 'react';
+import { useContext, useRef, type ReactNode } from 'react';
 import { PaneKeyContext } from '../../state/pane/residency/holds';
+import { PaneAliveContext } from '../../state/paneLiveness';
 
 /**
  * Il guscio keep-alive di una pane: visibile con `display:flex`, nascosta con
@@ -66,6 +67,12 @@ export function PaneKeepAlive({
   paneKey?: string;
   children: ReactNode;
 }) {
+  // Vitalità del sottoalbero: visibile QUI e visibile in ogni guscio che ci
+  // contiene. La moltiplicazione col padre fa da sola il caso annidato (una
+  // pane dentro una pane `project` nascosta). Vedi state/paneLiveness.ts.
+  const parentAlive = useContext(PaneAliveContext);
+  const alive = parentAlive && isVisible;
+
   const frozen = useRef<ReactNode>(children);
   const wasVisible = useRef(isVisible);
   if (isVisible || wasVisible.current !== isVisible) frozen.current = children;
@@ -102,7 +109,9 @@ export function PaneKeepAlive({
       data-pane-shell={paneKey}
       data-pane-visible={isVisible ? '1' : '0'}
     >
-      <PaneKeyContext.Provider value={paneKey}>{frozen.current}</PaneKeyContext.Provider>
+      <PaneAliveContext.Provider value={alive}>
+        <PaneKeyContext.Provider value={paneKey}>{frozen.current}</PaneKeyContext.Provider>
+      </PaneAliveContext.Provider>
     </div>
   );
 }

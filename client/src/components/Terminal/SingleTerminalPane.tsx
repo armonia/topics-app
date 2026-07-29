@@ -15,6 +15,7 @@ import { useTerminalSessions } from '../../contexts/TopicsContext';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import { AuraWave } from '../AuraWave';
 import { bumpAura } from '../../lib/auraActivity';
+import { usePaneAlive } from '../../state/paneLiveness';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -122,10 +123,31 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // documento visibile — altrimenti si accumula e si scarica a ~4Hz, in ordine.
   const isWatchedRef = useRef(false);
   /** La pane ha un box nel layout? Falso dentro `display:none` (PaneKeepAlive).
-   *  Tenuto da un IntersectionObserver: sapere la visibilità COSTA se la si
-   *  chiede a `offsetParent`, che forza un layout sincrono — l'observer la
-   *  consegna gratis, fuori dal main thread. */
+   *
+   *  Lo dice il context di vitalità (`usePaneAlive`), non più un
+   *  IntersectionObserver per terminale. Il commento di prima sosteneva che
+   *  l'observer "la consegna gratis, fuori dal main thread": è falso.
+   *  `updateIntersectionObservations` gira DENTRO `updateRendering`, pretende un
+   *  layout aggiornato, e per ogni bersaglio mappa il rect risalendo la catena
+   *  dei container — che è esattamente
+   *  `RenderBox::computeVisibleRectsInContainer`, ricorsivo su 10+ livelli, fra
+   *  le voci più grosse del profilo del 2026-07-28. Con sedici PTY aperte erano
+   *  sedici bersagli, ognuno rimappato a ogni frame.
+   *
+   *  E la risposta era già nota senza chiederla al motore: `display:none` sul
+   *  guscio della pane È la definizione di "niente box", e il guscio lo sa
+   *  perché è lui a metterlo. Qui il terminale riempie la pane e non vive dentro
+   *  uno scroller, quindi "guscio visibile" e "ha un box" coincidono. */
   const hasLayoutRef = useRef(true);
+  const paneAlive = usePaneAlive();
+  useEffect(() => {
+    const was = hasLayoutRef.current;
+    hasLayoutRef.current = paneAlive;
+    // Al ritorno del box si scarica l'arretrato: senza il flush si tornerebbe
+    // sulla pane trovando lo schermo di prima. Era il compito del vecchio
+    // observer, ed è l'unica cosa di lui che serviva davvero.
+    if (paneAlive && !was) coalescerRef.current?.flush();
+  }, [paneAlive]);
   /** La pane è quella attiva e la finestra è a fuoco — ma la tastiera potrebbe
    *  essere altrove (chat, un altro terminale dello split). Distingue la cadenza
    *  "visibile" da quella "in secondo piano". */
@@ -220,30 +242,12 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     document.addEventListener('focusin', sync);
     document.addEventListener('focusout', sync);
 
-    // Presenza nel layout, gratis. Un elemento dentro `display:none` non ha box
-    // e quindi non interseca mai: l'observer distingue "nascosto" da "solo non
-    // a fuoco" senza leggere `offsetParent`, che forzerebbe un layout sincrono
-    // proprio nel percorso che stiamo cercando di alleggerire. Al ritorno del
-    // layout si scarica l'arretrato, altrimenti si tornerebbe sulla pane
-    // trovando uno schermo vecchio.
-    const host = containerRef.current;
-    const io = host
-      ? new IntersectionObserver((entries) => {
-          const visible = entries.some((e) => e.isIntersecting);
-          const was = hasLayoutRef.current;
-          hasLayoutRef.current = visible;
-          if (visible && !was) coalescerRef.current?.flush();
-        })
-      : null;
-    if (host && io) io.observe(host);
-
     return () => {
       window.removeEventListener('focus', sync);
       window.removeEventListener('blur', sync);
       document.removeEventListener('visibilitychange', sync);
       document.removeEventListener('focusin', sync);
       document.removeEventListener('focusout', sync);
-      io?.disconnect();
     };
   }, [isActive]);
 

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
+import { isWindowAwake } from '../state/windowAwake';
 
 /**
  * Drives native per-region vibrancy on macOS — Electron AND Tauri.
@@ -201,10 +202,23 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // (the "live preview"). Resize is a constrained 1-axis move, so the native
     // setFrame keeps up well enough; on end we snap to the settled rects.
     let liveRaf = 0;
-    const liveLoop = () => {
+    // Il loop vivo non aveva NESSUNA condizione di stop interna: si fermava solo
+    // se arrivava l'evento di fine. Se quell'evento si perdeva — un
+    // `transitionend` mangiato, un drag finito fuori dalla finestra — girava per
+    // sempre, chiamando `collect()` (N `getBoundingClientRect`) a ogni frame.
+    // Nel profilo del 2026-07-28 è uno dei sospetti per i 98 campioni in
+    // `serviceRequestAnimationFrameCallbacks` con l'app FERMA.
+    //
+    // Il freno non è una scadenza fissa (un drag lungo è legittimo e non va
+    // troncato): è "le rect non si muovono più da un po'". Durante un
+    // trascinamento vero cambiano a ogni frame e il loop non si ferma mai.
+    const LIVE_IDLE_STOP_MS = 1500;
+    let lastChangeAt = 0;
+    const liveLoop = (ts: number) => {
       const rects = collect();
       const key = JSON.stringify(rects);
-      if (key !== lastKey) { lastKey = key; api.setRegions(rects); }
+      if (key !== lastKey) { lastKey = key; api.setRegions(rects); lastChangeAt = ts; }
+      else if (lastChangeAt && ts - lastChangeAt > LIVE_IDLE_STOP_MS) { stopLive(); return; }
       liveRaf = requestAnimationFrame(liveLoop);
     };
     // DOM drags (divider / sidebar collapse) resize panes WITHOUT resizing the OS
@@ -213,7 +227,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // for a live "frosted cards follow the split" preview, snapping on end. (The
     // WINDOW-edge case is handled natively in Rust — reflow_vibrancy_regions — since
     // its IPC path is starved by AppKit's event-tracking runloop.)
-    const startLive = () => { frozen = true; cancelAnimationFrame(liveRaf); liveRaf = requestAnimationFrame(liveLoop); };
+    const startLive = () => { frozen = true; cancelAnimationFrame(liveRaf); lastChangeAt = 0; liveRaf = requestAnimationFrame(liveLoop); };
     const stopLive = () => { cancelAnimationFrame(liveRaf); liveRaf = 0; frozen = false; lastKey = ''; flush(); };
 
     // Sidebar toggle = a FIXED 200ms CSS width transition. Instead of chasing it with
@@ -301,16 +315,36 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
     // Match ONLY that on the sidebar element: a `width` transition now means a
     // sidebar RESIZE (constant-width collapse doesn't touch width), which must
     // snap via the generic settle, NOT run the collapse slide animation.
+    // In CAPTURE su document: questo scatta per OGNI transizione CSS dell'app —
+    // ogni hover, ogni popover, ogni tab che si evidenzia. Prima ognuna di quelle
+    // chiamava `sidebarEl()`, cioè un `querySelector` sull'intero documento, per
+    // poi scoprire quasi sempre che no, non era la sidebar. Adesso il predicato
+    // legge gli attributi del BERSAGLIO dell'evento: stesso selettore, ma senza
+    // interrogare il documento.
     const isSidebarSlide = (e: TransitionEvent) =>
-      e.propertyName === 'transform' && e.target instanceof Element && e.target === sidebarEl();
+      e.propertyName === 'transform' &&
+      e.target instanceof Element &&
+      e.target.getAttribute('role') === 'navigation' &&
+      e.target.getAttribute('aria-label') === 'Topics sidebar';
     const onSidebarTransitionRun = (e: TransitionEvent) => { if (isSidebarSlide(e)) beginSidebarFrostAnimation(); };
     const onSidebarTransitionEnd = (e: TransitionEvent) => { if (isSidebarSlide(e)) stopLive(); };
     document.addEventListener('transitionrun', onSidebarTransitionRun, true);
     document.addEventListener('transitionend', onSidebarTransitionEnd, true);
     document.addEventListener('transitioncancel', onSidebarTransitionEnd, true);
 
-    // Safety net for layout changes no observer caught (e.g. native-pane reflow).
-    const poll = window.setInterval(schedule, 700);
+    // Rete di sicurezza per i cambi di layout che nessun observer ha visto (es.
+    // reflow di una pane nativa). Ogni giro fa `retarget()` (due
+    // `querySelectorAll`) e `collect()` (un `getBoundingClientRect` per card):
+    // un layout sincrono forzato ~1,4 volte al secondo, per sempre.
+    //
+    // Con la finestra dietro un'altra app quel lavoro non compra niente: la
+    // vibrancy è ciò che si vede attraverso il vetro di una finestra che nessuno
+    // sta guardando. Al ritorno del fuoco si riconcilia comunque (`onFocus` qui
+    // sotto), quindi saltare i giri non lascia il vetro stantìo.
+    const poll = window.setInterval(() => { if (isWindowAwake()) schedule(); }, 700);
+    // Il ritorno a fuoco riallinea subito, senza aspettare il prossimo giro.
+    const onFocus = () => forceReconcile();
+    window.addEventListener('focus', onFocus);
 
     // Paint the FIRST frame synchronously rather than through the debounce timer.
     // A deferred setTimeout can be suspended while the webview is occluded (WebKit
@@ -331,6 +365,7 @@ export function useFloatingVibrancy(floatingSplits: boolean) {
       document.removeEventListener('transitionrun', onSidebarTransitionRun, true);
       document.removeEventListener('transitionend', onSidebarTransitionEnd, true);
       document.removeEventListener('transitioncancel', onSidebarTransitionEnd, true);
+      window.removeEventListener('focus', onFocus);
       window.clearInterval(poll);
       if (settle) clearTimeout(settle);
       cancelAnimationFrame(liveRaf);
