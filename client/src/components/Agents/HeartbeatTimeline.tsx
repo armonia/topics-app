@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Activity } from 'lucide-react';
-import { agentProfilesApi, type AgentSession } from '../../lib/api';
+import { agentProfilesApi, type AgentProfileSession } from '../../lib/api';
 
 interface HeartbeatTimelineProps {
   agentId: string;
@@ -33,7 +33,7 @@ function formatTime(ts: string): string {
 }
 
 export function HeartbeatTimeline({ agentId, agentName }: HeartbeatTimelineProps) {
-  const [sessions, setSessions] = useState<AgentSession[]>([]);
+  const [sessions, setSessions] = useState<AgentProfileSession[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

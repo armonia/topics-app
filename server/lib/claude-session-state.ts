@@ -8,17 +8,10 @@
  * Phase semantics: see openspec/changes/claude-session-tracker/design.md.
  */
 
-export type ClaudeSessionPhase =
-  | 'starting'
-  | 'running'
-  | 'tool-running'
-  | 'awaiting-user'
-  | 'awaiting-approval'
-  | 'paused'
-  | 'completed'
-  | 'error'
-  | 'dormant'
-  | 'watching';
+// Fase e forma dell'errore stanno in `shared/types.ts`: il client li legge
+// dal broadcast `session:state` e non deve riscriverne l'elenco.
+export type { ClaudeSessionPhase, ClaudeSessionError } from "../../shared/types";
+import type { ClaudeSessionPhase, ClaudeSessionError } from "../../shared/types";
 
 export const ALL_PHASES: ReadonlyArray<ClaudeSessionPhase> = [
   'starting', 'running', 'tool-running', 'awaiting-user',
@@ -70,12 +63,6 @@ export interface ActiveTool {
   name: string;
   input?: unknown;
   startedAt: number;
-}
-
-export interface ClaudeSessionError {
-  code: string;
-  message: string;
-  failedAt: number;
 }
 
 /**

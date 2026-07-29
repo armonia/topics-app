@@ -17,7 +17,7 @@ import {
   parseToolCallDetail,
   isToolCallDetail,
   type ZodInferredToolCallDetail,
-} from '../../server/schemas/tool-call-detail';
+} from '../../shared/tool-call-detail';
 
 // ----- Compile-time structural equality between Zod and TS -----------------
 //
@@ -222,16 +222,27 @@ describe('isToolCallDetail — boolean guard', () => {
   });
 });
 
+/**
+ * `zod` espone le varianti su `.options`, `zod/mini` sotto `.def.options`: lo
+ * schema condiviso è in mini (finisce nel bundle client).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function variantsOf(schema: any): any[] {
+  return schema.options ?? schema.def?.options ?? [];
+}
+
 describe('schema completeness', () => {
   test('exactly 18 variants in the union', () => {
-    expect(toolCallDetailSchema.options.length).toBe(18);
+    expect(variantsOf(toolCallDetailSchema).length).toBe(18);
   });
 
   test('all variant discriminators are unique', () => {
-    const literals = toolCallDetailSchema.options.map((opt) => {
+    const literals = variantsOf(toolCallDetailSchema).map((opt) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const shape: any = (opt as any).shape;
-      return shape.type.value;
+      const shape: any = (opt as any).shape ?? (opt as any).def?.shape;
+      // `zod` mette il valore su `.value`, `zod/mini` in `.def.values[0]`
+      // (la literal di Zod 4 è multi-valore).
+      return shape.type.def?.values?.[0] ?? shape.type.value;
     });
     const unique = new Set(literals);
     expect(unique.size).toBe(literals.length);

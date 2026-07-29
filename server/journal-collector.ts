@@ -1,14 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-export interface JournalEvent {
-  id: string;
-  timestamp: string;
-  sessionKey: string;
-  type: 'tool_call' | 'message' | 'session_start' | 'session_end' | 'error';
-  summary: string;
-  detail?: string;
-}
+// Forma dell'evento: `shared/monitoring.ts` (la legge anche il client).
+export type { JournalEvent } from "../shared/monitoring";
+import type { JournalEvent } from "../shared/monitoring";
 
 interface CollectorState {
   lastProcessedAt: Record<string, number>; // sessionKey -> timestamp

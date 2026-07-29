@@ -13,7 +13,7 @@
  * Run with: `bun test tests/unit/norm-db-hydration.test.ts`
  */
 import { describe, expect, test } from 'bun:test';
-import { parseToolCallDetail } from '../../server/schemas/tool-call-detail';
+import { parseToolCallDetail } from '../../shared/tool-call-detail';
 
 /**
  * Replica of the sanitizer in server/utils.ts. Keep in sync; the test

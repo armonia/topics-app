@@ -1,24 +1,25 @@
 /**
- * Phase 30 BROWSER-CHAT-02 — client-side Zod schema for the WS message envelope.
- * KEEP IN SYNC with `server/browser-ws-messages.ts` (canonical source).
+ * Protocollo bidirezionale di `/ws/browser/:contextId` — union discriminata,
+ * UNA dichiarazione per i due lati del filo.
  *
- * Why a duplicate instead of a re-export from `../../../server/...`?
- * The client `tsconfig.app.json` is a `composite` project rooted at `src/`.
- * TypeScript enforces TS6307 ("file not listed within project") on any
- * `import type` that crosses the `include` boundary. Vite resolves the path
- * at build time, but `tsc --noEmit` (the strict gate this plan signs off on)
- * refuses to compile.
+ * Direzioni:
+ *   - frame, agent_active, console, download, engine, webrtc_answer,
+ *     render_mode, dom_event:  server → client
+ *   - input, take_control, resize, set_engine, set_stream, set_render,
+ *     webrtc_offer:            client → server
+ *   - nav, webrtc_ice:         entrambe (richiesta da un lato, broadcast dall'altro)
  *
- * The mirror is at the Zod schema level so the protocol contract is identical
- * — both sides validate against the same shape. Type is derived via z.infer.
+ * Fino al 29/07 questo schema esisteva DUE volte — `server/browser-ws-messages.ts`
+ * e `client/src/types/browser-ws-messages.ts` — con in testa, su entrambi, un
+ * "KEEP IN SYNC: quando aggiungi una variante modifica ENTRAMBI i file" e la
+ * motivazione "TS6307 vieta l'import cross-progetto". Quella motivazione è
+ * scaduta: `shared/` è inclusa da entrambi i progetti TS (vedi
+ * `shared/ws-outbound.ts`). Aggiungere una variante ora si fa in un posto solo,
+ * e non c'è più un secondo file che può restare indietro.
  *
- * Migrated from a manual type union to Zod (v3 foundations WS-01) on
- * 2026-05-12 — the client now validates every inbound WS message instead of
- * casting it unsafely.
- *
- * Uses `zod/mini` (functional, tree-shakable API) so this client-bundled
- * schema doesn't drag the method-heavy core into the critical entry chunk.
- * `z.optional(...)` replaces the `.optional()` method; `.safeParse` is identical.
+ * Idioma `zod/mini` perché il modulo finisce nel bundle client, dove la variante
+ * method-heavy pesa nel chunk d'ingresso: `z.optional(x)` sta per `x.optional()`,
+ * `.safeParse` è identico.
  */
 import { z } from 'zod/mini';
 
@@ -84,9 +85,12 @@ const takeControlMessageSchema = z.object({
  *  canonical server schema for the deviceScaleFactor immutability note. */
 const resizeMessageSchema = z.object({
   type: z.literal('resize'),
-  width: z.number(),
-  height: z.number(),
-  deviceScaleFactor: z.optional(z.number()),
+  // Vincoli veri, non decorativi: una `width` a 0 o frazionaria arriva fino a
+  // CDP e rompe il viewport. Erano solo lato server — lo specchio del client
+  // accettava `-1` e lo spediva comunque.
+  width: z.int().check(z.positive()),
+  height: z.int().check(z.positive()),
+  deviceScaleFactor: z.optional(z.number().check(z.minimum(1), z.maximum(3))),
 });
 
 /** Server -> client: a headless-page download saved under our origin. */
@@ -110,7 +114,7 @@ const setEngineMessageSchema = z.object({
 const engineMessageSchema = z.object({
   type: z.literal('engine'),
   engine: z.enum(['native', 'chromium']),
-  extensions: z.optional(z.number()),
+  extensions: z.optional(z.int().check(z.nonnegative())),
 });
 
 /** Client -> server (task 052f53ef): pause/resume this viewer's screencast while
@@ -202,4 +206,20 @@ export function parseBrowserWsMessage(value: unknown): ParseResult {
     .map((iss) => `${iss.path.length ? iss.path.join('.') : '<root>'}: ${iss.message}`)
     .join('; ');
   return { ok: false, error };
+}
+
+/**
+ * Type guard booleano, retrocompatibile. Il codice nuovo preferisca
+ * `parseBrowserWsMessage`, che porta con sé il contesto dell'errore.
+ */
+export function isBrowserWsMessage(value: unknown): value is BrowserWsMessage {
+  return browserWsMessageSchema.safeParse(value).success;
+}
+
+/** Serializza e spedisce: va bene sia sul ServerWebSocket di Bun sia sul WebSocket del browser. */
+export function sendBrowserWsMessage<T extends { send: (data: string) => void }>(
+  ws: T,
+  msg: BrowserWsMessage,
+): void {
+  ws.send(JSON.stringify(msg));
 }

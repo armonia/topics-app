@@ -575,8 +575,4 @@ export function providerNameForConfig(config: ProviderConfig): string {
 // the WS payload shape can be type-checked symmetrically on both sides.
 export type { ProviderSnapshotEntry, ProvidersSnapshot } from "../../shared/types";
 
-/** Broadcast WS shape for snapshot updates. */
-export interface WSProvidersSnapshotMessage {
-  type: "providers:snapshot";
-  snapshot: ProvidersSnapshot;
-}
+export type { WSProvidersSnapshotMessage } from "../../shared/types";

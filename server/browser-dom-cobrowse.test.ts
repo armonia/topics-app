@@ -13,7 +13,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { createBrowserService } from './browser-service';
-import type { BrowserWsMessage } from './browser-ws-messages';
+import type { BrowserWsMessage } from '../shared/browser-ws-messages';
 
 // A real page whose Content-Security-Policy refuses inline <script> — like GitHub,
 // Google, and most of the modern web. rrweb MUST still record here: injecting via a

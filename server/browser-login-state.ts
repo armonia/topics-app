@@ -26,24 +26,10 @@ import {
 import type { Page, BrowserContext } from "playwright-core";
 import { resolveStateDir } from "./lib/data-dir";
 
-export interface StorageCookie {
-  name: string;
-  value: string;
-  domain?: string;
-  path?: string;
-  expires?: number;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "Strict" | "Lax" | "None";
-}
-export interface StorageOrigin {
-  origin: string;
-  localStorage: Array<{ name: string; value: string }>;
-}
-export interface StorageState {
-  cookies: StorageCookie[];
-  origins: StorageOrigin[];
-}
+// Il formato sta in `shared/browser-login-state.ts`: lo leggono anche il client
+// e (per struct gemella) il pane nativo in Rust.
+export type { StorageCookie, StorageOrigin, StorageState } from "../shared/browser-login-state";
+import type { StorageCookie, StorageOrigin, StorageState } from "../shared/browser-login-state";
 
 /** Sanitize a handle to a safe single path segment (no traversal). */
 export function safeHandle(handle: string): string {

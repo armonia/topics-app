@@ -22,14 +22,9 @@ async function runGit(args: string[], cwd: string): Promise<string> {
   return out.trim();
 }
 
-export interface Checkpoint {
-  idx: number;
-  messageCount: number;
-  timestamp: string;
-  description: string;
-  gitHash?: string;
-  gitBranch?: string;
-}
+// Forma del checkpoint: `shared/types.ts` (la legge il client in useCheckpoints).
+export type { Checkpoint } from "../../shared/types";
+import type { Checkpoint } from "../../shared/types";
 
 function getCheckpointsDir(baseDir: string): string {
   const dir = join(baseDir, "checkpoints");

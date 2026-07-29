@@ -11,7 +11,7 @@
  */
 
 import type { ToolCall, ToolCallDetail } from '../../types';
-import { parseToolCallDetail } from '../../schemas/tool-call-detail';
+import { parseToolCallDetail } from '../../../../shared/tool-call-detail';
 
 function canon(name: string): string {
   return (name || '').toLowerCase().trim();

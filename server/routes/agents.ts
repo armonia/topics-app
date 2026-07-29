@@ -2,24 +2,10 @@ import { readFileSync, existsSync, watch } from "fs";
 import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 
-export interface AgentSession {
-  key: string;
-  kind: "main" | "group" | "cron" | "hook" | "node" | "subagent" | "other";
-  channel: string;
-  displayName: string;
-  status: "active" | "idle" | "completed" | "error";
-  model?: string;
-  updatedAt: number;
-  sessionId?: string;
-  totalTokens?: number;
-  contextTokens?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  abortedLastRun?: boolean;
-  lastMessage?: string;
-  topicId?: string;
-  topicName?: string;
-}
+// La forma sta in `shared/monitoring.ts`: la legge anche il client, che prima
+// ne teneva una copia a mano in `hooks/useAgents.ts`.
+export type { AgentSession } from "../../shared/monitoring";
+import type { AgentSession } from "../../shared/monitoring";
 
 function parseSessionKey(key: string): { kind: AgentSession["kind"]; channel: string; displayName: string } {
   // agent:main:main

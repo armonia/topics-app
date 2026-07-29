@@ -24,9 +24,9 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { z } from 'zod';
-import { browserWsMessageSchema } from '../../server/browser-ws-messages';
+import { browserWsMessageSchema } from '../../shared/browser-ws-messages';
 import { chatWsInboundSchema } from '../../server/schemas/chat-ws-inbound';
-import { toolCallDetailSchema } from '../../server/schemas/tool-call-detail';
+import { toolCallDetailSchema } from '../../shared/tool-call-detail';
 import {
   welcomeMessageSchema,
   helloMessageSchema,
@@ -151,11 +151,22 @@ describe('WS-04 contract: server capabilities and protocol version', () => {
   });
 });
 
+/**
+ * Le varianti di una union discriminata. `zod` le espone su `.options`,
+ * `zod/mini` sotto `.def.options`: gli schemi condivisi sono in mini (finiscono
+ * nel bundle client), quindi si passa da qui invece di inchiodare il test a un
+ * dialetto.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function variantsOf(schema: any): any[] {
+  return schema.options ?? schema.def?.options ?? [];
+}
+
 // ----- Contract: browser-ws-messages (Phase 30 BROWSER-CHAT-02) -------------
 
 describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
   test('discriminator literals are frozen', () => {
-    const types = browserWsMessageSchema.options.map((opt) =>
+    const types = variantsOf(browserWsMessageSchema).map((opt) =>
       objectSignature(opt).literalKeys.type,
     );
     // Eleven variants joined the browser WS protocol since the 6-variant
@@ -189,7 +200,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
   });
 
   test('frame: required = data + metadata + type, no optionals', () => {
-    const frame = browserWsMessageSchema.options.find((o) =>
+    const frame = variantsOf(browserWsMessageSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'frame',
     );
     expect(frame).toBeDefined();
@@ -200,7 +211,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
   });
 
   test('input.action enum is locked', () => {
-    const input = browserWsMessageSchema.options.find((o) =>
+    const input = variantsOf(browserWsMessageSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'input',
     );
     if (!input) throw new Error('input variant missing');
@@ -209,7 +220,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
   });
 
   test('nav.phase enum is locked', () => {
-    const nav = browserWsMessageSchema.options.find((o) =>
+    const nav = variantsOf(browserWsMessageSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'nav',
     );
     if (!nav) throw new Error('nav variant missing');
@@ -220,7 +231,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
   });
 
   test('console.level enum is locked', () => {
-    const cons = browserWsMessageSchema.options.find((o) =>
+    const cons = variantsOf(browserWsMessageSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'console',
     );
     if (!cons) throw new Error('console variant missing');
@@ -229,7 +240,7 @@ describe('WS-04 contract: browserWsMessageSchema (Phase 30)', () => {
   });
 
   test('take_control has only `type` field', () => {
-    const tc = browserWsMessageSchema.options.find((o) =>
+    const tc = variantsOf(browserWsMessageSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'take_control',
     );
     if (!tc) throw new Error('take_control variant missing');
@@ -292,11 +303,11 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
 
 describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
   test('exactly 18 variants', () => {
-    expect(toolCallDetailSchema.options.length).toBe(18);
+    expect(variantsOf(toolCallDetailSchema).length).toBe(18);
   });
 
   test('discriminator literals are frozen', () => {
-    const types = toolCallDetailSchema.options.map((opt) =>
+    const types = variantsOf(toolCallDetailSchema).map((opt) =>
       objectSignature(opt).literalKeys.type,
     );
     // Seven variants joined since the original 11-variant freeze, each a real
@@ -331,7 +342,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
   });
 
   test('shell: command required, cwd/output/exitCode optional', () => {
-    const shell = toolCallDetailSchema.options.find((o) =>
+    const shell = variantsOf(toolCallDetailSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'shell',
     );
     if (!shell) throw new Error('shell variant missing');
@@ -343,7 +354,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
   });
 
   test('search.toolName enum is locked', () => {
-    const search = toolCallDetailSchema.options.find((o) =>
+    const search = variantsOf(toolCallDetailSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'search',
     );
     if (!search) throw new Error('search variant missing');
@@ -353,7 +364,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
   });
 
   test('todo.items is required (an empty array is valid)', () => {
-    const todo = toolCallDetailSchema.options.find((o) =>
+    const todo = variantsOf(toolCallDetailSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'todo',
     );
     if (!todo) throw new Error('todo variant missing');
@@ -362,7 +373,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
   });
 
   test('sub_agent.actions is required, result is optional', () => {
-    const subAgent = toolCallDetailSchema.options.find((o) =>
+    const subAgent = variantsOf(toolCallDetailSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'sub_agent',
     );
     if (!subAgent) throw new Error('sub_agent variant missing');

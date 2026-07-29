@@ -8,9 +8,16 @@
  * from here.
  */
 
-export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done';
-
-export const TASK_STATUSES: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'done'];
+// Il contratto della board sta in `shared/board.ts`, dichiarato UNA volta e
+// letto dai due lati del filo: `export … from` ri-esporta ma non porta i nomi
+// in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
+export { TASK_STATUSES } from '../../../shared/board';
+export type {
+  TaskStatus, TaskComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
+} from '../../../shared/board';
+import type {
+  TaskStatus, TaskComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity,
+} from '../../../shared/board';
 
 /**
  * Reserved board id for tasks created WITHOUT a project (work spanning several
@@ -138,20 +145,6 @@ export interface BoardTask {
   deliveredBy: 'agent' | 'human' | 'system' | null;
   /** Perché, quando `deliveredBy === 'system'`. La prosa sta nel thread. */
   deliveredReason: 'retries_exhausted' | 'model_refused' | null;
-}
-
-export interface TaskComment {
-  id: string;
-  taskId: string;
-  author: string;
-  content: string;
-  mentions: string[];
-  /** Attached files (absolute paths), rendered via /api/media. */
-  media: string[];
-  createdAt: string;
-  /** 'status' = a transition event ("todo→review", author = who moved it) —
-   *  rendered as a timeline row, never as a speech bubble. */
-  kind: 'comment' | 'status' | 'review-note';
 }
 
 export interface TaskWithThread {
@@ -289,15 +282,6 @@ export interface UpdateTaskBody {
   planFirst?: boolean;
 }
 
-/** Live machine capacity for the auto concurrency cap (board settings "Auto"). */
-export interface DispatchCapacity {
-  recommended: number;
-  cores: number;
-  totalMemGB: number;
-  load1: number;
-  reason: string;
-}
-
 /** Machine-wide dispatch settings (server: reserved board_settings row '*'). */
 export interface GlobalSettings {
   /** Auto-dispatch master switch — a Todo task starts an agent on any board. */
@@ -306,61 +290,6 @@ export interface GlobalSettings {
   maxAgentsAuto: boolean;
   /** The fixed machine-wide cap used when `maxAgentsAuto` is off. */
   maxAgents: number;
-}
-
-/** Per-board dispatch config (server: board_settings). */
-export interface BoardSettings {
-  projectId: string;
-  autoDispatch: boolean;
-  maxAgents: number;
-  /** When true, the cap is auto-sized from live machine capacity (maxAgents is the manual fallback). */
-  maxAgentsAuto: boolean;
-  dispatchEffort: string;
-  dispatchUseWorktree: boolean;
-  /** Auto-merge the task's branch into main on approve (opt-in, default off). */
-  dispatchAutoMerge: boolean;
-  dispatchTimeoutMin: number;
-  /** MCP fleet for dispatched agents: 'bridge-only' (default, lean) | 'inherit'. */
-  dispatchMcp: string;
-  /** Default model for dispatched agents: 'auto' (classifier picks) | a model id. */
-  dispatchModel: string;
-  requireApprovalForDone: boolean;
-  requireReviewBeforeDone: boolean;
-  /** Comandi che il server esegue nel worktree del task alla consegna. Vuoto = gate spento. */
-  reviewChecks: ReviewCheck[];
-}
-
-/** Un comando del gate pre-review dichiarato sulla board. */
-export interface ReviewCheck {
-  name: string;
-  cmd: string;
-}
-
-/** Esito di UN comando del gate. `tail` è la coda dell'output (stdout+stderr). */
-export interface CheckRun {
-  name: string;
-  cmd: string;
-  ok: boolean;
-  /** null = ucciso (timeout) o mai partito. */
-  code: number | null;
-  ms: number;
-  timedOut: boolean;
-  tail: string;
-  /** Valorizzato solo se il comando non è nemmeno partito. */
-  spawnError?: string;
-}
-
-export interface BoardSettingsPatch {
-  autoDispatch?: boolean;
-  maxAgents?: number;
-  maxAgentsAuto?: boolean;
-  dispatchEffort?: string;
-  dispatchUseWorktree?: boolean;
-  dispatchAutoMerge?: boolean;
-  dispatchTimeoutMin?: number;
-  dispatchMcp?: string;
-  dispatchModel?: string;
-  reviewChecks?: ReviewCheck[];
 }
 
 /** One commit that a publish (push) would ship. */

@@ -65,107 +65,13 @@ export interface WSData {
   presenceFocusedTopicId?: string;
 }
 
-/**
- * Per-tool typed detail. Built at the provider boundary so the UI doesn't
- * have to JSON-grovel `args` to figure out what to render. Inspired by
- * Paseo's `ToolCallDetail` taxonomy: every Claude/Codex/MCP tool maps to one
- * of these shapes (with `unknown` as the catch-all).
- *
- * Renderer contract: branch on `detail.type` to pick the per-kind component
- * (Shell terminal, Read code-with-line-numbers, Edit diff, Sub-agent log…).
- * Absent for older messages and stateless providers — the renderer falls
- * back to the generic args/result row.
- */
-export type ToolCallDetail =
-  | { type: "shell"; command: string; cwd?: string; output?: string; exitCode?: number | null; background?: boolean }
-  | { type: "read"; filePath: string; content?: string; offset?: number; limit?: number }
-  | { type: "edit"; filePath: string; oldString?: string; newString?: string; unifiedDiff?: string }
-  | { type: "write"; filePath: string; content?: string }
-  | { type: "search"; query: string; toolName?: "search" | "grep" | "glob" | "web_search"; content?: string; filePaths?: string[]; numFiles?: number; numMatches?: number; mode?: "content" | "files_with_matches" | "count" }
-  | { type: "fetch"; url: string; prompt?: string; result?: string; statusCode?: number; bytes?: number }
-  | { type: "todo"; items: Array<{ content: string; status: "pending" | "in_progress" | "completed"; activeForm?: string }> }
-  | {
-      type: "sub_agent";
-      subAgentType?: string;
-      description?: string;
-      /**
-       * Flattened, growing log of the sub-agent's activity. Each entry is one
-       * tool/text emission from the child. Cap at 200 entries / 160 chars per
-       * summary to keep UI performant (Paseo's heuristic).
-       */
-      actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
-      /** Final result text (set when sub-agent completes). */
-      result?: string;
-    }
-  | { type: "plan"; text: string }
-  | { type: "mcp"; server: string; tool: string; args?: Record<string, unknown>; result?: string }
-  // Long-lived / background / harness tools that previously fell through to
-  // `unknown`. Typed so the chat shows a real row instead of a raw JSON blob.
-  | { type: "monitor"; description: string; command?: string; wsUrl?: string; persistent?: boolean; result?: string }
-  | { type: "bash_output"; shellId: string; filter?: string; output?: string }
-  | { type: "kill_shell"; shellId: string; result?: string }
-  | { type: "notebook_edit"; notebookPath: string; cellId?: string; editMode?: string; cellType?: string }
-  | { type: "skill"; skill: string; args?: string; result?: string }
-  | { type: "slash_command"; command: string; result?: string }
-  | { type: "lsp"; operation: string; filePath?: string; symbol?: string; result?: string }
-  | { type: "unknown"; raw: { args?: Record<string, unknown>; result?: string } };
-
-export interface ToolCall {
-  id: string;
-  name: string;
-  /**
-   * Tool arguments as parsed from the provider stream. Keys are field names,
-   * values are arbitrary JSON — consumers JSON.stringify before persistence.
-   * `unknown` over `any` so callers must narrow before use.
-   */
-  args: Record<string, unknown>;
-  /** Lifecycle status — see ToolCallStatus in shared/types.ts. */
-  status?: ToolCallStatus;
-  result?: string;
-  error?: string;
-  contentOffset?: number;
-  /**
-   * Wall-clock bounds of the tool's real usage window (epoch ms), stamped by
-   * the route handler: `startedAt` at announce (which, with partial-message
-   * streaming, is when the model STARTS writing the input — not when the
-   * input is complete), `endedAt` when the result lands. UI shows
-   * `endedAt - startedAt` as the call's duration.
-   */
-  startedAt?: number;
-  endedAt?: number;
-  /**
-   * Optional typed detail built at the provider boundary. Renderers branch on
-   * `detail.type` for per-tool UI. When absent, fall back to generic rendering
-   * via `args` + `result`. Sub-agents (Task) accumulate child activity in
-   * `detail.actions[]` rather than emitting separate timeline items.
-   */
-  detail?: ToolCallDetail;
-  /** See client mirror for full semantics. Populated for tools that
-   *  request human input; lives on the row so re-renders + scrollback
-   *  show the original prompt. */
-  userInputSchema?: UserInputSchema;
-  /** Persisted user answer; absent until submitted via
-   *  `POST /api/chat/tool-response`. */
-  userResponse?: ToolUserResponse;
-}
-
-// User-input shapes (AskUserQuestionItem, UserInputSchema, ToolUserResponse)
-// live in `shared/types.ts` — single wire-contract source for both halves.
-// Re-exported at the top of this file.
-
-/**
- * One element in a message's chronological content timeline.
- *
- * Captures the actual order in which the provider emitted each piece of
- * content during streaming — text, reasoning, and tool calls all coexist on
- * the same array, instead of the legacy thinking/content/toolCalls bucket
- * split that lost ordering. Consecutive same-kind deltas are coalesced into
- * a single block while streaming.
- */
-export type ContentBlock =
-  | { kind: "text"; text: string }
-  | { kind: "thinking"; text: string }
-  | { kind: "tool"; toolCall: ToolCall };
+// ─── Tipi del messaggio: dichiarati in shared/, non qui ────────────────
+//
+// ToolCallDetail, ToolCall e ContentBlock viaggiano sul filo TALI E QUALI e
+// il client li ridichiarava riga per riga (identici a meno dei commenti).
+// Una sola dichiarazione, in `shared/types.ts`.
+export type { ToolCallDetail, ToolCall, ContentBlock } from "../shared/types";
+import type { ToolCallDetail, ToolCall, ContentBlock } from "../shared/types";
 
 export interface StoredMessage {
   id: string;
@@ -201,161 +107,26 @@ export interface StoredMessage {
   costCents?: number;
 }
 
-export interface Topic {
-  id: string;
-  name: string;
-  slug: string;
-  parentId: string | null;
-  links: string[];
-  sessionKey: string;
-  color: string;
-  icon: string;
-  createdAt: string;
-  updatedAt: string;
-  archived: boolean;
-  systemPrompt?: string;
-  contextFiles?: string[];
-  pinnedMessages?: string[];
-  projectPath?: string;
-  /**
-   * Presentation-only: this topic keeps a `projectPath` for its working dir
-   * (the agent's cwd) but must NOT surface as a project in the sidebar/layout.
-   * Set for dispatcher agent sessions on the "generale" catch-all workspace —
-   * a task without a real project is a standalone (ungrouped) tab, not filed
-   * under a phantom "generale" project. buildSidebarItems treats it as if it
-   * had no projectPath. Real-project sessions leave this unset (grouped).
-   */
-  standalone?: boolean;
-  /**
-   * MCP fleet scoping for this topic's Claude Code session (migration 049).
-   * NULL/absent = inherit the user's full MCP fleet (interactive default).
-   * 'bridge-only' = ONLY the per-session `topics` bridge, spawned with the
-   * dispatch-reduced tool profile — set by the task dispatcher so board agents
-   * don't pay the schema tokens of the whole global fleet on every API call.
-   */
-  mcpPolicy?: string | null;
-  sortOrder?: number;
-  autonomyLevel?: 'ask' | 'auto-apply' | 'yolo';
-  provider?: string | null;
-  /** Last-used model for this topic. NULL = use the provider's default. */
-  model?: string | null;
-  /**
-   * Per-topic reasoning-effort tier override (migration 033). One of
-   * low/medium/high/xhigh/max. NULL = no override → the spawn falls back to the
-   * global env-resolved default (`resolveClaudeEffort()`). Applied as
-   * `--effort <tier>` on the next claude-code CLI spawn for this session; the
-   * chat route forces an idle respawn on change so it takes effect immediately.
-   */
-  effort?: string | null;
-  /**
-   * Fast Mode toggle (migration 024). When `true`, the chat route asks the
-   * provider to use its native "fast model" (e.g. claude-haiku, gpt-4o-mini)
-   * for this topic's turns, unless a per-message or topic-persisted model
-   * override is set. Persists across sessions and synchronises across windows
-   * via the `topic:updated` WS broadcast. Defaults to `false`.
-   */
-  fastMode?: boolean;
-  /**
-   * Optional binding to a Worktree (a specific git working copy of a Project).
-   * NULL = legacy/default behaviour: chat, tools, and slash commands operate
-   * inside `projectPath`. NON-NULL = operations are scoped to the worktree's
-   * `absPath` instead. ON DELETE SET NULL — deleting the worktree gracefully
-   * degrades the topic back to its `projectPath`. See migration 018.
-   */
-  worktreeId?: string | null;
-  /**
-   * Phase C · one-shot initial message. When non-null, the renderer
-   * auto-dispatches it on first session open then PATCHes back to null.
-   * Mirrors `client/src/types:Topic.initialMessage`.
-   */
-  initialMessage?: string | null;
-  disabledContextSources?: string[];
-  assignedAgents?: { id: string; name: string; role: string }[];
-  /**
-   * Phase 30 BROWSER-CHAT-01 — last-known browser state for this topic.
-   * Populated by BrowserService on every navigation. Restored on server
-   * boot via browserService.restoreAllContexts(topics). NULL = topic has
-   * never opened a browser context.
-   */
-  browserState?: {
-    url: string;
-    contextId: string;
-    lastActiveAt: number;
-    viewport?: { width: number; height: number };
-  };
-}
-
-/**
- * First-class Project entity (migration 016).
- *
- * Optional canonical record for any project that the user wants to register.
- * Legacy code paths that key off `topics.project_path` / `tasks.project_id`
- * strings continue to work without a corresponding `Project` row — auto-
- * creation only happens on explicit user action.
- */
-export interface Project {
-  id: string;
-  name: string;
-  /** Lowercase, hyphenated identifier — UNIQUE. Used in `~/.topics/worktrees/<slug>/`. */
-  slug: string;
-  /** Absolute filesystem path to the project's primary working directory. */
-  path: string;
-  color?: string | null;
-  icon?: string | null;
-  archived: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * First-class Worktree entity (migration 017).
- *
- * Each row is a checked-out git working copy of a Project at a specific
- * branch (or detached HEAD). Disk layout: `~/.topics/worktrees/<project-
- * slug>/<worktree-name>/` (configurable via env `TOPICS_WORKTREES_DIR`).
- *
- * The `mode` enum tracks how the worktree was created so deletion knows
- * whether it owns the underlying git branch:
- *   - `branch`:   we created a fresh branch off `baseRef`; delete on row deletion
- *   - `reuse`:    we attached to an existing branch; do NOT delete on row deletion
- *   - `detached`: detached HEAD at a ref; `branchName` is null
- *
- * The `status` enum is the materialisation state, exposed in the WS broadcast
- * so the UI can show a loader while the on-disk worktree is being built.
- */
-export interface Worktree {
-  id: string;
-  projectId: string;
-  /** Display name. Default auto-generated `<adjective>-<noun>` from the naming generator. UNIQUE per project. */
-  name: string;
-  /** Git branch name. Null only when `mode === 'detached'`. */
-  branchName: string | null;
-  /** Base ref the branch was forked from (e.g. `main`). Null for `detached`. */
-  baseRef: string | null;
-  mode: 'branch' | 'reuse' | 'detached';
-  /** Absolute filesystem path of the checked-out working tree. UNIQUE globally. */
-  absPath: string;
-  /** Whether the working branch has been pushed to a remote (set by the watcher). */
-  isPushed: boolean;
-  /** True once the user explicitly renames the underlying git branch (later phase). */
-  branchRenamed: boolean;
-  status: 'pending' | 'ready' | 'error';
-  /** Captured stderr / message when `status === 'error'`. */
-  errorMessage?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TopicsData {
-  topics: Record<string, Topic>;
-}
-
-export interface UnreadData {
-  [topicId: string]: {
-    lastReadAt: string;
-    unreadCount: number;
-  };
-}
+// ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────
+//
+// Topic, Project, Worktree, TopicsData e UnreadData vivevano qui e una
+// SECONDA volta in `client/src/types/index.ts`, col commento "Mirrors
+// server/types.ts:X" a fare da unica garanzia. Non bastava: `mcpPolicy` e
+// `browserState` non sono mai arrivati dall'altra parte, e `workspaceProjects`
+// — che è il SERVER a mettere nella risposta di GET /api/topics — mancava
+// proprio qui. Ora la dichiarazione è una sola, in `shared/types.ts`, e questo
+// re-export tiene valido ogni `import type { Topic } from "./types"` esistente.
+export type {
+  Topic,
+  AutonomyLevel,
+  Project,
+  Worktree,
+  TopicsData,
+  UnreadData,
+} from "../shared/types";
+// `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e
+// qui sotto `AppContext` li usa. Import separato, non è una ridondanza.
+import type { Topic, TopicsData, UnreadData } from "../shared/types";
 
 export interface ActiveStream {
   sessionKey: string;
@@ -511,23 +282,4 @@ export interface AgentAuthResult {
   isLead: boolean;
 }
 
-export interface BoardMemory {
-  id: string;
-  projectId: string;
-  content: string;
-  tags: string[];
-  isChat: boolean;
-  source: string | null;
-  agentId: string | null;
-  createdAt: string;
-}
-
-export interface AgentActionLog {
-  id: string;
-  agentId: string;
-  actionType: string;
-  entityType: string | null;
-  entityId: string | null;
-  detail: any;
-  createdAt: string;
-}
+export type { BoardMemory, AgentActionLog } from "../shared/types";

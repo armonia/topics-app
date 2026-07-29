@@ -11,131 +11,42 @@ export type {
   UserInputSchema,
   ToolUserResponse,
 } from '../../../shared/types';
+// `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e i
+// payload WS qui sotto li usano. Import separato, non è una ridondanza.
 import type {
-  ToolCallStatus,
-  ProvidersSnapshot,
   UserInputSchema,
-  ToolUserResponse,
+  AcpUsageUpdate,
+  ClaudeSessionPhase,
+  ClaudeSessionError,
+  WSProvidersSnapshotMessage,
 } from '../../../shared/types';
 
-export type AutonomyLevel = 'ask' | 'auto-apply' | 'yolo';
-
-export interface Topic {
-  id: string;
-  name: string;
-  slug: string;
-  parentId: string | null;
-  links: string[];
-  sessionKey: string;
-  color: string;
-  icon: string;
-  createdAt: string;
-  updatedAt: string;
-  archived: boolean;
-  systemPrompt?: string;
-  contextFiles?: string[];
-  pinnedMessages?: string[];
-  projectPath?: string;
-  /**
-   * Presentation-only: keep `projectPath` for the working dir but render this
-   * topic as a STANDALONE (ungrouped) chat, never under a project — dispatcher
-   * agent sessions on the "generale" catch-all workspace. Mirrors
-   * `server/types.ts:Topic.standalone`; consumed by buildSidebarItems.
-   */
-  standalone?: boolean;
-  sortOrder?: number;
-  autonomyLevel?: AutonomyLevel;
-  disabledContextSources?: string[];
-  provider?: string | null;
-  /**
-   * Last-used model for this topic. Persists across sessions so the picker
-   * remembers your selection; mirrors `server/types.ts:Topic.model`. NULL =
-   * use the provider's default.
-   */
-  model?: string | null;
-  /**
-   * Per-topic reasoning-effort tier override (migration 033). One of
-   * low/medium/high/xhigh/max. NULL = no override → the provider's global
-   * default (shown as the picker's `effortTier` badge). Mirrors
-   * `server/types.ts:Topic.effort`.
-   */
-  effort?: string | null;
-  /**
-   * Fast Mode toggle (migration 024). When `true`, the chat route uses the
-   * provider's native "fast model" (e.g. claude-haiku, gpt-4o-mini) for
-   * this topic's turns unless the user has set an explicit model override
-   * (per-message picker or `topic.model`). Persists across sessions and
-   * syncs across windows via `topic:updated` WS broadcasts. Mirrors
-   * `server/types.ts:Topic.fastMode`. Defaults to `false`.
-   */
-  fastMode?: boolean;
-  /**
-   * Phase A · TOPIC-WT-01: optional binding to a Worktree. NULL = legacy
-   * behaviour (chat/tools operate inside `projectPath`). When set, the
-   * server scopes operations to the worktree's `absPath`. Mirrors
-   * `server/types.ts:Topic.worktreeId`.
-   */
-  worktreeId?: string | null;
-  /**
-   * Phase C · TOPIC-IM-01: one-shot initial message queued at create
-   * time. The renderer reads this on first session open, dispatches it
-   * as the user's first prompt, then PATCHes it back to null. Mirrors
-   * `server/types.ts:Topic.initialMessage`.
-   */
-  initialMessage?: string | null;
-  assignedAgents?: { id: string; name: string; role: string }[];
-}
-
-/** First-class Project entity (Phase A · migration 016). Mirrors server/types.ts:Project. */
-export interface Project {
-  id: string;
-  name: string;
-  slug: string;
-  path: string;
-  color?: string | null;
-  icon?: string | null;
-  archived: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** First-class Machine entity (Phase D · migration 020). Mirrors server/services/machine-store.ts:Machine. */
-export interface Machine {
-  id: string;
-  name: string;
-  hostname: string;
-  arch: string;
-  platform: string;
-  daemonVersion: string;
-  status: 'online' | 'offline';
-  lastHeartbeatAt: string;
-  lastSeenAt: string;
-  acknowledgedWarnings: Record<string, string>;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** First-class Worktree entity (Phase A · migration 017). Mirrors server/types.ts:Worktree. */
-export interface Worktree {
-  id: string;
-  projectId: string;
-  name: string;
-  branchName: string | null;
-  baseRef: string | null;
-  mode: 'branch' | 'reuse' | 'detached';
-  absPath: string;
-  isPushed: boolean;
-  branchRenamed: boolean;
-  status: 'pending' | 'ready' | 'error';
-  errorMessage?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TopicsData {
-  topics: Record<string, Topic>;
-  workspaceProjects?: string[];
-}
+// ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────
+//
+// Erano sei interfacce riscritte a mano con sopra "Mirrors server/types.ts:X".
+// Il commento non ha impedito la deriva: `Topic.mcpPolicy` e
+// `Topic.browserState` non sono mai arrivati fin qui, e il client si era
+// costruito da solo `TopicsData.workspaceProjects` che il server manda davvero
+// ma non dichiarava. Ora la dichiarazione è UNA, in `shared/types.ts`; questo
+// re-export tiene valido ogni `import type { Topic } from '@/types'`.
+export type {
+  AutonomyLevel,
+  Topic,
+  Project,
+  Machine,
+  Worktree,
+  TopicsData,
+  UnreadData,
+} from '../../../shared/types';
+// `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e
+// più sotto i payload WS li usano. Import separato, non è una ridondanza.
+import type {
+  AutonomyLevel,
+  Topic,
+  Project,
+  Machine,
+  Worktree,
+} from '../../../shared/types';
 
 export interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -143,114 +54,13 @@ export interface Message {
   timestamp?: string;
 }
 
-/**
- * Per-tool typed detail. Built at the provider boundary so the renderer
- * branches on `detail.type` to pick the per-kind component (Shell terminal,
- * Read code-with-line-numbers, Edit diff, Sub-agent log…). Mirrors
- * `server/types.ts:ToolCallDetail`. Older messages and stateless providers
- * leave this absent — renderer falls back to the generic args/result row.
- */
-export type ToolCallDetail =
-  | { type: 'shell'; command: string; cwd?: string; output?: string; exitCode?: number | null; background?: boolean }
-  | { type: 'read'; filePath: string; content?: string; offset?: number; limit?: number }
-  | { type: 'edit'; filePath: string; oldString?: string; newString?: string; unifiedDiff?: string }
-  | { type: 'write'; filePath: string; content?: string }
-  | { type: 'search'; query: string; toolName?: 'search' | 'grep' | 'glob' | 'web_search'; content?: string; filePaths?: string[]; numFiles?: number; numMatches?: number; mode?: 'content' | 'files_with_matches' | 'count' }
-  | { type: 'fetch'; url: string; prompt?: string; result?: string; statusCode?: number; bytes?: number }
-  | { type: 'todo'; items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }> }
-  | {
-      type: 'sub_agent';
-      subAgentType?: string;
-      description?: string;
-      actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
-      result?: string;
-    }
-  | { type: 'plan'; text: string }
-  | { type: 'mcp'; server: string; tool: string; args?: Record<string, unknown>; result?: string }
-  | { type: 'monitor'; description: string; command?: string; wsUrl?: string; persistent?: boolean; result?: string }
-  | { type: 'bash_output'; shellId: string; filter?: string; output?: string }
-  | { type: 'kill_shell'; shellId: string; result?: string }
-  | { type: 'notebook_edit'; notebookPath: string; cellId?: string; editMode?: string; cellType?: string }
-  | { type: 'skill'; skill: string; args?: string; result?: string }
-  | { type: 'slash_command'; command: string; result?: string }
-  | { type: 'lsp'; operation: string; filePath?: string; symbol?: string; result?: string }
-  | { type: 'unknown'; raw: { args?: Record<string, unknown>; result?: string } };
-
-export interface ToolCall {
-  id: string;
-  name: string;
-  /**
-   * Tool arguments as parsed from the provider stream. Keys are field names,
-   * values are arbitrary JSON — consumers either JSON.stringify or run their
-   * own narrowing. `unknown` instead of `any` so the type system forces
-   * narrowing before use.
-   */
-  args: Record<string, unknown>;
-  /**
-   * `waiting_for_input` is the new state for tools that paused the stream
-   * to ask the user a question (Claude Agent SDK's `AskUserQuestion`, MCP
-   * elicitation). It sits between `running` and the terminal `success`/
-   * `error`: the provider has emitted the `tool_use` block, the stream is
-   * suspended, and the client renders a form (`ToolInputForm`) instead of
-   * a spinner. Transitions to `running` when the user submits via
-   * `POST /api/chat/tool-response`, then to terminal status when the
-   * provider acknowledges.
-   */
-  status?: ToolCallStatus;
-  result?: string;
-  error?: string;
-  contentOffset?: number;
-  /**
-   * Wall-clock bounds of the tool's real usage window (epoch ms), stamped
-   * server-side: `startedAt` at announce (with partial-message streaming
-   * that's when the model starts WRITING the input), `endedAt` when the
-   * result lands. Durations render from `endedAt - startedAt`.
-   */
-  startedAt?: number;
-  endedAt?: number;
-  /**
-   * Optional typed detail built at the provider boundary. Renderers branch
-   * on `detail.type` for per-tool UI. When absent, fall back to generic
-   * args/result rendering. Sub-agents (Task) accumulate child activity in
-   * `detail.actions[]` rather than emitting separate timeline items.
-   */
-  detail?: ToolCallDetail;
-  /**
-   * When `status === 'waiting_for_input'`, the structured request the
-   * provider made. The UI renders one of three forms based on `kind`:
-   *   - `questions`   → radio fieldsets (Claude SDK `AskUserQuestion`)
-   *   - `elicitation` → typed form from a JSON Schema (MCP)
-   *   - `raw`         → free-text textarea fallback
-   * Stays populated even after submit so re-renders / scroll-back show the
-   * original prompt next to `userResponse`.
-   */
-  userInputSchema?: UserInputSchema;
-  /**
-   * The answer the user submitted. Persisted onto the message blob so the
-   * exchange survives session restart and is auditable in scroll-back.
-   * Absent until the user submits.
-   */
-  userResponse?: ToolUserResponse;
-}
-
-// User-input request / response shapes (AskUserQuestionItem,
-// UserInputSchema, ToolUserResponse) live in `shared/types.ts` — single
-// wire-contract source for both halves. Re-exported at the top of this
-// file.
-
-/**
- * Chronological content block emitted during assistant streaming. The
- * server captures each text/thinking/tool event from the provider in
- * arrival order on this array; the renderer iterates it in order so
- * reasoning that happens *between* tool calls displays where it actually
- * occurred — instead of being lifted out into a "thinking" header above
- * everything else (the legacy bucket-rendering bug). See
- * `server/types.ts:ContentBlock`.
- */
-export type ContentBlock =
-  | { kind: 'text'; text: string }
-  | { kind: 'thinking'; text: string }
-  | { kind: 'tool'; toolCall: ToolCall };
+// ─── Payload del messaggio: dichiarati in shared/, non qui ─────────────
+//
+// ToolCallDetail, ToolCall e ContentBlock erano riscritti qui riga per riga,
+// identici a `server/types.ts` a meno dei commenti, col solito "Mirrors" a
+// fare da garanzia. Ora la dichiarazione è UNA, in `shared/types.ts`.
+export type { ToolCallDetail, ToolCall, ContentBlock } from '../../../shared/types';
+import type { ToolCall, ContentBlock } from '../../../shared/types';
 
 export interface ChatMessage extends Message {
   id: string;
@@ -403,13 +213,6 @@ export interface SearchResult {
   timestamp: string | null;
 }
 
-export interface UnreadData {
-  [topicId: string]: {
-    lastReadAt: string;
-    unreadCount: number;
-  };
-}
-
 // ---------------------------------------------------------------------------
 // WebSocket message discriminated union
 // ---------------------------------------------------------------------------
@@ -429,10 +232,7 @@ export interface UnreadData {
 // server changes a payload shape, narrowing here may surface stale reads.
 
 // --- Snapshot / settings -----------------------------------------------------
-export interface WSProvidersSnapshotMessage {
-  type: 'providers:snapshot';
-  snapshot: ProvidersSnapshot;
-}
+export type { WSProvidersSnapshotMessage } from '../../../shared/types';
 
 export interface WSGatewayStatusMessage {
   type: 'gateway:status';
@@ -657,12 +457,7 @@ export interface ContextUsage {
  * ring a indovinare il denominatore. Il resto del payload è presentazione
  * nostra e vive fuori dal blocco.
  */
-export interface AcpUsageUpdate {
-  sessionUpdate: 'usage_update';
-  used: number;
-  size: number;
-  cost?: { amount: number; currency: string };
-}
+export type { AcpUsageUpdate, UsageCost } from '../../../shared/types';
 /** Payload sul filo: blocco ACP + presentazione. `useRealContext` lo appiattisce
  *  in `ContextUsage` per la UI, che di ACP non deve sapere niente. */
 export interface ContextUpdatePayload {
@@ -1061,17 +856,7 @@ export interface WSUnknownMessage {
 
 // ─── Claude Code session lifecycle (see openspec/changes/claude-session-tracker) ──
 
-export type ClaudeSessionPhase =
-  | 'starting'
-  | 'running'
-  | 'tool-running'
-  | 'awaiting-user'
-  | 'awaiting-approval'
-  | 'paused'
-  | 'completed'
-  | 'error'
-  | 'dormant'
-  | 'watching';
+export type { ClaudeSessionPhase } from '../../../shared/types';
 
 /**
  * The two visual tiers of "a session needs you", split so the UI can paint them
@@ -1097,11 +882,7 @@ export interface ClaudeSessionActiveTool {
   startedAt: number;
 }
 
-export interface ClaudeSessionError {
-  code: string;
-  message: string;
-  failedAt: number;
-}
+export type { ClaudeSessionError } from '../../../shared/types';
 
 export interface ClaudeSessionState {
   sessionKey: string | null;

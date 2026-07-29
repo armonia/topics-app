@@ -1005,7 +1005,13 @@ export interface AgentAssignment {
   assignedAt: string;
 }
 
-export interface AgentSession {
+/**
+ * Una riga di `agent_sessions` — NON la sessione viva di `shared/monitoring.ts`,
+ * che porta lo stesso nome ed è un'altra cosa. La collisione era già costata un
+ * alias difensivo (`AgentSession as LiveSession` in SessionHistory.tsx): meglio
+ * un nome onesto.
+ */
+export interface AgentProfileSession {
   id: string;
   agentId: string;
   sessionKey: string;
@@ -1019,7 +1025,7 @@ export interface AgentSession {
   errorMessage: string | null;
 }
 
-export interface SessionHistoryItem extends AgentSession {
+export interface SessionHistoryItem extends AgentProfileSession {
   agentName: string | null;
   agentAvatar: string | null;
   agentRole: string | null;
@@ -1033,7 +1039,7 @@ export interface TimelineEvent {
 }
 
 export interface SessionTimelineResponse {
-  session: AgentSession | null;
+  session: AgentProfileSession | null;
   events: TimelineEvent[];
   heartbeatCount: number;
   actionCount: number;
@@ -1069,8 +1075,8 @@ export const agentProfilesApi = {
   async unassign(id: string, topicId: string): Promise<void> {
     await request(`/agents/profiles/${id}/unassign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topicId }) });
   },
-  async sessions(id: string): Promise<AgentSession[]> {
-    const data = await request<{ sessions: AgentSession[] }>(`/agents/profiles/${id}/sessions`);
+  async sessions(id: string): Promise<AgentProfileSession[]> {
+    const data = await request<{ sessions: AgentProfileSession[] }>(`/agents/profiles/${id}/sessions`);
     return data.sessions;
   },
   async heartbeat(sessionKey: string, body: { status?: string; tokensUsed?: number; currentTask?: string }): Promise<void> {
@@ -1147,26 +1153,8 @@ export const dashboardApi = {
 
 // ── Board Memory ─────────────────────────────────────────────────────────────
 
-export interface BoardMemory {
-  id: string;
-  projectId: string;
-  content: string;
-  tags: string[];
-  isChat: boolean;
-  source: string | null;
-  agentId: string | null;
-  createdAt: string;
-}
-
-export interface AgentActionLog {
-  id: string;
-  agentId: string;
-  actionType: string;
-  entityType: string | null;
-  entityId: string | null;
-  detail: unknown;
-  createdAt: string;
-}
+// Entità di dominio: dichiarate in `shared/types.ts` insieme a Topic/Project.
+export type { BoardMemory, AgentActionLog } from '../../../shared/types';
 
 // Providers API
 export interface ProviderListEntry {

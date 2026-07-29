@@ -14,24 +14,10 @@ function setCachedSessions(sessions: AgentSession[]) {
   try { localStorage.setItem(AGENTS_CACHE_KEY, JSON.stringify(sessions)); } catch {}
 }
 
-export interface AgentSession {
-  key: string;
-  kind: 'main' | 'group' | 'cron' | 'hook' | 'node' | 'subagent' | 'other';
-  channel: string;
-  displayName: string;
-  status: 'active' | 'idle' | 'completed' | 'error';
-  model?: string;
-  updatedAt: number;
-  sessionId?: string;
-  totalTokens?: number;
-  contextTokens?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  abortedLastRun?: boolean;
-  lastMessage?: string;
-  topicId?: string;
-  topicName?: string;
-}
+// Forma della sessione: `shared/monitoring.ts` — la stessa che il server
+// serializza in `GET /api/agents/sessions`.
+export type { AgentSession } from '../../../shared/monitoring';
+import type { AgentSession } from '../../../shared/monitoring';
 
 interface UseAgentsOptions {
   activeMinutes?: number;

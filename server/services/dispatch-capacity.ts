@@ -14,16 +14,9 @@
 
 import os from "node:os";
 
-export interface DispatchCapacity {
-  /** Recommended concurrent-agent cap for THIS machine right now. */
-  recommended: number;
-  cores: number;
-  totalMemGB: number;
-  /** 1-minute load average (live). */
-  load1: number;
-  /** One-line human explanation of how `recommended` was derived. */
-  reason: string;
-}
+// La forma sta in `shared/board.ts` (la legge la UI delle impostazioni board).
+export type { DispatchCapacity } from "../../shared/board";
+import type { DispatchCapacity } from "../../shared/board";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 

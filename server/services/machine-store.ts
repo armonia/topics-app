@@ -12,20 +12,10 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export interface Machine {
-  id: string;
-  name: string;
-  hostname: string;
-  arch: string;
-  platform: string;
-  daemonVersion: string;
-  status: "online" | "offline";
-  lastHeartbeatAt: string;
-  lastSeenAt: string;
-  acknowledgedWarnings: Record<string, string>;
-  createdAt: string;
-  updatedAt: string;
-}
+// La riga `machines` è servita al client tale e quale: la dichiarazione sta in
+// `shared/types.ts` così non ce n'è una seconda copia in client/src/types.
+export type { Machine } from "../../shared/types";
+import type { Machine } from "../../shared/types";
 
 export class MachineInUseError extends Error {
   constructor(public readonly topicCount: number) {

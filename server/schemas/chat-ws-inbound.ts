@@ -1,6 +1,6 @@
 /**
  * Zod schema for inbound messages on the main `/ws` channel (chat/topic
- * coordination, NOT the browser CDP channel — that's `browser-ws-messages.ts`).
+ * coordination, NOT the browser CDP channel — that's `shared/browser-ws-messages.ts`).
  *
  * Migrates the ad-hoc `JSON.parse` + manual `if (data.type === '…')` dispatch
  * at `server.ts:750+` to a validated discriminated union. Only INBOUND
@@ -8,7 +8,7 @@
  * the existing send helpers and are typed by their call sites.
  *
  * v3 foundations WS-01 extension. Follows the pattern established for
- * `browser-ws-messages.ts` and `tool-call-detail.ts`.
+ * `shared/browser-ws-messages.ts` and `shared/tool-call-detail.ts`.
  *
  * Sent by:
  *   - `client/src/lib/focusMessaging.ts` → focus
