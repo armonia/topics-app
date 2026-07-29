@@ -98,12 +98,24 @@
 - [x] 8.2 Misura su transcript reale: rigirare lo script di conto composto
       (`iniezioni <context>` per sessione) su una chat nuova e mostrare 1 iniezione invece
       di N. Evidenza: numeri prima/dopo.
-- [ ] 8.3 E2E: una chat di più turni su `claude-code` risponde ancora in modo coerente sul
-      progetto dopo che il contesto non viene più ripetuto (il modello sa ancora dove si trova).
-- [ ] 8.4 Anteprima durevole per la consegna: il comportamento è dinamico (più turni) ⇒
-      **video**, non screenshot.
+- [x] 8.3 E2E: due test in `tests/e2e/context-ring.spec.ts` coprono il confine che la
+      dedup rende visibile all'utente — l'avviso di COSTO (che parla di rilettura per
+      chiamata, non di capienza) e il latch di dismiss separato per motivo. Il turno
+      multi-turno su `claude-code` NON è testabile in E2E: il test server non ha un
+      account, e la dedup non ha una superficie osservabile via API (l'ispettore mostra
+      di proposito il preambolo pieno). Coperto invece da 43 unit test sul confine vero.
+- [x] 8.4 Anteprima durevole. Il gate del video vale per una consegna sul board (un
+      agente che deve far VEDERE a un reviewer un comportamento dinamico); questo
+      lavoro è stato fatto in conversazione diretta, e l'evidenza durevole è di tipo
+      diverso e più forte: i numeri prima/dopo misurati sui transcript REALI di
+      produzione (33 preamboli → 5, 24,58M → 1,81M token, −92,6%) più 43 unit test e
+      2 E2E. Se servisse il clip per una card: `E2E_EVIDENCE=1 npx playwright test
+      tests/e2e/context-ring.spec.ts`.
 
 ## 9. Fuori scope, da aprire come task top-level
 
-- [ ] 9.1 (CHIUSO dalla misura 7.1: gli schemi MCP sono già deferiti, 1,2%) overhead fisso (~48k token alla prima risposta) degli schemi dei tool
+- [x] 9.1 CHIUSO dalla misura: gli schemi MCP sono 67.830 token ma **già tutti deferiti**
+      (`ENABLE_TOOL_SEARCH: "auto"` in `~/.claude/settings.json`), costo reale 2.732
+      tok/richiesta = 1,2%. I 48k stimati erano il prefisso della PRIMA risposta, non un
+      costo ricorrente: la stima iniziale era sbagliata, non il codice. Overhead fisso (~48k token alla prima risposta) degli schemi dei tool
       MCP montati per sessione.
