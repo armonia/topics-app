@@ -6,6 +6,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
+import { registerHeapOwner, roughBytes } from '../lib/devHeapProbe';
 import {
   EXPIRED_QUEUE_KEY,
   OUTBOUND_QUEUE_KEY,
@@ -138,6 +139,39 @@ export function useChat() {
   // into the transcript by afterMessageId in MessageList. Populated live via
   // stream:compaction and on reload from /api/history.
   const [compactionMarkers, setCompactionMarkers] = useState<Record<string, CompactionMarker[]>>({});
+
+  // Si dichiara alla sonda di memoria. `messages` e' UN oggetto indicizzato per
+  // sessionKey che vive in `App`: il tetto di residenza smonta la pane, ma i
+  // messaggi restano qui. Se questa e' la ragione per cui il renderer principale
+  // teneva 1844 MB, e' qui che si vede — e si vede come CONTEGGIO che sale senza
+  // mai scendere, che e' un dato esatto, non una stima.
+  // Costo a riposo: una voce in una Map. La funzione gira solo a sonda armata.
+  const heapMessagesRef = useRef(messages);
+  heapMessagesRef.current = messages;
+  const heapMarkersRef = useRef(compactionMarkers);
+  heapMarkersRef.current = compactionMarkers;
+  useEffect(() => registerHeapOwner('chat.messages', () => {
+    const m = heapMessagesRef.current;
+    const keys = Object.keys(m);
+    let items = 0;
+    let biggestKey = '';
+    let biggest = 0;
+    for (const k of keys) {
+      const n = m[k]?.length ?? 0;
+      items += n;
+      if (n > biggest) { biggest = n; biggestKey = k; }
+    }
+    return {
+      entries: keys.length,
+      items,
+      bytes: roughBytes(m),
+      detail: {
+        sessioneMaggiore: biggestKey,
+        messaggiNellaMaggiore: biggest,
+        markerBytes: roughBytes(heapMarkersRef.current),
+      },
+    };
+  }), []);
   const upsertMarker = useCallback((sessionKey: string, marker: CompactionMarker) => {
     setCompactionMarkers(prev => {
       const list = prev[sessionKey] || [];

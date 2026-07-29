@@ -273,6 +273,30 @@ export function getResidencySnapshot(): ReadonlySet<string> {
   return resident;
 }
 
+/**
+ * Quanto tiene questo registro. `lastTouchedAt` e `holds` sono Map di modulo:
+ * se una chiave ci restasse dopo la chiusura della pane, crescerebbero per
+ * sempre. Sono piccole (una stringa e un numero per pane), ma un CONTEGGIO che
+ * sale senza mai scendere e' esattamente cio' che la sonda deve poter vedere.
+ */
+export function residencyHeapReport(): {
+  entries: number;
+  items: number;
+  detail: Record<string, unknown>;
+} {
+  return {
+    entries: resident.size,
+    items: lastTouchedAt.size + holds.size + surfaces.size,
+    detail: {
+      residenti: resident.size,
+      recency: lastTouchedAt.size,
+      hold: holds.size,
+      superfici: surfaces.size,
+      inUscita: pendingRemoval.size,
+    },
+  };
+}
+
 export function isResident(key: string): boolean {
   return resident.has(key);
 }

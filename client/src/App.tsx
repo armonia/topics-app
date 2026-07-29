@@ -28,6 +28,8 @@ import { isDesktop, isTauri } from './lib/shell';
 import { selectDirectory } from './lib/shell/app';
 import { initDevBundleReload } from './lib/devBundleReload';
 import { initDevLayoutProbe } from './lib/devLayoutProbe';
+import { initDevHeapProbe, registerHeapOwner, roughBytes } from './lib/devHeapProbe';
+import { residencyHeapReport } from './state/pane/residency/registry';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
 import { openTaskFromUrl, currentTaskTarget } from './lib/openTaskLink';
@@ -142,6 +144,20 @@ function App() {
   // nell'app vera, dove i profili nativi non sanno nominare il JS e l'ambiente
   // E2E non riproduce il problema. Vedi lib/devLayoutProbe.ts.
   useEffect(() => initDevLayoutProbe(), []);
+  useEffect(() => initDevHeapProbe(), []);
+  // Gli altri due possessori di stato di lunga vita, cosi' la sonda puo'
+  // CONFRONTARE invece di guardare una voce sola: senza un termine di paragone
+  // "chat.messages tiene 40 MB" non dice se e' tanto.
+  useEffect(() => registerHeapOwner('pane.store', () => {
+    const st = usePaneStore.getState();
+    return {
+      entries: Object.keys(st.panes).length,
+      items: Object.keys(st.tombstones ?? {}).length + (st.closedStack?.length ?? 0),
+      bytes: roughBytes(st),
+      detail: { tombstoni: Object.keys(st.tombstones ?? {}).length, closedStack: st.closedStack?.length ?? 0 },
+    };
+  }), []);
+  useEffect(() => registerHeapOwner('pane.residency', residencyHeapReport), []);
 
   // Deep-link a board task from /task/<taskId> (the drawer's "copia link"; a
   // legacy ?task=<slug>~<taskId> link still resolves too): opens the global
