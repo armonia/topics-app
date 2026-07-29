@@ -21,6 +21,7 @@ import { createPaneId } from '../../state/pane/adapters';
 import { useToast } from '../Shared/Toast';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { usePaneHold } from '../../state/pane/residency/holds';
+import { useSessionMessages } from '../../state/useSessionMessages';
 
 const SLASH_COMMANDS_HELP = [
   '/status — Show session status',
@@ -278,7 +279,12 @@ function ChatPaneComponent({
     return () => observer.disconnect();
   }, []);
 
-  const currentMessages = getSessionMessages(topic.sessionKey);
+  // Iscrizione a QUESTA sessione. Prima bastava chiamare `getSessionMessages`
+  // perche' i messaggi erano stato di `App`, quindi ogni token ri-renderizzava
+  // tutto l'albero e questa riga veniva rivalutata per forza. Adesso la radice
+  // non si sveglia piu' — ed e' il punto — quindi l'aggiornamento deve arrivare
+  // qui per iscrizione, o la chat resterebbe ferma.
+  const currentMessages = useSessionMessages(topic.sessionKey, getSessionMessages);
   // Sticky current-todo strip (CHAT-TODO-01): mirror the latest TodoWrite above
   // the composer so the plan stays visible while typing.
   const latestTodo = useMemo(() => selectLatestTodo(currentMessages), [currentMessages]);

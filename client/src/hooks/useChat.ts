@@ -8,6 +8,15 @@ import { useRefMirror } from './useRefMirror';
 import { reconcileOrphanStreams } from '../state/signals';
 import { registerHeapOwner, roughBytes } from '../lib/devHeapProbe';
 import {
+  getAllMessages,
+  getSessionMessagesFromStore,
+  replaceAllMessages,
+  // Importata con l'alias storico: e' una funzione di MODULO, quindi stabile per
+  // definizione — ed e' anche il motivo per cui non compare in nessuna lista di
+  // dipendenze, mentre il vecchio `setMessages` di `useState` ci compariva.
+  updateMessages as setMessages,
+} from '../state/messageStore';
+import {
   EXPIRED_QUEUE_KEY,
   OUTBOUND_QUEUE_KEY,
   decideQueuedMessage,
@@ -301,10 +310,45 @@ function getInitialMessages(): Record<string, ChatMessage[]> {
 // Shared stable empty array so getSessionMessages returns a reference-equal
 // result for a session with no messages (a fresh `[]` per call would be a cache
 // miss every time and hand consumers a new identity each render).
-const EMPTY_MESSAGES: ChatMessage[] = [];
+
+let messageStoreHydrated = false;
+
+/**
+ * Lo specchio dei messaggi per le closure, senza piu' uno specchio.
+ *
+ * Prima era `useRefMirror(messages)`, cioe' una ref riallineata a ogni render
+ * per evitare che una closure leggesse un valore vecchio. Adesso lo store E' la
+ * fonte fresca: `getAllMessages()` restituisce l'ultimo valore al momento della
+ * chiamata, che e' esattamente cio' che quello specchio inseguiva — e senza il
+ * render di ritardo che uno specchio ha per costruzione.
+ *
+ * A livello di MODULO e non dentro l'hook: legge da uno store globale, quindi
+ * non ha ragione di essere per-istanza, e un oggetto ricreato a ogni render
+ * destabilizzerebbe le quattro callback che lo hanno fra le dipendenze.
+ */
+const messagesRef = {
+  get current(): Record<string, ChatMessage[]> {
+    return getAllMessages();
+  },
+};
 
 export function useChat() {
-  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>(getInitialMessages);
+  // I messaggi NON sono piu' stato di questo hook, e quindi non sono piu' stato
+  // di `App`, che e' dove `useChat` viene chiamato. Vivono in uno store di
+  // modulo con sottoscrizione PER SESSIONE (`state/messageStore.ts`): chi guarda
+  // una chat si sveglia solo per quella, e la radice non si sveglia affatto.
+  //
+  // `updateMessages` ha di proposito la stessa firma dell'updater di `useState`,
+  // quindi i venticinque `setMessages` qui sotto non cambiano di una riga.
+  // Le letture passano da `getAllMessages()`, che e' sincrona: dentro una
+  // callback e' anche piu' corretto di prima, perche' legge sempre l'ultimo
+  // valore invece di quello catturato alla creazione della closure.
+  // Idratazione una volta sola, al primo `useChat` della pagina. Prima era
+  // l'initializer di `useState`; adesso lo store nasce vuoto e si riempie qui.
+  if (!messageStoreHydrated) {
+    messageStoreHydrated = true;
+    replaceAllMessages(getInitialMessages());
+  }
   // Compaction dividers per session (CHAT-COMPACT-01): display-only, merged
   // into the transcript by afterMessageId in MessageList. Populated live via
   // stream:compaction and on reload from /api/history.
@@ -322,12 +366,10 @@ export function useChat() {
   // teneva 1844 MB, e' qui che si vede — e si vede come CONTEGGIO che sale senza
   // mai scendere, che e' un dato esatto, non una stima.
   // Costo a riposo: una voce in una Map. La funzione gira solo a sonda armata.
-  const heapMessagesRef = useRef(messages);
-  heapMessagesRef.current = messages;
   const heapMarkersRef = useRef(compactionMarkers);
   heapMarkersRef.current = compactionMarkers;
   useEffect(() => registerHeapOwner('chat.messages', () => {
-    const m = heapMessagesRef.current;
+    const m = getAllMessages();
     const keys = Object.keys(m);
     let items = 0;
     let biggestKey = '';
@@ -440,9 +482,7 @@ export function useChat() {
   // Stream queue: messages queued while AI is streaming (auto-sent on stream:end)
   const streamQueueRef = useRef<Record<string, { content: string; options?: SendMessageOptions }[]>>({});
 
-  // Keep a ref to the latest messages to avoid stale closure in sendMessage.
-  // useRefMirror is the canonical helper for this state→ref bridge.
-  const messagesRef = useRefMirror(messages);
+
   // Live mirror of the streaming map so the server-reconciler (below) reads the
   // freshest flags without being re-created on every streaming change.
   const streamingRef = useRefMirror(streaming);
@@ -1526,13 +1566,18 @@ export function useChat() {
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
     }
-  }, [addMessage, addToolCallToLastMessage, updateLastMessage, messagesRef, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe]);
 
   // Keep sendMessage ref in sync for stream:end auto-drain
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
 
+  // Deps VUOTE, ed e' il punto di tutto lo spostamento. Prima questa callback
+  // dipendeva da `messages`, quindi cambiava identita' a ogni token: qualunque
+  // `memo` a valle era carta straccia, perche' la prop arrivava sempre nuova.
+  // Adesso e' stabile per tutta la vita del componente, e chi la riceve puo'
+  // finalmente non ri-renderizzarsi.
   const getSessionMessages = useCallback((sessionKey: string): ChatMessage[] => {
-    const src = messages[sessionKey] || EMPTY_MESSAGES;
+    const src = getSessionMessagesFromStore(sessionKey);
     const cache = filteredMessagesCacheRef.current;
     const hit = cache.get(sessionKey);
     // Same source array ⇒ same filtered result: return the cached reference so
@@ -1541,7 +1586,7 @@ export function useChat() {
     const out = src.filter(msg => !isContextMessage(msg.content));
     cache.set(sessionKey, { src, out });
     return out;
-  }, [messages]);
+  }, []);
 
   const EMPTY_MARKERS = useRef<CompactionMarker[]>([]).current;
   const getCompactionMarkers = useCallback((sessionKey: string): CompactionMarker[] => {
@@ -1594,7 +1639,7 @@ export function useChat() {
     }
 
     return isFirstMessage;
-  }, [updateLastMessage, messagesRef]);
+  }, [updateLastMessage]);
 
   const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
     // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
@@ -1724,7 +1769,7 @@ export function useChat() {
       inFlightHistoryRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
     }
-  }, [resetStreamTimeout, messagesRef]);
+  }, [resetStreamTimeout]);
 
   useEffect(() => { loadHistoryRef.current = loadHistory; }, [loadHistory]);
 
@@ -2074,7 +2119,7 @@ export function useChat() {
       // spedito.
       if (deferred > 0) scheduleDrainRetry();
     }
-  }, [messagesRef, scheduleDrainRetry]);
+  }, [scheduleDrainRetry]);
   drainQueueRef.current = drainQueue;
 
   const retryExpired = useCallback(async (item: QueuedMessage) => {

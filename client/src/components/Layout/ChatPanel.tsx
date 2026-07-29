@@ -16,6 +16,7 @@ import { popOutTopic, canPopOut } from '../../lib/popOutTopic';
 import { useTopicLoading, useTopicWatching } from '@/state/signals';
 import { loadSettings, SETTINGS_CHANGED_EVENT } from '@/lib/settings';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
+import { useSessionMessages } from '../../state/useSessionMessages';
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -104,7 +105,9 @@ export function ChatPanel({
   // browser tool. Null when no spawn has happened — hides the button.
   const spawnedBrowserCtx = useSpawnedBrowser(isDraft ? null : topic.id);
 
-  const currentMessages = getSessionMessages(topic.sessionKey);
+  // Come in `ChatPane`: iscrizione alla singola sessione, perche' la radice non
+  // si sveglia piu' a ogni token. Vedi state/useSessionMessages.ts.
+  const currentMessages = useSessionMessages(topic.sessionKey, getSessionMessages);
 
   // Solo il ping di focus: l'azzeramento locale e la POST di lettura li fa
   // `sendWS`, e solo quando c'è davvero qualcosa di non letto.
