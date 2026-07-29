@@ -3468,6 +3468,27 @@ fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
 fn browser_close_inner(app: tauri::AppHandle, id: String) -> Result<(), String> {
     use tauri::Manager;
     if let Some(wv) = app.get_webview(&browser_label(&id)) {
+        // SVUOTA PRIMA DI CHIUDERE. `close()` non libera il processo WebContent:
+        // wry non dealloca mai la WKWebView — `impl Drop for InnerWebView`
+        // (wry 0.55.1, `src/wkwebview/mod.rs:1413`) chiama `self.webview.retain()`
+        // per aggirare un use-after-free, quindi l'oggetto ObjC sopravvive alla
+        // chiusura per sempre e con lui il suo processo. Verificato: 0.55.1 e'
+        // l'ultima pubblicata, il `retain` c'e' ancora, non c'e' fix a monte da
+        // prendere.
+        //
+        // Il GUSCIO non si puo' liberare, il CONTENUTO si': una navigazione ad
+        // `about:blank` smonta documento, DOM e heap JS. Misurato il 2026-07-29
+        // sull'app viva: 4 pane chiuse tenevano 2,1 GB di footprint, di cui 1,6 in
+        // un solo processo — con una pane sola davvero aperta, e lo swap della
+        // macchina al 95%.
+        //
+        // La navigazione parte prima della chiusura perche' i due messaggi vanno
+        // in coda sul main thread nell'ordine in cui li mandiamo, e WebKit porta a
+        // termine un caricamento anche su una view staccata dalla sua superview
+        // (e' la stessa proprieta' su cui contavano le pane nascoste).
+        if let Ok(blank) = "about:blank".parse::<tauri::Url>() {
+            let _ = wv.navigate(blank);
+        }
         wv.close().map_err(|e| e.to_string())?;
     }
     // Drop the cache entries so a re-opened pane on the same id re-applies move + mask.
