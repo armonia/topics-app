@@ -23,6 +23,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
+import { parseReviewChecks, serializeReviewChecks, type CheckRun, type ReviewCheck } from "./review-checks";
 
 export type TaskStatus = "backlog" | "todo" | "in_progress" | "review" | "done";
 export type Actor = "human" | "agent";
@@ -125,6 +126,17 @@ export interface Task {
    *  null = never audited (pre-audit task, or no delivery recorded). */
   landingState: "landed" | "unlanded" | "unverifiable" | null;
   landingCheckedAt: string | null;
+  /**
+   * Esito dei checks pre-review. null = mai girati (board senza check, task senza
+   * worktree, task precedenti al gate) — che NON è un verde e non va disegnato come
+   * tale. 'running' mentre il server li esegue.
+   */
+  checksState: "running" | "pass" | "fail" | null;
+  checksAt: string | null;
+  /** Il commit su cui sono girati: se il branch è avanzato, un 'pass' è scaduto. */
+  checksCommit: string | null;
+  /** Evidenza per il reviewer: comando per comando, esito, durata e coda dell'output. */
+  checks: CheckRun[] | null;
   /** Dispatch in the BLOCKER agent's conversation instead of a fresh topic. */
   reuseBlockerContext: boolean;
   /** Direct-children counters (filled by list/get for board badges). */
@@ -266,6 +278,13 @@ export interface BoardSettings {
   dispatchRetryBackoffS: number;
   requireApprovalForDone: boolean;
   requireReviewBeforeDone: boolean;
+  /**
+   * Comandi che devono essere verdi perché una consegna entri in review, eseguiti
+   * dal server nel worktree del task. Lista vuota = gate spento, che è il default:
+   * niente si inferisce da package.json (`npm test` qui è la suite E2E, venti
+   * minuti — un default così verrebbe spento il primo giorno).
+   */
+  reviewChecks: ReviewCheck[];
 }
 
 export interface UpdateBoardSettingsPatch {
@@ -280,6 +299,20 @@ export interface UpdateBoardSettingsPatch {
   dispatchModel?: string;
   dispatchRetryCap?: number;
   dispatchRetryBackoffS?: number;
+  reviewChecks?: ReviewCheck[];
+}
+
+/**
+ * `tasks.checks_json` → `CheckRun[]`. Tollerante come il parser delle impostazioni:
+ * un JSON storto (riga scritta a mano, formato di una versione precedente) vale
+ * "nessuna evidenza", non un'eccezione che fa esplodere OGNI lettura del task.
+ */
+function parseChecksJson(raw: unknown): CheckRun[] | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? (parsed as CheckRun[]) : null;
+  } catch { return null; }
 }
 
 const VALID_EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);
@@ -454,6 +487,13 @@ export interface TaskService {
    * reject→resume→review round trip delivers a new tip).
    */
   recordDelivery(args: { taskId: string; branch: string | null; commit: string | null }): void;
+  /** Esito dei checks pre-review sul task (evidenza per il reviewer). */
+  recordChecks(args: {
+    taskId: string;
+    state: "running" | "pass" | "fail" | null;
+    commit?: string | null;
+    runs?: CheckRun[] | null;
+  }): Task;
   /** Tasks worth auditing: alive, delivered (review/done) and carrying a commit. */
   listLandingAuditCandidates(): Array<{ id: string; projectId: string; deliveryBranch: string | null; deliveryCommit: string | null }>;
   /** Persist a landing-audit verdict. */
@@ -577,6 +617,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       deliveryCommit: r.delivery_commit ?? null,
       landingState: r.landing_state ?? null,
       landingCheckedAt: r.landing_checked_at ?? null,
+      checksState: r.checks_state ?? null,
+      checksAt: r.checks_at ?? null,
+      checksCommit: r.checks_commit ?? null,
+      checks: parseChecksJson(r.checks_json),
       reuseBlockerContext: !!r.reuse_blocker_context,
       subtaskCount: 0,
       subtaskDoneCount: 0,
@@ -1285,6 +1329,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
+    recordChecks({ taskId, state, commit, runs }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      db.prepare(
+        "UPDATE tasks SET checks_state = ?, checks_at = ?, checks_commit = ?, checks_json = ?, updated_at = ? WHERE id = ?",
+      ).run(
+        state,
+        // 'running' non ha un "quando è finito": scriverne uno direbbe una cosa
+        // falsa alla riga "verdi alle 14:32".
+        state === "running" ? null : now(),
+        commit ?? null,
+        runs && runs.length ? JSON.stringify(runs) : null,
+        now(),
+        taskId,
+      );
+      return rowToTask(getTaskRow(taskId));
+    },
+
     recordDelivery({ taskId, branch, commit }): void {
       // A new delivery invalidates any previous verdict: re-audit from scratch
       // rather than leave a stale "landed" on top of fresh, unlanded commits.
@@ -1368,6 +1430,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchRetryBackoffS: r?.dispatch_retry_backoff_s ?? 60,
         requireApprovalForDone: r ? !!r.require_approval_for_done : false,
         requireReviewBeforeDone: r ? !!r.require_review_before_done : false,
+        reviewChecks: parseReviewChecks(r?.review_checks),
       };
     },
 
@@ -1407,6 +1470,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.dispatchModel !== undefined) { sets.push("dispatch_model = ?"); params.push(patch.dispatchModel && patch.dispatchModel !== "auto" ? patch.dispatchModel : null); }
       if (patch.dispatchRetryCap !== undefined) { sets.push("dispatch_retry_cap = ?"); params.push(clampInt(patch.dispatchRetryCap, 1, 5)); }
       if (patch.dispatchRetryBackoffS !== undefined) { sets.push("dispatch_retry_backoff_s = ?"); params.push(clampInt(patch.dispatchRetryBackoffS, 10, 600)); }
+      // NULL, non `[]`: "gate spento" è UNO stato solo, e due modi di scriverlo
+      // sono due modi di leggerlo sbagliato.
+      if (patch.reviewChecks !== undefined) { sets.push("review_checks = ?"); params.push(serializeReviewChecks(patch.reviewChecks)); }
       if (sets.length) db.prepare(`UPDATE board_settings SET ${sets.join(", ")} WHERE project_id = ?`).run(...params, projectId);
       return this.getBoardSettings(projectId);
     },

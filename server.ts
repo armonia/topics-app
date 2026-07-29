@@ -835,6 +835,15 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     const commit = await resolveCommit(repoPath, `refs/heads/${wt.branchName}`);
     return commit ? { branch: wt.branchName, commit } : null;
   },
+  // Dove far girare i checks pre-review: la cartella del worktree del task e il
+  // commit su cui sta. Solo worktree di branch — un task in-place girerebbe i
+  // comandi nel checkout principale, cioè su codice che non è il suo.
+  taskCheckoutRef: async (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    if (!wt || wt.mode !== "branch") return null;
+    const commit = await resolveCommit(wt.absPath, "HEAD");
+    return { cwd: wt.absPath, commit };
+  },
   // Post-landing reap: merged (or empty) worktrees have no remaining value —
   // the manager path removes worktree + branch + row, serialized per project.
   deleteTaskWorktree: async (taskId) => {

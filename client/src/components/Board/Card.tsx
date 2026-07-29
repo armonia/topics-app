@@ -199,7 +199,10 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // "done" that never reached main — the 19/07 loss, made visible. Only on done:
   // a task in review is legitimately not landed yet, flagging it would be noise.
   const notLanded = task.status === 'done' && task.landingState === 'unlanded';
-  const hasMetaRow = !!((blocker && blocker.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded);
+  // Solo il ROSSO va sulla card: un verde è la norma e riempirebbe la colonna di
+  // spunte che nessuno legge, mentre il rosso è la ragione per non aprire il task.
+  const checksRed = task.checksState === 'fail';
+  const hasMetaRow = !!((blocker && blocker.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed);
 
   return (
     <div
@@ -354,6 +357,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               title={`Il lavoro consegnato (${task.deliveryCommit?.slice(0, 8) ?? '?'}${task.deliveryBranch ? ` su ${task.deliveryBranch}` : ''}) NON risulta su main. Landa il branch prima che venga potato.`}
               className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300"
             ><AlertTriangle className="h-3 w-3 shrink-0" /> non su main</span>
+          )}
+          {checksRed && (
+            <span
+              title={`Checks pre-review ROSSI: ${(task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || 'un comando è fallito'}`}
+              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[11px] text-rose-300"
+            ><AlertTriangle className="h-3 w-3 shrink-0" /> checks rossi</span>
           )}
           {task.planFirst && (
             <span

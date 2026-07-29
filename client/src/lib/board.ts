@@ -108,6 +108,12 @@ export interface BoardTask {
    *  null = never audited (no delivery recorded). 'unlanded' is the alarm. */
   landingState: "landed" | "unlanded" | "unverifiable" | null;
   landingCheckedAt: string | null;
+  /** Esito dei checks pre-review. null = mai girati — NON un verde. */
+  checksState: "running" | "pass" | "fail" | null;
+  checksAt: string | null;
+  /** Commit su cui sono girati: se il branch è avanzato, il verde è scaduto. */
+  checksCommit: string | null;
+  checks: CheckRun[] | null;
 }
 
 export interface TaskComment {
@@ -296,6 +302,28 @@ export interface BoardSettings {
   dispatchModel: string;
   requireApprovalForDone: boolean;
   requireReviewBeforeDone: boolean;
+  /** Comandi che il server esegue nel worktree del task alla consegna. Vuoto = gate spento. */
+  reviewChecks: ReviewCheck[];
+}
+
+/** Un comando del gate pre-review dichiarato sulla board. */
+export interface ReviewCheck {
+  name: string;
+  cmd: string;
+}
+
+/** Esito di UN comando del gate. `tail` è la coda dell'output (stdout+stderr). */
+export interface CheckRun {
+  name: string;
+  cmd: string;
+  ok: boolean;
+  /** null = ucciso (timeout) o mai partito. */
+  code: number | null;
+  ms: number;
+  timedOut: boolean;
+  tail: string;
+  /** Valorizzato solo se il comando non è nemmeno partito. */
+  spawnError?: string;
 }
 
 export interface BoardSettingsPatch {
@@ -308,6 +336,7 @@ export interface BoardSettingsPatch {
   dispatchTimeoutMin?: number;
   dispatchMcp?: string;
   dispatchModel?: string;
+  reviewChecks?: ReviewCheck[];
 }
 
 /** One commit that a publish (push) would ship. */
@@ -396,8 +425,10 @@ export const boardApi = {
     req<{ ok: boolean }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}`, { method: 'DELETE' }),
   comment: (projectId: string, taskId: string, content: string, opts?: { mentions?: string[]; media?: string[] }) =>
     req<TaskComment>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/comments`, { method: 'POST', body: JSON.stringify({ content, mentions: opts?.mentions, media: opts?.media }) }),
-  review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string) =>
-    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment }) }),
+  /** `force` scavalca il gate sui checks rossi: è una scelta esplicita dell'umano,
+   *  mai il default (il server risponde 409 `checks_failed` senza). */
+  review: (projectId: string, taskId: string, decision: 'approve' | 'reject', comment?: string, opts?: { force?: boolean }) =>
+    req<BoardTask>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/review`, { method: 'POST', body: JSON.stringify({ decision, comment, force: opts?.force }) }),
   /** Land the task's branch on main (accept if still in review, then merge locally
    *  + rebuild). Explicit, decoupled from approve — never pushes online. */
   land: (projectId: string, taskId: string) =>

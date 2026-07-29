@@ -1,0 +1,174 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import {
+  formatChecksComment,
+  parseReviewChecks,
+  runReviewChecks,
+  serializeReviewChecks,
+  tailOf,
+  MAX_CHECKS,
+  type CheckRun,
+} from "./review-checks";
+
+describe("parseReviewChecks", () => {
+  test("forma lunga: nome e comando", () => {
+    expect(parseReviewChecks('[{"name":"tipi","cmd":"bun run typecheck"}]'))
+      .toEqual([{ name: "tipi", cmd: "bun run typecheck" }]);
+  });
+
+  test("forma corta: una stringa vale come nome e comando", () => {
+    expect(parseReviewChecks('["bun test"]')).toEqual([{ name: "bun test", cmd: "bun test" }]);
+  });
+
+  test("nome vuoto ricade sul comando: una riga senza etichetta è comunque leggibile", () => {
+    expect(parseReviewChecks('[{"name":"  ","cmd":"make"}]')).toEqual([{ name: "make", cmd: "make" }]);
+  });
+
+  test("scarta le voci senza comando invece di lasciarle passare vuote", () => {
+    expect(parseReviewChecks('[{"name":"vuoto"},"",{"cmd":"  "},"ok"]'))
+      .toEqual([{ name: "ok", cmd: "ok" }]);
+  });
+
+  // Un gate che esplode su config sporca bloccherebbe OGNI consegna della board
+  // per un errore di battitura: meglio spento e visibile che rotto e misterioso.
+  test("config illeggibile = nessun check, non un errore", () => {
+    expect(parseReviewChecks("{non json")).toEqual([]);
+    expect(parseReviewChecks('{"cmd":"x"}')).toEqual([]);
+    expect(parseReviewChecks(null)).toEqual([]);
+    expect(parseReviewChecks("   ")).toEqual([]);
+  });
+
+  test("tetto al numero di check", () => {
+    const many = JSON.stringify(Array.from({ length: MAX_CHECKS + 3 }, (_, i) => `c${i}`));
+    expect(parseReviewChecks(many)).toHaveLength(MAX_CHECKS);
+  });
+});
+
+describe("serializeReviewChecks", () => {
+  test("round-trip nella forma lunga", () => {
+    const checks = [{ name: "tipi", cmd: "tsc" }];
+    expect(parseReviewChecks(serializeReviewChecks(checks))).toEqual(checks);
+  });
+
+  test("lista vuota = NULL, cioè gate spento", () => {
+    expect(serializeReviewChecks([])).toBeNull();
+    expect(serializeReviewChecks([{ name: "x", cmd: "  " }])).toBeNull();
+  });
+});
+
+describe("tailOf", () => {
+  test("tiene la coda, che è dove sta l'errore", () => {
+    const text = Array.from({ length: 100 }, (_, i) => `riga ${i}`).join("\n");
+    const tail = tailOf(text, 3);
+    expect(tail).toBe("riga 97\nriga 98\nriga 99");
+  });
+
+  test("output corto resta intero", () => {
+    expect(tailOf("solo questa\n", 10)).toBe("solo questa");
+  });
+});
+
+describe("runReviewChecks", () => {
+  // La cartella nasce e muore negli hook: creata nel corpo del describe e
+  // cancellata in fondo, sparirebbe PRIMA che i test girino (il corpo è
+  // sincrono, i test no) e ogni comando fallirebbe con "cwd inesistente".
+  let cwd = "";
+  beforeAll(() => { cwd = mkdtempSync(join(tmpdir(), "review-checks-")); });
+  afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
+
+  test("comando verde", async () => {
+    const runs = await runReviewChecks([{ name: "ok", cmd: "echo tutto bene" }], { cwd });
+    expect(runs).toHaveLength(1);
+    expect(runs[0].ok).toBe(true);
+    expect(runs[0].code).toBe(0);
+    expect(runs[0].tail).toContain("tutto bene");
+  });
+
+  test("comando rosso: exit code e output finiscono nell'esito", async () => {
+    const runs = await runReviewChecks([{ name: "ko", cmd: "echo esploso >&2; exit 3" }], { cwd });
+    expect(runs[0].ok).toBe(false);
+    expect(runs[0].code).toBe(3);
+    expect(runs[0].tail).toContain("esploso");
+  });
+
+  // Un typecheck rotto rende inutile il lint che segue: farlo girare comunque
+  // costa minuti per produrre rumore.
+  test("si ferma al primo rosso", async () => {
+    const runs = await runReviewChecks(
+      [{ name: "a", cmd: "exit 1" }, { name: "b", cmd: "echo mai" }],
+      { cwd },
+    );
+    expect(runs.map((r) => r.name)).toEqual(["a"]);
+  });
+
+  test("gira in ordine e riporta ogni verde", async () => {
+    const runs = await runReviewChecks(
+      [{ name: "a", cmd: "true" }, { name: "b", cmd: "true" }],
+      { cwd },
+    );
+    expect(runs.map((r) => [r.name, r.ok])).toEqual([["a", true], ["b", true]]);
+  });
+
+  test("timeout: ucciso, rosso, e detto che è un timeout", async () => {
+    const runs = await runReviewChecks([{ name: "lento", cmd: "sleep 5" }], { cwd, timeoutMs: 300 });
+    expect(runs[0].ok).toBe(false);
+    expect(runs[0].timedOut).toBe(true);
+    expect(runs[0].code).toBeNull();
+  }, 15_000);
+
+  test("cwd inesistente: rosso col motivo vero, non 'check fallito'", async () => {
+    const runs = await runReviewChecks([{ name: "x", cmd: "true" }], { cwd: join(cwd, "non-esiste") });
+    expect(runs[0].ok).toBe(false);
+    expect(runs[0].spawnError).toBeTruthy();
+  });
+
+  test("abort prima di partire: nessun comando eseguito", async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    expect(await runReviewChecks([{ name: "x", cmd: "true" }], { cwd, signal: ctrl.signal })).toEqual([]);
+  });
+
+  test("onProgress vede ogni comando appena finisce", async () => {
+    const seen: string[] = [];
+    await runReviewChecks([{ name: "a", cmd: "true" }, { name: "b", cmd: "true" }], {
+      cwd,
+      onProgress: (r) => seen.push(r.name),
+    });
+    expect(seen).toEqual(["a", "b"]);
+  });
+});
+
+describe("formatChecksComment", () => {
+  const green: CheckRun = { name: "tipi", cmd: "tsc", ok: true, code: 0, ms: 1200, timedOut: false, tail: "" };
+
+  test("verde: una riga sola, col commit su cui vale", () => {
+    const out = formatChecksComment([green], { commit: "abcdef1234567890" });
+    expect(out).toContain("verdi");
+    expect(out).toContain("abcdef12");
+    expect(out).toContain("`tipi`");
+  });
+
+  test("rosso: comando, exit code e coda dell'output", () => {
+    const red: CheckRun = { name: "lint", cmd: "eslint .", ok: false, code: 2, ms: 800, timedOut: false, tail: "no-unused-vars" };
+    const out = formatChecksComment([green, red]);
+    expect(out).toContain("ROSSI");
+    expect(out).toContain("exit 2");
+    expect(out).toContain("eslint .");
+    expect(out).toContain("no-unused-vars");
+    // Il verde che l'ha preceduto resta visibile: dice fin dove si è arrivati.
+    expect(out).toContain("✓ `tipi`");
+  });
+
+  test("timeout e mancato avvio si leggono diversi da un exit code", () => {
+    const slow: CheckRun = { name: "e2e", cmd: "x", ok: false, code: null, ms: 1, timedOut: true, tail: "" };
+    expect(formatChecksComment([slow])).toContain("tempo massimo");
+    const dead: CheckRun = { name: "e2e", cmd: "x", ok: false, code: null, ms: 1, timedOut: false, tail: "", spawnError: "ENOENT" };
+    expect(formatChecksComment([dead])).toContain("ENOENT");
+  });
+
+  test("nessun comando dichiarato non è un verde", () => {
+    expect(formatChecksComment([])).not.toContain("verdi");
+  });
+});

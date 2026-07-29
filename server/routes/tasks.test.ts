@@ -1,5 +1,8 @@
-import { test, expect, describe, beforeEach } from "bun:test";
+import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AppContext } from "../types";
 import { createTasksRouter } from "./tasks";
 import { LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
@@ -20,7 +23,8 @@ function freshDb(): Database {
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
     priority_auto INTEGER NOT NULL DEFAULT 1,
-    delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT
+    delivery_branch TEXT, delivery_commit TEXT, landing_state TEXT, landing_checked_at TEXT,
+    checks_state TEXT, checks_at TEXT, checks_commit TEXT, checks_json TEXT
   )`);
   db.run(`CREATE UNIQUE INDEX idx_tasks_claude_task_id ON tasks(claude_task_id) WHERE claude_task_id IS NOT NULL`);
   db.run(`CREATE TABLE board_settings (
@@ -29,7 +33,7 @@ function freshDb(): Database {
     only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
     auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium',
     dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
-    max_agents_auto INTEGER
+    max_agents_auto INTEGER, review_checks TEXT
   )`);
   db.run(`CREATE TABLE task_comments (
     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
@@ -648,5 +652,142 @@ describe("approve decoupled from landing", () => {
     expect(t.status).toBe("done"); // accepted
     expect(merges).toEqual([id]);  // land ran first (merges.push is synchronous)
     expect(resumed).toEqual([]);   // NOT resumed as a rejection
+  });
+});
+
+/**
+ * Gate 1.2 — checks pre-review. Terzo cancello strutturale dopo
+ * `review_needs_commit` e `review_needs_summary`: i comandi dichiarati dall'umano
+ * sulla board girano NEL WORKTREE del task, e un rosso rimanda la consegna
+ * all'agente con l'output vero invece di un "rifiutato" senza motivo.
+ */
+describe("checks pre-review (gate review_needs_green_checks)", () => {
+  let db: Database; let broadcasts: any[]; let cwd: string;
+
+  beforeAll(() => { cwd = mkdtempSync(join(tmpdir(), "tasks-router-checks-")); });
+  afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
+  beforeEach(() => { db = freshDb(); broadcasts = []; });
+
+  const mk = (over?: Partial<Parameters<typeof createTasksRouter>[2]>) =>
+    createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      taskCheckoutRef: async () => ({ cwd, commit: "abc1234" }),
+      ...over,
+    } as any);
+
+  /** Consegna agente pronta al gate: task + commento di sintesi (gate #2 passato). */
+  async function delivered(router: any) {
+    const t = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    await call(router, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "fatto, guarda demo/" });
+    return t;
+  }
+
+  const declare = (router: any, projectId: string, cmds: string[]) =>
+    call(router, "PATCH", `/api/boards/${projectId}/settings`, { reviewChecks: cmds.map((cmd) => ({ name: cmd, cmd })) });
+
+  test("board senza comandi: il gate non esiste e non scrive un falso verde", async () => {
+    let asked = 0;
+    const r = mk({ taskCheckoutRef: async () => { asked += 1; return { cwd, commit: "abc1234" }; } });
+    const t = await delivered(r);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    // null, NON 'pass': nessuno ha verificato niente.
+    expect((await resp.json()).checksState).toBeNull();
+    expect(asked).toBe(0); // nemmeno il git viene disturbato
+  });
+
+  test("verdi: la consegna passa e resta l'evidenza (stato, commit, comandi)", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["true", "exit 0"]);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.status).toBe("review");
+    expect(got.task.checksState).toBe("pass");
+    expect(got.task.checksCommit).toBe("abc1234");
+    expect(got.task.checks.map((c: any) => c.ok)).toEqual([true, true]);
+    // …e il reviewer trova il verdetto nel thread, non solo in un campo.
+    expect(got.comments.some((c: any) => c.author === "system" && c.content.includes("Checks pre-review"))).toBe(true);
+  });
+
+  test("rosso: 409 con L'OUTPUT del comando, e il task NON entra in review", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["echo bella-riga-rossa >&2; exit 3"]);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(409);
+    const err = await resp.json();
+    expect(err.code).toBe("review_needs_green_checks");
+    // Il motivo vero, non "consegna rifiutata": la riparazione parte da qui.
+    expect(err.error).toContain("bella-riga-rossa");
+    const got = await (await call(r, "GET", `/api/sessions/s1/tasks/${t.id}`))!.json();
+    expect(got.task.status).not.toBe("review");
+    expect(got.task.checksState).toBe("fail");
+  });
+
+  test("la board sa che stanno girando: broadcast 'running' PRIMA dell'esito", async () => {
+    const r = mk();
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["true"]);
+    await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" });
+    const states = broadcasts.filter((b) => b.type === "task:updated" && b.task?.id === t.id).map((b) => b.task.checksState);
+    expect(states).toContain("running");
+    expect(states.indexOf("running")).toBeLessThan(states.lastIndexOf("pass"));
+  });
+
+  test("task in-place (nessun worktree di branch): gate saltato, non 'verde'", async () => {
+    const r = mk({ taskCheckoutRef: async () => null });
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["exit 1"]);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).checksState).toBeNull();
+  });
+
+  test("una domanda a metà lavoro non fa girare niente", async () => {
+    const r = mk();
+    const t = await (await call(r, "POST", "/api/sessions/s1/tasks", { text: "x" }))!.json();
+    await declare(r, t.projectId, ["exit 1"]);
+    await call(r, "POST", `/api/sessions/s1/tasks/${t.id}/comments`, { content: "Come procedo?", options: ["A", "B"] });
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+    expect((await resp.json()).checksState).toBeNull();
+  });
+
+  test("un git rotto non può rifiutare una consegna", async () => {
+    const r = mk({ taskCheckoutRef: async () => { throw new Error("git esploso"); } });
+    const t = await delivered(r);
+    await declare(r, t.projectId, ["exit 1"]);
+    const resp = (await call(r, "PATCH", `/api/sessions/s1/tasks/${t.id}`, { status: "review" }))!;
+    expect(resp.status).toBe(200);
+  });
+
+  test("approve con i checks rossi: 409 checks_failed, ma `force` è la scelta dell'umano", async () => {
+    const r = mk();
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    await call(r, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "review" });
+    // Rosso registrato (come lo scriverebbe il gate su una consegna agente).
+    db.prepare("UPDATE tasks SET checks_state = 'fail', checks_json = ? WHERE id = ?")
+      .run(JSON.stringify([{ name: "bun test", cmd: "bun test", ok: false, code: 1, ms: 10, timedOut: false, tail: "1 fail" }]), t.id);
+
+    const blocked = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/review`, { decision: "approve" }))!;
+    expect(blocked.status).toBe(409);
+    const err = await blocked.json();
+    expect(err.code).toBe("checks_failed");
+    expect(err.error).toContain("bun test"); // dice QUALE comando
+
+    // Rifiutare resta sempre possibile: il gate non intrappola il task.
+    const ok = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/review`, { decision: "approve", force: true }))!;
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).status).toBe("done");
+  });
+
+  test("approve con i checks VERDI non chiede nessun force", async () => {
+    const r = mk();
+    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "x" }))!.json();
+    await call(r, "PATCH", `/api/boards/pX/tasks/${t.id}`, { status: "review" });
+    db.prepare("UPDATE tasks SET checks_state = 'pass' WHERE id = ?").run(t.id);
+    const ok = (await call(r, "POST", `/api/boards/pX/tasks/${t.id}/review`, { decision: "approve" }))!;
+    expect(ok.status).toBe(200);
   });
 });
