@@ -73,18 +73,37 @@
 - [x] 6.5 Test: finestre per generazione · alias corti · legacy a 200k · default
       stimato · `windowForMeasure` (correzione, modello corrente, fallback, estimated).
 
-## 7. Verifica
+## 7. Consumo: le leve misurate (giro del 30/07)
 
-- [x] 7.1 `bun test server/context/ server/providers/` verde, `regression.test.ts` incluso.
-- [x] 7.2 Misura su transcript reale: rigirare lo script di conto composto
+- [x] 7.1 Misure verificate con controprova indipendente su transcript reale
+      (275 risposte, dedup per `message.id`). Decomposizione del contesto letto:
+      58,6% storia accumulata × n chiamate · 19,3% output riletto · 14,3% tool_result
+      · 8,8-17,3% thinking. Le tre ipotesi erano sovrastimate: thinking non 35%,
+      schemi MCP già deferiti (1,2%, non 17,8%), e la causa delle riscritture di
+      cache non è il gateway condiviso ma un server che si riavvia.
+- [x] 7.2 `isColdBootServer`: i server `stdio` con `npx -y` non entrano nelle chat.
+      8 richieste su 275 portavano l'85% delle scritture di cache (~$20-33/sessione).
+      Regola strutturale + log dell'esclusione + due uscite via env.
+- [x] 7.3 Soglie assolute di contesto (200k/400k) accanto a quelle percentuali, con
+      `ContextReason` per dire QUALE è scattata: su 1M il 70% è 700k e non avvisava
+      mai, mentre ogni chiamata rileggeva già 380k.
+- [x] 7.4 `cacheWrite1hTokens` anche in `transcript-usage.ts`: il chip del board
+      smette di tariffare a 1.25x scritture che costano 2x.
+- [x] 7.5 Flaky ACP: i due test di abort aspettano una condizione invece di 150ms.
+      Suite server intera verde (1816 pass, 0 fail).
+
+## 8. Verifica
+
+- [x] 8.1 `bun test server/context/ server/providers/` verde, `regression.test.ts` incluso.
+- [x] 8.2 Misura su transcript reale: rigirare lo script di conto composto
       (`iniezioni <context>` per sessione) su una chat nuova e mostrare 1 iniezione invece
       di N. Evidenza: numeri prima/dopo.
-- [ ] 7.3 E2E: una chat di più turni su `claude-code` risponde ancora in modo coerente sul
+- [ ] 8.3 E2E: una chat di più turni su `claude-code` risponde ancora in modo coerente sul
       progetto dopo che il contesto non viene più ripetuto (il modello sa ancora dove si trova).
-- [ ] 7.4 Anteprima durevole per la consegna: il comportamento è dinamico (più turni) ⇒
+- [ ] 8.4 Anteprima durevole per la consegna: il comportamento è dinamico (più turni) ⇒
       **video**, non screenshot.
 
-## 8. Fuori scope, da aprire come task top-level
+## 9. Fuori scope, da aprire come task top-level
 
-- [ ] 8.1 Misurare l'overhead fisso (~48k token alla prima risposta) degli schemi dei tool
+- [ ] 9.1 (CHIUSO dalla misura 7.1: gli schemi MCP sono già deferiti, 1,2%) overhead fisso (~48k token alla prima risposta) degli schemi dei tool
       MCP montati per sessione.
