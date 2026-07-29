@@ -30,7 +30,9 @@
 
 import type { Database } from "bun:sqlite";
 import { GOAL_STEP_STATUSES } from "../../shared/types";
-export type { TopicGoal, GoalStep, GoalStatus, GoalStepStatus } from "../../shared/types";
+// Solo i due tipi che qualcuno importa DA QUI: gli stati si prendono da
+// `shared/types`, e ri-esportarli comodamente li farebbe esistere in due posti.
+export type { TopicGoal, GoalStep } from "../../shared/types";
 import type { TopicGoal, GoalStep, GoalStatus, GoalStepStatus } from "../../shared/types";
 
 const STEP_STATUSES: readonly string[] = GOAL_STEP_STATUSES;

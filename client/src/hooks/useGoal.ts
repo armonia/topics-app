@@ -9,7 +9,7 @@
  * cui esiste.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { TopicGoal, WSMessage } from '../types';
 import { goalApi } from '../lib/api';
 
@@ -17,39 +17,41 @@ export function useGoal(
   topicId: string | null,
   onMessage?: (handler: (msg: WSMessage) => void) => () => void,
 ) {
-  const [goal, setGoal] = useState<TopicGoal | null>(null);
-
-  // Guardia anti-stale, come in useMemory: la chat non si rimonta al cambio di
-  // topic, quindi una GET lenta su A che risolve dopo lo switch a B pianterebbe
-  // l'obiettivo di A sotto l'intestazione di B.
-  const topicIdRef = useRef(topicId);
-  topicIdRef.current = topicId;
+  // L'obiettivo si tiene INSIEME alla topic da cui è arrivato, e si legge solo
+  // se le due combaciano. La chat non si rimonta al cambio di topic: una GET
+  // lenta su A che risolve dopo lo switch a B pianterebbe l'obiettivo di A
+  // sotto l'intestazione di B. Etichettarlo risolve la cosa alla radice —
+  // niente ref di guardia, e niente azzeramento in un effetto solo per evitare
+  // il lampo dell'obiettivo sbagliato.
+  const [entry, setEntry] = useState<{ topicId: string | null; goal: TopicGoal | null }>(
+    { topicId: null, goal: null },
+  );
+  const goal = entry.topicId === topicId ? entry.goal : null;
 
   const reload = useCallback(async () => {
-    if (!topicId) {
-      setGoal(null);
-      return;
-    }
+    // Niente topic, niente da azzerare: l'etichetta rende `goal` già nullo.
+    if (!topicId) return;
     const id = topicId;
     try {
       const data = await goalApi.get(id);
-      if (topicIdRef.current !== id) return;
-      setGoal(data.goal);
+      setEntry({ topicId: id, goal: data.goal });
     } catch {
       // Una topic senza goal non è un errore da mostrare: la barra sparisce.
-      if (topicIdRef.current === id) setGoal(null);
+      setEntry({ topicId: id, goal: null });
     }
   }, [topicId]);
 
   useEffect(() => {
-    setGoal(null);
-    void reload();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sincronizzazione con un sistema esterno (il server): `reload` non tocca lo stato in modo sincrono, ogni `setEntry` sta DOPO l'await della GET. Nessuna cascata: l'effetto riparte solo quando cambia `topicId`.
+    reload();
   }, [reload]);
 
   useEffect(() => {
     if (!onMessage || !topicId) return;
     return onMessage((msg: WSMessage) => {
-      if (msg.type === 'goal:updated' && msg.topicId === topicId) setGoal(msg.goal);
+      if (msg.type === 'goal:updated' && msg.topicId === topicId) {
+        setEntry({ topicId, goal: msg.goal });
+      }
     });
   }, [onMessage, topicId]);
 
