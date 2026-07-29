@@ -995,6 +995,13 @@ interface MessageContentProps {
   onMessage?: (handler: (msg: import('../types').WSMessage) => void) => () => void;
 }
 
+/** Una tratta della timeline di un messaggio assistant: testo, ragionamento, o
+ *  una corsa di tool call consecutive resa come un'unica lista verticale. */
+type BlockGroup =
+  | { kind: 'thinking'; idx: number; text: string }
+  | { kind: 'text'; idx: number; text: string }
+  | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
+
 export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, latencyMs, usagePromptTokens, usageCompletionTokens, costCents, onPlanApprove, onPlanReject, onOpenSessionViewer, sessionKey, onMessage }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
@@ -1021,6 +1028,36 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // Plan detection is reused at both legacy-path gates below; cleanText is
   // already memoized so this dependency is stable.
   const planResp = useMemo(() => isPlanResponse(cleanText), [cleanText]);
+
+  // Raggruppamento della timeline dei blocchi, calcolato UNA volta per `blocks`.
+  //
+  // Stava dentro il ramo di render, quindi si rifaceva a ogni render — e con
+  // esso `g.tools.map((b) => b.toolCall)`, che restituiva un array NUOVO. Quello
+  // è l'array che `GroupedToolRows` e `ToolGroupRow` passano ai loro `useMemo`
+  // (`partitionToolGroup`, `summarizeToolGroup`): con un riferimento nuovo a ogni
+  // giro quei memo non hanno mai fatto centro, e ogni riga di tool attiva si
+  // ri-renderizzava a ogni token dello streaming.
+  //
+  // Qui in cima perché un hook non può stare dopo un `return` condizionale.
+  // Ritorna un array vuoto quando non c'è la timeline: il ramo legacy sotto non
+  // lo guarda.
+  const blockGroups = useMemo(() => {
+    const out: BlockGroup[] = [];
+    if (!blocks) return out;
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      if (b.kind === 'tool') {
+        const last = out[out.length - 1];
+        if (last && last.kind === 'tools') last.tools.push(b.toolCall);
+        else out.push({ kind: 'tools', startIdx: i, tools: [b.toolCall] });
+      } else if (b.kind === 'thinking') {
+        out.push({ kind: 'thinking', idx: i, text: b.text });
+      } else {
+        out.push({ kind: 'text', idx: i, text: b.text });
+      }
+    }
+    return out;
+  }, [blocks]);
 
   if (role === 'user') {
     const renderUserText = (text: string) => {
@@ -1079,30 +1116,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     // Group consecutive tool blocks so we can render them as a single
     // vertical timeline (connected by a left border line) instead of N
     // unrelated rows. Visually lighter, easier to scan.
-    type ToolBlock = Extract<import('../types').ContentBlock, { kind: 'tool' }>;
-    type Group =
-      | { kind: 'thinking'; idx: number; text: string }
-      | { kind: 'text'; idx: number; text: string }
-      | { kind: 'tools'; startIdx: number; tools: ToolBlock[] };
-    const groups: Group[] = [];
-    for (let i = 0; i < blocks.length; i++) {
-      const b = blocks[i];
-      if (b.kind === 'tool') {
-        const last = groups[groups.length - 1];
-        if (last && last.kind === 'tools') {
-          last.tools.push(b);
-        } else {
-          groups.push({ kind: 'tools', startIdx: i, tools: [b] });
-        }
-      } else if (b.kind === 'thinking') {
-        groups.push({ kind: 'thinking', idx: i, text: b.text });
-      } else {
-        groups.push({ kind: 'text', idx: i, text: b.text });
-      }
-    }
     return (
       <div data-testid="message-content-assistant">
-        {groups.map((g) => {
+        {blockGroups.map((g) => {
           if (g.kind === 'thinking') {
             return (
               <ReasoningRow
@@ -1122,10 +1138,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
                 key={`g-tools-${g.startIdx}`}
                 className="my-1 space-y-px"
               >
-                <GroupedToolRows
-                  tools={g.tools.map((b) => b.toolCall)}
-                  sessionKey={sessionKey}
-                />
+                <GroupedToolRows tools={g.tools} sessionKey={sessionKey} />
               </div>
             );
           }

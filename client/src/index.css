@@ -957,12 +957,39 @@ input[type="range"]::-webkit-slider-thumb {
    replaces the old three bouncing dots and the generic "Streaming..." row.
    The dot breathes with a soft glow; the phrase gets a slow highlight sweep
    (reuses @keyframes shimmer). Honors prefers-reduced-motion. */
+/* Il bagliore anima SOLO `opacity`, mai `box-shadow`.
+ *
+ * Animare `box-shadow` obbliga il motore a ridisegnare l'ombra a ogni frame:
+ * ricalcola il blur e ripittura la regione, sul main thread, 60 volte al secondo
+ * e per tutta la durata di un turno. È lo stesso anti-pattern già tolto da qui
+ * per `filter: brightness` e già risolto bene per `awaiting-pulse`: un
+ * pseudo-elemento con l'ombra STATICA, di cui si anima la sola opacità, che il
+ * compositore muove senza toccare il main thread.
+ *
+ * Il punto luminoso resta identico: `::after` porta l'ombra al suo massimo e
+ * respira da 0 a 1, mentre il pallino sotto respira di opacità come prima. */
 @keyframes turnDotGlow {
-  0%, 100% { opacity: 0.5; box-shadow: 0 0 0 0 var(--primary-light); }
-  50%      { opacity: 1;   box-shadow: 0 0 7px 1px var(--primary-medium); }
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+@keyframes turnDotHalo {
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 1; }
 }
 .turn-activity-dot {
+  position: relative;
   animation: turnDotGlow 1.6s ease-in-out infinite;
+}
+.turn-activity-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 7px 1px var(--primary-medium);
+  opacity: 0;
+  pointer-events: none;
+  animation: turnDotHalo 1.6s ease-in-out infinite;
+  will-change: opacity;
 }
 .turn-activity-phrase {
   background-image: linear-gradient(

@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState } from 'react';
+import { createElement, memo, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, HelpCircle, Loader2, X } from 'lucide-react';
 import type { ToolCall, ToolUserResponse } from '../../types';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
@@ -65,7 +65,15 @@ interface Props {
  * `<ToolCardBody>` dispatcher so a Bash tool from 6 months ago and one
  * streaming right now render identically.
  */
-export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
+/**
+ * `memo` perché durante lo streaming il ramo `blocks` di `MessageContent` si
+ * ri-renderizza a ogni token, e senza confronto ogni riga di tool già conclusa
+ * si ridisegnava insieme all'ultima. L'invariante che lo rende CORRETTO esiste
+ * già ed è deliberata: `useChat.ts` costruisce sempre un `newTc` nuovo quando un
+ * tool cambia — testualmente "so React.memo sees a real prop change" — quindi
+ * una riga aggiornata ha davvero una prop diversa e non resta indietro.
+ */
+export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey }: Props) {
   const [open, setOpen] = useState(false);
 
   // Resolve the detail (server-provided or fallback derivation) and the
@@ -219,4 +227,4 @@ export function ToolCallRow({ toolCall, label, sessionKey }: Props) {
       )}
     </div>
   );
-}
+});

@@ -84,6 +84,10 @@ export interface ChatPaneProps {
   aboveInputSlot?: React.ReactNode;
 }
 
+/** Riferimento stabile per il caso normale (nessun messaggio appuntato): senza,
+ *  ogni render passerebbe un array nuovo a `PinnedMessages`. */
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
 function ChatPaneComponent({
   topic, isFocused,
   getSessionMessages, getCompactionMarkers, isSessionLoading, isSessionStreaming, stopSession, sendMessage, loadHistory,
@@ -819,7 +823,15 @@ function ChatPaneComponent({
   const handleCopyMessage = useCallback((msg: ChatMessage) => { navigator.clipboard.writeText(msg.content).then(() => { setCopiedMsgId(msg.id); setTimeout(() => setCopiedMsgId(null), 2000); }); }, []);
   const handleTogglePin = useCallback(async (msg: ChatMessage) => { const pinned = topic.pinnedMessages || []; const newPinned = pinned.includes(msg.id) ? pinned.filter(id => id !== msg.id) : [...pinned, msg.id]; await onUpdateTopic(topic.id, { pinnedMessages: newPinned }); }, [topic.pinnedMessages, topic.id, onUpdateTopic]);
   const isImageFile = (f: File) => f.type.startsWith('image/');
-  const pinnedMessages = currentMessages.filter(m => (topic.pinnedMessages || []).includes(m.id));
+  // Terza scansione dell'intera cronologia a ogni flush dello streaming, per un
+  // pannello che quasi sempre è chiuso e quasi sempre dà lo stesso risultato:
+  // l'insieme dei messaggi appuntati cambia solo quando qualcuno clicca la
+  // puntina, non a ogni token.
+  const pinnedIds = topic.pinnedMessages;
+  const pinnedMessages = useMemo(
+    () => (pinnedIds?.length ? currentMessages.filter((m) => pinnedIds.includes(m.id)) : EMPTY_MESSAGES),
+    [currentMessages, pinnedIds],
+  );
 
   return (
     <div className="relative flex flex-col min-w-0 min-h-0 overflow-hidden flex-1 w-full max-w-full">

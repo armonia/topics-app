@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, Loader2, X, Zap } from 'lucide-react';
 import type { ToolCall } from '../../types';
 import { ToolCallRow } from './ToolCallRow';
@@ -93,7 +93,7 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
  * per-call rows below it. This is the single entry MessageContent (blocks
  * timeline + legacy bucket) uses for tool runs.
  */
-export function GroupedToolRows({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: string }) {
+export const GroupedToolRows = memo(function GroupedToolRows({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: string }) {
   const segments = useMemo(() => partitionToolGroup(tools), [tools]);
   return (
     <>
@@ -108,4 +108,4 @@ export function GroupedToolRows({ tools, sessionKey }: { tools: ToolCall[]; sess
       )}
     </>
   );
-}
+});
