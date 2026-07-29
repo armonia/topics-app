@@ -20,6 +20,7 @@ import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters';
 import { useToast } from '../Shared/Toast';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
+import { usePaneHold } from '../../state/pane/residency/holds';
 
 const SLASH_COMMANDS_HELP = [
   '/status — Show session status',
@@ -145,6 +146,10 @@ function ChatPaneComponent({
     return () => window.removeEventListener('storage', handler);
   }, [draftKey, queueKey]);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  // Niente sfratto mentre c'è roba non ancora salvata da nessuna parte. Bozza,
+  // coda, planMode e scroll sono già persistiti e sopravvivono da soli; questi
+  // tre no, e uno smontaggio li perderebbe in silenzio.
+  usePaneHold(pendingImages.length > 0 || pendingFiles.length > 0 || editingMessage !== null);
   const [planMode, setPlanMode] = useState(() => {
     try { const stored = localStorage.getItem(`planMode:${topic.id}`); return stored === 'true'; } catch { return false; }
   });

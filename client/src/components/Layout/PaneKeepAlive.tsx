@@ -1,4 +1,5 @@
 import { useRef, type ReactNode } from 'react';
+import { PaneKeyContext } from '../../state/pane/residency/holds';
 
 /**
  * Il guscio keep-alive di una pane: visibile con `display:flex`, nascosta con
@@ -42,10 +43,27 @@ import { useRef, type ReactNode } from 'react';
 export function PaneKeepAlive({
   isVisible,
   className,
+  paneKey,
   children,
 }: {
   isVisible: boolean;
   className: string;
+  /**
+   * La chiave stabile della pane, pubblicata come `data-pane-shell`. Un
+   * attributo, zero comportamento — stessa idea di `data-panel-cell`.
+   *
+   * Serve a rendere CONTABILE il tetto di residenza: in Tauri un guscio montato
+   * È una WKWebView viva, quindi contare i gusci è l'unica proxy onesta del
+   * costo di memoria dentro un test che gira su Chromium e non ha processi
+   * WebKit da contare. Senza, `pane-residency-cap.spec.ts` dovrebbe dedurre lo
+   * smontaggio dall'assenza di contenuto, che è vero anche per mille altre
+   * ragioni.
+   *
+   * È anche il valore pubblicato via `PaneKeyContext`, così un discendente può
+   * TRATTENERE la propria pane (`usePaneHold`) senza doversi far passare la
+   * chiave lungo tutta la catena di props.
+   */
+  paneKey?: string;
   children: ReactNode;
 }) {
   const frozen = useRef<ReactNode>(children);
@@ -81,8 +99,10 @@ export function PaneKeepAlive({
       // passare da `createPortal`, come già fanno menu, popover e toast.
       style={{ display: isVisible ? 'flex' : 'none', contain: 'layout' }}
       aria-hidden={!isVisible}
+      data-pane-shell={paneKey}
+      data-pane-visible={isVisible ? '1' : '0'}
     >
-      {frozen.current}
+      <PaneKeyContext.Provider value={paneKey}>{frozen.current}</PaneKeyContext.Provider>
     </div>
   );
 }

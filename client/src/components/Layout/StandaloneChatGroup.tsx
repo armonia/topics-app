@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from 'react';
+import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, PanelTab, CompactionMarker } from '../../types';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { PaneTabBar } from './PaneTabBar';
@@ -31,6 +31,7 @@ import { ProjectWindowPane } from './ProjectWindow';
 import { getProjectName, hashToColor } from './projectColors';
 import { usePaneOrdering } from './hooks/usePaneOrdering';
 import { useActivePaneState } from './hooks/useActivePaneState';
+import { usePaneResidency } from './hooks/usePaneResidency';
 import { usePaneLifecycle } from './hooks/usePaneLifecycle';
 import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
@@ -325,62 +326,32 @@ export function StandaloneChatGroup({
     return map;
   }, [panes, getBadgeCount, getProjectBadgeCount, activePaneId]);
 
-  // Keep-alive: track visited pane keys so we can keep their React
-  // subtrees mounted across tab switches. Only the active pane is
-  // visible at any time (display:flex; the rest are display:none and
-  // removed from layout entirely). Preserves chat scroll, history
-  // caches, terminal buffers, draft text, expanded tool calls, etc.
-  // across tab navigation. Pruned when a pane is closed (no longer in
-  // `validatedOrderedIds`).
+  // Keep-alive: le pane visitate restano montate attraverso gli switch di tab,
+  // così non si perdono scroll, cache di cronologia, buffer del terminale,
+  // bozze e tool call espansi. Solo l'attiva è visibile (display:flex; le altre
+  // sono display:none e fuori dal layout).
   //
-  // Naming + algorithm match `GroupLayout`'s keep-alive. Top-level
-  // panes don't currently set `pane.stableKey`, so the helper falls
-  // back to `pane.id`; if the reducer-side stableKey ever propagates
-  // here (e.g. for draft → real promotion), the visited set continues
-  // to work without remounting the subtree.
+  // Quanto a lungo restano montate lo decide il REGISTRO DI RESIDENZA
+  // (`state/pane/residency/`), non più un `Set` locale che cresceva a ogni
+  // visita e si svuotava solo alla chiusura della pane. Il tetto è globale al
+  // renderer: questa superficie è una delle tante che vi si registrano.
+  //
+  // Le chiavi sono `stableKey ?? id`, così PANE_ID_REMAP (promozione bozza →
+  // topic vero, che cambia l'`id` e conserva lo `stableKey`) non forza un
+  // remount del sottoalbero.
   const stableKeyOf = useCallback((p: Pane) => p.stableKey ?? p.id, []);
-  const [visitedKeys, setVisitedKeys] = useState<Set<string>>(() => {
-    const initial = new Set<string>();
-    const lookup = new Map(panes.map((p) => [p.id, p]));
-    if (activePaneId) {
-      const p = lookup.get(activePaneId);
-      if (p) initial.add(p.stableKey ?? p.id);
-    }
-    return initial;
-  });
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- keep-alive set syncs against the live pane list (external-ish derived state); the updater returns `prev` unchanged when nothing changed, so it converges and never cascades
-    setVisitedKeys((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      if (activePaneId) {
-        const p = panes.find((q) => q.id === activePaneId);
-        if (p) {
-          const k = stableKeyOf(p);
-          if (!next.has(k)) {
-            next.add(k);
-            changed = true;
-          }
-        }
-      }
-      const liveKeys = new Set(panes.map(stableKeyOf));
-      for (const k of next) {
-        if (!liveKeys.has(k)) {
-          next.delete(k);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [activePaneId, panes, stableKeyOf]);
+  const visibleKeys = useMemo(() => {
+    const p = activePaneId ? panes.find((q) => q.id === activePaneId) : undefined;
+    return p ? [stableKeyOf(p)] : [];
+  }, [panes, activePaneId, stableKeyOf]);
+  const isResidentPane = usePaneResidency(panes, visibleKeys);
 
-  // Always include the currently-active pane even if visitedKeys
-  // hasn't caught up yet — the visited set updates in the effect above
-  // which runs *after* render, so the very first render after a fresh
-  // activation would otherwise show no pane bodies for one frame.
+  // La pane attiva entra comunque, anche se il registro non l'ha ancora
+  // ammessa: la registrazione avviene in un effetto, che gira DOPO il render,
+  // quindi il primo frame dopo un'attivazione mostrerebbe il vuoto.
   const visitedPanes = useMemo(
-    () => panes.filter((p) => visitedKeys.has(stableKeyOf(p)) || p.id === activePaneId),
-    [panes, visitedKeys, activePaneId, stableKeyOf],
+    () => panes.filter((p) => isResidentPane(p) || p.id === activePaneId),
+    [panes, isResidentPane, activePaneId],
   );
 
   // Hook 2: action handlers (browser singleton, close, split, settings, etc.)
@@ -842,6 +813,7 @@ export function StandaloneChatGroup({
                   // PANE_ID_REMAP — same pattern as PaneTabBar's tab DOM
                   // and GroupLayout's keep-alive wrapper.
                   key={stableKeyOf(pane)}
+                  paneKey={stableKeyOf(pane)}
                   isVisible={isPaneActive}
                   className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
                 >

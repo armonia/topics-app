@@ -9,6 +9,7 @@ import { equalizeWidths, weightedWidths } from './gridWidths';
 import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTypes';
 import { paneCellBg } from '../../lib/paneCellBg';
 import { PaneKeepAlive } from './PaneKeepAlive';
+import { usePaneResidency } from './hooks/usePaneResidency';
 import { canSplitPane } from './splitRules';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -144,55 +145,51 @@ export function GroupLayout({
   // separately via SplitPositionContext — GroupLayout no longer threads a
   // `splitMap` descriptor into the tab bars (the tab bar never rendered it).
 
-  // Keep-alive: track which panes have ever been activated. Once a pane is
-  // visited we keep its React subtree mounted (just hidden via display:none
-  // when not active) so the user doesn't see chat history re-fetches, scroll
-  // resets, or draft loss every time they switch tabs. Pruned when a pane is
-  // closed (no longer present in `panes`). Only the active pane is visible
-  // at any time, so the user-visible behavior is unchanged.
+  // Keep-alive: una pane visitata resta montata (solo nascosta con
+  // display:none) così l'utente non vede la cronologia rifetchata, lo scroll
+  // azzerato o la bozza persa a ogni switch di tab.
   //
-  // Tracked by `stableKey` — not `id` — so PANE_ID_REMAP (draft → real
-  // topic promotion changes the pane's `id` while keeping `stableKey`)
-  // doesn't drop the pane from the visited set and force a remount of
-  // its content (which would re-run loadHistory, blow away scroll, etc.).
+  // Per QUANTO resti montata lo decide il registro di residenza
+  // (`state/pane/residency/`): prima era un `Set` che accumulava ogni pane mai
+  // attivata e si svuotava solo alla chiusura, e siccome ne esisteva UNO PER
+  // ISTANZA di questo componente — compreso il `GroupLayout` annidato dentro
+  // ogni pane `project` — con quattro progetti aperti il costo si moltiplicava
+  // per quattro. Adesso il tetto è unico per tutto il renderer.
+  //
+  // Le chiavi restano `stableKey ?? id`: PANE_ID_REMAP (promozione bozza →
+  // topic vero) cambia l'`id` e conserva lo `stableKey`, e usare l'id
+  // rimonterebbe il contenuto (rieseguendo loadHistory, azzerando lo scroll).
   const stableKeyOf = useCallback((p: Pane) => p.stableKey ?? p.id, []);
-  const [visitedKeys, setVisitedKeys] = useState<Set<string>>(() => {
-    const initial = new Set<string>();
-    const lookup = new Map(panes.map((p) => [p.id, p]));
-    for (const g of groups) {
-      const p = g.activePaneId ? lookup.get(g.activePaneId) : undefined;
-      if (p) initial.add(p.stableKey ?? p.id);
-    }
-    return initial;
-  });
-  useEffect(() => {
-    // Accumulates visited-pane history across renders (keep-alive); can't be
-    // derived purely in render. Guarded by `changed` and returns `prev` when
-    // nothing changed, so it converges and never loops.
-    setVisitedKeys((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      // Add the currently-active pane in each group (visit-on-activation).
+  // Su mobile i gruppi sono APPIATTITI in un'unica striscia di tab e si vede
+  // una pane sola (vedi `renderMobile`), quindi il pavimento è diverso: dire
+  // "sono visibili tutte le attive di ogni gruppo" terrebbe montato N volte
+  // tanto proprio sul dispositivo che ha meno memoria.
+  const visibleKeys = useMemo(() => {
+    if (isMobile) {
+      const flat: Pane[] = [];
+      const seen = new Set<string>();
       for (const g of groups) {
-        const p = g.activePaneId ? paneMap.get(g.activePaneId) : undefined;
-        if (!p) continue;
-        const k = stableKeyOf(p);
-        if (!next.has(k)) {
-          next.add(k);
-          changed = true;
+        for (const id of g.paneIds) {
+          const p = paneMap.get(id);
+          if (p && !seen.has(p.id)) { seen.add(p.id); flat.push(p); }
         }
       }
-      // Drop keys for panes that no longer exist (closed/reaped).
-      const liveKeys = new Set(panes.map(stableKeyOf));
-      for (const k of next) {
-        if (!liveKeys.has(k)) {
-          next.delete(k);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [groups, panes, paneMap, stableKeyOf]);
+      const focused = (focusedGroupId ? groupMap.get(focusedGroupId) : undefined) ?? groups[0];
+      const activeId =
+        focused?.activePaneId && flat.some((p) => p.id === focused.activePaneId)
+          ? focused.activePaneId
+          : flat[0]?.id;
+      const p = activeId ? paneMap.get(activeId) : undefined;
+      return p ? [stableKeyOf(p)] : [];
+    }
+    const out: string[] = [];
+    for (const g of groups) {
+      const p = g.activePaneId ? paneMap.get(g.activePaneId) : undefined;
+      if (p) out.push(stableKeyOf(p));
+    }
+    return out;
+  }, [isMobile, groups, paneMap, groupMap, focusedGroupId, stableKeyOf]);
+  const isResidentPane = usePaneResidency(panes, visibleKeys);
 
   // Vertical leaf depth of a row = its deepest column's sub-stack (primary + any
   // groups stacked under it). A 2-deep column needs twice the row height so each
@@ -883,15 +880,15 @@ export function GroupLayout({
             // a "reload" flicker (re-fetched history, lost
             // scroll, etc.) every time they came back.
             //
-            // Always include the currently-active pane even if
-            // `visitedKeys` hasn't caught up yet — the visited
-            // set is updated in a useEffect that runs *after*
+            // Always include the currently-active pane even if the
+            // residency registry hasn't caught up yet — a surface
+            // registers itself in a useEffect that runs *after*
             // render, so on the first render after activation
             // we'd otherwise show the empty-state for one frame.
             // Using `stableKey` as the React key (not pane.id)
             // keeps the subtree mounted across PANE_ID_REMAP.
             const visiblePanes = groupPanes.filter(
-              (p) => visitedKeys.has(stableKeyOf(p)) || p.id === group.activePaneId,
+              (p) => isResidentPane(p) || p.id === group.activePaneId,
             );
             if (visiblePanes.length === 0) {
               return (
@@ -905,6 +902,7 @@ export function GroupLayout({
               return (
                 <PaneKeepAlive
                   key={stableKeyOf(pane)}
+                  paneKey={stableKeyOf(pane)}
                   isVisible={isPaneActive}
                   // Cell background tier (paneCellBg): `project`/`terminal`
                   // fully transparent (they frost themselves), chat + kanban
@@ -1078,12 +1076,13 @@ export function GroupLayout({
         </div>
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative">
           {flatPanes
-            .filter((p) => visitedKeys.has(stableKeyOf(p)) || p.id === activePaneId)
+            .filter((p) => isResidentPane(p) || p.id === activePaneId)
             .map((pane) => {
               const isPaneActive = pane.id === activePaneId;
               return (
                 <PaneKeepAlive
                   key={stableKeyOf(pane)}
+                  paneKey={stableKeyOf(pane)}
                   isVisible={isPaneActive}
                   className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)}`}
                 >
