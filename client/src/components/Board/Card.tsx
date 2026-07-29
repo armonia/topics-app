@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowUpRight, ClipboardList, Hourglass, Lock, MessageSqu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, STATUS_LABEL, parseQuestionBlock, isProjectlessId, systemDeliveryNote, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { boardApi, STATUS_LABEL, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
@@ -360,7 +360,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
             <span
               title={systemDeliveryNote(task.deliveredReason)}
               className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-300"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {task.deliveredReason === 'model_refused' ? 'agent bloccato' : 'non consegnato'}</span>
+            ><Hourglass className="h-3 w-3 shrink-0" /> {task.deliveredReason ? SYSTEM_DELIVERY_CHIP[task.deliveredReason] : 'non consegnato'}</span>
           )}
           {notLanded && (
             <span

@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import { PackageCheck, Hourglass } from 'lucide-react';
+import { MAX_FANOUT } from '../../lib/board';
 import type { TaskStatus } from '../../lib/board';
 
 /** Compact prose for the shared ChatMarkdown renderer inside small board
@@ -105,3 +106,7 @@ export interface LiveUsage { turnStartedAt: number; baseMs: number; liveTokens: 
 
 // ── Board settings (auto-dispatch config) ───────────────────────────────────
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** 1..MAX_FANOUT — le scelte del selettore fan-out, DERIVATE dal tetto condiviso
+ *  (`shared/board.ts`): alzare il tetto allunga la fila da solo. */
+export const FANOUT_CHOICES = Array.from({ length: MAX_FANOUT }, (_, i) => i + 1);

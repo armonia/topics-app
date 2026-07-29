@@ -28,6 +28,8 @@ import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { TaskAutoMerge } from "../services/task-automerge";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
 import { formatChecksComment, parseReviewChecks, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
+import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 
 const ERROR_STATUS: Record<string, number> = {
   not_found: 404,
@@ -122,6 +124,14 @@ export interface TasksRouterOpts {
    * task frees its pool port. Idempotent; absent ⇒ no preview to reap.
    */
   teardownPreview?: (taskId: string) => Promise<void>;
+  /**
+   * Boot the review preview from the task's worktree. Serve alla scelta del
+   * vincitore di un fan-out: la consegna arriva in review PRIMA che il task abbia
+   * un worktree suo (quello del tentativo 1 può non essere il vincitore), quindi
+   * l'anteprima non può partire alla consegna — parte quando il worktree del task
+   * diventa quello scelto. Assente ⇒ nessuna anteprima, la scelta funziona lo stesso.
+   */
+  preparePreview?: (taskId: string) => Promise<void>;
 }
 
 /**
@@ -231,6 +241,7 @@ export { gitDiffBundle };
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, isPathAllowed } = ctx;
   const svc = createTaskService(db);
+  const attempts = createTaskAttemptStore(db);
 
   /**
    * Land a task's branch on main (merge locally, reap the worktree, rebuild the
@@ -270,6 +281,33 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
     if (reaped) svc.addComment({ taskId, author: "system", content: "Worktree e branch del task ripuliti." });
+  }
+
+  /**
+   * Butta il workspace di un tentativo perdente: worktree + branch + riga di
+   * store (via manager), poi la chat dell'agente che ci lavorava.
+   *
+   * L'ordine conta e non è simmetrico: un topic vivo su un worktree potato è una
+   * sessione congelata su una cartella che non esiste più — lo stesso modo in cui
+   * il reap orfanava un topic il 23/07. Archiviare per ultimo significa che, se
+   * la cancellazione del worktree fallisce, resta almeno una chat che punta a
+   * qualcosa di vero. Best-effort in entrambi i passi: la scelta del vincitore
+   * non può fallire perché git ha singhiozzato su un perdente.
+   */
+  async function reapAttemptWorkspace(a: TaskAttempt): Promise<void> {
+    if (a.worktreeId) {
+      try { await ctx.worktreeManager.delete(a.worktreeId); }
+      catch (err) { console.error(`[attempts] reap worktree ${a.worktreeId}`, err); }
+    }
+    if (!a.topicId) return;
+    try {
+      const topic = ctx.getTopicById(a.topicId);
+      if (!topic || topic.archived) return;
+      topic.archived = true;
+      topic.updatedAt = new Date().toISOString();
+      ctx.saveSingleTopic(topic);
+      broadcastToAll({ type: "topic:archived", topic });
+    } catch (err) { console.error(`[attempts] archive topic ${a.topicId}`, err); }
   }
 
   /**
@@ -468,6 +506,33 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 
+  /**
+   * Gate del fan-out sulla superficie AGENTE.
+   *
+   * Mentre N tentativi lavorano in parallelo lo STESSO task, il task appartiene
+   * al GIRO, non a un agente: chi lo muove in review, lo rinomina o lo parcheggia
+   * parlerebbe a nome di tutti — e il primo dei cinque a farlo deciderebbe per gli
+   * altri quattro, prima ancora che l'umano veda un confronto. Il kickoff dei
+   * tentativi lo dice a parole; questo lo rende vero anche se il modello legge di
+   * fretta. Niente va perso: il dispatcher raccoglie l'ultima prosa di OGNI
+   * tentativo e la mette nel confronto che scrive alla chiusura.
+   *
+   * Zero effetto sul dispatch normale: righe in `task_attempts` esistono solo per
+   * un fan-out (`launch()` non ne crea nessuna).
+   */
+  function fanOutGate(taskId: string, forbidden: string): Response | null {
+    let running = 0;
+    try { running = attempts.runningCount(taskId); } catch { return null; }
+    if (running < 1) return null;
+    return json({
+      error:
+        `this task is in fan-out: ${running} parallel attempts are working the same task. ${forbidden} — ` +
+        "work in YOUR worktree, commit everything on your branch, and end your turn with 2-3 sentences " +
+        "describing what you did: the board composes the comparison from those.",
+      code: "fanout_running",
+    }, 409);
+  }
+
   return async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
     // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this
@@ -563,9 +628,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const bTaskDiff = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/diff");
     if (bTaskDiff && method === "GET") {
       const empty = { stat: [], patch: "", truncated: false };
-      let topicId: string | null | undefined;
-      try { topicId = svc.get(bTaskDiff.taskId, { projectId: bTaskDiff.projectId })?.task.assignedTopicId; }
-      catch { topicId = null; }
+      let found: ReturnType<typeof svc.get> | null = null;
+      try { found = svc.get(bTaskDiff.taskId, { projectId: bTaskDiff.projectId }) ?? null; }
+      catch { found = null; }
+      if (!found) return json({ code: "no_worktree", branch: null, ...empty });
+      // `?attempt=<id>` → il diff di QUEL tentativo del fan-out invece che del
+      // task: è come si confrontano N alternative prima di sceglierne una (il
+      // task punta ancora al tentativo 1, che può non essere il vincitore).
+      // Il vincolo `taskId` sul tentativo è la guardia: un id di un altro task
+      // non può farsi leggere il diff da questa board.
+      const attemptId = new URL(req.url).searchParams.get("attempt");
+      let topicId: string | null | undefined = found.task.assignedTopicId;
+      if (attemptId) {
+        const a = attempts.get(attemptId);
+        topicId = a && a.taskId === bTaskDiff.taskId ? a.topicId : null;
+      }
       if (!topicId) return json({ code: "no_worktree", branch: null, ...empty });
       const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
       const wt = worktreeId ? ctx.worktreeStore.get(worktreeId) : null;
@@ -580,6 +657,98 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // committed) file must still show a diff, not an empty bundle.
       const bundle = await gitDiffBundle(wt.absPath, base, { includeUntracked: true });
       return json({ branch: wt.branchName, base, ...bundle });
+    }
+
+    // GET /api/boards/:projectId/tasks/:taskId/attempts — i tentativi di un
+    // fan-out. Lista vuota per un task dispatchato normalmente: il drawer non
+    // disegna il pannello e nessuno si accorge che questa route esiste.
+    const bAttempts = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/attempts");
+    if (bAttempts && method === "GET") {
+      try {
+        if (!svc.get(bAttempts.taskId, { projectId: bAttempts.projectId })) {
+          return json({ error: "task not found", code: "not_found" }, 404);
+        }
+        return json({ attempts: attempts.list(bAttempts.taskId) });
+      } catch (e) { return fail(e); }
+    }
+
+    // POST /api/boards/:projectId/tasks/:taskId/attempts/:attemptId/select — la
+    // scelta umana del vincitore di un fan-out.
+    //
+    // Tutto il peso sta in UNA riga (`svc.bindTopic`): `worktreeOfTask` in
+    // server.ts risolve task → assigned_topic_id → topic.worktreeId → worktree,
+    // e su quella indirezione viaggiano già diff, gate sullo sporco, checks,
+    // fotografia di consegna, land, anteprima e reap. Ri-puntarla è la scelta;
+    // il resto di questa route è conseguenza (fotografia, pulizia dei perdenti,
+    // nota nel thread), non idraulica nuova.
+    const bAttemptPick = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/attempts/:attemptId/select");
+    if (bAttemptPick && method === "POST") {
+      const { projectId, taskId, attemptId } = bAttemptPick;
+      try {
+        if (!svc.get(taskId, { projectId })) return json({ error: "task not found", code: "not_found" }, 404);
+
+        // Un tentativo ancora vivo può committare tra un istante: scegliere
+        // adesso vorrebbe dire potare un worktree mentre ci lavora un agente.
+        if (attempts.runningCount(taskId) > 0) {
+          return json({
+            error: "il fan-out non è ancora chiuso: aspetta che tutti i tentativi abbiano finito",
+            code: "fanout_running",
+          }, 409);
+        }
+
+        const target = attempts.get(attemptId);
+        if (!target || target.taskId !== taskId) return json({ error: "attempt not found", code: "not_found" }, 404);
+        if (!target.topicId) {
+          return json({
+            error: "questo tentativo non ha mai avuto una sessione: non c'è niente da tenere",
+            code: "invalid_input",
+          }, 409);
+        }
+
+        const picked = attempts.select(taskId, attemptId);
+        if (!picked) return json({ error: "attempt not found", code: "not_found" }, 404);
+        const winner = picked.winner;
+
+        let task = svc.bindTopic({ taskId, topicId: winner.topicId! });
+
+        // La consegna è di ADESSO: branch e commit dell'audit sono quelli del
+        // vincitore, non quelli del tentativo 1 a cui il task era legato un
+        // istante fa. `captureDelivery` non scatta (il task è in review da
+        // quando il fan-out ha chiuso), quindi la fotografia si prende qui.
+        if (opts?.taskDeliveryRef) {
+          try {
+            const ref = await opts.taskDeliveryRef(taskId);
+            if (ref) {
+              svc.recordDelivery({ taskId, branch: ref.branch, commit: ref.commit });
+              task = svc.get(taskId, { projectId })?.task ?? task;
+            }
+          } catch { /* la scelta vale anche senza fotografia */ }
+        }
+
+        const losers = picked.losers;
+        await Promise.all(losers.map((l) => reapAttemptWorkspace(l)));
+
+        // Stesso formato del confronto e del pannello (`formatAttemptStat`): due
+        // modi di scrivere lo stesso numero si leggono come due numeri diversi.
+        const stat = attemptHasWork(winner)
+          ? ` (${formatAttemptStat(winner)})`
+          : " — che però non ha modificato niente";
+        const tail = losers.length
+          ? ` Gli altri ${losers.length} tentativi sono stati buttati: worktree, branch e chat.`
+          : "";
+        svc.addComment({
+          taskId, projectId, author: "system",
+          content: `Scelto il **tentativo ${winner.idx}**${winner.branch ? ` · \`${winner.branch}\`` : ""}${stat}.${tail}`,
+        });
+
+        // Ora che il worktree del task È quello del vincitore, l'anteprima ha
+        // qualcosa di vero da mostrare (alla chiusura del fan-out non l'aveva).
+        if (opts?.preparePreview) void opts.preparePreview(taskId).catch(() => { /* best-effort */ });
+
+        task = svc.get(taskId, { projectId })?.task ?? task;
+        broadcastToAll({ type: "task:updated", projectId, task });
+        return json({ task, attempts: attempts.list(taskId) });
+      } catch (e) { return fail(e); }
     }
 
     // /api/all-boards/settings — the GLOBAL auto-dispatch switch (one for every
@@ -691,6 +860,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchTimeoutMin: typeof body?.dispatchTimeoutMin === "number" ? body.dispatchTimeoutMin : undefined,
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
               dispatchModel: typeof body?.dispatchModel === "string" ? body.dispatchModel : undefined,
+              dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
               // Passa dal parser tollerante: il pannello manda una lista di
               // stringhe (una riga = un comando), la board può averne una lunga
               // salvata a mano. Una sola forma canonica esce da qui.
@@ -1115,6 +1285,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const sk = decodeURIComponent(commentsRoute.sessionKey);
       const sess = resolveSession(sk);
       if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const gated = fanOutGate(commentsRoute.taskId, "do NOT write in the shared thread");
+      if (gated) return gated;
       const body = (await readJSON(req)) as any;
       // Agent comments must stay SHORT and useful — the thread is a status
       // trail for the human, not a log sink. The cap only applies to the agent
@@ -1169,6 +1341,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const sk = decodeURIComponent(deferRoute.sessionKey);
       const sess = resolveSession(sk);
       if (!sess) return json({ error: "session is not bound to a project", code: "no_project" }, 400);
+      const gatedDefer = fanOutGate(deferRoute.taskId, "do NOT park the shared task");
+      if (gatedDefer) return gatedDefer;
       const body = (await readJSON(req)) as any;
       if (typeof body?.reason !== "string" || !body.reason.trim()) {
         return json({ error: "'reason' (string) is required", code: "invalid_input" }, 400);
@@ -1200,6 +1374,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         return json(got);
       }
       if (method === "PATCH") {
+        const gatedPatch = fanOutGate(item.taskId, "do NOT change the task's status, title or assignee");
+        if (gatedPatch) return gatedPatch;
         const body = (await readJSON(req)) as any;
         // Structural review gate: a DELIVERY with work still uncommitted in the
         // task's worktree is not reviewable — approve would find nothing to

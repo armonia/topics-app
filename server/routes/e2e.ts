@@ -17,6 +17,10 @@
  *   POST /api/test/tasks/:id/bind-topic   lega un task alla topic dell'agente,
  *                              come il dispatcher — così si può testare la
  *                              superficie dei task dispatchati senza agente.
+ *   POST /api/test/tasks/:id/attempts     semina i tentativi di un fan-out già
+ *                              chiuso, come il dispatcher a fine giro — così il
+ *                              pannello "Tentativi" e la scelta del vincitore si
+ *                              testano senza far girare N agenti veri.
  *
  * **Gate.** Tutto risponde `null` — cioè 404 — se `TOPICS_E2E` non vale "1".
  * Non è cosmesi: `reset` cancella ogni riga di ogni tabella. Sul server vero
@@ -42,6 +46,7 @@ import { dirname, join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { restoreDb, snapshotDb, type DbSnapshot } from "../services/db-snapshot";
 import { createTaskService } from "../services/tasks";
+import { createTaskAttemptStore } from "../services/task-attempts";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -140,6 +145,60 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // POST /api/test/tasks/:taskId/attempts {attempts:[…]} — semina i tentativi
+    // di un fan-out. Stessa ragione di `bind-topic`: queste righe le scrive solo
+    // il dispatcher lanciando N agenti veri, e senza di esse il pannello
+    // "Tentativi" (e la scelta del vincitore, che è il verbo interessante) non
+    // sarebbe raggiungibile da nessun test end-to-end. Passa dallo store vero —
+    // nessuna seconda copia dello schema che possa invecchiare.
+    const seedAttempts = /^\/api\/test\/tasks\/([^/]+)\/attempts$/.exec(pathname);
+    if (method === "POST" && seedAttempts) {
+      const body = (await _req.json().catch(() => null)) as { attempts?: SeedAttempt[] } | null;
+      if (!Array.isArray(body?.attempts) || body.attempts.length === 0) {
+        return json({ error: "attempts required" }, 400);
+      }
+      const taskId = decodeURIComponent(seedAttempts[1]);
+      try {
+        const store = createTaskAttemptStore(db);
+        store.clear(taskId);
+        for (const [i, a] of body.attempts.entries()) {
+          const row = store.create({ taskId, idx: a.idx ?? i + 1, model: a.model ?? null });
+          store.bind(row.id, { topicId: a.topicId ?? null, worktreeId: a.worktreeId ?? null, branch: a.branch ?? null });
+          // `running` = tentativo ancora vivo: si semina NON chiamando finish().
+          if (a.state && a.state !== "running") {
+            store.finish(row.id, {
+              state: a.state === "failed" ? "failed" : "delivered",
+              commit: a.commit ?? null,
+              filesChanged: a.filesChanged ?? null,
+              insertions: a.insertions ?? null,
+              deletions: a.deletions ?? null,
+              summary: a.summary ?? null,
+              error: a.error ?? null,
+            });
+          }
+        }
+        return json({ ok: true, attempts: store.list(taskId) });
+      } catch (e) {
+        return json({ error: (e as Error).message }, 400);
+      }
+    }
+
     return null;
   };
+}
+
+/** Il tentativo come lo semina una spec: tutto opzionale tranne l'esito. */
+interface SeedAttempt {
+  idx?: number;
+  topicId?: string | null;
+  worktreeId?: string | null;
+  branch?: string | null;
+  model?: string | null;
+  state?: "running" | "delivered" | "failed";
+  commit?: string | null;
+  filesChanged?: number | null;
+  insertions?: number | null;
+  deletions?: number | null;
+  summary?: string | null;
+  error?: string | null;
 }
