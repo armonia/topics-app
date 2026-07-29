@@ -610,12 +610,26 @@ test.describe("Project Tabs", () => {
     // Shrink to a phone — the resize listener flips GroupLayout to mobile.
     await page.setViewportSize({ width: 390, height: 844 });
 
-    // SplitTree never renders on mobile → no group cells, and exactly one
-    // flattened tab strip carrying BOTH panes.
+    // SplitTree never renders on mobile → no group cells, and exactly una
+    // striscia di tab VISIBILE che porta ENTRAMBE le pane.
     await expect(page.locator("[data-group-cell]")).toHaveCount(0, {
       timeout: 5000,
     });
-    const bars = page.locator('[data-testid="panel-tab-bar"]');
+    // `:visible` e non il conteggio nudo, e la differenza conta (2026-07-29).
+    // La pane `project` non attiva resta MONTATA dietro il suo guscio
+    // `display:none` — è il keep-alive che fa il suo mestiere — e il
+    // `GroupLayout` annidato lì dentro disegna la propria barra, nascosta e
+    // senza tab. Contarla non dice niente sul layout che l'utente vede, che è
+    // ciò che questo test vuole dimostrare: sul telefono il progetto non si
+    // splitta, c'è UNA striscia sola.
+    //
+    // Prima passava per un motivo che non era un contratto: l'auto-split
+    // ri-montava `StandaloneChatGroup`, e il vecchio `visitedKeys` — stato
+    // locale del componente — si azzerava, buttando via il keep-alive di ogni
+    // pane non attiva. Il registro di residenza non si azzera a un remount,
+    // quindi la pane sopravvive: è il comportamento voluto, non un effetto
+    // collaterale.
+    const bars = page.locator('[data-testid="panel-tab-bar"]:visible');
     await expect(bars).toHaveCount(1);
     await expect(bars.first().locator('[draggable="true"]')).toHaveCount(2);
   });
