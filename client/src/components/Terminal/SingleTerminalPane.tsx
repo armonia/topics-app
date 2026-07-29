@@ -16,6 +16,7 @@ import { loadSettings, SETTINGS_CHANGED_EVENT } from '../../lib/settings';
 import { AuraWave } from '../AuraWave';
 import { bumpAura } from '../../lib/auraActivity';
 import { usePaneAlive } from '../../state/paneLiveness';
+import { isWindowAwake } from '../../state/windowAwake';
 
 const TOUCH_KEYS: { label: string; data: string; wide?: boolean }[] = [
   { label: 'Esc',    data: '\x1b' },
@@ -220,7 +221,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // uno schermo vecchio fino allo scadere del timer.
   useEffect(() => {
     const sync = () => {
-      const visible = isActive && !document.hidden && document.hasFocus();
+      // `isWindowAwake()` e non `!document.hidden && document.hasFocus()`: con una
+      // pane browser NATIVA key, il documento ospite legge hasFocus()=false
+      // mentre l'utente sta usando l'app, e questo terminale precipitava da
+      // 15 Hz a 4 — il "terminale che lagga". Vedi state/windowAwake.ts.
+      const visible = isActive && isWindowAwake();
       isVisibleRef.current = visible;
       // Scrittura IMMEDIATA solo dove c'è un eco da rendere immediato, cioè dove
       // sta il cursore della tastiera. Gli altri terminali visibili mostrano

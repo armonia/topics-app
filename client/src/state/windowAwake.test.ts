@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { isWindowAwake } from './windowAwake';
+import { markBrowserViewDead, markBrowserViewLive } from '../lib/shell/nativeBrowserRoster';
 
 /**
  * `isWindowAwake` decide se poll, rAF e observer di mezza app girano o dormono.
@@ -58,6 +59,33 @@ describe('isWindowAwake', () => {
   test('senza `document` (SSR, worker) fallisce APERTO', () => {
     delete (globalThis as { document?: unknown }).document;
     expect(isWindowAwake()).toBe(true);
+  });
+
+  test("con una webview FIGLIA viva, hasFocus()=false non conta piu'", () => {
+    // Un click dentro una pane browser nativa rende key la figlia: il documento
+    // ospite legge false ESATTAMENTE mentre l'utente sta usando l'app. Senza
+    // questo ramo, tutti i terminali visibili precipitavano da 15 Hz a 4.
+    stubDocument({ hidden: false, hasFocus: () => false });
+    expect(isWindowAwake()).toBe(false);
+    markBrowserViewLive('pane-browser-1');
+    try {
+      expect(isWindowAwake()).toBe(true);
+    } finally {
+      markBrowserViewDead('pane-browser-1');
+    }
+    expect(isWindowAwake()).toBe(false);
+  });
+
+  test('una figlia viva NON sovrascrive il documento nascosto', () => {
+    // Nascosto resta il segnale forte: minimizzata o in un altro Spazio, non la
+    // guarda nessuno per davvero, figlie o no.
+    stubDocument({ hidden: true, hasFocus: () => false });
+    markBrowserViewLive('pane-browser-2');
+    try {
+      expect(isWindowAwake()).toBe(false);
+    } finally {
+      markBrowserViewDead('pane-browser-2');
+    }
   });
 
   test('nascosto vince su a-fuoco', () => {
