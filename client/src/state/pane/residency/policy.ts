@@ -28,7 +28,7 @@
  * sul caso caro, strozzerebbe le chat; tarato sul caso leggero non conterrebbe
  * niente.
  */
-export type ResidencyClass = 'heavy' | 'light';
+export type ResidencyClass = 'native' | 'heavy' | 'light';
 
 export interface ResidencyCandidate {
   /** `stableKey ?? id` — sopravvive a PANE_ID_REMAP, come le chiavi React. */
@@ -73,6 +73,33 @@ export interface ResidencyDecision {
  * comportamento di prima (tutto ciò che è stato visitato resta montato).
  */
 export const RESIDENCY_BUDGET: Readonly<Record<ResidencyClass, number>> = {
+  // `native` = una pane che possiede una WKWebView. NON si sfratta MAI, e il
+  // motivo non e' che sia preziosa: e' che sfrattarla e' in PERDITA SECCA.
+  //
+  // wry non distrugge la webview quando la chiudi. In `wry-0.55.1`,
+  // `impl Drop for InnerWebView` chiama `self.webview.retain()` — INCREMENTA il
+  // conteggio dei riferimenti mentre distrugge. E' deliberato, e' il workaround
+  // per un use-after-free durante il dealloc (tauri-apps/wry#1733), ed e' lo
+  // stesso sintomo di wry#536 e tauri#5397: "does not terminate its process and
+  // not release memory when closed". Quindi `browser_close` toglie la view dallo
+  // schermo e dallo store di Tauri, ma il processo WebContent resta vivo per
+  // sempre.
+  //
+  // Conseguenza: ogni ciclo sfratto -> rientro non libera niente e AGGIUNGE un
+  // processo permanente. Misurato sull'app viva il 2026-07-29, ed e' il motivo
+  // per cui questo numero e' Infinity: con lo sfratto attivo, 61 processi e
+  // 4,1 GB in un'ora e mezza, contro i 65 processi accumulati in DICIOTTO ore
+  // quando le pane restavano semplicemente montate. Il tetto, che esisteva per
+  // contenere la memoria, la faceva crescere dodici volte piu' in fretta.
+  //
+  // Una pane browser nascosta non e' comunque a costo pieno: il guscio le
+  // consegna `isVisible=false` e `useTauriBrowser` spegne la WKWebView
+  // (`setNativeVisible(false)`), quindi smette di comporre e di ridisegnare.
+  // Resta la sua memoria — che sfrattandola non recupereremmo comunque.
+  //
+  // Da rivedere SOLO quando wry deallochera' davvero: allora questo torna un
+  // numero finito e il tetto ricomincia a valere anche qui.
+  native: Infinity,
   heavy: 3,
   light: 12,
 };
@@ -89,11 +116,18 @@ export const RESIDENCY_BUDGET: Readonly<Record<ResidencyClass, number>> = {
  */
 export const MIN_DWELL_MS = 4000;
 
-/** Le uniche due classi care: un processo di sistema per pane. */
-const HEAVY_TYPES = new Set<string>(['browser', 'project']);
+/** Possiede una WKWebView: sfrattarla non libera memoria e ne consuma altra. */
+const NATIVE_TYPES = new Set<string>(['browser']);
+/** Cara ma di solo DOM: `project` ospita un gruppo intero, e smontarlo LIBERA. */
+const HEAVY_TYPES = new Set<string>(['project']);
 
-/** Classifica una pane per costo. `project` è cara perché OSPITA un gruppo. */
+/**
+ * Classifica una pane per costo. La distinzione che conta non è "quanto pesa"
+ * ma "smontarla restituisce qualcosa?": per una pane `project` sì (è DOM), per
+ * una pane `browser` no (vedi la nota su `native` in `RESIDENCY_BUDGET`).
+ */
 export function residencyClassOf(paneType: string): ResidencyClass {
+  if (NATIVE_TYPES.has(paneType)) return 'native';
   return HEAVY_TYPES.has(paneType) ? 'heavy' : 'light';
 }
 
@@ -128,8 +162,11 @@ export function computeResident(input: ResidencyInput): ResidencyDecision {
     // Se due superfici la classificano diversamente vince `heavy`: sbagliare
     // per eccesso di prudenza costa uno slot, sbagliare per difetto costa un
     // processo da mezzo giga sfrattato mentre serve.
+    // Vince sempre la classe che si sfratta MENO: sbagliare per prudenza costa
+    // uno slot, sbagliare al contrario costa un processo che non torna piu'.
     const prev = byKey.get(c.key);
-    byKey.set(c.key, prev === 'heavy' ? 'heavy' : c.cls);
+    const rank = (k: ResidencyClass) => (k === 'native' ? 2 : k === 'heavy' ? 1 : 0);
+    byKey.set(c.key, prev !== undefined && rank(prev) >= rank(c.cls) ? prev : c.cls);
   }
 
   const resident = new Set<string>();
@@ -159,7 +196,11 @@ export function computeResident(input: ResidencyInput): ResidencyDecision {
   // dall'ordine di iterazione di una Map costruita da più superfici.
   contested.sort((a, b) => (b.touched - a.touched) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
-  const left: Record<ResidencyClass, number> = { heavy: budget.heavy, light: budget.light };
+  const left: Record<ResidencyClass, number> = {
+    native: budget.native,
+    heavy: budget.heavy,
+    light: budget.light,
+  };
   const evicted = new Set<string>(evictedEarly);
   for (const c of contested) {
     if (left[c.cls] > 0) {
