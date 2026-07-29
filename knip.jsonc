@@ -10,9 +10,26 @@
         "server/ai-bridge.mjs!", // spawned as a detached daemon
         "server/pty-bridge.mjs!", // idem
         "cli/topics.ts!", // the `topics` CLI binary
-        // scripts/hooks/* are invoked by Claude Code as `bun <path>` from its
-        // settings, never imported — hence `**`, not `scripts/*.ts`.
-        "scripts/**/*.ts!",
+        // Entrypoints are invoked as `bun <path>`, never imported, so knip
+        // can't reach them — but the `!` must be NARROW. A blanket
+        // `scripts/**/*.ts!` amnestied the whole folder: any dead script there
+        // was invisible by construction, which is how watch-board-tasks.ts sat
+        // orphaned for months. List the three families that really are
+        // entrypoints and let everything else in `scripts/` be checked.
+        "scripts/hooks/**/*.ts!",         // invoked by Claude Code from its settings
+        "scripts/check-*.ts!",            // wired to package.json / CI
+        "scripts/typecheck-*.ts!",
+        "scripts/e2e-shards-summary.ts!", // invoked by scripts/e2e-shards.sh:88
+        "scripts/gen-migrations-manifest.ts!", // run by hand to regenerate migrations-embedded.ts
+        "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
+        "scripts/disk-report.ts!",        // `bun run report:disk`
+        "scripts/*.test.ts!",             // run by `bun test ./scripts` in test:unit
+        // Everything else under scripts/ stays a PROJECT file only (see the
+        // `project` list below). Listing the folder here — with or without `!` —
+        // would re-grant the amnesty this narrowing exists to remove: any dead
+        // script would be invisible by construction. The cost of the explicit
+        // list is one line when a script is added; the benefit is that adding
+        // it forces the question "who calls this?" to have an answer.
         "server/db/seed.ts!", // one-shot JSON→SQLite migration, run by hand
         // `*.fixture.ts` = processo finto lanciato da un test con `bun <path>`
         // (es. l'agente ACP di `acp-provider.test.ts`): nessuno lo IMPORTA, il
@@ -52,8 +69,13 @@
       ]
     }
   },
-  "ignoreBinaries": ["playwright", "eslint", "spec-flow", "pkill"],
-  "ignoreDependencies": [],
+  // `du` and `tsc` are invoked by scripts/package.json but are not deps:
+  // POSIX coreutils and the tsc pinned under client/node_modules.
+  "ignoreBinaries": ["playwright", "eslint", "spec-flow", "pkill", "du", "tsc"],
+  // Caricato per PATH dal filesystem (tests/e2e/chat-layout-audit.spec.ts:34
+  // fa resolve su node_modules/axe-core/axe.min.js e lo inietta nella pagina),
+  // quindi non compare in nessun import e knip non può vederlo.
+  "ignoreDependencies": ["axe-core"],
   // Components declared AND consumed inside their own file (a local card
   // registry, the sub-components of one screen) are exported only so the file
   // reads as a set of named units. Without this knip flags ~150 of them and
