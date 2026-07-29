@@ -22,7 +22,7 @@ import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { discoverClaudeSubAgentSessionId, normalizePromptSnippet } from "../lib/claude-subagent-transcript";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { parseJsonlLine, splitJsonlChunk } from "../lib/claude-session-state";
-import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort, resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
+import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
 import type { SubAgentExitInfo } from "./subagent-exit";
 export type { SubAgentExitInfo } from "./subagent-exit";
 
@@ -1073,7 +1073,14 @@ async function createSession(id: string, name: string, cwd: string, command?: st
     // in its env, and the user's global effortLevel defaults to low, so without
     // an explicit flag every Topics PTY would start at low effort. Tunable via
     // TOPICS_CLAUDE_EFFORT (set "off" to defer to the CLI's own settings).
-    const claudeEffort = resolveClaudeEffort();
+    // L'override per-topic (migration 033, il selettore nel model picker) vince
+    // su ogni default — ma solo se glielo si passa: `resolveClaudeEffort()` senza
+    // argomento salta il primo ramo della sua catena, e questo percorso lo
+    // chiamava così. Il risultato è che il selettore era MORTO sul terminale
+    // interattivo: un topic messo a "medium" apriva comunque un PTY a xhigh, e
+    // sul percorso chat (claude-code.ts, che l'override lo passa) lo stesso topic
+    // si comportava diversamente. Due superfici, due effort, un solo selettore.
+    const claudeEffort = resolveClaudeEffort(topicEffortFor(getDatabase(), topicId));
     if (claudeEffort) args.push('--effort', claudeEffort);
     // Bridge the Topics MCP server into the interactive CLI so a terminal
     // Claude Code can surface a browser pane next to itself (the chat path
