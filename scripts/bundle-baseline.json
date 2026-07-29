@@ -1,0 +1,14 @@
+{
+  "$schema": "bundle-baseline-v1",
+  "_comment": [
+    "Measured from a real `bun run build:client`, 2026-07-29. Raise a number ONLY",
+    "in the same commit as the change that grew it, so the diff shows what it bought.",
+    "tolerance_pct absorbs the few bytes a minifier or hash change moves between",
+    "versions — without it the gate becomes noise and gets switched off within a month."
+  ],
+  "updated": "2026-07-29",
+  "tolerance_pct": 2,
+  "entry_eager": { "raw": 863819, "gz": 257257 },
+  "critical_path": { "raw": 1470549, "gz": 422647, "files": 6 },
+  "total_assets": { "raw": 7942647 }
+}

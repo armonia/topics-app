@@ -71,6 +71,12 @@ jobs:
       - name: Verify dev overlay stripped from the production bundle
         run: bun run verify:phase30-strip
 
+      # Reuses the bundle `verify:phase30-strip` just built — no second build.
+      # Bundle size was the one quality metric with no ratchet under it, and it
+      # drifted ~3 KB on the eager entry in a single day with nobody noticing.
+      - name: Bundle size budget
+        run: bun run check:bundle
+
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external
   # services or repo secrets needed: NO_TLS=1 and dummy GATEWAY_TOKEN/URL
