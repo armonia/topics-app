@@ -55,6 +55,54 @@ const CONTEXT_WINDOWS: Record<string, number> = {
  */
 const LONG_WINDOW_MARKERS = ["[1m]", "-1m", ":1m", "1m-context", "context-1m"];
 
+/** true = il nome dichiara la variante a finestra lunga. */
+export function hasLongWindowMarker(model: string | null | undefined): boolean {
+  if (!model || typeof model !== "string") return false;
+  const lower = model.toLowerCase();
+  return LONG_WINDOW_MARKERS.some((m) => lower.includes(m));
+}
+
+/**
+ * Quale nome usare per DIMENSIONARE la finestra, dati quello richiesto e quello
+ * che ha davvero servito la chiamata.
+ *
+ * Il problema: `[1m]` è una modalità di servizio, non un modello diverso, e la
+ * CLI nei suoi eventi riporta il nome NUDO (`claude-opus-5`). Chi sceglieva
+ * "1M" dal picker si vedeva quindi il denominatore a 200k e un anello al 90%
+ * mentre era al 18% — il numero giusto c'era, lo perdeva chi lo riportava.
+ *
+ * La regola: il suffisso della richiesta sopravvive solo se la chiamata è stata
+ * servita dallo STESSO modello. Se la CLI è ripiegata su un altro (fast mode,
+ * sovraccarico), comanda il modello che ha risposto, finestra compresa — è lui
+ * che dimensiona il turno.
+ */
+export function windowModelFor(
+  perCallModel: string | null | undefined,
+  requestedModel: string | null | undefined,
+): string | null {
+  const perCall = perCallModel || null;
+  const requested = requestedModel || null;
+  if (!perCall) return requested;
+  if (!requested) return perCall;
+  if (hasLongWindowMarker(perCall) || !hasLongWindowMarker(requested)) return perCall;
+  // La richiesta è a finestra lunga e la risposta ha perso il suffisso: è lo
+  // stesso modello solo se un nome è il prefisso dell'altro una volta tolto il
+  // marcatore (la CLI può aggiungere una data: `claude-opus-5-20260101`).
+  const base = stripLongWindowMarker(requested);
+  const a = perCall.toLowerCase();
+  const b = base.toLowerCase();
+  return a.startsWith(b) || b.startsWith(a) ? requested : perCall;
+}
+
+function stripLongWindowMarker(model: string): string {
+  let out = model;
+  for (const m of LONG_WINDOW_MARKERS) {
+    const i = out.toLowerCase().indexOf(m);
+    if (i >= 0) out = out.slice(0, i) + out.slice(i + m.length);
+  }
+  return out;
+}
+
 export interface ContextWindow {
   /** Token che il modello regge in ingresso. */
   tokens: number;

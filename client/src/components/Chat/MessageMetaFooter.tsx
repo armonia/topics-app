@@ -34,22 +34,33 @@ function safeNum(v: number | null | undefined): number {
  * The format mirrors the reference screenshot: `<duration>s · <tokens> tokens · $<cost>`.
  */
 export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, costCents }: Props) {
-  const total = safeNum(promptTokens) + safeNum(completionTokens);
-  const parts: string[] = [];
+  const prompt = safeNum(promptTokens);
+  const completion = safeNum(completionTokens);
+  const total = prompt + completion;
+  const parts: Array<{ text: string; title?: string }> = [];
+  // Il totale è dominato dai token LETTI, e in un turno agentico lungo quelli
+  // sono lo stesso prompt riletto dalla cache a ogni chiamata al modello: si
+  // arriva a milioni su una finestra da 200k, e senza spiegazione sembra un
+  // conteggio rotto. Il dettaglio sta nel title invece che in una terza voce:
+  // la striscia deve restare una riga sola.
+  const tokensTitle =
+    total > 0
+      ? `${prompt.toLocaleString()} letti (prompt di ogni chiamata del turno, riletture dalla cache incluse) · ${completion.toLocaleString()} prodotti`
+      : undefined;
 
   const safeLatency = safeNum(latencyMs);
   if (safeLatency > 0) {
     // Same formatter as the tool/turn timers so a slow turn reads "1m 30s",
     // not "90s" — one consistent duration language across the chat.
-    parts.push(formatDurationMs(safeLatency));
+    parts.push({ text: formatDurationMs(safeLatency) });
   }
   if (total > 0) {
-    parts.push(`${total.toLocaleString()} tokens`);
+    parts.push({ text: `${total.toLocaleString()} tokens`, title: tokensTitle });
   }
   const safeCost = safeNum(costCents);
   if (safeCost > 0) {
     const usd = safeCost / 100;
-    parts.push(usd >= 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(4)}`);
+    parts.push({ text: usd >= 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(4)}` });
   }
 
   if (parts.length === 0) return null;
@@ -59,7 +70,7 @@ export function MessageMetaFooter({ latencyMs, promptTokens, completionTokens, c
       {parts.map((p, i) => (
         <span key={i} className="flex items-center gap-1.5">
           {i > 0 && <span className="text-app-text-muted/60">·</span>}
-          <span>{p}</span>
+          <span {...(p.title ? { title: p.title } : {})}>{p.text}</span>
         </span>
       ))}
     </div>
