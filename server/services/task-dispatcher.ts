@@ -826,7 +826,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered}`
           : base;
         try {
-          const delivered = deps.svc.deliverToReviewBySystem({ taskId, reason });
+          const delivered = deps.svc.deliverToReviewBySystem({
+            taskId,
+            reason,
+            // Due cause distinte, non una: "ha lavorato ma è finito il budget di
+            // turni" si può rimandare indietro e riparte; "il modello si è
+            // rifiutato" no — riproverebbe a rifiutarsi. Il reviewer decide
+            // diversamente nei due casi, quindi la card deve dirglielo.
+            cause: needsHuman(end) ? "model_refused" : "retries_exhausted",
+          });
           emit(delivered);
           // System-delivery bypasses the route PATCH, so the review-edge
           // notification (OS banner + web-push) would never fire. Emit it here:

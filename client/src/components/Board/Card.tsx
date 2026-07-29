@@ -2,11 +2,11 @@ import { memo, useState, useEffect, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArrowUpRight, ClipboardList, Lock, MessageSquare, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, ClipboardList, Hourglass, Lock, MessageSquare, Plus, Send, ShieldCheck, ShieldX, Trash2 } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, STATUS_LABEL, parseQuestionBlock, isProjectlessId, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { boardApi, STATUS_LABEL, parseQuestionBlock, isProjectlessId, systemDeliveryNote, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
@@ -202,7 +202,11 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // Solo il ROSSO va sulla card: un verde è la norma e riempirebbe la colonna di
   // spunte che nessuno legge, mentre il rosso è la ragione per non aprire il task.
   const checksRed = task.checksState === 'fail';
-  const hasMetaRow = !!((blocker && blocker.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed);
+  // Solo in Review: lì la domanda è "cosa guardo?", e la risposta cambia se
+  // nessun agent ha detto "fatto". Su una card done sarebbe archeologia (il
+  // drawer la conserva comunque).
+  const systemDelivered = task.status === 'review' && task.deliveredBy === 'system';
+  const hasMetaRow = !!((blocker && blocker.status !== 'done') || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || notLanded || checksRed || systemDelivered);
 
   return (
     <div
@@ -351,6 +355,12 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
               title={`${task.userCommentCount} ${task.userCommentCount === 1 ? 'tuo messaggio' : 'tuoi messaggi'} nel thread (esclusa l'AI)`}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-neutral-300"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
+          )}
+          {systemDelivered && (
+            <span
+              title={systemDeliveryNote(task.deliveredReason)}
+              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-300"
+            ><Hourglass className="h-3 w-3 shrink-0" /> {task.deliveredReason === 'model_refused' ? 'agent bloccato' : 'non consegnato'}</span>
           )}
           {notLanded && (
             <span

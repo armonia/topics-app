@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
-import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
@@ -10,7 +10,7 @@ import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, type TaskSurface } from './constants';
@@ -39,6 +39,28 @@ function hostLabel(url: string): string {
  * exit code e coda dell'output, cioè quello che serve per capire senza aprire un
  * terminale.
  */
+/**
+ * "Questo non l'ha consegnato l'agent."
+ *
+ * Il caso da distinguere: il dispatcher porta in review un task il cui turno è
+ * finito senza che l'agent lo consegnasse (tentativi esauriti, o modello che si
+ * rifiuta). La card e il drawer erano identici a una consegna vera, e il
+ * reviewer scopriva solo aprendo il diff che non c'era niente da vedere. Sta
+ * SOPRA i bottoni perché cambia la decisione, non a fondo pagina come una nota.
+ */
+function SystemDeliveryNotice({ task }: { task: BoardTask }) {
+  if (task.deliveredBy !== 'system') return null;
+  return (
+    <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+      <Hourglass className="mt-px h-3 w-3 shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="font-medium">Portato in review dal sistema.</span>{' '}
+        {systemDeliveryNote(task.deliveredReason)}
+      </span>
+    </div>
+  );
+}
+
 function ChecksSection({ task }: { task: BoardTask }) {
   const [open, setOpen] = useState(false);
   if (!task.checksState) return null;
@@ -1378,6 +1400,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 {/* L'evidenza sta ATTACCATA alla decisione: il gate rifiuta un
                     approve coi checks rossi, e scoprirlo da un 409 dopo il click
                     sarebbe farsi spiegare da un errore quello che si poteva vedere. */}
+                <SystemDeliveryNotice task={task} />
                 <ChecksSection task={task} />
                 <div className="flex items-center gap-1.5">
                   <button

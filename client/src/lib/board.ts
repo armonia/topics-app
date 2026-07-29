@@ -50,6 +50,25 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   done: 'Done',
 };
 
+/**
+ * Perché il sistema ha portato in review un task che l'agente non ha consegnato.
+ * Due cause, due decisioni diverse per il reviewer — perciò due testi diversi e
+ * non un generico "chiuso dal sistema".
+ */
+export const SYSTEM_DELIVERY_REASON: Record<'retries_exhausted' | 'model_refused', string> = {
+  retries_exhausted:
+    "L'agent ha finito i tentativi senza mettere in review da solo: sotto può non esserci un deliverable. Rimandandolo indietro riparte sulla stessa sessione.",
+  model_refused:
+    "Il modello si è rifiutato di proseguire: nessun ritentativo automatico può sbloccarlo. Serve una decisione tua — rimandarlo indietro identico otterrebbe lo stesso rifiuto.",
+};
+
+/** Il testo giusto per una consegna di sistema, causa nota o meno. */
+export function systemDeliveryNote(reason: BoardTask['deliveredReason']): string {
+  return reason
+    ? SYSTEM_DELIVERY_REASON[reason]
+    : "Non l'ha consegnato l'agent: ce l'ha portato il sistema a fine turno. Sotto può non esserci un deliverable — guarda il thread prima di aprire il diff.";
+}
+
 export interface BoardTask {
   id: string;
   projectId: string;
@@ -114,6 +133,11 @@ export interface BoardTask {
   /** Commit su cui sono girati: se il branch è avanzato, il verde è scaduto. */
   checksCommit: string | null;
   checks: CheckRun[] | null;
+  /** Chi l'ha portato in review. 'system' = non è una consegna: è un turno finito
+   *  male che qualcuno deve guardare, e sotto può non esserci un deliverable. */
+  deliveredBy: 'agent' | 'human' | 'system' | null;
+  /** Perché, quando `deliveredBy === 'system'`. La prosa sta nel thread. */
+  deliveredReason: 'retries_exhausted' | 'model_refused' | null;
 }
 
 export interface TaskComment {

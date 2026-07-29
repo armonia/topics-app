@@ -25,7 +25,8 @@ function freshDb(): Database {
     agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
     agent_cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     model TEXT, blocked_by_task_id TEXT REFERENCES tasks(id), reuse_blocker_context INTEGER NOT NULL DEFAULT 0,
-    priority_auto INTEGER NOT NULL DEFAULT 1
+    priority_auto INTEGER NOT NULL DEFAULT 1,
+    delivered_by TEXT, delivered_reason TEXT
   )`);
   db.run(`CREATE TABLE board_settings (
     project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
@@ -379,6 +380,10 @@ describe("task-dispatcher", () => {
     expect(h.turns.length).toBe(1);
     const notes = h.svc.get("t1")!.comments.map((c) => c.content).join("\n");
     expect(notes).toContain("rifiutato");
+    // 1.3 — e la card lo dice da sé: non è una consegna dell'agent, e la causa
+    // è quella per cui rimandarlo indietro identico non serve a niente.
+    expect(t.deliveredBy).toBe("system");
+    expect(t.deliveredReason).toBe("model_refused");
   });
 
   it("uno STOP dell'umano riprende senza costare un tentativo", async () => {
@@ -487,6 +492,10 @@ describe("task-dispatcher", () => {
     expect(t.status).toBe("review");            // handed to the human, NOT failed
     expect(t.dispatchState).toBe("needs_input");
     expect(t.assignedTopicId).not.toBeNull();   // binding kept: a reject resumes it
+    // 1.3 — la card non si spaccia per una consegna dell'agent, e dice la causa
+    // giusta: qui i tentativi sono finiti, quindi rimandarlo indietro RIPARTE.
+    expect(t.deliveredBy).toBe("system");
+    expect(t.deliveredReason).toBe("retries_exhausted");
   });
 
   it("RECOVERS the agent's last words into the SYSTEM note when a worked turn dies before review", async () => {
@@ -521,6 +530,9 @@ describe("task-dispatcher", () => {
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");
     expect(t.dispatchState).toBe("failed"); // genuinely empty → failure, not review
+    // Nessuno l'ha consegnato: il timbro resta vuoto, non 'system'.
+    expect(t.deliveredBy).toBeNull();
+    expect(t.deliveredReason).toBeNull();
   });
 
   it("does NOT recover into the note when the agent already left a fresh comment", async () => {
