@@ -68,6 +68,20 @@ export default defineConfig({
   fullyParallel: false, // sequential to avoid race conditions on shared DB
   workers: 1, // single worker: shared DB + capped CPU (avoids the headless-Chrome swarm that pegs the machine)
   retries: IS_PR ? 2 : 1, // PR gate absorbs residual flakiness under CI contention
+  // Fail-fast in locale, quadro completo su CI.
+  //
+  // Quando il server di test muore — o la macchina è troppo carica per farlo
+  // rispondere — OGNI test successivo fallisce con `ECONNREFUSED :13334`, e il
+  // riepilogo dice "16 passed, 424 did not run" senza mai nominare la causa. Per
+  // scoprirla bisogna aprire uno degli 88 artifact e leggere l'errore: un'ora
+  // buttata a triagiare fallimenti che sono tutti lo stesso, e nel frattempo un
+  // rosso da infrastruttura è indistinguibile da 88 regressioni vere.
+  //
+  // Otto fallimenti bastano a distinguere "qualcosa è rotto nel codice" da "il
+  // server non c'è": nel secondo caso ci si arriva in un minuto invece che in
+  // diciassette. Su CI resta 0 (nessun limite), perché il nightly serve proprio
+  // a vedere TUTTO quello che è rotto in una passata.
+  maxFailures: process.env.CI ? 0 : 8,
   reporter: [
     ["html", { outputFolder: "test-results/html-report", open: "never" }],
     ["list"],
