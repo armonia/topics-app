@@ -216,6 +216,71 @@ fn proc_memory(pid: i32) -> Option<(u64, u64)> {
     Some((buf[9], buf[8]))
 }
 
+/// Tempo di CPU consumato da un pid dalla sua nascita, in nanosecondi.
+///
+/// Stessi slot di `proc_memory`, che li leggeva gia' e li buttava via: 2 e'
+/// `ri_user_time`, 3 e' `ri_system_time`. E' la stessa grandezza che `ps -o time`
+/// riporta e su cui si misura la CPU dall'esterno — quindi il numero della status
+/// bar e quello di una sonda esterna parlano finalmente della stessa cosa.
+#[cfg(target_os = "macos")]
+fn proc_cpu_ns(pid: i32) -> Option<u64> {
+    const RUSAGE_INFO_V2: i32 = 2;
+    let mut buf = [0u64; 64];
+    if unsafe { proc_pid_rusage(pid, RUSAGE_INFO_V2, buf.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    Some(buf[2].saturating_add(buf[3]))
+}
+
+/// Il campione precedente di CPU per pid: (nanosecondi cumulati, quando).
+///
+/// PERCHE' NON `sysinfo::cpu_usage()`. Il suo valore e' il delta contro l'ultimo
+/// refresh di CHIUNQUE, e i lettori sono piu' d'uno (status bar a 5 s, pannello
+/// del dropdown a 1,5 s, ogni finestra staccata). Ho provato a curarlo mettendo
+/// una finestra minima di 2 s davanti al comando; misurato dopo quella cura, la
+/// status bar diceva ancora 224% mentre la CPU vera del gruppo — delta di tempo
+/// CPU su finestra fissa di 15 s, dall'esterno — era 46,3%. Fattore cinque
+/// rimasto: mettere una cache davanti a un numero sbagliato non lo raddrizza.
+///
+/// Qui il delta e' NOSTRO: due letture dello stesso contatore cumulativo e il
+/// tempo esatto trascorso fra le due. Non dipende da chi altro chiama, da quante
+/// finestre sono aperte, o da cosa fa sysinfo dentro.
+#[cfg(target_os = "macos")]
+static PERF_CPU_PREV: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<i32, (u64, std::time::Instant)>>,
+> = std::sync::OnceLock::new();
+
+/// Percentuale di CPU per pid dall'ultima chiamata, e aggiorna il campione.
+///
+/// `None` per un pid senza campione precedente: la prima lettura non ha una
+/// finestra su cui dividere, e inventare uno zero o un valore parziale e'
+/// esattamente il modo in cui un contatore comincia a mentire. Anche un delta
+/// negativo torna `None` — vuol dire che il pid e' stato riusato da un processo
+/// nuovo, e la differenza fra due processi diversi non significa niente.
+#[cfg(target_os = "macos")]
+fn proc_cpu_percent(pid: i32, live: &std::collections::HashSet<i32>) -> Option<f32> {
+    let now_ns = proc_cpu_ns(pid)?;
+    let now = std::time::Instant::now();
+    let cell = PERF_CPU_PREV.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut g = cell.lock().ok()?;
+    // Pota i pid morti a ogni giro: senza, questa mappa cresce quanto il numero
+    // di webview mai aperte.
+    g.retain(|k, _| live.contains(k));
+    let out = match g.get(&pid) {
+        Some(&(prev_ns, prev_at)) => {
+            let dt = now.duration_since(prev_at).as_secs_f64();
+            if dt <= 0.0 || now_ns < prev_ns {
+                None
+            } else {
+                Some(((now_ns - prev_ns) as f64 / 1e9 / dt * 100.0) as f32)
+            }
+        }
+        None => None,
+    };
+    g.insert(pid, (now_ns, now));
+    out
+}
+
 /// Persisted System so `cpu_usage()` is a REAL delta. sysinfo derives per-process
 /// CPU from the change in CPU time between two refreshes; a fresh `System::new()`
 /// per call has no prior sample, so `cpu_usage()` was always 0.0 (the status bar's
@@ -329,8 +394,17 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
     {
         let mut sys = sys_mutex.lock().unwrap_or_else(|e| e.into_inner());
         sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&sysinfo_pids), true);
+        // L'insieme vivo, per potare i campioni dei pid morti.
+        #[cfg(target_os = "macos")]
+        let live: std::collections::HashSet<i32> = pids.iter().copied().collect();
         for (raw, spid) in pids.iter().zip(sysinfo_pids.iter()) {
             let Some(p) = sys.process(*spid) else { continue };
+            // sysinfo resta per il NOME (che decide il bucket, e con esso lo split
+            // renderer/gpu anche della memoria) e per il ramo non-macOS. Per la
+            // CPU, su macOS, il delta ce lo calcoliamo noi: vedi `PERF_CPU_PREV`.
+            #[cfg(target_os = "macos")]
+            let cpu = proc_cpu_percent(*raw, &live).unwrap_or(0.0);
+            #[cfg(not(target_os = "macos"))]
             let cpu = p.cpu_usage();
             cpu_percent += cpu;
             let b = bucket(&p.name().to_string_lossy());
