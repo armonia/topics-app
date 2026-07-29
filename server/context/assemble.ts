@@ -119,6 +119,18 @@ export interface AssembleArgs {
   historyLimit?: number;
 
   /**
+   * Messaggi su cui costruire la history, invece del thread attivo letto dalla
+   * tabella.
+   *
+   * Serve a edit/regenerate (`server/routes/edit.ts`), che lavora su un ramo
+   * TRONCATO: rigenerando una risposta il modello non deve vedere quella che sta
+   * rimpiazzando, e il taglio all'ancora non è esprimibile con una query. Senza
+   * questo, quel percorso non poteva usare l'envelope e si è ritrovato a
+   * ricostruire i blocchi di sistema a mano — perdendone sette per strada.
+   */
+  historyOverride?: StoredMessage[];
+
+  /**
    * When `false` (production send path), the most recent user turn is
    * dropped from `history[]` because the caller passes it via
    * `userMessage` / `payload.userContent`. When `true` (inspector preview)
@@ -171,6 +183,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     planMode = false,
     fastMode = false,
     leanContext = false,
+    historyOverride,
   } = args;
 
   const topic = ctx.getTopicBySessionKey(sessionKey);
@@ -236,7 +249,11 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   }
 
   // ── History ───────────────────────────────────────────────────────────
-  const stored = ctx.loadLocalMessages(sessionKey);
+  // `historyOverride` serve a edit/regenerate: quel percorso lavora su un ramo
+  // TRONCATO (il modello non deve vedere la risposta che sta rimpiazzando), e
+  // il troncamento non è esprimibile leggendo la tabella. Assente ⇒ si legge il
+  // thread attivo, che è il caso di tutti gli altri chiamanti.
+  const stored = historyOverride ?? ctx.loadLocalMessages(sessionKey);
   const { history, historyEntries, droppedHistoryTurns } = buildHistoryWithDiagnostics(
     stored,
     { historyLimit, includeLastUserInHistory },

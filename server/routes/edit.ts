@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { AIProvider, ChatMessage } from "../providers";
+import { adaptEnvelope, assembleTopicContext } from "../context";
 
 export interface EditDeps {
   resolveProvider: (topic?: Topic | null) => AIProvider;
@@ -20,7 +19,7 @@ export interface EditDeps {
 export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler {
   const {
     json, readJSON, matchRoute, getMessageById, getMessageSessionKey, createBranchMessage,
-    getTopicBySessionKey, loadActiveThread, resolveTopicCwd, appendLocalMessage, broadcastToAll, broadcastToTopicSubscribers,
+    getTopicBySessionKey, loadActiveThread, broadcastToAll, broadcastToTopicSubscribers,
     createBranchPartialMessage, startStream, updateLastMessage, endStream, updateStreamContent, isStreaming,
   } = ctx;
   const { resolveProvider, updateUnreadCount } = deps;
@@ -45,70 +44,46 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
     const matchedTopic = getTopicBySessionKey(sessionKey);
     const topicProvider = resolveProvider(matchedTopic);
 
-    // Build the messages array from the active thread up to (and including) the new user message
+    // Il ramo del prompt su cui rigenerare. Per REGENERATE va tagliato all'ancora:
+    // il modello non deve vedere la risposta che sta rimpiazzando.
     let activeThread = loadActiveThread(sessionKey);
     if (opts?.truncateAfterAnchor) {
       const anchorIdx = activeThread.findIndex(m => m.id === newUserMsgId);
       if (anchorIdx >= 0) activeThread = activeThread.slice(0, anchorIdx + 1);
     }
-    const finalMessages: ChatMessage[] = activeThread.map(m => ({
-      role: m.role,
-      content: m.content,
-    }));
 
-    // Add system messages (system prompt, context files, etc.)
+    // Contesto dall'envelope canonico, non ricostruito a mano.
+    //
+    // Fino al 29/07 queste righe erano una SECONDA implementazione del preambolo:
+    // system prompt, file di contesto e template ricopiati da `assemble.ts` con
+    // le stesse stringhe («Context files for this topic:») e destinati a divergere
+    // — mentre `envelope.ts` dichiarava che di ricostruzioni indipendenti non ce
+    // n'erano. Ne mancavano SETTE blocchi: project-awareness (il cwd, che è
+    // load-bearing), istruzioni browser, project-markers, topic-switch, memoria,
+    // pinned e goal. E i template non passavano da `disabledContextSources`, così
+    // un CLAUDE.md spento nell'inspector rientrava dalla finestra a ogni Rigenera.
+    //
+    // Strategia `history-aware` SEMPRE, qualunque sia il provider: questo percorso
+    // non parla con la sessione CLI residente — chiama `streamHTTP`/`complete`,
+    // che sono stateless e vogliono l'intero thread. Per la stessa ragione NON
+    // partecipa alla deduplicazione del preambolo: non c'è una sessione che se lo
+    // ricordi, e ogni chiamata deve essere autosufficiente.
+    let finalMessages: ChatMessage[];
     if (matchedTopic) {
-      const disabled = matchedTopic.disabledContextSources || [];
-      const isSourceEnabled = (id: string) => !disabled.includes(id);
-      if (matchedTopic.systemPrompt && isSourceEnabled("prompt:system")) {
-        finalMessages.unshift({ role: "system", content: matchedTopic.systemPrompt });
-      }
-      if (matchedTopic.contextFiles && matchedTopic.contextFiles.length > 0) {
-        const contextParts: string[] = [];
-        for (const filePath of matchedTopic.contextFiles) {
-          if (!isSourceEnabled(`file:${filePath}`)) continue;
-          if (existsSync(filePath)) {
-            try {
-              const content = readFileSync(filePath, "utf-8");
-              const fileName = filePath.split("/").pop() || filePath;
-              contextParts.push(`--- File: ${fileName} ---\n${content}`);
-            } catch {}
-          }
-        }
-        if (contextParts.length > 0) {
-          const insertIdx = (matchedTopic.systemPrompt && isSourceEnabled("prompt:system")) ? 1 : 0;
-          finalMessages.splice(insertIdx, 0, { role: "system", content: `Context files for this topic:\n\n${contextParts.join("\n\n")}` });
-        }
-      }
-      // Phase A: prefer the bound worktree's directory for template auto-
-      // loading (CLAUDE.md, README.md, …). Falls back to projectPath for
-      // unbound (legacy) topics. The system-message label still cites the
-      // project's logical path so the agent's mental model stays project-
-      // centric, not worktree-centric.
-      {
-        const projectDir = resolveTopicCwd(matchedTopic);
-        const projectLabel = matchedTopic.projectPath || projectDir || null;
-        if (projectDir && existsSync(projectDir)) {
-          const TEMPLATE_FILES = ["CLAUDE.md", "README.md", ".cursorrules", "AGENTS.md"];
-          const templateParts: string[] = [];
-          for (const name of TEMPLATE_FILES) {
-            let filePath = join(projectDir, name);
-            if (!existsSync(filePath) && name === "CLAUDE.md") {
-              const altPath = join(projectDir, ".claude", "CLAUDE.md");
-              if (existsSync(altPath)) filePath = altPath;
-            }
-            if (existsSync(filePath)) {
-              try { templateParts.push(`--- Project file: ${name} ---\n${readFileSync(filePath, "utf-8")}`); } catch {}
-            }
-          }
-          if (templateParts.length > 0 && projectLabel) {
-            const insertIdx = finalMessages.findIndex(m => m.role !== "system");
-            finalMessages.splice(insertIdx >= 0 ? insertIdx : finalMessages.length, 0, {
-              role: "system", content: `Project context files (from ${projectLabel}):\n\n${templateParts.join("\n\n")}`,
-            });
-          }
-        }
-      }
+      const envelope = assembleTopicContext(ctx, {
+        sessionKey,
+        providerName: topicProvider.name,
+        providerStrategy: "history-aware",
+        userMessageOverride: { content: userContent, messageId: newUserMsgId },
+        includeLastUserInHistory: false,
+        historyOverride: activeThread,
+      });
+      const payload = adaptEnvelope(envelope);
+      finalMessages = [...(payload.history ?? []), { role: "user", content: payload.userContent }];
+    } else {
+      // Nessun topic su questa sessione: non c'è contesto da assemblare, resta il
+      // thread nudo (era il comportamento anche prima, per la guardia `if (matchedTopic)`).
+      finalMessages = activeThread.map(m => ({ role: m.role, content: m.content }));
     }
 
     try {
@@ -122,7 +97,14 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         // Fallback: use complete() and synthesize an SSE response
         const result = await topicProvider.complete(finalMessages);
         clearTimeout(timeoutId);
-        const storedAssistant = appendLocalMessage(sessionKey, "assistant", result.content);
+        // FRATELLO dell'ancora, non coda del thread. `appendLocalMessage` aggancia
+        // in fondo al ramo attivo con branchIndex 0: su REGENERATE la risposta nuova
+        // diventava FIGLIA di quella che doveva sostituire, quindi le frecce non la
+        // mostravano come alternativa e la vecchia restava l'unica raggiungibile.
+        // `createBranchPartialMessage` alloca l'indice giusto sotto l'ancora e attiva
+        // il ramo nuovo — è quello che fa già il percorso in streaming qui sotto.
+        const storedAssistant = createBranchPartialMessage(sessionKey, newUserMsgId);
+        updateLastMessage(sessionKey, { content: result.content, partial: undefined, streamedAt: undefined });
         if (matchedTopic) broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedAssistant.id, content: result.content, preview: result.content.slice(0, 100) });
         const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(result.content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
         return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
