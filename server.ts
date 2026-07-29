@@ -2144,6 +2144,13 @@ const staleStreamTimer = setInterval(() => {
       // dispatcher) deve leggere "fermato dal watchdog", non la fine di default.
       recordTurnEnd(sessionKey, cancelled("watchdog", "stale stream sweep"));
       broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "stale_timeout", stopReason: "cancelled", stopCause: "watchdog" });
+      // Sveglia il client HTTP. Il broadcast sopra parla ai soli spettatori WS:
+      // chi ha MANDATO il messaggio sta leggendo la risposta SSE, e quel canale
+      // scarta per contratto gli eventi WS della propria sessione. Senza questo
+      // abort la sua richiesta resta aperta su un turno che qui abbiamo appena
+      // dichiarato morto — la chat continua a mostrare i puntini finché non
+      // ricarica la pagina. La route ci ha lasciato l'AbortController apposta.
+      try { stream.abortController?.abort(); } catch (err) { console.warn(`[StaleStream] abort SSE fallito per ${sessionKey}:`, err); }
     }
   }
 }, STALE_STREAM_CHECK_INTERVAL_MS);

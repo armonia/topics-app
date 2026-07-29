@@ -599,7 +599,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const partialMsg = body.mode === "reattach"
             ? reuseOrCreatePartialForReattach(sessionKey)
             : createPartialMessage(sessionKey, "assistant");
-          startStream(sessionKey, partialMsg.id);
+          // L'AbortController registrato insieme allo stream è l'unica maniglia
+          // che chi finalizza da FUORI questa route ha sul client SSE. Lo
+          // sweeper `[StaleStream]` (server.ts) chiudeva il turno in DB e
+          // broadcastava `stream:end`, ma la risposta HTTP restava aperta per
+          // sempre: il browser continuava ad aspettare `[DONE]` su un turno già
+          // morto — la chat "appesa a caricare" che si sbloccava solo con un
+          // reload. Il listener sotto trasforma quell'abort nella chiusura che
+          // mancava.
+          const externalAbort = new AbortController();
+          startStream(sessionKey, partialMsg.id, externalAbort);
           broadcastToAll({ type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id });
 
           // Create SSE response for the HTTP client
@@ -898,9 +907,28 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           };
 
           // Hard timer is armed once at stream start and is the only timer
-          // never reset by events. Soft timer arms lazily on first event /
-          // when no tools are running.
+          // never reset by events.
           hardTimer = setTimeout(handleHardTimeout, STREAM_HARD_TIMEOUT_MS);
+          // Il soft timer parte SUBITO, non al primo evento del provider. Prima
+          // lo armava solo `resetStreamTimer`, quindi un turno che non emetteva
+          // NULLA (CLI wedged, MCP che non risponde all'init, `--resume` che non
+          // parte) non produceva né `stream:slow` né soft-timeout: nei log di
+          // prod zero occorrenze di entrambi a fronte di turni finalizzati dallo
+          // sweeper. Il silenzio iniziale è esattamente il caso da sorvegliare.
+          armSoftTimer();
+
+          // Finalizzazione decisa da FUORI (sweeper StaleStream): il turno è già
+          // chiuso in DB e annunciato via WS, qui resta solo da liberare il
+          // client SSE, che altrimenti aspetta `[DONE]` all'infinito.
+          externalAbort.signal.addEventListener("abort", () => {
+            if (streamState === "finalized") return;
+            console.warn(`[StreamWS] finalizzazione esterna su ${sessionKey} — chiudo l'SSE`);
+            streamState = "finalized";
+            clearAllTimers();
+            topicProvider.unregisterStreamHandler?.(sessionKey);
+            writeSSE("[DONE]").then(() => closeClient())
+              .catch((err) => console.warn(`[StreamWS] DONE/close su abort esterno fallito:`, err));
+          }, { once: true });
 
           // Helper: finalize the stream (called on done/error/abort)
           const finalizeStream = async (
