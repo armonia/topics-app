@@ -34,7 +34,13 @@ export interface OverlayRect { left: number; top: number; right: number; bottom:
 let overlays: OverlayRect[] = [];
 let lastKey = '';
 const listeners = new Set<(overlays: OverlayRect[]) => void>();
-let started = false;
+/** Live observer handle, or null when nobody is watching. Was a one-way
+ *  `started = true`: the first browser pane ever mounted armed a
+ *  `document.body` + `subtree:true` MutationObserver that then ran for the rest
+ *  of the session — long after that pane was closed, with zero subscribers left
+ *  to notify. Every node xterm and the streaming chat add or remove still cost a
+ *  queued MutationRecord. Now it is refcounted by `listeners`. */
+let observer: MutationObserver | null = null;
 let scheduled = false;
 
 function recompute(): void {
@@ -88,14 +94,31 @@ export function slotIsOccluded(slot: { x: number; y: number; width: number; heig
  *  current overlay rects; consumers decide intersection per pane. Returns an
  *  unsubscribe fn. Lazily starts the observer on first subscription (Tauri). */
 export function onOcclusionChange(fn: (overlays: OverlayRect[]) => void): () => void {
-  if (isTauri) startObserver();
   listeners.add(fn);
-  return () => listeners.delete(fn);
+  if (isTauri) startObserver();
+  return () => {
+    listeners.delete(fn);
+    // Last browser pane gone → tear the body-wide observer down. Nothing can
+    // be occluded when there is no native pane to occlude, and leaving it armed
+    // made every DOM mutation in the app pay for a watcher with no audience.
+    if (listeners.size === 0) stopObserver();
+  };
+}
+
+/** Tear down the observer and drop the cached rect set, so a later remount
+ *  recomputes from scratch instead of inheriting rects measured in another
+ *  layout. Exported for tests; production drives it through the last
+ *  unsubscribe. */
+export function stopObserver(): void {
+  observer?.disconnect();
+  observer = null;
+  scheduled = false;
+  overlays = [];
+  lastKey = '';
 }
 
 function startObserver(): void {
-  if (started || typeof document === 'undefined') return;
-  started = true;
+  if (observer || typeof document === 'undefined') return;
 
   const schedule = () => {
     if (scheduled) return;
@@ -131,7 +154,7 @@ function startObserver(): void {
     return overlays.length > 0 || t.matches(OVERLAY_SELECTOR) || t.querySelector(OVERLAY_SELECTOR) != null;
   };
 
-  const observer = new MutationObserver((mutations) => {
+  observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
       if (m.type === 'attributes' ? attrRelevant(m) : (relevant(m.addedNodes) || relevant(m.removedNodes))) {
         schedule();

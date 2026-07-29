@@ -19,6 +19,7 @@ let now = 0;
 let pendingRaf: FrameRequestCallback | null = null;
 let pendingTimeout: (() => void) | null = null;
 let rafSeq = 0;
+let docFocused = true;
 
 const real = {
   raf: globalThis.requestAnimationFrame,
@@ -26,6 +27,7 @@ const real = {
   setTimeout: globalThis.setTimeout,
   clearTimeout: globalThis.clearTimeout,
   document: (globalThis as { document?: unknown }).document,
+  window: (globalThis as { window?: unknown }).window,
 };
 
 /** Avanza il tempo di un frame e consegna il callback in coda, se c'è. */
@@ -48,8 +50,18 @@ beforeEach(() => {
   pendingRaf = null;
   pendingTimeout = null;
   rafSeq = 0;
+  docFocused = true;
+  // `hasFocus` matters: the loop parks when the window is visible but NOT
+  // focused (another app in front), which `hidden` alone never reports.
   (globalThis as { document?: unknown }).document = {
     hidden: false,
+    hasFocus: () => docFocused,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  };
+  // startLoop also subscribes to window blur/focus — the events that fire in
+  // exactly the state visibilitychange stays silent for.
+  (globalThis as { window?: unknown }).window = {
     addEventListener: () => {},
     removeEventListener: () => {},
   };
@@ -75,6 +87,7 @@ afterEach(() => {
   globalThis.setTimeout = real.setTimeout;
   globalThis.clearTimeout = real.clearTimeout;
   (globalThis as { document?: unknown }).document = real.document;
+  (globalThis as { window?: unknown }).window = real.window;
 });
 
 /** Fa girare il loop finché non arriva un campione (o si esaurisce la pazienza). */
@@ -120,6 +133,28 @@ describe('fpsMonitor', () => {
     stop();
     expect(pendingRaf).toBeNull();
     expect(pendingTimeout).toBeNull();
+  });
+
+  it('non misura se la finestra è visibile ma NON a fuoco', () => {
+    // Lo stato che `document.hidden` non racconta: l'app è a schermo, dietro
+    // un'altra. Prima il loop continuava a chiedere frame per un numero che
+    // nessuno stava leggendo, trascinandosi dietro tutta la pipeline di
+    // updateRendering.
+    docFocused = false;
+    const stop = subscribe(() => {});
+    expect(pendingRaf).toBeNull();
+    expect(pendingTimeout).toBeNull();
+    stop();
+  });
+
+  it('senza document.hasFocus continua a misurare invece di spegnersi in silenzio', () => {
+    // Fail-open: in un embedder che non espone l'API, un monitor muto sarebbe
+    // peggio di uno che misura di troppo.
+    const doc = (globalThis as unknown as { document: Record<string, unknown> }).document;
+    delete doc.hasFocus;
+    const stop = subscribe(() => {});
+    expect(pendingRaf).not.toBeNull();
+    stop();
   });
 
   it('in modalità attiva le finestre si concatenano senza pause', () => {
