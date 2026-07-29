@@ -531,3 +531,124 @@ export interface AgentActionLog {
   detail: unknown;
   createdAt: string;
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Provider / context envelope
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Un turno di conversazione così come lo riceve un provider AI.
+ *
+ * Lato server si chiama `ChatMessage` (`server/providers/types.ts`, che lo
+ * ri-esporta con quel nome per i suoi ~100 call site). Qui il nome è esteso
+ * perché nel client `ChatMessage` è già preso — ed è tutt'altro: il messaggio
+ * RICCO della UI, con id, blocchi, allegati, stato di streaming. Due cose
+ * diverse con lo stesso nome erano metà del motivo per cui il client si era
+ * riscritto a mano l'intera famiglia dell'envelope come cloni `Envelope*`.
+ */
+export interface ProviderChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Come un provider vuole ricevere il contesto — decide cosa fa `adaptEnvelope`.
+ *
+ * - `history-aware`     accetta un array di messaggi + messaggi di sistema
+ *                       separati (Anthropic Messages API).
+ * - `inline-system`     un solo turno utente: i blocchi di sistema vanno
+ *                       concatenati in un preambolo (CLI claude-code). La
+ *                       sessione vive nel processo.
+ * - `gateway-stateful`  il gateway ha il suo stato di sessione ma accetta
+ *                       ANCHE `history` come ripiego per la reidratazione dopo
+ *                       un restart (gateway openclaw).
+ *
+ * Se un provider non dichiara `contextStrategy`, `getProviderStrategy()`
+ * ripiega su: `capabilities.has("history") ? "history-aware" : "inline-system"`.
+ */
+export type ProviderContextStrategy =
+  | "history-aware"
+  | "inline-system"
+  | "gateway-stateful";
+
+/**
+ * Una riga della tabella `compaction_markers`: dove la CLI ha compattato il
+ * contesto, così il divider "contesto compattato" sopravvive al reload.
+ *
+ * Attraversa il filo: `GET /api/history` la restituisce in `compactionMarkers[]`
+ * e `useChat` la consuma tale e quale. Il client se l'era però ritipata a mano
+ * come `CompactionMarker` SENZA `topicId` né `sessionKey` — campi che riceve
+ * comunque, e che quindi erano invisibili a chi leggeva solo il tipo.
+ *
+ * Da non confondere con il `CompactionMarker` di
+ * `server/providers/claude/compaction.ts`: quello è il frame `compact_boundary`
+ * appena parsato (tre campi, niente id, niente sessione), l'ingrediente da cui
+ * `insertCompactionMarker` costruisce QUESTA riga.
+ */
+export interface StoredCompactionMarker {
+  id: string;
+  topicId: string | null;
+  sessionKey: string;
+  afterMessageId: string | null;
+  trigger: 'auto' | 'manual' | 'unknown';
+  preTokens?: number;
+  postTokens?: number;
+  createdAt: string;
+}
+
+
+/**
+ * Un'approvazione in attesa dell'umano, come la annuncia il broadcast
+ * `session:state`. Il client la ri-esporta come `ClaudeSessionPendingApproval`.
+ */
+export interface ClaudeSessionPendingApproval {
+  kind: 'plan' | 'edit' | 'bash' | 'other';
+  prompt: string;
+  requestedAt: number;
+}
+
+/** Il tool attualmente in esecuzione nella sessione. */
+export interface ClaudeSessionActiveTool {
+  name: string;
+  input?: unknown;
+  startedAt: number;
+}
+
+/**
+ * Lo stato canonico di una sessione Claude. La riga DB ne è una codifica (con
+ * le colonne JSON appiattite) e il payload di `session:state` ne è una COPIA
+ * INTEGRALE — motivo per cui vive qui e non solo lato server: il client ne
+ * teneva una versione ridotta a mano, senza `jsonlPath`/`jsonlOffset`/
+ * `createdAt`, campi che riceve comunque a ogni broadcast.
+ */
+export interface ClaudeSessionState {
+  sessionKey: string | null;
+  claudeSessionId: string;
+  phase: ClaudeSessionPhase;
+  phaseUpdatedAt: number;
+  /** Transcript JSONL da cui il tracker legge; dettaglio del server, sul filo comunque. */
+  jsonlPath?: string;
+  /** Offset già consumato del transcript. Come sopra: server-side, ma copiato sul filo. */
+  jsonlOffset: number;
+  pendingApproval?: ClaudeSessionPendingApproval;
+  lastTool?: ClaudeSessionActiveTool;
+  lastHookAt?: number;
+  rev: number;
+  error?: ClaudeSessionError;
+  /**
+   * True finché un Monitor/watch è armato in background per questa sessione.
+   * Lo accende MonitorArmed, lo spengono MonitorClosed / SessionStart /
+   * SessionEnd. Il suo unico mestiere è sopravvivere allo `Stop` che scatta a
+   * fine turno DOPO che il monitor è stato armato: senza, Stop riporterebbe
+   * `watching` ad `awaiting-user` (anello spento) mentre il monitor guarda
+   * ancora. Disaccoppia "c'è un monitor armato" (fatto che attraversa i turni)
+   * dalla fase (istantanea del momento).
+   *
+   * Deliberatamente NON persistito (niente colonna): conta solo per il
+   * prossimo Stop di una sessione VIVA, e una sessione già in `watching`
+   * ricarica come `watching` dalla colonna phase dopo un restart.
+   */
+  monitorArmed?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}

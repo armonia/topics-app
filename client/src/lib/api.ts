@@ -869,92 +869,31 @@ export const contextAnalysisApi = {
 // server-side. Inspector components SHOULD prefer the preview API for any
 // new functionality (history visibility, adaptation notes, last-sent diff)
 // while the legacy `analyze` keeps existing behaviour.
+//
+// I tipi vengono da shared/context-envelope.ts: sono gli STESSI che il server
+// costruisce. Fino al 29/07 erano ricopiati a mano qui sotto — sette interfacce
+// rinominate `Envelope*` (perché `ChatMessage` era già preso da tutt'altro) con
+// il `diagnostics` espanso inline e un commento "Mirrors server/…" per campo.
+// I nomi vecchi restano come alias: cambiare 40 import non era il punto.
+export type {
+  SystemBlockCategory as EnvelopeSystemBlockCategory,
+  SystemBlock as EnvelopeSystemBlock,
+  HistoryEntryDiagnostic as EnvelopeHistoryEntry,
+  SessionMeta as EnvelopeSessionMeta,
+  ContextDiagnostics,
+  ContextEnvelope,
+  ProviderPayload as EnvelopeProviderPayload,
+} from '../../../shared/context-envelope';
+export type {
+  ProviderChatMessage as EnvelopeChatMessage,
+  ProviderContextStrategy as EnvelopeProviderStrategy,
+} from '../../../shared/types';
 
-export type EnvelopeSystemBlockCategory =
-  | 'openclaw' | 'memory' | 'prompt' | 'template' | 'file' | 'pinned' | 'synthetic';
-export type EnvelopeProviderStrategy =
-  | 'history-aware' | 'inline-system' | 'gateway-stateful';
-
-export interface EnvelopeSystemBlock {
-  id: string;
-  label: string;
-  category: EnvelopeSystemBlockCategory;
-  content: string;
-  tokens: number;
-  enabled: boolean;
-  countInBudget: boolean;
-  sourceUri?: string;
-  editable: boolean;
-  injectedByTopicsApp: boolean;
-  adapterHints?: Record<string, string>;
-}
-
-export interface EnvelopeChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
-
-export interface EnvelopeHistoryEntry {
-  storedMessageId: string;
-  role: 'user' | 'assistant';
-  strippedMarkers: string[];
-  bytesDropped: number;
-  excluded: boolean;
-  excludeReason?: 'limit' | 'context-message' | 'partial' | 'empty-after-strip' | 'duplicate-last-user';
-}
-
-export interface EnvelopeSessionMeta {
-  topicName?: string;
-  modelName?: string | null;
-  projectPath?: string | null;
-  workingDir?: string | null;
-  worktreeId?: string | null;
-  totalStoredMessages?: number;
-  planMode?: boolean;
-  /**
-   * Whether Fast Mode was active when the envelope was assembled. Mirrors
-   * `server/context/envelope.ts:SessionMeta.fastMode`. Useful for the
-   * inspector "Last sent" tab to label the effective model.
-   */
-  fastMode?: boolean;
-}
-
-export interface ContextEnvelope {
-  topicId: string;
-  sessionKey: string;
-  providerName: string;
-  providerStrategy: EnvelopeProviderStrategy;
-  sessionMeta?: EnvelopeSessionMeta;
-  systemBlocks: EnvelopeSystemBlock[];
-  history: EnvelopeChatMessage[];
-  userMessage: { content: string; messageId?: string };
-  diagnostics: {
-    totalTokens: number;
-    budgetLimit: number;
-    budgetPercent: number;
-    droppedHistoryTurns: number;
-    historyEntries: EnvelopeHistoryEntry[];
-    warnings: { type: string; detail: string }[];
-    assembledAt: number;
-    /**
-     * Whether Fast Mode was active when the envelope was assembled
-     * (openspec change `chat-fast-mode`). Mirrors
-     * `server/context/envelope.ts:ContextDiagnostics.fastMode`.
-     */
-    fastMode?: boolean;
-  };
-}
-
-export interface EnvelopeProviderPayload {
-  userContent: string;
-  history?: EnvelopeChatMessage[];
-  options?: { model?: string };
-  adaptationNotes: string[];
-}
+import type { ContextEnvelope, ProviderPayload } from '../../../shared/context-envelope';
 
 export interface ContextPreview {
   envelope: ContextEnvelope;
-  payload: EnvelopeProviderPayload;
+  payload: ProviderPayload;
 }
 
 export const contextPreviewApi = {

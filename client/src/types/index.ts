@@ -16,8 +16,7 @@ export type {
 import type {
   UserInputSchema,
   AcpUsageUpdate,
-  ClaudeSessionPhase,
-  ClaudeSessionError,
+  ClaudeSessionState,
   WSProvidersSnapshotMessage,
 } from '../../../shared/types';
 
@@ -410,15 +409,10 @@ export interface WSStreamErrorMessage {
   sessionKey: string;
   error?: string;
 }
-/** Display-only marker of a context-compaction boundary (CHAT-COMPACT-01). */
-export interface CompactionMarker {
-  id: string;
-  afterMessageId: string | null;
-  trigger: 'auto' | 'manual' | 'unknown';
-  preTokens?: number;
-  postTokens?: number;
-  createdAt: string;
-}
+/** Marker di confine di compattazione (CHAT-COMPACT-01), come arriva da
+ *  `GET /api/history`. UNA dichiarazione in shared/types.ts: la copia locale
+ *  ometteva `topicId` e `sessionKey`, che il server manda comunque. */
+export type { StoredCompactionMarker as CompactionMarker } from '../../../shared/types';
 export interface WSStreamCompactionMessage {
   type: 'stream:compaction';
   sessionKey: string;
@@ -870,35 +864,15 @@ export type { ClaudeSessionPhase } from '../../../shared/types';
  */
 export type AttentionTier = 'input' | 'done';
 
-export interface ClaudeSessionPendingApproval {
-  kind: 'plan' | 'edit' | 'bash' | 'other';
-  prompt: string;
-  requestedAt: number;
-}
-
-export interface ClaudeSessionActiveTool {
-  name: string;
-  input?: unknown;
-  startedAt: number;
-}
-
-export type { ClaudeSessionError } from '../../../shared/types';
-
-export interface ClaudeSessionState {
-  sessionKey: string | null;
-  claudeSessionId: string;
-  phase: ClaudeSessionPhase;
-  phaseUpdatedAt: number;
-  pendingApproval?: ClaudeSessionPendingApproval;
-  lastTool?: ClaudeSessionActiveTool;
-  lastHookAt?: number;
-  rev: number;
-  error?: ClaudeSessionError;
-  /** True while a background Monitor/watch is armed — see server state doc.
-   *  Broadcast for parity; the UI drives the ring off `phase === 'watching'`. */
-  monitorArmed?: boolean;
-  updatedAt: number;
-}
+// UNA dichiarazione in shared/types.ts. La copia locale era una versione
+// RIDOTTA dello stato che il server manda: senza `jsonlPath`, `jsonlOffset` e
+// `createdAt`, che arrivano a ogni broadcast `session:state`.
+export type {
+  ClaudeSessionPendingApproval,
+  ClaudeSessionActiveTool,
+  ClaudeSessionError,
+  ClaudeSessionState,
+} from '../../../shared/types';
 
 export interface WSSessionStateMessage {
   type: 'session:state';
@@ -1156,6 +1130,9 @@ export interface PanelGridRow {
 // dead, untyped surface.
 export type SidebarTab = 'remote';
 
+/** Preferenze della UI. Omonimo ma NON parente dell'`AppSettings` di
+ *  `server/services/app-settings.ts`, che è la config dei provider AI
+ *  (modello, max tokens, effort) e non ha un campo in comune con questo. */
 export interface AppSettings {
   fontSize: number;       // 12-18
   messageDensity: 'compact' | 'comfortable';
@@ -1206,6 +1183,9 @@ export interface ScriptProcess {
 }
 
 // Streaming events from server
+/** Gli eventi di streaming che la chat consuma dal WS. Omonimo ma NON parente
+ *  dello `StreamEvent` di `server/providers/types.ts`: quello è cosa un provider
+ *  AI emette VERSO il server, e non arriva mai al browser in quella forma. */
 export type StreamEvent =
   | { type: 'thinking_start'; sessionKey: string }
   | { type: 'thinking_chunk'; sessionKey: string; content: string }

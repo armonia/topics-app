@@ -53,53 +53,20 @@ export function isBusySpinnerPhase(p: ClaudeSessionPhase): boolean {
   return BUSY_SPINNER_SET.has(p);
 }
 
-export interface PendingApproval {
-  kind: 'plan' | 'edit' | 'bash' | 'other';
-  prompt: string;
-  requestedAt: number;
-}
-
-export interface ActiveTool {
-  name: string;
-  input?: unknown;
-  startedAt: number;
-}
-
-/**
- * The canonical state object. This is what consumers see — the DB row is an
- * encoding of it (with JSON columns flattened) and the WS payload is a copy.
- */
-export interface ClaudeSessionState {
-  sessionKey: string | null;
-  claudeSessionId: string;
-  phase: ClaudeSessionPhase;
-  phaseUpdatedAt: number;
-  jsonlPath?: string;
-  jsonlOffset: number;
-  pendingApproval?: PendingApproval;
-  lastTool?: ActiveTool;
-  lastHookAt?: number;
-  rev: number;
-  error?: ClaudeSessionError;
-  /**
-   * True while a Monitor/watch is armed in the background for this session.
-   * Set by MonitorArmed, cleared by MonitorClosed / SessionStart / SessionEnd.
-   * Its whole job is to survive the `Stop` that fires when the turn ends AFTER
-   * the monitor was armed: without it, Stop would clobber `watching` back to
-   * `awaiting-user` (ring off) even though the monitor is still watching. So the
-   * flag decouples "a monitor is armed" (a turn-spanning fact) from the phase
-   * (a per-moment snapshot) — the monitor may be armed mid-turn while Claude
-   * keeps working, and only the flag remembers it at Stop time.
-   *
-   * Deliberately NOT persisted (no DB column): it only matters for a LIVE
-   * session's next Stop, and a session already in `watching` reloads as
-   * `watching` from the phase column after a restart. `rowToState` leaves it
-   * undefined; the in-memory state carries it for the lifetime that matters.
-   */
-  monitorArmed?: boolean;
-  createdAt: number;
-  updatedAt: number;
-}
+// Le tre forme dello stato vivono in shared/types.ts: il payload di
+// `session:state` è una COPIA INTEGRALE di `ClaudeSessionState`, quindi il
+// client legge lo stesso tipo invece di ritagliarsene una versione ridotta.
+// Ri-esportate coi nomi storici — i call site del server non cambiano.
+export type {
+  ClaudeSessionPendingApproval as PendingApproval,
+  ClaudeSessionActiveTool as ActiveTool,
+  ClaudeSessionState,
+} from "../../shared/types";
+import type {
+  ClaudeSessionPendingApproval as PendingApproval,
+  ClaudeSessionActiveTool as ActiveTool,
+  ClaudeSessionState,
+} from "../../shared/types";
 
 /**
  * A Claude Code hook payload. Only the fields we read are typed; the rest is
