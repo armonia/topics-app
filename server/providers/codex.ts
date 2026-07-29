@@ -32,6 +32,7 @@ import { probeBinaryPath } from "../utils/executable";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { topicsMcpBridgeSpec } from "./claude-code";
+import { contextTokensFromUsage } from "../usage/usage-update";
 
 // ============ Config ============
 
@@ -109,6 +110,36 @@ export function extractCodexUsage(event: Record<string, unknown>): ProviderUsage
     return usage;
   }
   return null;
+}
+
+/**
+ * Il contesto VIVO di Codex, dall'evento `token_count` (3.1).
+ *
+ * Fino a qui il ring era acceso solo per Claude: Codex i token li aveva in
+ * mano e li buttava nel footer di fine turno, quindi il cerchietto restava
+ * vuoto per l'intera sessione. Il payload standard `usage_update` non serve a
+ * niente se un solo provider lo riempie.
+ *
+ * Si legge `last_token_usage`, MAI `total_token_usage`: il totale somma tutte
+ * le chiamate del turno, ed è esattamente l'errore che faceva dichiarare al
+ * divisore di compaction un contesto ESPLOSO. Il numeratore poi lo compone
+ * `contextTokensFromUsage`, uguale per tutti.
+ *
+ * `model_context_window` è il denominatore detto dal provider: vale più della
+ * nostra tabella di finestre, che su un modello Codex nuovo tirerebbe a
+ * indovinare.
+ */
+export function extractCodexContext(
+  event: Record<string, unknown>,
+): { usage: ProviderUsage; windowTokens?: number } | null {
+  const obj = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : null);
+  const info = obj(event.info) ?? obj(event.token_usage_info) ?? event;
+  const last = obj(info.last_token_usage) ?? obj(info.lastTokenUsage);
+  if (!last) return null;
+  const usage = extractCodexUsage({ usage: last });
+  if (!usage) return null;
+  const windowTokens = num(info.model_context_window) ?? num(info.modelContextWindow);
+  return windowTokens !== undefined ? { usage, windowTokens } : { usage };
 }
 
 /**
@@ -224,6 +255,9 @@ interface CodexTurnState {
   aborted: boolean;
   /** Latest usage payload extracted from `turn.completed` (if seen). */
   usage?: ProviderUsage;
+  /** Modello richiesto per questo turno, se esplicito. Etichetta il ring;
+   *  il denominatore vero lo manda Codex (`model_context_window`). */
+  model?: string;
   /** Wall-clock turn duration captured at close. */
   startedAt: number;
   /** Active command_execution tool calls, keyed by Codex's command id. */
@@ -353,6 +387,7 @@ export class CodexProvider implements AIProvider {
       aborted: false,
       startedAt: Date.now(),
       runningTools: new Map(),
+      ...(explicitModel ? { model: explicitModel } : {}),
     };
     this.activeChildren.set(sessionKey, child);
     this.sessionState.set(sessionKey, turnState);
@@ -586,6 +621,19 @@ export class CodexProvider implements AIProvider {
         : ctx?.partial && ctx.partial.length > 0 ? ctx.partial
         : JSON.stringify(event.output ?? event.result ?? "");
       handler.onToolResult(id, result);
+      return null;
+    }
+
+    // Contesto vivo. Codex lo manda per conto suo a ogni chiamata, con la
+    // finestra del modello dentro: è la stessa misura che per Claude ricaviamo
+    // dall'evento `assistant`, e alimenta lo stesso `usage_update` (3.1).
+    if (t === "token_count" && handler.onContextSize) {
+      const live = extractCodexContext(event);
+      if (live) {
+        const tokens = contextTokensFromUsage(live.usage);
+        const model = this.sessionState.get(sessionKey)?.model ?? this.config.model;
+        if (tokens > 0) handler.onContextSize(tokens, model, live.windowTokens);
+      }
       return null;
     }
 

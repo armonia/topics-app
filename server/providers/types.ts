@@ -311,8 +311,13 @@ export interface StreamHandler {
    * would be wrong the moment the CLI falls back to another model mid-turn
    * (fast mode, overload), and a 200k window under a 1M model reads "90% full"
    * on a session that is at 18%.
+   *
+   * `windowTokens` is the denominator when the provider STATES it (Codex sends
+   * `model_context_window`). A declared window beats our lookup table and is
+   * not flagged as estimated: it is the only way to be right about a model we
+   * have never heard of.
    */
-  onContextSize?: (tokens: number, model?: string) => void;
+  onContextSize?: (tokens: number, model?: string, windowTokens?: number) => void;
   onDone: (message?: ProviderDoneMessage) => void;
   onError: (error: string) => void;
   onAborted?: (message?: ProviderDoneMessage) => void;

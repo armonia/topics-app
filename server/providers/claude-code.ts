@@ -28,6 +28,7 @@ import { parseCompactBoundary } from "./claude/compaction";
 import { TOPICS_AGENT_SYSTEM_PROMPT, resolveClaudeEffort } from "../lib/topics-agent-prompt";
 import { detectUserInputRequest } from "./ask-user-detector";
 import { cancelled, classifyResultEvent } from "./stop-reason";
+import { contextTokensFromUsage } from "../usage/usage-update";
 import { warnThrottled } from "../lib/warn-throttled";
 
 // ============ Config ============
@@ -1994,7 +1995,14 @@ export class ClaudeCodeProvider implements AIProvider {
       const mu = msg?.usage;
       if (mu) {
         const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
-        const size = n(mu.input_tokens) + n(mu.cache_read_input_tokens) + n(mu.cache_creation_input_tokens);
+        // Quali token contano come contesto lo decide `contextTokensFromUsage`,
+        // non questo provider: la stessa regola vale per Codex e per chiunque
+        // arrivi dopo (3.1). Qui si traduce solo il vocabolario della CLI.
+        const size = contextTokensFromUsage({
+          inputTokens: n(mu.input_tokens),
+          cacheRead: n(mu.cache_read_input_tokens),
+          cacheCreation: n(mu.cache_creation_input_tokens),
+        });
         // The model comes from the SAME event as the usage: it is the model
         // that actually served this call, which is what sizes the window.
         const model = typeof msg?.model === "string" && msg.model ? msg.model : undefined;
