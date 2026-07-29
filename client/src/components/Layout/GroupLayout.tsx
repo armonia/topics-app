@@ -10,6 +10,7 @@ import { DND_TYPES, dragMatchesScope, paneTabSoloSrcType } from '../../lib/dndTy
 import { paneCellBg } from '../../lib/paneCellBg';
 import { PaneKeepAlive } from './PaneKeepAlive';
 import { usePaneResidency } from './hooks/usePaneResidency';
+import { usePaneAlive } from '../../state/paneLiveness';
 import { canSplitPane } from './splitRules';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -164,7 +165,22 @@ export function GroupLayout({
   // una pane sola (vedi `renderMobile`), quindi il pavimento è diverso: dire
   // "sono visibili tutte le attive di ogni gruppo" terrebbe montato N volte
   // tanto proprio sul dispositivo che ha meno memoria.
+  // La superficie stessa e' visibile? Un `GroupLayout` vive anche ANNIDATO
+  // dentro una pane `project`, e quella pane puo' essere nascosta. Senza questa
+  // domanda, il gruppo interno continuava a dichiarare la propria pane attiva
+  // come "visibile", cioe' come PAVIMENTO del tetto di residenza — e il
+  // pavimento non si sfratta mai. Con sei progetti aperti erano sei pane
+  // esenti dal tetto per costruzione, comprese le pane browser, che sono la
+  // classe cara.
+  //
+  // `usePaneAlive()` risponde esatto perche' e' `parentAlive && isVisible`
+  // moltiplicato lungo tutta la catena dei gusci: falso qui vuol dire che un
+  // antenato e' `display:none`, quindi NESSUNA pane di questa superficie e'
+  // sullo schermo. Fuori da ogni guscio (la finestra principale) il default e'
+  // `true` e non cambia niente.
+  const surfaceAlive = usePaneAlive();
   const visibleKeys = useMemo(() => {
+    if (!surfaceAlive) return [];
     if (isMobile) {
       const flat: Pane[] = [];
       const seen = new Set<string>();
@@ -188,7 +204,7 @@ export function GroupLayout({
       if (p) out.push(stableKeyOf(p));
     }
     return out;
-  }, [isMobile, groups, paneMap, groupMap, focusedGroupId, stableKeyOf]);
+  }, [surfaceAlive, isMobile, groups, paneMap, groupMap, focusedGroupId, stableKeyOf]);
   const isResidentPane = usePaneResidency(panes, visibleKeys);
 
   // Vertical leaf depth of a row = its deepest column's sub-stack (primary + any
