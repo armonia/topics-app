@@ -40,8 +40,17 @@ function connect(): Promise<{
       next: (pred, timeoutMs = 3000) => new Promise((res, rej) => {
         const hit = frames.findIndex(pred);
         if (hit >= 0) { const [m] = frames.splice(hit, 1); return res(m); }
-        const t = setTimeout(() => rej(new Error("frame timeout")), timeoutMs);
-        waiters.push({ pred, resolve: (m) => { clearTimeout(t); res(m); } });
+        // A timed-out waiter must LEAVE the queue: the data handler matches
+        // waiters before frames, so a dead one silently eats the next frame it
+        // matches — the assertion after an intentional timeout then fails on a
+        // frame that did arrive.
+        const w = { pred, resolve: (m: any) => { clearTimeout(t); res(m); } };
+        const t = setTimeout(() => {
+          const i = waiters.indexOf(w);
+          if (i >= 0) waiters.splice(i, 1);
+          rej(new Error("frame timeout"));
+        }, timeoutMs);
+        waiters.push(w);
       }),
       close: () => sock.destroy(),
     }));
@@ -112,6 +121,35 @@ describe("ai-bridge daemon", () => {
     expect(second.resumed).toBe(true);
     expect(second.pid).toBe(first.pid);
     c.close();
+  });
+
+  // Regression (2026-07-29): a restarted server re-spawns onto the child the
+  // daemon kept alive. The idempotent branch acked the pid but left the new
+  // socket OUT of `attached`, so the child's answers went nowhere and the chat
+  // hung on "stream lento — il provider è ancora connesso" forever. Whoever
+  // spawns must be attached, exactly like the fresh-spawn branch.
+  test("re-spawning onto a live session attaches the caller to the live stream", async () => {
+    const owner = await connect();
+    const id = "topic:idem2";
+    owner.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    await owner.next((m) => m.type === "spawned" && m.id === id);
+    owner.send({ type: "write", id, data: "before\n" });
+    await owner.next((m) => m.type === "data" && m.id === id);
+
+    // A FRESH client (the restarted server) re-spawns the same id.
+    const restarted = await connect();
+    restarted.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    const ack = await restarted.next((m) => m.type === "spawned" && m.id === id);
+    expect(ack.resumed).toBe(true);
+
+    // Live-only: the pre-existing output is NOT replayed into the new caller
+    // (it would re-fold earlier turns), but everything from now on IS.
+    restarted.send({ type: "write", id, data: "after\n" });
+    const live = await restarted.next((m) => m.type === "data" && m.id === id);
+    expect(b64(live.chunk)).toBe("after\n");
+    expect(live.offset).toBe(7); // "before\n" — not replayed, just skipped
+
+    owner.close(); restarted.close();
   });
 
   test("list reports the session; kill removes it", async () => {

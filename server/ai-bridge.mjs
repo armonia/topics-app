@@ -142,9 +142,25 @@ function handleMessage(msg, client) {
       const { id, cliPath, args, cwd, env } = msg;
       const existing = sessions.get(id);
       // IDEMPOTENT: a live session for this id already exists (e.g. a
-      // double-fire, or a reconnect racing a spawn) → ack the existing pid,
-      // never spawn a second `claude` on the same on-disk transcript.
+      // double-fire, or a server restart re-spawning onto the child the daemon
+      // kept alive) → ack the existing pid, never spawn a second `claude` on
+      // the same on-disk transcript.
+      //
+      // The caller is ATTACHED here for the same reason the fresh branch below
+      // attaches at offset 0: whoever spawns wants this child's live stream.
+      // Skipping it acked a pid and then delivered nothing — `write` still
+      // reached the child's stdin, the child answered, and the answer went to
+      // the sockets in `attached` (all of them stale). The turn hung on
+      // "stream lento — il provider è ancora connesso" until something else
+      // attached, i.e. forever.
+      //
+      // From `endOffset`, not 0: this is a NEW turn on an existing child, so
+      // the caller wants what the child emits from now on. Replaying the store
+      // would re-fold every earlier turn of that child's lifetime through the
+      // caller's fresh handler. A caller that does want the history asks for it
+      // explicitly with `attach` (that is what reattach's SCAN pass does).
       if (existing && existing.alive) {
+        replayTo(existing, client, existing.endOffset);
         sendTo(client, { type: 'spawned', id, pid: existing.pid, resumed: true });
         break;
       }
