@@ -3261,6 +3261,31 @@ fn browser_animate_bounds(
     })
 }
 
+/// Elenca le WKWebView di pane browser vive ADESSO, per contextId.
+///
+/// La verità è `Manager::webviews()`, non un registro nostro: un registro può
+/// divergere, la lista del runtime no. Sola lettura.
+///
+/// Serve a due cose. La prima è diagnostica e mancava del tutto: fino al
+/// 2026-07-29 non c'era modo di sapere quante webview fossero vive senza
+/// `footprint` sui processi da un terminale — e la risposta, quel giorno, era 65
+/// contro le 4 attive. La seconda è la riconciliazione: il client tiene un
+/// roster in `localStorage` (`lib/shell/nativeBrowserRoster.ts`) che copre tutto
+/// ciò che ha aperto lui, ma non sopravvive a una pulizia dei dati del sito né
+/// a un crash a metà apertura. Questa lista sì, perché non è una nostra copia.
+#[tauri::command]
+fn browser_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    no_abort("browser_list", move || {
+        use tauri::Manager;
+        let prefix = browser_label("");
+        Ok(app
+            .webviews()
+            .keys()
+            .filter_map(|label| label.strip_prefix(prefix.as_str()).map(str::to_string))
+            .collect())
+    })
+}
+
 /// Destroy a browser pane's native webview.
 #[tauri::command]
 fn browser_close(app: tauri::AppHandle, id: String) -> Result<(), String> {
@@ -6820,6 +6845,7 @@ pub fn run() {
             browser_set_visible,
             browser_animate_bounds,
             browser_close,
+            browser_list,
             browser_eval_js,
             browser_screenshot,
             browser_pane_get_cookies,
