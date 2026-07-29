@@ -102,6 +102,19 @@ async function handlePrompt(params: Record<string, unknown>): Promise<Record<str
   }
 
   if (text.includes("SLOW")) {
+    // Annuncia di essere ENTRATO nel turno lento, prima di appendersi.
+    //
+    // Serve al test: per verificare che un abort arrivi su un turno VIVO bisogna
+    // sapere che il turno è cominciato, e l'unica cosa che il test può osservare da
+    // fuori è ciò che gli arriva dall'handler. Senza questo chunk restava solo
+    // `await Bun.sleep(150)` — un'attesa a tempo fisso che sotto carico non basta:
+    // l'abort partiva prima della sessione e il turno finiva con
+    // ACP_PROVIDER_STOPPED invece di `cancelled`. Due test non-deterministici, che
+    // fallivano a caso anche in isolamento.
+    update(sessionId, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "slow:started" },
+    });
     return new Promise<Record<string, unknown>>((resolve) => {
       slowPrompts.set(sessionId, (stopReason) => resolve({ stopReason }));
     });
