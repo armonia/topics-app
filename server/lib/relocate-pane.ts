@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { OutboundMessage } from "../schemas/ws-outbound";
 import { projectPanesKey } from "../../shared/project-keys";
 
 /**
@@ -33,7 +34,7 @@ import { projectPanesKey } from "../../shared/project-keys";
  */
 export function moveTerminalPaneToProject(
   db: Database,
-  broadcastToAll: (msg: object) => void,
+  broadcastToAll: (msg: OutboundMessage) => void,
   term: { id: string; name?: string },
   projectDir: string,
 ): { paneId: string; membershipKey: string } {

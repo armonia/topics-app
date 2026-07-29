@@ -29,8 +29,9 @@
  * untouched.
  */
 import type { Database } from "bun:sqlite";
+import type { OutboundMessage } from "../schemas/ws-outbound";
 
-type Broadcaster = (msg: object) => void;
+type Broadcaster = (msg: OutboundMessage) => void;
 
 interface PurgeResult {
   ok: true;

@@ -182,14 +182,14 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
             if (isInThinking) {
               const cleaned = content.replace(/<\/?thinking>/g, '');
               fullThinking += cleaned;
-              const tc = { type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned };
+              const tc = { type: "stream:thinking_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned };
               if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, tc);
               else broadcastToAll(tc);
             } else {
               const cleaned = content.replace(/<\/?thinking>/g, '');
               if (cleaned) {
                 fullContent += cleaned;
-                const cc = { type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned };
+                const cc = { type: "stream:content_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned };
                 if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cc);
                 else broadcastToAll(cc);
               }

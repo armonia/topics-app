@@ -11,6 +11,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
+import type { OutboundMessage } from "../schemas/ws-outbound";
 import { promises as fsp, statSync } from 'fs';
 import { homedir } from 'os';
 import {
@@ -34,7 +35,7 @@ import {
 } from './claude-session-state';
 import { createClaudeSessionRepo, type ClaudeSessionRepo } from './claude-session-repo';
 
-export type Broadcaster = (msg: object) => void;
+export type Broadcaster = (msg: OutboundMessage) => void;
 
 export interface ClaudeSessionTrackerOptions {
   db: Database;

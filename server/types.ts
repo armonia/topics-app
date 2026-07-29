@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
 import type { ToolCallStatus, UserInputSchema, ToolUserResponse } from "../shared/types";
+import type { OutboundMessage } from "./schemas/ws-outbound";
 
 // Re-export so existing imports `from "./types"` keep resolving.
 export type {
@@ -410,10 +411,12 @@ export interface AppContext {
   wsClients: Set<ServerWebSocket<WSData>>;
 
   // Utils
-  broadcast: (message: object, exclude?: ServerWebSocket<WSData>) => void;
-  broadcastToAll: (message: object) => void;
-  broadcastToTopic: (topicId: string, message: object, exclude?: ServerWebSocket<WSData>) => void;
-  broadcastToTopicSubscribers: (topicId: string, message: object, exclude?: ServerWebSocket<WSData>) => void;
+  // `OutboundMessage` (non `object`) vincola il `type` al registro degli schemi:
+  // un broadcast con un tipo che nessuno ha modellato non compila.
+  broadcast: (message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
+  broadcastToAll: (message: OutboundMessage) => void;
+  broadcastToTopic: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
+  broadcastToTopicSubscribers: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   isTopicFocused: (topicId: string) => boolean;
   loadTopics: () => TopicsData;
   saveTopics: (data: TopicsData) => void;

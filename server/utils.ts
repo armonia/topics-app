@@ -19,6 +19,7 @@ import { createWorktreeManager } from "./services/worktree-manager";
 import { createMachineStore } from "./services/machine-store";
 import { parseToolCallDetail } from "./schemas/tool-call-detail";
 import { validateOutbound } from "./schemas/ws-outbound";
+import type { OutboundMessage } from "./schemas/ws-outbound";
 
 /**
  * v3 foundations WS-01 outbound validation hook. Runs in DEV mode only —
@@ -476,7 +477,7 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Broadcast helpers ---
-  function broadcast(message: object, exclude?: ServerWebSocket<WSData>) {
+  function broadcast(message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
     for (const ws of wsClients) {
@@ -488,7 +489,7 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
-  function broadcastToAll(message: object) {
+  function broadcastToAll(message: OutboundMessage) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
     for (const ws of wsClients) {
@@ -506,7 +507,7 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
-  function broadcastToTopic(topicId: string, message: object, exclude?: ServerWebSocket<WSData>) {
+  function broadcastToTopic(topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
     for (const ws of wsClients) {
@@ -532,7 +533,7 @@ export function createAppContext(baseDir: string): AppContext {
    * aren't showing the topic — unlike broadcastToTopic (focused-only) which
    * drops background-tab deltas. Routing rule is the pure `clientReceivesTopicDelta`.
    */
-  function broadcastToTopicSubscribers(topicId: string, message: object, exclude?: ServerWebSocket<WSData>) {
+  function broadcastToTopicSubscribers(topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) {
     devValidateOutbound(message);
     const payload = JSON.stringify(message);
     for (const ws of wsClients) {

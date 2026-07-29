@@ -1,5 +1,6 @@
 import { watch, existsSync, readFileSync, type FSWatcher } from "node:fs";
 import { join } from "node:path";
+import type { OutboundMessage } from "../schemas/ws-outbound";
 
 /**
  * Dev bundle hot-delivery: when the BUILT client in PUBLIC_DIR changes (a
@@ -31,7 +32,7 @@ import { join } from "node:path";
 export function startDevBundleReload(opts: {
   publicDir: string;
   stateDir: string;
-  broadcastToAll: (msg: object) => void;
+  broadcastToAll: (msg: OutboundMessage) => void;
   /** Test hook — production default 1200ms. */
   debounceMs?: number;
 }): { stop: () => void; getRev: () => string | null } {

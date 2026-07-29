@@ -183,6 +183,7 @@ describe('outbound registry contract', () => {
       'drag:end',
       'drag:start',
       'error',
+      'external-sessions',
       'gateway:status',
       'git:status',
       'machine:deleted',
@@ -273,8 +274,14 @@ describe('outbound registry contract', () => {
   // machine:deleted, terminal:activity, stream:compaction, ui:bundle-*).
   // Da qui in poi il buco non si riapre: `ws-outbound-coverage.test.ts`
   // fallisce se un broadcast nuovo arriva senza il suo schema.
-  test('all 101 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(101);
+  //
+  // 101 → 102: `external-sessions`. Non l'ha trovato lo scan statico ma il
+  // COMPILATORE, quando `broadcast()` ha smesso di accettare `object` e ha
+  // preteso un `type` del registro: il nome non ha i due punti, quindi la
+  // regex dell'inventario lo scartava. È la prova che il vincolo di tipo
+  // vede cose che una regex non può vedere.
+  test('all 102 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(102);
   });
 });
 
@@ -287,6 +294,57 @@ describe('validateOutbound — final 100% coverage cluster', () => {
     expect(validateOutbound({ type: 'chat:archived', chat: { id: 'c-1' } }).ok).toBe(true);
     expect(validateOutbound({ type: 'chat:deleted', chatId: 'c-1' }).ok).toBe(true);
     expect(validateOutbound({ type: 'chat:deleted' }).ok).toBe(false);
+  });
+
+  // Payload copiato dal call site: services/external-sessions.ts → sweep().
+  test('external-sessions carries the census and the per-project rollup', () => {
+    expect(validateOutbound({
+      type: 'external-sessions',
+      sessions: [{
+        sessionId: 's-1',
+        cwd: '/Users/x/Projects/topics-app',
+        projectPath: '/Users/x/Projects/topics-app',
+        projectId: 'p-1',
+        branch: 'main',
+        entrypoint: 'cli',
+        lastActivityMs: 1_700_000_000_000,
+        state: 'active',
+        transcriptPath: '/Users/x/.claude/projects/foo/s-1.jsonl',
+      }],
+      projects: [{
+        projectId: 'p-1',
+        projectPath: '/Users/x/Projects/topics-app',
+        total: 2,
+        active: 1,
+        lastActivityMs: 1_700_000_000_000,
+      }],
+      payload_version: 1,
+    }).ok).toBe(true);
+    // Il censimento vuoto è legittimo: nessuna sessione esterna aperta.
+    expect(validateOutbound({
+      type: 'external-sessions', sessions: [], projects: [], payload_version: 1,
+    }).ok).toBe(true);
+    // `projectPath`/`projectId` sono nullable (sessione non attribuita), non assenti.
+    expect(validateOutbound({
+      type: 'external-sessions',
+      sessions: [{
+        sessionId: 's-2', cwd: '/tmp', projectPath: null, projectId: null,
+        lastActivityMs: 1, state: 'idle',
+      }],
+      projects: [],
+    }).ok).toBe(true);
+    // Lo stato è un enum chiuso: 'running' non esiste in questo censimento.
+    expect(validateOutbound({
+      type: 'external-sessions',
+      sessions: [{
+        sessionId: 's-3', cwd: '/tmp', projectPath: null, projectId: null,
+        lastActivityMs: 1, state: 'running',
+      }],
+      projects: [],
+    }).ok).toBe(false);
+    // `sessions` è obbligatorio: il client fa `Array.isArray(m.sessions)`, ma
+    // un broadcast senza censimento è comunque un bug del server.
+    expect(validateOutbound({ type: 'external-sessions', projects: [] }).ok).toBe(false);
   });
 
   test('provider:current/changed minimal payload', () => {

@@ -1082,7 +1082,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   computeCleanBroadcastDelta(fullContent, lastBroadcastClean);
                 lastBroadcastClean = cumulativeClean;
                 if (deltaToBroadcast) {
-                  const chunk = { type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: deltaToBroadcast };
+                  const chunk = { type: "stream:content_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: deltaToBroadcast };
                   if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, chunk);
                   else broadcastToAll(chunk);
                   writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: deltaToBroadcast } }] }));
@@ -1111,7 +1111,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               resetStreamTimer();
               fullThinking += text;
               appendThinkingBlock(text);
-              const thinkingChunk = { type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: text };
+              const thinkingChunk = { type: "stream:thinking_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: text };
               if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, thinkingChunk);
               else broadcastToAll(thinkingChunk);
               updateStreamContent(sessionKey, fullContent, fullThinking);
@@ -1490,7 +1490,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   if (extra) {
                     fullContent = finalText;
                     if (extra) {
-                      const extraChunk = { type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: extra };
+                      const extraChunk = { type: "stream:content_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: extra };
                       if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, extraChunk);
                       else broadcastToAll(extraChunk);
                     }
@@ -1826,8 +1826,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 const content = delta.content;
                 if (content.includes('<thinking>')) { isInThinking = true; broadcastToAll({ type: "stream:thinking_start", sessionKey, topicId: matchedTopic?.id }); }
                 if (content.includes('</thinking>')) { isInThinking = false; broadcastToAll({ type: "stream:thinking_end", sessionKey, topicId: matchedTopic?.id }); }
-                if (isInThinking) { const cleaned = content.replace(/<\/?thinking>/g, ''); fullThinking += cleaned; const tc = { type: "stream:thinking_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, tc); else broadcastToAll(tc); }
-                else { const cleaned = content.replace(/<\/?thinking>/g, ''); if (cleaned) { fullContent += cleaned; const cc = { type: "stream:content_chunk", sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cc); else broadcastToAll(cc); } }
+                if (isInThinking) { const cleaned = content.replace(/<\/?thinking>/g, ''); fullThinking += cleaned; const tc = { type: "stream:thinking_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, tc); else broadcastToAll(tc); }
+                else { const cleaned = content.replace(/<\/?thinking>/g, ''); if (cleaned) { fullContent += cleaned; const cc = { type: "stream:content_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: cleaned }; if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, cc); else broadcastToAll(cc); } }
                 chunkCount++;
                 updateStreamContent(sessionKey, fullContent, fullThinking);
                 if (chunkCount - lastSaveChunk >= SAVE_INTERVAL) { lastSaveChunk = chunkCount; updateLastMessage(sessionKey, { content: fullContent, thinking: fullThinking || undefined }); }

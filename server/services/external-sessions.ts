@@ -19,6 +19,7 @@ import {
   DEFAULT_WINDOW_MS,
   type ExternalClaudeSession,
 } from "../lib/external-claude-sessions";
+import type { OutboundMessage } from "../schemas/ws-outbound";
 
 /** Per-project rollup — what the board badge renders. */
 export interface ExternalSessionProjectSummary {
@@ -56,7 +57,7 @@ export interface ExternalSessionsDeps {
   candidatePaths: () => string[];
   /** Board id for a project path. */
   projectIdFor: (path: string) => string;
-  broadcast: (message: object) => void;
+  broadcast: (message: OutboundMessage) => void;
   /** Cache TTL. Default 10s — cheap enough for the guard, calm for the board. */
   ttlMs?: number;
   /** Overrides forwarded to the scan (tests). */
