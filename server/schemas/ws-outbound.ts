@@ -419,6 +419,24 @@ const streamResumedSchema = z.object({
   topicId: z.string().optional(),
 }).passthrough();
 
+// Il turno ha compattato il contesto. Emesso DUE volte per lo stesso marker:
+// la prima quando la compattazione avviene (`preTokens`), la seconda quando il
+// risultato successivo rivela la dimensione post (`postTokens` riempito da
+// backfillPostTokens) — stesso `markerId`, il divider si aggiorna in loco.
+const streamCompactionSchema = z.object({
+  type: z.literal('stream:compaction'),
+  sessionKey: z.string(),
+  topicId: z.string().optional(),
+  markerId: z.string(),
+  // Il marker è ancorato DOPO questo messaggio; null quando la compattazione
+  // cade a inizio thread (nessun messaggio precedente a cui appenderlo).
+  afterMessageId: z.string().nullable(),
+  trigger: z.enum(['auto', 'manual', 'unknown']),
+  preTokens: z.number().optional(),
+  postTokens: z.number().optional(),
+  createdAt: z.string(),
+}).passthrough();
+
 const streamToolCallSchema = z.object({
   type: z.literal('stream:tool_call'),
   sessionKey: z.string(),
@@ -524,6 +542,41 @@ const browserFocusPaneSchema = z.object({
   contextId: z.string(),
 }).passthrough();
 
+// Apertura ACCANTO a una pane esistente: un terminale Claude Code ha chiamato
+// open_browser_pane, e il browser va messo di fianco a CHI l'ha aperto (la
+// chat passa invece dal `browser:navigate` mirato al topic). `paneId` è la
+// pane del terminale (`terminal:<sessionId>`); qualunque layout la renda —
+// standalone o dentro un progetto — apre il browser lì.
+const browserOpenNearPaneSchema = z.object({
+  type: z.literal('browser:open-near-pane'),
+  paneId: z.string(),
+  // contextId deterministico (`term-<terminalId>`) sotto cui la pane registra
+  // il target nativo: è ciò che permette al terminale di GUIDARE la stessa
+  // pane, non solo di aprirla. Assente → il singleton sceglie un id.
+  contextId: z.string().optional(),
+  url: z.string(),
+}).passthrough();
+
+// Browser di proprietà del TASK (dietro TOPICS_TASK_BROWSER): i layout globali
+// ignorano di proposito questo frame, così la tab non finisce nel pane-store
+// condiviso — la consuma solo il gruppo in-drawer del task.
+const browserOpenTaskTabSchema = z.object({
+  type: z.literal('browser:open-task-tab'),
+  taskId: z.string(),
+  contextId: z.string(),
+  url: z.string(),
+}).passthrough();
+
+// "Porta in primo piano la pane di questo topic". `projectPath` arriva inline
+// (invece di leggerlo dal topic) così il client non deve aspettare che atterri
+// un `topic:updated` precedente per sapere dentro quale progetto annidarlo.
+const paneFocusSuggestSchema = z.object({
+  type: z.literal('pane:focus-suggest'),
+  topicId: z.string(),
+  taskId: z.string().optional(),
+  projectPath: z.string().optional(),
+}).passthrough();
+
 const clearSchema = z.object({
   type: z.literal('clear'),
 }).passthrough();
@@ -546,6 +599,14 @@ const machineUpdatedSchema = z.object({
 
 const machineUpsertedSchema = z.object({
   type: z.literal('machine:upserted'),
+  machine: machineShape,
+}).passthrough();
+
+// La DELETE manda solo `{ id }` dentro `machine` — l'helper `emit` del router
+// impacchetta sempre il payload sotto la stessa chiave, quindi la forma sul
+// filo resta identica agli altri due eventi machine:*.
+const machineDeletedSchema = z.object({
+  type: z.literal('machine:deleted'),
   machine: machineShape,
 }).passthrough();
 
@@ -581,6 +642,109 @@ const scriptsUpdatedSchema = z.object({
 
 const terminalSessionsSchema = z.object({
   type: z.literal('terminal:sessions'),
+}).passthrough();
+
+// Battito di attività per sessione pty, tracciato sul percorso dati centrale:
+// copre OGNI sessione, montata o no. `finished` marca la transizione
+// attivo→inattivo (turno concluso) ed è ciò che alza la notifica.
+const terminalActivitySchema = z.object({
+  type: z.literal('terminal:activity'),
+  id: z.string(),
+  busy: z.boolean(),
+  finished: z.boolean().optional(),
+  kind: z.enum(['shell', 'claude-code', 'claude-code-team']).optional(),
+}).passthrough();
+
+// ---- Board / task cluster --------------------------------------------------
+
+// La riga completa del task. Come per topic/machine/project teniamo obbligatorie
+// solo le colonne su cui il client indicizza davvero (id per la mappa, projectId
+// per il filtro di board, status per la colonna kanban): il resto passa, così
+// una colonna nuova sul server non fa fallire la validazione di un client vecchio.
+const taskObjectShape = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  status: z.string(),
+}).passthrough();
+
+const taskCreatedSchema = z.object({
+  type: z.literal('task:created'),
+  projectId: z.string(),
+  task: taskObjectShape,
+}).passthrough();
+
+const taskUpdatedSchema = z.object({
+  type: z.literal('task:updated'),
+  projectId: z.string(),
+  task: taskObjectShape,
+}).passthrough();
+
+const taskDeletedSchema = z.object({
+  type: z.literal('task:deleted'),
+  projectId: z.string(),
+  taskId: z.string(),
+}).passthrough();
+
+// Il fronte "task ENTRATO in review", emesso IN AGGIUNTA a `task:updated` e solo
+// sulla transizione: è il segnale di fine-lavoro che alza il banner OS e la
+// web-push, senza dipendere dall'inferenza fragile sulla sessione idle.
+const taskReviewReadySchema = z.object({
+  type: z.literal('task:review-ready'),
+  projectId: z.string(),
+  taskId: z.string(),
+  taskTitle: z.string(),
+  reason: z.string().optional(),
+}).passthrough();
+
+// Anteprima LIVE del consumo mentre il turno gira (ogni 4s, mai persistita): la
+// card somma `baseMs` + (adesso − turnStartedAt), quindi il tempo mostrato è
+// solo ESECUZIONE — le pause tra un turno e l'altro non entrano mai nel conto.
+const taskUsageLiveSchema = z.object({
+  type: z.literal('task:usage-live'),
+  projectId: z.string(),
+  taskId: z.string(),
+  turnStartedAt: z.number(),
+  baseMs: z.number(),
+  liveTokens: z.number(),
+  model: z.string().nullable(),
+}).passthrough();
+
+// L'interruttore auto-dispatch è GLOBALE, non per progetto: ogni header di board
+// aperto — non solo quello del progetto toccato — deve girare la pill.
+const boardDispatchSchema = z.object({
+  type: z.literal('board:dispatch'),
+  autoDispatch: z.boolean(),
+}).passthrough();
+
+// Il cap macchina-wide vive sulla riga riservata '*'. `maxAgentsAuto` è un
+// BOOLEANO ("scegli tu in base alla capacità"), non un numero.
+const boardGlobalCapSchema = z.object({
+  type: z.literal('board:global-cap'),
+  maxAgentsAuto: z.boolean(),
+  maxAgents: z.number(),
+}).passthrough();
+
+const boardSettingsSchema = z.object({
+  type: z.literal('board:settings'),
+  projectId: z.string(),
+  settings: z.object({}).passthrough(),
+}).passthrough();
+
+// ---- Dev bundle hot-delivery ----------------------------------------------
+
+// Il bundle client è cambiato su disco. `rev` (i nomi ordinati di /assets/*)
+// permette al client di NON ricaricarsi se già gira quella revisione.
+const uiBundleUpdatedSchema = z.object({
+  type: z.literal('ui:bundle-updated'),
+  at: z.number(),
+  rev: z.string().optional(),
+}).passthrough();
+
+// Stesso `rev`, ma alla connessione: una finestra che era chiusa al momento del
+// deploy converge lo stesso, invece di restare indietro fino al reload manuale.
+const uiBundleRevSchema = z.object({
+  type: z.literal('ui:bundle-rev'),
+  rev: z.string(),
 }).passthrough();
 
 // ---- Legacy chat:* events (replaced by topic:* in v3, kept for compat) ----
@@ -720,6 +884,7 @@ const OUTBOUND_SCHEMAS = {
   'stream:error': streamErrorSchema,
   'stream:slow': streamSlowSchema,
   'stream:resumed': streamResumedSchema,
+  'stream:compaction': streamCompactionSchema,
   'stream:tool_call': streamToolCallSchema,
   'stream:tool_detail': streamToolDetailSchema,
   'stream:tool_result': streamToolResultSchema,
@@ -735,11 +900,15 @@ const OUTBOUND_SCHEMAS = {
   'browser:force-open': browserForceOpenSchema,
   'browser:close-pane': browserClosePaneSchema,
   'browser:focus-pane': browserFocusPaneSchema,
+  'browser:open-near-pane': browserOpenNearPaneSchema,
+  'browser:open-task-tab': browserOpenTaskTabSchema,
+  'pane:focus-suggest': paneFocusSuggestSchema,
   'clear': clearSchema,
   'cron:updated': cronUpdatedSchema,
   'gateway:status': gatewayStatusSchema,
   'machine:updated': machineUpdatedSchema,
   'machine:upserted': machineUpsertedSchema,
+  'machine:deleted': machineDeletedSchema,
   'memory:updated': memoryUpdatedSchema,
   'open-project': openProjectSchema,
   'topics:reordered': topicsReorderedSchema,
@@ -747,6 +916,19 @@ const OUTBOUND_SCHEMAS = {
   'scripts:output': scriptsOutputSchema,
   'scripts:updated': scriptsUpdatedSchema,
   'terminal:sessions': terminalSessionsSchema,
+  'terminal:activity': terminalActivitySchema,
+  // Board / task
+  'task:created': taskCreatedSchema,
+  'task:updated': taskUpdatedSchema,
+  'task:deleted': taskDeletedSchema,
+  'task:review-ready': taskReviewReadySchema,
+  'task:usage-live': taskUsageLiveSchema,
+  'board:dispatch': boardDispatchSchema,
+  'board:global-cap': boardGlobalCapSchema,
+  'board:settings': boardSettingsSchema,
+  // Dev bundle hot-delivery
+  'ui:bundle-updated': uiBundleUpdatedSchema,
+  'ui:bundle-rev': uiBundleRevSchema,
   // Legacy chat:* (replaced by topic:* in v3, kept for backward compat)
   'chat:created': chatCreatedSchema,
   'chat:updated': chatUpdatedSchema,
