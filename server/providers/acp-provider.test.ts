@@ -205,12 +205,30 @@ describe("sessione", () => {
   });
 });
 
+/**
+ * Attende che il turno lento sia DAVVERO cominciato, invece di dormire.
+ *
+ * Il fixture manda `slow:started` appena entra nel ramo SLOW (vedi
+ * `acp/fake-agent.fixture.ts`). Prima qui c'era `await Bun.sleep(150)` col
+ * commento "il tempo che la sessione esista davvero": sotto carico 150ms non
+ * bastano, l'abort partiva prima della sessione e il turno finiva con
+ * ACP_PROVIDER_STOPPED invece di `cancelled` — due test che fallivano a caso.
+ * Aspettare la condizione invece del tempo li rende deterministici.
+ */
+async function untilSlowStarted(rec: { full: string }, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!rec.full.includes("slow:started")) {
+    if (Date.now() > deadline) throw new Error("il turno lento non e' mai partito");
+    await Bun.sleep(2);
+  }
+}
+
 describe("stop e morte", () => {
   test("abort → cancelled con la causa giusta, e passa da onAborted non da onError", async () => {
     const provider = makeProvider();
     const rec = recorder();
     const turn = provider.sendChat("topic:slow", "SLOW", rec.handler);
-    await Bun.sleep(150); // il tempo che la sessione esista davvero
+    await untilSlowStarted(rec);
     await provider.abort("topic:slow", undefined, "user");
     await turn;
     expect(rec.errors).toEqual([]);
@@ -223,7 +241,7 @@ describe("stop e morte", () => {
     const provider = makeProvider();
     const rec = recorder();
     const turn = provider.sendChat("topic:slow2", "SLOW", rec.handler);
-    await Bun.sleep(150);
+    await untilSlowStarted(rec);
     await provider.abort("topic:slow2", undefined, "watchdog");
     await turn;
     expect(rec.aborted[0]!.turnEnd).toEqual({ end: "cancelled", cause: "watchdog" });
