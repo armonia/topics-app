@@ -31,6 +31,7 @@ import { cancelled, classifyResultEvent } from "./stop-reason";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
+import { discoverClaudeModels } from "./claude-models";
 
 // ============ Config ============
 
@@ -420,8 +421,11 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
     const providerIsUs = provider === null || provider === "claude-code" || provider === "claude-code-team";
     // Loose shape guard only (argv array — no shell involved): the CLI is the
     // authority on which ids/aliases exist, and listModels() deliberately lets
-    // users pin future model names.
-    const model = providerIsUs && typeof row.model === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(row.model)
+    // users pin future model names. Square brackets are part of the id, not
+    // punctuation: the long-window variants are literally `claude-opus-5[1m]`,
+    // and excluding them here silently dropped the override and fell back to
+    // the 200k default — the picker offered 1M, the spawn never got it.
+    const model = providerIsUs && typeof row.model === "string" && /^[A-Za-z0-9._[\]-]{1,64}$/.test(row.model)
       ? row.model
       : null;
     return { effort: row.effort ?? null, model, mcpPolicy: row.mcp_policy ?? null };
@@ -1356,16 +1360,12 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   async listModels(): Promise<string[]> {
-    // Current models the installed CLI accepts (aliases `opus`/`sonnet`/`haiku`/
-    // `fable` resolve to these). Full names, not aliases, to match the other
-    // providers' id lists and the token-based fast-models/snapshot guard.
-    // THIS is the single list to update when Anthropic ships new model names.
-    const all = [
-      "claude-opus-4-8",
-      "claude-sonnet-5",
-      "claude-haiku-4-5",
-      "claude-fable-5",
-    ];
+    // Models the INSTALLED CLI accepts, read from the binary we are about to
+    // spawn (see claude-models.ts) instead of a list typed by hand here — the
+    // hand-typed one silently capped every session at 200k because it had no
+    // entry for the 1M variants (`claude-opus-5[1m]`). Cached per CLI version;
+    // falls back to a static shortlist if the scan finds nothing.
+    const all = await discoverClaudeModels(resolveCliPath());
     // Surface the configured model first so the snapshot's effective default
     // (clients use models[0]) reflects the user's settings.json choice. We
     // tolerate an unknown model by inserting it at the head — it lets the

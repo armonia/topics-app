@@ -5,12 +5,18 @@ import { TASK_STATUSES, type TaskStatus } from '../../lib/board';
  * "claude-opus-4-8" → "Opus 4.8" — strip the `claude-` prefix, capitalize the
  * family name, join the remaining numeric segments with dots as the version.
  * Generic on purpose: a new model id needs no update here.
+ *
+ * The `[1m]` suffix is the CLI's long-context variant and becomes a readable
+ * badge ("Opus 5 · 1M"): it is the difference between a 200k and a 1M window,
+ * so it has to be legible in the picker, not glued onto the version number.
  */
 export function friendlyModelLabel(modelId: string): string {
-  const parts = modelId.replace(/^claude-/, '').split('-');
+  const long = /\[1m\]$/i.test(modelId);
+  const parts = modelId.replace(/^claude-/, '').replace(/\[1m\]$/i, '').split('-');
   const name = parts[0] ? parts[0][0].toUpperCase() + parts[0].slice(1) : modelId;
   const version = parts.slice(1).join('.');
-  return version ? `${name} ${version}` : name;
+  const base = version ? `${name} ${version}` : name;
+  return long ? `${base} · 1M` : base;
 }
 
 /**
