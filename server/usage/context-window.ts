@@ -18,8 +18,16 @@
  *    che si contraddicono.
  */
 
-/** Finestra usata quando il modello non è in tabella. Il minimo comune moderno. */
-export const DEFAULT_CONTEXT_WINDOW = 200_000;
+/**
+ * Finestra usata quando il modello non è in tabella.
+ *
+ * 1M, non 200k: sull'intera generazione Claude 5 (e già su Opus 4.6+ e Sonnet
+ * 4.6) il milione è la finestra DI SERIE, non una variante. Un modello che non
+ * conosciamo è quasi sempre più nuovo di questa tabella, quindi il default deve
+ * assomigliare al presente. Resta marcato `estimated`, così la UI mostra "≈"
+ * invece di spacciare una precisione che non ha.
+ */
+export const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 
 /**
  * Chiave → finestra in token. Il match è per SOTTOSTRINGA sul nome del modello
@@ -28,11 +36,22 @@ export const DEFAULT_CONTEXT_WINDOW = 200_000;
  * tabella di uguaglianze esatte invecchia in una settimana.
  */
 const CONTEXT_WINDOWS: Record<string, number> = {
-  // Claude — 200k di serie su tutta la famiglia.
+  // Claude. Il milione NON è una variante: è la finestra di serie da Opus 4.6 e
+  // Sonnet 4.6 in avanti, e su tutta la generazione 5. Restano a 200k solo i
+  // modelli davvero vecchi e Haiku.
+  // Le chiavi più lunghe vincono (match per sottostringa), quindi `claude-opus-4-5`
+  // deve stare PRIMA del generico `claude-opus-4` — se no un 4.5 leggerebbe 1M.
+  "claude-fable-5": 1_000_000,
+  "claude-mythos-5": 1_000_000,
+  "claude-opus-5": 1_000_000,
+  "claude-opus-4-8": 1_000_000,
+  "claude-opus-4-7": 1_000_000,
+  "claude-opus-4-6": 1_000_000,
+  "claude-opus-4-5": 200_000,
   "claude-opus-4": 200_000,
-  "claude-opus-5": 200_000,
+  "claude-sonnet-5": 1_000_000,
+  "claude-sonnet-4-6": 1_000_000,
   "claude-sonnet-4": 200_000,
-  "claude-sonnet-5": 200_000,
   "claude-haiku-3-5": 200_000,
   "claude-haiku-4-5": 200_000,
   // OpenAI.
@@ -123,12 +142,49 @@ export function contextWindowFor(model: string | null | undefined): ContextWindo
   }
 
   // Fallback di famiglia: gli alias corti ("opus", "sonnet") arrivano dal
-  // selettore del modello e dalle preferenze, non dal provider.
-  if (lower.includes("opus") || lower.includes("sonnet") || lower.includes("haiku")) {
-    return { tokens: 200_000, known: true };
+  // selettore del modello e dalle preferenze, non dal provider. Un alias nudo
+  // significa "l'ultimo di quella famiglia", che oggi è a 1M; solo Haiku è ancora
+  // a 200k.
+  if (lower.includes("haiku")) return { tokens: 200_000, known: true };
+  if (lower.includes("opus") || lower.includes("sonnet")) {
+    return { tokens: 1_000_000, known: true };
   }
 
   return { tokens: DEFAULT_CONTEXT_WINDOW, known: false };
+}
+
+/**
+ * La finestra contro cui classificare una misura GIÀ REGISTRATA.
+ *
+ * Il numeratore è storia (l'ultima chiamata è stata grande quanto è stata); il
+ * denominatore è configurazione, e cambia sotto i piedi — l'utente passa a un
+ * modello con finestra diversa e il rapporto va riletto. Ricalcolare qui serve a
+ * due cose insieme: il cambio di modello si vede subito, e una riga scritta
+ * quando la tabella era sbagliata si corregge da sola invece di restare
+ * congelata su un denominatore che non è mai stato vero.
+ *
+ * Se il modello non è in tabella si tiene la finestra registrata con la misura:
+ * poteva essere DICHIARATA dal provider (Codex manda `model_context_window`), e
+ * un dato dichiarato batte una nostra ipotesi.
+ */
+export function windowForMeasure(
+  measure: { model: string | null; windowTokens: number; estimated: boolean },
+  currentModel: string | null | undefined,
+): ContextWindow {
+  // Il modello del TOPIC vince, e non è la stessa scelta di `windowModelFor`.
+  // Quella funzione è retrospettiva: «la CLI ha risposto con X mentre chiedevo Y,
+  // quale finestra ha dimensionato QUEL turno». Qui la domanda è opposta —
+  // «contro cosa va letto questo contesto ADESSO» — e la risposta è il modello
+  // che servirà il turno successivo, perché è lui che dovrà reggere questi token.
+  // È anche il ramo che recupera il suffisso `[1m]`: la misura porta il nome nudo
+  // che la CLI riporta nei suoi eventi, il topic porta la modalità scelta.
+  if (currentModel) {
+    const current = contextWindowFor(currentModel);
+    if (current.known) return current;
+  }
+  const fromMeasure = contextWindowFor(measure.model);
+  if (fromMeasure.known) return fromMeasure;
+  return { tokens: measure.windowTokens, known: !measure.estimated };
 }
 
 export type ContextLevel = "ok" | "warn" | "critical";

@@ -8,6 +8,7 @@ import { describe, it, expect } from "bun:test";
 import {
   contextWindowFor,
   windowModelFor,
+  windowForMeasure,
   classifyContext,
   contextLevel,
   DEFAULT_CONTEXT_WINDOW,
@@ -18,13 +19,14 @@ import {
 describe("contextWindowFor", () => {
   it("riconosce i nomi pieni che arrivano dal provider, data compresa", () => {
     expect(contextWindowFor("claude-sonnet-4-5-20250929")).toEqual({ tokens: 200_000, known: true });
-    expect(contextWindowFor("claude-opus-4-6")).toEqual({ tokens: 200_000, known: true });
+    expect(contextWindowFor("claude-opus-4-6")).toEqual({ tokens: 1_000_000, known: true });
     expect(contextWindowFor("gpt-4o-mini")).toEqual({ tokens: 128_000, known: true });
   });
 
   it("gli alias corti del selettore cadono sulla famiglia", () => {
-    expect(contextWindowFor("opus")).toEqual({ tokens: 200_000, known: true });
-    expect(contextWindowFor("sonnet")).toEqual({ tokens: 200_000, known: true });
+    expect(contextWindowFor("opus")).toEqual({ tokens: 1_000_000, known: true });
+    expect(contextWindowFor("sonnet")).toEqual({ tokens: 1_000_000, known: true });
+    expect(contextWindowFor("haiku")).toEqual({ tokens: 200_000, known: true });
   });
 
   it("la variante a finestra lunga vince sulla famiglia", () => {
@@ -103,13 +105,50 @@ describe("windowModelFor — il suffisso 1M sopravvive al nome nudo della CLI", 
   it("un ripiego su un ALTRO modello porta la SUA finestra, non quella richiesta", () => {
     // Fast mode / sovraccarico: ha risposto sonnet, la finestra è la sua.
     expect(windowModelFor("claude-sonnet-5", "claude-opus-5[1m]")).toBe("claude-sonnet-5");
-    expect(contextWindowFor(windowModelFor("claude-sonnet-5", "claude-opus-5[1m]")).tokens).toBe(200_000);
+    expect(contextWindowFor(windowModelFor("claude-haiku-4-5", "claude-opus-5[1m]")).tokens).toBe(200_000);
   });
 
   it("senza 1M nella richiesta non inventa niente", () => {
-    expect(contextWindowFor(windowModelFor("claude-opus-5", "claude-opus-5")).tokens).toBe(200_000);
+    expect(contextWindowFor(windowModelFor("claude-opus-5", "claude-opus-5")).tokens).toBe(1_000_000);
     expect(windowModelFor(null, "claude-opus-5[1m]")).toBe("claude-opus-5[1m]");
     expect(windowModelFor("claude-opus-5", null)).toBe("claude-opus-5");
     expect(windowModelFor(null, null)).toBeNull();
+  });
+});
+
+describe("windowForMeasure — il denominatore si ricalcola, il numeratore no", () => {
+  const measure = (over: Partial<{ model: string | null; windowTokens: number; estimated: boolean }> = {}) => ({
+    model: "claude-sonnet-5" as string | null,
+    windowTokens: 200_000,
+    estimated: false,
+    ...over,
+  });
+
+  it("corregge una misura registrata con la finestra sbagliata", () => {
+    // Il caso vero: righe scritte quando la tabella diceva 200k per Sonnet 5.
+    // Il ring mostrava 76% su una sessione che era al 15%.
+    expect(windowForMeasure(measure(), "claude-sonnet-5")).toEqual({ tokens: 1_000_000, known: true });
+  });
+
+  it("segue il modello CORRENTE del topic, non quello della misura", () => {
+    expect(windowForMeasure(measure({ model: "claude-haiku-4-5" }), "claude-opus-5[1m]"))
+      .toEqual({ tokens: 1_000_000, known: true });
+  });
+
+  it("un modello sconosciuto NON sovrascrive la finestra registrata", () => {
+    // Poteva essere dichiarata dal provider (Codex manda model_context_window):
+    // un dato dichiarato batte una nostra ipotesi.
+    const m = measure({ model: "qualcosa-di-ignoto", windowTokens: 333_000 });
+    expect(windowForMeasure(m, "qualcosa-di-ignoto")).toEqual({ tokens: 333_000, known: true });
+  });
+
+  it("propaga `estimated` della misura quando ricade su di essa", () => {
+    const m = measure({ model: "ignoto", windowTokens: 123_000, estimated: true });
+    expect(windowForMeasure(m, "ignoto")).toEqual({ tokens: 123_000, known: false });
+  });
+
+  it("senza modello corrente usa quello che ha risposto", () => {
+    expect(windowForMeasure(measure({ model: "claude-haiku-4-5" }), null))
+      .toEqual({ tokens: 200_000, known: true });
   });
 });

@@ -101,8 +101,15 @@ function scanTranscript(path: string): { model: string | null; preambles: number
       if (seen.has(id)) continue; // riga per content-block della stessa risposta
       seen.add(id);
     }
+    // `<synthetic>` non è un modello: sono le righe che la CLI scrive per un
+    // errore o un'interruzione, con usage tutto a zero. Prenderle come "ultima
+    // chiamata" azzera il contesto e perde il nome del modello — il ring del
+    // server è immune perché scarta le misure <= 0 (`recordSessionContext`),
+    // questo script no.
+    const rowModel: string | undefined = j.message?.model;
+    if (rowModel === "<synthetic>") continue;
     calls++;
-    if (j.message?.model) model = j.message.model;
+    if (rowModel) model = rowModel;
     lastCtx = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
   }
   return { model, preambles, calls, lastCtx };

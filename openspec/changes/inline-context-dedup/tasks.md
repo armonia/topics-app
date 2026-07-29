@@ -56,18 +56,35 @@
 - [x] 5.3 Test `prompt-cache.test.ts`: marker su tool/system/ultimo messaggio · `system`
       stringa → blocchi · conteggio ≤ 4 · params vuoti invariati · idempotenza.
 
-## 6. Verifica
+## 6. Finestre di contesto e ring (fronte aperto in corsa)
 
-- [x] 6.1 `bun test server/context/ server/providers/` verde, `regression.test.ts` incluso.
-- [x] 6.2 Misura su transcript reale: rigirare lo script di conto composto
+- [x] 6.1 `server/usage/context-window.ts`: correggere la tabella — 1M è la finestra
+      DI SERIE da Opus 4.6 / Sonnet 4.6 in avanti e su tutta la generazione 5, non una
+      variante. `DEFAULT_CONTEXT_WINDOW` a 1M; fallback di famiglia: opus/sonnet 1M,
+      haiku 200k. Fonte: tabella modelli della skill `claude-api`.
+- [x] 6.2 `windowForMeasure(measure, currentModel)`: il DENOMINATORE si ricalcola sul
+      modello corrente del topic, il NUMERATORE resta la misura. Chiude due cose
+      insieme — le righe scritte con la finestra sbagliata si autocorreggono, e un
+      cambio di modello si vede subito.
+- [x] 6.3 Applicarla a `GET /api/context/live` e ri-emettere `stream:context` sul
+      cambio di modello (`PATCH /api/topics/:id`), invece di aspettare il turno dopo.
+- [x] 6.4 `scripts/token-live.ts`: saltare le righe `<synthetic>` (usage a zero: la
+      CLI le scrive per errori e interruzioni). Il ring del server è già immune.
+- [x] 6.5 Test: finestre per generazione · alias corti · legacy a 200k · default
+      stimato · `windowForMeasure` (correzione, modello corrente, fallback, estimated).
+
+## 7. Verifica
+
+- [x] 7.1 `bun test server/context/ server/providers/` verde, `regression.test.ts` incluso.
+- [x] 7.2 Misura su transcript reale: rigirare lo script di conto composto
       (`iniezioni <context>` per sessione) su una chat nuova e mostrare 1 iniezione invece
       di N. Evidenza: numeri prima/dopo.
-- [ ] 6.3 E2E: una chat di più turni su `claude-code` risponde ancora in modo coerente sul
+- [ ] 7.3 E2E: una chat di più turni su `claude-code` risponde ancora in modo coerente sul
       progetto dopo che il contesto non viene più ripetuto (il modello sa ancora dove si trova).
-- [ ] 6.4 Anteprima durevole per la consegna: il comportamento è dinamico (più turni) ⇒
+- [ ] 7.4 Anteprima durevole per la consegna: il comportamento è dinamico (più turni) ⇒
       **video**, non screenshot.
 
-## 7. Fuori scope, da aprire come task top-level
+## 8. Fuori scope, da aprire come task top-level
 
-- [ ] 7.1 Misurare l'overhead fisso (~48k token alla prima risposta) degli schemi dei tool
+- [ ] 8.1 Misurare l'overhead fisso (~48k token alla prima risposta) degli schemi dei tool
       MCP montati per sessione.

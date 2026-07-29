@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import type { AppContext, RouteHandler } from "../types";
 import { getSessionContext } from "../db/session-context";
-import { classifyContext } from "../usage/context-window";
+import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 
 export function createContextRouter(ctx: AppContext): RouteHandler {
@@ -22,7 +22,18 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
       if (!sessionKey) return json({ error: "sessionKey required" }, 400);
       const row = getSessionContext(ctx.db, sessionKey);
       if (!row) return json({ context: null });
-      const usage = classifyContext(row.usedTokens, { tokens: row.windowTokens, known: !row.estimated });
+      // Il DENOMINATORE si ricalcola, il NUMERATORE no.
+      //
+      // `used` è una misura: l'ultima chiamata è stata grande quanto è stata, e
+      // nessun cambio di configurazione la riscrive. La finestra invece è una
+      // proprietà del modello, e quella cambia sotto i piedi: l'utente passa da
+      // Sonnet a Opus[1m] e il ring resta fermo sul vecchio denominatore fino al
+      // turno successivo — cioè il ring "sembra rotto" proprio nel momento in cui
+      // gli si sta guardando. Ricalcolarla qui vale anche per le righe scritte
+      // quando la tabella delle finestre era sbagliata: si correggono da sole,
+      // invece di restare congelate su un 200k che non è mai stato vero.
+      const topic = ctx.getTopicBySessionKey?.(sessionKey) ?? null;
+      const usage = classifyContext(row.usedTokens, windowForMeasure(row, topic?.model));
       // Stessa forma dell'evento vivo (`usage_update` ACP, 3.1): chi apre
       // l'app a turno finito legge lo stesso oggetto di chi era collegato.
       const update = contextUpdateFromUsage(usage, row.model);
