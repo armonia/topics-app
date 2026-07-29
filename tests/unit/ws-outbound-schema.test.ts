@@ -161,10 +161,15 @@ describe('outbound registry contract', () => {
       'agents:sessions',
       'agents:spawned',
       'agents:stopped',
+      'board:dispatch',
+      'board:global-cap',
+      'board:settings',
       'browser:close-pane',
       'browser:focus-pane',
       'browser:force-open',
       'browser:navigate',
+      'browser:open-near-pane',
+      'browser:open-task-tab',
       'chat:archived',
       'chat:created',
       'chat:deleted',
@@ -180,6 +185,7 @@ describe('outbound registry contract', () => {
       'error',
       'gateway:status',
       'git:status',
+      'machine:deleted',
       'machine:updated',
       'machine:upserted',
       'memory:updated',
@@ -188,6 +194,7 @@ describe('outbound registry contract', () => {
       'message:new',
       'message:plan-status',
       'open-project',
+      'pane:focus-suggest',
       'pong',
       'presence:windows',
       'project:archived',
@@ -201,6 +208,7 @@ describe('outbound registry contract', () => {
       'scripts:updated',
       'session:state',
       'stream:catchup',
+      'stream:compaction',
       'stream:content_chunk',
       'stream:context',
       'stream:end',
@@ -216,6 +224,12 @@ describe('outbound registry contract', () => {
       'stream:tool_result',
       'stream:tool_update',
       'stream:tool_user_input_required',
+      'task:created',
+      'task:deleted',
+      'task:review-ready',
+      'task:updated',
+      'task:usage-live',
+      'terminal:activity',
       'terminal:sessions',
       'topic:archived',
       'topic:created',
@@ -227,6 +241,8 @@ describe('outbound registry contract', () => {
       'ui-state:init',
       'ui-state:patch',
       'ui-state:updated',
+      'ui:bundle-rev',
+      'ui:bundle-updated',
       'unread:init',
       'unread:updated',
       'welcome',
@@ -250,8 +266,15 @@ describe('outbound registry contract', () => {
   // stream:context joined with the real-context ring (1b.5) — the honest
   // input+cache_read+cache_creation of the last call, finally on the wire
   // instead of dying inside the compaction backfill, 84 → 85.
-  test('all 85 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(85);
+  //
+  // 85 → 101 (3.3): non tipi NUOVI, ma i 16 che il server emetteva già SENZA
+  // schema — l'inventario dei punti di emissione li ha tirati fuori tutti in
+  // una volta (board:*, task:*, browser:open-*, pane:focus-suggest,
+  // machine:deleted, terminal:activity, stream:compaction, ui:bundle-*).
+  // Da qui in poi il buco non si riapre: `ws-outbound-coverage.test.ts`
+  // fallisce se un broadcast nuovo arriva senza il suo schema.
+  test('all 101 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(101);
   });
 });
 
@@ -597,5 +620,134 @@ describe('validateOutbound — project + provider + error', () => {
       sessionKey: 'sk-1',
       messageId: 'm-1',
     }).ok).toBe(true);
+  });
+});
+
+// ----- Tipi modellati nel giro 3.3 ------------------------------------------
+//
+// I payload qui sotto sono COPIATI dai punti di emissione reali (routes/tasks,
+// routes/topics, routes/terminal, routes/chat, services/task-dispatcher,
+// lib/dev-bundle-reload): se un giorno il server cambia forma senza aggiornare
+// lo schema, uno di questi diventa rosso qui invece che in produzione.
+
+describe('validateOutbound — board + task', () => {
+  const task = {
+    id: 't-1', projectId: 'p-1', text: 'Fai la cosa', status: 'review',
+    priority: 0, kanbanOrder: 1, createdAt: '2026-07-28T10:00:00Z',
+  };
+
+  test('task:created / task:updated con la riga completa', () => {
+    expect(validateOutbound({ type: 'task:created', projectId: 'p-1', task }).ok).toBe(true);
+    expect(validateOutbound({ type: 'task:updated', projectId: 'p-1', task }).ok).toBe(true);
+  });
+
+  test('task:updated rifiuta un task senza status (la colonna kanban)', () => {
+    expect(validateOutbound({
+      type: 'task:updated', projectId: 'p-1', task: { id: 't-1', projectId: 'p-1' },
+    }).ok).toBe(false);
+  });
+
+  test('task:deleted porta solo l’id', () => {
+    expect(validateOutbound({ type: 'task:deleted', projectId: 'p-1', taskId: 't-1' }).ok).toBe(true);
+  });
+
+  test('task:review-ready con e senza reason', () => {
+    expect(validateOutbound({
+      type: 'task:review-ready', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'task:review-ready', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa',
+      reason: 'agent_delivered',
+    }).ok).toBe(true);
+  });
+
+  test('task:usage-live accetta model null (turno senza modello noto)', () => {
+    expect(validateOutbound({
+      type: 'task:usage-live', projectId: 'p-1', taskId: 't-1',
+      turnStartedAt: 1753700000000, baseMs: 12000, liveTokens: 4210, model: null,
+    }).ok).toBe(true);
+  });
+
+  test('board:global-cap — maxAgentsAuto è un BOOLEANO, non un numero', () => {
+    expect(validateOutbound({ type: 'board:global-cap', maxAgentsAuto: true, maxAgents: 3 }).ok).toBe(true);
+    expect(validateOutbound({ type: 'board:global-cap', maxAgentsAuto: 3, maxAgents: 3 }).ok).toBe(false);
+  });
+
+  test('board:dispatch e board:settings', () => {
+    expect(validateOutbound({ type: 'board:dispatch', autoDispatch: false }).ok).toBe(true);
+    expect(validateOutbound({ type: 'board:dispatch', autoDispatch: 'no' }).ok).toBe(false);
+    expect(validateOutbound({
+      type: 'board:settings', projectId: 'p-1', settings: { autoDispatch: true, maxAgents: 2 },
+    }).ok).toBe(true);
+  });
+});
+
+describe('validateOutbound — browser, pane, terminale, macchine', () => {
+  test('browser:open-near-pane con contextId opzionale', () => {
+    expect(validateOutbound({
+      type: 'browser:open-near-pane', paneId: 'terminal:s-1', url: 'https://x.dev',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'browser:open-near-pane', paneId: 'terminal:s-1', contextId: 'term-s-1',
+      url: 'https://x.dev',
+    }).ok).toBe(true);
+  });
+
+  test('browser:open-task-tab richiede taskId e contextId', () => {
+    expect(validateOutbound({
+      type: 'browser:open-task-tab', taskId: 't-1', contextId: 'task-abc12345-1', url: 'https://x.dev',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'browser:open-task-tab', taskId: 't-1', url: 'https://x.dev',
+    }).ok).toBe(false);
+  });
+
+  test('pane:focus-suggest — topicId obbligatorio, il resto no', () => {
+    expect(validateOutbound({ type: 'pane:focus-suggest', topicId: 'topic-1' }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'pane:focus-suggest', topicId: 'topic-1', projectPath: '/Users/x/proj', taskId: 't-1',
+    }).ok).toBe(true);
+    expect(validateOutbound({ type: 'pane:focus-suggest', projectPath: '/Users/x/proj' }).ok).toBe(false);
+  });
+
+  test('terminal:activity nelle tre forme che il server manda', () => {
+    expect(validateOutbound({ type: 'terminal:activity', id: 's-1', busy: true, kind: 'claude-code' }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'terminal:activity', id: 's-1', busy: false, finished: true, kind: 'shell',
+    }).ok).toBe(true);
+    expect(validateOutbound({ type: 'terminal:activity', id: 's-1', busy: false }).ok).toBe(true);
+    expect(validateOutbound({ type: 'terminal:activity', id: 's-1', busy: false, kind: 'browser' }).ok).toBe(false);
+  });
+
+  test('machine:deleted incarta { id } sotto `machine` come gli altri machine:*', () => {
+    expect(validateOutbound({ type: 'machine:deleted', machine: { id: 'm-1' }, payload_version: 1 }).ok).toBe(true);
+    expect(validateOutbound({ type: 'machine:deleted', id: 'm-1' }).ok).toBe(false);
+  });
+});
+
+describe('validateOutbound — compattazione e bundle di dev', () => {
+  test('stream:compaction — prima emissione (pre) e seconda (post)', () => {
+    expect(validateOutbound({
+      type: 'stream:compaction', sessionKey: 'sk-1', topicId: 'topic-1', markerId: 'mk-1',
+      afterMessageId: 'm-9', trigger: 'auto', preTokens: 48900, createdAt: '2026-07-28T10:00:00Z',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'stream:compaction', sessionKey: 'sk-1', markerId: 'mk-1', afterMessageId: null,
+      trigger: 'manual', preTokens: 48900, postTokens: 1200, createdAt: '2026-07-28T10:00:00Z',
+    }).ok).toBe(true);
+  });
+
+  test('stream:compaction rifiuta un trigger fuori vocabolario', () => {
+    expect(validateOutbound({
+      type: 'stream:compaction', sessionKey: 'sk-1', markerId: 'mk-1', afterMessageId: null,
+      trigger: 'watchdog', createdAt: '2026-07-28T10:00:00Z',
+    }).ok).toBe(false);
+  });
+
+  test('ui:bundle-updated e ui:bundle-rev', () => {
+    expect(validateOutbound({ type: 'ui:bundle-updated', at: 1753700000000, rev: 'index-a1b2.js' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'ui:bundle-updated', at: 1753700000000 }).ok).toBe(true);
+    expect(validateOutbound({ type: 'ui:bundle-rev', rev: 'index-a1b2.js' }).ok).toBe(true);
+    expect(validateOutbound({ type: 'ui:bundle-rev' }).ok).toBe(false);
   });
 });
