@@ -243,7 +243,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
         );
       }
       pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
-      pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled);
+      pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled, historyOverride);
       if (planMode) pushPlanModeBlock(systemBlocks);
     }
   }
@@ -723,9 +723,17 @@ function pushPinnedMessagesBlock(
   topic: Topic,
   ctx: AppContext,
   isEnabled: (id: string) => boolean,
+  /**
+   * Gli stessi messaggi su cui è costruita la history. Passarlo NON è un
+   * dettaglio: su un Rigenera la history è troncata all'ancora perché il modello
+   * non veda la risposta che sta rimpiazzando, ma questo blocco rileggeva il
+   * thread dal DB — e se quella risposta era PINNATA rientrava per intero nel
+   * preambolo di sistema, annullando il troncamento senza che nulla lo dicesse.
+   */
+  messages?: StoredMessage[],
 ): void {
   if (!topic.pinnedMessages || topic.pinnedMessages.length === 0) return;
-  const localMsgs = ctx.loadLocalMessages(topic.sessionKey);
+  const localMsgs = messages ?? ctx.loadLocalMessages(topic.sessionKey);
   const pinned = localMsgs.filter((m) => topic.pinnedMessages!.includes(m.id));
   if (pinned.length === 0) return;
   const content = pinned.map((m) => `[${m.role}]: ${m.content}`).join("\n\n");

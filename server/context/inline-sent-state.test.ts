@@ -159,3 +159,39 @@ describe("capienza e reset", () => {
     expect(getInlineSentState("topic:0", scope).size).toBe(0);
   });
 });
+
+describe("rekey — mai attraverso una compattazione", () => {
+  // Il bug che questa guardia chiude: `sendChat` risolve a FINE turno, mentre
+  // un'auto-compattazione arriva a METÀ. Ricalcolando lo scope nel `.then` si
+  // otteneva `uuid#N+1`, e spostarci la mappa dichiarava "questi slot sono già in
+  // conversazione" su una conversazione appena diventata un riassunto: dal turno
+  // dopo il preambolo non ripartiva più.
+  test("un conteggio di compattazioni diverso NON ri-chiava", () => {
+    const prima = inlineScope(null, 0);
+    markInlineSent(KEY, prima, [{ slot: "template", hash: "aaa" }]);
+
+    // Durante il turno è arrivata una compattazione: lo scope target ha #1.
+    rekeyInlineSent(KEY, prima, inlineScope("uuid-1", 1));
+
+    // Lo stato NON si è spostato: al turno dopo verrà scartato e il preambolo riparte.
+    expect(getInlineSentState(KEY, inlineScope("uuid-1", 1)).size).toBe(0);
+    expect(getInlineSentState(KEY, prima).get("template")).toBe("aaa");
+  });
+
+  test("a pari conteggio ri-chiava, che è il caso per cui esiste", () => {
+    const prima = inlineScope(null, 3);
+    markInlineSent(KEY, prima, [{ slot: "template", hash: "aaa" }]);
+    rekeyInlineSent(KEY, prima, inlineScope("uuid-1", 3));
+    expect(getInlineSentState(KEY, inlineScope("uuid-1", 3)).get("template")).toBe("aaa");
+  });
+
+  test("il preambolo riparte davvero dopo una compattazione a metà turno", () => {
+    // La catena completa, come la vive la route.
+    const atSend = inlineScope(null, 0);
+    markInlineSent(KEY, atSend, [{ slot: "template", hash: "aaa" }, { slot: "prompt", hash: "bbb" }]);
+    rekeyInlineSent(KEY, atSend, inlineScope("uuid-1", 1)); // compattazione arrivata
+    // Turno successivo: la route compone lo scope col conteggio nuovo.
+    const nextTurn = getInlineSentState(KEY, inlineScope("uuid-1", 1));
+    expect(nextTurn.size).toBe(0); // nessuno slot creduto "già inviato"
+  });
+});

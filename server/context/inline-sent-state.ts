@@ -120,7 +120,25 @@ export function rekeyInlineSent(sessionKey: string, fromScope: string, toScope: 
   if (fromScope === toScope) return;
   const existing = states.get(sessionKey);
   if (!existing || existing.scope !== fromScope) return;
+  // Ri-chiavare vale SOLO per l'identità della sessione, mai attraverso una
+  // compattazione — e l'invariante sta qui, non in un commento al chiamante.
+  //
+  // `sendChat` risolve a fine turno, mentre un'auto-compattazione arriva a METÀ:
+  // ricalcolando lo scope nel `.then` si otteneva `uuid#N+1`, e spostare la mappa
+  // là dentro dichiarava «questi slot sono già nella conversazione» su una
+  // conversazione che era appena diventata un riassunto. Dal turno dopo il
+  // preambolo non ripartiva più — esattamente ciò che il conteggio nello scope
+  // esiste per impedire. Se il conteggio è cambiato, non si tocca niente: lo stato
+  // resta sotto il vecchio scope e il turno successivo lo scarta, che è l'esito
+  // giusto.
+  if (compactionPart(fromScope) !== compactionPart(toScope)) return;
   existing.scope = toScope;
+}
+
+/** La coda `#<n>` di uno scope. Stringa e non numero: conta solo confrontarla. */
+function compactionPart(scope: string): string {
+  const i = scope.lastIndexOf("#");
+  return i < 0 ? "" : scope.slice(i + 1);
 }
 
 /** Dimentica una sessione (chiusura del topic, reset esplicito). */

@@ -75,6 +75,34 @@ function estimateTokens(text: string): number {
   return Math.round(text.length / 4);
 }
 
+/**
+ * I built-in della CLI che vanno consegnati NUDI, perché la CLI li parsa
+ * guardando l'inizio del messaggio e qualunque preambolo davanti glieli nasconde.
+ *
+ * È un'ALLOWLIST, non «inizia per slash»: quel predicato prendeva anche un path
+ * incollato — `/Users/zorahrel/…`, `/tmp da controllare` — e a quel messaggio
+ * toglieva tutto il contesto. Su un primo turno o subito dopo una compattazione
+ * significava un turno intero senza sapere in che progetto si sta lavorando.
+ */
+const CLI_BUILTINS = new Set([
+  "compact", "clear", "cost", "context", "status", "model", "config", "doctor",
+  "help", "init", "login", "logout", "memory", "resume", "review", "vim",
+  "release-notes", "bug", "exit", "quit", "privacy-settings", "terminal-setup",
+  "upgrade", "mcp", "agents", "hooks", "permissions", "todos", "usage", "export",
+  "rewind", "sandbox", "statusline", "output-style", "add-dir", "ide", "install",
+  "migrate-installer", "pr-comments", "security-review", "todo", "compress",
+]);
+
+function isCliBuiltin(content: string): boolean {
+  const t = content.trimStart();
+  if (!t.startsWith("/")) return false;
+  // Il comando è il primo token, senza argomenti: `/compact`, `/model opus`.
+  // Un path ha uno slash DENTRO il primo token, quindi non può passare.
+  const first = t.slice(1).split(/\s/, 1)[0] ?? "";
+  if (!first || first.includes("/")) return false;
+  return CLI_BUILTINS.has(first.toLowerCase());
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Public API
 // ────────────────────────────────────────────────────────────────────────────
@@ -154,7 +182,7 @@ function adaptInlineSystem(
   //
   // Gli slot NON vengono marcati (inlineSlots resta assente): quello che è
   // cambiato parte al turno successivo, che e' un messaggio normale.
-  if (envelope.userMessage.content.trimStart().startsWith("/")) {
+  if (isCliBuiltin(envelope.userMessage.content)) {
     return {
       userContent: envelope.userMessage.content,
       adaptationNotes: [

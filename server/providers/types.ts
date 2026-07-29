@@ -38,6 +38,13 @@ export interface ProviderUsage {
   inputTokens?: number;
   outputTokens?: number;
   cacheCreation?: number;
+  /**
+   * La quota di `cacheCreation` scritta con TTL a UN'ORA, che costa 2× un token
+   * fresco invece di 1.25×. Arriva scorporata dal provider
+   * (`usage.cache_creation.ephemeral_1h_input_tokens`): si legge, non si deduce
+   * dal tempo fra le richieste. Sottoinsieme di `cacheCreation`, non un addendo.
+   */
+  cacheCreation1h?: number;
   cacheRead?: number;
   reasoningTokens?: number;
 }

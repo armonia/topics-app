@@ -2098,6 +2098,9 @@ export class ClaudeCodeProvider implements AIProvider {
         const turnEnd = classifyResultEvent(event);
         const usage = event.usage ?? {};
         const cacheCreation = usage.cache_creation_input_tokens ?? 0;
+        // Il TTL sta SCRITTO nell'usage: una scrittura a un'ora costa 2×, una a
+        // cinque minuti 1.25×. Tariffarle tutte al ribasso sottostimava il turno.
+        const cacheCreation1h = usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
         const cacheRead = usage.cache_read_input_tokens ?? 0;
         handler.onDone({
           result: resultText,
@@ -2105,6 +2108,7 @@ export class ClaudeCodeProvider implements AIProvider {
             inputTokens: (usage.input_tokens ?? 0) + cacheCreation + cacheRead,
             outputTokens: usage.output_tokens ?? 0,
             cacheCreation: cacheCreation || undefined,
+            cacheCreation1h: cacheCreation1h || undefined,
             cacheRead: cacheRead || undefined,
           },
           durationMs: event.duration_ms,

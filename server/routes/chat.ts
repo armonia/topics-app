@@ -624,6 +624,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // per model call, so a turn with thirty tool calls would otherwise
           // write the same row and push the same event thirty times.
           let lastContextUsed = -1;
+          // Disfa la marcatura ottimistica del preambolo inline.
+          //
+          // Dichiarato QUI, prima dello stream handler, perché è `onError` a dover
+          // chiamarlo: `sendChat` di claude-code non rigetta su nessun fallimento di
+          // turno — TIMEOUT, RATE_LIMIT, PROCESS_DEAD e il doppio SESSION_RESET
+          // chiamano tutti `handler.onError` e poi fanno `return { runId }`. Il
+          // rollback che stava solo nel `.catch` di `drive` era quindi codice morto
+          // per l'intera classe di errori per cui era stato scritto.
+          //
+          // Idempotente: `onError` e il `.catch` possono scattare entrambi.
+          let rollbackInlineSent: (() => void) | null = null;
+          const undoInlineMark = () => { rollbackInlineSent?.(); rollbackInlineSent = null; };
           // Reattach after a server restart continues the SAME bubble the client
           // was watching (reuse + in-place JSONL replay) instead of spawning a
           // duplicate turn / leaving a ghost spinner. Normal sends always get a
@@ -1688,12 +1700,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                         cacheReadTokens: usage.cacheRead,
                         cacheCreationTokens: usage.cacheCreation,
                       });
+                      // Le due durate di cache hanno tariffe diverse (2× a un'ora,
+                      // 1.25× a cinque minuti) e il provider le manda scorporate:
+                      // quote DISGIUNTE, quel che non è a un'ora è a cinque minuti.
+                      const w1h = Math.min(usage.cacheCreation1h ?? 0, split.cacheCreation);
                       const usd = calculateCostWithCache({
                         model: message.model || overrideModel || "unknown",
                         freshInputTokens: split.fresh,
                         outputTokens: outTok,
                         cacheReadTokens: split.cacheRead,
-                        cacheCreationTokens: split.cacheCreation,
+                        cacheCreationTokens: split.cacheCreation - w1h,
+                        cacheCreation1hTokens: w1h,
                       });
                       if (usd > 0) costCents = Math.round(usd * 100);
                     } catch { /* unknown model — skip cost, keep tokens */ }
@@ -1705,6 +1722,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
             onError: (error: string) => {
               console.error(`[StreamWS] Error for ${sessionKey}: ${error}`);
+              // Il turno e' fallito: il preambolo marcato come consegnato potrebbe
+              // non esserlo mai stato (PROCESS_DEAD rigetta PRIMA di scrivere su
+              // stdin). Nel dubbio si rimanda: due token in piu' contro un modello
+              // che non sa in che progetto si trova.
+              undoInlineMark();
               finalizeStream("error", error);
             },
 
@@ -1782,10 +1804,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             );
             // Marcatura OTTIMISTICA: `sendChat` risolve a turno avviato, e un
             // secondo messaggio accodato prima di allora si comporrebbe con la
-            // mappa vecchia, riemettendo tutto. Il caso speculare (marcato ma
-            // mai arrivato) lo chiude `rollbackInlineSent` nel `.catch` qui
-            // sotto — lo stesso ramo che avvisa l'utente del fallimento.
-            const rollbackInlineSent = (sentScope && payload.inlineSlots)
+            // mappa vecchia, riemettendo tutto. Il caso speculare — marcato ma mai
+            // arrivato — lo chiude `undoInlineMark`, chiamato da `onError` (dove
+            // finiscono TIMEOUT, RATE_LIMIT, PROCESS_DEAD: `sendChat` non rigetta
+            // su nessuno di quelli) e dal `.catch` per i throw sincroni.
+            rollbackInlineSent = (sentScope && payload.inlineSlots)
               ? markInlineSent(sessionKey, sentScope, payload.inlineSlots)
               : null;
             const userContent = payload.userContent;
@@ -1860,8 +1883,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }).catch(async (err: any) => {
               console.error(`[StreamWS] chat.send failed for ${sessionKey}:`, err);
               // Il turno non è mai arrivato alla CLI: quel preambolo non è in
-              // sessione, e il prossimo messaggio deve tornare a portarlo.
-              rollbackInlineSent?.();
+              // sessione, e il prossimo messaggio deve tornare a portarlo. Qui
+              // restano i throw sincroni; la classe grossa passa da `onError`.
+              undoInlineMark();
               topicProvider.unregisterStreamHandler?.(sessionKey);
               endStream(sessionKey);
               const errorMsg = `⚠️ Failed to send message: ${err.message}`;

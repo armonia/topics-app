@@ -229,6 +229,33 @@ describe("comandi built-in della CLI", () => {
     const normale = adaptEnvelope(inlineEnvelope([AWARE], "guarda in src/lib"), { alreadySent: new Map() });
     expect(normale.userContent).toContain("<context>");
   });
+
+  it("un PATH incollato non è un comando: il contesto ci vuole", () => {
+    // `startsWith("/")` da solo prendeva anche questi, e a un messaggio che parla
+    // di un file toglieva tutto il preambolo — su un primo turno, un turno intero
+    // senza sapere in che progetto si sta.
+    for (const testo of [
+      "/Users/zorahrel/Projects/topics-app/server/context/adapt.ts va rivisto",
+      "/tmp da controllare",
+      "/etc/hosts",
+      "/ ",
+      "/",
+    ]) {
+      const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], testo), { alreadySent: new Map() });
+      expect(p.userContent).toContain("<context>");
+    }
+  });
+
+  it("i comandi con argomenti restano nudi", () => {
+    const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], "/model claude-opus-5"), { alreadySent: new Map() });
+    expect(p.userContent).toBe("/model claude-opus-5");
+  });
+
+  it("uno slash che non è un built-in noto porta il contesto", () => {
+    // Meglio un preambolo di troppo che un turno senza sapere dove si è.
+    const p = adaptEnvelope(inlineEnvelope([PROMPT, AWARE], "/inventato-di-sana-pianta"), { alreadySent: new Map() });
+    expect(p.userContent).toContain("<context>");
+  });
 });
 
 describe("le altre strategie non deduplicano", () => {
