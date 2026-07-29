@@ -101,7 +101,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
   dataNotice?: string | null;
   /** Live Claude Code agent counts: `working` = running/tool-running,
    *  `awaiting` = parked for your input. Undefined hides the chip. */
-  agentCounts?: { working: number; awaiting: number };
+  agentCounts?: { working: number; awaiting: number; awaitingInput: number };
 } = {}) {
   // Slow polling for the status bar (60s)
   const { status } = useSystemStatus(true, 60000);
@@ -353,15 +353,26 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
         </button>
 
         {/* Live Claude Code agents: 🤖 = working now (running/tool-running),
-            ⏳ = parked awaiting your input. Hidden when neither, matching the
-            bar's "only show live signals" convention (fps, ws-status). */}
+            ⏳ = parked awaiting you. Hidden when neither, matching the bar's
+            "only show live signals" convention (fps, ws-status).
+
+            The hourglass follows the SAME two tiers as every other surface
+            (`attentionTierForPhase`): amber only for `awaiting-approval` — a
+            permission gate that wants an answer now — and calm blue for the
+            rest, which merely means the turn ended. Painting the whole set
+            amber made a pile of finished turns look like a pile of prompts. */}
         {agentCounts && (agentCounts.working > 0 || agentCounts.awaiting > 0) && (
           <span
             data-testid="agent-count"
             className="flex items-center gap-1.5 text-[11px] flex-shrink-0 tabular-nums"
-            title={`Agenti Claude Code\n· ${agentCounts.working} al lavoro${
-              agentCounts.awaiting ? `\n· ${agentCounts.awaiting} in attesa di una tua risposta` : ''
-            }`}
+            title={[
+              'Agenti Claude Code',
+              `· ${agentCounts.working} al lavoro`,
+              agentCounts.awaitingInput > 0 ? `· ${agentCounts.awaitingInput} in attesa di una tua risposta` : '',
+              agentCounts.awaiting - agentCounts.awaitingInput > 0
+                ? `· ${agentCounts.awaiting - agentCounts.awaitingInput} con il turno finito`
+                : '',
+            ].filter(Boolean).join('\n')}
           >
             {agentCounts.working > 0 && (
               <span className="flex items-center gap-0.5 text-emerald-500">
@@ -369,10 +380,18 @@ export function SidebarStatusBar({ wsStatus, dataNotice, agentCounts }: {
                 {agentCounts.working}
               </span>
             )}
-            {agentCounts.awaiting > 0 && (
-              <span className="flex items-center gap-0.5 text-amber-500">
+            {agentCounts.awaitingInput > 0 && (
+              <span data-testid="agent-count-input" className="flex items-center gap-0.5 text-amber-500">
                 <Hourglass size={10} />
-                {agentCounts.awaiting}
+                {agentCounts.awaitingInput}
+              </span>
+            )}
+            {/* Same blue as the 'done' tier everywhere else (SpaceSwitcher's dot,
+                the awaiting fill) — one colour per tier, no new palette. */}
+            {agentCounts.awaiting - agentCounts.awaitingInput > 0 && (
+              <span data-testid="agent-count-done" className="flex items-center gap-0.5 text-[#0a84ff]">
+                <Hourglass size={10} />
+                {agentCounts.awaiting - agentCounts.awaitingInput}
               </span>
             )}
           </span>
