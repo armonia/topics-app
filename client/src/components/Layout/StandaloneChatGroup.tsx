@@ -32,6 +32,7 @@ import { getProjectName, hashToColor } from './projectColors';
 import { usePaneOrdering } from './hooks/usePaneOrdering';
 import { useActivePaneState } from './hooks/useActivePaneState';
 import { usePaneResidency } from './hooks/usePaneResidency';
+import { usePaneAlive } from '../../state/paneLiveness';
 import { usePaneLifecycle } from './hooks/usePaneLifecycle';
 import { resolveStandaloneCrossGroupDrop } from './standaloneDrop';
 import { primaryFromSoloCellKey } from './soloCells';
@@ -341,10 +342,15 @@ export function StandaloneChatGroup({
   // topic vero, che cambia l'`id` e conserva lo `stableKey`) non forza un
   // remount del sottoalbero.
   const stableKeyOf = useCallback((p: Pane) => p.stableKey ?? p.id, []);
+  // Vedi la nota gemella in `GroupLayout`: una superficie NASCOSTA non ha pane
+  // visibili, e dichiararne una come tale la renderebbe pavimento — cioe'
+  // esente dal tetto — per sempre.
+  const surfaceAlive = usePaneAlive();
   const visibleKeys = useMemo(() => {
+    if (!surfaceAlive) return [];
     const p = activePaneId ? panes.find((q) => q.id === activePaneId) : undefined;
     return p ? [stableKeyOf(p)] : [];
-  }, [panes, activePaneId, stableKeyOf]);
+  }, [surfaceAlive, panes, activePaneId, stableKeyOf]);
   const isResidentPane = usePaneResidency(panes, visibleKeys);
 
   // La pane attiva entra comunque, anche se il registro non l'ha ancora
