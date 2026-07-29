@@ -160,6 +160,14 @@ interface BuildSidebarItemsOpts {
    *  orchestratorManaged precedent) so a pinned row survives with zero open
    *  tabs — and, for chats, even archived with showArchived off. */
   pinnedIds?: Set<string>;
+  /** Non-chat, non-terminal pane badge counts — the SAME `extraCounts` map the
+   *  tab bar reads through `getBadgeCount`'s last branch (agents panes on
+   *  `agent:nudge`/`agent:escalation`/`agents:sessions`, `session-viewer:` on
+   *  `stream:end`). Without it the sidebar hard-coded 0 for exactly those rows,
+   *  so an agents pane could carry a badge on its TAB and show nothing on its
+   *  sidebar row — the two surfaces disagreeing about the same pane. Threading
+   *  the map through makes both read one source. */
+  extraCounts?: ReadonlyMap<string, number>;
   /** Topics open in ANOTHER window (pop-out presence) → {windowId, windowLabel}.
    *  Same `||` escape pattern as pinnedIds at the chat visibility gates: a topic
    *  detached elsewhere keeps its sidebar row (with an AppWindow glyph) even
@@ -192,7 +200,7 @@ interface BuildSidebarItemsOpts {
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
-  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
+  const { topics, workspaceProjects = [], terminalSessions = [], browserContexts = [], unreadData, showArchived, openPanels = [], projectOpenPanes = {}, lastNotifiedAt, claudeAttentionTopics = new Set(), terminalFinishedIds = new Set(), pinnedIds = new Set<string>(), extraCounts = new Map<string, number>(), detachedTopicIds = new Map<string, { windowId: string; windowLabel?: string }>(), paneTitleById = new Map<string, string>(), browserOriginById = new Map<string, BrowserOrigin>(), sessionLastActivityById = new Map<string, number>() } = opts;
   const openPanelSet = new Set(openPanels);
 
   const items: SidebarItem[] = [];
@@ -229,7 +237,11 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: persistedTitle || bc?.title || hostname || 'Browser',
       icon: 'globe',
       lastActivity: bc?.lastActivity || 0,
-      notificationCount: 0,
+      // Same `extraCounts` source as the tab (getBadgeCount's last branch).
+      // Nothing badges a browser pane today, but a hard-coded 0 is how the row
+      // and the tab drift apart the moment something does — the exact shape of
+      // the agents-pane bug this map was threaded through to fix.
+      notificationCount: extraCounts.get(paneId) ?? 0,
       archived: false,
       ...(projectPath ? { projectPath } : {}),
       // Pin parity with chat/terminal/project rows: a pinned browser renders the
@@ -636,7 +648,11 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       name: config.label,
       icon: config.icon,
       lastActivity: 0,
-      notificationCount: 0,
+      // Same source as the tab: `__agents__` badges on agent:nudge /
+      // agent:escalation / a session finishing, and `tab-notifications.spec.ts`
+      // already pins that the TAB lights up. The row used to be a hard 0, so the
+      // two surfaces disagreed about the very same pane.
+      notificationCount: extraCounts.get(paneId) ?? 0,
       archived: false,
     });
   }

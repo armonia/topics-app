@@ -592,6 +592,52 @@ describe("buildSidebarItems — utility tabs (tab-driven, same rule as everythin
     const groups = groupSidebarItems(items);
     expect(groups.utility.map((i) => i.id)).toEqual(["__dashboard__"]);
   });
+
+  /**
+   * Parity with the tab bar. `extraCounts` is the badge source `getBadgeCount`
+   * falls back to for every pane that is neither a chat nor a terminal — agents
+   * panes on agent:nudge / agent:escalation / a session finishing, and
+   * session-viewer on stream:end. `tab-notifications.spec.ts` TAB-BADGE-10/11
+   * already pins that the TAB lights up; the sidebar row used to hard-code 0, so
+   * the same pane could show a badge on one surface and nothing on the other.
+   */
+  test("a utility row carries the SAME count its tab does (extraCounts)", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      terminalSessions: [],
+      openPanels: ["__agents__", "__dashboard__"],
+      projectOpenPanes: {},
+      extraCounts: new Map([["__agents__", 3]]),
+    });
+    expect(items.find((i) => i.id === "__agents__")!.notificationCount).toBe(3);
+    // …and a pane nobody badged stays at zero rather than inheriting a count.
+    expect(items.find((i) => i.id === "__dashboard__")!.notificationCount).toBe(0);
+  });
+
+  test("no extraCounts at all leaves every utility row at zero", () => {
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      terminalSessions: [],
+      openPanels: ["__agents__"],
+      projectOpenPanes: {},
+    });
+    expect(items.find((i) => i.id === "__agents__")!.notificationCount).toBe(0);
+  });
+
+  test("a browser row reads extraCounts too, instead of a hard-coded zero", () => {
+    const paneId = "browser:ctx-1";
+    const items = buildSidebarItems({
+      ...base,
+      workspaceProjects: [],
+      terminalSessions: [],
+      openPanels: [paneId],
+      projectOpenPanes: {},
+      extraCounts: new Map([[paneId, 2]]),
+    });
+    expect(items.find((i) => i.id === paneId)!.notificationCount).toBe(2);
+  });
 });
 
 describe("buildSidebarItems — terminal lastActivity reflects real Claude activity", () => {

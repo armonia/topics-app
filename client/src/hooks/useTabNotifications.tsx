@@ -18,6 +18,10 @@ interface TabNotificationContextValue {
   clearPane: (paneId: string) => void;
   /** Timestamps of last notification per topicId (for sidebar sort) */
   lastNotifiedAt: Map<string, number>;
+  /** Raw badge counts for panes that are neither chat nor terminal (agents
+   *  panes, session-viewer). `getBadgeCount` reads it for the tab; the SIDEBAR
+   *  needs it too, or a row hard-codes 0 while its own tab shows a number. */
+  extraCounts: ReadonlyMap<string, number>;
   /** Record that a topic just received a notification (for sidebar sort ordering) */
   touchTopic: (topicId: string) => void;
 }
@@ -250,8 +254,9 @@ export function TabNotificationProvider({
     notifyPane,
     clearPane,
     lastNotifiedAt,
+    extraCounts,
     touchTopic,
-  }), [getBadgeCount, getProjectBadgeCount, notifyPane, clearPane, lastNotifiedAt, touchTopic]);
+  }), [getBadgeCount, getProjectBadgeCount, notifyPane, clearPane, lastNotifiedAt, extraCounts, touchTopic]);
 
   return (
     <TabNotificationContext.Provider value={value}>
@@ -271,6 +276,7 @@ export function useTabNotifications(): TabNotificationContextValue {
       notifyPane: () => {},
       clearPane: () => {},
       lastNotifiedAt: new Map(),
+      extraCounts: new Map(),
       touchTopic: () => {},
     };
   }
