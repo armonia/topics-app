@@ -373,6 +373,20 @@ export interface AIProvider {
        */
       history?: ChatMessage[];
       /**
+       * Il messaggio come sarebbe stato SENZA deduplicazione del preambolo:
+       * testo utente con tutti i blocchi di contesto davanti.
+       *
+       * Serve a un caso solo, ma reale. `message` a regime è il testo nudo,
+       * perché gli slot di contesto la sessione CLI li ha già. Se però quella
+       * sessione muore e il provider rispedisce su una CLI APPENA CONIATA
+       * (`SESSION_RESET`), il testo nudo la trova vergine: un turno intero senza
+       * system prompt del topic, file di contesto, progetto, memoria, pinned.
+       *
+       * Chi compone il messaggio è la route, non il provider — quindi il
+       * rimpiazzo glielo deve passare la route. Ignorato da chi non fa dedup.
+       */
+      resetFallbackContent?: string;
+      /**
        * Optional Anthropic-format Tool[] to register for this turn (Phase 30
        * BROWSER-CHAT-04). Providers with `isPassthroughProvider(name) === true`
        * forward to the underlying SDK; CLI/gateway providers ignore the field

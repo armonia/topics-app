@@ -98,6 +98,31 @@ export function markInlineSent(
   };
 }
 
+/**
+ * Sposta lo stato da uno scope all'altro, senza perderlo.
+ *
+ * Serve al primo turno di ogni sessione CLI. La riga di `claude_code_sessions`
+ * NASCE dentro la prima `sendChat` (è `getOrCreateClaudeSessionId`, chiamata
+ * durante lo spawn), quindi la route che compone lo scope PRIMA di inviare legge
+ * un id che ancora non c'è e marca sotto `(none)#0`. Al turno dopo l'id esiste, lo
+ * scope non combacia più e la mappa viene buttata: il preambolo intero riparte una
+ * seconda volta e resta nella conversazione CLI per sempre, riletto a ogni
+ * chiamata successiva.
+ *
+ * Ri-chiavare a turno concluso lo evita, ed è legittimo: la CLI identificata da
+ * quell'id è esattamente quella che ha appena ricevuto il preambolo.
+ *
+ * No-op se lo stato non è più sotto `fromScope` — nel frattempo può essere
+ * successo di tutto, e in quel caso l'esito giusto è che la mappa venga scartata
+ * e il contesto rimandato.
+ */
+export function rekeyInlineSent(sessionKey: string, fromScope: string, toScope: string): void {
+  if (fromScope === toScope) return;
+  const existing = states.get(sessionKey);
+  if (!existing || existing.scope !== fromScope) return;
+  existing.scope = toScope;
+}
+
 /** Dimentica una sessione (chiusura del topic, reset esplicito). */
 export function resetInlineSent(sessionKey: string): void {
   states.delete(sessionKey);

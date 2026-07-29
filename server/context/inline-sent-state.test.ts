@@ -13,6 +13,7 @@ import {
   hashSlot,
   inlineScope,
   markInlineSent,
+  rekeyInlineSent,
   resetInlineSent,
 } from "./inline-sent-state";
 
@@ -103,6 +104,41 @@ describe("rollback", () => {
     markInlineSent(KEY, scope, [{ slot: "template", hash: "aaa" }])();
     expect(getInlineSentState("topic:altro", scope).get("template")).toBe("zzz");
   });
+});
+
+describe("rekey — il primo turno compone lo scope prima che l'id esista", () => {
+  // La riga di `claude_code_sessions` nasce DENTRO la prima sendChat (la crea lo
+  // spawn), quindi la route marca sotto "(none)#0". Senza rekey, al turno 2 lo
+  // scope non combacia, la mappa viene buttata e il preambolo intero riparte una
+  // seconda volta — restando poi nella conversazione CLI per sempre.
+  test("sposta lo stato allo scope definitivo senza perderlo", () => {
+    const iniziale = inlineScope(null, 0);
+    const definitivo = inlineScope("uuid-1", 0);
+    markInlineSent(KEY, iniziale, [{ slot: "template", hash: "aaa" }]);
+
+    rekeyInlineSent(KEY, iniziale, definitivo);
+
+    expect(getInlineSentState(KEY, definitivo).get("template")).toBe("aaa");
+    expect(getInlineSentState(KEY, iniziale).size).toBe(0);
+  });
+
+  test("no-op se lo stato non è più sotto lo scope di partenza", () => {
+    const altro = inlineScope("uuid-altro", 0);
+    markInlineSent(KEY, altro, [{ slot: "template", hash: "aaa" }]);
+    rekeyInlineSent(KEY, inlineScope(null, 0), inlineScope("uuid-1", 0));
+    expect(getInlineSentState(KEY, altro).get("template")).toBe("aaa");
+  });
+
+  test("no-op su sessione sconosciuta e su scope identico", () => {
+    rekeyInlineSent("topic:mai-visto", inlineScope(null, 0), inlineScope("uuid-1", 0));
+    expect(getInlineSentState("topic:mai-visto", inlineScope("uuid-1", 0)).size).toBe(0);
+
+    const s = inlineScope("uuid-1", 0);
+    markInlineSent(KEY, s, [{ slot: "template", hash: "aaa" }]);
+    rekeyInlineSent(KEY, s, s);
+    expect(getInlineSentState(KEY, s).get("template")).toBe("aaa");
+  });
+
 });
 
 describe("capienza e reset", () => {

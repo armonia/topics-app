@@ -203,6 +203,34 @@ describe("il blocco goal arriva al modello", () => {
   });
 });
 
+describe("comandi built-in della CLI", () => {
+  // `/compact` lo parsa la CLI guardando l'inizio del messaggio: qualunque cosa
+  // davanti glielo nasconde e il comando finisce al modello ("`/compact` non
+  // esiste"), pagando un turno mentre il contesto continua a crescere. Il bottone
+  // compatta nasce quando la finestra si riempie: e' lì che sbagliarlo costa di più.
+  it("un messaggio che inizia con / viaggia NUDO, anche col contesto da mandare", () => {
+    const payload = adaptEnvelope(inlineEnvelope([PROMPT, AWARE, README], "/compact"), { alreadySent: new Map() });
+    expect(payload.userContent).toBe("/compact");
+    expect(payload.userContent).not.toContain("<context>");
+  });
+
+  it("nemmeno plan-mode, che non si deduplica mai, si mette davanti a un comando", () => {
+    const payload = adaptEnvelope(inlineEnvelope([PROMPT, AWARE, PLAN], "/compact"), { alreadySent: new Map() });
+    expect(payload.userContent).toBe("/compact");
+  });
+
+  it("gli slot NON vengono marcati: quel che è cambiato parte al turno dopo", () => {
+    const payload = adaptEnvelope(inlineEnvelope([PROMPT, AWARE, README], "/compact"), { alreadySent: new Map() });
+    expect(payload.inlineSlots).toBeUndefined();
+  });
+
+  it("tollera lo spazio iniziale, e non scatta su uno slash a metà frase", () => {
+    expect(adaptEnvelope(inlineEnvelope([AWARE], "  /compact"), { alreadySent: new Map() }).userContent).toBe("  /compact");
+    const normale = adaptEnvelope(inlineEnvelope([AWARE], "guarda in src/lib"), { alreadySent: new Map() });
+    expect(normale.userContent).toContain("<context>");
+  });
+});
+
 describe("le altre strategie non deduplicano", () => {
   it("history-aware antepone i system message come sempre e non riporta slot", () => {
     const env = { ...inlineEnvelope([PROMPT, AWARE, README]), providerStrategy: "history-aware" as const };

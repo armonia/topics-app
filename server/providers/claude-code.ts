@@ -974,7 +974,7 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string },
+    options?: { model?: string; resetFallbackContent?: string },
   ): Promise<{ runId?: string }> {
     // Serial queue: prevent concurrent stdin writes per session
     const prev = this.queues.get(sessionKey) ?? Promise.resolve();
@@ -988,7 +988,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // claude-code spawns a long-lived child whose --model is set at spawn
       // time. Switching models requires respawning, which we don't do mid-flow.
       // To use a different model, set it as the topic default or in config.
-      return await this.sendChatInternal(sessionKey, message, handler);
+      return await this.sendChatInternal(sessionKey, message, handler, false, options?.resetFallbackContent);
     } finally {
       resolveQueue();
     }
@@ -999,6 +999,7 @@ export class ClaudeCodeProvider implements AIProvider {
     message: string,
     handler: StreamHandler,
     retriedReset = false,
+    resetFallbackContent?: string,
   ): Promise<{ runId?: string }> {
     const pp = this.getOrCreateProcess(sessionKey);
     const runId = crypto.randomUUID();
@@ -1149,7 +1150,14 @@ export class ClaudeCodeProvider implements AIProvider {
         this.processes.delete(sessionKey);
         if (!retriedReset) {
           console.log(`[claude-code] Session reset for ${sessionKey} — respawning fresh and resending`);
-          return this.sendChatInternal(sessionKey, message, handler, true);
+          // La sessione nuova non ha mai visto il preambolo: se la route ha
+          // deduplicato (a regime `message` è il testo utente nudo), rispedire
+          // QUELLO significa far girare un turno intero — fino a mezz'ora, per un
+          // agent dispatchato — senza system prompt del topic, file di contesto,
+          // progetto, memoria e pinned. Il recap prologue ricostruisce i turni,
+          // non i blocchi di sistema. Qui si rimanda la versione integra.
+          const forFreshSession = resetFallbackContent ?? message;
+          return this.sendChatInternal(sessionKey, forFreshSession, handler, true, resetFallbackContent);
         }
         handler.onError("La sessione era scaduta ed è stata ripristinata — riprova.");
         return { runId };
@@ -1225,6 +1233,16 @@ export class ClaudeCodeProvider implements AIProvider {
       "--model", model,
       "--setting-sources", "user,project,local",
       ...oneshotMcpArgs,
+      // Stesso ragionamento del config MCP vuoto qui sopra, portato fino in fondo:
+      // spenti i server esterni restavano comunque gli schemi di TUTTI i tool
+      // built-in (Bash, Edit, Read, WebFetch, Task…) in testa al prompt. Questi
+      // completamenti — autoname, digest, fallback SSE, edit, scelta del modello —
+      // producono una riga di testo e un tool non lo chiamano mai.
+      // Misurato su CLI 2.1.220, prompt "say ok": 40.566 → 9.292 token di prefisso
+      // (-77%), stessa risposta.
+      // `--tools` è variadico e si mangerebbe un prompt posizionale, ma qui il
+      // prompt entra da stdin (`proc.stdin.write` più sotto), quindi è innocuo.
+      "--tools", "",
       "--output-format", "json",
     ];
 
