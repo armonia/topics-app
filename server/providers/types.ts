@@ -9,6 +9,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type { CompactionMarker } from "./claude/compaction";
 import type { TurnEndInfo } from "./stop-reason";
+import type { AcpAgentSpec } from "./acp/agents";
 
 // ============ Message Types ============
 
@@ -537,12 +538,37 @@ export interface OpenAIProviderConfig {
   maxTokens?: number;         // defaults to 8192
 }
 
+/**
+ * Un agente che parla Agent Client Protocol.
+ *
+ * È l'unico config in cui `type` NON è il nome del provider: `type` è
+ * "acp" per tutti, il nome è quello dell'agente (`gemini`, `goose`, …). Il
+ * registro indicizza per NOME, quindi ogni posto che deduplicava su
+ * `config.type` passa da `providerNameForConfig()` — senza, il secondo agente
+ * ACP registrato spegnerebbe il primo. Vedi `server/providers/acp.ts`.
+ */
+export interface AcpProviderConfig extends AcpAgentSpec {
+  type: "acp";
+  /** Directory di lavoro quando la topic non ne dichiara una. */
+  defaultWorkspace?: string;
+}
+
 export type ProviderConfig =
   | OpenClawProviderConfig
   | ClaudeProviderConfig
   | ClaudeCodeProviderConfig
   | CodexProviderConfig
-  | OpenAIProviderConfig;
+  | OpenAIProviderConfig
+  | AcpProviderConfig;
+
+/**
+ * Il nome sotto cui un config si registra. Per tutti i provider storici è il
+ * `type` stesso; per ACP è il nome dell'agente, perché N agenti condividono
+ * lo stesso `type`.
+ */
+export function providerNameForConfig(config: ProviderConfig): string {
+  return config.type === "acp" ? config.name : config.type;
+}
 
 // ============ Snapshot (server-authoritative state for clients) ============
 // ProviderSnapshotEntry + ProvidersSnapshot live in shared/types.ts so

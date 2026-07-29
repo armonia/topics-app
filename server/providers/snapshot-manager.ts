@@ -24,8 +24,18 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: "OpenAI",
 };
 
-function labelFor(name: string): string {
-  return PROVIDER_LABELS[name] ?? name;
+/**
+ * L'etichetta mostrata nel picker. I nomi non in tabella arrivano dagli agenti
+ * ACP, che li prendono da `ACP_AGENTS`: quindi (a) il lookup passa da
+ * `hasOwnProperty`, altrimenti un agente chiamato `toString` restituirebbe una
+ * FUNZIONE al posto di una stringa, e (b) `gemini` si presenta come `Gemini`
+ * invece che tutto minuscolo in mezzo a nomi propri.
+ */
+export function labelFor(name: string): string {
+  if (Object.prototype.hasOwnProperty.call(PROVIDER_LABELS, name)) {
+    return PROVIDER_LABELS[name]!;
+  }
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 /**

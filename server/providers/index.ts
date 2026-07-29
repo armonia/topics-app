@@ -14,7 +14,9 @@
 
 export * from "./types";
 
-import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig } from "./types";
+import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
+import { providerNameForConfig } from "./types";
+import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./acp/agents";
 import { warnDeprecatedEnv } from "../lib/env-alias";
 import {
   getAppSettings,
@@ -77,6 +79,13 @@ export function createProvider(config: ProviderConfig): AIProvider {
     case "openai": {
       const { OpenAIProvider } = require("./openai");
       return new OpenAIProvider(config);
+    }
+    case "acp": {
+      // UN provider per TUTTI gli agenti che parlano ACP: `config.name` decide
+      // quale. È il punto della fase 3 — il prossimo agente costa una riga in
+      // `acp/agents.ts`, non un file qui.
+      const { AcpProvider } = require("./acp");
+      return new AcpProvider(config);
     }
     default:
       throw new Error(`Unknown provider type: ${(config as any).type}`);
@@ -187,10 +196,13 @@ export function listProviders(): Array<{
 
 /** Register and start a provider at runtime (e.g., from settings UI) */
 export function registerProvider(config: ProviderConfig): AIProvider {
-  const existing = _providers.get(config.type);
+  // Si deduplica sul NOME, non sul type: gli agenti ACP condividono tutti
+  // `type: "acp"`, e su `type` il secondo registrato spegnerebbe il primo.
+  const name = providerNameForConfig(config);
+  const existing = _providers.get(name);
   if (existing) {
     existing.stop();
-    _providers.delete(config.type);
+    _providers.delete(name);
   }
   const provider = createProvider(config);
   provider.start();
@@ -355,6 +367,27 @@ export async function initProviders(): Promise<AIProvider[]> {
     }
   }
 
+  // Agenti ACP — la tabella nota più quelli dichiarati in ACP_AGENTS. Si
+  // registra solo chi ha l'eseguibile al suo posto: un provider che non può
+  // partire riempirebbe il picker di voci morte.
+  for (const spec of resolveAcpAgents()) {
+    if (_providers.has(spec.name)) continue;
+    if (!spec.command.includes("/") && !Bun.which(spec.command)) continue;
+    try {
+      const config: AcpProviderConfig = {
+        type: "acp",
+        ...spec,
+        defaultWorkspace: process.env.ACP_WORKSPACE || undefined,
+      };
+      const p = createProvider(config);
+      p.start();
+      _providers.set(p.name, p);
+      started.push(p);
+    } catch (err: any) {
+      console.warn(`[Providers] Failed to init acp:${spec.name}: ${err.message}`);
+    }
+  }
+
   // Pick a sensible default: explicit env wins; otherwise prefer a CONNECTED
   // provider so chat routes don't silently dispatch to an offline gateway.
   // Without re-evaluation, "openclaw" wins backwards-compat priority even
@@ -374,6 +407,20 @@ export async function initProviders(): Promise<AIProvider[]> {
 }
 
 // --- Auto-detect helpers ---
+
+/**
+ * La lista degli agenti ACP da provare: la tabella nota più `ACP_AGENTS`, con i
+ * dichiarati che vincono a parità di nome. Una variabile malformata NON deve
+ * impedire al server di partire — si logga quante voci si sono scartate e si va
+ * avanti con quelle buone.
+ */
+function resolveAcpAgents(): ReturnType<typeof mergeAcpAgents> {
+  const { agents, skipped } = parseAcpAgentsEnv(process.env.ACP_AGENTS);
+  if (skipped > 0) {
+    console.warn(`[Providers] ACP_AGENTS: ${skipped} voce/i illeggibile/i, ignorate`);
+  }
+  return mergeAcpAgents(KNOWN_ACP_AGENTS, agents);
+}
 
 async function detectClaudeCodeCli(): Promise<boolean> {
   // Avoid hard import cost if Bun.which already says no
@@ -417,12 +464,13 @@ export function initProvider(config?: ProviderConfig): AIProvider {
     // its inactivity timers kept firing and `claude-code` would keep two
     // pools alive, each spawning their own `--resume` child for the same
     // sessionKey. That double-spawn corrupted the on-disk session file.
-    const existing = _providers.get(config.type);
+    const name = providerNameForConfig(config);
+    const existing = _providers.get(name);
     if (existing) {
       try { existing.stop(); } catch (err: any) {
-        console.warn(`[Providers] Failed to stop previous ${config.type} instance: ${err?.message ?? err}`);
+        console.warn(`[Providers] Failed to stop previous ${name} instance: ${err?.message ?? err}`);
       }
-      _providers.delete(config.type);
+      _providers.delete(name);
     }
     const p = createProvider(config);
     p.start();

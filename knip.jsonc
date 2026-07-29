@@ -14,6 +14,10 @@
         // settings, never imported — hence `**`, not `scripts/*.ts`.
         "scripts/**/*.ts!",
         "server/db/seed.ts!", // one-shot JSON→SQLite migration, run by hand
+        // `*.fixture.ts` = processo finto lanciato da un test con `bun <path>`
+        // (es. l'agente ACP di `acp-provider.test.ts`): nessuno lo IMPORTA, il
+        // riferimento è una stringa di path.
+        "server/**/*.fixture.ts!",
         "server/**/*.test.ts",
         "shared/**/*.test.ts", // girati da `test:unit`, non importati da nessuno
         "tests/**/*.{test,spec}.ts"
