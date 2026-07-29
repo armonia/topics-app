@@ -1496,12 +1496,21 @@ export class ClaudeCodeProvider implements AIProvider {
     );
 
     const env = buildSafeEnv();
-    // Dispatch sessions: defer MCP tool schemas (threshold-based) so they load
-    // on-demand via ToolSearch instead of riding every API call's context.
-    // Haiku models don't support tool search (they'd load everything upfront
-    // anyway), so the env is only set for capable models; interactive sessions
-    // keep the CLI's own default behavior untouched.
-    if (overrides.mcpPolicy === "bridge-only" && !/haiku/i.test(model)) {
+    // Dispatch sessions: defer MCP tool schemas so caricano on-demand via
+    // ToolSearch invece di viaggiare nel contesto di ogni chiamata.
+    //
+    // La guardia `!/haiku/` che stava qui poggiava su un commento falso — «Haiku
+    // models don't support tool search» — e quindi escludeva dal deferral proprio
+    // i topic bridge-only su haiku: misurato, haiku deferisce come gli altri.
+    //
+    // ATTENZIONE, e vale più della guardia: questa env è in gran parte INERTE.
+    // Lo spawn passa `--setting-sources user,project,local` (poche righe sopra),
+    // e `~/.claude/settings.json` dell'utente porta già `ENABLE_TOOL_SEARCH`, che
+    // vince sull'ambiente di processo. Finché quel file dice qualcosa, questo
+    // ramo non cambia il comportamento: la leva vera sta lì, non qui. Lo si tiene
+    // perché è corretto e perché su un'installazione senza quel settaggio è
+    // l'unica cosa che accende il deferral.
+    if (overrides.mcpPolicy === "bridge-only") {
       env.ENABLE_TOOL_SEARCH = env.ENABLE_TOOL_SEARCH ?? "auto";
     }
 

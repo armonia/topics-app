@@ -52,6 +52,36 @@ export const TOPICS_AGENT_SYSTEM_PROMPT = [
  */
 const VALID_CLAUDE_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
+/**
+ * L'effort scelto per un topic (`topics.effort`, migration 033), da dare in pasto
+ * a `resolveClaudeEffort`.
+ *
+ * Esiste perché il percorso PTY interattivo chiamava `resolveClaudeEffort()` NUDA,
+ * saltando il primo ramo della catena: il selettore del model picker era quindi
+ * morto sul terminale — un topic messo a "medium" apriva comunque un PTY a xhigh,
+ * mentre la stessa topic in chat rispettava la scelta. Due superfici, due effort,
+ * un solo selettore. Estratta qui invece che inline nello spawn così è
+ * verificabile senza far partire un PTY.
+ *
+ * Best-effort: un topic assente, un DB vecchio o una query che fallisce tornano
+ * `null` e fanno cadere sul default globale — questa è un'informazione, non deve
+ * poter impedire l'apertura di un terminale.
+ */
+export function topicEffortFor(
+  db: { prepare(sql: string): { get(...args: unknown[]): unknown } },
+  topicId: string | null | undefined,
+): string | null {
+  if (!topicId) return null;
+  try {
+    const row = db.prepare("SELECT effort FROM topics WHERE id = ?").get(topicId) as
+      | { effort?: string | null }
+      | undefined;
+    return row?.effort ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function resolveClaudeEffort(topicOverride?: string | null): string | null {
   // A valid per-topic override (migration 033, set via the model-picker's
   // effort selector) wins over every env-based default. Anything else

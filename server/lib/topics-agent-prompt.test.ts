@@ -7,7 +7,7 @@ import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveCodexReasoningEffort, resolveClaudeEffort } from './topics-agent-prompt';
+import { resolveCodexReasoningEffort, resolveClaudeEffort, topicEffortFor } from './topics-agent-prompt';
 import { __resetDeprecatedEnvWarnings } from './env-alias';
 
 const ENV_KEYS = ['TOPICS_CODEX_REASONING_EFFORT', 'CODEX_REASONING_EFFORT'] as const;
@@ -140,5 +140,43 @@ describe('deprecated effort aliases (dedupe warning)', () => {
     } finally {
       console.warn = orig;
     }
+  });
+});
+
+describe('topicEffortFor — il selettore per-topic sul percorso PTY', () => {
+  // Il bug che questa funzione chiude: `resolveClaudeEffort()` veniva chiamata
+  // NUDA nello spawn del terminale, quindi il primo ramo della catena (l'override
+  // per-topic, migration 033) non veniva mai valutato. Un topic a "medium" apriva
+  // un PTY a xhigh, mentre la stessa topic in chat rispettava la scelta.
+  const dbWith = (rows: Record<string, { effort?: string | null }>) => ({
+    prepare: (_sql: string) => ({
+      get: (...args: unknown[]) => rows[String(args[0])],
+    }),
+  });
+
+  test("legge l'effort del topic e lo fa vincere sul default", () => {
+    const db = dbWith({ 't1': { effort: 'medium' } });
+    expect(topicEffortFor(db, 't1')).toBe('medium');
+    expect(resolveClaudeEffort(topicEffortFor(db, 't1'))).toBe('medium');
+  });
+
+  test('un topic senza effort cade sul default globale', () => {
+    const db = dbWith({ 't1': { effort: null } });
+    expect(topicEffortFor(db, 't1')).toBeNull();
+    expect(resolveClaudeEffort(topicEffortFor(db, 't1'))).toBe('xhigh');
+  });
+
+  test('topicId assente: nessuna query, nessun errore', () => {
+    const boom = { prepare: () => { throw new Error('non deve essere chiamata'); } };
+    expect(topicEffortFor(boom, undefined)).toBeNull();
+    expect(topicEffortFor(boom, null)).toBeNull();
+    expect(topicEffortFor(boom, '')).toBeNull();
+  });
+
+  test('un topic inesistente o una query che fallisce non bloccano lo spawn', () => {
+    expect(topicEffortFor(dbWith({}), 'mai-visto')).toBeNull();
+    const broken = { prepare: () => { throw new Error('no such column: effort'); } };
+    expect(topicEffortFor(broken, 't1')).toBeNull();
+    expect(resolveClaudeEffort(topicEffortFor(broken, 't1'))).toBe('xhigh');
   });
 });
