@@ -23,6 +23,20 @@ Config: [`../../playwright.config.ts`](../../playwright.config.ts) —
 `baseURL` `http://localhost:13334`, `video: "on"`, sequential
 (`fullyParallel: false`) to avoid races on the shared DB.
 
+### La porta non è sempre 13334
+
+Tutto (porta, `DATA_DIR`, bundle, socket del PTY-bridge, file di lock della run)
+discende da `E2E_PORT`. Il default vale per il checkout principale; un **worktree
+di dispatch** (`~/.topics/worktrees/…`) ne riceve una DERIVATA dal suo path —
+[`helpers/worktree-port.ts`](./helpers/worktree-port.ts). Senza, due run
+finivano sulla stessa porta e il `global-setup` della seconda ammazzava il server
+della prima a metà suite: otto `ECONNREFUSED` che sembravano un bug del codice.
+`global-setup` stampa la porta scelta quando non è quella di default.
+
+Per darne una a mano: `E2E_PORT=13400 npx playwright test`. Se un server muore
+comunque a metà run, [`helpers/server-death.ts`](./helpers/server-death.ts) lo
+dice con nome e cognome invece di lasciare i rossi finti.
+
 ## Layout
 
 - `*.spec.ts` — the test files (`testMatch: "*.spec.ts"`).

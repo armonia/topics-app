@@ -16,6 +16,7 @@ import { join, resolve } from "path";
 import {
   E2E_BASE,
   E2E_PORT,
+  E2E_PORT_ORIGIN,
   dataDirForPort,
   descendantsOf,
   publicDirForPort,
@@ -24,9 +25,10 @@ import {
 import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
-// Port 13334 is the default, chosen to avoid conflicts with production services
-// (port 3334 is used by the openclaw-gateway voice-call webhook); ogni shard
-// ne usa una diversa via E2E_PORT.
+// Port 13334 is the default per il checkout principale, chosen to avoid
+// conflicts with production services (port 3334 is used by the openclaw-gateway
+// voice-call webhook). Ogni shard ne usa una diversa via E2E_PORT, e un worktree
+// di dispatch ne riceve una derivata dal path (helpers/worktree-port.ts).
 const BASE = E2E_BASE;
 const TEST_SERVER_PORT = E2E_PORT;
 const TEST_DATA_DIR = dataDirForPort(E2E_PORT);
@@ -402,6 +404,13 @@ async function globalSetup() {
   // run non muore: resta in piedi con il file SQLite sfilato da sotto e fallisce
   // ogni test con `SQLITE_IOERR_VNODE`. Meglio fermarsi qui con un messaggio che
   // dice chi c'è e come girare in parallelo (vedi helpers/run-lock.ts).
+  if (E2E_PORT_ORIGIN === "worktree") {
+    console.log(
+      `[global-setup] Questo è un worktree di dispatch: porta ${TEST_SERVER_PORT} ` +
+        `(derivata dal path), non la 13334 del checkout principale. ` +
+        `DATA_DIR ${TEST_DATA_DIR}. Forzala con E2E_PORT=<porta> se serve.`,
+    );
+  }
   acquireRunLock(TEST_SERVER_PORT);
   runLockHeld = true;
   // Il PID scritto nel lock, passato ai worker via env (come __TEST_SERVER_PID).
