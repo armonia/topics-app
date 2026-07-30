@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import type { AppContext, RouteHandler } from "../types";
 import { getSessionContext } from "../db/session-context";
-import { classifyContext, windowForMeasure } from "../usage/context-window";
+import { classifyContext, contextWindowFor, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 
 export function createContextRouter(ctx: AppContext): RouteHandler {
@@ -43,6 +43,12 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
     if (method === "GET" && pathname === "/api/context") {
       const sessionKey = url.searchParams.get("sessionKey");
       if (!sessionKey) return json({ error: "sessionKey required" }, 400);
+      // Il tetto e' la finestra del MODELLO del topic. Cablare 200000 dava un
+      // denominatore che su un topic a 1M non e' mai stato vero, e la stessa
+      // stima appariva al 90% invece che al 18%. Se il gateway ne dichiara uno
+      // suo (`contextLimit`/`maxTokens`) vince quello: e' la sessione che sta
+      // servendo lui.
+      const modelLimit = contextWindowFor(ctx.getTopicBySessionKey?.(sessionKey)?.model).tokens;
 
       try {
         const resp = await fetch(`${GATEWAY_URL}/tools/invoke`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${GATEWAY_TOKEN}` }, body: JSON.stringify({ tool: "session_status", args: { sessionKey } }) });
@@ -50,7 +56,7 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
         if (!resp.ok) {
           const localMsgs = loadLocalMessages(sessionKey);
           const estimatedTokens = localMsgs.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
-          return json({ total: Math.round(estimatedTokens), limit: 200000, breakdown: [{ label: "Messages", tokens: Math.round(estimatedTokens), color: "#22c55e" }] });
+          return json({ total: Math.round(estimatedTokens), limit: modelLimit, breakdown: [{ label: "Messages", tokens: Math.round(estimatedTokens), color: "#22c55e" }] });
         }
 
         const result = await resp.json() as any;
@@ -88,11 +94,11 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
         }
 
         const total = status.totalTokens || status.inputTokens || breakdown.reduce((s: number, b: any) => s + b.tokens, 0);
-        const limit = status.contextLimit || status.maxTokens || 200000;
+        const limit = status.contextLimit || status.maxTokens || modelLimit;
         return json({ total, limit, breakdown });
       } catch (err) {
         console.error("Context API error:", err);
-        return json({ total: 0, limit: 200000, breakdown: [] });
+        return json({ total: 0, limit: modelLimit, breakdown: [] });
       }
     }
 
