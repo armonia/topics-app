@@ -4,11 +4,23 @@ import { tauriInvoke } from '../lib/shell/tauri';
 
 export interface PerfMetrics {
   version: string;
-  /** CPU % summed over the measured processes, split into the same buckets as
-   *  `memory`. Per-core like Activity Monitor, so a sum can exceed 100%. `total`
-   *  is 0 until the second poll establishes a baseline — callers should treat 0
-   *  as "no reading". */
-  cpu: { renderer: number; gpu: number; total: number };
+  /**
+   * CPU % summed over i processi misurati, con lo stesso split di `memory`.
+   * Per-core come Activity Monitor, quindi la somma può superare 100%.
+   *
+   * `total` è **`null` quando non c'è una misura** (nessun pid aveva ancora un
+   * campione precedente su cui fare il delta), e un numero — anche `0` — quando
+   * la misura c'è. Prima era `0` in entrambi i casi e i due lettori nascondevano
+   * il chip su `> 0`: così un'app FERMA faceva sparire il contatore, che è il
+   * momento in cui "0%" è l'informazione utile. `null` e `0` ora sono due stati
+   * distinti e si vedono distinti.
+   *
+   * `sampled`/`pids`: quanti processi hanno contribuito al totale su quanti ce
+   * n'erano. `sampled < pids` ⇒ copertura parziale (una pane appena aperta non ha
+   * ancora un delta): la somma è vera ma incompleta, e va detto invece di
+   * lasciarla passare per il totale dell'app.
+   */
+  cpu: { renderer: number; gpu: number; total: number | null; sampled: number; pids: number };
   /** Process memory in MB, covering the WHOLE app on macOS: the shell plus every
    *  WKWebView XPC service the kernel attributes to us. `metric` is 'footprint'
    *  there — the same `phys_footprint` Activity Monitor's "Memory" column shows,
@@ -56,6 +68,20 @@ export interface PerfMetrics {
  */
 const TAURI_GPU: PerfMetrics['gpu'] = { accelerated: true, compositing: 'core-animation', webgl: 'webkit' };
 
+/**
+ * Percentuale di CPU come stringa, senza far sparire una misura piccola.
+ *
+ * `Math.round` mandava a `0` tutto ciò che stava sotto lo 0,5% — e i lettori
+ * nascondevano il chip sullo zero, quindi un valore reale di 0,4% diventava
+ * "nessun contatore". Sotto l'1% si scrive `<1`, che dice la verità (è acceso, sta
+ * misurando, il valore è minuscolo) invece di sparire.
+ */
+export function formatCpuPercent(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return '0';
+  if (v < 1) return '<1';
+  return String(Math.round(v));
+}
+
 export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics | null {
   const [metrics, setMetrics] = useState<PerfMetrics | null>(null);
 
@@ -75,9 +101,11 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
               renderer_mb: number;
               gpu_mb: number;
               other_mb: number;
-              cpu_percent: number;
+              cpu_percent: number | null;
               cpu_renderer: number;
               cpu_gpu: number;
+              cpu_sampled?: number;
+              cpu_pids?: number;
               process_count: number;
               partial: boolean;
             }>('perf_metrics');
@@ -85,9 +113,16 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
             return {
               version: m.version,
               cpu: {
-                renderer: Math.round(m.cpu_renderer ?? 0),
-                gpu: Math.round(m.cpu_gpu ?? 0),
-                total: Math.round(m.cpu_percent),
+                // Non arrotondati qui: `formatCpuPercent` decide come si scrivono,
+                // così un valore piccolo ma reale non diventa uno zero prima di
+                // arrivare alla UI.
+                renderer: m.cpu_renderer ?? 0,
+                gpu: m.cpu_gpu ?? 0,
+                // `null` = nessuna misura. `?? null` copre anche uno shell vecchio
+                // che non manda ancora il campo: assente ⇒ non misurato, non zero.
+                total: m.cpu_percent ?? null,
+                sampled: m.cpu_sampled ?? 0,
+                pids: m.cpu_pids ?? 0,
               },
               memory: {
                 totalMB: Math.round(m.total_mb),
