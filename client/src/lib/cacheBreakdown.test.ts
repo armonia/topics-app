@@ -20,7 +20,7 @@
  *      conti a `prompt` anche quando il provider arrotonda fra chiamate.
  */
 import { describe, test, expect } from 'bun:test';
-import { cacheBreakdown } from './MessageMetaFooter';
+import { cacheBreakdown } from './cacheBreakdown';
 
 describe('cacheBreakdown — noto contro non noto', () => {
   test('senza cacheReadTokens NON è noto: nessuno scorporo inventato', () => {
