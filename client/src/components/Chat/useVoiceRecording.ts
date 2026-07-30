@@ -16,6 +16,15 @@ export function useVoiceRecording(
   sessionKey: string,
   // Reserved for callers that gate recording on stream state; not used internally.
   _currentStreaming: boolean,
+  /**
+   * Notificato quando l'invio del vocale fallisce.
+   *
+   * Serve perché questo era l'UNICO upload dell'app che non diceva niente: un
+   * `console.error` e quaranta secondi di dettatura — una spec, un ragionamento
+   * lungo — spariti senza una bolla, senza un errore, senza modo di riprovare. Il
+   * fratello che carica i file (`ChatPane.tsx:556`) fa un toast; qui non c'era.
+   */
+  onError?: (message: string) => void,
 ) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -93,13 +102,16 @@ export function useVoiceRecording(
           // Deliver to the session the recording STARTED on, not whatever
           // topic is active at stop time (see recordingSessionKeyRef above).
           await sendMessage(recordingSessionKeyRef.current ?? sessionKey, `[Voice message: ${result.path}]`);
-        } catch (err) { console.error('Voice upload failed:', err); }
+        } catch (err) {
+          console.error('Voice upload failed:', err);
+          onError?.(err instanceof Error ? err.message : 'Invio del vocale fallito');
+        }
         finally { setUploading(false); recordingSessionKeyRef.current = null; }
         resolve();
       };
       recorder.stop();
     });
-  }, [sendMessage, sessionKey]);
+  }, [sendMessage, sessionKey, onError]);
 
   useEffect(() => {
     return () => {
