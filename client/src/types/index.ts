@@ -149,6 +149,13 @@ export interface UpdateTopicRequest {
    * topic stay in sync. See `server/db/migrations/024-topic-fast-mode.sql`.
    */
   fastMode?: boolean | null;
+  /**
+   * Per-topic notification mute (migration 073). `true` silences this topic's
+   * completion banner + sound; the completion still counts toward the app
+   * badge. null/undefined leaves it unchanged. The server broadcasts
+   * `topic:updated` so every open window re-gates immediately.
+   */
+  muted?: boolean | null;
   disabledContextSources?: string[];
   /** Phase A · TOPIC-WT-01. Pass `null` to clear the binding. */
   worktreeId?: string | null;
@@ -1201,6 +1208,15 @@ export interface AppSettings {
   notificationsEnabled: boolean;
   notificationsSound: boolean;
   notifyEvenWhenFocused: boolean;
+  // Per-PROJECT notification mute — a list of project paths whose topics'
+  // agent-completion banners are silenced (no banner, no sound). A completion
+  // in a muted project STILL counts toward the app badge (setAppBadge): the
+  // count is untouched, only the interruption is. Persisted server-side via the
+  // `settings` ui-state key (like every other AppSettings field) so the mute
+  // holds across clients. Per-TOPIC mute lives on the topic itself
+  // (Topic.muted, migration 073); this is the project-wide counterpart, keyed
+  // by projectPath because a project has no guaranteed per-entity settings row.
+  mutedProjects: string[];
   // Gates creation of NEW standalone/project chats (the "New Chat" affordance,
   // ⌘⇧N, and the command-palette pill). A new chat drives a paid provider turn
   // (subscription only works through an interactive PTY — see the billing
