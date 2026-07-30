@@ -31,6 +31,7 @@ function fakePP(over: Record<string, unknown> = {}) {
     inactivityTimer: null as ReturnType<typeof setTimeout> | null,
     lifetimeTimer: null,
     heartbeatInterval: null,
+    subAgentEmit: new Map(),
     io: { writeStdin: (_s: string) => {}, kill: () => {}, signal: () => {} },
     readline: { close() {} },
     ...over,

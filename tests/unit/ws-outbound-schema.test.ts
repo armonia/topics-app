@@ -156,7 +156,6 @@ describe('outbound registry contract', () => {
       'agent:profile:updated',
       'agent:session:paused',
       'agent:session:resumed',
-      'agent:status',
       'agent:unassigned',
       'agents:sessions',
       'agents:spawned',
@@ -170,10 +169,6 @@ describe('outbound registry contract', () => {
       'browser:navigate',
       'browser:open-near-pane',
       'browser:open-task-tab',
-      'chat:archived',
-      'chat:created',
-      'chat:deleted',
-      'chat:updated',
       'claude-event',
       'clear',
       'connected',
@@ -202,8 +197,6 @@ describe('outbound registry contract', () => {
       'project:deleted',
       'project:new',
       'project:updated',
-      'provider:changed',
-      'provider:current',
       'providers:snapshot',
       'scripts:output',
       'scripts:updated',
@@ -290,21 +283,23 @@ describe('outbound registry contract', () => {
   // ed era il residuo di un'approvazione dei piani mai collegata: oggi il Plan
   // Mode passa da `opts.planMode` e l'approvazione la gestisce la CLI. La
   // COLONNA resta, perché è intrecciata in ogni CRUD dei messaggi.
-  test('all 102 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(102);
+  // 102 → 95: via sette schemi che nessuno mandava e nessuno ascoltava
+  // (, ,
+  // , ). Un registro che dichiara messaggi
+  // inesistenti fa credere che una via di sincronizzazione ci sia.
+  // 102 → 95: via sette schemi che NESSUNO mandava e NESSUNO ascoltava — i
+  // quattro `chat:*` (created/updated/archived/deleted), `provider:current`,
+  // `provider:changed` e `agent:status`. Un registro di protocollo che dichiara
+  // messaggi inesistenti fa credere che una via di sincronizzazione ci sia; il
+  // ciclo di vita delle chat passa da `topic:*`, che è vivo. Il test di
+  // copertura difende il verso opposto (un broadcast senza schema), quindi
+  // questi non erano difesi da niente.
+  test('all 95 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(95);
   });
 });
 
 describe('validateOutbound — final 100% coverage cluster', () => {
-  test('chat:* legacy events require chat.id', () => {
-    expect(validateOutbound({
-      type: 'chat:created', chat: { id: 'c-1', title: 'old' },
-    }).ok).toBe(true);
-    expect(validateOutbound({ type: 'chat:updated', chat: { id: 'c-1' } }).ok).toBe(true);
-    expect(validateOutbound({ type: 'chat:archived', chat: { id: 'c-1' } }).ok).toBe(true);
-    expect(validateOutbound({ type: 'chat:deleted', chatId: 'c-1' }).ok).toBe(true);
-    expect(validateOutbound({ type: 'chat:deleted' }).ok).toBe(false);
-  });
 
   // Payload copiato dal call site: services/external-sessions.ts → sweep().
   test('external-sessions carries the census and the per-project rollup', () => {

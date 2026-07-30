@@ -61,6 +61,10 @@ const KILL_GRACE_MS = 3_000;                       // 3s between SIGTERM and SIG
 //   responsive heartbeats once we cross the quiet threshold.
 const HEARTBEAT_TICK_MS = 10_000;                  // 10s tick (cheap)
 const HEARTBEAT_QUIET_MS = 30_000;                 // emit only after 30s silence
+// Finestra di accorpamento degli aggiornamenti di sub-agent. 150 ms non si
+// percepiscono su una lista che si allunga, e tolgono il grosso dei fotogrammi
+// in una raffica di azioni.
+const SUBAGENT_COALESCE_MS = 150;
 
 // Throttle for provisional partial-input emits (filename/command surfaced +
 // route timer keep-alive) while a `--include-partial-messages` tool input
@@ -865,6 +869,25 @@ interface PersistentProcess {
    * Cleared on every stream finalization path (done/error/aborted/exit).
    */
   heartbeatInterval: ReturnType<typeof setInterval> | null;
+  /**
+   * Accorpamento degli aggiornamenti di sub-agent, per parent tool_use_id.
+   *
+   * Ogni azione di un sub-agent faceva partire tre operazioni O(n) sull'INTERO
+   * elenco delle azioni: la copia profonda in `sidechain.snapshot()`, una
+   * scrittura su DB del `detail` completo e un broadcast del medesimo. Con il
+   * tetto di 200 azioni sono ~20.100 elementi copiati, riscritti e spediti per
+   * una sola invocazione di Task() — quadratico in qualcosa che l'utente vede
+   * come una lista che si allunga.
+   *
+   * Il contenuto e' uno SNAPSHOT, non un delta: il renderer collassa per
+   * `callId` e mostra sempre l'ultimo stato, quindi i fotogrammi intermedi sono
+   * scartabili per costruzione. Qui se ne emette al piu' uno ogni
+   * SUBAGENT_COALESCE_MS, con il bordo di CODA — se un aggiornamento viene
+   * saltato, un timer garantisce che l'ultimo stato arrivi comunque entro la
+   * finestra, invece di restare fermo fino al prossimo evento (o ai 30s del
+   * heartbeat).
+   */
+  subAgentEmit: Map<string, { lastAt: number; timer: ReturnType<typeof setTimeout> | null }>;
   /** Wall-clock time of the last event emitted to the StreamHandler (text,
    *  tool, sub-agent). Used by the heartbeat to decide whether to fire. */
   lastEventAt: number;
@@ -1600,6 +1623,7 @@ export class ClaudeCodeProvider implements AIProvider {
       inactivityTimer: null,
       lifetimeTimer: null,
       heartbeatInterval: null,
+      subAgentEmit: new Map(),
       lastEventAt: Date.now(),
       needsHistoryReplay,
       sidechain: new SidechainTracker(),
@@ -1722,6 +1746,7 @@ export class ClaudeCodeProvider implements AIProvider {
       inactivityTimer: null,
       lifetimeTimer: null,
       heartbeatInterval: null,
+      subAgentEmit: new Map(),
       lastEventAt: Date.now(),
       needsHistoryReplay: false,
       sidechain: new SidechainTracker(),
@@ -2226,16 +2251,7 @@ export class ClaudeCodeProvider implements AIProvider {
         }
         // thinking blocks: ignore (not surfaced in sub-agent action log)
       }
-      const snap = pp.sidechain.snapshot(parentToolUseId);
-      if (snap && handler.onSubAgentUpdate) {
-        handler.onSubAgentUpdate(parentToolUseId, {
-          subAgentType: snap.subAgentType,
-          description: snap.description,
-          actions: snap.actions,
-          finished: snap.finished,
-          result: snap.fullText || undefined,
-        });
-      }
+      this.emitSubAgent(pp, parentToolUseId);
       return; // sidechain events do NOT also fire parent text/tool callbacks
     }
 
@@ -2513,6 +2529,72 @@ export class ClaudeCodeProvider implements AIProvider {
       clearInterval(pp.heartbeatInterval);
       pp.heartbeatInterval = null;
     }
+    // Stessa vita del heartbeat: ogni percorso di finalizzazione dello stream
+    // (done/error/aborted/exit) passa da qui, quindi qui muoiono anche i timer
+    // in coda degli aggiornamenti di sub-agent. Uno che sopravvivesse allo
+    // stream emetterebbe su un handler morto.
+    this.clearSubAgentEmit(pp);
+  }
+
+  /**
+   * Emette lo snapshot di un sub-agent accorpando le raffiche.
+   *
+   * Lo snapshot si prende DENTRO il timer, non prima: se durante l'attesa
+   * arrivano altre azioni, quello che parte e' lo stato al momento dell'invio,
+   * non quello di quando la finestra si e' aperta. Cosi' i fotogrammi saltati
+   * non costano nemmeno la copia profonda.
+   *
+   * `finished` bypassa sempre l'accorpamento: l'ultimo stato di un sub-agent
+   * non deve mai aspettare.
+   */
+  private emitSubAgent(pp: PersistentProcess, parentToolUseId: string): void {
+    const handler = pp.streamHandler;
+    if (!handler?.onSubAgentUpdate) return;
+
+    const send = () => {
+      const snap = pp.sidechain.snapshot(parentToolUseId);
+      if (!snap) return;
+      const slot = pp.subAgentEmit.get(parentToolUseId);
+      if (slot) { slot.lastAt = Date.now(); slot.timer = null; }
+      pp.streamHandler?.onSubAgentUpdate?.(parentToolUseId, {
+        subAgentType: snap.subAgentType,
+        description: snap.description,
+        actions: snap.actions,
+        finished: snap.finished,
+        result: snap.fullText || undefined,
+      });
+      if (snap.finished) this.clearSubAgentEmit(pp, parentToolUseId);
+    };
+
+    // Un sub-agent finito non aspetta: si spegne il timer in coda e si manda.
+    if (pp.sidechain.snapshot(parentToolUseId)?.finished) {
+      const slot = pp.subAgentEmit.get(parentToolUseId);
+      if (slot?.timer) { clearTimeout(slot.timer); slot.timer = null; }
+      send();
+      return;
+    }
+
+    const slot = pp.subAgentEmit.get(parentToolUseId)
+      ?? { lastAt: 0, timer: null as ReturnType<typeof setTimeout> | null };
+    pp.subAgentEmit.set(parentToolUseId, slot);
+    if (slot.timer) return; // gia' accodato: lo stato lo leggera' lui
+
+    const since = Date.now() - slot.lastAt;
+    if (since >= SUBAGENT_COALESCE_MS) { send(); return; }
+    slot.timer = setTimeout(send, SUBAGENT_COALESCE_MS - since);
+    if (typeof slot.timer.unref === "function") slot.timer.unref();
+  }
+
+  /** Spegne il timer in coda di un parent e ne dimentica lo stato. */
+  private clearSubAgentEmit(pp: PersistentProcess, parentToolUseId?: string): void {
+    if (parentToolUseId) {
+      const slot = pp.subAgentEmit.get(parentToolUseId);
+      if (slot?.timer) clearTimeout(slot.timer);
+      pp.subAgentEmit.delete(parentToolUseId);
+      return;
+    }
+    for (const slot of pp.subAgentEmit.values()) if (slot.timer) clearTimeout(slot.timer);
+    pp.subAgentEmit.clear();
   }
 
   private resetInactivityTimer(key: string, pp: PersistentProcess): void {

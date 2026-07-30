@@ -37,6 +37,7 @@ function makeProviderWithStubProcess(sessionKey: string) {
     inactivityTimer: null,
     lifetimeTimer: null,
     heartbeatInterval: null,
+    subAgentEmit: new Map(),
     lastEventAt: Date.now(),
     needsHistoryReplay: false,
     sidechain: new SidechainTracker(),
