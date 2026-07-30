@@ -7,6 +7,7 @@
 // origin. These helpers are the single place that knows the difference.
 
 import { isTauri } from './index';
+import { withTokenHeader, withTokenQuery } from './pairing';
 
 // The data server (Bun) serves HTTPS/WSS with a local-CA ("Armonia Local CA")
 // certificate. WKWebView (the Tauri shell's engine) refuses that cert, so the
@@ -45,11 +46,19 @@ export function installDesktopFetchShim(): void {
   const base = serverHttpBase();
   const orig = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    // LAN-PAIR-01: attach the pairing token as `x-topics-token` on rewritten
+    // `/…` calls (inert on desktop/loopback where no token is stored — kept for
+    // symmetry with the api.ts fetch path). Only the leading-'/' (server-bound)
+    // calls get the header; foreign absolute URLs pass through untouched.
     if (typeof input === 'string' && input.startsWith('/')) {
-      return orig(base + input, init);
+      return orig(base + input, { ...init, headers: withTokenHeader(init?.headers) });
     }
     if (input instanceof Request && input.url.startsWith('/')) {
-      return orig(new Request(base + input.url, input), init);
+      const req = new Request(base + input.url, input);
+      // Merge the token over the effective headers: init.headers wins over the
+      // Request's own, matching the original `orig(req, init)` precedence.
+      const headers = withTokenHeader(init?.headers ?? req.headers);
+      return orig(req, { ...init, headers });
     }
     return orig(input, init);
   };
@@ -62,7 +71,11 @@ export function installDesktopFetchShim(): void {
   if (OrigES) {
     class DesktopEventSource extends OrigES {
       constructor(url: string | URL, init?: EventSourceInit) {
-        super(typeof url === 'string' && url.startsWith('/') ? base + url : url, init);
+        // Rewrite leading-'/' to the data-server origin, then attach the pairing
+        // token as `?token=` (LAN-PAIR-01; inert on desktop/loopback). SSE can't
+        // carry headers, so the query form is used.
+        const rewritten = typeof url === 'string' && url.startsWith('/') ? base + url : url;
+        super(typeof rewritten === 'string' ? withTokenQuery(rewritten) : rewritten, init);
       }
     }
     window.EventSource = DesktopEventSource as typeof EventSource;
