@@ -62,6 +62,7 @@ export interface Message {
 export type { ToolCallDetail, ToolCall, ContentBlock } from '../../../shared/types';
 import type { ToolCall, ContentBlock } from '../../../shared/types';
 
+import type { TerminalSessionType } from '../../../shared/terminal-session-types';
 export interface ChatMessage extends Message {
   id: string;
   timestamp: string;
@@ -596,7 +597,7 @@ export interface WSTerminalActivityMessage {
   id: string;
   busy: boolean;
   finished?: boolean;
-  kind?: 'shell' | 'claude-code' | 'claude-code-team';
+  kind?: TerminalSessionType;
 }
 
 // --- Notifications -----------------------------------------------------------
@@ -1037,7 +1038,7 @@ export interface TerminalSessionInfo {
   command: string;
   clients: number;
   topicId?: string;
-  type: 'shell' | 'claude-code' | 'claude-code-team' | 'codex';
+  type: TerminalSessionType;
   claudeSessionId?: string | null;
   /** sessionKey of the orchestrator that spawned this session as a sub-agent.
    *  Null for human-/chat-created sessions. Lets the roster nest sub-agents

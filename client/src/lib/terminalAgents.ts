@@ -17,9 +17,12 @@
  * shell on the wire too, so old clients stay compatible.
  */
 
-/** Interactive pty session kinds the user can create from the add menu.
- *  `claude-code-team` exists server-side but is not user-creatable here. */
-export type TerminalAgentType = 'shell' | 'claude-code' | 'codex' | 'opencode';
+// La lista dei tipi vive in `shared/terminal-session-types.ts`: la conosce anche
+// il server, e il CHECK di SQLite le e' legato da un test. Qui si ri-esporta il
+// sottoinsieme creabile dal menu, che e' la domanda di questo modulo.
+export { TERMINAL_AGENT_TYPES } from '../../../shared/terminal-session-types';
+export type { TerminalAgentType } from '../../../shared/terminal-session-types';
+import { TERMINAL_AGENT_TYPES, type TerminalAgentType } from '../../../shared/terminal-session-types';
 
 /** Display name → also the default session/pane title. */
 export const TERMINAL_AGENT_LABELS: Record<TerminalAgentType, string> = {
@@ -35,8 +38,8 @@ export const TERMINAL_AGENT_LABELS: Record<TerminalAgentType, string> = {
  * the same default the server applies, so client and server always agree.
  */
 export function normalizeTerminalAgent(subType?: string): TerminalAgentType {
-  return subType === 'claude-code' || subType === 'codex' || subType === 'opencode'
-    ? subType
+  return (TERMINAL_AGENT_TYPES as readonly string[]).includes(subType ?? '')
+    ? (subType as TerminalAgentType)
     : 'shell';
 }
 

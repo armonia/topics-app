@@ -1,4 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
+import type { TerminalSessionType, TerminalAgentType } from "../../shared/terminal-session-types";
 import { spawn } from "child_process";
 import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
@@ -39,7 +40,7 @@ interface TerminalSession {
   cols: number;
   rows: number;
   topicId?: string;
-  type: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' | 'opencode';
+  type: TerminalSessionType;
   skipPermissions: boolean;
   claudeSessionId?: string;
   /** OS pid of the PTY's root process (reported by the bridge on create /
@@ -1079,7 +1080,7 @@ export async function getTerminalBuffer(sessionId: string): Promise<string> {
 }
 
 // --- Session management ---
-async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' | 'opencode' = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string, nameSource: 'default' | 'auto' | 'user' = 'default'): Promise<TerminalSession> {
+async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: TerminalSessionType = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string, nameSource: 'default' | 'auto' | 'user' = 'default'): Promise<TerminalSession> {
   let file: string;
   let args: string[];
   const isClaudeKind = sessionType === 'claude-code' || sessionType === 'claude-code-team';
@@ -1900,7 +1901,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       // Backward-compatible agent choice: absent/unknown `type` = shell, and
       // the pre-existing types behave exactly as before. 'codex' spawns the
       // OpenAI CLI interactively (see createSession).
-      const sessionType: 'shell' | 'claude-code' | 'claude-code-team' | 'codex' | 'opencode' =
+      const sessionType: TerminalSessionType =
         body.type === 'claude-code-team' ? 'claude-code-team' :
         body.type === 'claude-code' ? 'claude-code' :
         body.type === 'codex' ? 'codex' :
@@ -2119,7 +2120,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           cols: live?.cols ?? dbRow?.cols ?? 120,
           rows: live?.rows ?? dbRow?.rows ?? 30,
           topicId: (live?.topicId ?? dbRow?.topic_id ?? undefined) as string | undefined,
-          type: (live?.type ?? dbRow?.type ?? 'shell') as 'shell' | 'claude-code' | 'claude-code-team' | 'codex',
+          type: (live?.type ?? dbRow?.type ?? 'shell') as TerminalSessionType,
           skipPermissions: live ? live.skipPermissions : (dbRow?.skip_permissions !== 0),
           claudeSessionId: (live?.claudeSessionId ?? dbRow?.claude_session_id ?? undefined) as string | undefined,
           parentSessionKey: (live?.parentSessionKey ?? dbRow?.parent_session_key ?? undefined) as string | undefined,

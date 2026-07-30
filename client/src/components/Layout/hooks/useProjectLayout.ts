@@ -24,6 +24,7 @@
  * `useProjectChatSync` to consume in Commit 4. They are unused this commit.
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import type { TerminalAgentType } from '../../../../../shared/terminal-session-types';
 import type {
   Pane,
   PaneGroup,
@@ -109,7 +110,7 @@ export interface UseProjectLayoutArgs {
   focusedPanelId: string | null;
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
-  pendingTerminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode';
+  pendingTerminalType?: TerminalAgentType;
   onPendingPaneConsumed?: () => void;
   pendingFocusTopicId?: string | null;
   // Group the chat should land in (set when the user clicks a specific tab

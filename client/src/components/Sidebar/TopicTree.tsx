@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
+import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
@@ -104,7 +105,7 @@ export interface TopicTreeProps {
   terminalSessions?: TerminalSessionInfo[];
   browserContexts?: BrowserContextInfo[];
   onTerminalClick?: (sessionId: string, sessionName: string) => void;
-  onNewTerminal?: (type: 'shell' | 'claude-code' | 'codex' | 'opencode', skipPermissions?: boolean) => void;
+  onNewTerminal?: (type: TerminalAgentType, skipPermissions?: boolean) => void;
   onCloseTerminal?: (sessionId: string) => void;
   onOpenAsProject?: (path: string) => void;
   onOpenBrowser?: (contextId: string) => void;

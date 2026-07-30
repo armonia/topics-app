@@ -1,3 +1,4 @@
+import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 // Pane types — the authoritative pane-type list and single source of truth.
 //
 // `PANE_TYPES` is the ONE runtime array; `PaneType` is DERIVED from it
@@ -97,7 +98,7 @@ export interface Pane {
   color?: string;
   processId?: string;
   sessionKey?: string;
-  terminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode';
+  terminalType?: TerminalAgentType;
   /**
    * Spazio (workspace) membership. Absent ⟺ the default space
    * (DEFAULT_SPACE_ID) — old snapshots hydrate unchanged. SYNCED per-pane and
@@ -166,7 +167,7 @@ export interface Group {
 export interface ClosedTerminalMeta {
   sessionId?: string;
   cwd?: string;
-  sessionType?: 'shell' | 'claude-code' | 'codex' | 'opencode';
+  sessionType?: TerminalAgentType;
   name?: string;
   claudeSessionId?: string;
   skipPermissions?: boolean;

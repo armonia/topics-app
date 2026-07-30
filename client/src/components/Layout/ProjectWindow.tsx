@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, Pane, PaneType, CompactionMarker } from '../../types';
 import { LazyPane } from './LazyPane';
 import { useTopics } from '../../contexts/TopicsContext';
@@ -60,7 +61,7 @@ export interface ProjectWindowPaneProps {
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   pendingPane?: PaneType;
   pendingTerminalSessionId?: string;
-  pendingTerminalType?: 'shell' | 'claude-code' | 'codex' | 'opencode';
+  pendingTerminalType?: TerminalAgentType;
   onPendingPaneConsumed?: () => void;
   // groupId = the tab bar whose "+ new chat" was clicked, so the chat lands there
   onNewChat?: (groupId?: string) => void;
