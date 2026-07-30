@@ -8,6 +8,7 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { providersApi, appSettingsApi, type AppBehaviorSettings } from '../../lib/api';
 import { enabledToSelect, selectToEnabled } from './behaviorDefaults';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
+import { useModalDialog } from '../../hooks/useModalDialog';
 import { isDesktop } from '../../lib/shell';
 
 interface GlobalSettingsProps {
@@ -32,6 +33,12 @@ const SECTIONS: Array<{ id: SectionId; label: string; icon: typeof Palette }> = 
 export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, themeMode = 'system', onThemeChange }: GlobalSettingsProps) {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [section, setSection] = useState<SectionId>('appearance');
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Escape chiude + Tab resta dentro + il focus torna al bottone che ha aperto.
+  // Prima: si usciva SOLO dalla X (o dal velo), e Escape arrivava fino a
+  // interrompere il turno dell'AI nella chat sotto.
+  useModalDialog({ open: isOpen, onClose, panelRef });
 
   useEffect(() => {
     setLocalSettings(settings);
@@ -49,13 +56,17 @@ export function GlobalSettings({ isOpen, onClose, settings, onSettingsChange, th
   return (
     <div className={MODAL_OVERLAY} onClick={onClose}>
       <div
+        ref={panelRef}
         data-testid="settings-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
         className={`w-full max-w-[760px] mx-4 h-[80vh] max-h-[640px] flex flex-col ${MODAL_PANEL}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-app-border">
-          <h2 className="text-[15px] font-semibold text-app-text">Settings</h2>
+          <h2 id="settings-title" className="text-[15px] font-semibold text-app-text">Settings</h2>
           <button
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/5 dark:hover:bg-white/5 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
