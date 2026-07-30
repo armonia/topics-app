@@ -905,17 +905,6 @@ const sessionStateSchema = z.looseObject({
   }),
 });
 
-/**
- * `claude-event` carries a notification event whose inner shape is still
- * settling (Phase F triple-layer capture). Validate the wrapper + the
- * suppressed flag; keep the event payload loose.
- */
-const claudeEventSchema = z.looseObject({
-  type: z.literal('claude-event'),
-  event: z.unknown(),
-  suppressed: z.optional(z.boolean()),
-});
-
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -1036,9 +1025,8 @@ const OUTBOUND_SCHEMAS = {
   // Provider niche
   // Git status — the live event git-watcher actually emits.
   'git:status': gitStatusSchema,
-  // Claude session state + events (highest-traffic live path)
+  // Claude session state (highest-traffic live path)
   'session:state': sessionStateSchema,
-  'claude-event': claudeEventSchema,
 } as const;
 
 /**

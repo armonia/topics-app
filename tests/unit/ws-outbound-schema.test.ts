@@ -177,7 +177,6 @@ describe('outbound registry contract', () => {
       'browser:navigate',
       'browser:open-near-pane',
       'browser:open-task-tab',
-      'claude-event',
       'clear',
       'connected',
       'cron:updated',
@@ -303,8 +302,8 @@ describe('outbound registry contract', () => {
   // ciclo di vita delle chat passa da `topic:*`, che è vivo. Il test di
   // copertura difende il verso opposto (un broadcast senza schema), quindi
   // questi non erano difesi da niente.
-  test('all 96 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(96);
+  test('all 95 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(95);
   });
 });
 
