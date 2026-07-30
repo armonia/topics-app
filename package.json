@@ -23,6 +23,7 @@
     "build:client:watch": "cd client && bun run build:watch",
     "build:cli": "bun build cli/topics.ts --compile --outfile dist/topics",
     "changelog": "node scripts/gen-changelog.mjs",
+    "gen:shortcuts": "bun run scripts/gen-shortcuts.ts",
     "test:cli": "bun test tests/integration/cli-topics.test.ts",
     "verify:phase30-strip": "bun run build:client && ./scripts/assert-dev-overlay-stripped.sh public",
     "check:any": "bun run scripts/check-any.ts",

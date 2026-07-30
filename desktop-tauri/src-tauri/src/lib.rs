@@ -11,6 +11,13 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
+/// The ⌘-chord forwarding allowlist, GENERATED from the shared shortcut registry
+/// (`shared/shortcuts.ts`) by `scripts/gen-shortcuts.ts`. `app_chord_dispatch_js`
+/// consults it so the native list can never silently drift from the window the
+/// user sees. Regenerate with `bun run gen:shortcuts`.
+#[cfg(target_os = "macos")]
+mod shortcuts_generated;
+
 /// Desired traffic-light visibility (hidden by default; the client flips it when
 /// the Topics menu opens). AppKit re-shows the buttons on focus/resize when the
 /// titlebar is transparent (`Overlay`), so we re-assert this state on those
@@ -5210,10 +5217,14 @@ fn browser_go_to_index(app: tauri::AppHandle, id: String, index: i64) -> Result<
 /// the main webview's window (so the single `useKeyboardShortcuts` handler runs),
 /// or None if the chord is NOT an app shortcut (let the focused page keep it).
 ///
-/// Curated allowlist — a MIRROR of the app chords in
-/// `client/src/hooks/useKeyboardShortcuts.ts`. It deliberately EXCLUDES
-/// page-critical chords (⌘C/⌘V/⌘X/⌘A/⌘Z, ⌘F find-in-page, ⌘R reload) so a focused
-/// web page keeps them — the fail-safe default is "not a chord → pass through".
+/// The ⌘-chord allowlist is GENERATED from the shared registry
+/// (`shared/shortcuts.ts` → `shortcuts_generated::is_forwarded_cmd_chord`), so it
+/// can't silently drift from the "Keyboard Shortcuts" window. It deliberately
+/// EXCLUDES page-critical chords (⌘C/⌘V/⌘X/⌘A/⌘Z, ⌘F find-in-page, ⌘R reload) —
+/// those registry rows carry no `native` flag, so a focused web page keeps them.
+/// The fail-safe default stays "not a chord → pass through". Tab-cycle (keyCode
+/// 48) and bare Escape (keyCode 53) key off `key_code`, not chars, so they stay
+/// hand-written here.
 #[cfg(target_os = "macos")]
 fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, chars: &str, key_code: u16) -> Option<String> {
     // Tab == keyCode 48. Standard cycle: ⌃Tab, ⌃⇧Tab, ⌘⇧Tab (⌘Tab is macOS).
@@ -5228,19 +5239,11 @@ fn app_chord_dispatch_js(cmd: bool, ctrl: bool, shift: bool, chars: &str, key_co
         "Escape"
     } else if is_tab && (ctrl || (cmd && shift)) {
         "Tab"
-    } else if cmd && !ctrl {
-        match chars {
-            // close pane / palette / sidebar / file-finder / new (⌘N & ⌘⇧N)
-            "w" | "k" | "b" | "p" | "n" => chars,
-            // direct tab jump ⌘1‥⌘9
-            "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" => chars,
-            // reopen-closed-tab ⌘⇧T / ⌘⇧U
-            "t" | "u" if shift => chars,
-            // shortcuts help ⌘/ (⌘? = shift+/)
-            "/" | "?" => chars,
-            // ⌘C/V/X/A/Z/F/R and everything else → the page keeps it
-            _ => return None,
-        }
+    } else if cmd && !ctrl && shortcuts_generated::is_forwarded_cmd_chord(shift, chars) {
+        // Forwarded ⌘-chord (from the registry): re-dispatch it as-is. The set —
+        // ⌘W/K/B/P/N, ⌘1‥9, ⌘⇧T/⌘⇧U, ⌘//⌘? — is generated; ⌘C/V/X/A/Z/F/R and
+        // everything else carry no `native` flag, so the page keeps them.
+        chars
     } else {
         return None;
     };
