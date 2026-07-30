@@ -3,6 +3,7 @@ import {
   decideTerminalBanner,
   isBannerPhase,
   isTabActivelyVisible,
+  statusBody,
   terminalDedupeKey,
   terminalPanelId,
   type TerminalNotifyInput,
@@ -179,5 +180,35 @@ describe("decideTerminalBanner — dedupe key carries rev", () => {
     const a = decideTerminalBanner(input({ prevPhase: "running", phase: "completed", rev: 3 }))!;
     const b = decideTerminalBanner(input({ prevPhase: "running", phase: "completed", rev: 4 }))!;
     expect(a.dedupeKey).not.toBe(b.dedupeKey);
+  });
+});
+
+describe("statusBody — una frase sola per due superfici", () => {
+  // Il notificatore delle chat aveva la sua copia a mano di queste frasi, ed
+  // erano gia' andate in deriva: «in attesa di te» contro «In attesa di te»,
+  // «errore — interventi richiesti» contro «Errore — intervieni». Adesso legge
+  // da qui: se qualcuno cambia una frase, cambia su entrambe le superfici.
+  test("copre le quattro fasi che meritano un banner", () => {
+    expect(statusBody("awaiting-user")).toBe("In attesa di te");
+    expect(statusBody("awaiting-approval")).toBe("Serve un'approvazione");
+    expect(statusBody("completed")).toBe("Lavoro completato");
+    expect(statusBody("error")).toBe("Errore — intervieni");
+  });
+
+  test("una fase che non merita un banner non ha corpo", () => {
+    expect(statusBody("running")).toBe("");
+    expect(statusBody("tool-running")).toBe("");
+  });
+});
+
+describe("il nome non si spacca sui due punti", () => {
+  // Il guasto: titolo e corpo viaggiavano impacchettati in «Etichetta: stato» e
+  // si riseparavano sul primo ": ". Una sessione chiamata «Fix: login rotto»
+  // diventava titolo «Fix», corpo «login rotto: In attesa di te». Qui si pinna
+  // il verso giusto — titolo e corpo nascono separati e restano interi.
+  test("un nome con i due punti arriva intero nel titolo", () => {
+    const d = decideTerminalBanner(input({ name: "Fix: login rotto" }))!;
+    expect(d.title).toBe("Fix: login rotto");
+    expect(d.body).toBe("In attesa di te");
   });
 });
