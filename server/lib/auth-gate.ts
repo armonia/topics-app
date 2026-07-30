@@ -111,6 +111,23 @@ export function isLocalOrigin(origin: string): boolean {
   );
 }
 
+/**
+ * Extra operator-configured origins the gate treats as allowed on the loopback
+ * CSRF path (beyond the always-local app origins) — e.g. a tunnel host. Sourced
+ * from `TOPICS_ALLOWED_ORIGINS` (comma-separated) and cached on first read, so
+ * the call site can pass it without re-parsing per request. Empty by default, so
+ * an unset env reproduces today's effective behaviour exactly.
+ */
+let allowedOriginsCache: string[] | null = null;
+export function resolveAllowedOrigins(): string[] {
+  if (allowedOriginsCache) return allowedOriginsCache;
+  allowedOriginsCache = (process.env.TOPICS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return allowedOriginsCache;
+}
+
 function tokenMatches(presented: string | null, expected: string | null): boolean {
   if (!presented || !expected) return false;
   const a = Buffer.from(presented);
@@ -120,9 +137,17 @@ function tokenMatches(presented: string | null, expected: string | null): boolea
 }
 
 /**
- * The single allow/deny decision. Order matters: kill-switch → transport (token
- * for remote) → CSRF (origin for mutating/WS). Returns the HTTP status to send
- * on denial so the caller doesn't re-derive it.
+ * The single allow/deny decision. Order matters:
+ *   kill-switch → (remote? valid token ⇒ allow, else 401) → (loopback CSRF).
+ *
+ * A valid pairing token from a non-loopback peer is sufficient authorization and
+ * bypasses the foreign-origin (CSRF) block: a hostile website can neither learn a
+ * 256-bit token nor set the `x-topics-token` header cross-origin (that trips a
+ * CORS preflight the server does not green-light), so a token-bearing remote peer
+ * has already proven it is not a blind cross-site forgery. The origin/CSRF check
+ * is therefore only meaningful on the token-less LOOPBACK surface a website the
+ * owner visits can still reach. Returns the HTTP status to send on denial so the
+ * caller doesn't re-derive it.
  */
 export function evaluateAuth(i: AuthInput): AuthResult {
   if (i.authOff) return { allow: true };
@@ -132,9 +157,13 @@ export function evaluateAuth(i: AuthInput): AuthResult {
     if (!tokenMatches(i.token, i.expectedToken)) {
       return { allow: false, status: 401, reason: "pairing token required for remote access" };
     }
+    // Valid token IS the CSRF proof → allow without the foreign-origin block.
+    return { allow: true };
   }
 
-  // CSRF: block a mutating request / WS upgrade carrying a foreign Origin.
+  // Loopback path only: CSRF — block a mutating request / WS upgrade carrying a
+  // foreign Origin (a website the owner visits can fetch the loopback server
+  // WITHOUT a token, so the origin check stays here).
   const isWsUpgrade = isWebSocketPath(i.pathname);
   if ((MUTATING.has(i.method) || isWsUpgrade) && i.origin) {
     const allowed = isLocalOrigin(i.origin) || (i.allowedOrigins?.includes(i.origin) ?? false);

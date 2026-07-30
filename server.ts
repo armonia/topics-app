@@ -82,7 +82,7 @@ import { resolveAiProvider, resolveClaudeModel, resolveOpenaiModel } from "./ser
 import { createClaudeHooksRouter } from "./server/routes/claude-hooks";
 import { createE2eRouter } from "./server/routes/e2e";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
-import { evaluateAuth, isLoopbackAddress, isAuthGatedPath } from "./server/lib/auth-gate";
+import { evaluateAuth, isLoopbackAddress, isAuthGatedPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { createProjectsRouter } from "./server/routes/projects";
@@ -1305,6 +1305,7 @@ const server = Bun.serve<WSData>({
             null,
         expectedToken: loopback ? null : readState()?.token ?? null,
         authOff: process.env.TOPICS_AUTH_OFF === "1",
+        allowedOrigins: resolveAllowedOrigins(),
       });
       if (!decision.allow) {
         if (isApiRequest) console.log(`[HTTP] ✗ ${method} ${pathname} — auth ${decision.status}: ${decision.reason}`);
