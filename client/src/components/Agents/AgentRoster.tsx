@@ -5,10 +5,11 @@ import { AgentProfileEditor } from './AgentProfileEditor';
 import { AgentAssignPanel } from './AgentAssignPanel';
 import { HeartbeatTimeline } from './HeartbeatTimeline';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
+import type { WSMessage } from '../../types';
 
 type StatusFilter = 'all' | AgentProfile['status'];
 
-export function AgentRoster() {
+export function AgentRoster({ onMessage }: { onMessage?: (handler: (msg: WSMessage) => void) => () => void } = {}) {
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +37,34 @@ export function AgentRoster() {
   useEffect(() => {
     fetchProfiles();
   }, [fetchProfiles]);
+
+  // Il roster caricava UNA volta al mount e mai più: due finestre sullo stesso
+  // progetto, modifichi un agente in una, l'altra restava indietro finché non
+  // veniva rimontata. Il server annunciava già `agent:profile:created/updated/
+  // deleted` — nessuno li ascoltava.
+  //
+  // Si applica il payload invece di rifare la GET: l'evento porta il profilo
+  // intero, che il server ha già costruito.
+  //
+  // `agent:assigned` / `agent:unassigned` restano fuori di proposito: la card
+  // non mostra le assegnazioni, quindi qui non c'è niente da aggiornare — e
+  // `AgentAssignPanel`, che le mostra, ricarica già dopo la propria azione.
+  useEffect(() => {
+    if (!onMessage) return;
+    return onMessage((msg: WSMessage) => {
+      const m = msg as { type?: string; profile?: AgentProfile; profileId?: string };
+      if (m.type === 'agent:profile:created' && m.profile) {
+        const p = m.profile;
+        setProfiles((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]));
+      } else if (m.type === 'agent:profile:updated' && m.profile) {
+        const p = m.profile;
+        setProfiles((prev) => prev.map((x) => (x.id === p.id ? p : x)));
+      } else if (m.type === 'agent:profile:deleted' && m.profileId) {
+        const id = m.profileId;
+        setProfiles((prev) => prev.filter((x) => x.id !== id));
+      }
+    });
+  }, [onMessage]);
 
   const filtered = profiles.filter((p) => {
     if (statusFilter !== 'all' && p.status !== statusFilter) return false;
