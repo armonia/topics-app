@@ -1330,7 +1330,7 @@ mod child_reaper {
 /// back to the plugin path (at worst the old non-delivery, never a crash).
 #[cfg(target_os = "macos")]
 mod macos_notifications {
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
     use std::sync::OnceLock;
 
     use block2::RcBlock;
@@ -1353,6 +1353,56 @@ mod macos_notifications {
     /// until they land (instants after boot) — early posts take the helper path.
     static UN_AUTHORIZED: AtomicBool = AtomicBool::new(false);
 
+    /// L'esito TESTUALE dell'autorizzazione, per poterlo RACCONTARE.
+    ///
+    /// Tutta questa catena fallisce in silenzio: non bundled → esci; non
+    /// autorizzato → passa dall'helper; niente helper → esci. Da fuori è
+    /// indistinguibile da "nessuna notifica da mostrare", e l'utente resta
+    /// convinto che il pannello Impostazioni dica il vero. Qui si tiene l'ultimo
+    /// stato noto perché `notification_status` possa dirlo alla UI.
+    static AUTH_STATE: AtomicU8 = AtomicU8::new(AUTH_PENDING);
+    const AUTH_PENDING: u8 = 0;
+    const AUTH_GRANTED: u8 = 1;
+    const AUTH_DENIED: u8 = 2;
+
+    /// Fotografia dello stato reale della catena delle notifiche native.
+    /// Sola lettura: nessun campo qui cambia il comportamento, servono a NON
+    /// far fallire in silenzio.
+    #[derive(serde::Serialize, Clone)]
+    pub struct NotificationStatus {
+        /// Gira da un vero .app? Fuori dal bundle non si posta nulla.
+        pub bundled: bool,
+        /// macOS ci ha autorizzati a postare a NOSTRO nome. Su una build non
+        /// firmata Apple è `false` per progetto — macOS 26 rifiuta senza
+        /// nemmeno chiedere.
+        pub authorized: bool,
+        /// "pending" | "granted" | "denied": `authorized=false` con "pending"
+        /// è ancora in volo, con "denied" è definitivo.
+        pub auth_state: &'static str,
+        /// Il carrier di ripiego, se risolto. `None` = niente banner nativi,
+        /// punto: né come noi né via helper.
+        pub helper: Option<String>,
+        /// Dove va il log della catena, così il campo può guardarlo.
+        pub log_path: Option<String>,
+    }
+
+    pub fn status() -> NotificationStatus {
+        let auth_state = match AUTH_STATE.load(Ordering::Relaxed) {
+            AUTH_GRANTED => "granted",
+            AUTH_DENIED => "denied",
+            _ => "pending",
+        };
+        NotificationStatus {
+            bundled: is_bundled(),
+            authorized: UN_AUTHORIZED.load(Ordering::Relaxed),
+            auth_state,
+            helper: helper_path().map(|p| p.display().to_string()),
+            log_path: std::env::var("HOME")
+                .ok()
+                .map(|h| format!("{h}/Library/Logs/topics-notifications.log")),
+        }
+    }
+
     /// Fallback banner carrier. macOS 26 denies UN authorization to any app
     /// without an Apple-chain code signature (adhoc AND locally self-signed both
     /// refused: no prompt, app never listed in Settings → Notifications), so an
@@ -1363,6 +1413,25 @@ mod macos_notifications {
     /// once; absolute candidates because a login-item's PATH is minimal.
     static HELPER: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
 
+    // NON spediamo un carrier dentro il bundle, ed è una scelta.
+    //
+    // Il piano era: impacchettare `terminal-notifier.app` sotto
+    // `bundle.resources` e cercarlo in `resource_dir()`, così una build
+    // rilasciata non dipende da cosa ha installato l'utente. Il presupposto era
+    // che terminal-notifier fosse firmato Developer ID. Non lo è:
+    //
+    //   $ codesign -dvvv /opt/homebrew/Cellar/terminal-notifier/2.0.0/terminal-notifier.app
+    //   CodeDirectory flags=0x20002(adhoc,linker-signed)
+    //   Signature=adhoc
+    //   TeamIdentifier=not set
+    //
+    // Su QUESTA macchina funziona perché è stato autorizzato a suo tempo. Su
+    // una macchina pulita ha esattamente il problema di Topics — adhoc, che
+    // macOS 26 rifiuta — quindi spedirne una copia sposterebbe il fallimento,
+    // non lo toglierebbe: un ripiego che nasconde il sintomo invece di curarlo.
+    // La cura vera è firmare Topics con un Developer ID (vedi il task nel
+    // backlog); nel frattempo il fallimento almeno non è più muto, lo racconta
+    // `status()` qui sotto.
     fn helper_path() -> Option<&'static std::path::Path> {
         HELPER
             .get_or_init(|| {
@@ -1380,7 +1449,13 @@ mod macos_notifications {
     }
 
     fn post_via_helper(title: &str, body: &str) {
-        let Some(bin) = helper_path() else { return };
+        let Some(bin) = helper_path() else {
+            // L'ultimo anello della catena, e finora il più muto: niente
+            // autorizzazione E niente carrier = nessun banner, mai, senza che
+            // nessuno lo dica. Almeno finisce nel log.
+            diag("post_via_helper: nessun carrier — banner NON consegnato");
+            return;
+        };
         // terminal-notifier parses argv via NSUserDefaults: a value starting
         // with "-" reads as a flag. A leading space defuses it.
         let pad = |s: &str| {
@@ -1513,6 +1588,16 @@ mod macos_notifications {
             };
             if granted.as_bool() {
                 UN_AUTHORIZED.store(true, Ordering::Relaxed);
+                AUTH_STATE.store(AUTH_GRANTED, Ordering::Relaxed);
+            } else {
+                // Un rifiuto è DEFINITIVO solo se non ci ha già autorizzati
+                // l'altro callback (i due corrono in parallelo).
+                let _ = AUTH_STATE.compare_exchange(
+                    AUTH_PENDING,
+                    AUTH_DENIED,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                );
             }
             diag(&format!(
                 "requestAuthorization → granted={} error={}",
@@ -1533,6 +1618,14 @@ mod macos_notifications {
                     || status == UNAuthorizationStatus::Provisional
                 {
                     UN_AUTHORIZED.store(true, Ordering::Relaxed);
+                    AUTH_STATE.store(AUTH_GRANTED, Ordering::Relaxed);
+                } else if status == UNAuthorizationStatus::Denied {
+                    let _ = AUTH_STATE.compare_exchange(
+                        AUTH_PENDING,
+                        AUTH_DENIED,
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    );
                 }
                 diag(&format!(
                     "settings → authorizationStatus={:?} alertSetting={:?}",
@@ -1625,6 +1718,47 @@ fn notify(app: tauri::AppHandle, title: String, body: String, task_id: Option<St
     let _ = &task_id;
     use tauri_plugin_notification::NotificationExt;
     let _ = app.notification().builder().title(title).body(body).show();
+}
+
+/// Stato REALE della catena dei banner nativi — sola lettura.
+///
+/// `notify` è fire-and-forget per contratto: un banner rifiutato è un no-op
+/// silenzioso, uguale alla web API. È giusto per il chiamante, ma su macOS la
+/// catena ha tre punti di caduta muti in fila (fuori dal bundle / non
+/// autorizzati / nessun carrier di ripiego) e il risultato è un pannello
+/// Impostazioni che promette "native macOS notification" mentre non ne arriva
+/// nessuna. Questo comando NON cambia il comportamento: lo racconta, così la UI
+/// può dire la verità invece di una promessa.
+///
+/// `serde_json::Value` perché la forma è per-piattaforma: su Windows/Linux la
+/// catena macOS non esiste e il campo `platform` lo dichiara.
+#[tauri::command]
+fn notification_status() -> serde_json::Value {
+    #[cfg(target_os = "macos")]
+    {
+        let s = macos_notifications::status();
+        serde_json::json!({
+            "platform": "macos",
+            "bundled": s.bundled,
+            "authorized": s.authorized,
+            "authState": s.auth_state,
+            "helper": s.helper,
+            "logPath": s.log_path,
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Il percorso plugin (notify-rust / WinRT toast) non espone uno stato
+        // interrogabile: dichiararlo "sconosciuto" è più onesto di inventarlo.
+        serde_json::json!({
+            "platform": if cfg!(windows) { "windows" } else { "linux" },
+            "bundled": true,
+            "authorized": true,
+            "authState": "unknown",
+            "helper": serde_json::Value::Null,
+            "logPath": serde_json::Value::Null,
+        })
+    }
 }
 
 /// Hand a URL to the OS default browser, without leaking a zombie.
@@ -7073,6 +7207,7 @@ pub fn run() {
             set_traffic_lights,
             set_theme,
             notify,
+            notification_status,
             open_external,
             set_clipboard_image,
             set_app_status,
