@@ -900,6 +900,28 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
+      // Un task che ESCE da review si porta dietro la sua richiesta di
+      // approvazione: va chiusa qui.
+      //
+      // `reviewDecision` era l'UNICO punto che la risolveva, ma non e' l'unica
+      // strada per uscire da review — c'e' il trascinamento sulla board, c'e'
+      // `update({status})` da MCP, c'e' l'archiviazione. Su ognuna di quelle la
+      // riga restava 'pending' per sempre: misurate 13 approvazioni appese su
+      // 48, di cui 9 su task gia' 'done'. Gonfiavano il conteggio dei "pending"
+      // e nessuno le avrebbe mai chiuse, perche' il task non e' piu' in review e
+      // `reviewDecision` lo rifiuta.
+      //
+      // L'esito NON e' sempre lo stesso: arrivare a 'done' e' cio' che
+      // l'approvazione chiedeva, quindi 'approved'; ogni altra destinazione
+      // rende la domanda priva di oggetto — 'expired', non 'rejected', perche'
+      // nessun umano ha detto no. 'expired' e' gia' ammesso dal CHECK della
+      // tabella e finora non lo usava nessuno.
+      if (patch.status !== undefined && current === "review" && patch.status !== "review") {
+        db.prepare(
+          `UPDATE approvals SET status = ?, reviewed_by = ?, reviewed_at = ?
+             WHERE task_id = ? AND approval_type = 'review' AND status = 'pending'`,
+        ).run(patch.status === "done" ? "approved" : "expired", by, now(), taskId);
+      }
       // Status history: every applied transition lands in the thread with its
       // author — the timeline answers "chi l'ha spostato e quando".
       if (patch.status !== undefined && patch.status !== current) logStatus(taskId, current, patch.status, by);
