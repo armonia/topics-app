@@ -1733,7 +1733,11 @@ export function useChat() {
     void performSend(sessionKey, head.content, head.options)
       .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
   }, [performSend]);
-  drainTurnQueueRef.current = drainTurnQueue;
+  // In un effetto, non in fase di render, come il gemello `sendMessageRef` qui
+  // sotto: scrivere un ref durante il render lo fa puntare alla closure di un
+  // render che potrebbe non essere mai committato (StrictMode ne fa due, e uno
+  // concorrente si può buttare via).
+  useEffect(() => { drainTurnQueueRef.current = drainTurnQueue; }, [drainTurnQueue]);
 
   /**
    * L'ingresso pubblico: qui si decide fra spedire e accodare, e in nessun

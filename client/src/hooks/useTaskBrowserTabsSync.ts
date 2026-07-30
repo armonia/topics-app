@@ -18,7 +18,7 @@
  * sourceClientId) and the `ui-state:init` snapshot (reconnect resync) into the
  * store, so closing a task browser tab on the Mac closes it on the PWA live.
  *
- * Mounted once at App level (like useGlobalBoardCount / useClaudeEventNotifications)
+ * Mounted once at App level (like useGlobalBoardCount / CompletionNotifierBridge)
  * so it's active whenever the app is running, regardless of which task drawer — if
  * any — is open. We `ensureLoaded` before an OPEN upsert so it merges onto the
  * task's persisted tabs instead of clobbering them.

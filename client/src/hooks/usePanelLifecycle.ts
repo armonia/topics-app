@@ -1065,11 +1065,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       // Banner per un messaggio arrivato mentre la finestra è NASCOSTA.
       //
-      // C'era anche `msg.topicId !== focusedPanelIdRef.current`: confrontava un
-      // topicId con un panelId (`chat:<id>`), quindi era sempre vera — una
-      // condizione morta. Non la si "aggiusta": a finestra nascosta l'utente non
-      // sta guardando NESSUNA tab, quindi quale sia quella attiva non conta (è
-      // la stessa dottrina di `isTabActivelyVisible`). Via del tutto.
+      // C'era anche `msg.topicId !== focusedPanelIdRef.current`, e NON era una
+      // condizione morta: le pane di chat di primo livello si mettono a fuoco
+      // col topicId nudo (`setFocusedPanelId(msg.topicId)` poco sotto, e altri
+      // quattro siti), quindi per la superficie principale il confronto era
+      // omogeneo e a volte falso. Via lo stesso, ma per il motivo giusto: tutto
+      // il blocco è già gated su `visibilityState === 'hidden'`, e a finestra
+      // nascosta l'utente non sta guardando NESSUNA tab — quale fosse l'ultima
+      // a fuoco non conta (è la stessa dottrina di `isTabActivelyVisible`).
+      // Tenerla significava zittire proprio il topic che stavi seguendo.
       //
       // Il gate che invece serviva non c'era: mentre un agente di board lavora
       // il topic, i suoi messaggi non sono un evento per l'umano — la consegna

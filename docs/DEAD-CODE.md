@@ -34,8 +34,8 @@ Legenda colonna **Sicuro?**: **sì** = zero riferimenti (statici+dinamici+test+p
 | `client/src/state/voiceTaskDialog.ts` | **verifica** | Store zustand dell'isola voice; usato solo dai due componenti sopra (anch'essi morti). |
 | `server/db/seed.ts` | **verifica** | Dev-tool a esecuzione manuale (`Usage: bun run server/db/seed.ts`); non wired in script/CI ma utilità di seeding intenzionale. |
 | `server/middleware/agent-auth.ts` | **verifica** | Auth token agenti (PBKDF2) — `terminal.ts` usa un `agentAuthOk` inline, non questo modulo. Parte del change openspec `kanban-agent-authoring` (in corso) + security-sensitive → decisione umana, non toccare in auto. |
-| `scripts/hooks/claude-stop.ts` | **no** | **Entry esterno**: invocato per path da `~/.claude/settings.json` (hook `Stop`), pipeline verso `claude-events-watcher.ts`. Non morto. |
-| `scripts/hooks/claude-pretooluse.ts` | **no** | **Entry esterno**: hook `PreToolUse` invocato per path dalla config Claude. Non morto. |
+| ~~`scripts/hooks/claude-stop.ts`~~ | — | **CANCELLATO** (9e5516d1, 2026-07-30). Era classificato "entry esterno, non morto" sulla fiducia: l'installer degli hook non l'ha mai registrato (registra `post-hook.sh`, che POSTa su `/api/claude-hooks/:event`), e `~/.claude/settings.json` non lo nomina — verificato. La pipeline verso `claude-events-watcher.ts` non è mai esistita. |
+| ~~`scripts/hooks/claude-pretooluse.ts`~~ | — | **CANCELLATO** (9e5516d1, 2026-07-30). Stessa storia: nessuna config Claude lo invoca. |
 | `client/src/hooks/usePushNotifications.ts` | **no** | **Intenzionale**: `GlobalSettings.tsx:904` documenta "infrastructure (usePushNotifications, /api/push/*) is left in place". Tenere. |
 | `server/db/sql-modules.d.ts` | **no** | **Ambient .d.ts**: dichiara `import x from "./foo.sql"` usato da `migrations-embedded.ts`. knip falsa-positivo sui .d.ts. Tenere. |
 
