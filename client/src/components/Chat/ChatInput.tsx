@@ -447,7 +447,6 @@ export function ChatInput({
   // send time: the pill greyed out but the file was injected into the model
   // context anyway, and the ✕ button only greyed it too instead of removing.
   const contextFilePaths = topic.contextFiles || [];
-  const contextTokenMap = useContextFileTokens(topic.sessionKey, contextFilePaths);
   const excludedContextPaths = useMemo(
     () => new Set(
       (topic.disabledContextSources || [])
@@ -460,7 +459,11 @@ export function ChatInput({
   // Context budget ring — sits left of the model selector. Drafts have no
   // server-side topic yet, so skip the analysis call until promotion.
   const isDraftTopic = topic.id.startsWith('draft:');
-  const { budgetPercent } = useContextInspector(isDraftTopic ? null : topic.id);
+  const { budgetPercent, sources: contextSources } = useContextInspector(isDraftTopic ? null : topic.id);
+  // Proiezione delle sources che l'inspector ha GIA' scaricato: nessuna seconda
+  // richiesta, e i token per file sono quelli veri invece di una stringa in
+  // prosa raschiata con una regex.
+  const contextTokenMap = useContextFileTokens(contextSources);
 
   // Il ring mostra due numeri diversi, e finora ne mostrava solo il secondo:
   //   • `realContext` = quanto ha in pancia il modello ADESSO, misurato sulla
