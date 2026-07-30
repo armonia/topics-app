@@ -23,6 +23,8 @@ import { shouldHonorClearMessages } from "./abortClearPolicy";
 import { switchTopicCore, createTopicCore } from "../lib/session-control-core";
 import { moveTerminalPaneToProject as relocateTerminalPaneToProject } from "../lib/relocate-pane";
 import { timingSafeEqualStr } from "../utils";
+import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
+import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 
 /**
  * Remove a topic id from every ui_state record's `openChatTopicIds` array,
@@ -1214,6 +1216,106 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
         return json(out.topic, 201);
       } catch (err: any) {
         console.warn("[adopt] failed:", err);
+        return json({ error: `adopt failed: ${err?.message || String(err)}` }, 500);
+      }
+    }
+
+    // POST /api/topics/adopt-claude — adopt a Claude Code session that is
+    // already running OUTSIDE Topics (a bare `claude` in a terminal, a resume
+    // from another client) into a first-class interactive topic. The durable
+    // trace of that session is its transcript
+    // (`~/.claude/projects/<enc-cwd>/<sessionId>.jsonl`), so we:
+    //   1. locate the transcript by session id (filename is the id — robust to
+    //      the cwd-slug encoding);
+    //   2. read the session's cwd from the transcript itself (never trust a
+    //      client-supplied path);
+    //   3. create a claude-code topic scoped to that cwd, BIND its chat session
+    //      to the existing claude_session_id (so the next turn spawns
+    //      `claude --resume <id>` and lands in the same conversation), and
+    //   4. replay the transcript into the topic's messages so the history is
+    //      visible in chat.
+    // Idempotent: a second adopt of the same session id returns (and focuses)
+    // the topic already bound to it.
+    if (method === "POST" && pathname === "/api/topics/adopt-claude") {
+      try {
+        const body = await readJSON(req);
+        const sessionId = body?.sessionId ? String(body.sessionId).trim() : "";
+        // Claude session ids are UUID-shaped; the transcript filename is exactly
+        // this id, so a strict charset guard also stops path traversal.
+        if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(sessionId)) {
+          return json({ error: "invalid sessionId" }, 400);
+        }
+
+        // Already bound to a topic? Return it (idempotent). The binding lives in
+        // claude_code_sessions(session_key → claude_session_id).
+        const boundRow = ctx.db
+          .prepare(`SELECT session_key FROM claude_code_sessions WHERE claude_session_id = ?`)
+          .get(sessionId) as { session_key?: string } | undefined;
+        if (boundRow?.session_key) {
+          const existingTopic = getTopicBySessionKey(boundRow.session_key);
+          if (existingTopic) {
+            if (existingTopic.projectPath) bindTopicToProject(existingTopic.id, existingTopic.projectPath, { focus: true });
+            return json(existingTopic, 200);
+          }
+        }
+
+        // Locate the transcript by id: scan the project store for <id>.jsonl.
+        const projectsDir = join(homedir(), ".claude", "projects");
+        let transcriptPath: string | null = null;
+        try {
+          for (const dir of readdirSync(projectsDir)) {
+            const candidate = join(projectsDir, dir, `${sessionId}.jsonl`);
+            if (existsSync(candidate)) { transcriptPath = candidate; break; }
+          }
+        } catch { /* projects dir missing → handled below */ }
+        if (!transcriptPath) return json({ error: "session transcript not found" }, 404);
+
+        const text = readFileSync(transcriptPath, "utf-8");
+        // The session's real cwd is stamped on its transcript entries.
+        const cwd = parseTranscriptFacts(text).cwd;
+        if (!cwd) return json({ error: "could not resolve session cwd" }, 400);
+
+        const messages = parseTranscriptToMessages(text);
+        const projectDir = resolveProjectRef(cwd, { trustRawPaths: true });
+        const id = crypto.randomUUID();
+        const sessionKey = "topic:" + id.slice(0, 8);
+        const base = cwd.replace(/\/+$/, "").split("/").pop() || "sessione";
+        const name = (body?.name ? String(body.name).trim() : "") || `${base} (ripresa)`;
+
+        // One transaction: create the topic, bind the CLI session id, import the
+        // history. All-or-nothing so a half-adopted topic never appears.
+        const nowIso = new Date().toISOString();
+        const topic = ctx.db.transaction((): Topic => {
+          const data = loadTopics();
+          const t: Topic = {
+            id, name, slug: slugify(name), parentId: null, links: [],
+            sessionKey,
+            color: body?.color || "#5865f2", icon: body?.icon || "TerminalSquare",
+            createdAt: nowIso, updatedAt: nowIso,
+            archived: false, systemPrompt: "",
+            contextFiles: [], pinnedMessages: [],
+            sortOrder: Object.keys(data.topics).length,
+            provider: "claude-code",
+          };
+          if (projectDir) (t as any).projectPath = projectDir;
+          saveSingleTopic(t);
+          // Bind the topic's chat session to the EXISTING claude session id. The
+          // provider's getOrCreateClaudeSessionId will now find this row, see
+          // created_at !== spawn-time-now, and take the `--resume` branch.
+          ctx.db.prepare(
+            `INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(session_key) DO UPDATE SET claude_session_id = excluded.claude_session_id, updated_at = excluded.updated_at`
+          ).run(sessionKey, sessionId, nowIso, nowIso);
+          if (messages.length) saveLocalMessages(sessionKey, messages);
+          return t;
+        })();
+
+        broadcastToAll({ type: "topic:created", topic });
+        if (projectDir) bindTopicToProject(topic.id, projectDir, { focus: true });
+        return json({ ...topic, importedMessages: messages.length }, 201);
+      } catch (err: any) {
+        console.warn("[adopt-claude] failed:", err);
         return json({ error: `adopt failed: ${err?.message || String(err)}` }, 500);
       }
     }

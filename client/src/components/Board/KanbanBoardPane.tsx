@@ -816,7 +816,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
           {mode === 'all' && <span className="hidden text-[11px] text-neutral-500 sm:inline">{tasks.length} task · tutti i progetti</span>}
           {/* The work the kanban does NOT govern — otherwise a repo with three
               bare `claude` sessions and no cards reads as "fermo". */}
-          <ExternalSessionsBadge sessions={externalSessions} showProject={mode === 'all'} />
+          <ExternalSessionsBadge sessions={externalSessions} showProject={mode === 'all'} onOpenTopic={onOpenTopic} />
           {/* Auto-dispatch on/off lives in GlobalSettingsMenu now — no duplicate pill. */}
           <PublishControl />
           {hasProject && (

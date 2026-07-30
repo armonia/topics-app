@@ -112,6 +112,19 @@ export const topicsApi = {
     });
   },
 
+  /**
+   * Adopt a Claude Code session running OUTSIDE Topics (bare `claude` in a
+   * terminal, a resume from another client) into a first-class topic: binds the
+   * topic's chat to the existing claude_session_id (next turn `--resume`s it)
+   * and imports the transcript history into the chat. Idempotent server-side.
+   */
+  async adoptClaudeSession(sessionId: string, name?: string): Promise<Topic> {
+    return request<Topic>('/topics/adopt-claude', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, name }),
+    });
+  },
+
   async update(id: string, data: UpdateTopicRequest): Promise<Topic> {
     return request<Topic>(`/topics/${id}`, {
       method: 'PATCH',
