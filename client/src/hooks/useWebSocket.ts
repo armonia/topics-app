@@ -7,6 +7,8 @@ import { validateInbound } from '../schemas/ws-inbound';
 import { serverWsBase } from '../lib/shell/net';
 import { withTokenQuery } from '../lib/shell/pairing';
 import { applyUnreadUpdate, clearUnreadFor, hasUnread } from '../state/unread';
+import { SEEN_DWELL_MS } from '../state/signals';
+import { isWindowAwake } from '../state/windowAwake';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
@@ -65,6 +67,15 @@ export function useWebSocket(): UseWebSocketReturn {
   // and never retried — the server then keeps counting the focused topic as
   // unread (phantom badge on the topic the user is actively looking at).
   const lastFocusTopicRef = useRef<string | null>(null);
+  // L'attesa della soglia di "visto" prima di marcare letto. Un ref e non uno
+  // stato: cambiarlo non deve ri-renderizzare nulla, e un focus nuovo deve poter
+  // annullare l'attesa del precedente in modo sincrono.
+  const seenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Nessuna attesa sopravvive allo smontaggio: marcare letto dopo che l'hook e'
+  // morto scriverebbe per conto di una finestra che non c'e' piu'.
+  useEffect(() => () => {
+    if (seenTimerRef.current !== null) clearTimeout(seenTimerRef.current);
+  }, []);
 
   const clearOfflineTimer = useCallback(() => {
     if (offlineTimerRef.current) {
@@ -273,20 +284,40 @@ export function useWebSocket(): UseWebSocketReturn {
     // e gruppi. Il successivo `unread:updated` riconcilia con la verità, quindi
     // lo zero ottimistico è sicuro (si auto-corregge se nel frattempo arriva un
     // messaggio).
+    // AGGIUNTA (FASE 2): "letto" ora aspetta la SOGLIA, non l'istante del focus.
+    // Il frame `focus` parte subito — al server serve per il routing — ma
+    // l'azzeramento scatta solo se quella topic e' ancora davanti dopo
+    // SEEN_DWELL_MS, e con la finestra sveglia. E' la stessa soglia che tiene il
+    // fill blu sulla tab (`useSeenDwell` in state/signals.ts): due politiche di
+    // "visto" in disaccordo darebbero un badge che sfarfalla, quindi e' UNA.
     const m = message as unknown as { type?: string; topicId?: string | null };
     if (m.type === 'focus') {
       // Track the focused topic so onopen can re-announce it after a reconnect.
       lastFocusTopicRef.current = m.topicId ?? null;
+      // Un focus nuovo annulla l'attesa del precedente: un clic di passaggio non
+      // deve marcare letto niente.
+      if (seenTimerRef.current !== null) {
+        clearTimeout(seenTimerRef.current);
+        seenTimerRef.current = null;
+      }
       if (m.topicId) {
         const tid = m.topicId;
-        // Letto PRIMA dello zero ottimistico: dopo, il conteggio sarebbe
-        // sempre 0 e la POST non partirebbe mai.
-        const daAzzerare = hasUnread(unreadRef.current, tid);
-        applyUnread(prev => clearUnreadFor(prev, tid));
-        // Niente da azzerare ⇒ niente round-trip. Era il costo per-switch più
-        // caro: la POST fa riscrivere al server l'intera tabella unread e poi
-        // trasmette a TUTTI i client un `unread:updated{0}` che non cambia nulla.
-        if (daAzzerare) topicsApi.markRead(tid).catch(() => {});
+        seenTimerRef.current = setTimeout(() => {
+          seenTimerRef.current = null;
+          // Guardie al momento dello scatto: la topic deve essere ANCORA quella
+          // davanti (il focus può essersi spostato senza un nuovo frame) e la
+          // finestra sveglia (può essere finita dietro durante l'attesa).
+          if (lastFocusTopicRef.current !== tid) return;
+          if (!isWindowAwake()) return;
+          // Letto PRIMA dello zero ottimistico: dopo, il conteggio sarebbe
+          // sempre 0 e la POST non partirebbe mai.
+          const daAzzerare = hasUnread(unreadRef.current, tid);
+          applyUnread(prev => clearUnreadFor(prev, tid));
+          // Niente da azzerare ⇒ niente round-trip. Era il costo per-switch più
+          // caro: la POST fa riscrivere al server l'intera tabella unread e poi
+          // trasmette a TUTTI i client un `unread:updated{0}` che non cambia nulla.
+          if (daAzzerare) topicsApi.markRead(tid).catch(() => {});
+        }, SEEN_DWELL_MS);
       }
     }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
