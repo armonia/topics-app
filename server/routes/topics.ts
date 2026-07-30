@@ -275,7 +275,7 @@ function restoreTopicInUiState(
 export function createTopicsRouter(ctx: AppContext, browserService?: BrowserService): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, OPENCLAW_DIR,
-    broadcastToAll, isTopicFocused,
+    broadcastToAll,
     loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,
@@ -655,14 +655,24 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
   }
 
   function updateUnreadCount(topicId: string) {
+    // UNA sola politica di lettura: un messaggio in arrivo incrementa SEMPRE il
+    // non-letto; solo un `read` esplicito (POST /api/topics/:id/read, che il
+    // client manda dopo SEEN_DWELL_MS di sguardo continuo) lo azzera.
+    //
+    // Prima qui c'era un gate `if (!isTopicFocused(topicId))` — "presente =
+    // letto", senza nozione di tempo. Era rotto in due modi: (1) un messaggio ad
+    // app in background non produceva MAI il badge perche' il server considerava
+    // ancora focussata l'ultima chat vista (nessun blur affidabile lato client,
+    // focus ri-annunciato a ogni riconnessione); (2) la soppressione era GLOBALE —
+    // bastava una qualsiasi socket (altro device, altra finestra, PWA dimenticata)
+    // con quella topic focussata perche' NESSUNO ricevesse il badge. Ora che il
+    // client marca letto sulla soglia, questo gate era ridondante E dannoso.
     try {
-      if (!isTopicFocused(topicId)) {
-        const unread = loadUnread();
-        if (!unread[topicId]) unread[topicId] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-        unread[topicId].unreadCount += 1;
-        saveUnread(unread);
-        broadcastToAll({ type: "unread:updated", topicId, unreadCount: unread[topicId].unreadCount });
-      }
+      const unread = loadUnread();
+      if (!unread[topicId]) unread[topicId] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
+      unread[topicId].unreadCount += 1;
+      saveUnread(unread);
+      broadcastToAll({ type: "unread:updated", topicId, unreadCount: unread[topicId].unreadCount });
     } catch (err) {
       console.warn(`[topics] updateUnreadCount failed for ${topicId}:`, err);
     }
@@ -1514,9 +1524,9 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
     // che non cambia nulla ma gli fa comunque validare il frame e ri-renderizzare.
     // Con una dozzina di tab aperte era il costo principale dello switch.
     //
-    // `lastReadAt` non avanza in questo ramo, di proposito: è informativo. A
-    // decidere se un messaggio conta come non letto è `isTopicFocused` (il ping
-    // WS `focus`, che il client continua a mandare sempre), non questa data.
+    // `lastReadAt` non avanza in questo ramo, di proposito: è informativo. È
+    // questa POST — e SOLO questa — a decidere che una topic è letta: il server
+    // non deduce più "letto" dal focus (vedi updateUnreadCount).
     {
       const params = matchRoute(pathname, "/api/topics/:id/read");
       if (params && method === "POST") {

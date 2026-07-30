@@ -553,13 +553,6 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
-  function isTopicFocused(topicId: string): boolean {
-    for (const ws of wsClients) {
-      if (ws.data.focusedTopicId === topicId && ws.readyState === 1) return true;
-    }
-    return false;
-  }
-
   /**
    * P6: send to every client that currently has `topicId` open (declared via a
    * `subscribe` frame), plus any client that hasn't declared an open-set yet.
@@ -1645,7 +1638,7 @@ export function createAppContext(baseDir: string): AppContext {
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     OPENCLAW_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
     activeStreams, wsClients,
-    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers, isTopicFocused,
+    broadcast, broadcastToAll, broadcastToTopic, broadcastToTopicSubscribers,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
     loadUnread, saveUnread,

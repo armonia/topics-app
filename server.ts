@@ -2073,9 +2073,10 @@ const server = Bun.serve<WSData>({
 
       const handler = ws.data._termHandler;
       if (handler) { handler.close(); return; }
-      // Remove from client set FIRST so concurrent isTopicFocused() iterations
-      // don't see this ws at all. Clear focusedTopicId after as defense-in-depth
-      // in case any ref to this ws object lingers elsewhere.
+      // Remove from client set FIRST so concurrent focus-based routing
+      // (broadcastToTopic iterates wsClients by focusedTopicId) doesn't see this
+      // ws at all. Clear focusedTopicId after as defense-in-depth in case any ref
+      // to this ws object lingers elsewhere.
       wsClients.delete(ws);
       ws.data.focusedTopicId = null;
       console.log(`[WS] Client disconnected: ${ws.data.id} (total: ${wsClients.size})`);
