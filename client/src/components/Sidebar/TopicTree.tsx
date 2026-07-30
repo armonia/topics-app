@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, Hourglass, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -34,7 +34,23 @@ import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
-import { buildSidebarItems, filterSidebarItems, groupSidebarItems, type SidebarItem, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { buildSidebarItems, filterSidebarItems, groupSidebarItems, groupSidebarItemsByState, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+
+/**
+ * Le sezioni della vista per STATO, nell'ordine in cui si leggono.
+ *
+ * "Attende te" prima di tutto: è l'unica riga su cui devi muoverti tu. Poi "al
+ * lavoro", che è informazione (sta andando, non toccare). Poi il resto.
+ *
+ * Le etichette dicono CHI deve muoversi, non il nome tecnico della fase: "attende
+ * te" invece di "awaiting", "al lavoro" invece di "active". È la stessa distinzione
+ * che i tier ambra/blu fanno col colore.
+ */
+const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; label: string }[] = [
+  { key: 'awaiting', icon: Hourglass, label: 'Attende te' },
+  { key: 'working', icon: Activity, label: 'Al lavoro' },
+  { key: 'rest', icon: MoreHorizontal, label: 'Il resto' },
+];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -334,6 +350,35 @@ export function TopicTree({
     () => viewMode === 'grouped' ? groupSidebarItems(unpinnedItems) : null,
     [unpinnedItems, viewMode]
   );
+
+  // Vista per STATO: attende te / al lavoro / il resto. I Set arrivano dallo
+  // store dei segnali — la stessa fonte che dipinge i fill delle righe, quindi la
+  // sezione in cui una riga finisce e il suo colore non possono divergere.
+  // NB: il selettore restituisce solo RIFERIMENTI già nello store. Costruire qui
+  // un `new Set([...])` darebbe un riferimento nuovo a ogni chiamata e `useShallow`
+  // lo leggerebbe come "cambiato" per sempre — re-render a ciclo continuo. L'unione
+  // si fa dopo, in un useMemo.
+  const sigForState = useSignalsStore(
+    useShallow((s) => ({
+      awaitingTopics: s.awaitingFeedbackTopics,
+      awaitingTermIds: s.claudePhaseAwaitingTermIds,
+      live: s.liveStreamTopics,
+      hydrated: s.hydratedStreamTopics,
+      workingTermIds: s.claudePhaseActiveTermIds,
+    })),
+  );
+  const stateGroups = useMemo(() => {
+    if (viewMode !== 'state') return null;
+    // "Al lavoro" per una chat è uno stream vivo O idratato; per un terminale è la
+    // fase attiva. Unione, come in `useAgentActivityCounts`: un canale muto non
+    // deve nascondere lavoro vero.
+    return groupSidebarItemsByState(unpinnedItems, {
+      awaitingTopics: sigForState.awaitingTopics,
+      awaitingTermIds: sigForState.awaitingTermIds,
+      workingTopics: new Set<string>([...sigForState.live, ...sigForState.hydrated]),
+      workingTermIds: sigForState.workingTermIds,
+    });
+  }, [unpinnedItems, viewMode, sigForState]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -880,6 +925,28 @@ export function TopicTree({
               })}
             </>
           )
+        )}
+        {/* Vista per STATO: le stesse sezioni collassabili, ma i bucket sono
+            "di cosa devo occuparmi" invece del tipo di pane. L'ordine è la
+            priorità di lettura: chi aspetta una tua risposta in cima, poi chi sta
+            lavorando, poi il resto. Una sezione vuota non si disegna. */}
+        {viewMode === 'state' && stateGroups && (
+          <>
+            {pinnedBlock.length > 0 && (
+              <div data-testid="sidebar-pinned-section">
+                {renderSection('pinned', Pin, 'Fissati', pinnedBlock)}
+              </div>
+            )}
+            {STATE_SECTIONS.map(({ key, icon, label }) => {
+              const items = stateGroups[key];
+              if (items.length === 0) return null;
+              return (
+                <div key={key} data-testid={`sidebar-state-section-${key}`}>
+                  {renderSection(`state:${key}`, icon, `${label} (${items.length})`, items)}
+                </div>
+              );
+            })}
+          </>
         )}
 
         {filteredItems.length === 0 && (

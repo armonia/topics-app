@@ -695,6 +695,91 @@ export function groupSidebarItems(items: SidebarItem[]): Record<SidebarItemType,
   return groups;
 }
 
+// ── Raggruppamento per STATO ───────────────────────────────────────────────────
+//
+// Perché serve. La sidebar raggruppa per TIPO (`groupSidebarItems`) e ordina con
+// un boost BINARIO sulle notifiche: chi ha `notificationCount > 0` sale, e basta.
+// Quel boost non distingue le tre cose che l'utente distingue eccome — "aspetta
+// una mia risposta", "ha finito e non l'ho ancora guardato", "sta lavorando" —
+// e le mescola nello stesso blocco insieme a tutto ciò che ha un numero addosso.
+//
+// La partizione a tre bucket esiste già, ma solo come CONTEGGI:
+// `useAgentActivityCounts` (state/signals.ts) la calcola per i tre chip della
+// status bar e butta via le liste. Qui la stessa partizione produce gli item.
+//
+// Pura di proposito: i Set arrivano dal chiamante, così è provabile senza store
+// né WS — come tutto il resto di questo file.
+
+/** I tre stati in cui la sidebar raggruppa. L'ordine è la priorità di lettura. */
+export type SidebarStateBucket = 'awaiting' | 'working' | 'rest';
+
+/** I segnali per-soggetto che decidono il bucket. Nomi identici a quelli dello
+ *  store, così il call site non deve tradurre. */
+export interface SidebarStateSignals {
+  /** topic la cui sessione è parcheggiata in attesa dell'umano (ambra + blu). */
+  awaitingTopics: ReadonlySet<string>;
+  /** i gemelli terminale degli awaiting. */
+  awaitingTermIds: ReadonlySet<string>;
+  /** topic con un turno in corso (stream vivo o idratato). */
+  workingTopics: ReadonlySet<string>;
+  /** terminali con un turno in corso. */
+  workingTermIds: ReadonlySet<string>;
+}
+
+/**
+ * Il soggetto di un item, cioè la chiave con cui i Set dei segnali lo conoscono.
+ *
+ * Non è `item.id`: quello è la chiave di RENDER (`terminal:<id>`, `project:<path>`,
+ * l'uuid della topic), mentre i segnali sono chiavati per SOGGETTO (topicId per le
+ * chat, terminalSessionId per i terminali). Confonderli è il modo per ottenere
+ * bucket sempre vuoti senza un errore.
+ */
+export function sidebarItemSubject(item: SidebarItem): string | null {
+  if (item.type === 'chat') return item.topic?.id ?? item.id;
+  if (item.type === 'terminal') return item.terminal?.id ?? null;
+  return null;
+}
+
+/**
+ * In quale bucket sta un item.
+ *
+ * "Attende te" PRECEDE "al lavoro": se una sessione è in attesa, che stia anche
+ * macinando qualcosa non cambia cosa devi fare tu. I due assi sono dichiarati
+ * mutuamente esclusivi nel tempo in signals.ts, ma un ordine esplicito qui evita
+ * che una sovrapposizione momentanea sposti una riga sotto gli occhi dell'utente.
+ *
+ * Un item senza soggetto (progetto, browser, utility) sta in 'rest': un progetto
+ * è un contenitore, e i suoi figli finiscono nei bucket per conto proprio.
+ */
+export function sidebarItemState(item: SidebarItem, sig: SidebarStateSignals): SidebarStateBucket {
+  const subject = sidebarItemSubject(item);
+  if (!subject) return 'rest';
+  if (item.type === 'chat') {
+    if (sig.awaitingTopics.has(subject)) return 'awaiting';
+    if (sig.workingTopics.has(subject)) return 'working';
+    return 'rest';
+  }
+  if (sig.awaitingTermIds.has(subject)) return 'awaiting';
+  if (sig.workingTermIds.has(subject)) return 'working';
+  return 'rest';
+}
+
+/**
+ * Partiziona gli item nei tre bucket, PRESERVANDO l'ordine relativo che avevano.
+ *
+ * Preservarlo conta: `buildSidebarItems` li ha già ordinati per notifica e
+ * attività, e riordinare dentro il bucket butterebbe via quel lavoro — un utente
+ * che rilegge la stessa lista non deve trovare le righe rimescolate.
+ */
+export function groupSidebarItemsByState(
+  items: SidebarItem[],
+  sig: SidebarStateSignals,
+): Record<SidebarStateBucket, SidebarItem[]> {
+  const groups: Record<SidebarStateBucket, SidebarItem[]> = { awaiting: [], working: [], rest: [] };
+  for (const item of items) groups[sidebarItemState(item, sig)].push(item);
+  return groups;
+}
+
 // ── Search filter ──────────────────────────────────────────────────────────────
 
 export function filterSidebarItems(items: SidebarItem[], query: string): SidebarItem[] {
