@@ -228,6 +228,7 @@ describe('outbound registry contract', () => {
       'stream:usage',
       'task:created',
       'task:deleted',
+      'task:parked',
       'task:review-ready',
       'task:updated',
       'task:usage-live',
@@ -291,10 +292,6 @@ describe('outbound registry contract', () => {
   // ed era il residuo di un'approvazione dei piani mai collegata: oggi il Plan
   // Mode passa da `opts.planMode` e l'approvazione la gestisce la CLI. La
   // COLONNA resta, perché è intrecciata in ogni CRUD dei messaggi.
-  // 102 → 95: via sette schemi che nessuno mandava e nessuno ascoltava
-  // (, ,
-  // , ). Un registro che dichiara messaggi
-  // inesistenti fa credere che una via di sincronizzazione ci sia.
   // 102 → 95: via sette schemi che NESSUNO mandava e NESSUNO ascoltava — i
   // quattro `chat:*` (created/updated/archived/deleted), `provider:current`,
   // `provider:changed` e `agent:status`. Un registro di protocollo che dichiara
@@ -302,8 +299,12 @@ describe('outbound registry contract', () => {
   // ciclo di vita delle chat passa da `topic:*`, che è vivo. Il test di
   // copertura difende il verso opposto (un broadcast senza schema), quindi
   // questi non erano difesi da niente.
-  test('all 95 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(95);
+  // 95 → 96: entra `task:parked`, il gemello di fallimento di
+  // `task:review-ready`. Il park terminale (l'agente si arrende, il task NON
+  // riparte da solo) era l'unico esito di un dispatch che non aveva un fronte:
+  // il task restava fermo in silenzio finché non lo si andava a guardare.
+  test('all 96 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(96);
   });
 });
 
@@ -720,6 +721,26 @@ describe('validateOutbound — board + task', () => {
       type: 'task:review-ready', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa',
       reason: 'agent_delivered',
     }).ok).toBe(true);
+  });
+
+  // Lo `state` è chiuso di proposito: sono i DUE park terminali del dispatcher
+  // (`failed` = l'agente si è arreso, `blocked` = serve una mano umana). Un
+  // terzo valore vorrebbe dire che qualcuno ha aggiunto un esito senza decidere
+  // che fronte mostrargli.
+  test('task:parked accetta failed e blocked, rifiuta il resto', () => {
+    expect(validateOutbound({
+      type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'failed',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa',
+      state: 'blocked', reason: 'max_turns',
+    }).ok).toBe(true);
+    expect(validateOutbound({
+      type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa', state: 'queued',
+    }).ok).toBe(false);
+    expect(validateOutbound({
+      type: 'task:parked', projectId: 'p-1', taskId: 't-1', taskTitle: 'Fai la cosa',
+    }).ok).toBe(false);
   });
 
   test('task:usage-live accetta model null (turno senza modello noto)', () => {

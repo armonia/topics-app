@@ -40,3 +40,35 @@ describe("maybeSendPush — task:review-ready", () => {
     expect(pushCalls).toHaveLength(0);
   });
 });
+
+/**
+ * Il gemello di fallimento. `task:review-ready` copre l'esito buono; il park
+ * terminale (l'agente si è arreso / serve una mano) era muto ad app chiusa —
+ * cioè proprio quando NON puoi accorgertene guardando la board. I due stati
+ * hanno testi diversi apposta: "non consegnato" è un esito, "da sistemare" è
+ * una richiesta di intervento.
+ */
+describe("maybeSendPush — task:parked", () => {
+  beforeEach(() => { pushCalls.length = 0; });
+
+  test("failed → push di consegna mancata, tag per taskId", () => {
+    maybeSendPush({ type: "task:parked", projectId: "p", taskId: "t4", taskTitle: "Rifai lo schema", state: "failed" });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].title).toContain("non consegnato");
+    expect(pushCalls[0].body).toBe("Rifai lo schema");
+    expect(pushCalls[0].tag).toBe("task-park-t4");
+  });
+
+  test("blocked → testo diverso: chiede un intervento, non annuncia un esito", () => {
+    maybeSendPush({ type: "task:parked", projectId: "p", taskId: "t5", taskTitle: "Migra la 041", state: "blocked" });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].title).toContain("sistemare");
+    expect(pushCalls[0].tag).toBe("task-park-t5");
+  });
+
+  test("degrada senza titolo", () => {
+    maybeSendPush({ type: "task:parked", projectId: "p", taskId: "t6", state: "failed" });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].body.length).toBeGreaterThan(0);
+  });
+});

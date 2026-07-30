@@ -790,6 +790,21 @@ const taskReviewReadySchema = z.looseObject({
   reason: z.optional(z.string()),
 });
 
+// Il gemello di FALLIMENTO del fronte qui sopra: il task è stato PARCHEGGIATO e
+// non riparte da solo. Emesso solo sul park terminale (`requeue: false`) — mai
+// su un rimessa-in-coda, dove il task si auto-guarisce e un banner sarebbe
+// rumore su un ritentativo. `state` distingue le due domande che pone
+// all'umano: 'failed' = l'agent non ha prodotto niente, 'blocked' = c'è una
+// configurazione da sistemare (worktree, directory del progetto).
+const taskParkedSchema = z.looseObject({
+  type: z.literal('task:parked'),
+  projectId: z.string(),
+  taskId: z.string(),
+  taskTitle: z.string(),
+  state: z.union([z.literal('failed'), z.literal('blocked')]),
+  reason: z.optional(z.string()),
+});
+
 // Anteprima LIVE del consumo mentre il turno gira (ogni 4s, mai persistita): la
 // card somma `baseMs` + (adesso − turnStartedAt), quindi il tempo mostrato è
 // solo ESECUZIONE — le pause tra un turno e l'altro non entrano mai nel conto.
@@ -1012,6 +1027,7 @@ const OUTBOUND_SCHEMAS = {
   'task:updated': taskUpdatedSchema,
   'task:deleted': taskDeletedSchema,
   'task:review-ready': taskReviewReadySchema,
+  'task:parked': taskParkedSchema,
   'task:usage-live': taskUsageLiveSchema,
   'board:dispatch': boardDispatchSchema,
   'board:global-cap': boardGlobalCapSchema,
