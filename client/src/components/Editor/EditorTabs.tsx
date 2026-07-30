@@ -8,6 +8,7 @@ import { markdownComponents } from '../MessageContent';
 import { BreadcrumbNav } from './BreadcrumbNav';
 import { getMediaType, isHtmlFile, MediaViewer, HtmlPreview } from './fileMedia';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
+import { useConfirm } from '../../hooks/useConfirm';
 
 const CodeEditor = lazy(() => import('./CodeEditor').then(m => ({ default: m.CodeEditor })));
 
@@ -38,6 +39,7 @@ interface EditorTabsProps {
 }
 
 export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function EditorTabs({ projectPath }, ref) {
+  const confirm = useConfirm();
   const [tabs, setTabs] = useState<TabInfo[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [darkMode, setDarkMode] = useState(false);
@@ -132,14 +134,14 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
 
   useImperativeHandle(ref, () => ({ openFile, pinTab }), [openFile, pinTab]);
 
-  const closeTab = useCallback((index: number, e?: React.MouseEvent) => {
+  const closeTab = useCallback(async (index: number, e?: React.MouseEvent) => {
     e?.stopPropagation();
     // Modifiche non salvate: si chiede, come fa già `TopicSettingsModal.tsx:94` per
     // lo stesso caso. Prima la X (e il click centrale) buttavano via il lavoro senza
     // una parola — e il pallino "Unsaved changes" era lì a dire che c'era.
     const closing = tabs[index];
     if (closing && !closing.loadError && closing.content !== closing.originalContent) {
-      if (!window.confirm(`"${closing.name}" ha modifiche non salvate. Chiudere senza salvare?`)) return;
+      if (!await confirm({ title: `"${closing.name}" ha modifiche non salvate.`, body: 'Chiudere senza salvare?', confirmLabel: 'Chiudi senza salvare' })) return;
     }
     setTabs(prev => {
       const next = prev.filter((_, i) => i !== index);
@@ -150,7 +152,7 @@ export const EditorTabs = forwardRef<EditorTabsHandle, EditorTabsProps>(function
       });
       return next;
     });
-  }, [tabs]);
+  }, [tabs, confirm]);
 
   const handleContentChange = useCallback((path: string, newContent: string) => {
     setTabs(prev => prev.map(t => t.path === path ? { ...t, content: newContent, preview: false } : t));

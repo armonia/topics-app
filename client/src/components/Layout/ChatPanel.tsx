@@ -7,6 +7,7 @@ import { SessionActivityBar } from '../Shared/SessionActivity';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, PanelTab, CompactionMarker } from '../../types';
 import { commandApi } from '../../lib/api';
 import { sendFocusTopic } from '../../lib/focusMessaging';
+import { useConfirm } from '../../hooks/useConfirm';
 const TopicSettingsModal = lazy(() => import('../Modals/TopicSettingsModal').then(m => ({ default: m.TopicSettingsModal })));
 import { CommandMenu } from '../Shared/CommandMenu';
 import { ChatPane } from '../Chat/ChatPane';
@@ -94,6 +95,7 @@ export function ChatPanel({
   }, [initialTab, onInitialTabConsumed]);
   const [suggestedProject, setSuggestedProject] = useState<string | null>(null);
   const [commandLoading, setCommandLoading] = useState(false);
+  const confirm = useConfirm();
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Keep hook alive for potential inspector use (skip for draft topics)
@@ -115,7 +117,7 @@ export function ChatPanel({
 
   const addSystemMessage = useCallback((content: string) => { fetch(`/api/topics/${topic.id}/system-message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then(() => loadHistory(topic.sessionKey)); }, [topic.id, topic.sessionKey, loadHistory]);
   const handleCommandStatus = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.status(topic.sessionKey); addSystemMessage(r.output || 'Status retrieved'); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
-  const handleCommandClear = useCallback(async () => { if (!window.confirm('Clear conversation? A backup will be saved.')) return; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, loadHistory]);
+  const handleCommandClear = useCallback(async () => { if (!await confirm({ title: 'Clear conversation?', body: 'A backup will be saved.', confirmLabel: 'Clear' })) return; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, loadHistory, confirm]);
   const handleCommandModel = useCallback(async (model: string) => { setCommandLoading(true); try { await commandApi.setModel(topic.sessionKey, model); addSystemMessage(`Model set to: ${model}`); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey, addSystemMessage]);
   const handleCommandReasoning = useCallback(async () => { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e: unknown) { setCommandResult({ type: 'error', message: errorMessage(e) }); } finally { setCommandLoading(false); } }, [topic.sessionKey]);
   useEffect(() => { if (commandResult) { const t = setTimeout(() => setCommandResult(null), 5000); return () => clearTimeout(t); } }, [commandResult]);

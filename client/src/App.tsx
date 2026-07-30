@@ -56,6 +56,7 @@ import { SplitPositionProvider } from './contexts/SplitPositionContext';
 import { ContextMenu } from './components/Modals/ContextMenu';
 import { PanelGrid } from './components/Layout/PanelGrid';
 import { ToastProvider, ToastOutlet } from './components/Shared/Toast';
+import { ConfirmProvider } from './hooks/useConfirm';
 import { CompletionNotifierBridge } from './hooks/useCompletionNotifier';
 import { PendingActionProvider, enqueuePendingAction, tickPendingAction, cancelPendingAction, flushPendingActions } from './contexts/PendingActionContext';
 import { DRAG_REGION, NO_DRAG_REGION } from './lib/shell/dragRegion';
@@ -837,6 +838,7 @@ function App() {
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <SplitPositionProvider>
     <ToastProvider>
+    <ConfirmProvider>
     {/* Surfaces a toast (and optional sound) when an agent completes or
         errors on any topic. Reads settings live so the master toggle in
         Settings → Notifications takes effect without a reload. Native
@@ -1518,6 +1520,7 @@ function App() {
       <ToastOutlet fixed fallback />
     </div>
     </PendingActionProvider>
+    </ConfirmProvider>
     </ToastProvider>
     </SplitPositionProvider>
     </TabNotificationProvider>

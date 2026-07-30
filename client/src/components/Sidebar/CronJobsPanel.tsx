@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Clock, ChevronRight, Play, Pause, Trash2, RefreshCw, Calendar, Zap } from 'lucide-react';
+import { useConfirm } from '../../hooks/useConfirm';
 
 interface CronJob {
   id: string;
@@ -67,6 +68,7 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   const loadJobs = useCallback(async () => {
     setLoading(true);
@@ -116,7 +118,7 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
   }, [loadJobs]);
 
   const deleteJob = useCallback(async (jobId: string) => {
-    if (!confirm('Delete this job?')) return;
+    if (!await confirm({ title: 'Delete this job?', confirmLabel: 'Delete' })) return;
     try {
       const res = await fetch('/api/cron/jobs/' + jobId, { method: 'DELETE' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -124,7 +126,7 @@ export function CronJobsPanel({ enabled = true }: CronJobsPanelProps) {
     } catch (err) {
       console.error('[CronJobs] Delete failed:', err);
     }
-  }, []);
+  }, [confirm]);
 
   const enabledJobs = jobs.filter(j => j.enabled);
   const disabledJobs = jobs.filter(j => !j.enabled);
