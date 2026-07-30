@@ -4,7 +4,6 @@ import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Rad
 import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
-import { useClaudeEventNotifications } from './hooks/useClaudeEventNotifications';
 import { SidebarToggleButton } from './components/Shared/SidebarToggleButton';
 import { UpdaterToast } from './components/UpdaterToast';
 import type { SidebarTab } from './types';
@@ -432,10 +431,6 @@ function App() {
       (id: string) => { if (id) openTaskInApp({ taskId: id }); };
     return () => { delete (window as unknown as { __topicsOpenTask?: (id: string) => void }).__topicsOpenTask; };
   }, []);
-
-  // Native desktop banner for P0/P1 Claude session events (replaces the
-  // stop-hook's osascript banner — no more Apple Events / iTunes prompt).
-  useClaudeEventNotifications(onWSMessage);
 
   // Task-owned browser fork → per-task tab store. Consumes the server's
   // `browser:open-task-tab` frame (feature-flagged) so an agent's browser lands
