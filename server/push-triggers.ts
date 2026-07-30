@@ -52,6 +52,20 @@ export function maybeSendPush(message: Record<string, any>): void {
     return;
   }
 
+  // Il gemello di fallimento: il task è stato PARCHEGGIATO e non riparte da
+  // solo. Emesso solo sul park terminale (`releaseAndEmit` nel dispatcher), mai
+  // su una rimessa in coda che si auto-guarisce. `tag` keyed by taskId così un
+  // re-emit sostituisce invece di impilare.
+  if (type === "task:parked") {
+    firePush({
+      title: message.state === "blocked" ? "🔧 Task da sistemare" : "⛔️ Task non consegnato",
+      body: message.taskTitle || "Un task è stato parcheggiato",
+      tag: `task-park-${message.taskId || "new"}`,
+      url: "/",
+    });
+    return;
+  }
+
   // Stream ended — Claude finished responding in a topic
   if (type === "stream:end" && message.sessionKey) {
     firePush({

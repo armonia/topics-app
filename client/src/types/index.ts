@@ -931,6 +931,19 @@ export interface WSTaskReviewReadyMessage {
   reason?: string;
 }
 
+/** Il gemello di FALLIMENTO: il task è stato PARCHEGGIATO e non riparte da
+ *  solo. Emesso solo sul park terminale (mai su una rimessa in coda, che si
+ *  auto-guarisce). `state`: 'failed' = l'agent non ha prodotto niente,
+ *  'blocked' = c'è una configurazione da sistemare. */
+export interface WSTaskParkedMessage {
+  type: 'task:parked';
+  projectId: string;
+  taskId: string;
+  taskTitle: string;
+  state: 'failed' | 'blocked';
+  reason?: string;
+}
+
 export type WSMessage =
   | WSProvidersSnapshotMessage
   | WSGoalUpdatedMessage
@@ -991,6 +1004,7 @@ export type WSMessage =
   | WSWorktreeMessage
   | WSMachineMessage
   | WSTaskReviewReadyMessage
+  | WSTaskParkedMessage
   | WSSessionStateMessage;
 // (Historical note: an earlier shape included `WSUnknownMessage` as a
 // union member, whose `type: string` widened the union's `type` to plain

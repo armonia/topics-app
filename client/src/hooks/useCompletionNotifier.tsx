@@ -288,6 +288,37 @@ export function useCompletionNotifier({
       fire('ok', 'Task pronto per la review', title, cfg.notificationsSound, taskId);
   });
 
+  // ── Il gemello di FALLIMENTO ───────────────────────────────────────────
+  // Un task parcheggiato non riparte da solo: o l'umano lo rimette in Todo, o
+  // resta lì. Finora moriva in silenzio — il dispatcher emetteva il solo
+  // `task:updated`, che nessun layer di notifica ascolta (è un refresh di
+  // dati), quindi il fronte terminale di successo aveva banner e push e quello
+  // di fallimento niente. Il server lo manda solo sul park TERMINALE (mai su
+  // una rimessa in coda, vedi `releaseAndEmit` nel dispatcher).
+  // Stesse regole del gemello: nessun gate di focus (un task fermo è azionabile
+  // comunque), cooldown 10s sulla sua chiave, `taskId` per il click.
+  useWSSubscription(onWSMessage, 'task:parked', (msg) => {
+      const cfg = settingsRef.current;
+      if (!cfg.notificationsEnabled) return;
+      const taskId = msg.taskId;
+      if (!taskId) return;
+      const key = `task-park:${taskId}`;
+      const now = Date.now();
+      const last = cooldownRef.current.get(key) ?? 0;
+      if (now - last < 10_000) return;
+      cooldownRef.current.set(key, now);
+      const title = (msg.taskTitle || 'Task').slice(0, 140);
+      // Due domande diverse per l'umano: 'blocked' chiede di sistemare una
+      // configurazione, 'failed' dice che l'agent non ha prodotto niente.
+      fire(
+        'warn',
+        msg.state === 'blocked' ? 'Task da sistemare' : 'Task non consegnato',
+        title,
+        cfg.notificationsSound,
+        taskId,
+      );
+  });
+
   // ── Claude Code session-state notifier ─────────────────────────────────
   // Surface a toast on the lifecycle phase transitions the user actually
   // needs to react to. The full set of phases is in client/src/types
