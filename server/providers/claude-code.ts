@@ -416,8 +416,13 @@ export function cleanupMcpConfigForSession(sessionKey: string): void {
  * sessionKey to a CLI conversation. Killing the child (which happens on
  * `bun --watch` hot reloads) erased the AI's memory of prior turns even
  * though all messages were preserved in the messages table.
+ *
+ * Esportata perché `isNew` È la decisione dell'argv (`--session-id` contro
+ * `--resume`, riga ~1568): il test di `/clear` verifica lì che dopo il reset lo
+ * spawn successivo riparta davvero da una sessione nuova, invece di fidarsi
+ * del fatto che una riga sia stata cancellata.
  */
-function getOrCreateClaudeSessionId(sessionKey: string): { id: string; isNew: boolean } {
+export function getOrCreateClaudeSessionId(sessionKey: string): { id: string; isNew: boolean } {
   let db: ReturnType<typeof getDatabase>;
   try {
     db = getDatabase();
@@ -439,9 +444,19 @@ function getOrCreateClaudeSessionId(sessionKey: string): { id: string; isNew: bo
     `INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(session_key) DO UPDATE SET updated_at = excluded.updated_at
-     RETURNING claude_session_id, created_at`
-  ).get(sessionKey, id, now, now) as { claude_session_id: string; created_at: string };
-  return { id: row.claude_session_id, isNew: row.created_at === now };
+     RETURNING claude_session_id`
+  ).get(sessionKey, id, now, now) as { claude_session_id: string };
+  // `isNew` = ha vinto l'INSERT, e lo si vede dall'id che torna: se è quello
+  // che abbiamo appena generato la riga è nuova, se è un altro esisteva già
+  // (il ramo ON CONFLICT non tocca `claude_session_id`). Un uuid appena
+  // generato non può collidere, quindi il confronto è esatto.
+  //
+  // Prima era `created_at === now`, cioè due timestamp ISO al millisecondo:
+  // due chiamate nello stesso millisecondo davano `isNew: true` su una riga
+  // che esisteva, e lo spawn seguente partiva con `--session-id <id già
+  // usato>` invece di `--resume`. Un difetto che si vede solo quando il
+  // clock è "sfortunato" — cioè quasi mai, e mai in modo riproducibile.
+  return { id: row.claude_session_id, isNew: row.claude_session_id === id };
 }
 
 /** Read-only lookup of a session's claude_session_id (never INSERTs). Used by
