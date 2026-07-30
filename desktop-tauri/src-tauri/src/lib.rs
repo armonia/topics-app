@@ -98,13 +98,33 @@ struct PerfMetrics {
     /// Everything else in the set: the shell itself, WKWebView Networking, and
     /// the platform-support helpers.
     other_mb: f64,
-    /// CPU usage percent summed over the whole process set (delta-based).
-    cpu_percent: f32,
+    /// CPU usage percent summed over the process set (delta-based), oppure `null`
+    /// quando NESSUN processo aveva ancora un campione precedente su cui fare il
+    /// delta.
+    ///
+    /// Perche' `Option` e non uno `0.0`. `proc_cpu_percent` restituisce `None` di
+    /// proposito senza baseline — il suo commento dice che inventare uno zero e'
+    /// il modo in cui un contatore comincia a mentire — e questo call site lo
+    /// convertiva in `0.0` una riga dopo, buttando via la distinzione. Il costo
+    /// erano DUE bugie in una: un totale piu' basso del vero ogni volta che si
+    /// apre una pane (il pid nuovo contribuisce zero a una somma presentata come
+    /// l'intera app), e un client che, nascondendo il chip su `> 0`, faceva
+    /// sparire il contatore sia quando la misura mancava sia quando era davvero
+    /// bassa. Ora `null` vuol dire "non misurato" e `0.0` vuol dire "misurato,
+    /// quasi zero": sono due cose diverse e si vedono diverse.
+    cpu_percent: Option<f32>,
     /// The `cpu_percent` share burnt by the WKWebView content processes...
     cpu_renderer: f32,
     /// ...and by the GPU/compositor process. Same buckets as the memory split,
     /// so the dropdown's CPU and memory rows describe the same partition.
     cpu_gpu: f32,
+    /// Quanti processi dell'insieme hanno davvero contribuito a `cpu_percent`, e
+    /// quanti erano in tutto. `cpu_sampled < cpu_pids` significa copertura
+    /// PARZIALE: la somma e' vera ma incompleta, perche' i pid appena comparsi
+    /// (una pane aperta, un WebContent rinato) non hanno ancora un delta. Il
+    /// client lo dice invece di far passare la somma per completa.
+    cpu_sampled: u32,
+    cpu_pids: u32,
     /// How many processes the figures cover (1 = shell only).
     process_count: u32,
     /// True when the figure covers only the shell process. Now false on macOS;
@@ -395,9 +415,14 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
                 renderer_mb: 0.0,
                 gpu_mb: 0.0,
                 other_mb: 0.0,
-                cpu_percent: 0.0,
+                // Non conosciamo nemmeno il nostro pid: non c'e' nessuna misura,
+                // e `null` lo dice. Uno `0.0` qui sarebbe un contatore che
+                // annuncia "zero CPU" mentre non ha misurato niente.
+                cpu_percent: None,
                 cpu_renderer: 0.0,
                 cpu_gpu: 0.0,
+                cpu_sampled: 0,
+                cpu_pids: 0,
                 process_count: 0,
                 partial: true,
             }
@@ -440,6 +465,11 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
     let mut cpu_percent = 0.0f32;
     let mut cpu_renderer = 0.0f32;
     let mut cpu_gpu = 0.0f32;
+    // Copertura della misura di CPU: quanti pid hanno prodotto un delta, su
+    // quanti ne abbiamo interrogati. Serve a non far passare una somma parziale
+    // per il totale dell'app.
+    let mut cpu_sampled = 0u32;
+    let mut cpu_pids = 0u32;
     let mut buckets: std::collections::HashMap<i32, Bucket> = std::collections::HashMap::new();
     {
         let mut sys = sys_mutex.lock().unwrap_or_else(|e| e.into_inner());
@@ -449,19 +479,29 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
         let live: std::collections::HashSet<i32> = pids.iter().copied().collect();
         for (raw, spid) in pids.iter().zip(sysinfo_pids.iter()) {
             let Some(p) = sys.process(*spid) else { continue };
+            cpu_pids += 1;
             // sysinfo resta per il NOME (che decide il bucket, e con esso lo split
             // renderer/gpu anche della memoria) e per il ramo non-macOS. Per la
             // CPU, su macOS, il delta ce lo calcoliamo noi: vedi `PERF_CPU_PREV`.
             #[cfg(target_os = "macos")]
-            let cpu = proc_cpu_percent(*raw, &live).unwrap_or(0.0);
+            let sample = proc_cpu_percent(*raw, &live);
             #[cfg(not(target_os = "macos"))]
-            let cpu = p.cpu_usage();
-            cpu_percent += cpu;
+            let sample = Some(p.cpu_usage());
+            // Il bucket si calcola SEMPRE: decide anche lo split della memoria,
+            // che non dipende dall'avere una baseline di CPU. Prima il `continue`
+            // non c'era perche' non c'era niente da saltare — lo zero inventato
+            // teneva insieme i due percorsi per caso.
             let b = bucket(&p.name().to_string_lossy());
-            match b {
-                Bucket::Renderer => cpu_renderer += cpu,
-                Bucket::Gpu => cpu_gpu += cpu,
-                Bucket::Other => {}
+            // Un pid senza campione precedente NON contribuisce zero: non
+            // contribuisce affatto, e `cpu_sampled` dice quanti hanno contato.
+            if let Some(cpu) = sample {
+                cpu_sampled += 1;
+                cpu_percent += cpu;
+                match b {
+                    Bucket::Renderer => cpu_renderer += cpu,
+                    Bucket::Gpu => cpu_gpu += cpu,
+                    Bucket::Other => {}
+                }
             }
             buckets.insert(*raw, b);
         }
@@ -508,9 +548,14 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
         // Derived, so the four buckets always add up to the headline exactly —
         // no rounding drift between "other" and the parts we did classify.
         other_mb: footprint.saturating_sub(renderer + gpu) as f64 / MB,
-        cpu_percent,
+        // Nessun pid con baseline ⇒ nessuna misura, e si dice `null`. Con almeno
+        // un pid campionato la somma e' vera; se e' parziale lo dicono
+        // `cpu_sampled`/`cpu_pids`, non un totale silenziosamente basso.
+        cpu_percent: if cpu_sampled == 0 { None } else { Some(cpu_percent) },
         cpu_renderer,
         cpu_gpu,
+        cpu_sampled,
+        cpu_pids,
         process_count: pids.len() as u32,
         partial,
     };
@@ -7126,7 +7171,7 @@ pub fn run() {
 /// dipende da quanto è occupata la macchina non è una guardia.
 #[cfg(all(test, target_os = "macos"))]
 mod perf_cpu_tests {
-    use super::{mach_ticks_to_ns, proc_cpu_ns};
+    use super::{mach_ticks_to_ns, proc_cpu_ns, proc_cpu_percent};
 
     /// `struct timeval`: secondi e microsecondi VERI, nessun tick di mezzo.
     #[repr(C)]
@@ -7185,6 +7230,47 @@ mod perf_cpu_tests {
              (rapporto {rapporto:.3}): se è ~0,024 gli slot di rusage non sono \
              stati convertiti da tick di mach absolute time a nanosecondi"
         );
+    }
+
+    /// Senza campione precedente la risposta è `None`, e la SECONDA lettura è un
+    /// numero. Sembra ovvio e non lo era: `perf_metrics` faceva
+    /// `.unwrap_or(0.0)` su questo `None`, quindi ogni pid appena comparso —
+    /// una pane aperta, un WebContent rinato dopo un reload — contribuiva ZERO a
+    /// una somma presentata come la CPU dell'intera app. Il totale era più basso
+    /// del vero e nessuno poteva accorgersene, perché uno zero misurato e uno
+    /// zero inventato si scrivono uguale.
+    ///
+    /// NOTA: questo test è l'unico chiamante di `proc_cpu_percent` nel binario di
+    /// test. La mappa dei campioni è globale, quindi se un altro test la toccasse
+    /// sullo stesso pid la prima asserzione diventerebbe fragile.
+    #[test]
+    fn senza_baseline_la_cpu_e_non_misurata_non_zero() {
+        let own = std::process::id() as i32;
+        let live: std::collections::HashSet<i32> = [own].into_iter().collect();
+
+        assert_eq!(
+            proc_cpu_percent(own, &live),
+            None,
+            "la prima lettura non ha una finestra su cui dividere: deve essere None, \
+             non uno zero — uno zero qui è ciò che abbassava silenziosamente il totale"
+        );
+
+        // Un po' di CPU e un po' di tempo, così il secondo delta è positivo e la
+        // finestra non è zero.
+        let start = std::time::Instant::now();
+        let mut x: u64 = 0;
+        while start.elapsed() < std::time::Duration::from_millis(50) {
+            x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        }
+        std::hint::black_box(x);
+
+        let secondo = proc_cpu_percent(own, &live);
+        assert!(
+            secondo.is_some(),
+            "con un campione precedente la CPU è misurabile, e deve essere Some"
+        );
+        let v = secondo.unwrap();
+        assert!(v >= 0.0 && v.is_finite(), "percentuale non sensata: {v}");
     }
 
     #[test]

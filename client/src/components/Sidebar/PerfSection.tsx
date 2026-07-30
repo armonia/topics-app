@@ -1,6 +1,6 @@
 import { Activity, Cpu, MonitorSmartphone, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
-import { usePerfMetrics } from '@/hooks/usePerfMetrics';
+import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 
 const SPARK_W = 288;
@@ -136,7 +136,7 @@ export function PerfSection() {
       text: `${(compressedMB / 1024).toFixed(1)} GB compressi/in swap — chiudi qualche pannello browser`,
       color: 'text-amber-500',
     };
-  } else if (perf && perf.cpu.total > 100) {
+  } else if (perf && (perf.cpu.total ?? 0) > 100) {
     verdict = { text: 'Processo Topics sotto carico', color: 'text-amber-500' };
   }
   // No "Fluido" line in the good case: the FPS headline + sparkline above
@@ -158,37 +158,43 @@ export function PerfSection() {
 
       {/* CPU cost. Under Tauri only the shell process is measurable (renderer/GPU
           CPU live in WKWebView's XPC processes we can't attribute), so we show the
-          shell figure ONLY when there's a real reading — cpu.total is 0 until the
-          baseline lands and on an idle shell, and a persistent "0%" reads as fake.
+          shell figure quando c'è UNA MISURA: `total !== null`. Il gate era `> 0`, e
+          uno zero misurato — cioè una shell ferma — perdeva la riga insieme al
+          caso "baseline non ancora arrivata".
           The pre-Tauri renderer+GPU split is kept for a shell that reports it. */}
-      {perf && isPartial && perf.cpu.total > 0 && (
+      {perf && isPartial && perf.cpu.total !== null && (
         <div className="grid grid-cols-4 gap-1.5">
           <PerfStat
             label="CPU shell"
             className="col-span-4"
-            value={`${perf.cpu.total}%`}
+            value={`${formatCpuPercent(perf.cpu.total)}%`}
             color={perf.cpu.total > 100 ? 'text-amber-500' : 'text-app-text'}
             title="CPU del processo shell di Topics — non include i processi WKWebView dei pannelli · può superare 100% (per core)"
           />
         </div>
       )}
-      {perf && !isPartial && (
+      {perf && !isPartial && perf.cpu.total !== null && (
         <div className="grid grid-cols-4 gap-1.5">
           <PerfStat
             label="CPU Topics"
             className="col-span-2"
-            value={`${perf.cpu.total}%`}
+            value={`${formatCpuPercent(perf.cpu.total)}%`}
             color={perf.cpu.total > 100 ? 'text-amber-500' : 'text-app-text'}
-            title={`CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) — somma per-core, può superare 100% come in Activity Monitor`}
+            title={[
+              `CPU di TUTTI i processi di Topics (${mem?.processCount ?? '?'}) — somma per-core, può superare 100% come in Activity Monitor`,
+              perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
+                ? `misura su ${perf.cpu.sampled}/${perf.cpu.pids} processi: gli altri sono appena comparsi e non hanno ancora un delta`
+                : null,
+            ].filter(Boolean).join(' · ')}
           />
           <PerfStat
             label="Renderer"
-            value={`${perf.cpu.renderer}%`}
+            value={`${formatCpuPercent(perf.cpu.renderer)}%`}
             title="CPU dei processi WKWebView di contenuto — uno per pannello browser"
           />
           <PerfStat
             label="GPU"
-            value={`${perf.cpu.gpu}%`}
+            value={`${formatCpuPercent(perf.cpu.gpu)}%`}
             title="CPU del processo GPU/compositor di Topics"
           />
         </div>

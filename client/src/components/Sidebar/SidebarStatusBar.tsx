@@ -7,7 +7,7 @@ import { useOpenClawAvailable } from '@/hooks/useOpenClawAvailable';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_MARGIN, POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import { useFps, useFpsActive } from '@/lib/fpsMonitor';
-import { usePerfMetrics } from '@/hooks/usePerfMetrics';
+import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { PerfSection } from './PerfSection';
 import { VersionPopover } from './VersionPopover';
 import { ChangelogModal } from '../ChangelogModal';
@@ -339,17 +339,27 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
               {totalMemMB >= 1024 ? `${(totalMemMB / 1024).toFixed(1)}GB` : `${totalMemMB}MB`}
             </span>
           )}
-          {/* Only shown with a real reading: cpu.total is 0 until the CPU baseline
-              lands (and 0 on a fully idle app), so a persistent "0%" would look
-              fabricated — better to hide than to show a number we don't measure. */}
-          {perf && perf.cpu.total > 0 && (
+          {/* Si mostra quando c'è UNA MISURA — anche se vale zero. Il gate era
+              `> 0`, e nascondeva due casi diversi con lo stesso pretesto: "non
+              ho ancora una baseline" e "ho misurato, è quasi zero". Il secondo è
+              un'app FERMA, cioè proprio quando "0%" è l'informazione che serve, e
+              lì il contatore spariva. Ora `null` è l'unico "non misurato". */}
+          {perf && perf.cpu.total !== null && (
             <span
               className={`flex-shrink-0 text-app-text-muted tabular-nums ${perf.cpu.total > 100 ? 'text-amber-500' : ''}`}
-              title={isPartialMem
-                ? `CPU processo shell di Topics: ${perf.cpu.total}% — non include i processi WKWebView dei pannelli · può superare 100% (per core)`
-                : `CPU di tutti i ${procCount ?? '?'} processi di Topics: ${perf.cpu.total}% · può superare 100% (per core)`}
+              title={[
+                isPartialMem
+                  ? `CPU processo shell di Topics: ${formatCpuPercent(perf.cpu.total)}% — non include i processi WKWebView dei pannelli`
+                  : `CPU di tutti i ${procCount ?? '?'} processi di Topics: ${formatCpuPercent(perf.cpu.total)}%`,
+                'può superare 100% (per core)',
+                // Copertura parziale: la somma è vera ma le manca un pezzo, e
+                // dirlo è meglio che presentarla come il totale.
+                perf.cpu.pids > 0 && perf.cpu.sampled < perf.cpu.pids
+                  ? `misura su ${perf.cpu.sampled}/${perf.cpu.pids} processi — gli altri sono appena comparsi e non hanno ancora un delta`
+                  : null,
+              ].filter(Boolean).join(' · ')}
             >
-              {perf.cpu.total}%
+              {formatCpuPercent(perf.cpu.total)}%
             </span>
           )}
           {fps > 0 && (
