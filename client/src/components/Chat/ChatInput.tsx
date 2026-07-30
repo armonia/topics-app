@@ -215,6 +215,7 @@ function MessageQueueBadge({
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
+        data-testid="message-queue-badge"
         className="text-[11px] text-orange-500 hover:text-orange-600 flex items-center gap-1.5 transition-colors"
         title={open ? 'Hide queued messages' : 'Show queued messages'}
         aria-expanded={open}
@@ -250,8 +251,12 @@ function MessageQueueBadge({
               />
             ))}
           </ul>
+          {/* La riga di prima diceva «Sent automatically when the current
+              response finishes», e dal 30/07 non è più tutta la verità: lo stop
+              TIENE la coda invece di farla partire (vedi `state/chatQueue.ts`).
+              Dirlo qui evita che «ferma» sembri «cancella». */}
           <div className="px-3 pb-2 pt-1 text-[11px] text-app-text-muted">
-            Sent automatically when the current response finishes.
+            Sent when the current turn ends. Stop keeps them here.
           </div>
         </div>
       )}
@@ -281,7 +286,7 @@ function QueuedRow({
   useEffect(() => { resize(); }, [content, resize]);
 
   return (
-    <li className="px-3 py-1.5 grid grid-cols-[20px_1fr_auto] gap-2 items-start group">
+    <li data-testid="queued-message" className="px-3 py-1.5 grid grid-cols-[20px_1fr_auto] gap-2 items-start group">
       <span className="text-[11px] font-mono text-app-text-muted pt-1.5 select-none">{index + 1}.</span>
       <textarea
         ref={taRef}
