@@ -148,6 +148,53 @@ describe('lo stop tiene', () => {
     releaseHold(SK);
     expect(isHeld(SK)).toBe(false);
   });
+
+  // Il freno lo toglieva SOLO un invio riuscito. Una sessione fermata e mai
+  // più usata si teneva `msgQueue:hold:<sessionKey>` in localStorage a vita —
+  // una chiave per sessione — e con essa una coda congelata che nemmeno un
+  // reload sbloccava. Senza coda non c'è niente da trattenere.
+  test('svuotare la coda spegne il freno: nessuna chiave orfana in localStorage', () => {
+    enqueueTurn(SK, 'uno');
+    holdQueue(SK);
+    clearQueue(SK);
+    expect(isHeld(SK)).toBe(false);
+    expect([...store.map.keys()].filter(k => k.includes('hold'))).toEqual([]);
+  });
+
+  test('togliere a mano l’ULTIMA riga spegne il freno, toglierne una di mezzo no', () => {
+    const a = enqueueTurn(SK, 'uno')!;
+    const b = enqueueTurn(SK, 'due')!;
+    holdQueue(SK);
+    removeTurn(SK, a.id);
+    expect(isHeld(SK)).toBe(true); // ne resta una: il freno serve ancora
+    removeTurn(SK, b.id);
+    expect(isHeld(SK)).toBe(false);
+  });
+});
+
+describe('la testa estratta non si perde', () => {
+  // `claimHead` toglie la testa dallo storage DUREVOLE. Se l'invio poi fallisce
+  // per un motivo che `performSend` non raccoglie da sé (il 409 sì, la rete
+  // pure), quella era l'unica copia: `requeueFront` è la strada del ritorno che
+  // il commento di `claimHead` prometteva e che nessuno percorreva.
+  test('rimessa in TESTA, non in fondo: non si fa scavalcare da chi era dietro', () => {
+    const primo = enqueueTurn(SK, 'primo')!;
+    enqueueTurn(SK, 'secondo');
+    const head = claimHead(SK, 'w1')!;
+    expect(head.id).toBe(primo.id);
+    expect(getQueue(SK).map(i => i.content)).toEqual(['secondo']);
+
+    requeueFront(SK, head);
+    expect(getQueue(SK).map(i => i.content)).toEqual(['primo', 'secondo']);
+  });
+
+  test('rimetterla due volte non la duplica', () => {
+    enqueueTurn(SK, 'primo');
+    const head = claimHead(SK, 'w1')!;
+    requeueFront(SK, head);
+    requeueFront(SK, head);
+    expect(getQueue(SK).length).toBe(1);
+  });
 });
 
 describe('decideSend', () => {

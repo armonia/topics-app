@@ -19,6 +19,7 @@ import {
   holdQueue,
   releaseClaim,
   releaseHold,
+  requeueFront,
   unshiftTurn,
 } from '../state/chatQueue';
 import { registerHeapOwner, roughBytes } from '../lib/devHeapProbe';
@@ -1345,7 +1346,17 @@ export function useChat() {
    * Prima disegnava anche una bolla utente ottimista per un messaggio che non
    * era mai partito: al reload la bolla restava e il testo no.
    */
-  const performSend = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions): Promise<boolean> => {
+  /**
+   * `restoreOnFailure`: chi chiama tenendo in mano l'UNICA copia del messaggio
+   * (i due drain, che l'hanno estratto dalla coda durevole con `claimHead`)
+   * passa qui il modo di rimetterla a posto. Serve perché `performSend` non
+   * rigetta mai — cattura tutto e torna `true`/`false` — quindi un `catch` dal
+   * lato del chiamante non scatterebbe: la testa era già stata tolta dallo
+   * storage e un errore diverso da 409/rete la faceva sparire e basta. Viene
+   * chiamato SOLO quando il server non ha visto il messaggio: se lo stream era
+   * partito, rimetterlo in coda vorrebbe dire spedirlo due volte.
+   */
+  const performSend = useCallback(async (sessionKey: string, content: string, options?: SendMessageOptions, restoreOnFailure?: () => void): Promise<boolean> => {
     if (isSendLocked(sessionKey)) {
       enqueueTurn(sessionKey, content, options);
       return true;
@@ -1676,6 +1687,14 @@ export function useChat() {
         return false;
       }
 
+      // Errore che non è né un 409 né una rete caduta prima di partire. Se il
+      // messaggio veniva dalla coda, questo è l'ULTIMO punto in cui esiste
+      // ancora: `claimHead` l'ha tolto dallo storage durevole e nessuno dei
+      // rami sopra l'ha raccolto. Senza questo, l'utente vede sparire una cosa
+      // che aveva scritto — è la promessa fatta nel commento di `claimHead`.
+      // Solo a stream mai partito: se era partito, il server ce l'ha già.
+      if (!streamStarted) restoreOnFailure?.();
+
       setError(err instanceof Error ? err.message : 'Failed to send message');
 
       // Only remove last message if it's an empty assistant message (partial response)
@@ -1730,7 +1749,7 @@ export function useChat() {
     }
     const head = claimQueuedTurn(sessionKey, CLAIM_CLIENT_ID);
     if (!head) return;
-    void performSend(sessionKey, head.content, head.options)
+    void performSend(sessionKey, head.content, head.options, () => requeueFront(sessionKey, head))
       .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
   }, [performSend]);
   // In un effetto, non in fase di render, come il gemello `sendMessageRef` qui
@@ -1759,7 +1778,7 @@ export function useChat() {
       enqueueTurn(sessionKey, content, options);
       const head = claimQueuedTurn(sessionKey, CLAIM_CLIENT_ID);
       if (!head) return true;
-      return performSend(sessionKey, head.content, head.options)
+      return performSend(sessionKey, head.content, head.options, () => requeueFront(sessionKey, head))
         .finally(() => releaseClaim(sessionKey, CLAIM_CLIENT_ID));
     }
 

@@ -225,11 +225,21 @@ export function updateTurn(sessionKey: string, id: string, content: string): voi
 }
 
 export function removeTurn(sessionKey: string, id: string): void {
-  setQueue(sessionKey, readFresh(sessionKey).filter(i => i.id !== id));
+  const next = readFresh(sessionKey).filter(i => i.id !== id);
+  setQueue(sessionKey, next);
+  // Svuotata a mano l'ultima riga, il freno non trattiene più niente: va
+  // spento, o resta in `localStorage` per sempre (vedi `clearQueue`).
+  if (next.length === 0) releaseHold(sessionKey);
 }
 
 export function clearQueue(sessionKey: string): void {
   setQueue(sessionKey, []);
+  // Il freno è DUREVOLE e finora lo toglieva solo un invio riuscito
+  // (`performSend`/`editMessage`). Su una sessione fermata e mai più usata la
+  // chiave `msgQueue:hold:<sessionKey>` restava in `localStorage` a vita — una
+  // per sessione — e con essa una coda congelata che nemmeno un reload
+  // sbloccava. Senza coda non c'è niente da trattenere.
+  releaseHold(sessionKey);
 }
 
 /**
