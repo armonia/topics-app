@@ -81,7 +81,14 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Handle notification click
+// Click su una notifica → porta l'utente DOVE dice la notifica.
+//
+// Con una finestra già aperta questo handler faceva `client.focus()` e buttava
+// via `targetUrl`: la push ti svegliava e ti lasciava dove eri, a cercare da
+// solo il task di cui ti aveva appena parlato. Il fix NON è `client.navigate()`
+// — ricaricherebbe la SPA da zero (stato, pane, stream in corso) per un
+// deep-link che l'app sa già aprire in-app. Passiamo la destinazione con un
+// postMessage: `client/src/lib/openTaskLink.ts` la ascolta e apre il drawer.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = event.notification.data?.url || '/';
@@ -90,7 +97,14 @@ self.addEventListener('notificationclick', (event) => {
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {
         if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
-          return client.focus();
+          return Promise.resolve(client.focus())
+            .then((focused) => focused || client)
+            .catch(() => client)
+            .then((target) => {
+              // best-effort: su un client non controllato il postMessage può
+              // fallire, ma la finestra resta comunque a fuoco.
+              try { target.postMessage({ type: 'topics:open-url', url: targetUrl }); } catch { /* ignore */ }
+            });
         }
       }
       return clients.openWindow(targetUrl);

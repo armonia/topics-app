@@ -31,7 +31,7 @@ import { initDevHeapProbe, registerHeapOwner, roughBytes } from './lib/devHeapPr
 import { residencyHeapReport } from './state/pane/residency/registry';
 import { initChunkReloadGuard } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
-import { openTaskFromUrl, currentTaskTarget } from './lib/openTaskLink';
+import { openTaskFromUrl, currentTaskTarget, subscribeServiceWorkerTaskOpen } from './lib/openTaskLink';
 import { useDismissable } from './hooks/useDismissable';
 import { POPOVER_SURFACE, POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from './lib/popoverStyles';
 
@@ -157,6 +157,11 @@ function App() {
     };
   }), []);
   useEffect(() => registerHeapOwner('pane.residency', residencyHeapReport), []);
+
+  // Click su una web-push (app aperta ma in secondo piano): il service worker
+  // mette a fuoco questa finestra e ci passa la destinazione, perché non può
+  // navigarla senza ricaricare la SPA. Stessa via dei deep-link `/task/<id>`.
+  useEffect(() => subscribeServiceWorkerTaskOpen(), []);
 
   // Deep-link a board task from /task/<taskId> (the drawer's "copia link"; a
   // legacy ?task=<slug>~<taskId> link still resolves too): opens the global

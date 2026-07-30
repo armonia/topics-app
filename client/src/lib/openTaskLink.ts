@@ -176,6 +176,31 @@ export function openTaskInApp(target: TaskTarget): void {
   window.dispatchEvent(new CustomEvent('topics:open-task', { detail: target }));
 }
 
+// ── Service worker → app (click su una web-push) ─────────────────────────────
+
+/** Il canale con `public/sw.js`: il click su una notifica non può navigare la
+ *  finestra (ricaricherebbe la SPA), quindi il SW manda la destinazione qui. */
+export const SW_OPEN_URL_MESSAGE = 'topics:open-url';
+
+/** Il click su una web-push arriva come postMessage dal service worker, perché
+ *  con una finestra già aperta il SW la mette a fuoco ma NON può portarcela
+ *  senza ricaricarla. Qui la URL torna a essere un deep-link normale e apre il
+ *  drawer in-app — la stessa via dei link `/task/<id>` copiati a mano.
+ *
+ *  Silenzioso su tutto il resto: una URL che non è un deep-link significa solo
+ *  "porta l'utente in cima", e la finestra è già a fuoco. */
+export function subscribeServiceWorkerTaskOpen(): () => void {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return () => {};
+  const handler = (ev: MessageEvent) => {
+    const data = ev.data as { type?: string; url?: string } | null;
+    if (!data || data.type !== SW_OPEN_URL_MESSAGE || typeof data.url !== 'string') return;
+    const target = selfTaskLinkTarget(data.url);
+    if (target) openTaskInApp(target);
+  };
+  navigator.serviceWorker.addEventListener('message', handler);
+  return () => navigator.serviceWorker.removeEventListener('message', handler);
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
 /** Called once at boot (App). If the URL carries a deep-link (new `/task/<id>`
