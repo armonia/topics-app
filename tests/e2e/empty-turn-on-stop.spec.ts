@@ -18,8 +18,8 @@ const BASE = E2E_BASE;
  *
  * Fermare una risposta PRIMA che il modello dicesse qualcosa finalizzava il
  * segnaposto creato all'inizio dello stream: una bolla vuota che restava in
- * chat — e rientrava nella history rimandata al modello a ogni turno dopo.
- * Nel DB reale se ne contavano a decine nei giorni di dispatch.
+ * chat e sopravviveva a ogni reload. Nel DB reale se ne contavano a decine nei
+ * giorni di dispatch.
  *
  * È un COMPORTAMENTO, non un layout: video acceso, il .webm è la prova.
  * Il lato server (riga cancellata + contabilità dei rami riparata) sta in
