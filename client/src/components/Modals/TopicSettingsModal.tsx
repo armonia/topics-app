@@ -6,6 +6,7 @@ import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import { worktreesApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
+import { useConfirm } from '../../hooks/useConfirm';
 
 interface TopicSettingsModalProps {
   topic: Topic;
@@ -22,6 +23,7 @@ interface ProviderInfo {
 }
 
 export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSettingsModalProps) {
+  const confirm = useConfirm();
   const [projectPath, setProjectPath] = useState(topic.projectPath || '');
   const [topicName, setTopicName] = useState(topic.name);
   const [topicColor, setTopicColor] = useState(topic.color);
@@ -87,8 +89,8 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
     JSON.stringify(contextFilesList) !== JSON.stringify(topic.contextFiles || []) ||
     provider !== (topic.provider ?? null);
 
-  const handleClose = () => {
-    if (isDirty && !window.confirm('You have unsaved changes. Close without saving?')) {
+  const handleClose = async () => {
+    if (isDirty && !await confirm({ title: 'You have unsaved changes.', body: 'Close without saving?', confirmLabel: 'Discard' })) {
       return;
     }
     onClose();
