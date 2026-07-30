@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Square } from 'lucide-react';
 import { scriptsApi } from '../../lib/api';
+import type { WSMessage } from '../../types';
 
 // Strip ANSI escape sequences (colors, bold, cursor, etc.)
 // Also strip orphaned CSI fragments like "[32m" where the ESC byte was lost in transit
@@ -12,6 +13,11 @@ const stripAnsi = (text: string) =>
 interface ProcessLogPaneProps {
   processId: string;
   scriptName?: string;
+  /**
+   * Iscrizione alla WS. Senza, il pane torna al solo polling: funziona, ma
+   * ricade nel comportamento che questo prop esiste per superare.
+   */
+  onMessage?: (handler: (msg: WSMessage) => void) => () => void;
 }
 
 function formatDuration(startedAt: string, completedAt?: string): string {
@@ -26,7 +32,7 @@ function formatDuration(startedAt: string, completedAt?: string): string {
   return `${h}h ${m % 60}m`;
 }
 
-export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
+export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogPaneProps) {
   const [output, setOutput] = useState('');
   const [offset, setOffset] = useState(0);
   const [status, setStatus] = useState<string>('running');
@@ -61,18 +67,38 @@ export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
     autoScrollRef.current = isNearBottom;
   }, []);
 
-  // Poll for output
+  // Output: guidato dall'EVENTO, con il polling come rete di sicurezza.
+  //
+  // Prima era un `setInterval(poll, 2000)` secco: su un processo muto — un dev
+  // server acceso e fermo, che è il caso di un pane lasciato aperto — sono 30
+  // richieste al minuto che tornano vuote. E intanto il server annunciava
+  // `scripts:output` (accorpato a max 1/s per processo, `notifyScriptOutput`) e
+  // nessuno lo ascoltava: l'evento esisteva PER evitare questo polling.
+  //
+  // Ora: si legge quando c'è qualcosa da leggere, e la rete di sicurezza scatta
+  // ogni SAFETY_POLL_MS perché l'evento può mancare — WS caduta, oppure un
+  // processo che termina senza produrre altro output (`done`/`exitCode`
+  // arrivano dalla stessa risposta, quindi servono comunque).
+  //
+  // La lettura è limitata a 1/s come l'accorpamento del server: su un processo
+  // loquace la latenza si dimezza rispetto ai 2s senza moltiplicare le
+  // richieste; su uno muto scendono a zero.
   useEffect(() => {
     let active = true;
     let currentOffset = 0;
     // In-flight guard: currentOffset only advances AFTER the await resolves, so a
-    // request slower than the 2s tick would let the next poll start on the same
+    // request slower than the tick would let the next poll start on the same
     // offset — both fetch the same chunk and both append it → duplicated log text.
     let inFlight = false;
+    let lastPollAt = 0;
+    let coalesceTimer: ReturnType<typeof setTimeout> | null = null;
+    const SAFETY_POLL_MS = 10_000;
+    const MIN_GAP_MS = 1_000;
 
     const poll = async () => {
       if (!active || inFlight) return;
       inFlight = true;
+      lastPollAt = Date.now();
       try {
         const data = await scriptsApi.output(processId, currentOffset);
         if (!active) return;
@@ -95,14 +121,28 @@ export function ProcessLogPane({ processId, scriptName }: ProcessLogPaneProps) {
       }
     };
 
-    poll();
-    const id = setInterval(poll, 2000);
+    /** Legge subito se è passato abbastanza, altrimenti accoda una sola lettura. */
+    const pollSoon = () => {
+      if (!active || coalesceTimer) return;
+      const since = Date.now() - lastPollAt;
+      if (since >= MIN_GAP_MS) { void poll(); return; }
+      coalesceTimer = setTimeout(() => { coalesceTimer = null; void poll(); }, MIN_GAP_MS - since);
+    };
+
+    void poll();
+    const id = setInterval(() => { void poll(); }, SAFETY_POLL_MS);
+    const unsub = onMessage?.((msg: WSMessage) => {
+      const m = msg as { type?: string; processId?: string };
+      if (m.type === 'scripts:output' && m.processId === processId) pollSoon();
+    });
 
     return () => {
       active = false;
       clearInterval(id);
+      if (coalesceTimer) clearTimeout(coalesceTimer);
+      unsub?.();
     };
-  }, [processId]);
+  }, [processId, onMessage]);
 
   // Auto-scroll to bottom when output changes
   useEffect(() => {

@@ -455,7 +455,7 @@ export function ProjectWindowPane({
       case 'process-log':
         return pane.processId ? (
           <LazyPane>
-            <ProcessLogPane processId={pane.processId} scriptName={pane.title} />
+            <ProcessLogPane processId={pane.processId} scriptName={pane.title} onMessage={onWSMessage} />
           </LazyPane>
         ) : null;
       default:

@@ -68,6 +68,12 @@ const REAL_PAYLOADS: { where: string; payload: Record<string, unknown> }[] = [
     where: "chat.ts — lo stream riprende",
     payload: { type: "stream:resumed", sessionKey: "topic:abc", topicId: "abc" },
   },
+
+  // ── output dei processi (server/routes/processes.ts) ──────────────────────
+  {
+    where: "processes.ts:532 — nuovo output, accorpato a max 1/s per processo",
+    payload: { type: "scripts:output", processId: "p1" },
+  },
 ];
 
 describe("i payload reali passano il loro schema", () => {
