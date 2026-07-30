@@ -450,7 +450,10 @@ async function runHeadlessTurn(
   // contextMode "lean" (resume/continuation): the chat route skips re-injecting
   // the heavy context envelope (CLAUDE.md/README/memory/…) since the persistent
   // CLI session already has it — see assembleTopicContext(leanContext).
-  const body = JSON.stringify({ sessionKey, messages: [{ role: "user", content }], contextMode: opts.contextMode ?? "full" });
+  // `dispatched`: è un turno d'AGENTE guidato dalla board, non una chat umana.
+  // La route lo rimanda sul `stream:end` di completamento così la push di fine
+  // risposta lo esclude (decine di turni d'agente = spam).
+  const body = JSON.stringify({ sessionKey, messages: [{ role: "user", content }], contextMode: opts.contextMode ?? "full", dispatched: true });
   const resp = await topicsRouter(
     new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
     url, "/api/chat", "POST",
@@ -489,7 +492,7 @@ async function runHeadlessTurn(
 // reconcile REATTACH branch after a server restart.
 async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number }): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
-  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach" });
+  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", dispatched: true });
   // Stesso patto di runHeadlessTurn: residuo via prima di iniziare.
   takeTurnEnd(sessionKey);
   const resp = await topicsRouter(

@@ -37,8 +37,16 @@ const LEGACY_SEP = '~';
 // slash is tolerated. Anything deeper (/task/a/b) is not a deep-link.
 const TASK_PATH_RE = /^\/task\/([^/]+)\/?$/;
 
+// Il gemello per la CHAT: `/topic/<topicId>`. La push di fine risposta
+// (server/push-triggers.ts) ci manda qui — apre la tab del topic in-app.
+const TOPIC_PATH_RE = /^\/topic\/([^/]+)\/?$/;
+
 export interface TaskTarget {
   taskId: string;
+}
+
+export interface TopicTarget {
+  topicId: string;
 }
 
 export function buildTaskLink(taskId: string): string {
@@ -54,6 +62,20 @@ export function buildTaskLink(taskId: string): string {
   u.pathname = `/task/${taskId}`;
   u.search = '';
   return u.toString();
+}
+
+/** Parse a location into a TOPIC target, or null. The chat end-of-turn push
+ *  points at `/topic/<id>`; opening it activates that topic's chat tab. */
+export function parseTopicLocation(pathname: string): TopicTarget | null {
+  const m = TOPIC_PATH_RE.exec(pathname);
+  if (m && m[1]) {
+    try {
+      return { topicId: decodeURIComponent(m[1]) };
+    } catch {
+      return { topicId: m[1] };
+    }
+  }
+  return null;
 }
 
 /** Parse a location (pathname + search) into a task target, or null. Reads the
@@ -125,6 +147,19 @@ export function selfTaskLinkTarget(url: string): TaskTarget | null {
   }
 }
 
+/** Il gemello per la CHAT: se `url` è un deep-link SELF-origin `/topic/<id>`,
+ *  restituisce il topic da aprire in-app (la push di fine risposta ci manda
+ *  qui). Non-self o non-topic → null. */
+export function selfTopicLinkTarget(url: string): TopicTarget | null {
+  try {
+    const u = new URL(url, window.location.origin);
+    if (!isSelfOrigin(u.origin)) return null;
+    return parseTopicLocation(u.pathname);
+  } catch {
+    return null;
+  }
+}
+
 // ── URL reflection (drawer open/close ⇄ /task/<id>) ──────────────────────────
 
 // The pathname check below is also the loop guard: when a popstate drives the
@@ -176,6 +211,14 @@ export function openTaskInApp(target: TaskTarget): void {
   window.dispatchEvent(new CustomEvent('topics:open-task', { detail: target }));
 }
 
+/** Apri (o disarchivia + apri) la tab del TOPIC, IN-APP. Stesso bus di
+ *  `usePanelLifecycle` usato dal drawer del task per "apri la sessione". La push
+ *  di fine risposta arriva a finestra aperta come deep-link `/topic/<id>`:
+ *  `mode: 'permanent'` perché è una destinazione voluta, non un'anteprima. */
+export function openTopicInApp(target: TopicTarget): void {
+  window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: target.topicId, mode: 'permanent' } }));
+}
+
 // ── Service worker → app (click su una web-push) ─────────────────────────────
 
 /** Il canale con `public/sw.js`: il click su una notifica non può navigare la
@@ -194,8 +237,11 @@ export function subscribeServiceWorkerTaskOpen(): () => void {
   const handler = (ev: MessageEvent) => {
     const data = ev.data as { type?: string; url?: string } | null;
     if (!data || data.type !== SW_OPEN_URL_MESSAGE || typeof data.url !== 'string') return;
-    const target = selfTaskLinkTarget(data.url);
-    if (target) openTaskInApp(target);
+    const task = selfTaskLinkTarget(data.url);
+    if (task) { openTaskInApp(task); return; }
+    // Il gemello per la CHAT: `/topic/<id>` dalla push di fine risposta.
+    const topic = selfTopicLinkTarget(data.url);
+    if (topic) openTopicInApp(topic);
   };
   navigator.serviceWorker.addEventListener('message', handler);
   return () => navigator.serviceWorker.removeEventListener('message', handler);
@@ -214,5 +260,9 @@ export function subscribeServiceWorkerTaskOpen(): () => void {
  *  hydrate-surviving deep-link intent so the board actually becomes active. */
 export function openTaskFromUrl(): void {
   const target = currentTaskTarget();
-  if (target) openTaskInApp(target);
+  if (target) { openTaskInApp(target); return; }
+  // Da finestra CHIUSA il service worker apre l'app direttamente su `/topic/<id>`
+  // (la push di fine chat): al boot riconosciamo anche quel deep-link.
+  const topic = parseTopicLocation(window.location.pathname);
+  if (topic) openTopicInApp(topic);
 }
