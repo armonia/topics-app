@@ -1762,6 +1762,108 @@ mod macos_notifications {
     }
 }
 
+/// Focus / Do-Not-Disturb state, read from the OS so the client can silence its
+/// completion banners while the user has a Focus on.
+///
+/// The web side has NO API for "is the user in DND" — the datum lives only in the
+/// native shell. On macOS the active Focus assertion is written to
+/// `~/Library/DoNotDisturb/DB/Assertions.json`: a non-empty `storeAssertionRecords`
+/// means a Focus/DND is currently asserted. There is no supported public API for
+/// this (the private `DoNotDisturb.framework` XPC service refuses non-platform
+/// callers on macOS 26, and the file itself is TCC-protected), so this is
+/// best-effort: when the file can't be read (no Full Disk Access, missing, parse
+/// error) we return `None` = "unknown", and the caller MUST treat unknown as
+/// "notify normally" — never silence on a guess.
+#[cfg(target_os = "macos")]
+mod macos_focus {
+    use std::path::PathBuf;
+
+    fn assertions_path() -> Option<PathBuf> {
+        std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join("Library/DoNotDisturb/DB/Assertions.json"))
+    }
+
+    /// `Some(true)` = a Focus/DND is asserted; `Some(false)` = readable and none
+    /// asserted; `None` = state could not be determined (treat as "notify").
+    pub fn is_active() -> Option<bool> {
+        let raw = std::fs::read_to_string(assertions_path()?).ok()?;
+        // Empty file is a legitimate "no focus" state macOS leaves behind.
+        if raw.trim().is_empty() {
+            return Some(false);
+        }
+        let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+        // Shape: { "data": [ { "storeAssertionRecords": [ {...}, ... ] } ] }
+        let records = json
+            .get("data")
+            .and_then(|d| d.as_array())
+            .and_then(|a| a.first())
+            .and_then(|e| e.get("storeAssertionRecords"));
+        match records {
+            Some(serde_json::Value::Array(a)) => Some(!a.is_empty()),
+            // Parsed fine, no records key ⇒ definitely no active assertion.
+            _ => Some(false),
+        }
+    }
+}
+
+/// Read the current Focus / Do-Not-Disturb state. Shape is
+/// `{ supported: bool, active: bool }`: `supported=false` means the host can't
+/// tell (web, non-macOS, or no read access) and the client falls back to its
+/// safe default (notify normally). See `macos_focus`.
+#[tauri::command]
+fn focus_status() -> serde_json::Value {
+    #[cfg(target_os = "macos")]
+    {
+        match macos_focus::is_active() {
+            Some(active) => serde_json::json!({ "supported": true, "active": active }),
+            None => serde_json::json!({ "supported": false, "active": false }),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        serde_json::json!({ "supported": false, "active": false })
+    }
+}
+
+/// Background poller that PUSHES Focus changes to the webview so the completion
+/// notifier reacts within a couple of seconds of the user toggling a Focus,
+/// instead of only on its next on-demand query. Follows the shell's eval-hook
+/// convention (no `@tauri-apps/event` dependency on the client): it calls
+/// `window.__topicsFocusChanged(active, supported)`; the client installs that hook
+/// and updates its cache. Emits only on a real change, and only while a `main`
+/// webview exists. No-op off macOS.
+#[cfg(target_os = "macos")]
+fn spawn_focus_watcher(app: tauri::AppHandle) {
+    use tauri::Manager;
+    std::thread::Builder::new()
+        .name("focus-watcher".into())
+        .spawn(move || {
+            // `None` = "not yet sampled": the first read always pushes so the
+            // client's optimistic default gets corrected even if Focus is off.
+            let mut last: Option<Option<bool>> = None;
+            loop {
+                let current = macos_focus::is_active();
+                if last.as_ref() != Some(&current) {
+                    last = Some(current);
+                    let (active, supported) = match current {
+                        Some(a) => (a, true),
+                        None => (false, false),
+                    };
+                    let app = app.clone();
+                    let _ = app.clone().run_on_main_thread(move || {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.eval(&format!(
+                                "window.__topicsFocusChanged && window.__topicsFocusChanged({active}, {supported});"
+                            ));
+                        }
+                    });
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        })
+        .ok();
+}
+
 /// Fire a native OS notification (completion / idle toasts). The renderer's web
 /// `Notification` API is unreliable in a WKWebView shell, so the client routes
 /// through here under Tauri. Fire-and-forget: a denied/failed show is a silent
@@ -6733,6 +6835,11 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             macos_notifications::install(app.handle());
 
+            // Push Focus/DND changes to the webview so the completion notifier can
+            // fall silent while a Focus is on (best-effort; see `macos_focus`).
+            #[cfg(target_os = "macos")]
+            spawn_focus_watcher(app.handle().clone());
+
             // Dev hot-reload (Electron-prod parity). By default the frontend is
             // EMBEDDED (include_bytes! over frontendDist) and served from
             // tauri://localhost — a `vite build` does nothing for a running binary.
@@ -7290,6 +7397,7 @@ pub fn run() {
             set_theme,
             notify,
             notification_status,
+            focus_status,
             open_external,
             set_clipboard_image,
             set_app_status,
