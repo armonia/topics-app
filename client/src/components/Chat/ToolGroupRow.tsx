@@ -4,7 +4,9 @@ import type { ToolCall } from '../../types';
 import { ToolCallRow } from './ToolCallRow';
 import {
   GROUP_MIN,
+  formatCostCents,
   formatDurationMs,
+  formatTokensCompact,
   formatToolCounts,
   isActiveTool,
   partitionToolGroup,
@@ -27,6 +29,12 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
   const summary = useMemo(() => summarizeToolGroup(tools), [tools]);
   const live = summary.running > 0;
   const settledCount = summary.total - summary.running;
+  // Costo del gruppo: prezzo se noto, altrimenti i token sommati.
+  const groupCost = typeof summary.costCents === 'number'
+    ? formatCostCents(summary.costCents)
+    : typeof summary.tokens === 'number' && summary.tokens > 0
+      ? `${formatTokensCompact(summary.tokens)} tok`
+      : '';
 
   return (
     <div data-testid="tool-group-row" className="text-[12px]">
@@ -63,6 +71,12 @@ function ToolGroupRow({ tools, sessionKey }: { tools: ToolCall[]; sessionKey?: s
             {summary.durationMs !== undefined && !live && (
               <span className="text-[10px] tabular-nums text-app-text-muted">
                 {formatDurationMs(summary.durationMs)}
+              </span>
+            )}
+            {/* Costo sommato delle azioni del gruppo — la sua parte del turno. */}
+            {groupCost && (
+              <span className="text-[10px] tabular-nums text-app-text-muted" data-testid="tool-group-cost" title="Costo sommato delle azioni del gruppo">
+                {groupCost}
               </span>
             )}
             {live ? (

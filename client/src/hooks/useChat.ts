@@ -984,6 +984,44 @@ export function useChat() {
         }
         break;
 
+      case 'stream:tool_usage':
+        // Costo/token di UNA azione, attribuiti dalla chiamata che l'ha decisa
+        // (server onToolUsage). Patcha la riga del tool per id, come
+        // stream:tool_result — nuova istanza ToolCall così React.memo vede il
+        // cambio. Arriva mentre il tool è ancora running: non tocca status.
+        if (event.toolCallId) {
+          setMessages(prev => {
+            const msgs = [...(prev[sessionKey] || [])];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === 'assistant' && msgs[i].toolCalls) {
+                const tcIdx = msgs[i].toolCalls!.findIndex(t => t.id === event.toolCallId);
+                if (tcIdx >= 0) {
+                  const oldTc = msgs[i].toolCalls![tcIdx];
+                  const newTc: ToolCall = {
+                    ...oldTc,
+                    ...(typeof event.tokens === 'number' ? { tokens: event.tokens } : {}),
+                    ...(typeof event.costCents === 'number' ? { costCents: event.costCents } : {}),
+                  };
+                  const nextToolCalls = msgs[i].toolCalls!.slice();
+                  nextToolCalls[tcIdx] = newTc;
+                  let nextBlocks = msgs[i].blocks;
+                  if (nextBlocks) {
+                    nextBlocks = nextBlocks.map(b =>
+                      b.kind === 'tool' && b.toolCall.id === event.toolCallId
+                        ? { kind: 'tool' as const, toolCall: newTc }
+                        : b,
+                    );
+                  }
+                  msgs[i] = { ...msgs[i], toolCalls: nextToolCalls, blocks: nextBlocks };
+                  break;
+                }
+              }
+            }
+            return { ...prev, [sessionKey]: msgs };
+          });
+        }
+        break;
+
       case 'stream:tool_update':
         // Live partial result from a long-running tool (e.g. a Bash that
         // streams output). Server's openclaw provider emits these via

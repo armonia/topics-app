@@ -14,6 +14,10 @@ export interface SeedToolCall {
   /** Real-usage window bounds (epoch ms) — drive duration rendering. */
   startedAt?: number;
   endedAt?: number;
+  /** Per-action attribution: cost in cents and tokens of the model call that
+   *  decided this tool. Drive the per-row cost readout. */
+  costCents?: number;
+  tokens?: number;
 }
 
 export interface SeedMessageOpts {
