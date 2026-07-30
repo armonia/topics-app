@@ -19,7 +19,7 @@ export function TaskIdChip({ id }: { id: string }) {
         try { void navigator.clipboard?.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* clipboard blocked */ }
       }}
       title={copied ? 'ID copiato' : `${memorableId(id)} · clicca per copiare l'ID pieno (${id})`}
-      className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] leading-none text-neutral-500 hover:bg-white/10 hover:text-neutral-300"
+      className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] leading-none text-app-text-muted hover:bg-white/10 hover:text-app-text-heading"
     >{copied ? 'copiato ✓' : memorableId(id)}</button>
   );
 }

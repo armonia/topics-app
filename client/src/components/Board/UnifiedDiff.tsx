@@ -55,8 +55,8 @@ function rowClass(row: DiffRow): string {
     case 'hunk': return 'bg-sky-500/10 text-sky-600 dark:text-sky-300';
     case 'add': return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
     case 'del': return 'bg-red-500/10 text-red-700 dark:text-red-300';
-    case 'nonewline': return 'text-neutral-500 italic';
-    default: return 'text-neutral-600 dark:text-neutral-400';
+    case 'nonewline': return 'text-app-text-muted italic';
+    default: return 'text-app-text-faint dark:text-app-text-secondary';
   }
 }
 
@@ -68,7 +68,7 @@ export interface DiffReview {
 }
 
 /** Gutter sticky: due numeri + l'aggancio. Resta a sinistra mentre la riga scorre. */
-const GUTTER = 'sticky shrink-0 select-none bg-neutral-900/85 px-1 text-right text-[10px] tabular-nums text-neutral-600';
+const GUTTER = 'sticky shrink-0 select-none bg-app-inset px-1 text-right text-[10px] tabular-nums text-app-text-faint';
 
 /**
  * Composer/note in sospeso: vivono DENTRO il contenitore che scorre in
@@ -81,7 +81,7 @@ const OVERLAY = 'sticky left-0 w-[min(34rem,100%)] max-w-[calc(100vw-5rem)]';
 function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; onCancel: () => void }) {
   const [text, setText] = useState('');
   return (
-    <div className={`${OVERLAY} border-y border-white/10 bg-neutral-900/70 p-1.5`}>
+    <div className={`${OVERLAY} border-y border-app-border bg-app-inset p-1.5`}>
       <textarea
         autoFocus
         value={text}
@@ -92,7 +92,7 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
         }}
         rows={2}
         placeholder="Cosa non va in questa riga…"
-        className="w-full resize-y rounded bg-white/5 px-2 py-1 font-sans text-[11.5px] text-neutral-100 outline-none placeholder:text-neutral-600"
+        className="w-full resize-y rounded bg-white/5 px-2 py-1 font-sans text-[11.5px] text-app-text outline-none placeholder:text-app-placeholder"
       />
       <div className="mt-1 flex items-center gap-1.5">
         <button
@@ -102,10 +102,10 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
         >
           Aggiungi
         </button>
-        <button onClick={onCancel} className="rounded px-2 py-0.5 font-sans text-[11px] text-neutral-400 hover:text-neutral-200">
+        <button onClick={onCancel} className="rounded px-2 py-0.5 font-sans text-[11px] text-app-text-secondary hover:text-app-text">
           Annulla
         </button>
-        <span className="ml-auto font-sans text-[10px] text-neutral-600">⌘↵</span>
+        <span className="ml-auto font-sans text-[10px] text-app-text-faint">⌘↵</span>
       </div>
     </div>
   );
@@ -144,14 +144,14 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
   }, [fileNotes]);
 
   return (
-    <div className="overflow-hidden rounded-md border border-white/10">
+    <div className="overflow-hidden rounded-md border border-app-border">
       <button
         onClick={() => setUserOpen(!open)}
-        className="flex w-full items-center gap-1.5 bg-neutral-800/60 px-2 py-1 text-left hover:bg-neutral-800"
+        className="flex w-full items-center gap-1.5 bg-elevated px-2 py-1 text-left hover:bg-app-hover"
       >
-        {open ? <ChevronDown className="h-3 w-3 shrink-0 text-neutral-500" /> : <ChevronRight className="h-3 w-3 shrink-0 text-neutral-500" />}
-        <FileCode className="h-3 w-3 shrink-0 text-neutral-500" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-neutral-200" title={chunk.path}>{chunk.path}</span>
+        {open ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
+        <FileCode className="h-3 w-3 shrink-0 text-app-text-muted" />
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-app-text" title={chunk.path}>{chunk.path}</span>
         {fileNotes.length > 0 && (
           <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-[9px] text-indigo-300" title={`${fileNotes.length} note in sospeso`}>
             {fileNotes.length}
@@ -163,12 +163,12 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
             <span className="text-emerald-400">+{stat.additions}</span> <span className="text-red-400">-{stat.deletions}</span>
           </span>
         )}
-        {binary && <span className="shrink-0 text-[10px] text-neutral-500">binario</span>}
+        {binary && <span className="shrink-0 text-[10px] text-app-text-muted">binario</span>}
       </button>
       {open && (
         <div className="overflow-x-auto font-mono text-[11.5px] leading-[1.55]">
           {binary ? (
-            <div className="px-2 py-1 text-neutral-500">File binario — nessun diff testuale.</div>
+            <div className="px-2 py-1 text-app-text-muted">File binario — nessun diff testuale.</div>
           ) : shown.map((row, i) => {
             // Le intestazioni del file non portano segnale: la card nomina già il path.
             if (row.kind === 'meta') return null;
@@ -180,9 +180,9 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
               <div key={i}>
                 <div className={`group/row flex min-w-max ${rowClass(row)}`}>
                   <span className={`${GUTTER} left-0 w-8`}>{row.oldLine ?? ''}</span>
-                  <span className={`${GUTTER} left-8 w-8 border-r border-white/5`}>{row.newLine ?? ''}</span>
+                  <span className={`${GUTTER} left-8 w-8 border-r border-app-border-subtle`}>{row.newLine ?? ''}</span>
                   {review && (
-                    <span className="sticky left-16 z-[1] flex w-4 shrink-0 items-center justify-center bg-neutral-900/85">
+                    <span className="sticky left-16 z-[1] flex w-4 shrink-0 items-center justify-center bg-app-inset">
                       {canComment && (
                         <button
                           onClick={() => setComposingAt((c) => (c === key ? null : key))}
@@ -205,12 +205,12 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
                 </div>
                 {attached?.map((n) => (
                   <div key={n.id} className={`${OVERLAY} flex items-start gap-1.5 border-y border-indigo-500/20 bg-indigo-500/5 px-2 py-1`}>
-                    <span className="min-w-0 flex-1 whitespace-pre-wrap font-sans text-[11.5px] text-neutral-200">{n.body}</span>
+                    <span className="min-w-0 flex-1 whitespace-pre-wrap font-sans text-[11.5px] text-app-text">{n.body}</span>
                     <button
                       onClick={() => review!.onRemoveNote(n.id)}
                       title="Togli la nota"
                       aria-label="Togli la nota"
-                      className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded text-neutral-500 hover:bg-white/10 hover:text-neutral-200"
+                      className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded text-app-text-muted hover:bg-white/10 hover:text-app-text"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -228,7 +228,7 @@ const FileDiff = memo(function FileDiff({ chunk, stat, defaultOpen, review }: {
               </div>
             );
           })}
-          {overflow > 0 && <div className="px-2 py-0.5 text-[10px] text-neutral-600">…altre {overflow} righe</div>}
+          {overflow > 0 && <div className="px-2 py-0.5 text-[10px] text-app-text-faint">…altre {overflow} righe</div>}
         </div>
       )}
     </div>
@@ -250,7 +250,7 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review }: {
   }, [bundle.stat]);
 
   if (!bundle.patch.trim()) {
-    return <div className="px-1 py-1 text-[11px] text-neutral-500">Nessuna modifica.</div>;
+    return <div className="px-1 py-1 text-[11px] text-app-text-muted">Nessuna modifica.</div>;
   }
 
   return (
