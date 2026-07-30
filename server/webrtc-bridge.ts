@@ -20,6 +20,7 @@ import { createInterface } from "readline";
 import { createHash } from "crypto";
 import { existsSync, openSync, closeSync, statSync } from "fs";
 import { resolve, dirname, basename, join } from "path";
+import { registerFleetSocket } from "./lib/fleet-usage";
 
 /** Callbacks for one peer (one RTCPeerConnection), routed back to its WS. */
 export interface PeerHandlers {
@@ -70,6 +71,11 @@ export function createWebrtcBridge(): WebrtcBridge {
   const disabled = process.env.TOPICS_DISABLE_WEBRTC_BRIDGE === "1";
   const bin = disabled ? null : resolveBin();
   const SOCK = socketPath();
+  // Detached e reparentato a launchd come gli altri sidecar, e tutt'altro che
+  // gratis (misurato ~530 MB / ~29% di CPU mentre streamma una pane): dichiararlo
+  // e' cio' che lo fa entrare nella cifra della status bar invece di restare
+  // invisibile. Vedi lib/fleet-usage.ts.
+  registerFleetSocket("webrtc-bridge", SOCK);
   const BIN_STAMP = bin ? binStamp(bin) : 0;
 
   let child: ChildProcess | null = null;
