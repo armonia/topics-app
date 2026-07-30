@@ -2054,24 +2054,6 @@ export function createTopicsRouter(ctx: AppContext, browserService?: BrowserServ
       }
     }
 
-    // POST /api/topics/:id/messages/:msgId/plan-status
-    {
-      const params = matchRoute(pathname, "/api/topics/:id/messages/:msgId/plan-status");
-      if (params && method === "POST") {
-        const body = await readJSON(req);
-        if (!body?.status || !['approved', 'rejected'].includes(body.status)) {
-          return json({ error: "status must be 'approved' or 'rejected'" }, 400);
-        }
-        const topic = getTopicById(params.id);
-        if (!topic) return json({ error: "Topic not found" }, 404);
-        const msg = getMessageById(params.msgId);
-        if (!msg) return json({ error: "Message not found" }, 404);
-        ctx.db.prepare(`UPDATE messages SET plan_status = ? WHERE id = ?`).run(body.status, params.msgId);
-        broadcastToAll({ type: "message:plan-status", topicId: params.id, messageId: params.msgId, planStatus: body.status });
-        return json({ ok: true, planStatus: body.status });
-      }
-    }
-
     // GET /api/topics/:id/messages - fetch conversation messages for a topic
     {
       const params = matchRoute(pathname, "/api/topics/:id/messages");
