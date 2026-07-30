@@ -71,6 +71,12 @@ export function useWebSocket(): UseWebSocketReturn {
   // stato: cambiarlo non deve ri-renderizzare nulla, e un focus nuovo deve poter
   // annullare l'attesa del precedente in modo sincrono.
   const seenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // La topic la cui soglia di "visto" e' GIA' scattata mentre e' davanti. Serve a
+  // ri-marcare letto i messaggi che arrivano MENTRE stai leggendo: ora che il
+  // server incrementa sempre (nessuna soppressione da focus), senza questo un
+  // messaggio in arrivo su una chat aperta ti lascerebbe un badge addosso appena
+  // cambi tab. Si annulla quando il focus si sposta su un'altra topic.
+  const seenTopicRef = useRef<string | null>(null);
   // Nessuna attesa sopravvive allo smontaggio: marcare letto dopo che l'hook e'
   // morto scriverebbe per conto di una finestra che non c'e' piu'.
   useEffect(() => () => {
@@ -186,6 +192,17 @@ export function useWebSocket(): UseWebSocketReturn {
         // più grosso dello switch di tab. Restituire `prev` lo azzera.
         if (data.type === 'unread:updated') {
           applyUnread(prev => applyUnreadUpdate(prev, data.topicId, data.unreadCount));
+          // Ri-marca letto un messaggio arrivato MENTRE stai gia' leggendo questa
+          // topic (soglia gia' scattata + finestra sveglia). Il server ora
+          // incrementa sempre; senza questo, un messaggio su una chat aperta ti
+          // lascerebbe un badge appena cambi tab. Se la finestra e' dietro/nascosta
+          // (`!isWindowAwake`) NON ri-marchiamo: il badge deve restare — e' il caso
+          // "app in background" che questo intero fix serve a far funzionare.
+          if (data.unreadCount > 0 && data.topicId === seenTopicRef.current && isWindowAwake()) {
+            const tid = data.topicId;
+            applyUnread(prev => clearUnreadFor(prev, tid));
+            topicsApi.markRead(tid).catch(() => {});
+          }
         }
 
         // Forward to all handlers
@@ -292,6 +309,9 @@ export function useWebSocket(): UseWebSocketReturn {
     // "visto" in disaccordo darebbero un badge che sfarfalla, quindi e' UNA.
     const m = message as unknown as { type?: string; topicId?: string | null };
     if (m.type === 'focus') {
+      // Un focus su una topic DIVERSA azzera lo stato di "gia' vista": la nuova
+      // deve riguadagnarsi la soglia da capo.
+      if ((m.topicId ?? null) !== lastFocusTopicRef.current) seenTopicRef.current = null;
       // Track the focused topic so onopen can re-announce it after a reconnect.
       lastFocusTopicRef.current = m.topicId ?? null;
       // Un focus nuovo annulla l'attesa del precedente: un clic di passaggio non
@@ -309,6 +329,10 @@ export function useWebSocket(): UseWebSocketReturn {
           // finestra sveglia (può essere finita dietro durante l'attesa).
           if (lastFocusTopicRef.current !== tid) return;
           if (!isWindowAwake()) return;
+          // Soglia raggiunta: da ora i messaggi che arrivano su questa topic vanno
+          // ri-marcati letti al volo (vedi onmessage `unread:updated`), non lasciati
+          // come badge.
+          seenTopicRef.current = tid;
           // Letto PRIMA dello zero ottimistico: dopo, il conteggio sarebbe
           // sempre 0 e la POST non partirebbe mai.
           const daAzzerare = hasUnread(unreadRef.current, tid);

@@ -177,7 +177,6 @@ export interface AppContext {
   broadcastToAll: (message: OutboundMessage) => void;
   broadcastToTopic: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
   broadcastToTopicSubscribers: (topicId: string, message: OutboundMessage, exclude?: ServerWebSocket<WSData>) => void;
-  isTopicFocused: (topicId: string) => boolean;
   loadTopics: () => TopicsData;
   saveTopics: (data: TopicsData) => void;
   /**
