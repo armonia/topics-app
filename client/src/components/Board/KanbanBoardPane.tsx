@@ -23,6 +23,7 @@ import {
   type PublishProject, type DiffBundle, type DispatchCapacity, type GlobalSettings,
 } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
+import { useConfirm } from '../../hooks/useConfirm';
 import { PRIORITY_DOT, PRIORITY_ORDER, PRIORITY_LABEL, type LiveUsage } from './constants';
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
@@ -50,6 +51,7 @@ function PublishControl() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [diffs, setDiffs] = useState<Record<string, DiffBundle | 'loading' | 'error'>>({});
+  const confirm = useConfirm();
   const refresh = useCallback(() => {
     boardApi.publishStatus().then(setProjects).catch(() => setProjects([]));
   }, []);
@@ -70,9 +72,24 @@ function PublishControl() {
   const doPublish = async (p: PublishProject) => {
     // Show the exact commits in the confirm so a wrong-project / un-approved
     // commit is caught before the push — a push ships the WHOLE branch tip.
-    const preview = p.commits.slice(0, 8).map((c) => `  • ${c.subject} (${c.hash}, ${c.author})`).join('\n');
-    const more = p.commits.length > 8 ? `\n  …e altri ${p.commits.length - 8}` : '';
-    if (!window.confirm(`Pubblicare "${p.name}" — push di ${p.ahead} commit su origin/${p.branch}?\n\n${preview}${more}\n\nAvvia il deploy dove configurato.`)) return;
+    const shown = p.commits.slice(0, 8);
+    const more = p.commits.length > 8 ? p.commits.length - 8 : 0;
+    const ok = await confirm({
+      title: `Pubblicare "${p.name}"?`,
+      confirmLabel: `Push ${p.ahead} commit`,
+      body: (
+        <div className="space-y-2">
+          <p>Push di {p.ahead} commit su <span className="font-mono">origin/{p.branch}</span>. Avvia il deploy dove configurato.</p>
+          <ul className="max-h-48 overflow-y-auto space-y-0.5 font-mono text-[11px]">
+            {shown.map((c) => (
+              <li key={c.hash} className="truncate">• {c.subject} ({c.hash}, {c.author})</li>
+            ))}
+          </ul>
+          {more > 0 && <p className="text-app-text-secondary">…e altri {more}</p>}
+        </div>
+      ),
+    });
+    if (!ok) return;
     setBusy(p.projectId); setMsg(null);
     try {
       const r = await boardApi.publish(p.projectId);

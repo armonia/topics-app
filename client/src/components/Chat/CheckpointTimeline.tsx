@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Clock, RotateCcw, Plus } from 'lucide-react';
 import { useCheckpoints, type Checkpoint } from '../../hooks/useCheckpoints';
 import { useToast } from '../Shared/Toast';
+import { useConfirm } from '../../hooks/useConfirm';
 
 interface CheckpointTimelineProps {
   topicId: string;
@@ -24,6 +25,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
   const toast = useToast();
+  const confirm = useConfirm();
 
   useEffect(() => { load(); }, [load]);
 
@@ -32,9 +34,18 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
   }, [create]);
 
   const handleRollback = useCallback(async (checkpoint: Checkpoint) => {
-    const confirmed = window.confirm(
-      `Roll back to "${checkpoint.description}"?\n\nThis will truncate messages to ${checkpoint.messageCount} and remove later checkpoints.${checkpoint.gitHash ? '\n\nGit will be checked out to ' + checkpoint.gitHash.slice(0, 7) + '.' : ''}`
-    );
+    const confirmed = await confirm({
+      title: `Roll back to "${checkpoint.description}"?`,
+      confirmLabel: 'Roll back',
+      body: (
+        <div className="space-y-2">
+          <p>This will truncate messages to {checkpoint.messageCount} and remove later checkpoints.</p>
+          {checkpoint.gitHash && (
+            <p>Git will be checked out to <span className="font-mono">{checkpoint.gitHash.slice(0, 7)}</span>.</p>
+          )}
+        </div>
+      ),
+    });
     if (!confirmed) return;
 
     setRollingBack(true);
@@ -52,7 +63,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
     } else {
       toast.error(`Rollback failed: ${result.warning || 'Unknown error'}`);
     }
-  }, [rollback, onRollback, toast]);
+  }, [rollback, onRollback, toast, confirm]);
 
   if (checkpoints.length === 0) return null;
 

@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi } from '../../lib/api';
+import { useConfirm } from '../../hooks/useConfirm';
 import { DND_TYPES } from '../../lib/dndTypes';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
@@ -131,6 +132,7 @@ function ChatPaneComponent({
   const [autoNameTriggered, setAutoNameTriggered] = useState(false);
   const [, setCommandLoading] = useState(false);
   const [commandResult, setCommandResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const confirm = useConfirm();
   /**
    * La coda del turno NON vive più qui.
    *
@@ -567,7 +569,7 @@ function ChatPaneComponent({
       finally { setCommandLoading(false); }
       return true;
     }
-    if (cmd === '/clear') { if (!window.confirm('Clear conversation? A backup will be saved.')) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd === '/clear') { if (!await confirm({ title: 'Clear conversation?', body: 'A backup will be saved.', confirmLabel: 'Clear' })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: 'Conversation cleared' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: SLASH_COMMANDS_HELP.join('\n') }); return true; }
 
