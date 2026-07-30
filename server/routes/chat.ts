@@ -36,6 +36,7 @@ import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from 
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { getFastModelFor } from "../providers/fast-models";
 import { appendUsageRecord } from "../usage/store";
+import { accumulateTurnUsage, emptyTurnUsage, turnUsageCostParts } from "../usage/turn-usage";
 import { calculateCost, calculateCostWithCache, splitPromptTokens } from "../usage/pricing";
 import { parseMentions, resolveMentions } from "../mention-parser";
 import type { BrowserService } from "../browser-service";
@@ -657,7 +658,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // dai tre di sopra, che sono il consuntivo che arriva col `result`:
           // questo serve a far vedere qualcosa muoversi durante un turno agentico
           // lungo, dove prima non si vedeva niente fino alla fine.
-          const live = { calls: 0, prompt: 0, completion: 0, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0 };
+          let live = emptyTurnUsage();
           let liveModel: string | undefined;
           // Set when a compaction boundary lands mid-turn, so onDone knows this
           // turn's `prompt_tokens` (the compacted context that was sent) is the
@@ -1658,27 +1659,21 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // Si ACCUMULA: il provider manda l'usage di UNA chiamata, e il
               // `result` finale somma già tutto — sommare anche quello sarebbe
               // contare due volte. Il client non fa aritmetica: riceve i totali.
-              live.calls += 1;
-              live.prompt += u.inputTokens;
-              live.completion += u.outputTokens;
-              live.cacheRead += u.cacheRead;
-              live.cacheCreation += u.cacheCreation;
-              live.cacheCreation1h += u.cacheCreation1h;
+              live = accumulateTurnUsage(live, u);
               if (u.model) liveModel = u.model;
               if (!matchedTopic) return;
               // Costo corrente, con le stesse tariffe del consuntivo: il fresco è
               // il RESTO (mai negativo), le due durate di cache pagano la loro.
               let liveCost: number | undefined;
               try {
-                const fresh = Math.max(0, live.prompt - live.cacheRead - live.cacheCreation);
-                const w1h = Math.min(live.cacheCreation1h, live.cacheCreation);
+                const parts = turnUsageCostParts(live);
                 const usd = calculateCostWithCache({
                   model: liveModel || overrideModel || "unknown",
-                  freshInputTokens: fresh,
-                  outputTokens: live.completion,
-                  cacheReadTokens: live.cacheRead,
-                  cacheCreationTokens: live.cacheCreation - w1h,
-                  cacheCreation1hTokens: w1h,
+                  freshInputTokens: parts.fresh,
+                  outputTokens: parts.output,
+                  cacheReadTokens: parts.cacheRead,
+                  cacheCreationTokens: parts.cacheCreation5m,
+                  cacheCreation1hTokens: parts.cacheCreation1h,
                 });
                 if (usd > 0) liveCost = Math.round(usd * 100);
               } catch { /* modello sconosciuto: si mostrano i token senza prezzo */ }
