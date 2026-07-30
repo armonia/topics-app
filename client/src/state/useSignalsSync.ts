@@ -48,7 +48,13 @@ export function useSignalsSync({ topics, claudeSessions, activeAgentSessions, te
   // the badge. Also feed the LOUD 'input' subset (awaiting-approval) so the UI
   // can pick amber vs blue.
   useEffect(() => {
-    signalsActions.setAwaitingFeedbackTopics(deriveAwaitingFeedbackTopics(topics, claudeSessions));
+    const awaiting = deriveAwaitingFeedbackTopics(topics, claudeSessions);
+    // ORDINE CRITICO: il "visto" si annulla sul FRONTE DI SALITA degli awaiting,
+    // quindi va applicato mentre l'insieme precedente è ancora nello store. Dopo
+    // la sostituzione il confronto prev→next non esiste più e una tab che ha
+    // appena finito un nuovo turno resterebbe "vista" — cioè muta.
+    signalsActions.applyNewAttention(awaiting);
+    signalsActions.setAwaitingFeedbackTopics(awaiting);
     signalsActions.setAwaitingInputTopics(deriveAwaitingInputTopics(topics, claudeSessions));
   }, [topics, claudeSessions]);
 

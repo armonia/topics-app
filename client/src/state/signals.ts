@@ -22,9 +22,10 @@
  * indicator is never silently gated by an unset field (the bug class that
  * plagued the per-type call sites).
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
+import { isWindowAwake } from './windowAwake';
 import type { Pane, Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState, AttentionTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId, getProjectPathFromPaneId } from './pane/adapters';
@@ -76,6 +77,91 @@ export function attentionTierForPhase(phase: ClaudeSessionPhase): AttentionTier 
   if (AWAITING_INPUT_PHASES.has(phase)) return 'input';
   if (AWAITING_FEEDBACK_PHASES.has(phase)) return 'done';
   return null;
+}
+
+// ─── "Visto": la soglia fra SELEZIONARE e GUARDARE ────────────────────────────
+//
+// `sidebarRowCard` ha sempre applicato FOCUS WINS — la riga che stai guardando
+// torna neutra e non lampeggia — e la ragione è giusta: non vuoi che ti pulsi in
+// faccia ciò che stai già leggendo. Il problema era la definizione di "stai
+// guardando": bastava che la riga fosse selezionata, per un istante. Un clic di
+// passaggio per cercare un'altra cosa spegneva il fill di una chat che non era
+// stata letta, e lo stesso istante azzerava l'unread (useWebSocket, ramo 'focus').
+//
+// Qui "visto" vuol dire: la tab è stata DAVANTI, con la finestra sveglia, per
+// SEEN_DWELL_MS continui. La finestra sveglia conta perché una tab selezionata in
+// una finestra che nessuno guarda non è stata vista — è lo stesso predicato di
+// `isWindowAwake()`, tenuto in passo di proposito.
+
+/**
+ * Quanto una tab deve restare davanti perché conti come vista.
+ *
+ * 1200 ms: sopra il tempo di un clic di passaggio (un utente che cerca un'altra
+ * tab ci resta 200-400 ms) e sotto la soglia in cui l'attesa si nota come
+ * ritardo. Non è una costante da girare a piacere: abbassarla sotto ~600 ms
+ * riporta il comportamento di prima, alzarla oltre ~2 s fa sembrare che il fill
+ * non cada mai.
+ */
+export const SEEN_DWELL_MS = 1200;
+
+/**
+ * Politica pura: una tab è "vista" solo se è stata davanti per almeno `dwellMs`
+ * CONTINUI. `focusedSince` è l'istante in cui è diventata davanti-e-sveglia, o
+ * `null` se in questo momento non lo è (blur, finestra addormentata, altra tab).
+ */
+export function isSeen(focusedSince: number | null, now: number, dwellMs = SEEN_DWELL_MS): boolean {
+  if (focusedSince === null) return false;
+  return now - focusedSince >= dwellMs;
+}
+
+/**
+ * Politica pura: il "visto" si ANNULLA quando arriva un nuovo "tocca a te".
+ *
+ * Senza questo, una tab vista una volta non tornerebbe mai più blu: il turno
+ * successivo finirebbe in silenzio. La regola è sul FRONTE di salita — un id che
+ * entra ora nell'insieme awaiting perde il suo "visto" — e non sulla presenza,
+ * perché un id che RESTA awaiting mentre lo stai leggendo deve restare visto.
+ *
+ * Torna lo STESSO riferimento quando non cambia niente: è il contratto
+ * anti-render che tutto questo store rispetta (vedi `setsEqual`/`withToggled`).
+ */
+export function resetSeenOnNewAttention(
+  prevSeen: ReadonlySet<string>,
+  prevAwaiting: ReadonlySet<string>,
+  nextAwaiting: ReadonlySet<string>,
+): ReadonlySet<string> {
+  let next: Set<string> | null = null;
+  for (const id of nextAwaiting) {
+    // Fronte di salita: non c'era e ora c'è ⇒ è un nuovo "tocca a te".
+    if (prevAwaiting.has(id)) continue;
+    if (!prevSeen.has(id)) continue;
+    if (next === null) next = new Set(prevSeen);
+    next.delete(id);
+  }
+  return next ?? prevSeen;
+}
+
+/**
+ * Il fill di attenzione da applicare a una superficie, in UN posto.
+ *
+ * FOCUS WINS era ricopiato in QUATTRO punti indipendenti (sidebarRowCard,
+ * PaneTabBar, la riga di progetto in TopicTree, SpaceSwitcher), ognuno con la
+ * sua definizione di "focused" e nessun helper condiviso: aggiungere una quinta
+ * superficie voleva dire ricopiarlo di nuovo, e dimenticarselo voleva dire far
+ * pulsare in faccia all'utente la cosa che sta guardando. Ora la regola sta qui:
+ * il tier si mostra se c'è, a meno che quella superficie non sia stata VISTA.
+ *
+ * Nota la differenza con prima: il gate è `seen`, non `focused`. Una tab appena
+ * selezionata è focused ma non ancora vista, quindi tiene il suo fill finché la
+ * soglia non scatta — che è esattamente ciò che "resta blu finché non la
+ * visualizzi" chiede.
+ */
+export function attentionFillFor(
+  tier: AttentionTier | null | undefined,
+  seen: boolean,
+): AttentionTier | null {
+  if (!tier) return null;
+  return seen ? null : tier;
 }
 
 /** Pure: topic ids whose bound Claude session is parked awaiting human input.
@@ -209,6 +295,12 @@ interface SignalsState {
   // chat topics whose Claude session is in 'watching' phase (Monitor armed).
   // Drives muted aura mode (softer ring vs full-bright loading).
   watchingTopics: Set<string>;
+  // Soggetti (topicId o terminalSessionId) che l'utente ha DAVVERO guardato: sono
+  // stati davanti, con la finestra sveglia, per SEEN_DWELL_MS continui. È il gate
+  // di FOCUS WINS — vedi `attentionFillFor` — e sostituisce "è selezionata", che
+  // spegneva il fill al primo clic di passaggio. Si annulla per un soggetto
+  // quando arriva un nuovo "tocca a te" (`resetSeenOnNewAttention`).
+  seenSubjects: ReadonlySet<string>;
   terminalFinishedIds: Set<string>;     // claude-code finished a turn, until the user looks
   terminalReloadingIds: Set<string>;    // a terminal is restarting (Ricarica), until it reconnects
   // "What is this session doing right now" — a compact descriptor keyed by
@@ -225,6 +317,12 @@ interface SignalsState {
   sessionLastActivity: Map<string, number>;
 
   setTopicSet: (key: TopicSetKey, ids: Set<string>) => void;
+  /** Segna un soggetto come VISTO (la soglia è scattata). Idempotente. */
+  markSubjectSeen: (id: string) => void;
+  /** Annulla il "visto" dei soggetti che ENTRANO ora in awaiting. Va chiamata
+   *  PRIMA di sostituire `awaitingFeedbackTopics`, o il fronte di salita è già
+   *  perso. */
+  applyNewAttention: (nextAwaiting: ReadonlySet<string>) => void;
   setBrowserBusy: (paneId: string, busy: boolean) => void;
   setTerminalBusy: (id: string, busy: boolean) => void;
   markTerminalFinished: (id: string) => void;
@@ -374,6 +472,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   awaitingFeedbackTopics: new Set(),
   awaitingInputTopics: new Set(),
   watchingTopics: new Set(),
+  seenSubjects: new Set(),
   terminalFinishedIds: new Set(),
   terminalReloadingIds: new Set(),
   sessionActivity: new Map(),
@@ -381,6 +480,19 @@ export const useSignalsStore = create<SignalsState>((set) => ({
 
   setTopicSet: (key, ids) =>
     set((s) => (setsEqual(ids, s[key]) ? s : ({ [key]: ids } as Pick<SignalsState, TopicSetKey>))),
+
+  // "Visto" — due sole mosse, entrambe con bail-out sull'identità perché questo
+  // set è letto da OGNI riga e OGNI tab.
+  markSubjectSeen: (id: string) =>
+    set((s) => (s.seenSubjects.has(id) ? s : { seenSubjects: new Set(s.seenSubjects).add(id) })),
+  // Applica il fronte di salita degli awaiting: chiamata dal solo populatore
+  // (useSignalsSync) subito PRIMA di sostituire l'insieme awaiting, così il
+  // confronto prev→next è quello vero.
+  applyNewAttention: (nextAwaiting: ReadonlySet<string>) =>
+    set((s) => {
+      const next = resetSeenOnNewAttention(s.seenSubjects, s.awaitingFeedbackTopics, nextAwaiting);
+      return next === s.seenSubjects ? s : { seenSubjects: next };
+    }),
 
   setBrowserBusy: (paneId, busy) =>
     set((s) => {
@@ -482,6 +594,8 @@ export const signalsActions = {
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
   setAwaitingInputTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingInputTopics', ids),
   setWatchingTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('watchingTopics', ids),
+  applyNewAttention: (nextAwaiting: ReadonlySet<string>) => useSignalsStore.getState().applyNewAttention(nextAwaiting),
+  markSubjectSeen: (id: string) => useSignalsStore.getState().markSubjectSeen(id),
   setSessionActivity: (activity: Map<string, SessionActivitySignal>) => useSignalsStore.getState().setSessionActivity(activity),
   setSessionLastActivity: (activity: Map<string, number>) => useSignalsStore.getState().setSessionLastActivity(activity),
   setBrowserBusy: (paneId: string, busy: boolean) => useSignalsStore.getState().setBrowserBusy(paneId, busy),
@@ -857,6 +971,81 @@ export function useTerminalAttentionTier(sessionId: string | undefined): Attenti
     if (s.claudePhaseAwaitingTermIds.has(sessionId)) return 'done';
     return null;
   });
+}
+
+/** Questo soggetto è stato DAVVERO guardato (soglia scattata)? */
+export function useSubjectSeen(subjectId: string | undefined): boolean {
+  return useSignalsStore((s) => !!subjectId && s.seenSubjects.has(subjectId));
+}
+
+/**
+ * Il fill di attenzione di un soggetto, già passato per FOCUS WINS.
+ *
+ * Un hook solo al posto della coppia "leggi il tier" + "e poi ricordati di
+ * spegnerlo se è focussato", che era ricopiata in quattro superfici con quattro
+ * definizioni diverse di "focussato". Chi disegna una tab o una riga chiede
+ * questo e disegna quello che torna.
+ */
+export function useTopicAttentionFill(topicId: string | undefined): AttentionTier | null {
+  const tier = useTopicAttentionTier(topicId);
+  const seen = useSubjectSeen(topicId);
+  return attentionFillFor(tier, seen);
+}
+
+/** Il gemello terminale di `useTopicAttentionFill`. */
+export function useTerminalAttentionFill(sessionId: string | undefined): AttentionTier | null {
+  const tier = useTerminalAttentionTier(sessionId);
+  const seen = useSubjectSeen(sessionId);
+  return attentionFillFor(tier, seen);
+}
+
+/**
+ * Arma la soglia del "visto" su un soggetto mentre è davanti.
+ *
+ * `focused` è la nozione di davanti della superficie che chiama (ognuna ha la
+ * sua: una tab pretende anche che il gruppo e l'app abbiano il fuoco). A questa
+ * si aggiunge SEMPRE `isWindowAwake()`, perché una tab selezionata in una
+ * finestra che nessuno guarda non è stata vista — ed è lo stesso predicato con
+ * cui l'app parcheggia animazioni e poll, tenuto in passo di proposito.
+ *
+ * Il timer non è un `setTimeout` nudo: se la finestra si addormenta o il fuoco
+ * cambia prima della soglia, l'attesa RIPARTE da zero. Solo uno sguardo continuo
+ * conta.
+ */
+export function useSeenDwell(subjectId: string | undefined, focused: boolean): void {
+  useEffect(() => {
+    if (!subjectId || !focused) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const arm = () => {
+      if (cancelled || timer !== null) return;
+      timer = setTimeout(() => {
+        timer = null;
+        // Ri-controlla al momento dello scatto: la finestra può essersi
+        // addormentata durante l'attesa senza emettere un evento che vediamo.
+        if (!cancelled && isWindowAwake()) signalsActions.markSubjectSeen(subjectId);
+      }, SEEN_DWELL_MS);
+    };
+    const disarm = () => {
+      if (timer !== null) { clearTimeout(timer); timer = null; }
+    };
+    const onAwakeChange = () => { if (isWindowAwake()) arm(); else disarm(); };
+
+    if (isWindowAwake()) arm();
+    // `visibilitychange` copre la scheda nascosta, focus/blur la finestra dietro
+    // a un'altra: `isWindowAwake` guarda entrambi, quindi serve ascoltarli tutti.
+    document.addEventListener('visibilitychange', onAwakeChange);
+    window.addEventListener('focus', onAwakeChange);
+    window.addEventListener('blur', onAwakeChange);
+    return () => {
+      cancelled = true;
+      disarm();
+      document.removeEventListener('visibilitychange', onAwakeChange);
+      window.removeEventListener('focus', onAwakeChange);
+      window.removeEventListener('blur', onAwakeChange);
+    };
+  }, [subjectId, focused]);
 }
 
 /** "What is this session doing" for a subject id (topicId or terminalSessionId),
