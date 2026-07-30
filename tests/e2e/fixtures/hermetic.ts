@@ -40,6 +40,7 @@
 import { request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { E2E_BASE } from "../helpers/test-server";
 import { closeAllBrowserContexts, waitForPaneStoreQuiet } from "../helpers/api-fixtures";
+import { withServerDeathDiagnosis } from "../helpers/server-death";
 
 /**
  * Uccide le sessioni di terminale rimaste vive.
@@ -68,28 +69,38 @@ async function killLiveTerminalSessions(request: APIRequestContext): Promise<voi
 export async function resetToBaseline(): Promise<void> {
   const request = await playwrightRequest.newContext({ ignoreHTTPSErrors: true });
   try {
-    // Prima lo stato in RAM del processo: il reset del DB non lo vede, e un
-    // contesto browser vivo si ripresenta a ogni client che si connette dopo.
-    await closeAllBrowserContexts(request);
-    await killLiveTerminalSessions(request);
-    // Poi si aspetta che nessuno stia più scrivendo il pane-store. Le flush di
-    // teardown sono CAS-gated (`?base=`) e il reset alza i `server_seq` sopra
-    // qualunque cosa sia in volo, quindi questa è cintura in più — ma una PUT
-    // debounced di una pagina che sta ancora morendo non è gated, e arriverebbe
-    // *dopo* il ripristino.
-    await waitForPaneStoreQuiet(request);
-
-    const res = await request.post(`${E2E_BASE}/api/test/reset`);
-    if (!res.ok()) {
-      const detail = await res.text().catch(() => "");
-      throw new Error(
-        `[hermetic] reset del server fallito: ${res.status()} ${res.statusText()} ${detail}\n` +
-          `Un reset che fallisce in silenzio è esattamente ciò che nessuno vede fallire: ` +
-          `il file riparte dallo stato lasciato dal precedente e il rosso spunta altrove.`,
-      );
-    }
+    await resetToBaselineInner(request);
+  } catch (err) {
+    // Questo `beforeAll` è la PRIMA cosa che ogni file di spec chiede al
+    // server: se il server è morto a metà run, il primo a inciamparci è
+    // sempre lui. È quindi il posto giusto per dirlo — invece di lasciare che
+    // `maxFailures` abortisca dopo 8 ECONNREFUSED che accusano il codice.
+    throw withServerDeathDiagnosis(err);
   } finally {
     await request.dispose();
+  }
+}
+
+async function resetToBaselineInner(request: APIRequestContext): Promise<void> {
+  // Prima lo stato in RAM del processo: il reset del DB non lo vede, e un
+  // contesto browser vivo si ripresenta a ogni client che si connette dopo.
+  await closeAllBrowserContexts(request);
+  await killLiveTerminalSessions(request);
+  // Poi si aspetta che nessuno stia più scrivendo il pane-store. Le flush di
+  // teardown sono CAS-gated (`?base=`) e il reset alza i `server_seq` sopra
+  // qualunque cosa sia in volo, quindi questa è cintura in più — ma una PUT
+  // debounced di una pagina che sta ancora morendo non è gated, e arriverebbe
+  // *dopo* il ripristino.
+  await waitForPaneStoreQuiet(request);
+
+  const res = await request.post(`${E2E_BASE}/api/test/reset`);
+  if (!res.ok()) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(
+      `[hermetic] reset del server fallito: ${res.status()} ${res.statusText()} ${detail}\n` +
+        `Un reset che fallisce in silenzio è esattamente ciò che nessuno vede fallire: ` +
+        `il file riparte dallo stato lasciato dal precedente e il rosso spunta altrove.`,
+    );
   }
 }
 

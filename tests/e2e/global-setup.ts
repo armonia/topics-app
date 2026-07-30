@@ -332,6 +332,32 @@ async function startTestServer(): Promise<void> {
     console.error("[test-server] Failed to start:", err.message);
   });
 
+  // La morte del server, NOMINATA nell'istante in cui succede.
+  //
+  // Senza questo, un server ucciso a metà run lascia solo una scia di test che
+  // falliscono con ECONNREFUSED: otto rossi che parlano di HTTP mentre il
+  // difetto è che non c'è più nessuno dall'altra parte, e il primo sospettato
+  // diventa l'ultimo commit. Qui la riga esce nello stdout della run nel punto
+  // ESATTO del buco, con il segnale che l'ha ucciso — `SIGTERM` = qualcuno da
+  // fuori (tipicamente il globalSetup di un altro checkout che ammazza chi
+  // tiene la porta), uscita con codice = è crashato da solo.
+  serverProcess.on("exit", (code, signal) => {
+    // Morte ATTESA (global-teardown / emergencyCleanup l'hanno appena ucciso):
+    // silenzio. Il flag passa da env perché global-teardown.ts è un modulo a
+    // parte nello stesso processo — come già fa __TEST_SERVER_PID.
+    if (process.env.__E2E_TEARDOWN_STARTED === "1") return;
+    console.error(
+      `\n[test-server] ═══ IL SERVER DI TEST È MORTO A METÀ RUN ` +
+        `(${signal ? `segnale ${signal}` : `codice ${code}`}) ═══\n` +
+        `[test-server] Da qui in poi ogni test fallisce con ECONNREFUSED: sono rossi FINTI.\n` +
+        (signal === "SIGTERM"
+          ? `[test-server] SIGTERM = ucciso da fuori. Su questa macchina è quasi sempre un'altra run E2E\n` +
+            `[test-server] sulla stessa porta (${TEST_SERVER_PORT}): i checkout nati prima del 2026-07-28 non hanno\n` +
+            `[test-server] il run-lock e il loro globalSetup ammazza chi tiene la porta. Rimedio: E2E_PORT=13400.\n`
+          : `[test-server] Nessun segnale: è crashato da solo — il motivo è nelle righe [test-server] qui sopra.\n`),
+    );
+  });
+
   // Store PID for teardown
   if (serverProcess.pid) {
     process.env.__TEST_SERVER_PID = String(serverProcess.pid);
@@ -378,6 +404,11 @@ async function globalSetup() {
   // dice chi c'è e come girare in parallelo (vedi helpers/run-lock.ts).
   acquireRunLock(TEST_SERVER_PORT);
   runLockHeld = true;
+  // Il PID scritto nel lock, passato ai worker via env (come __TEST_SERVER_PID).
+  // Serve alla diagnosi di helpers/server-death.ts: se a metà run il lock non è
+  // più questo, qualcuno si è preso la porta — ed è lui che ci ha ammazzato il
+  // server, non l'ultimo commit.
+  process.env.__E2E_RUN_LOCK_PID = String(process.pid);
 
   // Disable TLS verification for localhost self-signed certs
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -655,6 +686,8 @@ async function seedBaselineData() {
 
 // Cleanup on crash/interrupt — kill test server + Chromium processes
 function emergencyCleanup() {
+  // Da qui la morte del server è ATTESA: zittisce il banner "morto a metà run".
+  process.env.__E2E_TEARDOWN_STARTED = "1";
   // Per primo il lock: se Ctrl-C arriva a metà run, la porta deve tornare
   // libera subito. `releaseRunLock` toglie solo il lock NOSTRO, quindi
   // chiamarlo qui non può mai scoprire la porta a un'altra run.
