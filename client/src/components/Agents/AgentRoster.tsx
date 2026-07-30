@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { AgentProfileCard } from './AgentProfileCard';
 import { AgentProfileEditor } from './AgentProfileEditor';
 import { AgentAssignPanel } from './AgentAssignPanel';
 import { HeartbeatTimeline } from './HeartbeatTimeline';
 import { agentProfilesApi, type AgentProfile } from '../../lib/api';
+import { useModalDialog } from '../../hooks/useModalDialog';
 import type { WSMessage } from '../../types';
 
 type StatusFilter = 'all' | AgentProfile['status'];
@@ -21,6 +22,20 @@ export function AgentRoster({ onMessage }: { onMessage?: (handler: (msg: WSMessa
   const [viewingSessions, setViewingSessions] = useState<AgentProfile | null>(null);
   const [assigningProfile, setAssigningProfile] = useState<AgentProfile | null>(null);
   const [assignTopicId, setAssignTopicId] = useState<string>('');
+
+  // I due modali scritti in linea qui sotto (scelta del topic, storico sessioni)
+  // si chiudevano SOLO dalla loro ×: Escape passava oltre e finiva a interrompere
+  // il turno dell'AI sotto.
+  const topicPickerRef = useRef<HTMLDivElement>(null);
+  const sessionsRef = useRef<HTMLDivElement>(null);
+  const closeTopicPicker = useCallback(() => setAssigningProfile(null), []);
+  const closeSessions = useCallback(() => setViewingSessions(null), []);
+  useModalDialog({
+    open: !!assigningProfile && !assignTopicId,
+    onClose: closeTopicPicker,
+    panelRef: topicPickerRef,
+  });
+  useModalDialog({ open: !!viewingSessions, onClose: closeSessions, panelRef: sessionsRef });
 
   const fetchProfiles = useCallback(async () => {
     try {
@@ -197,13 +212,20 @@ export function AgentRoster({ onMessage }: { onMessage?: (handler: (msg: WSMessa
 
       {/* Topic selector before opening assign panel */}
       {assigningProfile && !assignTopicId && (
-        <div className={MODAL_OVERLAY}>
-          <div className={`w-[320px] flex flex-col ${MODAL_PANEL}`}>
+        <div className={MODAL_OVERLAY} onClick={closeTopicPicker}>
+          <div
+            ref={topicPickerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Assign ${assigningProfile.name}`}
+            onClick={e => e.stopPropagation()}
+            className={`w-[320px] flex flex-col ${MODAL_PANEL}`}
+          >
             <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">
               <span className="text-lg">{assigningProfile.avatarEmoji}</span>
               <span className="text-[13px] font-semibold text-app-text flex-1">Assign {assigningProfile.name}</span>
               <button
-                onClick={() => setAssigningProfile(null)}
+                onClick={closeTopicPicker}
                 className="text-app-text-muted hover:text-app-text text-[13px]"
               >
                 &times;
@@ -242,13 +264,20 @@ export function AgentRoster({ onMessage }: { onMessage?: (handler: (msg: WSMessa
 
       {/* Session history modal */}
       {viewingSessions && (
-        <div className={MODAL_OVERLAY}>
-          <div className={`w-[400px] max-h-[70vh] flex flex-col ${MODAL_PANEL}`}>
+        <div className={MODAL_OVERLAY} onClick={closeSessions}>
+          <div
+            ref={sessionsRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={viewingSessions.name}
+            onClick={e => e.stopPropagation()}
+            className={`w-[400px] max-h-[70vh] flex flex-col ${MODAL_PANEL}`}
+          >
             <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">
               <span className="text-lg">{viewingSessions.avatarEmoji}</span>
               <span className="text-[13px] font-semibold text-app-text flex-1">{viewingSessions.name}</span>
               <button
-                onClick={() => setViewingSessions(null)}
+                onClick={closeSessions}
                 className="text-app-text-muted hover:text-app-text text-[13px]"
               >
                 &times;

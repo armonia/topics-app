@@ -29,6 +29,14 @@ function Lightbox({ url, video, onClose }: { url: string; video: boolean; onClos
       onClick={onClose}
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm anim-pop"
       data-testid="preview-lightbox"
+      // `role="dialog"` non è solo ARIA: è il marcatore con cui il resto
+      // dell'app riconosce che c'è un modale aperto (lib/modalSurface). Senza,
+      // Escape con il lightbox aperto arrivava fino a interrompere il turno
+      // dell'AI dietro — lo `stopPropagation()` qui sopra è troppo tardi,
+      // perché il gestore globale è registrato prima, sempre in capture.
+      role="dialog"
+      aria-modal="true"
+      aria-label="Anteprima"
     >
       <button
         onClick={onClose}

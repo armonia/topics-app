@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { isDesktop, isTauri } from '../lib/shell';
+import { hasOpenModalSurface } from '../lib/modalSurface';
 import type { Topic } from '../types';
 import { undo as undoUndo, redo as undoRedo, isTextInputFocused } from '../contexts/UndoContext';
 import { isProjectPaneId, getProjectPathFromPaneId, getSessionKeyFromViewerPaneId, type ClosedTabRecord } from '../state/pane/adapters';
@@ -357,6 +358,14 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         if (m.showShortcuts) { setShowShortcuts(false); e.preventDefault(); return; }
         if (m.showSearch) { setShowSearch(false); e.preventDefault(); return; }
         if (m.showNewTopic) { setShowNewTopic(false); e.preventDefault(); return; }
+
+        // I quattro flag sopra sono i modali che QUESTO hook sa chiudere. Ma
+        // l'app ne ha molti altri (Impostazioni, roster agenti, editor di
+        // profilo, lightbox delle anteprime, …) che si chiudono da sé: con uno
+        // di quelli aperto, Escape cadeva qui sotto e ammazzava il turno in
+        // streaming DIETRO al modale. Il DOM sa quali modali sono aperti
+        // meglio di una lista scritta a mano — vedi lib/modalSurface.
+        if (hasOpenModalSurface()) return;
 
         // No modal to close — mirror claude-code's Esc: interrupt the
         // focused panel's running turn (SIGINT-style, session stays alive).
