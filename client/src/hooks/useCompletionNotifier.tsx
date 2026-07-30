@@ -6,6 +6,8 @@ import { useSignalsStore } from '../state/signals';
 import { notifyNative } from '../lib/shell/app';
 import { shellKind } from '../lib/shell';
 import { decideTerminalBanner, statusBody, terminalPanelId, isTabActivelyVisible } from '../lib/notify/terminalNotify';
+import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
+import type { TopicTaskResolver } from './useTaskTopicIndex';
 
 interface CompletionNotifierProps {
   /** WS subscription registrar from useWebSocket().onMessage. */
@@ -25,8 +27,10 @@ interface CompletionNotifierProps {
   terminalSessions: TerminalSessionInfo[];
   /** Resolve a topic id → the dispatched task it works, if any. When a
    *  completion banner is for a dispatched-task topic, the taskId rides into the
-   *  notification so a click opens that task's drawer (openTaskInApp). */
-  taskIdForTopic?: (topicId: string) => string | null;
+   *  notification so a click opens that task's drawer (openTaskInApp) — e il suo
+   *  `dispatchState` dice se l'agente sta lavorando ADESSO, che è la condizione
+   *  per zittire la fine turno (isAgentTurnNoise). */
+  taskForTopic?: TopicTaskResolver;
 }
 
 /**
@@ -122,7 +126,7 @@ export function useCompletionNotifier({
   topics,
   focusedPanelId,
   terminalSessions,
-  taskIdForTopic,
+  taskForTopic,
 }: CompletionNotifierProps): void {
   // Prime OS-notification permission once on mount. In a browser tab this raises
   // the one-time prompt so later completions can surface a system banner.
@@ -179,7 +183,7 @@ export function useCompletionNotifier({
   const topicsRef = useRefMirror(topics);
   const focusedRef = useRefMirror(focusedPanelId);
   const terminalSessionsRef = useRefMirror(terminalSessions);
-  const taskIdForTopicRef = useRefMirror(taskIdForTopic);
+  const taskForTopicRef = useRefMirror(taskForTopic);
 
   // Per-topic cooldown (10s) so two completions in quick succession on
   // the same topic don't double-banner.
@@ -244,7 +248,7 @@ export function useCompletionNotifier({
               const topic = topicsRef.current[topicId];
               const label = topic?.name ?? 'Topic';
               // Dispatched-task topic → carry the taskId so a click opens the task.
-              const taskId = taskIdForTopicRef.current?.(topicId) ?? null;
+              const taskId = taskForTopicRef.current?.(topicId)?.taskId ?? null;
               // Il nome della topic resta INTERO nel titolo, comunque sia fatto.
               fire(justErrored ? 'warn' : 'ok', label, justErrored ? 'Errore agente' : 'Agente: lavoro finito', cfg.notificationsSound, taskId);
             }
@@ -418,6 +422,21 @@ export function useCompletionNotifier({
         }
       }
 
+      // Il task che questo topic sta lavorando, se ce n'è uno. Serve due volte:
+      // per zittire la fine turno di un agente di board (subito sotto) e per far
+      // viaggiare il `taskId` dentro al banner (più giù), così un click apre il
+      // drawer del task.
+      const task = topicId ? (taskForTopicRef.current?.(topicId) ?? null) : null;
+
+      // Un agente di board al lavoro: la fine di un suo turno non è un evento per
+      // l'umano — o il dispatcher rilancia, o arriva `task:review-ready` col suo
+      // banner, più informativo. Senza questo, una consegna sola ne produceva
+      // due quasi identici (il nome del topic È il testo del task).
+      // Il taglio sta PRIMA della cooldown di proposito: scrivere la chiave qui
+      // mangerebbe il banner di review che nella consegna di sistema arriva
+      // DOPO. Vedi lib/notify/dispatchedTopic.ts.
+      if (isAgentTurnNoise(phase, task?.dispatchState)) return;
+
       const focusedTopicId = topicIdFromPanel(focusedRef.current);
       // Only suppress when the user is ACTIVELY looking at this chat — its tab is
       // selected AND the window has OS focus. focusedPanelId doesn't clear on
@@ -442,7 +461,7 @@ export function useCompletionNotifier({
       cooldownRef.current.set(cooldownKey, now);
 
       // Dispatched-task topic → the banner carries the taskId so a click opens it.
-      const taskId = topicId ? (taskIdForTopicRef.current?.(topicId) ?? null) : null;
+      const taskId = task?.taskId ?? null;
       // Il corpo lo scrive `statusBody`, la stessa funzione del ramo terminale:
       // una frase sola per due superfici.
       switch (phase) {

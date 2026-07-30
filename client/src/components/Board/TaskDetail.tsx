@@ -10,7 +10,7 @@ import { buildTaskLink } from '../../lib/openTaskLink';
 import { enqueueProjectBrowserNavigate } from '../../state/pane/adapters';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
-import { boardApi, STATUS_LABEL, TASK_STATUSES, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, attemptHasWork, formatAttemptStat, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, STATUS_LABEL, TASK_STATUSES, isAgentWorking, parseQuestionBlock, isProjectlessId, boardDrafts, systemDeliveryNote, attemptHasWork, formatAttemptStat, type BoardTask, type TaskStatus, type TaskComment, type BoardSettings, type BoardSettingsPatch, type BoardProjectRef, type DiffBundle, type DiffNote, type ReviewCheck, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { UnifiedDiff } from './UnifiedDiff';
 import { formatReviewNotes } from './reviewNotes';
 import { COMPACT_MD_CLS, PLAN_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, EFFORTS, FANOUT_CHOICES, type TaskSurface } from './constants';
@@ -744,7 +744,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     : currentProject?.name ?? (task ? task.projectId.replace(/-[^-]+$/, '') : '');
   const moveBlocked = !task ? null
     : task.parentTaskId ? 'I sottotask si spostano col loro task padre.'
-    : task.assignedTopicId || ['queued', 'starting', 'working'].includes(task.dispatchState ?? '')
+    : task.assignedTopicId || isAgentWorking(task.dispatchState)
       ? "C'è un agent attivo sul task: chiudi prima il giro."
       : null;
 
@@ -904,7 +904,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   useEffect(() => { if (sessionKey) void loadSession(); }, [sessionKey, loadSession, bump]);
 
   // Live agent state (needed below): typing indicator + stream preview + stop.
-  const agentBusy = !!task && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+  const agentBusy = !!task && isAgentWorking(task.dispatchState);
 
   // While a turn runs, poll the history (it overlays the LIVE stream content)
   // so the drawer shows what the agent is thinking/writing right now.

@@ -30,7 +30,7 @@ import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./revie
 // ri-esporta ma NON porta i nomi in scope locale, e qui sotto servono.
 export { TASK_STATUSES } from "../../shared/board";
 export type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
-import { MAX_FANOUT, TASK_STATUSES } from "../../shared/board";
+import { MAX_FANOUT, TASK_STATUSES, isAgentWorking } from "../../shared/board";
 import type { TaskStatus, TaskComment, BoardSettings, BoardSettingsPatch } from "../../shared/board";
 
 export type Actor = "human" | "agent";
@@ -878,7 +878,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // already-settled chip ('needs_input'/'delivered') is kept as-is; the
         // dispatcher's own delivery detection still refines it when it observes
         // a question (→ needs_input).
-        if (patch.status === "review" && ["queued", "starting", "working"].includes(row.dispatch_state ?? "")) {
+        if (patch.status === "review" && isAgentWorking(row.dispatch_state)) {
           put("dispatch_state", "delivered");
         }
         // Chi ha consegnato. Una card in review consegnata dall'agente e una
@@ -1107,7 +1107,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       }
       // A dispatched agent works a worktree/topic of the SOURCE project; moving
       // the task under it would strand the binding. Finish or release it first.
-      if (row.assigned_topic_id || ["queued", "starting", "working"].includes(row.dispatch_state ?? "")) {
+      if (row.assigned_topic_id || isAgentWorking(row.dispatch_state)) {
         throw new TaskServiceError("invalid_transition", "task has a live agent — let it reach review (or park it) before moving boards");
       }
       const ts = now();

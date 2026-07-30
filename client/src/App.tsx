@@ -420,9 +420,11 @@ function App() {
   // "Board generale" sidebar row and shows its badge.
   const boardTaskCount = useGlobalBoardCount(onWSMessage);
 
-  // topicId → taskId index for dispatched tasks: lets a completion banner carry
-  // the taskId so clicking it opens that task's drawer (useCompletionNotifier).
-  const taskIdForTopic = useTaskTopicIndex(onWSMessage);
+  // topicId → task index for dispatched tasks. Due consumatori: il banner di
+  // completamento ci mette dentro il taskId (un click apre il drawer del task)
+  // e i due notificatori lo usano per NON bannerizzare la fine turno di un
+  // agente di board al lavoro — quella la annuncia `task:review-ready`.
+  const taskForTopic = useTaskTopicIndex(onWSMessage);
 
   // A stable global the native (Tauri) notification delegate can call on click to
   // open a task — the web/Electron path opens it directly via notifyNative.onclick.
@@ -507,6 +509,7 @@ function App() {
     },
     setSidebarCollapsed,
     removeClosedTab, closedTabs,
+    taskForTopic,
   });
   const {
     openPanels, visiblePanels, activeSpaceId,
@@ -832,7 +835,7 @@ function App() {
       topics={topics}
       focusedPanelId={focusedPanelId}
       terminalSessions={terminalSessions}
-      taskIdForTopic={taskIdForTopic}
+      taskForTopic={taskForTopic}
     />
     {/*
       countdownMs=1500: soft-destructive close window. 3s was the original

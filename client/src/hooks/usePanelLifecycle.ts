@@ -85,6 +85,8 @@ import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { markTabRestored } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { useRefMirror } from './useRefMirror';
+import type { TopicTaskResolver } from './useTaskTopicIndex';
+import { isAgentWorking } from '../lib/board';
 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
@@ -213,6 +215,11 @@ export interface UsePanelLifecycleArgs {
    *  reopened pinned browser back into its owning project instead of a blank
    *  standalone pane (project browser url/affinity live only on the record). */
   closedTabs: ClosedTabRecord[];
+  /** topicId → il task dispatchato che ci gira (useTaskTopicIndex). Serve al
+   *  banner di `message:new`: mentre un agente di board lavora, i suoi messaggi
+   *  non sono un evento per l'umano — la consegna la annuncia
+   *  `task:review-ready` in useCompletionNotifier. */
+  taskForTopic?: TopicTaskResolver;
 }
 
 export interface UsePanelLifecycleReturn {
@@ -298,7 +305,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     terminalSessions, pruneStaleTerminalPanes, terminalOps,
     onWSMessage, sendWS, wsStatus, windowId,
     chatStreamHandlers,
-    setSidebarCollapsed, removeClosedTab, closedTabs,
+    setSidebarCollapsed, removeClosedTab, closedTabs, taskForTopic,
   } = args;
 
   // The full detached set — seeds openPanels; empty off-detach. `detachedTopicId`
@@ -333,6 +340,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // guard — without these it would close over the first render's values.
   const workspaceProjectsRef = useRefMirror(workspaceProjects);
   const terminalSessionsRef = useRefMirror(terminalSessions);
+  // Letto dal Cluster 2 (banner di `message:new`), che si iscrive una volta sola.
+  const taskForTopicRef = useRefMirror(taskForTopic);
   // Gli handler di chat letti dai cluster WS, mirrorati. I cluster si iscrivono
   // UNA VOLTA e pescano da qui: metterli fra le dipendenze dell'effect voleva
   // dire rifare unsubscribe+subscribe a ogni cambio di identità, e
@@ -1054,20 +1063,29 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           timestamp: new Date().toISOString(),
         });
       }
-      // Notifications for messages in non-focused topics
+      // Banner per un messaggio arrivato mentre la finestra è NASCOSTA.
+      //
+      // C'era anche `msg.topicId !== focusedPanelIdRef.current`: confrontava un
+      // topicId con un panelId (`chat:<id>`), quindi era sempre vera — una
+      // condizione morta. Non la si "aggiusta": a finestra nascosta l'utente non
+      // sta guardando NESSUNA tab, quindi quale sia quella attiva non conta (è
+      // la stessa dottrina di `isTabActivelyVisible`). Via del tutto.
+      //
+      // Il gate che invece serviva non c'era: mentre un agente di board lavora
+      // il topic, i suoi messaggi non sono un evento per l'umano — la consegna
+      // la annuncia `task:review-ready`. Senza, una consegna sola faceva tre
+      // banner quasi identici (il nome del topic È il testo del task).
       if (
         msg.type === 'message:new' &&
         msg.role === 'assistant' &&
-        msg.topicId !== focusedPanelIdRef.current &&
         document.visibilityState === 'hidden'
       ) {
-        {
-          const topic = topicsRef.current[msg.topicId];
-          if (topic) {
-            // Shell bridge: web Notification on Electron/web, native `notify`
-            // command on Tauri (WKWebView's web Notification API is unreliable).
-            notifyNative(topic.name, msg.preview || 'New message', { tag: `topic-${msg.topicId}` });
-          }
+        const topic = topicsRef.current[msg.topicId];
+        const task = taskForTopicRef.current?.(msg.topicId) ?? null;
+        if (topic && !isAgentWorking(task?.dispatchState)) {
+          // Shell bridge: web Notification on Electron/web, native `notify`
+          // command on Tauri (WKWebView's web Notification API is unreliable).
+          notifyNative(topic.name, msg.preview || 'New message', { tag: `topic-${msg.topicId}` });
         }
       }
       // message:media
@@ -1090,7 +1108,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         }
       }
     });
-  }, [onWSMessage, focusedPanelIdRef, topicsRef, chatHandlersRef]);
+  }, [onWSMessage, topicsRef, chatHandlersRef, taskForTopicRef]);
 
   // WS Cluster 3: topic switch + topic switch complete (CRITIQUE C13)
   // ownTopicSwitchesRef writer + reader co-located here.
