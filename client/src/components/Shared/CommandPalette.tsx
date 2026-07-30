@@ -3,6 +3,7 @@ import {
   Search, Plus, Settings, Moon, Sun, File, FolderPlus, FolderOpen,
   Loader2, TerminalSquare, RotateCcw, Grid2x2,
 } from 'lucide-react';
+import { EmptyState } from './EmptyState';
 import { ClaudeIcon } from './ClaudeIcon';
 import { CodexIcon } from './CodexIcon';
 import { ProjectFavicon } from './ProjectFavicon';
@@ -499,7 +500,7 @@ export function CommandPalette({
               {filteredProjects.length > 0 ? (
                 filteredProjects.map(item => renderRow(item, { highlight: !!query.trim() }))
               ) : (
-                <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">No projects</div>
+                <EmptyState variant="panel" title="No projects" />
               )}
             </div>
           ) : !query.trim() ? (
@@ -513,7 +514,7 @@ export function CommandPalette({
                 {filteredProjects.length > 0 ? (
                   filteredProjects.map(item => renderRow(item, { compact: true }))
                 ) : (
-                  <div className="px-3 py-2 text-[11px] text-app-text-muted italic">Nessun progetto</div>
+                  <EmptyState variant="section" title="Nessun progetto" />
                 )}
               </section>
               {/* Chiuse di recente */}
@@ -525,7 +526,7 @@ export function CommandPalette({
                 {filteredRecenti.length > 0 ? (
                   filteredRecenti.map(item => renderRow(item, { compact: true }))
                 ) : (
-                  <div className="px-3 py-2 text-[11px] text-app-text-muted italic">Nessuna tab chiusa</div>
+                  <EmptyState variant="section" title="Nessuna tab chiusa" />
                 )}
               </section>
             </div>
@@ -540,13 +541,13 @@ export function CommandPalette({
                 {filteredProjects.length > 0 ? (
                   filteredProjects.map(item => renderRow(item, { highlight: !!query.trim() }))
                 ) : (
-                  <div className="px-3 py-2 text-[11px] text-app-text-muted italic">Nessun risultato</div>
+                  <EmptyState variant="section" title="Nessun risultato" />
                 )}
               </section>
               {/* Right: other results (Actions, Topics, Files, Messages) */}
               <section className="min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Risultati">
                 {allItems.length === 0 && !searchLoading ? (
-                  <div className="px-4 py-8 text-center text-[13px] text-app-text-muted">Nessun risultato</div>
+                  <EmptyState variant="panel" title="Nessun risultato" />
                 ) : (
                   <>
                     {filteredActions.length > 0 && (

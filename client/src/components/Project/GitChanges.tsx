@@ -520,7 +520,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors mt-1"
             >
               {initializing ? (
-                <div className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" />
+                <Spinner size="sm" tone="current" />
               ) : (
                 <GitBranch size={12} />
               )}
@@ -575,17 +575,17 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             )}
             {hasData && gitStatus!.behind > 0 && (
               <button onClick={handlePull} disabled={pulling} className="flex items-center gap-0.5 px-1 py-[1px] rounded-full text-[11px] font-medium text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 transition-colors" title={`Pull ${gitStatus!.behind} commits`}>
-                {pulling ? <div className="w-2.5 h-2.5 border border-red-300 border-t-red-500 rounded-full animate-spin" /> : <>↓{gitStatus!.behind}</>}
+                {pulling ? <Spinner size="xs" tone="current" /> : <>↓{gitStatus!.behind}</>}
               </button>
             )}
             {hasData && gitStatus!.ahead > 0 && (
               <button onClick={handlePush} disabled={pushing} className="flex items-center gap-0.5 px-1 py-[1px] rounded-full text-[11px] font-medium text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20 disabled:opacity-40 transition-colors" title={`Push ${gitStatus!.ahead} commits`}>
-                {pushing ? <div className="w-2.5 h-2.5 border border-green-300 border-t-green-500 rounded-full animate-spin" /> : <>↑{gitStatus!.ahead}</>}
+                {pushing ? <Spinner size="xs" tone="current" /> : <>↑{gitStatus!.ahead}</>}
               </button>
             )}
             <button onClick={loadStatus} className="w-4 h-4 inline-flex items-center justify-center rounded hover:bg-app-hover text-app-text-tertiary" title="Refresh">
-              <span className={`inline-flex items-center justify-center w-[10px] h-[10px] ${loading && !notGit ? 'animate-spin' : ''}`}>
-                <RefreshCw size={10} />
+              <span className="inline-flex items-center justify-center w-[10px] h-[10px]">
+                {loading && !notGit ? <Spinner size="xs" tone="current" /> : <RefreshCw size={10} />}
               </span>
             </button>
           </div>
@@ -601,7 +601,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
             >
               {initializing ? (
-                <div className="w-2.5 h-2.5 border border-white/30 border-t-white rounded-full animate-spin" />
+                <Spinner size="xs" tone="current" />
               ) : (
                 <GitBranch size={10} />
               )}
@@ -708,7 +708,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
                       title="Commit staged changes"
                     >
                       {committing ? (
-                        <div className="w-2.5 h-2.5 border border-white/30 border-t-white rounded-full animate-spin" />
+                        <Spinner size="xs" tone="current" />
                       ) : (
                         <GitCommit size={10} />
                       )}
@@ -999,7 +999,7 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
               className="w-full flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {committing ? (
-                <div className="w-2.5 h-2.5 border border-white/30 border-t-white rounded-full animate-spin" />
+                <Spinner size="xs" tone="current" />
               ) : (
                 <GitCommit size={10} />
               )}
@@ -1399,7 +1399,7 @@ function AddRemoteForm({ name, url, onNameChange, onUrlChange, onAdd, onCancel, 
           disabled={adding || !name.trim() || !url.trim()}
           className="px-1.5 h-[20px] text-[11px] font-medium rounded bg-primary text-white hover:bg-primary-hover disabled:opacity-40 transition-colors"
         >
-          {adding ? <div className="w-2 h-2 border border-white/30 border-t-white rounded-full animate-spin" /> : 'Add'}
+          {adding ? <Spinner size="xs" tone="current" /> : 'Add'}
         </button>
       </div>
     </div>

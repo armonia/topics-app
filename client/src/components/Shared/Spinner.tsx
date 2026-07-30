@@ -12,7 +12,7 @@
  * è l'attesa di un BLOCCO (un pannello che carica, un pane in Suspense), la
  * rotella lucide sta dentro le righe e i bottoni insieme alle altre icone.
  */
-const RING = 'border-app-spinner border-t-primary rounded-full animate-spin';
+const RING = 'rounded-full animate-spin';
 
 const SIZES = {
   /** Dentro un bottone stretto, accanto a un'icona da 10px. */
@@ -23,15 +23,31 @@ const SIZES = {
   md: 'w-4 h-4 border-2',
 } as const;
 
-export type SpinnerSize = keyof typeof SIZES;
+/**
+ * Il colore dell'anello.
+ *  · `default` — i token dell'app (`app-spinner` con l'arco `primary`): l'attesa
+ *                neutra di un blocco, su sfondo di pannello.
+ *  · `current` — eredita `currentColor` (`border-current/30` + arco pieno): per
+ *                l'anello DENTRO un bottone o una riga colorata, dove prima si
+ *                copiava a mano `border-white/30 border-t-white` (bottoni primari)
+ *                o si spingeva un `Loader2` di lucide che seguiva il testo. Chi
+ *                chiama imposta il colore col testo (`text-white`, `text-red-500`).
+ */
+const TONES = {
+  default: 'border-app-spinner border-t-primary',
+  current: 'border-current/30 border-t-current',
+} as const;
 
-export function Spinner({ size = 'sm', className = '' }: { size?: SpinnerSize; className?: string }) {
+export type SpinnerSize = keyof typeof SIZES;
+export type SpinnerTone = keyof typeof TONES;
+
+export function Spinner({ size = 'sm', tone = 'default', className = '' }: { size?: SpinnerSize; tone?: SpinnerTone; className?: string }) {
   // Etichetta in inglese come il resto delle superfici di attesa («Loading...»
   // in App.tsx, JournalPanel, AgentAssignPanel, GitChanges): questo anello sta
   // accanto a quelle scritte in dieci file, e uno screen reader che legge
   // "Caricamento" sopra un "Loading..." visibile racconta due lingue nella
   // stessa schermata.
-  return <div role="status" aria-label="Loading" className={`${SIZES[size]} ${RING} ${className}`} />;
+  return <div role="status" aria-label="Loading" className={`${SIZES[size]} ${TONES[tone]} ${RING} ${className}`} />;
 }
 
 /**
