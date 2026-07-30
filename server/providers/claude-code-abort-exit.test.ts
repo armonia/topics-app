@@ -21,6 +21,7 @@ function fakePP(over: Record<string, unknown> = {}) {
     inactivityTimer: null,
     lifetimeTimer: null,
     heartbeatInterval: null,
+    subAgentEmit: new Map(),
     ...over,
   };
 }

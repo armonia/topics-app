@@ -312,13 +312,6 @@ const agentUnassignedSchema = z.looseObject({
   topicId: z.string(),
 });
 
-const agentStatusSchema = z.looseObject({
-  type: z.literal('agent:status'),
-  agentId: z.string(),
-  status: z.string(),
-  previousStatus: z.optional(z.string()),
-});
-
 const agentHeartbeatSchema = z.looseObject({
   type: z.literal('agent:heartbeat'),
   agentId: z.string(),
@@ -822,37 +815,14 @@ const externalSessionsSchema = z.looseObject({
 
 // ---- Legacy chat:* events (replaced by topic:* in v3, kept for compat) ----
 
-const chatObjectShape = z.looseObject({ id: z.string() });
-
-const chatCreatedSchema = z.looseObject({
-  type: z.literal('chat:created'),
-  chat: chatObjectShape,
-});
-
-const chatUpdatedSchema = z.looseObject({
-  type: z.literal('chat:updated'),
-  chat: chatObjectShape,
-});
-
-const chatArchivedSchema = z.looseObject({
-  type: z.literal('chat:archived'),
-  chat: chatObjectShape,
-});
-
-const chatDeletedSchema = z.looseObject({
-  type: z.literal('chat:deleted'),
-  chatId: z.string(),
-});
-
-// ---- Provider niche events -------------------------------------------------
-
-const providerCurrentSchema = z.looseObject({
-  type: z.literal('provider:current'),
-});
-
-const providerChangedSchema = z.looseObject({
-  type: z.literal('provider:changed'),
-});
+// I `chat:*` (created/updated/archived/deleted), `provider:current`,
+// `provider:changed` e `agent:status` stavano qui: sette schemi che NESSUNO
+// mandava e NESSUNO ascoltava — ne' il server li emetteva, ne' il client li
+// nominava. Un registro di protocollo che dichiara messaggi inesistenti fa
+// credere che una via di sincronizzazione ci sia; il ciclo di vita delle chat
+// passa da `topic:*`, che e' vivo. Il test di copertura difende il verso
+// opposto (un broadcast senza schema), quindi questi non erano coperti da
+// niente. Rimossi il 30/07.
 
 // ---- Git status -----------------------------------------------------------
 
@@ -938,7 +908,6 @@ const OUTBOUND_SCHEMAS = {
   'agent:profile:deleted': agentProfileDeletedSchema,
   'agent:assigned': agentAssignedSchema,
   'agent:unassigned': agentUnassignedSchema,
-  'agent:status': agentStatusSchema,
   'agent:heartbeat': agentHeartbeatSchema,
   'agent:session:paused': agentSessionPausedSchema,
   'agent:session:resumed': agentSessionResumedSchema,
@@ -1005,13 +974,7 @@ const OUTBOUND_SCHEMAS = {
   // Census of Claude sessions Topics didn't start
   'external-sessions': externalSessionsSchema,
   // Legacy chat:* (replaced by topic:* in v3, kept for backward compat)
-  'chat:created': chatCreatedSchema,
-  'chat:updated': chatUpdatedSchema,
-  'chat:archived': chatArchivedSchema,
-  'chat:deleted': chatDeletedSchema,
   // Provider niche
-  'provider:current': providerCurrentSchema,
-  'provider:changed': providerChangedSchema,
   // Git status — the live event git-watcher actually emits.
   'git:status': gitStatusSchema,
   // Claude session state + events (highest-traffic live path)
