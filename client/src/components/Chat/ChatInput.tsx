@@ -1231,9 +1231,6 @@ export function ChatInput({
                     override={providerOverride ?? null}
                     defaultProviderLabel={defaultProviderLabel}
                     onChange={onProviderOverrideChange}
-                    // Sola lettura: il picker MOSTRA l'effort nel badge, non lo
-                    // cambia. Si cambia nel SessionConfigPopover qui accanto.
-                    effort={effort ?? null}
                     onOpenSettings={onOpenSettings}
                   />
                 )}
