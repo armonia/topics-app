@@ -185,7 +185,7 @@ function OverloadBadge() {
  *  general board): the global auto-dispatch switch + the auto concurrency cap
  *  that is sized from live capacity and enforced across ALL boards. Per-board
  *  overrides still live in the project board's ⚙ inline panel. */
-function GlobalSettingsMenu() {
+function GlobalSettingsMenu({ onMessage }: { onMessage?: (handler: (msg: WSMessage) => void) => () => void }) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [g, setG] = useState<GlobalSettings | null>(null);
@@ -195,6 +195,24 @@ function GlobalSettingsMenu() {
     boardApi.getGlobalSettings().then(setG).catch(() => { /* keep last */ });
     boardApi.dispatchCapacity().then(setCap).catch(() => { /* optional */ });
   };
+  // Il cap globale vale per TUTTE le board, quindi cambiarlo in una finestra
+  // riguarda anche le altre — ed e' per questo che il server manda
+  // `board:global-cap` (`server/routes/tasks.ts`). Nessuno lo ascoltava: la
+  // finestra che lo cambiava si aggiornava dalla propria risposta, le altre
+  // restavano sul valore vecchio finche' non riaprivano il menu.
+  useEffect(() => {
+    if (!onMessage) return;
+    return onMessage((msg: WSMessage) => {
+      const m = msg as { type?: string; maxAgentsAuto?: boolean; maxAgents?: number };
+      if (m.type !== 'board:global-cap') return;
+      setG((p) => (p ? {
+        ...p,
+        ...(typeof m.maxAgentsAuto === 'boolean' ? { maxAgentsAuto: m.maxAgentsAuto } : {}),
+        ...(typeof m.maxAgents === 'number' ? { maxAgents: m.maxAgents } : {}),
+      } : p));
+    });
+  }, [onMessage]);
+
   const toggleAuto = async (v: boolean) => {
     setG((p) => (p ? { ...p, autoDispatch: v } : p));
     try { await boardApi.setGlobalDispatch(v); } catch { load(); }
@@ -778,7 +796,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, onOpen
         ) : (
           <span className="text-xs font-semibold text-neutral-200">Board<span className="hidden sm:inline"> generale</span></span>
         )}
-        <GlobalSettingsMenu />
+        <GlobalSettingsMenu onMessage={onMessage} />
         <OverloadBadge />
         {/* Landing audit: task chiusi il cui lavoro NON è su main. Zero = il
             badge sparisce. Un click apre il primo, così il contatore è una

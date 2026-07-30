@@ -74,6 +74,12 @@ const REAL_PAYLOADS: { where: string; payload: Record<string, unknown> }[] = [
     where: "processes.ts:532 — nuovo output, accorpato a max 1/s per processo",
     payload: { type: "scripts:output", processId: "p1" },
   },
+
+  // ── cap globale dei dispatch (server/routes/tasks.ts) ─────────────────────
+  {
+    where: "tasks.ts:788 — il cap globale cambia, riguarda ogni board aperta",
+    payload: { type: "board:global-cap", maxAgentsAuto: true, maxAgents: 4 },
+  },
 ];
 
 describe("i payload reali passano il loro schema", () => {
