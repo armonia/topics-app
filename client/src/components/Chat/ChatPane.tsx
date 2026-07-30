@@ -450,7 +450,7 @@ function ChatPaneComponent({
 
   const defaultProviderLabel = topic.provider ?? undefined;
 
-  const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming, useCallback((m: string) => toast.error(`Invio del vocale fallito: ${m}`), [toast]));
+  const { isRecording, recordingTime, voiceUploading, startRecording, stopRecording, formatRecordingTime } = useVoiceRecording(sendMessage, topic.sessionKey, currentStreaming, useCallback((m: string) => toast.error(m), [toast]));
   const isUploading = uploading || voiceUploading;
 
   // Scroll management is handled entirely by Virtuoso in MessageList

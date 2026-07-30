@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Clock, RotateCcw, Plus } from 'lucide-react';
 import { useCheckpoints, type Checkpoint } from '../../hooks/useCheckpoints';
+import { useToast } from '../Shared/Toast';
 
 interface CheckpointTimelineProps {
   topicId: string;
@@ -22,6 +23,7 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
   const [expanded, setExpanded] = useState(false);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const [rollingBack, setRollingBack] = useState(false);
+  const toast = useToast();
 
   useEffect(() => { load(); }, [load]);
 
@@ -39,15 +41,18 @@ export function CheckpointTimeline({ topicId, onRollback }: CheckpointTimelinePr
     const result = await rollback(checkpoint.idx);
     setRollingBack(false);
 
+    // Toast, non `alert()`: la finestra dell'app e' una WKWebView, e un dialog
+    // modale nativo BLOCCA il thread della webview — cioe' congela chat in
+    // streaming, terminali e pane accanto finche' non lo chiudi a mano. Un
+    // esito di rollback non vale il blocco di tutta l'app.
     if (result.ok) {
-      if (result.warning) {
-        alert(`Rolled back successfully.\nNote: ${result.warning}`);
-      }
+      if (result.warning) toast.warning(`Rolled back. Note: ${result.warning}`);
+      else toast.success('Rolled back.');
       onRollback?.();
     } else {
-      alert(`Rollback failed: ${result.warning || 'Unknown error'}`);
+      toast.error(`Rollback failed: ${result.warning || 'Unknown error'}`);
     }
-  }, [rollback, onRollback]);
+  }, [rollback, onRollback, toast]);
 
   if (checkpoints.length === 0) return null;
 
