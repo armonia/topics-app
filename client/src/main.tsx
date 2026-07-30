@@ -8,7 +8,7 @@ import App from './App'
 // client/src/state/pane/. main.tsx is intentionally a thin shell.
 import { bootstrapPaneStore } from './state/pane/bootstrap';
 import { initWindowPresence } from './state/windowPresence';
-import { installDesktopFetchShim } from './lib/shell/net';
+import { installNetShim } from './lib/shell/net';
 import { capturePairingTokenFromUrl } from './lib/shell/pairing';
 
 // LAN/PWA pairing (LAN-PAIR-01): capture a `?token=` launch param into storage
@@ -17,9 +17,11 @@ import { capturePairingTokenFromUrl } from './lib/shell/pairing';
 // No-op on desktop/loopback (never launched with a token).
 capturePairingTokenFromUrl();
 
-// Desktop shell (Tauri) serves the UI locally; rewrite relative API fetches to
-// the data server origin BEFORE any bootstrap fetch fires. No-op off-desktop.
-installDesktopFetchShim();
+// Shim di rete, DOPO la cattura del token (il suo gate lo legge): sotto Tauri
+// riscrive le fetch relative verso l'origine del data server, e su qualunque
+// shell attacca il token di pairing ai percorsi che usano `fetch` nudo. Deve
+// girare prima di ogni fetch di bootstrap. Su web senza token non si installa.
+installNetShim();
 
 const container = document.getElementById('root')
 if (!container) {

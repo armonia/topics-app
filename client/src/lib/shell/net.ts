@@ -7,7 +7,7 @@
 // origin. These helpers are the single place that knows the difference.
 
 import { isTauri } from './index';
-import { withTokenHeader, withTokenQuery } from './pairing';
+import { getPairingToken, withTokenHeader, withTokenQuery } from './pairing';
 
 // The data server (Bun) serves HTTPS/WSS with a local-CA ("Armonia Local CA")
 // certificate. WKWebView (the Tauri shell's engine) refuses that cert, so the
@@ -34,14 +34,49 @@ export function serverWsBase(): string {
 }
 
 let shimInstalled = false;
-/** Under Tauri the UI is served from tauri://localhost, so the many relative
- *  `fetch('/api/…')` callsites would resolve against the local origin and fail.
- *  This installs a one-time global fetch shim that rewrites leading-'/' request
- *  URLs to the data server origin. No-op off-desktop, so web/Electron are
- *  untouched. WebSocket callsites use serverWsBase() explicitly (not shimmable
- *  as cleanly). Call once at app startup. */
-export function installDesktopFetchShim(): void {
-  if (shimInstalled || !isTauri || typeof window === 'undefined') return;
+
+/** Test-only: dimentica che lo shim è stato installato, così un test può provare
+ *  il gate con e senza token nello stesso processo. */
+export function __resetNetShimForTests(): void {
+  shimInstalled = false;
+}
+
+/**
+ * Shim globale su `fetch` + `EventSource`. Fa DUE cose, per due ragioni diverse,
+ * e si installa se serve almeno una delle due:
+ *
+ * 1. **Riscrittura URL (solo Tauri).** Sotto Tauri la UI è servita da
+ *    `tauri://localhost`, quindi le decine di `fetch('/api/…')` relative
+ *    risolverebbero contro l'origine locale e fallirebbero: il leading-'/' va
+ *    riscritto verso l'origine del data server. Su web `serverHttpBase()` è `''`,
+ *    quindi questa parte è già un no-op per costruzione.
+ *
+ * 2. **Token di pairing (chiunque ne abbia uno).** Un dispositivo remoto paiato
+ *    deve presentare `x-topics-token` su OGNI chiamata mutante, e nel client ce
+ *    ne sono 80 su `/api` — 46 mutanti — sparse in oltre 20 file: i sync del
+ *    pane-store, i tombstone, il layout di progetto, le tab del browser del task
+ *    usano `fetch` NUDO con header propri, perché devono aggiungere
+ *    `X-Client-Id` e usare `keepalive`. Non passano da `api.ts::request`, quindi
+ *    `withTokenHeader` là dentro non li copre.
+ *
+ * Il gate era `!isTauri → esci`, e questo lasciava la PWA in LAN — l'unico caso
+ * per cui il token esiste — senza token su tutti quei percorsi: 401 sul sync
+ * delle tab, cioè la rottura che LAN-PAIR-01 doveva chiudere. Ora si installa
+ * anche fuori da Tauri quando un token è memorizzato. Su web SENZA token non si
+ * installa affatto: il browser locale sull'origine del server resta identico a
+ * prima, senza monkey-patch.
+ *
+ * Va chiamata una volta all'avvio, DOPO `capturePairingTokenFromUrl()` — il gate
+ * legge il token, che quella funzione ha appena messo in storage.
+ *
+ * I callsite WebSocket usano `serverWsBase()` + `withTokenQuery` espliciti (un
+ * WebSocket non è shimmabile con la stessa pulizia).
+ */
+export function installNetShim(): void {
+  if (shimInstalled || typeof window === 'undefined') return;
+  // Serve per la riscrittura (Tauri) o per il token (dispositivo paiato). Se
+  // nessuna delle due, meglio nessun shim.
+  if (!isTauri && getPairingToken() === null) return;
   shimInstalled = true;
   const base = serverHttpBase();
   const orig = window.fetch.bind(window);
@@ -63,21 +98,19 @@ export function installDesktopFetchShim(): void {
     return orig(input, init);
   };
 
-  // EventSource (SSE) has the same relative-URL problem as fetch — a bare
-  // '/api/activity/stream' would resolve against tauri://localhost (no server)
-  // and the activity feed would be dead. EventSource is a constructor, so we
-  // subclass it to rewrite leading-'/' URLs to the data-server origin.
+  // EventSource (SSE) ha lo stesso problema di URL relativo della fetch — sotto
+  // Tauri un '/api/activity/stream' nudo risolverebbe contro tauri://localhost
+  // (nessun server) e il feed sarebbe morto — e lo stesso problema di token della
+  // fetch: un dispositivo paiato deve presentarlo, e SSE non porta header, quindi
+  // va in query. EventSource è un costruttore, quindi si sottoclassa.
   const OrigES = window.EventSource;
   if (OrigES) {
-    class DesktopEventSource extends OrigES {
+    class ShimmedEventSource extends OrigES {
       constructor(url: string | URL, init?: EventSourceInit) {
-        // Rewrite leading-'/' to the data-server origin, then attach the pairing
-        // token as `?token=` (LAN-PAIR-01; inert on desktop/loopback). SSE can't
-        // carry headers, so the query form is used.
         const rewritten = typeof url === 'string' && url.startsWith('/') ? base + url : url;
         super(typeof rewritten === 'string' ? withTokenQuery(rewritten) : rewritten, init);
       }
     }
-    window.EventSource = DesktopEventSource as typeof EventSource;
+    window.EventSource = ShimmedEventSource as typeof EventSource;
   }
 }
