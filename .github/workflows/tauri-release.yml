@@ -198,17 +198,29 @@ jobs:
           # take-2). Bun single-file executables embed their JS payload past the ELF
           # sections and don't survive strip anyway. Linux-only effect.
           NO_STRIP: true
-          # macOS code signing + notarization: DISABLED for now. The tauri-v2.1.0
-          # run proved the inherited MAC_CSC_LINK org secret is NOT an importable
-          # .p12 for tauri-action (`security import: failed to import keychain
-          # certificate` — it was electron-builder's CSC_LINK format), and passing
-          # a broken value fails the whole macOS job instead of skipping signing.
-          # Ship unsigned (Gatekeeper: right-click → Open on first launch; the
-          # Tauri updater still verifies bundles via TAURI_SIGNING_* above, which
-          # is independent of Apple signing). To re-enable: export a Developer ID
-          # Application cert as base64 .p12 into APPLE_CERTIFICATE(+_PASSWORD),
-          # set APPLE_SIGNING_IDENTITY/APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID, and
-          # restore the env lines here.
+          # macOS code signing + notarization — ARMED, activates when the secrets
+          # exist. tauri-action only signs when APPLE_CERTIFICATE is a NON-EMPTY
+          # string; until the secrets are set these all resolve to "" and the
+          # macOS job ships unsigned exactly as before (no import, no failure).
+          # This is safe precisely because we DON'T reuse the old MAC_CSC_LINK
+          # org secret: the tauri-v2.1.0 run proved that value is electron-builder's
+          # CSC_LINK format, NOT an importable .p12 for tauri-action (`security
+          # import: failed to import keychain certificate`), and a broken non-empty
+          # value fails the whole macOS job instead of skipping. New APPLE_* names
+          # start empty, so arming them here cannot re-trigger that break.
+          #
+          # To go LIVE (signed + notarized so macOS 26 grants UserNotifications):
+          #   APPLE_CERTIFICATE          — base64 of a "Developer ID Application" .p12
+          #   APPLE_CERTIFICATE_PASSWORD — the .p12 export password
+          #   APPLE_SIGNING_IDENTITY     — e.g. "Developer ID Application: Name (TEAMID)"
+          #   APPLE_ID / APPLE_PASSWORD  — Apple ID + app-specific password (notarize)
+          #   APPLE_TEAM_ID              — 10-char team id
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: desktop-tauri
           # Upload into the pre-made draft (by id) — no per-job createRelease, no
