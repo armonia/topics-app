@@ -10,6 +10,9 @@ import {
   openTaskInApp,
   openTaskFromUrl,
   subscribeServiceWorkerTaskOpen,
+  parseTopicLocation,
+  selfTopicLinkTarget,
+  openTopicInApp,
 } from './openTaskLink';
 
 // jsdom-less: a minimal, typed view of the global surface the module touches,
@@ -329,5 +332,49 @@ describe('subscribeServiceWorkerTaskOpen (click su una web-push)', () => {
     stubWindow(`${origin}/`);
     (globalThis as unknown as { navigator: unknown }).navigator = {};
     expect(() => subscribeServiceWorkerTaskOpen()()).not.toThrow();
+  });
+
+  test('un /topic/<id> dalla push di fine chat apre la tab del topic', () => {
+    const { events } = stubWindow(`${origin}/`);
+    const { post } = stubServiceWorker();
+    const off = subscribeServiceWorkerTaskOpen();
+    post({ type: 'topics:open-url', url: '/topic/tp1' });
+    expect(events.map((e) => e.type)).toEqual(['topics:open-topic']);
+    expect(events[0].detail).toEqual({ topicId: 'tp1', mode: 'permanent' });
+    off();
+  });
+});
+
+// Il deep-link per la CHAT (`/topic/<id>`), gemello di `/task/<id>`: è la
+// destinazione del click sulla push di fine risposta.
+describe('deep-link del topic', () => {
+  test('parseTopicLocation legge /topic/<id> e ignora il resto', () => {
+    expect(parseTopicLocation('/topic/tp1')).toEqual({ topicId: 'tp1' });
+    expect(parseTopicLocation('/topic/tp1/')).toEqual({ topicId: 'tp1' });
+    expect(parseTopicLocation('/task/t1')).toBeNull();
+    expect(parseTopicLocation('/topic/a/b')).toBeNull();
+    expect(parseTopicLocation('/')).toBeNull();
+  });
+
+  test('selfTopicLinkTarget accetta solo la self-origin', () => {
+    stubWindow(`${origin}/`);
+    expect(selfTopicLinkTarget(`${origin}/topic/tp1`)).toEqual({ topicId: 'tp1' });
+    expect(selfTopicLinkTarget('/topic/tp1')).toEqual({ topicId: 'tp1' });
+    expect(selfTopicLinkTarget('https://evil.example/topic/tp1')).toBeNull();
+    expect(selfTopicLinkTarget(`${origin}/task/t1`)).toBeNull();
+  });
+
+  test('openTopicInApp emette topics:open-topic (permanent)', () => {
+    const { events } = stubWindow(`${origin}/`);
+    openTopicInApp({ topicId: 'tp1' });
+    expect(events.map((e) => e.type)).toEqual(['topics:open-topic']);
+    expect(events[0].detail).toEqual({ topicId: 'tp1', mode: 'permanent' });
+  });
+
+  test('openTaskFromUrl apre il topic da finestra chiusa (/topic/<id> al boot)', () => {
+    const { events } = stubWindow(`${origin}/topic/tp1`);
+    openTaskFromUrl();
+    expect(events.map((e) => e.type)).toEqual(['topics:open-topic']);
+    expect(events[0].detail).toEqual({ topicId: 'tp1', mode: 'permanent' });
   });
 });
