@@ -5,8 +5,9 @@ import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_PANEL, Z_POPOVER } from '@/lib/popoverStyles';
 import type { ProviderSnapshotEntry } from '../../types';
-import { resolveEffectiveProvider, providerEffortTier } from '@/lib/effortTiers';
+import { resolveEffectiveProvider } from '@/lib/effortTiers';
 import { splitModelId } from '@/lib/modelLabel';
+import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 
 const PROVIDER_LABELS: Record<string, string> = {
   openclaw: 'OpenClaw',
@@ -32,14 +33,14 @@ interface Props {
   defaultProviderLabel?: string;
   onChange: (override: ProviderModelOverride | null) => void;
   onOpenSettings?: () => void;
-  /** Per-topic effort-tier override (migration 033), letto in SOLA LETTURA
-   *  per il badge: qui l'effort si VEDE, si cambia dal SessionConfigPopover.
-   *  Averlo in due posti significava due sorgenti di verità per la stessa
-   *  impostazione, in due popover diversi, con due grafiche diverse. */
-  effort?: string | null;
+  /* L'EFFORT NON PASSA DI QUI, ed è una scelta. Questo bottone apre la lista dei
+     modelli: ci finiva anche il tier perché era l'unico posto dove si vedeva,
+     mentre a cambiarlo era un altro controllo — che a sua volta non lo mostrava.
+     Adesso il valore sta sul trigger che lo governa (`SessionConfigPopover`) e
+     qui resta solo ciò che riguarda il modello: nome e finestra. */
 }
 
-export function ProviderModelPicker({ override, defaultProviderLabel, onChange, onOpenSettings, effort }: Props) {
+export function ProviderModelPicker({ override, defaultProviderLabel, onChange, onOpenSettings }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -78,15 +79,14 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   // compete per la larghezza col nome, e su una pane stretta a essere tagliato
   // via era proprio lui — cioe' l'unica differenza visibile fra una finestra da
   // 200k e una da 1M. Fuori dal truncate diventa un badge che non si accorcia.
-  const { name: modelName, longContext } = splitModelId(activeModelId ?? '');
+  const { name: modelName } = splitModelId(activeModelId ?? '');
 
-  // Effort/reasoning tier the server forces on the ACTIVE provider's sessions
-  // (read-only policy, e.g. `--effort xhigh` for claude-code). Shown as a
-  // badge next to the model name; absent for providers without a tier.
-  const activeEffortTier = useMemo(
-    () => providerEffortTier(entries, effective, override),
-    [effective, override, entries],
-  );
+  // La finestra del modello in uso. Prima qui c'era un badge `1M` che compariva
+  // SOLO sulle varianti col suffisso `[1m]`: leggendo la barra, un modello senza
+  // badge poteva essere da 200k o da un milione: l'assenza non distingueva «non
+  // e' lungo» da «non lo diciamo». Adesso il numero c'e' sempre, e quando non lo
+  // conosciamo lo dichiara con la tilde invece di tacere.
+  const activeWindow = useMemo(() => contextWindowFor(activeModelId), [activeModelId]);
 
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -177,39 +177,24 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
             not the viewport) drops below 380px — keeps the effort badge and
             the rest of the action bar reachable on a narrow tab. */}
         <span className="max-w-[160px] @max-[380px]:max-w-[70px] truncate">{modelName || 'Model'}</span>
-        {longContext && (
-          <span
-            data-testid="model-longcontext-badge"
-            className="text-[9px] font-semibold tracking-wide px-1 rounded flex-shrink-0 bg-primary/15 text-primary"
-            title="Finestra di contesto da 1M token"
-          >
-            1M
-          </span>
-        )}
-        {/* Qui resta SOLO il tier che il provider forza sulle sue sessioni: e'
-            informazione sul provider, e sta col provider. L'override per-chat —
-            quello che scegli tu — e' passato sul trigger che lo cambia
-            (SessionConfigPopover): prima stava qui, cioe' su un bottone che apre
-            la lista dei modelli, mentre a cambiarlo era un altro controllo che
-            non lo mostrava.
-            Resta visibile ANCHE quando c'e' un override, solo smorzato: farlo
-            sparire avrebbe restretto il bottone proprio mentre si cambia effort,
-            cioe' avrebbe reintrodotto il layout shift dall'altro lato. Larghezza
-            fissa per lo stesso motivo — le sigle vanno da 3 (LOW) a 6 (MEDIUM)
-            caratteri. */}
-        {activeEffortTier && (
-          <span
-            data-testid="effort-tier-badge"
-            className={`w-[38px] text-center text-[9px] uppercase tracking-wide px-1 rounded flex-shrink-0 ${
-              effort ? 'bg-app-hover text-app-text-muted opacity-60' : 'bg-primary/15 text-primary'
-            }`}
-            title={effort
-              ? `Questo provider forza effort ${activeEffortTier}, ma questa chat lo sovrascrive con ${effort}`
-              : `Effort che Topics forza sulle sessioni di questo provider: ${activeEffortTier}`}
-          >
-            {activeEffortTier}
-          </span>
-        )}
+        {/* La finestra del modello, sempre. Il numero e' l'unica cosa che
+            distingue due modelli che sulla barra si assomigliano, ed e' la
+            ragione per cui si sceglie l'uno o l'altro a meta' conversazione.
+            La tilde non e' decorazione: dice che il modello non e' in tabella e
+            quel numero e' il default, non una misura. */}
+        <span
+          data-testid="model-context-badge"
+          data-context-tokens={activeWindow.tokens}
+          data-context-known={activeWindow.known ? 'true' : 'false'}
+          className={`text-[9px] font-semibold tracking-wide px-1 rounded flex-shrink-0 tabular-nums ${
+            activeWindow.known ? 'bg-primary/15 text-primary' : 'bg-app-hover text-app-text-muted'
+          }`}
+          title={activeWindow.known
+            ? `Finestra di contesto: ${activeWindow.tokens.toLocaleString('it-IT')} token`
+            : `Modello non in tabella: finestra stimata in ${activeWindow.tokens.toLocaleString('it-IT')} token`}
+        >
+          {activeWindow.known ? '' : '≈'}{formatContextWindow(activeWindow.tokens)}
+        </span>
       </button>
 
       {open && popoverPos && createPortal(
@@ -325,15 +310,13 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                   <div className="flex items-center gap-1.5 px-2.5 py-1">
                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-500" />
                     <span className="text-[11px] font-semibold text-app-text">{label}</span>
-                    {entry.effortTier && (
-                      <span
-                        data-testid={`effort-tier-${entry.name}`}
-                        className="text-[9px] uppercase tracking-wide text-app-text-muted border border-app-border px-1 rounded"
-                        title={`Effort tier Topics forces for ${label} sessions: ${entry.effortTier}`}
-                      >
-                        {entry.effortTier}
-                      </span>
-                    )}
+                    {/* Il tier del provider stava qui accanto al nome. Se n'è
+                        andato con l'altro badge: l'effort in forza — default del
+                        provider oppure override della chat — si legge tutto in
+                        UN posto, il pannello che lo cambia, che lo dice per
+                        esteso («Default del provider (xhigh)»). Ripeterlo qui
+                        significava due grafiche diverse per lo stesso valore in
+                        due popover diversi. */}
                     {entry.isDefault && (
                       <span className="ml-auto text-[11px] bg-primary/20 text-primary px-1 rounded">Default</span>
                     )}
@@ -342,6 +325,11 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                     const isSelected = override?.provider === entry.name && override?.model === m;
                     const rowIdx = cursor++;
                     const isActive = rowIdx === activeIndex;
+                    // La finestra di QUESTO modello. È il dato che fa scegliere
+                    // fra due righe altrimenti identiche a occhio — e mancava
+                    // proprio nel momento della scelta: si vedeva solo dopo, sul
+                    // bottone, e solo per le varianti col suffisso.
+                    const win = contextWindowFor(m);
                     return (
                       <button
                         key={`${entry.name}:${m}`}
@@ -354,7 +342,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                         data-active={isActive ? 'true' : undefined}
                         onMouseEnter={() => setActiveIndex(rowIdx)}
                         onClick={() => select(entry.name, m)}
-                        className={`w-full flex items-center gap-2 px-5 py-1 text-left text-[11px] transition-colors ${
+                        className={`w-full flex items-center gap-2 pl-5 pr-2.5 py-1 text-left text-[11px] transition-colors ${
                           isSelected
                             ? 'bg-primary/15 text-primary font-medium'
                             : isActive
@@ -362,8 +350,29 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
                               : 'text-app-text-secondary hover:bg-app-hover'
                         }`}
                       >
-                        <span className="font-mono">{m}</span>
-                        {isSelected && <span className="ml-auto text-[11px]">✓</span>}
+                        {/* Tre colonne, e in quest'ordine: il nome cede lui la
+                            larghezza (`truncate` + `min-w-0`), la finestra e la
+                            spunta no. Il segno di spunta occupa il suo posto
+                            ANCHE quando non c'è (`w-3` sempre reso): altrimenti
+                            la colonna dei numeri ballerebbe di tre pixel sulla
+                            riga selezionata, che è l'unica che si guarda. */}
+                        <span className="font-mono truncate min-w-0">{m}</span>
+                        <span
+                          data-testid={`model-window-${m}`}
+                          data-context-tokens={win.tokens}
+                          data-context-known={win.known ? 'true' : 'false'}
+                          className={`ml-auto flex-shrink-0 text-[10px] tabular-nums ${
+                            isSelected ? 'text-primary/80' : 'text-app-text-muted'
+                          }`}
+                          title={win.known
+                            ? `Finestra di contesto: ${win.tokens.toLocaleString('it-IT')} token`
+                            : `Modello non in tabella: finestra stimata in ${win.tokens.toLocaleString('it-IT')} token`}
+                        >
+                          {win.known ? '' : '≈'}{formatContextWindow(win.tokens)}
+                        </span>
+                        <span className="w-3 flex-shrink-0 text-center" aria-hidden={!isSelected}>
+                          {isSelected ? '✓' : ''}
+                        </span>
                       </button>
                     );
                   })}
