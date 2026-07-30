@@ -20,6 +20,7 @@ import type {
   Worktree,
 } from '../types';
 import { serverHttpBase } from './shell/net';
+import { withTokenHeader } from './shell/pairing';
 
 // Relative on web/PWA/Electron (same-origin). Under the Tauri desktop shell the
 // UI is served locally (tauri://localhost), so a global fetch shim rewrites these
@@ -37,12 +38,15 @@ export class ApiError extends Error {
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  // LAN-PAIR-01: attach the pairing token as `x-topics-token` when a remote
+  // device has one stored; no-op (headers unchanged) on desktop/loopback.
+  const headers = withTokenHeader({
+    'Content-Type': 'application/json',
+    ...options.headers,
+  });
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { withTokenQuery } from '../lib/shell/pairing';
 
 export type ActivityCategory =
   | 'tool:exec'
@@ -70,7 +71,9 @@ export function useActivity(enabled = true) {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     function connect() {
-      const es = new EventSource('/api/activity/stream');
+      // LAN-PAIR-01: SSE can't carry headers, so a paired remote device presents
+      // the token as a `?token=` query param; bare URL on desktop/loopback.
+      const es = new EventSource(withTokenQuery('/api/activity/stream'));
       esRef.current = es;
 
       es.onopen = () => setConnected(true);
