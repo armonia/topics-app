@@ -959,12 +959,18 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
     }
   });
 
-  // The knobs you change MID conversation now have their own surface in the
-  // composer. Before, effort sat inside the provider/model popover (behind a
-  // trigger labelled "Provider & model", under a provider search field) and
-  // AUTONOMIA — the permission mode — was reachable only from the topic
-  // settings modal, itself only reachable from a tab right-click.
-  test("CHAT-CONFIG: composer exposes effort + autonomy inline, and they persist", async ({ page, request }) => {
+  // Le manopole che si cambiano IN CORSO di conversazione hanno una superficie
+  // nel composer. Prima l'effort stava dentro il popover provider/modello
+  // (dietro un trigger "Provider & model", sotto un campo di ricerca).
+  //
+  // L'AUTONOMIA non c'e' piu': mostrava "Chiedi — Approvi ogni azione"
+  // selezionato su ogni topic mentre lo spawn usa `bypassPermissions`, e non e'
+  // collegabile finche' il server non gestisce il canale di permesso della CLI
+  // (`can_use_tool` non compare da nessuna parte). Motivo e piano in
+  // openspec/changes/autonomy-level-needs-permission-channel/. Questo test
+  // copriva la PERSISTENZA di quel valore — che continua a funzionare via
+  // `PATCH /api/topics/:id`, colonna intatta — ma non piu' il controllo.
+  test("CHAT-CONFIG: il composer espone l'effort inline, e non finge un'autonomia", async ({ page, request }) => {
     const topic = await createTopic(request, `E2E-Config-${Date.now()}`);
     try {
       await goToApp(page);
@@ -977,25 +983,28 @@ test.describe("Conversation pack (CHAT-CONV)", () => {
       const panel = page.getByTestId("chat-session-config-panel");
       await expect(panel).toBeVisible({ timeout: 5_000 });
 
-      // AUTONOMIA is the one that used to be modal-only — set it from here and
-      // assert it round-trips to the server, not just to the DOM.
-      await panel.getByTestId("session-autonomy-yolo").click();
+      // L'effort e' la manopola che questa superficie serve davvero.
+      await expect(panel, "il pannello mostra i tier di effort").toContainText(/effort/i);
+
+      // E NESSUN selettore di autonomia: un controllo che appare impostato e non
+      // fa niente e' peggio di un controllo assente.
+      await expect(page.getByTestId("session-autonomy-ask")).toHaveCount(0);
+      await expect(page.getByTestId("session-autonomy-auto-apply")).toHaveCount(0);
+      await expect(page.getByTestId("session-autonomy-yolo")).toHaveCount(0);
+
+      // La colonna resta scrivibile dall'API: i dati non sono stati buttati con
+      // la UI, e il giorno in cui il canale di permesso esiste sono ancora la'.
+      const patch = await request.patch(`${E2E_BASE}/api/topics/${topic.id}`, {
+        data: { autonomyLevel: "yolo" },
+      });
+      expect(patch.ok(), "PATCH autonomyLevel resta accettata").toBe(true);
       await expect
         .poll(async () => {
           const res = await request.get(`${E2E_BASE}/api/topics`);
           const body = await res.json();
           return body?.topics?.[topic.id]?.autonomyLevel;
-        }, { message: "autonomy set from the composer is persisted", timeout: 5_000 })
+        }, { message: "il valore e' ancora persistito lato server", timeout: 5_000 })
         .toBe("yolo");
-
-      // …and it survives a reload, reopened from the same control.
-      await page.reload({ waitUntil: "load" });
-      await openTopic(page, new RegExp(topic.name));
-      await page.getByTestId("chat-session-config").click();
-      await expect(
-        page.getByTestId("session-autonomy-yolo"),
-        "the persisted level is the selected one after reload",
-      ).toHaveClass(/bg-primary/, { timeout: 5_000 });
     } finally {
       await deleteTopic(request, topic.id);
     }

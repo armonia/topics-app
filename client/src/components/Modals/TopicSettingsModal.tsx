@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, FolderOpen, GitBranch } from 'lucide-react';
 import { useRefMirror } from '../../hooks/useRefMirror';
-import type { Topic, UpdateTopicRequest, AutonomyLevel, Worktree } from '../../types';
+import type { Topic, UpdateTopicRequest, Worktree } from '../../types';
 import { MODAL_BACKDROP, MODAL_PANEL } from '../../lib/modalStyles';
 import { worktreesApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -23,7 +23,6 @@ interface ProviderInfo {
 
 export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSettingsModalProps) {
   const [projectPath, setProjectPath] = useState(topic.projectPath || '');
-  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>(topic.autonomyLevel || 'ask');
   const [topicName, setTopicName] = useState(topic.name);
   const [topicColor, setTopicColor] = useState(topic.color);
   const [systemPrompt, setSystemPrompt] = useState(topic.systemPrompt || '');
@@ -53,7 +52,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   useEffect(() => {
     // one-shot sync of controlled form fields from the topic prop on open / topic change
     setProjectPath(topic.projectPath || '');
-    setAutonomyLevel(topic.autonomyLevel || 'ask');
     setTopicName(topic.name);
     setTopicColor(topic.color);
     setSystemPrompt(topic.systemPrompt || '');
@@ -83,7 +81,6 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
   // compute it during render instead of mirroring it into state via an effect.
   const isDirty =
     projectPath !== (topic.projectPath || '') ||
-    autonomyLevel !== (topic.autonomyLevel || 'ask') ||
     topicName !== topic.name ||
     topicColor !== topic.color ||
     systemPrompt !== (topic.systemPrompt || '') ||
@@ -104,7 +101,9 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
       name: topicName,
       color: topicColor,
       projectPath: projectPath.trim() || undefined,
-      autonomyLevel,
+      // `autonomyLevel` NON viene mandato: la PATCH è parziale (il server tocca
+      // solo i campi presenti), quindi il valore in colonna resta al suo posto
+      // invece di essere riscritto da un modal che non lo gestisce più.
       systemPrompt,
       contextFiles: contextFilesList,
       provider,
@@ -373,35 +372,26 @@ export function TopicSettingsModal({ topic, isOpen, onClose, onUpdate }: TopicSe
             </div>
           </div>
 
-          {/* Autonomy Level */}
-          <div>
-            <label className="block text-[13px] font-medium text-app-text mb-2">
-              Autonomy Level
-            </label>
-            <p className="text-[11px] text-app-text-muted mb-2">
-              Controls how much approval the agent needs before taking actions.
-            </p>
-            <div className="flex rounded-lg border border-app-border-light overflow-hidden">
-              {([
-                { value: 'ask' as AutonomyLevel, label: 'Ask', desc: 'Approve each action' },
-                { value: 'auto-apply' as AutonomyLevel, label: 'Auto-apply', desc: 'Apply, show results' },
-                { value: 'yolo' as AutonomyLevel, label: 'Full Auto', desc: 'Minimal feedback' },
-              ]).map(({ value, label, desc }) => (
-                <button
-                  key={value}
-                  onClick={() => setAutonomyLevel(value)}
-                  className={`flex-1 px-3 py-2 text-center transition-colors ${
-                    autonomyLevel === value
-                      ? 'bg-primary text-white'
-                      : 'bg-surface dark:bg-elevated text-app-text-secondary hover:bg-app-hover'
-                  } ${value !== 'ask' ? 'border-l border-app-border-light' : ''}`}
-                >
-                  <div className="text-[12px] font-medium">{label}</div>
-                  <div className={`text-[11px] mt-0.5 ${autonomyLevel === value ? 'text-white/70' : 'text-app-text-muted'}`}>{desc}</div>
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Il selettore "Autonomy Level" stava qui, e MENTIVA.
+              Mostrava "Ask — Approve each action" selezionato su ogni topic (è
+              il default di schema: tutti i 461 nel DB reale) mentre lo spawn
+              usava `bypassPermissions`, cioè nessuna approvazione. Un controllo
+              che appare impostato e non fa niente è peggio di un controllo
+              assente: chi lo legge crede che l'agente chieda.
+
+              NON è un cablaggio dimenticato, è un pezzo che manca. I livelli
+              dovrebbero mappare sui `--permission-mode` della CLI, ma tutti
+              quelli che CHIEDONO (`manual`, e `acceptEdits` per tutto ciò che
+              non è una modifica di file) inoltrano la richiesta su un canale di
+              controllo che Topics non gestisce: `can_use_tool` non compare da
+              nessuna parte nel server. Collegarli oggi significherebbe far
+              bloccare il turno finché non scatta il watchdog — una trappola, non
+              una funzione.
+
+              La colonna `topics.autonomy_level`, la `PATCH` che la scrive e il
+              tipo restano intatti: i dati non si buttano per una UI. Cosa serve
+              per riaccenderlo sta in
+              openspec/changes/autonomy-level-needs-permission-channel/. */}
 
           {/* Provider */}
           <div>
