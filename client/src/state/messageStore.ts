@@ -40,6 +40,12 @@ let state: MessageMap = {};
 /** Iscritti per chiave di sessione, più quelli che vogliono sapere tutto. */
 const perSession = new Map<string, Set<() => void>>();
 const global = new Set<() => void>();
+/**
+ * Ultimo istante in cui una sessione è stata scritta o LASCIATA (l'ultimo che la
+ * guardava si è disiscritto). È il dato su cui `messageResidency` sceglie chi
+ * tenere caldo: senza, «la più recente» non si può nemmeno definire.
+ */
+const touchedAt = new Map<string, number>();
 
 /** L'intera mappa. Per le letture sincrone dentro le callback di `useChat`. */
 export function getAllMessages(): MessageMap {
@@ -73,7 +79,10 @@ export function updateMessages(updater: (prev: MessageMap) => MessageMap): void 
     if (!(k in next)) touched.add(k);
   }
 
+  const at = Date.now();
   for (const k of touched) {
+    if (k in next) touchedAt.set(k, at);
+    else touchedAt.delete(k);
     const subs = perSession.get(k);
     if (subs) for (const fn of subs) fn();
   }
@@ -100,7 +109,14 @@ export function subscribeSession(sessionKey: string, fn: () => void): () => void
     s.delete(fn);
     // Poteratura: senza, questa mappa cresce quanto il numero di sessioni mai
     // aperte, e resterebbe piena di Set vuoti per sempre.
-    if (s.size === 0) perSession.delete(sessionKey);
+    if (s.size === 0) {
+      perSession.delete(sessionKey);
+      // Da adesso è «lasciata»: il conto della grazia parte da qui, non
+      // dall'ultima scrittura. Una chat guardata per un'ora senza che arrivi un
+      // messaggio sarebbe altrimenti vecchia di un'ora nell'istante in cui la
+      // chiudi, e sfrattabile al primo giro dello spazzino.
+      touchedAt.set(sessionKey, Date.now());
+    }
   };
 }
 
@@ -112,11 +128,51 @@ export function subscribeAllMessages(fn: () => void): () => void {
   };
 }
 
+/**
+ * I fatti che servono a decidere chi tiene il proprio trascritto in memoria.
+ *
+ * `watched` lo sa SOLO questo modulo: una pane montata è iscritta alla sua
+ * sessione, una smontata no. È il segnale più diretto che esista di «qualcuno la
+ * sta guardando» — più diretto del tetto di residenza delle pane, che parla di
+ * chiavi di pane e non di sessioni.
+ */
+export function listSessions(): { key: string; watched: boolean; messages: number; lastTouchedAt: number }[] {
+  return Object.keys(state).map((key) => ({
+    key,
+    watched: (perSession.get(key)?.size ?? 0) > 0,
+    messages: state[key]?.length ?? 0,
+    // Una sessione idratata al boot dalla cache non è mai stata toccata: vale
+    // come «toccata all'origine dei tempi», cioè sfrattabile per prima.
+    lastTouchedAt: touchedAt.get(key) ?? 0,
+  }));
+}
+
+/**
+ * Restituisce la memoria di queste sessioni. La chat ricarica da `/api/history`
+ * quando rientra: qui si butta una CACHE, non un dato.
+ *
+ * Rifiuta di sfrattare una sessione che qualcuno sta guardando: è l'invariante
+ * che rende innocuo lo spazzino, e va difesa qui e non solo nella politica —
+ * chiamare questa funzione a mano dalla console non deve poter svuotare una
+ * lista a schermo.
+ */
+export function evictSessions(keys: readonly string[]): string[] {
+  const evicted = keys.filter((k) => k in state && (perSession.get(k)?.size ?? 0) === 0);
+  if (evicted.length === 0) return [];
+  updateMessages((prev) => {
+    const next = { ...prev };
+    for (const k of evicted) delete next[k];
+    return next;
+  });
+  return evicted;
+}
+
 /** Solo per i test: riporta lo store allo stato di boot. */
 export function __resetMessageStore(): void {
   state = {};
   perSession.clear();
   global.clear();
+  touchedAt.clear();
 }
 
 /** Solo per i test e per la sonda di memoria: quanti iscritti ci sono. */
