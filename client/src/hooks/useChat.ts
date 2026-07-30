@@ -44,8 +44,16 @@ const CACHE_MAX_MESSAGES = 50;
 // that opt into it, but the chat never truncates.
 const HISTORY_FETCH_ALL = 0;
 
-// Auto-clear stuck streams after 3 minutes of no activity. Module-scoped
-// constant — no per-render identity, so it's not a hook dependency.
+// Dopo tre minuti di silenzio si va a CHIEDERE al server se il turno è ancora
+// vivo. Non si spegne a scadenza: il silenzio non vuol dire morte.
+//
+// Un auto-compact della CLI tace fino a 188 secondi — è documentato, ed è la
+// ragione per cui il server estende il proprio grace fino a mezz'ora quando il
+// processo è vivo (`STREAM_GRACE_MS` in routes/chat.ts). Spegnere qui a 180 s
+// contraddiceva frontalmente quel fix: in ogni finestra che osserva via WS — la
+// seconda finestra, la PWA sul telefono, e la stessa dopo un ⌘R — il turno vivo
+// risultava finito, il bottone Stop spariva, l'aura si spegneva, e la coda
+// visibile veniva scaricata in mezzo al turno.
 const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
 
 // Quanto aspettiamo che il nostro SSE si chiuda da solo dopo che il server ha
@@ -499,12 +507,40 @@ export function useChat() {
     }
     // Set new timeout
     streamingTimeoutRef.current[sessionKey] = setTimeout(() => {
-      console.warn(`[useChat] Stream timeout for ${sessionKey}, auto-clearing`);
-      setStreaming(prev => ({ ...prev, [sessionKey]: false }));
-      setLoading(prev => ({ ...prev, [sessionKey]: false }));
-      setThinking(prev => ({ ...prev, [sessionKey]: false }));
+      // Il silenzio da solo non decide: si chiede al server, che è l'unico a
+      // sapere se il processo è ancora lì. La stessa fonte che alimenta la
+      // riconciliazione degli stream orfani (`reconcileServerStreams`), usata qui
+      // per una singola sessione.
+      void (async () => {
+        let serverSaysLive = false;
+        try {
+          const res = await fetch('/api/topics/streaming');
+          if (res.ok) {
+            const body = (await res.json()) as { sessions?: { sessionKey?: string; state?: string }[] };
+            serverSaysLive = (body.sessions ?? []).some((x) => x.sessionKey === sessionKey && x.state === 'streaming');
+          } else {
+            // Server irraggiungibile: NON è una prova di morte. Si riarma e si
+            // riprova, invece di spegnere lo stato di un turno che magari corre.
+            serverSaysLive = true;
+          }
+        } catch {
+          serverSaysLive = true;
+        }
+        if (serverSaysLive) {
+          console.warn(`[useChat] ${sessionKey} silenzioso da ${STREAM_TIMEOUT_MS / 1000}s ma il server lo dà ancora vivo — riarmo`);
+          resetStreamTimeoutRef.current(sessionKey);
+          return;
+        }
+        console.warn(`[useChat] Stream timeout for ${sessionKey}, auto-clearing (server: non più in streaming)`);
+        setStreaming(prev => ({ ...prev, [sessionKey]: false }));
+        setLoading(prev => ({ ...prev, [sessionKey]: false }));
+        setThinking(prev => ({ ...prev, [sessionKey]: false }));
+      })();
     }, STREAM_TIMEOUT_MS);
   }, []);
+  // La callback si riarma da sé: lo specchio rompe il ciclo di dichiarazione, con
+  // l'helper che questo file usa già per lo stesso scopo.
+  const resetStreamTimeoutRef = useRefMirror(resetStreamTimeout);
 
   const clearStreamTimeout = useCallback((sessionKey: string) => {
     if (streamingTimeoutRef.current[sessionKey]) {
