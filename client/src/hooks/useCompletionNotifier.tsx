@@ -8,6 +8,7 @@ import { shellKind } from '../lib/shell';
 import { initFocusStatus, isFocusSilencing } from '../lib/shell/focus';
 import { decideTerminalBanner, statusBody, terminalPanelId, isTabActivelyVisible } from '../lib/notify/terminalNotify';
 import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
+import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
 
 interface CompletionNotifierProps {
@@ -203,6 +204,21 @@ export function useCompletionNotifier({
   // the same topic don't double-banner.
   const cooldownRef = useRef<Map<string, number>>(new Map());
 
+  // ── Mute gate ──────────────────────────────────────────────────────────
+  // A topic is muted when EITHER the topic itself carries `muted` (per-topic,
+  // Topic.muted / migration 073) OR its project is in `settings.mutedProjects`
+  // (per-project, keyed by projectPath). A muted topic's completion produces NO
+  // banner and NO sound — but it is NOT swallowed: the badge path
+  // (useTabNotifications → setAppBadge) is driven by the attention rollup, which
+  // is mute-blind, so the count still rises. This gate only silences the
+  // interruption. Reads through refs so it's stable inside the WS handlers and
+  // always sees the latest topics/settings without re-subscribing.
+  const isTopicMuted = useCallback((topicId: string | null | undefined): boolean => {
+    if (!topicId) return false;
+    return isTopicMutedPure(topicsRef.current[topicId], settingsRef.current.mutedProjects);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads only refs (stable)
+  }, []);
+
   useWSSubscription(onWSMessage, 'agents:sessions', (msg) => {
       const sessions = msg.sessions;
 
@@ -251,7 +267,8 @@ export function useCompletionNotifier({
             topicId !== null && topicId === focusedTopicId,
             typeof document !== 'undefined' ? document.hasFocus() : true,
           );
-          const shouldShow = !isFocused || cfg.notifyEvenWhenFocused;
+          // Mute wins over notifyEvenWhenFocused: a silenced topic never banners.
+          const shouldShow = (!isFocused || cfg.notifyEvenWhenFocused) && !isTopicMuted(topicId);
 
           if (shouldShow && topicId) {
             const now = Date.now();
@@ -388,6 +405,14 @@ export function useCompletionNotifier({
           return;
         }
 
+        // Per-topic / per-project mute — a silenced topic's terminal session
+        // never banners. Keep the baseline current so unmuting mid-session
+        // doesn't replay a stale transition as a burst.
+        if (isTopicMuted(ts.topicId)) {
+          prevTermPhaseRef.current.set(csid, state.phase);
+          return;
+        }
+
         const prevPhase = prevTermPhaseRef.current.get(csid);
         prevTermPhaseRef.current.set(csid, state.phase);
 
@@ -492,6 +517,9 @@ export function useCompletionNotifier({
         typeof document !== 'undefined' ? document.hasFocus() : true,
       );
       if (isFocused && !cfg.notifyEvenWhenFocused) return;
+      // Per-topic / per-project mute — silence the banner+sound but let the
+      // badge (attention rollup) still count the completion.
+      if (isTopicMuted(topicId)) return;
 
       // 10s cooldown. Key by topicId FIRST so this phase notification and the
       // agents:sessions completion (which keys by topicId) collapse into ONE
@@ -562,6 +590,8 @@ export function useCompletionNotifier({
       if (sig.claudePhaseActiveTermIds.has(msg.id) || sig.claudePhaseRestingTermIds.has(msg.id)) return;
 
       const ts = terminalSessionsRef.current.find((t) => t.id === msg.id);
+      // Per-topic / per-project mute — silence the fallback banner too.
+      if (isTopicMuted(ts?.topicId)) return;
       // Focus suppression: the focused panel id for a terminal contains its id
       // (`terminal:<id>`); skip the toast if the user is staring at it already —
       // but only when the window has OS focus, so a backgrounded window whose

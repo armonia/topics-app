@@ -248,6 +248,30 @@ export function TabNotificationProvider({
     void tauriInvoke('set_app_status', { count: totalAttention, items: attentionItems }).catch(() => {});
   }, [totalAttention, attentionItems]);
 
+  // PWA / browser app badge (the Badging API — navigator.setAppBadge). This is
+  // the SILENT channel: a muted topic emits no banner (useCompletionNotifier
+  // gates that), but its completion still counts here — the rollup is mute-blind
+  // — so an installed PWA shows "3 turns finished" on its dock/taskbar icon
+  // without interrupting. Driven by the SAME `totalAttention` as the tab badges,
+  // so it can never drift from what's on screen; it clears the moment a topic
+  // returns to the foreground (reading a topic zeroes its unread → the rollup
+  // drops). Feature-detected: no-op where the API is absent (Firefox, older
+  // Safari). Runs on EVERY shell — the Badging API also lights the Tauri app
+  // icon on platforms that support it, complementing the native tray glyph.
+  useEffect(() => {
+    const nav = typeof navigator !== 'undefined'
+      ? (navigator as Navigator & {
+          setAppBadge?: (n?: number) => Promise<void>;
+          clearAppBadge?: () => Promise<void>;
+        })
+      : null;
+    if (!nav?.setAppBadge) return;
+    try {
+      if (totalAttention > 0) void nav.setAppBadge(totalAttention).catch(() => {});
+      else void nav.clearAppBadge?.().catch(() => {});
+    } catch { /* Badging API can throw synchronously in locked-down webviews */ }
+  }, [totalAttention]);
+
   const value = useMemo((): TabNotificationContextValue => ({
     getBadgeCount,
     getProjectBadgeCount,

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, Hourglass, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, Hourglass, BellOff, BellRing, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -26,6 +26,7 @@ import { usePaneStore } from '@/state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
 import { useDetachedTopicMap } from '@/state/windowPresence';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
+import { loadSettings, saveSettings } from '@/lib/settings';
 import { ContextMenuPortal } from '@/components/Shared/ContextMenuPortal';
 import { tauriInvoke } from '@/lib/shell/tauri';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
@@ -199,7 +200,7 @@ export function TopicTree({
   // through here. The legacy `projectAddMenu` / `addBtnRef` state is
   // also gone — the canonical <PaneAddMenu> component owns its own
   // button ref and open/close state.
-  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean } | null>(null);
+  const [projectContextMenu, setProjectContextMenu] = useState<{ x: number; y: number; projectPath: string; projectName: string; allArchived: boolean; unreadTopicIds: string[]; pinned: boolean; muted: boolean } | null>(null);
   const expandedProjects = useMemo(() => new Set(expandedProjectsProp), [expandedProjectsProp]);
   const { isTouch } = useMobile();
   // Awaiting-feedback sets, read once here so the (non-component) renderProjectItem
@@ -623,7 +624,8 @@ export function TopicTree({
           onContextMenu={(e) => {
             e.preventDefault();
             const unreadTopicIds = allChats.filter(t => (unreadData[t.id]?.unreadCount || 0) > 0).map(t => t.id);
-            setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unreadTopicIds, pinned: !!item.pinned });
+            const muted = (loadSettings().mutedProjects ?? []).includes(pp);
+            setProjectContextMenu({ x: e.clientX, y: e.clientY, projectPath: pp, projectName: item.name, allArchived, unreadTopicIds, pinned: !!item.pinned, muted });
           }}
         >
           <ProjectRowPendingOverlay projectPath={pp} />
@@ -993,6 +995,23 @@ export function TopicTree({
               <span>{projectContextMenu.pinned ? 'Rimuovi dai Fissati' : 'Fissa'}</span>
             </button>
           )}
+          {/* Mute an entire project: toggles its path in AppSettings.mutedProjects
+              (persisted server-side, cross-client). Suppresses completion banners
+              for every topic in the project; the badge still counts them. */}
+          <button
+            onClick={() => {
+              const pp = projectContextMenu.projectPath;
+              const s = loadSettings();
+              const cur = s.mutedProjects ?? [];
+              const next = projectContextMenu.muted ? cur.filter(p => p !== pp) : [...cur, pp];
+              saveSettings({ ...s, mutedProjects: next });
+              setProjectContextMenu(null);
+            }}
+            className={POPOVER_ITEM}
+          >
+            {projectContextMenu.muted ? <BellRing size={14} /> : <BellOff size={14} />}
+            <span>{projectContextMenu.muted ? 'Riattiva notifiche' : 'Muta notifiche'}</span>
+          </button>
           {onArchiveProject && (
             <button
               onClick={() => {
