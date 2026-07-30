@@ -81,6 +81,18 @@
   --primary-dark: #4d94ff;
 
   /* Neutral theme colors */
+  /* REGOLA — superfici rialzate nei due temi.
+   * Un "rialzo" (chip/badge/pillola/hover) deve leggersi sia in dark che in
+   * light. `bg-white/N` da solo funziona SOLO su fondo scuro: in tema chiaro è
+   * bianco su bianco e sparisce. Quindi:
+   *   • rialzo generico, tema-agnostico  → coppia `bg-black/N dark:bg-white/N`
+   *     (nero-su-chiaro in light, bianco-su-scuro in dark), oppure i token
+   *     opachi `bg-elevated` / `hover:bg-app-hover` / `bg-app-inset`.
+   *   • `bg-white/N` BARE solo dove il fondo è scuro GARANTITO in entrambi i
+   *     temi: sopra immagine/video, sopra `bg-[#111]` (toolbar terminale),
+   *     sopra `bg-primary` (bolla utente). Sono eccezioni commentate nel punto.
+   * NB: `--bg-panel` NON è chiaro in light (vale #1e1e1e, scuro di proposito):
+   * non è la scorciatoia per un fondo chiaro. */
   --bg: #f8f9fa;
   --bg-surface: #ffffff;
   --bg-elevated: #fafafa;
