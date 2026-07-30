@@ -73,6 +73,7 @@ import m064 from "./migrations/065-task-fanout.sql" with { type: "text" };
 import m065 from "./migrations/066-terminal-session-type-opencode.sql" with { type: "text" };
 import m066 from "./migrations/067-drop-master-topic-leftovers.sql" with { type: "text" };
 import m067 from "./migrations/068-close-stranded-approvals.sql" with { type: "text" };
+import m068 from "./migrations/069-strip-slow-annotation.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -150,4 +151,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 66, name: "066-terminal-session-type-opencode.sql", sql: m065 },
   { version: 67, name: "067-drop-master-topic-leftovers.sql", sql: m066 },
   { version: 68, name: "068-close-stranded-approvals.sql", sql: m067 },
+  { version: 69, name: "069-strip-slow-annotation.sql", sql: m068 },
 ];
