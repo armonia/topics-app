@@ -2,31 +2,6 @@ import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join, resolve, relative, sep } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { loadMemoryForTopic } from "./memory";
-import { assembleTopicContext, getProviderStrategy } from "../context";
-import { getProvider, getDefaultProvider } from "../providers";
-
-// ── Context analysis cache (15s TTL) ─────────────────────────────────────
-const CONTEXT_CACHE_TTL = 15000;
-
-/** Legacy `/api/context/analyze` response envelope (see wrapper below). */
-interface ContextAnalysisResult {
-  sources: Array<{
-    id: string;
-    label: string;
-    category: string;
-    tokens: number;
-    enabled: boolean;
-    editable: boolean;
-    preview?: string;
-    countInBudget: boolean;
-  }>;
-  totalTokens: number;
-  budgetLimit: number;
-  budgetPercent: number;
-  // Matches the envelope's diagnostics.warnings shape (the actual data sent);
-  // was mis-annotated as string[] — runtime always emitted {type,detail}.
-  warnings: { type: string; detail: string }[];
-}
 
 /** One node in the recursively-scanned workspace memory tree. */
 interface MemoryNode {
@@ -36,8 +11,6 @@ interface MemoryNode {
   tokens?: number;
   children?: MemoryNode[];
 }
-
-const contextAnalysisCache = new Map<string, { data: ContextAnalysisResult; timestamp: number }>();
 
 export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
   const { json, matchRoute, loadTopics, OPENCLAW_DIR } = ctx;
@@ -160,84 +133,6 @@ export function createOpenClawContextRouter(ctx: AppContext): RouteHandler {
         tokens: estimateTokens(content),
         path: requestedPath,
       });
-    }
-
-    // GET /api/context/analyze?topicId=xxx — aggregate all context sources for a topic.
-    //
-    // BACK-COMPAT WRAPPER (since change `topic-context-canonical`).
-    // Delegates to the canonical `assembleTopicContext()` so the inspector and
-    // the chat streaming path can never drift. The legacy response shape is
-    // preserved exactly so the existing client (`useContextInspector` ➝
-    // `contextAnalysisApi.analyze`) keeps working without modifications.
-    //
-    // Field mapping envelope.SystemBlock → legacy source:
-    //   { id, label, category, tokens, enabled, editable, countInBudget }
-    //   `preview` = content.slice(0, 200) (legacy field, optional)
-    //
-    // The "project:awareness" legacy id is mapped from the canonical
-    // "template:project-awareness" id and re-labelled to match the original
-    // shape clients render.
-    if (method === "GET" && pathname === "/api/context/analyze") {
-      const topicId = url.searchParams.get("topicId");
-      if (!topicId) return json({ error: "topicId parameter required" }, 400);
-
-      const topicsData = loadTopics();
-      const topic = topicsData.topics[topicId];
-      if (!topic) return json({ error: "Topic not found" }, 404);
-
-      // Resolve provider strategy so the envelope is shaped accurately even
-      // for the inspector preview (matters in case a future composer adds
-      // strategy-dependent blocks).
-      const providerName = topic.provider ?? null;
-      let strategyName = "history-aware" as ReturnType<typeof getProviderStrategy>;
-      try {
-        const provider = providerName ? getProvider(providerName) : getDefaultProvider();
-        strategyName = getProviderStrategy(provider);
-      } catch {
-        /* provider not registered yet — keep the default */
-      }
-
-      const cacheKey = `${topicId}::${providerName ?? "default"}`;
-      const cached = contextAnalysisCache.get(cacheKey);
-      if (cached && Date.now() - cached.timestamp < CONTEXT_CACHE_TTL) {
-        return json(cached.data);
-      }
-
-      // includeLastUserInHistory: true — the inspector wants to display the
-      // CURRENT state of the conversation, not "what we'd send next".
-      const envelope = assembleTopicContext(ctx, {
-        sessionKey: topic.sessionKey,
-        providerName: providerName ?? "(default)",
-        providerStrategy: strategyName,
-        includeLastUserInHistory: true,
-      });
-
-      // Project envelope.systemBlocks → legacy `sources[]` shape.
-      const sources = envelope.systemBlocks.map((b) => {
-        // Re-label the project-awareness block to match the legacy id used by
-        // the client ("project:awareness" — note: NOT "template:project-awareness").
-        const legacyId = b.id === "template:project-awareness" ? "project:awareness" : b.id;
-        return {
-          id: legacyId,
-          label: b.label,
-          category: b.category,
-          tokens: b.tokens,
-          enabled: b.enabled,
-          editable: b.editable,
-          preview: b.content ? b.content.slice(0, 200) : undefined,
-          countInBudget: b.countInBudget,
-        };
-      });
-
-      const result = {
-        sources,
-        totalTokens: envelope.diagnostics.totalTokens,
-        budgetLimit: envelope.diagnostics.budgetLimit,
-        budgetPercent: envelope.diagnostics.budgetPercent,
-        warnings: envelope.diagnostics.warnings,
-      };
-      contextAnalysisCache.set(cacheKey, { data: result, timestamp: Date.now() });
-      return json(result);
     }
 
     return null;

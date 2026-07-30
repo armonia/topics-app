@@ -30,72 +30,13 @@ function affectsTopic(msg: WSMessage, topicId: string): boolean {
   return false;
 }
 
-function affectsAnyTopic(msg: WSMessage, topicIds: Set<string>): boolean {
-  if (msg.type === 'stream:end') {
-    const t = (msg as { topicId?: string }).topicId;
-    return t !== undefined && topicIds.has(t);
-  }
-  if (msg.type === 'topic:updated') {
-    const id = (msg as { topic?: { id?: string } }).topic?.id;
-    return id !== undefined && topicIds.has(id);
-  }
-  return false;
-}
-
-/**
- * Lightweight hook that fetches budgetPercent for multiple topics.
- * Returns a Record<paneId, percent> suitable for PaneTabBar's contextPercent prop.
- */
-export function useMultiContextPercent(
-  paneToTopicId: Record<string, string>,
-  onMessage?: (handler: (msg: WSMessage) => void) => () => void,
-): Record<string, number> {
-  const [percents, setPercents] = useState<Record<string, number>>({});
-
-  // Stable serialization for dependency tracking
-  const key = Object.entries(paneToTopicId).map(([p, t]) => `${p}:${t}`).sort().join(',');
-
-  const fetchAll = useCallback(async () => {
-    const entries = Object.entries(paneToTopicId);
-    if (!entries.length) return;
-    const results: Record<string, number> = {};
-    await Promise.all(
-      entries.map(async ([paneId, topicId]) => {
-        try {
-          const analysis = await contextAnalysisApi.analyze(topicId);
-          results[paneId] = analysis.budgetPercent || 0;
-        } catch {
-          results[paneId] = 0;
-        }
-      }),
-    );
-    setPercents(results);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is the stable serialization of paneToTopicId; depending on the object directly would re-create fetchAll on every render even when contents are unchanged
-  }, [key]);
-
-  useEffect(() => {
-    fetchAll();
-    // Reduced from 30s to 60s — WS events trigger immediate refresh
-    const interval = setInterval(fetchAll, 60000);
-    return () => clearInterval(interval);
-  }, [fetchAll]);
-
-  // Listen for WS events that indicate context may have changed
-  useEffect(() => {
-    if (!onMessage) return;
-    const topicIds = new Set(Object.values(paneToTopicId));
-    const unsub = onMessage((msg: WSMessage) => {
-      if (affectsAnyTopic(msg, topicIds)) {
-        // Debounce slightly to avoid fetching mid-update
-        setTimeout(fetchAll, 500);
-      }
-    });
-    return unsub;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is the stable serialization of paneToTopicId; the topicIds Set is rebuilt from it inside, so depending on the object directly would only churn the subscription needlessly
-  }, [onMessage, key, fetchAll]);
-
-  return percents;
-}
+// `useMultiContextPercent` viveva qui: per OGNI pane visibile faceva una
+// `analyze()` completa (assemblaggio dell'envelope lato server) ogni 60 secondi,
+// piu' una a ogni evento WS sulla topic. Il risultato arrivava a `PaneTabBar`
+// come `contextPercent: _contextPercent` — un parametro con l'underscore
+// davanti, cioe' MAI letto. N richieste al minuto per non disegnare niente.
+// L'anello del contesto esiste ed e' altrove: in `ChatInput`, alimentato dalla
+// misura reale dell'ultima chiamata (`useRealContext`), non da un preventivo.
 
 export function useContextInspector(
   topicId: string | null,

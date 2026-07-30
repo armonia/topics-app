@@ -16,7 +16,6 @@ import {
 import { isRealUrl, shouldPersistBrowserTitle } from '../../state/pane/browserPaneUrl';
 import { computeProjectGridWeight, setProjectGridWeight, clearProjectGridWeight } from '../../state/projectGridWeights';
 import { sendFocusTopic, sendBlur } from '../../lib/focusMessaging';
-import { useMultiContextPercent } from '../../hooks/useContextInspector';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useProjectPersistenceLoad } from './hooks/useProjectPersistenceLoad';
 import { useProjectLayout } from './hooks/useProjectLayout';
@@ -236,14 +235,6 @@ export function ProjectWindowPane({
     }
   }, [activeTopicId, isProjectFocused, sendWS]);
 
-  const paneToTopicMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const p of panes) {
-      if (p.type === 'chat' && p.topicId) map[p.id] = p.topicId;
-    }
-    return map;
-  }, [panes]);
-  const contextPercent = useMultiContextPercent(paneToTopicMap, onWSMessage);
 
   // Project rollup (loading + notifications) is computed centrally from the
   // global signals store now — no per-window report-up needed.
@@ -522,7 +513,6 @@ export function ProjectWindowPane({
             onUpdateRowHeights={setRowHeights}
             renderPane={renderPane}
             availableTypesForGroup={availableTypesForGroup}
-            contextPercent={contextPercent}
             onContextRingClick={toggleContextInspector}
             onStopStreaming={handleStopStreaming}
             onSettings={handlePaneSettings}

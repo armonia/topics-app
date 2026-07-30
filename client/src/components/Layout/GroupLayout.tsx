@@ -75,7 +75,6 @@ interface GroupLayoutProps {
    *  observe the wrapper's display property. */
   renderPane: (pane: Pane, isFocused: boolean, isVisible: boolean) => React.ReactNode;
   availableTypesForGroup: (groupType: PaneGroupType, groupId: string) => PaneType[];
-  contextPercent?: Record<string, number>;
   onContextRingClick?: (paneId: string) => void;
   onStopStreaming?: (paneId: string) => void;
   onSettings?: (paneId: string) => void;
@@ -98,7 +97,7 @@ export function GroupLayout({
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
-  renderPane, availableTypesForGroup, contextPercent, onContextRingClick, onStopStreaming,
+  renderPane, availableTypesForGroup, onContextRingClick, onStopStreaming,
   onSettings, onPopOut, onPinPane, onRenameChat, onRenameBrowser, nonClosablePaneIds,
 }: GroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -861,7 +860,6 @@ export function GroupLayout({
               : undefined
             }
             onResetLayout={canFlatten ? handleResetLayout : undefined}
-            contextPercent={contextPercent}
             onContextRingClick={onContextRingClick}
             onStopStreaming={onStopStreaming}
             onSettings={onSettings}
@@ -1077,7 +1075,6 @@ export function GroupLayout({
               groupId={fgid}
               dndScope={dndScope}
               onNewChat={onNewChatInGroup ? () => onNewChatInGroup(fgid) : undefined}
-              contextPercent={contextPercent}
               onContextRingClick={onContextRingClick}
               onStopStreaming={onStopStreaming}
               onSettings={onSettings}
