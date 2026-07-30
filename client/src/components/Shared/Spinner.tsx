@@ -26,7 +26,12 @@ const SIZES = {
 export type SpinnerSize = keyof typeof SIZES;
 
 export function Spinner({ size = 'sm', className = '' }: { size?: SpinnerSize; className?: string }) {
-  return <div role="status" aria-label="Caricamento" className={`${SIZES[size]} ${RING} ${className}`} />;
+  // Etichetta in inglese come il resto delle superfici di attesa («Loading...»
+  // in App.tsx, JournalPanel, AgentAssignPanel, GitChanges): questo anello sta
+  // accanto a quelle scritte in dieci file, e uno screen reader che legge
+  // "Caricamento" sopra un "Loading..." visibile racconta due lingue nella
+  // stessa schermata.
+  return <div role="status" aria-label="Loading" className={`${SIZES[size]} ${RING} ${className}`} />;
 }
 
 /**

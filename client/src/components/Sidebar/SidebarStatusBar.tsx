@@ -576,7 +576,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
           {/* Performance block — non-lazy so the dropdown opens instantly with
               the live FPS history; the heavier system panel streams in below. */}
           <PerfSection />
-          <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Caricamento…</div>}>
+          <Suspense fallback={<div className="p-3 text-[11px] text-app-text-muted text-center">Loading...</div>}>
             <SystemStatusPanel enabled />
           </Suspense>
         </div>,

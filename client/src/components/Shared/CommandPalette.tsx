@@ -491,7 +491,7 @@ export function CommandPalette({
         <div className="flex-1 min-h-0 flex flex-col">
           {scope === 'projects' ? (
             /* ⌘F — projects scope: one full-width list, find/jump to a project. */
-            <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Progetti">
+            <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Projects">
               <div className="px-3 py-1.5 text-[10px] font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                 Projects
                 {filteredProjects.length > 0 && <span className="text-app-text-tertiary font-normal">{filteredProjects.length}</span>}
