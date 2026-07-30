@@ -5,6 +5,7 @@ import { useRefMirror } from './useRefMirror';
 import { useSignalsStore } from '../state/signals';
 import { notifyNative } from '../lib/shell/app';
 import { shellKind } from '../lib/shell';
+import { initFocusStatus, isFocusSilencing } from '../lib/shell/focus';
 import { decideTerminalBanner, statusBody, terminalPanelId, isTabActivelyVisible } from '../lib/notify/terminalNotify';
 import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
 import type { TopicTaskResolver } from './useTaskTopicIndex';
@@ -146,6 +147,13 @@ export function useCompletionNotifier({
     } catch { /* ignore — notifications simply won't show */ }
   }, []);
 
+  // Arm the Focus/DND gate. Installs the push hook the native watcher calls and
+  // does one eager query; idempotent and a no-op off Tauri (web keeps the safe
+  // "notify normally" default). See lib/shell/focus.ts.
+  useEffect(() => {
+    initFocusStatus();
+  }, []);
+
   // UNICA via d'uscita per ogni segnale: banner nativo del sistema (l'unica
   // superficie — niente toast in-app, preferenza dell'utente) piu' il suono.
   //
@@ -166,6 +174,12 @@ export function useCompletionNotifier({
     sound: boolean,
     taskId?: string | null,
   ) => {
+    // Gate su Focus/Non disturbare. Se il sistema ci dice CON CERTEZZA che c'è un
+    // Focus attivo, l'app tace del tutto — banner E suono. L'informazione non si
+    // perde: il badge/tab (useTabNotifications, altro hook) resta acceso, sparisce
+    // solo il rumore. `isFocusSilencing()` è false su web e ovunque lo stato non
+    // sia leggibile → di default si notifica normalmente (nessun falso silenzio).
+    if (isFocusSilencing()) return;
     notifyNative(title, body, { silent: true, taskId: taskId ?? undefined });
     if (sound) playCompletionTone();
   }, []);
