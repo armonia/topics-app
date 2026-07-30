@@ -58,17 +58,31 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
       test.skip(true, `Need ≥ 2 ready models in env; got ${enabledCount}`);
     }
 
+    // Il fuoco deve RESTARE nel popover. Era qui il guasto vero dietro la fama di
+    // "flaky" di questo test: la pane, quando diventa attiva, dava il fuoco al
+    // composer 50 ms dopo — e se lo riprendeva da sotto al campo di ricerca appena
+    // autofocussato (misurato: input a 25 ms, textarea a 29 ms). Le frecce
+    // finivano nella textarea e la navigazione da tastiera non funzionava.
+    // Asserirlo qui fa fallire la causa, non il sintomo.
+    await expect(popover.locator("input")).toBeFocused();
+
     // First row gets highlighted on open.
     const firstActive = page.locator('[data-popover="provider-model-picker"] [data-active="true"]');
     await firstActive.waitFor({ state: "visible", timeout: 5_000 });
-    const firstActiveModel = (await firstActive.textContent())?.trim() ?? "";
+    // L'identita' del modello si legge da `data-model`, non dal testo della riga.
+    // Prima si confrontava il testo della riga col testo del bottone, e reggeva
+    // solo perche' i due COINCIDEVANO per caso: il bottone mostra un'etichetta
+    // per gli occhi (la modalita' `[1m]` staccata in un badge), la riga l'id
+    // grezzo della CLI. Al primo cambio di come si SCRIVE il modello il test
+    // diventava rosso senza che nulla si fosse rotto.
+    const firstActiveModel = await firstActive.getAttribute("data-model");
 
     // Pressing ArrowDown should move the highlight to the second model.
     await page.keyboard.press("ArrowDown");
     const secondActive = page.locator('[data-popover="provider-model-picker"] [data-active="true"]');
     await expect(secondActive).toBeVisible();
-    const secondActiveModel = (await secondActive.textContent())?.trim() ?? "";
-    expect(secondActiveModel).not.toBe("");
+    const secondActiveModel = await secondActive.getAttribute("data-model");
+    expect(secondActiveModel).toBeTruthy();
     expect(secondActiveModel).not.toBe(firstActiveModel);
 
     // Enter selects the highlighted row → picker closes and topic is patched.
@@ -76,7 +90,7 @@ test.describe.serial("Provider/Model picker keyboard navigation", () => {
     await expect(page.locator('[data-popover="provider-model-picker"]')).toHaveCount(0, { timeout: 5_000 });
 
     // The picker button now reflects the model the keyboard chose.
-    await expect(picker).toContainText(secondActiveModel, { timeout: 5_000 });
+    await expect(picker).toHaveAttribute("data-model", secondActiveModel!, { timeout: 5_000 });
 
     // Server-side persistence — the topic record carries the same model.
     const all = await request.get("/api/topics");

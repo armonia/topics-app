@@ -512,7 +512,30 @@ function ChatPaneComponent({
   // antenati scrollabili — inclusa la lista virtualizzata dei messaggi. A ogni
   // cambio di tab era lavoro buttato, e sulla lista poteva pure strattonare la
   // posizione di scroll.
-  useEffect(() => { if (isFocused) setTimeout(() => textareaRef.current?.focus({ preventScroll: true }), 50); }, [isFocused]);
+  // …e soprattutto: il fuoco al composer si dà solo se NESSUNO se l'è preso nel
+  // frattempo. Questo `setTimeout` arrivava buono per tutti, e 50 ms dopo il
+  // click strappava il fuoco a qualunque cosa l'utente avesse appena aperto:
+  // misurato sul picker del modello, il campo di ricerca del popover lo prendeva
+  // a 25 ms e il composer se lo riprendeva a 29 ms, quindi le frecce finivano
+  // nella textarea e la navigazione da tastiera del picker NON FUNZIONAVA
+  // (`picker-keyboard-nav.spec.ts` lo dava «flaky»: era rotto, e passava solo
+  // quando la corsa andava per il verso giusto).
+  // La regola è "non rubare": si fotografa chi ha il fuoco quando la pane
+  // diventa attiva e, allo scadere, si procede solo se non è cambiato nulla.
+  // Copre il caso voluto (clic sulla tab o sull'area messaggi ⇒ scrivi subito,
+  // il fuoco lì non l'ha spostato nessuno) senza toccare quello in cui l'utente
+  // ha deliberatamente messo il fuoco altrove.
+  useEffect(() => {
+    if (!isFocused) return;
+    const at = document.activeElement;
+    const t = setTimeout(() => {
+      if (document.activeElement !== at) return;
+      textareaRef.current?.focus({ preventScroll: true });
+    }, 50);
+    // Il timer non veniva nemmeno annullato: cambiando tab in fretta restavano
+    // in volo focus() diretti a una pane che non è più quella davanti.
+    return () => clearTimeout(t);
+  }, [isFocused]);
   // Mark topic as read when this chat pane gains focus (covers ProjectWindow usage)
   // Solo il ping di focus: l'azzeramento locale e la POST di lettura li fa
   // `sendWS`, e solo quando c'è davvero qualcosa di non letto.
