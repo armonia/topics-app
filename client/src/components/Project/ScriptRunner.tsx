@@ -141,13 +141,13 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               title={cmd}
             >
               {isStopping ? (
-                <div className="w-[10px] h-[10px] border border-red-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
               ) : running ? (
                 <div className="w-[10px] h-[10px] flex-shrink-0 relative">
                   <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
                 </div>
               ) : isStarting ? (
-                <div className="w-[10px] h-[10px] border border-primary border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <Spinner size="xs" tone="current" className="text-primary flex-shrink-0" />
               ) : (
                 <Play size={10} className={`flex-shrink-0 ${getScriptColor(name)}`} />
               )}
@@ -199,7 +199,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
                 title={sp.command}
               >
                 {isStopping ? (
-                  <div className="w-[10px] h-[10px] border border-red-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
                 ) : (
                   <div className="w-[10px] h-[10px] flex-shrink-0 relative">
                     <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
@@ -256,7 +256,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
               title={sp.command}
             >
               {isStopping ? (
-                <div className="w-[10px] h-[10px] border border-red-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
               ) : (
                 <div className="w-[10px] h-[10px] flex-shrink-0 relative">
                   <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
