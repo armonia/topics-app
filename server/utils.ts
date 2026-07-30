@@ -12,7 +12,7 @@ import type {
 } from "./types";
 import { initDatabase } from "./db";
 import { resolveStateDir } from "./lib/data-dir";
-import { maybeSendPush } from "./push-triggers";
+import { maybeSendPush, configurePushTriggers } from "./push-triggers";
 import { createProjectStore } from "./services/project-store";
 import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager } from "./services/worktree-manager";
@@ -624,6 +624,10 @@ export function createAppContext(baseDir: string): AppContext {
     if (!row) return null;
     return rowToTopic(row);
   }
+
+  // Il modulo push-triggers è puro; qui gli passiamo l'unico aggancio al DB che
+  // gli serve — il nome del topic per il titolo della push di fine risposta.
+  configurePushTriggers({ getTopicName: (topicId) => getTopicById(topicId)?.name ?? null });
 
   /**
    * Load a single topic by sessionKey. Same constant-time read as

@@ -113,6 +113,12 @@ const streamEndSchema = z.object({
   // CHI l'ha fermato — `cancelled` da solo non distingue lo stop dell'umano dal
   // nostro watchdog, e a valle sono due politiche opposte.
   stopCause: z.optional(z.enum(['user', 'watchdog', 'wall-clock', 'session-reset', 'process-died', 'provider-error'])),
+  // Marcatore POSITIVo di fine PULITA (`end_turn`, turno non vuoto): lo legge la
+  // push di fine risposta (server/push-triggers) per non annunciare "risposta
+  // pronta" su un turno morto. `dispatched` = turno d'agente guidato dalla board
+  // (escluso dalla push). Vedi server/push-triggers.ts.
+  completed: z.optional(z.boolean()),
+  dispatched: z.optional(z.boolean()),
 });
 
 // ---- Coordination broadcasts (mirrors of inbound) --------------------------
