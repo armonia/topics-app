@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent as ReactTouchEvent } from 'react';
-import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Loader2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
+import { ArrowUpRight, Bot, Camera, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, Footprints, GitMerge, Globe, Hourglass, Link2, Lock, Maximize2, Minimize2, MoreHorizontal, Paperclip, Plus, RotateCw, Send, ShieldCheck, ShieldX, Sparkles, Square, Unplug, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ReasoningRow } from '../Chat/ReasoningRow';
 import { Menu } from '../Shared/Menu';
+import { Spinner } from '../Shared/Spinner';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { getMediaUrl } from '../../lib/api';
 import { openExternalOnce } from '../../lib/openExternal';
@@ -68,7 +69,7 @@ function ChecksSection({ task }: { task: BoardTask }) {
   if (task.checksState === 'running') {
     return (
       <div className="flex items-center gap-1.5 rounded bg-white/5 px-2 py-1.5 text-[11px] text-app-text-heading">
-        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-app-text-secondary" />
+        <Spinner size="sm" tone="current" className="shrink-0 text-app-text-secondary" />
         Checks pre-review in corso…
       </div>
     );
@@ -234,7 +235,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
                 disabled={sendingNotes}
                 className="flex items-center gap-1 rounded bg-indigo-500/25 px-2 py-0.5 text-[11px] text-indigo-100 hover:bg-indigo-500/40 disabled:opacity-40"
               >
-                {sendingNotes ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                {sendingNotes ? <Spinner size="sm" tone="current" /> : <Send className="h-3 w-3" />}
                 Invia all'agente
               </button>
             </div>
@@ -299,7 +300,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
         Tentativi <span className="normal-case tracking-normal text-app-text-faint">· {attempts.length} in parallelo</span>
         {running > 0 && (
           <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-[9px] normal-case tracking-normal text-amber-300">
-            <Loader2 className="h-2.5 w-2.5 animate-spin" /> {running} in corso
+            <Spinner size="xs" tone="current" /> {running} in corso
           </span>
         )}
       </div>
@@ -353,7 +354,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                     title={work ? undefined : "Questo tentativo non ha modificato niente: tenerlo significa consegnare un branch vuoto."}
                     className="ml-auto flex items-center gap-1 rounded bg-emerald-500/80 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-emerald-500 disabled:opacity-40"
                   >
-                    {picking === a.id && <Loader2 className="h-3 w-3 animate-spin" />} Scegli questo
+                    {picking === a.id && <Spinner size="sm" tone="current" />} Scegli questo
                   </button>
                 )}
               </div>
@@ -382,7 +383,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
       .catch(() => { if (alive) setState('error'); });
     return () => { alive = false; };
   }, [projectId, taskId, attemptId]);
-  if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-app-text-muted"><Loader2 className="h-3 w-3 animate-spin" /> carico il diff…</div>;
+  if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-[11px] text-app-text-muted"><Spinner size="sm" tone="current" /> carico il diff…</div>;
   if (state === 'error') return <p className="mt-1.5 text-[11px] text-rose-300">Diff non leggibile.</p>;
   if (state.code === 'no_worktree' || state.stat.length === 0) return <p className="mt-1.5 text-[11px] text-app-text-muted">Nessuna modifica da mostrare.</p>;
   return (
@@ -977,7 +978,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 disabled={busy} onClick={stopAgent}
                 title="Ferma l'agent (il task torna in Backlog con il motivo)"
                 className="flex items-center gap-1 rounded bg-rose-500/15 px-2 py-1.5 text-[11px] text-rose-300 hover:bg-rose-500/25 disabled:opacity-50"
-              >{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3 fill-current" />} Ferma</button>
+              >{busy ? <Spinner size="sm" tone="current" /> : <Square className="h-3 w-3 fill-current" />} Ferma</button>
             </div>
           </div>
         )}
@@ -1045,7 +1046,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
           title="Cambia lo stato del task"
           className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-app-text-heading hover:bg-white/10"
         >
-          {task ? <StatusIcon status={task.status} /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {task ? <StatusIcon status={task.status} /> : <Spinner size="sm" tone="current" />}
           {task ? STATUS_LABEL[task.status] : 'Carico…'}
           <ChevronDown className="h-3 w-3 text-app-text-faint" />
         </button>
@@ -1166,7 +1167,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       )}
       {!task ? (
         <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-5 w-5 animate-spin text-app-text-muted" />
+          <Spinner size="md" tone="current" className="text-app-text-muted" />
         </div>
       ) : (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -1339,7 +1340,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                   </button>
                   <div className="max-h-52 overflow-y-auto">
                     {boardTasks === null ? (
-                      <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-app-text-muted" /></div>
+                      <div className="flex items-center justify-center py-3"><Spinner size="md" tone="current" className="text-app-text-muted" /></div>
                     ) : blockerCandidates.length === 0 ? (
                       <p className="px-2.5 py-2 text-xs text-app-text-muted">Nessun altro task su questa board.</p>
                     ) : blockerCandidates.map((t) => (
@@ -1496,7 +1497,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                     placeholder="+ sottotask…"
                     className="w-full rounded bg-white/5 px-2 py-1 text-xs text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
                   />
-                  {addingSub && <Loader2 className="absolute right-1.5 top-1.5 h-3 w-3 animate-spin text-app-text-secondary" />}
+                  {addingSub && <Spinner size="sm" tone="current" className="absolute right-1.5 top-1.5 text-app-text-secondary" />}
                 </div>
               </div>
             )}
@@ -1564,7 +1565,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                         ? 'bg-amber-600/80 hover:bg-amber-600'
                         : 'bg-emerald-500/80 hover:bg-emerald-500'
                     }`}
-                  >{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />} {task.checksState === 'fail' ? 'Approva comunque' : 'Approva'}</button>
+                  >{busy ? <Spinner size="sm" tone="current" /> : <ShieldCheck className="h-3.5 w-3.5" />} {task.checksState === 'fail' ? 'Approva comunque' : 'Approva'}</button>
                   <button
                     disabled={busy} onClick={() => decide('reject')}
                     title={isAgentReview ? "Rifiuta (l'agent riparte senza indicazioni)" : 'Rifiuta'}
@@ -1612,7 +1613,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onClick={() => fileInputRef.current?.click()} disabled={uploading || attachments.length >= 8}
                 title="Allega file (o incolla un'immagine nel campo)"
                 className="rounded p-1.5 text-app-text-secondary hover:bg-white/10 disabled:opacity-40"
-              >{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</button>
+              >{uploading ? <Spinner size="md" tone="current" /> : <Paperclip className="h-4 w-4" />}</button>
               <textarea
                 ref={commentRef}
                 value={draft} onChange={(e) => { setDraft(e.target.value); saveCommentCursor(); }} rows={1}
@@ -1632,7 +1633,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 onClick={send} disabled={sending || (!draft.trim() && attachments.length === 0)}
                 title={isAgentReview ? "Rispondi (l'agent riparte con la tua risposta)" : agentBusy ? "Invia all'agent — lo riceve al prossimo turno (come Claude Code)" : 'Commenta'}
                 className={`rounded p-1.5 text-white disabled:opacity-50 ${isAgentReview || agentBusy ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-emerald-500/80 hover:bg-emerald-500'}`}
-              >{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}</button>
+              >{sending ? <Spinner size="md" tone="current" /> : <Send className="h-4 w-4" />}</button>
             </div>
           </div>
         </div>
@@ -1809,7 +1810,7 @@ export function OutputFrame({ url }: { url: string }) {
     <div className="relative min-h-0 flex-1">
       {state === 'loading' && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-app-inset">
-          <Loader2 className="h-5 w-5 animate-spin text-app-text-secondary" />
+          <Spinner size="md" tone="current" className="text-app-text-secondary" />
         </div>
       )}
       <iframe
