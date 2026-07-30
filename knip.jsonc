@@ -23,6 +23,7 @@
         "scripts/gen-migrations-manifest.ts!", // run by hand to regenerate migrations-embedded.ts
         "scripts/watch-board-tasks.ts!",  // CLI tool for the Monitor loop, run by hand
         "scripts/disk-report.ts!",        // `bun run report:disk`
+        "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/*.test.ts!",             // run by `bun test ./scripts` in test:unit
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —

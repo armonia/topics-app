@@ -1,15 +1,9 @@
 import type { ServerWebSocket } from "bun";
 import type { Database } from "bun:sqlite";
-import type { ToolCallStatus, UserInputSchema, ToolUserResponse } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 
 // Re-export so existing imports `from "./types"` keep resolving.
-export type {
-  ToolCallStatus,
-  AskUserQuestionItem,
-  UserInputSchema,
-  ToolUserResponse,
-} from "../shared/types";
+export type { AskUserQuestionItem, UserInputSchema } from "../shared/types";
 
 export interface WSData {
   id: string;
@@ -71,7 +65,9 @@ export interface WSData {
 // il client li ridichiarava riga per riga (identici a meno dei commenti).
 // Una sola dichiarazione, in `shared/types.ts`.
 export type { ToolCallDetail, ToolCall, ContentBlock } from "../shared/types";
-import type { ToolCallDetail, ToolCall, ContentBlock } from "../shared/types";
+// Solo i due che servono in scope qui sotto: `ToolCallDetail` lo consumano
+// altri moduli via il re-export sopra, non questo file.
+import type { ToolCall, ContentBlock } from "../shared/types";
 
 export interface StoredMessage {
   id: string;
@@ -116,14 +112,7 @@ export interface StoredMessage {
 // — che è il SERVER a mettere nella risposta di GET /api/topics — mancava
 // proprio qui. Ora la dichiarazione è una sola, in `shared/types.ts`, e questo
 // re-export tiene valido ogni `import type { Topic } from "./types"` esistente.
-export type {
-  Topic,
-  AutonomyLevel,
-  Project,
-  Worktree,
-  TopicsData,
-  UnreadData,
-} from "../shared/types";
+export type { Topic, Project, Worktree, TopicsData, UnreadData } from "../shared/types";
 // `export type { … } from` ri-esporta ma NON porta i nomi in scope locale, e
 // qui sotto `AppContext` li usa. Import separato, non è una ridondanza.
 import type { Topic, TopicsData, UnreadData } from "../shared/types";
@@ -265,21 +254,3 @@ export interface AppContext {
 }
 
 export type RouteHandler = (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null> | Response | null;
-
-// --- Agent Autonomy Types ---
-
-export interface AgentAuthResult {
-  agent: {
-    id: string;
-    name: string;
-    role: string;
-    status: string;
-    avatarEmoji: string;
-    maxConcurrentTasks: number;
-    isBoardLead: boolean;
-    gatewaySessionId: string | null;
-  };
-  isLead: boolean;
-}
-
-export type { BoardMemory, AgentActionLog } from "../shared/types";

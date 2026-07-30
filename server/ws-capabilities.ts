@@ -44,8 +44,6 @@ export const SERVER_CAPABILITIES = [
   'stream-catchup-v1',
 ] as const;
 
-export type ServerCapability = (typeof SERVER_CAPABILITIES)[number];
-
 /**
  * Best-effort read of the server version. Used for the welcome message
  * so clients can show "server: 1.2.3" or compare against their own. Not

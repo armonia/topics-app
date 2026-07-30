@@ -4,7 +4,6 @@ import type { AppContext, RouteHandler } from "../types";
 
 // La forma sta in `shared/monitoring.ts`: la legge anche il client, che prima
 // ne teneva una copia a mano in `hooks/useAgents.ts`.
-export type { AgentSession } from "../../shared/monitoring";
 import type { AgentSession } from "../../shared/monitoring";
 
 function parseSessionKey(key: string): { kind: AgentSession["kind"]; channel: string; displayName: string } {

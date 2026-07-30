@@ -24,23 +24,14 @@ import {
   diff,
   type SnapElement,
   type Snapshot,
-  type SnapshotDiff,
   type RefAction,
-  type ExtractField,
   type ExtractFields,
 } from "../shared/browser-snapshot-core";
 
 // Single source of truth for the snapshot/serialize/diff format, shared with the
 // Tauri native pane executor (client/src/lib/shell/tauriBrowserOps.ts).
 export { SNAPSHOT_FN, serialize, diff };
-export type {
-  SnapElement,
-  Snapshot,
-  SnapshotDiff,
-  RefAction,
-  ExtractField,
-  ExtractFields,
-};
+export type { SnapElement, Snapshot, RefAction, ExtractFields };
 
 // ---------------------------------------------------------------------------
 // Page-operating helpers — run on any Playwright Page (web or CDP-resolved).
