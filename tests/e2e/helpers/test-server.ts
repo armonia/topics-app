@@ -16,14 +16,45 @@
  * (`.github/workflows/e2e-nightly.yml`); in locale no.
  *
  * Con la porta presa da `E2E_PORT` ogni shard si porta il proprio server, la
- * propria `DATA_DIR` e i propri socket. Senza la variabile tutto resta identico
- * a prima (13334 + `/tmp/topics-test-data`): il singolo `npx playwright test`
- * non cambia di una virgola.
+ * propria `DATA_DIR` e i propri socket. Senza la variabile il checkout
+ * principale resta identico a prima (13334 + `/tmp/topics-test-data`): il
+ * singolo `npx playwright test` non cambia di una virgola.
+ *
+ * Un WORKTREE di dispatch, invece, non riceve più 13334 ma una porta derivata
+ * dal path del checkout — vedi `worktree-port.ts` per il perché (in breve: due
+ * run sulla stessa porta si ammazzano il server a vicenda, e l'ho pagato due
+ * volte in rossi finti).
  */
 
 import { execSync } from "child_process";
+import { homedir } from "os";
+import { resolve } from "path";
+import { defaultE2EPort, E2E_DEFAULT_PORT } from "./worktree-port";
 
-export const E2E_PORT = Number(process.env.E2E_PORT || 13334);
+/**
+ * Il checkout a cui appartiene QUESTO file — non `process.cwd()`, che cambia a
+ * seconda della cartella da cui si lancia Playwright e renderebbe la porta
+ * derivata instabile (porta diversa = `DATA_DIR` diversa = bundle da ricopiare).
+ * `__dirname` è disponibile sia sotto Playwright (che transpila in CJS, e lo usa
+ * già in `global-setup.ts`) sia sotto Bun.
+ */
+const CHECKOUT_ROOT = resolve(__dirname, "../../..");
+
+export const E2E_PORT = Number(
+  process.env.E2E_PORT || defaultE2EPort(CHECKOUT_ROOT, homedir()),
+);
+
+/**
+ * Da dove viene la porta. Serve al `global-setup` per DIRLO: una porta diversa
+ * da 13334 senza spiegazione fa cercare a vuoto (`/tmp/topics-test-data` non si
+ * aggiorna più, il server "non parte"), e la riga di log è la differenza fra
+ * un'isolazione che si capisce e una che sembra un guasto.
+ */
+export const E2E_PORT_ORIGIN: "env" | "worktree" | "default" = process.env.E2E_PORT
+  ? "env"
+  : E2E_PORT === E2E_DEFAULT_PORT
+    ? "default"
+    : "worktree";
 
 export const E2E_BASE = `http://localhost:${E2E_PORT}`;
 
@@ -36,7 +67,7 @@ export const E2E_WS_BASE = `ws://localhost:${E2E_PORT}`;
  * muscolare puntano lì, e uno shard singolo non deve cambiare nulla.
  */
 export function dataDirForPort(port: number): string {
-  return port === 13334
+  return port === E2E_DEFAULT_PORT
     ? "/tmp/topics-test-data"
     : `/tmp/topics-test-data-${port}`;
 }
