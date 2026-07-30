@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowUpRight, ClipboardList, Hourglass, Lock, MessageSqu
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { boardApi, STATUS_LABEL, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
+import { boardApi, STATUS_LABEL, isAgentWorking, parseQuestionBlock, isProjectlessId, systemDeliveryNote, SYSTEM_DELIVERY_CHIP, type BoardTask, type TaskComment, type TaskStatus } from '../../lib/board';
 import { PreviewMedia } from './PreviewMedia';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, type LiveUsage } from './constants';
@@ -186,7 +186,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, onError, onR
   // surface — so it's never busy here even if a stale dispatch_state='working'
   // lingers. Without this gate a review task with dispatch_state='working'
   // renders BOTH the steer input and the review feedback input (two boxes).
-  const agentBusy = task.status !== 'review' && ['queued', 'starting', 'working'].includes(task.dispatchState ?? '');
+  const agentBusy = task.status !== 'review' && isAgentWorking(task.dispatchState);
   // Agent cluster in the card's top-right slot: dispatch state + model/effort +
   // "apri tab" all live up there — the body below stays pure content.
   const hasOpenTab = !!(task.assignedTopicId && onOpenTopic);
