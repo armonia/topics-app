@@ -101,6 +101,29 @@ export interface StoredMessage {
   usageCompletionTokens?: number;
   /** Best-effort cost in USD cents (`Math.round(usd * 100)`). */
   costCents?: number;
+  /**
+   * Lo SCORPORO di `usagePromptTokens`: quanta parte era cache.
+   *
+   * Serve perché il totale da solo non insegna niente. In un turno agentico lungo
+   * lo stesso prompt viene riletto a ogni chiamata al modello e la cache diventa
+   * la voce schiacciante: senza scorporarla si vede quanto è costato il messaggio,
+   * non cosa l'ha reso costoso. Il provider manda le quote separate — il server le
+   * calcolava già per il prezzo e le buttava.
+   *
+   * Quote DISGIUNTE, stessa convenzione di `usage/pricing.ts`:
+   * `usagePromptTokens = fresh + cacheRead + cacheCreation + cacheCreation1h`.
+   * `cacheCreationTokens` NON include `cacheCreation1hTokens`.
+   *
+   * `undefined` ≠ 0: assente vuol dire "non lo sappiamo" (riga vecchia, provider
+   * che non riporta l'usage, turno abortito prima del `result`), 0 vuol dire
+   * "misurato, nessuna cache". Confonderli farebbe sembrare che milioni di token
+   * di cache non siano mai esistiti.
+   */
+  cacheReadTokens?: number;
+  /** Scritture in cache a cinque minuti (1.25× l'input fresco). */
+  cacheCreationTokens?: number;
+  /** Scritture in cache a UN'ORA (2×), quota disgiunta dalla precedente. */
+  cacheCreation1hTokens?: number;
 }
 
 // ─── Entità di dominio: dichiarate in shared/, non qui ─────────────────

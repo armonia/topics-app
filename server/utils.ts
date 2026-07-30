@@ -218,8 +218,8 @@ export function createAppContext(baseDir: string): AppContext {
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
-      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents)
-      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents)
+      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens)
+      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens)
     `),
     updateMessage: db.prepare(`
       UPDATE messages SET
@@ -230,6 +230,9 @@ export function createAppContext(baseDir: string): AppContext {
         media = $media,
         partial = $partial, streamed_at = $streamed_at, plan_status = $plan_status,
         latency_ms = COALESCE($latency_ms, latency_ms),
+        cache_read_tokens = COALESCE($cache_read_tokens, cache_read_tokens),
+        cache_creation_tokens = COALESCE($cache_creation_tokens, cache_creation_tokens),
+        cache_creation_1h_tokens = COALESCE($cache_creation_1h_tokens, cache_creation_1h_tokens),
         usage_prompt_tokens = COALESCE($usage_prompt_tokens, usage_prompt_tokens),
         usage_completion_tokens = COALESCE($usage_completion_tokens, usage_completion_tokens),
         cost_cents = COALESCE($cost_cents, cost_cents)
@@ -481,6 +484,11 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.usage_prompt_tokens !== undefined && row.usage_prompt_tokens !== null) msg.usagePromptTokens = row.usage_prompt_tokens;
     if (row.usage_completion_tokens !== undefined && row.usage_completion_tokens !== null) msg.usageCompletionTokens = row.usage_completion_tokens;
     if (row.cost_cents !== undefined && row.cost_cents !== null) msg.costCents = row.cost_cents;
+    // NULL resta undefined: "non lo sappiamo" e "misurato, nessuna cache" sono due
+    // cose diverse e la UI le mostra diverse.
+    if (row.cache_read_tokens !== undefined && row.cache_read_tokens !== null) msg.cacheReadTokens = row.cache_read_tokens;
+    if (row.cache_creation_tokens !== undefined && row.cache_creation_tokens !== null) msg.cacheCreationTokens = row.cache_creation_tokens;
+    if (row.cache_creation_1h_tokens !== undefined && row.cache_creation_1h_tokens !== null) msg.cacheCreation1hTokens = row.cache_creation_1h_tokens;
     return msg;
   }
 
@@ -494,6 +502,9 @@ export function createAppContext(baseDir: string): AppContext {
       $usage_prompt_tokens: msg.usagePromptTokens ?? null,
       $usage_completion_tokens: msg.usageCompletionTokens ?? null,
       $cost_cents: msg.costCents ?? null,
+      $cache_read_tokens: msg.cacheReadTokens ?? null,
+      $cache_creation_tokens: msg.cacheCreationTokens ?? null,
+      $cache_creation_1h_tokens: msg.cacheCreation1hTokens ?? null,
       $blocks: msg.blocks ? JSON.stringify(msg.blocks) : null,
     };
   }

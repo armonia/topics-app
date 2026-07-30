@@ -92,6 +92,16 @@ const streamEndSchema = z.object({
   usagePromptTokens: z.optional(z.number()),
   usageCompletionTokens: z.optional(z.number()),
   costCents: z.optional(z.number()),
+  // Lo SCORPORO di `usagePromptTokens`: quanta parte era cache. Il totale da solo
+  // dice quanto è costato il turno, non cosa l'ha reso costoso — e in un turno
+  // agentico lungo la cache riletta è la voce schiacciante. Quote DISGIUNTE, come
+  // in usage/pricing.ts: prompt = fresh + read + creation + creation1h, e
+  // `cacheCreationTokens` NON include `cacheCreation1hTokens`.
+  // Assenti (non zero) quando il provider non riporta l'usage: "non lo sappiamo" e
+  // "misurato, nessuna cache" restano due cose diverse.
+  cacheReadTokens: z.optional(z.number()),
+  cacheCreationTokens: z.optional(z.number()),
+  cacheCreation1hTokens: z.optional(z.number()),
   // PERCHÉ il turno è finito, col vocabolario di ACP (server/providers/stop-reason).
   // Assente quando lo stream è finito in errore: `error` non è una ragione ACP.
   stopReason: z.optional(z.enum(['end_turn', 'max_tokens', 'max_turn_requests', 'refusal', 'cancelled'])),

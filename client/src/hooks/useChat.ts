@@ -1159,6 +1159,12 @@ export function useChat() {
           if (typeof event.usagePromptTokens === 'number') finalPatch.usagePromptTokens = event.usagePromptTokens;
           if (typeof event.usageCompletionTokens === 'number') finalPatch.usageCompletionTokens = event.usageCompletionTokens;
           if (typeof event.costCents === 'number') finalPatch.costCents = event.costCents;
+          // Lo scorporo della cache, sullo stesso principio degli altri: si applica
+          // SOLO se il server l'ha mandato. Un `?? 0` qui scriverebbe "misurato,
+          // nessuna cache" su un turno di cui non sappiamo la composizione.
+          if (typeof event.cacheReadTokens === 'number') finalPatch.cacheReadTokens = event.cacheReadTokens;
+          if (typeof event.cacheCreationTokens === 'number') finalPatch.cacheCreationTokens = event.cacheCreationTokens;
+          if (typeof event.cacheCreation1hTokens === 'number') finalPatch.cacheCreation1hTokens = event.cacheCreation1hTokens;
           updateLastMessage(sessionKey, finalPatch);
         }
         // Auto-send next queued message for this session (if any)
