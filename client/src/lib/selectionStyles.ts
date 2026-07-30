@@ -60,10 +60,27 @@ export const RESTING_SURFACE =
 // we're fixing) while black-on-amber is ~10:1, and blue wants white. Labels on a
 // fill then just INHERIT this base (ON_FILL_TEXT = text-inherit), so the tier
 // automatically gets the right text colour with no per-call-site branching.
+/**
+ * Le DUE tinte dei tier, in un posto solo.
+ *
+ * Erano scritte a mano in quattro punti — questo file, il pallino di
+ * `SpaceSwitcher`, il chip della status bar, il pallino di `SessionActivityBar` —
+ * e il quarto era GIÀ fuori sincrono: usava `bg-sky-500`, che è un blu diverso da
+ * `#0a84ff`. Nessuno se ne accorge guardando un pixel per volta; si vede solo
+ * mettendo due superfici accanto. Cambiare tinta richiedeva di trovarli tutti, e
+ * uno era già perso.
+ *
+ * `#0a84ff` non è un blu qualsiasi: è il systemBlue di macOS, la stessa tinta con
+ * cui il sistema segna "questo ti aspetta".
+ */
+export const TIER_DONE_BG = 'bg-[#0a84ff]';
+export const TIER_DONE_TEXT = 'text-[#0a84ff]';
+export const TIER_INPUT_BG = 'bg-amber-500';
+
 export const AWAITING_INPUT_SURFACE =
-  'bg-amber-500 text-black animate-awaiting-attention';
+  `${TIER_INPUT_BG} text-black animate-awaiting-attention`;
 export const DONE_UNSEEN_SURFACE =
-  'bg-[#0a84ff] text-white animate-awaiting-pulse';
+  `${TIER_DONE_BG} text-white animate-awaiting-pulse`;
 
 /** The fill class for an attention tier: 'input' → loud amber, 'done' → calm blue. */
 export function attentionSurface(tier: AttentionTier): string {
@@ -132,13 +149,21 @@ export function sidebarRowCard({ focused, open, attention }: { focused?: boolean
   // VERTICAL rhythm matches the tab bar's tight tab gap (gap-0.5 = 2px) — a
   // small my-px so adjacent cards sit close like tabbar tabs, not spread out.
   const base = 'mx-1.5 my-px rounded-lg overflow-hidden transition-colors duration-100 relative';
-  // FOCUS WINS: the row you're actively viewing shows the neutral selected
-  // surface, never a flashing attention fill. This is the fix for "the row I'm
-  // staring at keeps pulsing" — you've already seen it, so the fill clears. An
-  // UNfocused row that needs you keeps its tier fill (amber 'input' = act now,
-  // blue 'done' = finished-unseen).
-  if (focused) return `${base} ${SELECTED_SURFACE}`;
+  // L'ATTENZIONE PRECEDE la selezione, e non è un cambio di priorità: è che
+  // FOCUS WINS non si decide più qui.
+  //
+  // Prima questa funzione lo implementava da sé (`if (focused) → neutro`), e la
+  // stessa regola era ricopiata in altri tre punti con tre definizioni diverse di
+  // "focussato". Il risultato era che "l'ho visto" voleva dire "l'ho selezionato",
+  // anche per un istante: un clic di passaggio spegneva il fill di una chat mai
+  // letta. Ora la regola sta in `attentionFillFor` (state/signals.ts), che pretende
+  // uno sguardo di SEEN_DWELL_MS con la finestra sveglia, e il chiamante passa qui
+  // un `attention` GIÀ risolto — null quando la riga è stata vista.
+  //
+  // Quindi: se arriva un tier, va dipinto (il chiamante ha già stabilito che
+  // l'utente non l'ha guardata); altrimenti valgono selezione e hover come prima.
   if (attention) return `${base} ${attentionSurface(attention)}`;
+  if (focused) return `${base} ${SELECTED_SURFACE}`;
   if (open) return `${base} text-app-text hover:bg-app-hover`;
   return `${base} text-app-text-secondary hover:bg-app-hover hover:text-app-text`;
 }

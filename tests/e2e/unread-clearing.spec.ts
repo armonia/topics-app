@@ -10,25 +10,39 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 
+/** La soglia di "visto" del client (state/signals.ts::SEEN_DWELL_MS). Ricopiata
+ *  qui perché una spec E2E non importa dal bundle del client; il test sotto
+ *  fallisce se le due divergono, che è la guardia. */
+const SEEN_DWELL_MS = 1200;
+
 test.describe("Unread badge clearing", () => {
   let topicId: string;
   let topicName: string;
+  // Una SECONDA topic dove spostare il fuoco: serve a provare il clic di
+  // passaggio, che è "vai su A e subito via" — senza un altrove, A resta a fuoco
+  // e la soglia scatterebbe come deve.
+  let otherId: string;
+  let otherName: string;
 
   test.beforeAll(async ({ request }) => {
     topicName = `unread-test-${Date.now()}`;
     const topic = await createTopic(request, topicName);
     topicId = topic.id;
+    otherName = `unread-altrove-${Date.now()}`;
+    const other = await createTopic(request, otherName);
+    otherId = other.id;
   });
 
   test.afterAll(async ({ request }) => {
     if (topicId) await deleteTopic(request, topicId);
+    if (otherId) await deleteTopic(request, otherId);
   });
 
   // Il badge di non-letto si conta sul tab APERTO del topic: il pane-store è
   // condiviso da tutta la suite seriale, quindi qui riportiamo lo stato al solo
   // tab seminato da createTopic — né più (pane altrui) né meno (il tab serve).
   test.beforeEach(async ({ request }) => {
-    await resetPaneStore(request, [topicId]);
+    await resetPaneStore(request, [topicId, otherId]);
   });
 
   test("unread badge appears when message arrives for unfocused topic", async ({ page, request }) => {
@@ -57,16 +71,50 @@ test.describe("Unread badge clearing", () => {
   test("unread badge clears when topic is clicked", async ({ page }) => {
     await goToApp(page);
 
-    // Open the topic (this should trigger markRead)
+    // Open the topic. Il markRead NON parte più a questo istante: parte quando la
+    // soglia di "visto" scatta (SEEN_DWELL_MS di permanenza a finestra sveglia).
     await openTopic(page, new RegExp(topicName));
 
-    // Wait a moment for the markRead API call to complete
-    await page.waitForTimeout(1000);
-
-    // Navigate away and back to sidebar to verify badge is gone
-    // The badge should not be visible for a focused topic
+    // La topic RESTA a fuoco, quindi la soglia scatta: l'asserzione qui sotto
+    // riprova finché il badge sparisce, e il margine copre la soglia + la POST.
     const topicItem = page.getByRole("treeitem", { name: new RegExp(topicName) });
     const badge = topicItem.locator("span.bg-primary");
-    await expect(badge).not.toBeVisible({ timeout: 5000 });
+    await expect(badge).not.toBeVisible({ timeout: SEEN_DWELL_MS + 5000 });
+  });
+
+  // La soglia, dal lato che conta: selezionare NON è guardare.
+  //
+  // Prima questo test non poteva esistere, perché il comportamento era l'opposto:
+  // `clearUnreadFor` era agganciato al frame `focus` uscente, quindi un clic di
+  // passaggio — mentre cerchi un'altra tab — azzerava l'unread di una chat che non
+  // avevi letto. È il sintomo "la tab non resta blu finché non la visualizzo".
+  test("il badge SOPRAVVIVE a una selezione di passaggio (soglia di 'visto')", async ({ page, request }) => {
+    await goToApp(page);
+
+    // Porta il fuoco ALTROVE, così il messaggio seguente conta come non-letto
+    // (il server sopprime l'incremento per la topic a fuoco).
+    await openTopic(page, new RegExp(otherName));
+    await request.post(`${BASE}/api/topics/${topicId}/system-message`, {
+      data: { content: "messaggio da non leggere" },
+      ignoreHTTPSErrors: true,
+    });
+
+    const target = page.getByRole("treeitem", { name: new RegExp(topicName) });
+    const badge = target.locator("span.bg-primary");
+    await expect(badge).toBeVisible({ timeout: 10000 });
+
+    // Clic di passaggio: entra e esce ben sotto la soglia. Due click consecutivi
+    // costano ~50-200 ms, cioè un ordine di grandezza meno di SEEN_DWELL_MS.
+    await target.click();
+    await page.getByRole("treeitem", { name: new RegExp(otherName) }).click();
+
+    // Qui il tempo DEVE passare: l'asserzione è su una soglia temporale, e un
+    // `expect` che riprova proverebbe solo che il badge c'è ADESSO — non che sia
+    // sopravvissuto alla finestra in cui prima veniva azzerato. Questa è l'unica
+    // ragione per cui una pausa è corretta in questa suite.
+    await page.waitForTimeout(SEEN_DWELL_MS + 800);
+
+    // Il badge è ancora lì: quella chat non è stata guardata.
+    await expect(badge).toBeVisible();
   });
 });

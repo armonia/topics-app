@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Archive, ArchiveRestore, MessageSquare, TerminalSquare, Globe, FolderOpen, MoreHorizontal, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Clock, Kanban, Wrench, Hourglass, type LucideIcon } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -20,7 +20,7 @@ import { ProjectFavicon } from '@/components/Shared/ProjectFavicon';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { SplitMiniMap } from '@/components/Shared/SplitMiniMap';
 import { useSplitPosition } from '@/contexts/SplitPositionContext';
-import { useAttentionSignals, signalsActions, useTerminalAttentionTier, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
+import { useAttentionSignals, signalsActions, useTerminalAttentionFill, useSeenDwell, attentionFillFor, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
@@ -34,7 +34,23 @@ import { SessionActivity } from '@/components/Shared/SessionActivity';
 import { DropdownPortal } from '@/components/Shared/DropdownPortal';
 import { useMobile } from '@/hooks/useMobile';
 import type { SidebarViewMode } from '@/hooks/useSidebarState';
-import { buildSidebarItems, filterSidebarItems, groupSidebarItems, type SidebarItem, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { buildSidebarItems, filterSidebarItems, groupSidebarItems, groupSidebarItemsByState, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+
+/**
+ * Le sezioni della vista per STATO, nell'ordine in cui si leggono.
+ *
+ * "Attende te" prima di tutto: è l'unica riga su cui devi muoverti tu. Poi "al
+ * lavoro", che è informazione (sta andando, non toccare). Poi il resto.
+ *
+ * Le etichette dicono CHI deve muoversi, non il nome tecnico della fase: "attende
+ * te" invece di "awaiting", "al lavoro" invece di "active". È la stessa distinzione
+ * che i tier ambra/blu fanno col colore.
+ */
+const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; label: string }[] = [
+  { key: 'awaiting', icon: Hourglass, label: 'Attende te' },
+  { key: 'working', icon: Activity, label: 'Al lavoro' },
+  { key: 'rest', icon: MoreHorizontal, label: 'Il resto' },
+];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -335,6 +351,35 @@ export function TopicTree({
     [unpinnedItems, viewMode]
   );
 
+  // Vista per STATO: attende te / al lavoro / il resto. I Set arrivano dallo
+  // store dei segnali — la stessa fonte che dipinge i fill delle righe, quindi la
+  // sezione in cui una riga finisce e il suo colore non possono divergere.
+  // NB: il selettore restituisce solo RIFERIMENTI già nello store. Costruire qui
+  // un `new Set([...])` darebbe un riferimento nuovo a ogni chiamata e `useShallow`
+  // lo leggerebbe come "cambiato" per sempre — re-render a ciclo continuo. L'unione
+  // si fa dopo, in un useMemo.
+  const sigForState = useSignalsStore(
+    useShallow((s) => ({
+      awaitingTopics: s.awaitingFeedbackTopics,
+      awaitingTermIds: s.claudePhaseAwaitingTermIds,
+      live: s.liveStreamTopics,
+      hydrated: s.hydratedStreamTopics,
+      workingTermIds: s.claudePhaseActiveTermIds,
+    })),
+  );
+  const stateGroups = useMemo(() => {
+    if (viewMode !== 'state') return null;
+    // "Al lavoro" per una chat è uno stream vivo O idratato; per un terminale è la
+    // fase attiva. Unione, come in `useAgentActivityCounts`: un canale muto non
+    // deve nascondere lavoro vero.
+    return groupSidebarItemsByState(unpinnedItems, {
+      awaitingTopics: sigForState.awaitingTopics,
+      awaitingTermIds: sigForState.awaitingTermIds,
+      workingTopics: new Set<string>([...sigForState.live, ...sigForState.hydrated]),
+      workingTermIds: sigForState.workingTermIds,
+    });
+  }, [unpinnedItems, viewMode, sigForState]);
+
   // ── Handlers ─────────────────────────────────────────────────────────────
 
   const handleArchive = useCallback(async (topicId: string, archive: boolean) => {
@@ -567,7 +612,12 @@ export function TopicTree({
           // (= ROW_PX) so the trailing loader/badge stay column-aligned with the
           // child rows.
           className={`group/proj flex items-center h-11 md:h-8 pl-1 pr-2 select-none ${
-            sidebarRowCard({ focused: folderFilled, attention: projTier })
+            // La riga di PROGETTO tiene la regola vecchia (selezione = visto):
+            // `projTier` è un aggregato dei figli, e non è deciso cosa voglia dire
+            // "ho guardato un progetto" — guardarne l'intestazione non è aver letto
+            // le chat che ci stanno dentro. Passa comunque per `attentionFillFor`,
+            // così la decisione è scritta una volta e non ricopiata a mano.
+            sidebarRowCard({ focused: folderFilled, attention: attentionFillFor(projTier, folderFilled) })
           }`}
           data-pinned={item.pinned ? 'true' : undefined}
           onContextMenu={(e) => {
@@ -876,6 +926,28 @@ export function TopicTree({
             </>
           )
         )}
+        {/* Vista per STATO: le stesse sezioni collassabili, ma i bucket sono
+            "di cosa devo occuparmi" invece del tipo di pane. L'ordine è la
+            priorità di lettura: chi aspetta una tua risposta in cima, poi chi sta
+            lavorando, poi il resto. Una sezione vuota non si disegna. */}
+        {viewMode === 'state' && stateGroups && (
+          <>
+            {pinnedBlock.length > 0 && (
+              <div data-testid="sidebar-pinned-section">
+                {renderSection('pinned', Pin, 'Fissati', pinnedBlock)}
+              </div>
+            )}
+            {STATE_SECTIONS.map(({ key, icon, label }) => {
+              const items = stateGroups[key];
+              if (items.length === 0) return null;
+              return (
+                <div key={key} data-testid={`sidebar-state-section-${key}`}>
+                  {renderSection(`state:${key}`, icon, `${label} (${items.length})`, items)}
+                </div>
+              );
+            })}
+          </>
+        )}
 
         {filteredItems.length === 0 && (
           <div className="px-4 py-8 text-center text-[12px] text-app-text-muted">
@@ -980,9 +1052,12 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
   // the sidebar terminal row too.
   const pendingClose = useTerminalPendingStatus(s.id);
   // Attention TIER — amber 'input' (permission gate) vs blue 'done' (turn
-  // finished), or null. The fill only shows on an UNfocused row (focus clears it).
-  const attentionTier = useTerminalAttentionTier(s.id);
-  const onFill = attentionTier !== null && !isFocused;
+  // finished), o null. Il fill cade quando la riga è stata VISTA (soglia di
+  // SEEN_DWELL_MS a finestra sveglia), non appena viene selezionata: stessa
+  // regola della riga chat, in un posto solo (`attentionFillFor`).
+  useSeenDwell(s.id, isFocused);
+  const attentionTier = useTerminalAttentionFill(s.id);
+  const onFill = attentionTier !== null;
   // Split schematic, same as chat rows (TopicItem) and projects. The standalone
   // terminal pane is published in SplitPositionContext under its pane-id
   // `terminal:<id>` (PanelGrid keys every open pane by paneId), so a topicless

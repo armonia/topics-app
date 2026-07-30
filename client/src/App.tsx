@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2 } from 'lucide-react';
+import { Settings as SettingsIcon, X, ChevronDown, Cpu, Activity, BarChart3, Radio, Timer, Search, Archive, LayoutGrid, List, RotateCcw, Grid2x2, Hourglass } from 'lucide-react';
 import { useGlobalBoardCount } from './hooks/useGlobalBoardCount';
 import { useTaskTopicIndex } from './hooks/useTaskTopicIndex';
 import { openTaskInApp } from './lib/openTaskLink';
@@ -19,7 +19,7 @@ import { useAgents } from './hooks/useAgents';
 import { useOpenClawAvailable } from './hooks/useOpenClawAvailable';
 import { useClaudeSkipPermissions } from './hooks/useClaudePrefs';
 import { useClaudeCodeModelSync } from './hooks/useClaudeCodeModelSync';
-import { useSidebarState } from './hooks/useSidebarState';
+import { useSidebarState, nextSidebarViewMode } from './hooks/useSidebarState';
 import { useSidebarAndLayout } from './hooks/useSidebarAndLayout';
 import { useFloatingVibrancy } from './hooks/useFloatingVibrancy';
 import { useSidebarFitCoalesce } from './hooks/useSidebarFitCoalesce';
@@ -1211,15 +1211,28 @@ function App() {
             onClick={() => { sidebar.toggleViewMode(); }}
             className="w-full flex items-center gap-2 px-3 py-3 md:py-1.5 text-[14px] md:text-[12px] text-app-text hover:bg-app-hover transition-colors"
           >
-            {sidebar.viewMode === 'timeline'
-              ? <LayoutGrid size={isMobile ? 18 : 14} />
-              : <List size={isMobile ? 18 : 14} />}
+            {/* Icona ed etichetta descrivono il modo SUCCESSIVO — cosa fa il
+                click — e lo chiedono a `nextSidebarViewMode`, la stessa funzione
+                che il toggle usa per muoversi: con tre modi, due liste di casi
+                scritte a mano divergerebbero al primo che se ne aggiunge. */}
+            {(() => {
+              const next = nextSidebarViewMode(sidebar.viewMode);
+              const Icon = next === 'grouped' ? LayoutGrid : next === 'state' ? Hourglass : List;
+              return <Icon size={isMobile ? 18 : 14} />;
+            })()}
             {/* "Vista per tipo", NOT "Vista a gruppi": this buckets the tree by
                 ITEM TYPE (progetti / chat / terminali / …). A "gruppo" in this
                 app is a WINDOW — the unit that detaches — so calling a
                 type-bucketed tree "a gruppi" made two unrelated things share a
                 word (the "non capisco spazi e gruppi" confusion). */}
-            <span className="flex-1 text-left">{sidebar.viewMode === 'timeline' ? 'Vista per tipo' : 'Vista timeline'}</span>
+            <span className="flex-1 text-left">{
+              (() => {
+                const next = nextSidebarViewMode(sidebar.viewMode);
+                return next === 'grouped' ? 'Vista per tipo'
+                  : next === 'state' ? 'Vista per stato'
+                  : 'Vista timeline';
+              })()
+            }</span>
           </button>
           {/* "Reimposta pannelli" — same per-window action the ⌘K palette and
               the tab-bar context menu expose (the shared 'topics:reset-split-

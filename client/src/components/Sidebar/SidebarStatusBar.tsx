@@ -12,7 +12,7 @@ import { PerfSection } from './PerfSection';
 import { VersionPopover } from './VersionPopover';
 import { ChangelogModal } from '../ChangelogModal';
 import type { ConnectionStatus } from '@/types';
-import { ROW_INSET } from '@/lib/selectionStyles';
+import { ROW_INSET, TIER_DONE_TEXT } from '@/lib/selectionStyles';
 import { isDesktop } from '@/lib/shell';
 import { getVersion, relaunch } from '@/lib/shell/app';
 import { useAgentActivityCounts } from '@/state/signals';
@@ -448,7 +448,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice }: {
             {/* Same blue as the 'done' tier everywhere else (SpaceSwitcher's dot,
                 the awaiting fill) — one colour per tier, no new palette. */}
             {agentCounts.awaiting - agentCounts.awaitingInput > 0 && (
-              <span data-testid="agent-count-done" className="flex items-center gap-0.5 text-[#0a84ff]">
+              <span data-testid="agent-count-done" className={`flex items-center gap-0.5 ${TIER_DONE_TEXT}`}>
                 <Hourglass size={10} />
                 {agentCounts.awaiting - agentCounts.awaitingInput}
               </span>
